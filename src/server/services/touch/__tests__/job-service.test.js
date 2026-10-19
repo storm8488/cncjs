@@ -1098,4 +1098,31 @@ describe('job service', () => {
       expect(ctx.state().zeroZReason).toMatch(/repos ou pendant une pause|Idle/);
     });
   });
+
+  test('the rapid override may be set at rest before a start; feed and spindle only during a job', async () => {
+    const ctx = setup();
+    ctx.report();
+    let state = ctx.state();
+    expect(state.canRapidOverride).toBe(true);
+    expect(state.canOverride).toBe(false);
+    await ctx.req('override', { kind: 'rapid', value: 25 });
+    expect(ctx.c.commands).toEqual([['rapidOverride', 25]]);
+    await expect(ctx.req('override', { kind: 'feed', value: 10 })).rejects.toThrow(/pendant un travail/);
+    await expect(ctx.req('override', { kind: 'rapid', value: 30 })).rejects.toThrow(/invalide/);
+
+    ctx.c.state.status.activeState = 'Alarm';
+    state = ctx.state();
+    expect(state.canRapidOverride).toBe(false);
+    expect(state.rapidOverrideReason).toMatch(/au repos/);
+    await expect(ctx.req('override', { kind: 'rapid', value: 50 })).rejects.toThrow(/au repos/);
+
+    ctx.c.state.status.activeState = 'Run';
+    ctx.c.workflow.state = 'running';
+    expect(ctx.state().canRapidOverride).toBe(true);
+    await ctx.req('override', { kind: 'rapid', value: 100 });
+    expect(ctx.c.commands.at(-1)).toEqual(['rapidOverride', 100]);
+
+    ctx.now += 10000;
+    expect(ctx.state().canRapidOverride).toBe(false);
+  });
 });

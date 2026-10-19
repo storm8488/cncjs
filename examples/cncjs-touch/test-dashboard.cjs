@@ -38,6 +38,12 @@ assert.equal(el('home-overrides').hidden,false);assert.equal(el('home-override-f
 status({...c,workflow:'idle',canOverride:false,overrideReason:'Les corrections s’appliquent pendant un travail en cours ou en pause.',overrides:null});
 assert.equal(el('home-override-feed').textContent,'—');assert.match(el('home-override-note').textContent,/en cours ou en pause/);
 status({...c,canOverride:true,overrides:{feed:'x',rapid:100,spindle:Infinity}});assert.equal(el('home-override-feed').textContent,'—');assert.equal(el('home-override-spindle').textContent,'—');
+// Rapids: their own guard (also at rest, before a start), value and advice.
+status({...c,workflow:'idle',canOverride:false,canRapidOverride:true,overrides:{feed:100,rapid:100,spindle:100}},false);
+assert.equal(el('home-override-rapid').textContent,'100 %');assert.match(el('home-rapid-note').textContent,/25 % conseillés pour le premier essai/);
+status({...c,workflow:'idle',canOverride:false,canRapidOverride:true,overrides:{feed:100,rapid:25,spindle:100}},false);
+assert.equal(el('home-override-rapid').textContent,'25 %');assert.match(el('home-rapid-note').textContent,/Grbl revient à 100 %/);
+status({...c,workflow:'idle',canOverride:false,canRapidOverride:false,overrides:{feed:100,rapid:25,spindle:100}},false);assert.equal(el('home-rapid-note').textContent,'');
 // Real feed and spindle speed from Grbl; a pause with the spindle on is flagged.
 status({...c,canOverride:true,feedrate:400,spindleSpeed:12000});assert.match(el('home-live').textContent,/Avance réelle 400 mm\/min · Broche 12.000 tr\/min/);assert.equal(el('home-spindle-warning').hidden,true);
 status({...c,canOverride:true,workflow:'paused',feedrate:0,spindleSpeed:12000});assert.equal(el('home-spindle-warning').hidden,false);assert.match(el('home-spindle-warning').textContent,/broche tourne toujours/);

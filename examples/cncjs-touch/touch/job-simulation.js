@@ -36,7 +36,7 @@
       workPosition:{x:position.x-offset.x,y:position.y-offset.y,z:position.z-offset.z},
       probeBusy:probeLocked,canJog:!probeLocked&&!alarm&&workflow==='idle',
       overrides:{feed:overrides.feed,rapid:overrides.rapid,spindle:overrides.spindle},
-      canOverride:!alarm&&workflow!=='idle',overrideReason:alarm?uiLocale.t('Alarme simulée : voir l’onglet Machine.'):workflow==='idle'?uiLocale.t('Les corrections s’appliquent pendant un travail en cours ou en pause.'):'',
+      canOverride:!alarm&&workflow!=='idle',canRapidOverride:!alarm,rapidOverrideReason:alarm?uiLocale.t('Alarme simulée : voir l’onglet Machine.'):'',overrideReason:alarm?uiLocale.t('Alarme simulée : voir l’onglet Machine.'):workflow==='idle'?uiLocale.t('Les corrections s’appliquent pendant un travail en cours ou en pause.'):'',
       macros:macros.map(function(m){return {id:m.id,name:m.name};}),
       canMacro:!probeLocked&&!alarm&&workflow==='idle',macroReason:probeLocked?uiLocale.t('Palpage simulé en cours : autres commandes bloquées.'):alarm?uiLocale.t('Alarme simulée : voir l’onglet Machine.'):workflow!=='idle'?uiLocale.t('Arrêtez la simulation avant d’exécuter une macro.'):'',
       canLoad:!probeLocked&&!alarm&&workflow==='idle',canStart:!probeLocked&&!alarm&&!!file&&!started,canResume:!probeLocked&&!alarm&&workflow==='paused',
@@ -90,7 +90,7 @@
         } else if(a==='override') {
           var steps=Object.prototype.hasOwnProperty.call(OVERRIDES,body.kind)&&OVERRIDES[body.kind];
           if(!steps||steps.indexOf(body.value)<0) throw new Error(uiLocale.t('Correction invalide.'));
-          if(!state.canOverride) throw new Error(state.overrideReason);
+          if(body.kind==='rapid'?!state.canRapidOverride:!state.canOverride) throw new Error(body.kind==='rapid'?state.rapidOverrideReason:state.overrideReason);
           if(body.kind==='rapid')overrides.rapid=body.value===0?100:body.value;
           else overrides[body.kind]=body.value===0?100:Math.min(200,Math.max(10,overrides[body.kind]+body.value));
           var overrideMessage=uiLocale.t('Correction fictive ')+({feed:uiLocale.t('avance'),spindle:uiLocale.t('broche'),rapid:uiLocale.t('rapide')}[body.kind])+' : '+overrides[body.kind]+' %.';

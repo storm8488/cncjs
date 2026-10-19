@@ -458,6 +458,20 @@ export const createService = (store, config, clock = monotonic) => {
     }
   };
 
+  // The rapid override only slows G0 moves: it may also be set at rest, before a
+  // start (25 % for the first run of a program). Grbl keeps it until the end of
+  // the program (M2/M30) or a reset, then returns to 100 %.
+  const rapidOverridable = (c) => {
+    available(c);
+    if (['running', 'paused'].includes(c.workflow.state)) {
+      return;
+    }
+    const feeder = c.feeder.toJSON();
+    if (c.workflow.state !== 'idle' || controllerStatus(c).activeState !== 'Idle' || feeder.queue || feeder.pending) {
+      throw conflict('La vitesse des rapides se règle machine au repos (Idle) ou pendant un travail.');
+    }
+  };
+
   // A macro moves the machine from rest: idle, nothing loading, no automations.
   const macroReady = (c) => {
     idle(c);
@@ -781,6 +795,7 @@ export const createService = (store, config, clock = monotonic) => {
     const startReason = reason(() => readyFor(c, 'start', revision));
     const resumeReason = reason(() => readyFor(c, 'resume', revision));
     const overrideReason = reason(() => overridable(c));
+    const rapidReason = reason(() => rapidOverridable(c));
     const macroReason = reason(() => macroReady(c));
     const unlockReason = reason(() => unlockReady(c));
     const homeReason = reason(() => homeReady(c));
@@ -877,6 +892,8 @@ export const createService = (store, config, clock = monotonic) => {
       overrides: overridesOf(state),
       canOverride: !overrideReason,
       overrideReason,
+      canRapidOverride: !rapidReason,
+      rapidOverrideReason: rapidReason,
       macros: macrosOf(config),
       canMacro: !macroReason,
       macroReason,
@@ -1148,7 +1165,11 @@ preambleLength: plan.preamble.length
       if (!steps || !steps.includes(body.value)) {
         throw conflict('Correction invalide.');
       }
-      overridable(c);
+      if (body.kind === 'rapid') {
+        rapidOverridable(c);
+      } else {
+        overridable(c);
+      }
       c.command(body.kind + 'Override', body.value);
       const label = { feed: 'avance', spindle: 'broche', rapid: 'rapide' }[body.kind];
       let change = 'remise à 100 %';

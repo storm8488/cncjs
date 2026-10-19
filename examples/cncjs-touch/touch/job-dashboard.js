@@ -27,7 +27,11 @@
       var label=kind==='feed'?uiLocale.t('Avance'):uiLocale.t('Broche');
       return '<div class="t-override" data-kind="'+kind+'"><div class="t-ov-name">'+label+'<b id="home-override-'+kind+'">—</b></div><div class="t-ov-row">'+
         [[-10,'−10 %',''],[0,'100 %',' t-btn--ghost'],[10,'+10 %',''],[-1,'−1 %',' t-btn--ghost t-fine'],[1,'+1 %',' t-btn--ghost t-fine']].map(function(step){return '<button type="button" class="t-btn'+step[2]+'" data-kind="'+kind+'" data-value="'+step[0]+'" disabled>'+step[1]+'</button>';}).join('')+'</div></div>';
-    }).join('')+uiLocale.html('<p id="home-override-note" class="t-help"></p></div>'));
+    }).join('')+
+    // Rapids (G0 only): 25 / 50 / 100 %, also at rest so a first run can start slowed.
+    '<div class="t-override t-override--rapid" data-kind="rapid"><div class="t-ov-name">'+uiLocale.t('Rapides')+'<b id="home-override-rapid">—</b></div><div class="t-ov-row">'+
+      [[25,'25 %'],[50,'50 %'],[100,'100 %']].map(function(step){return '<button type="button" class="t-btn t-btn--ghost" data-kind="rapid" data-value="'+step[0]+'" aria-pressed="false" disabled>'+step[1]+'</button>';}).join('')+'</div></div>'+
+    uiLocale.html('<p id="home-override-note" class="t-help"></p><p id="home-rapid-note" class="t-help"></p></div>'));
   var overridesBox=$('home-overrides');
   overridesBox.addEventListener('click',function(e){
     var button=e.target&&e.target.closest?e.target.closest('button[data-kind]'):null;
@@ -92,7 +96,15 @@
     set('home-overrides','hidden',!c||!('canOverride' in c));
     set('home-override-feed','textContent',overrides&&finiteNumber(overrides.feed)?overrides.feed+' %':'—');
     set('home-override-spindle','textContent',overrides&&finiteNumber(overrides.spindle)?overrides.spindle+' %':'—');
-    Array.prototype.forEach.call(overrideButtons(),function(button){if(button.disabled!==!overrideOn)button.disabled=!overrideOn;});
+    // The rapid override has its own guard (also allowed at rest); an older server only sends canOverride.
+    var rapidOn=!!(c&&c.fresh&&!busy&&('canRapidOverride' in c?c.canRapidOverride:c.canOverride)),rapid=overrides&&finiteNumber(overrides.rapid)?overrides.rapid:null;
+    set('home-override-rapid','textContent',rapid===null?'—':rapid+' %');
+    Array.prototype.forEach.call(overrideButtons(),function(button){
+      var isRapid=button.getAttribute('data-kind')==='rapid',on=isRapid?rapidOn:overrideOn;
+      if(button.disabled!==!on)button.disabled=!on;
+      if(isRapid){var pressed=String(rapid!==null&&Number(button.getAttribute('data-value'))===rapid);if(button.getAttribute('aria-pressed')!==pressed)button.setAttribute('aria-pressed',pressed);}
+    });
+    set('home-rapid-note','textContent',rapidOn?(rapid!==null&&rapid<100?uiLocale.t('Rapides ralentis : Grbl revient à 100 % à la fin du programme (M2/M30) ou après un arrêt.'):uiLocale.t('Rapides à 25 % conseillés pour le premier essai d’un programme.')):'');
     // Real values from Grbl's FS: field. A feed hold stops the axes, not the spindle.
     var liveOk=!!(c&&c.fresh),feed=liveOk&&finiteNumber(c.feedrate)?c.feedrate:null,rpm=liveOk&&finiteNumber(c.spindleSpeed)?c.spindleSpeed:null;
     set('home-live','textContent',feed===null&&rpm===null?'':uiLocale.t('Avance réelle ')+(feed===null?'—':number(feed)+' mm/min')+uiLocale.t(' · Broche ')+(rpm===null?'—':number(rpm)+uiLocale.t(' tr/min')));
