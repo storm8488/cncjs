@@ -58,7 +58,9 @@
     var errors=m&&typeof m.jobErrors==='number'&&m.jobErrors>0?m.jobErrors:0;
     // A job started from the PC is not marked finished by the server: every line
     // acknowledged during the run (seen here before CNCjs rewinds its counters) says so.
-    var allSent=job.total>0&&job.received>=job.total;
+    // Grbl acknowledges lines up to ~15 moves before it runs them: after an operator stop
+    // (known by the server for its own jobs), all lines acknowledged is not the end.
+    var allSent=job.total>0&&job.received>=job.total&&!(m&&m.jobStopped===true);
     var result=errors&&m.finishedWithErrors?'errors':m&&m.finished===true||allSent&&!errors?'done':'stopped';
     var parts=[result==='done'?t('Travail terminé'):result==='errors'?t('Fin du programme avec des erreurs Grbl'):t('Travail arrêté avant la fin')];
     if(job.name)parts.push(job.name);
@@ -78,10 +80,13 @@
   function onStatus(e){
     var d=e&&e.detail||{};if(!!d.simulation!==simulation)return;
     var m=d.machine||null;
+    // Another controller, or the same port reopened: what was followed does not apply
+    // to it, and a job already running there is treated like one found at page load.
+    if(m&&((job&&(m.port!==job.port||m.generation!==job.generation))||(pending&&(m.port!==pending.job.port||m.generation!==pending.job.generation))||(last&&(m.port!==last.port||m.generation!==last.generation)))){job=null;pending=null;last=null;}
     if(active(m)){
       if(!job){
         // A job starts (or the page loaded during one: its duration is then unknown).
-        job={name:m.originalName||m.name||'',started:last&&!active(last)?Date.now():0,pausedMs:0,pausedAt:0,total:0,received:0};
+        job={port:m.port,generation:m.generation,name:m.originalName||m.name||'',started:last&&!active(last)?Date.now():0,pausedMs:0,pausedAt:0,total:0,received:0};
         summary.hidden=true;pending=null;
         if(last&&!active(last)){
           if(prefs.lock&&window.cncScreenLock)window.cncScreenLock.lock();
@@ -98,7 +103,7 @@
       pending={job:job,until:Date.now()+2000};job=null;
     }
     if(pending&&m&&!active(m)){
-      var known=m.finished===true||m.finishedWithErrors===true;
+      var known=m.finished===true||m.finishedWithErrors===true||m.jobStopped===true;
       if(known||Date.now()>=pending.until){
         var r=describe(pending.job,m);pending=null;
         text(summaryText,r.text);if(summary.getAttribute('data-tone')!==r.tone)summary.setAttribute('data-tone',r.tone);

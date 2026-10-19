@@ -45,6 +45,13 @@ assert.equal(f.summary.getAttribute('data-tone'),'danger');assert.match(f.summar
 f=fixture();f.send(M());f.send(M({workflow:'running',total:17,received:3}));f.send(M({workflow:'running',total:17,received:17}));
 f.send(M({workflow:'idle',finished:false,total:17,received:0}));f.advance(2500);f.send(M({workflow:'idle',finished:false}));
 assert.equal(f.summary.getAttribute('data-tone'),'ok');assert.match(f.summary.children[0].textContent,/^Travail terminé · .* · 17 lignes$/);
+// Stopped by the operator once every line was acknowledged: Grbl still had moves to run.
+f=fixture();f.send(M());f.send(M({workflow:'running',total:40,received:40}));f.send(M({workflow:'idle',finished:false,jobStopped:true,total:40,received:0}));
+assert.equal(f.summary.getAttribute('data-tone'),'warn');assert.match(f.summary.children[0].textContent,/^Travail arrêté avant la fin · .* · 40 \/ 40 lignes$/);
+// Switching to another controller during a job: no false summary, and coming back is no new start.
+f=fixture();f.screen('files');f.send(M({generation:'g1'}));f.send(M({generation:'g1',workflow:'running',total:100,received:10}));assert.deepEqual(f.went,['home']);
+f.screen('files');f.send(M({port:'B',generation:'g2'}));f.advance(2500);f.send(M({port:'B',generation:'g2'}));assert(f.summary.hidden,'no summary for a job that goes on elsewhere');
+f.send(M({generation:'g1',workflow:'running',total:100,received:20}));assert.deepEqual(f.went,['home'],'back to the running controller: not a new start');
 // Not over a dialog, not out of the commissioning assistant, not when already in Suivi.
 f=fixture();f.screen('files');f.dialogs=[{hidden:false,getClientRects:()=>[{}]}];f.send(M());f.send(M({workflow:'running'}));assert.deepEqual(f.went,[]);
 f=fixture();f.screen('commissioning');f.send(M());f.send(M({workflow:'running'}));assert.deepEqual(f.went,[]);
