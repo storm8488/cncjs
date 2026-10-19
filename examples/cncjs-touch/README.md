@@ -16,6 +16,10 @@ node preview-server.cjs
 
 Open the localhost URL printed by the preview server. It serves a local visual fixture with synthetic files, a virtual controller and simulated progress. Stop it with Ctrl+C. The mock controller rejects physical commands. The fixture is for local evaluation only; do not deploy its fake authentication or mock responses to a real CNCjs server.
 
+## Pendant features (2026-10-19)
+
+Rapids at 25 / 50 / 100 % in Suivi (also at rest, for a first run), the action the state calls for in the status strip (Resume, Unlock, Stop during homing or a jog), a screen lock that keeps only Pause and Stop reachable, and Suivi opening by itself when a job starts with a summary at the end. Details and the simulator run in `TESTING.md`, "Pendant features".
+
 ## Z zero with a touch plate (2026-10-18)
 
 Suivi can set the work Z with a touch plate, at rest or during a tool change pause: thickness and maximum travel down, then the usual confirmation; fast touch, back-off, slow touch, `G10 L20`, 5 mm clearance, all in absolute coordinates. Refused when the probe is already in contact, the spindle turns, or `$G` is not `G90 G21`; Stop interrupts it. Details and the simulator run in `TESTING.md`; the plan for the machine in `HANDOFF.md`, step 9.

@@ -41,6 +41,10 @@ assert.equal(f.summary.getAttribute('data-tone'),'warn');assert.match(f.summary.
 f.send(M({workflow:'running',total:10,received:1}));assert(f.summary.hidden,'a new job hides the previous summary');
 f.send(M({workflow:'idle',finishedWithErrors:true,jobErrors:2,jobLastError:'error:20'}));
 assert.equal(f.summary.getAttribute('data-tone'),'danger');assert.match(f.summary.children[0].textContent,/Fin du programme avec des erreurs Grbl.*2 erreur\(s\) Grbl \(error:20\)/);
+// A job started from the PC: the server does not mark it finished, every line acknowledged does.
+f=fixture();f.send(M());f.send(M({workflow:'running',total:17,received:3}));f.send(M({workflow:'running',total:17,received:17}));
+f.send(M({workflow:'idle',finished:false,total:17,received:0}));f.advance(2500);f.send(M({workflow:'idle',finished:false}));
+assert.equal(f.summary.getAttribute('data-tone'),'ok');assert.match(f.summary.children[0].textContent,/^Travail terminé · .* · 17 lignes$/);
 // Not over a dialog, not out of the commissioning assistant, not when already in Suivi.
 f=fixture();f.screen('files');f.dialogs=[{hidden:false,getClientRects:()=>[{}]}];f.send(M());f.send(M({workflow:'running'}));assert.deepEqual(f.went,[]);
 f=fixture();f.screen('commissioning');f.send(M());f.send(M({workflow:'running'}));assert.deepEqual(f.went,[]);

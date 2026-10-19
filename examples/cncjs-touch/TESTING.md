@@ -26,6 +26,30 @@ An optional report can be written outside the source tree:
 node verify-project.cjs --report /absolute/path/to/offline-report.json
 ```
 
+## Pendant features (2026-10-19)
+
+Four functions taken from what hand pendants offer (PiBot CNC Pendant V4.2, XHC, Masso), chosen because they need no new motion:
+
+- **Rapid override 25 / 50 / 100 %** in Suivi. The server accepts it at rest too (`canRapidOverride`), so a first run can start with slowed rapids; feed and spindle overrides keep their job-only guard.
+- **State actions in the status strip**: Resume in a pause and Unlock in an alarm, both through their usual confirmation; Stop also during homing or a jog; in a pause, Resume takes the place of Pause. Pause, Resume and Unlock ignore a second tap for 600 ms; Stop is never delayed.
+- **Screen lock**: a padlock in the header. Locked, a transparent shield covers the content (taps do nothing, a notice says why) and only Pause and Stop stay reachable; Resume and Unlock are hidden. Unlocking takes two taps within 3 s. No `inert` is used, since the screen saver and the dialogs already own it.
+- **Job follow-up**: Suivi opens when a job starts, including a job started from the PC (not when the page loads during a job, not over a dialog or the commissioning assistant); the screen can lock itself at that moment; a summary shows the result, the duration without pauses, the lines and the Grbl errors. Two switches in Réglages, kept in this browser.
+
+Tests: `job-service.test.js` (rapid override at rest, refused in alarm or with a stale report, feed still refused), `test-status-strip.cjs`, `test-screen-lock.cjs`, `test-job-follow.cjs`, `test-dashboard.cjs`.
+
+Run on the tablet against the Grbl simulator through CNCjs:
+- 25 % at rest: Grbl reported `Ov:…,25,…`, the 25 % button marked active, feed and spindle buttons still disabled. The value held through the start and Grbl returned to 100 % at the program end (M2), as the advice says.
+- A job started from the PC while Fichiers was shown: Suivi opened by itself. Paused: the strip did not offer Resume, because the server only resumes jobs it started (the PC resumes them); summary at the end.
+- A job started from the tablet with "Verrouiller l’écran" on: locked at once, a tap on the menu hit the shield, Pause from the strip worked while locked, Resume stayed hidden until two taps unlocked, then Resume opened "Confirmer la reprise" and the job ended with "Travail terminé · essai-en-l-air.nc · durée 16 s · 17 lignes".
+- Alarm (homing without switches, ALARM:9): "Déverrouiller…" in the strip opened "Déverrouiller la machine", then back to Repos.
+
+Found and fixed during the run:
+- The summary said "arrêté avant la fin" for a job started from the PC that ran all 17 lines: the server does not mark such a job finished. Every line acknowledged during the run now counts as finished.
+- The padlock label ran over the clock in the header: the padlock is now an icon-sized button (its text stays for screen readers and in the shield notice).
+- In a pause (Resume, Pause and Stop together) and in an alarm with large text, buttons covered the file name. The information zone is now clipped to its grid column and the file name gives way first; checked in 5 states × 2 text sizes with no overlap.
+
+The "Chargement incomplet" screen seen twice during the run came from the test itself: the browser pane was hidden, so the start-up reveal waited for a frame while the test had already left the Menu. With the pane shown, the page appeared normally.
+
 ## Z zero with a touch plate (2026-10-18)
 
 The first real probing operation of the touch screen, chosen because a tool change needs the Z zero set again and the touch screen could not do it. Suivi → "Zéro Z avec une plaque" (`touch/job-resume.js`), server operation `zeroZ` in `job-service.js`, confirmed through the same ticket dialog as `$X`, `$H` and the spindle test, with the plate thickness and the maximum travel down as parameters (remembered on the device).

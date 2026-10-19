@@ -40,7 +40,7 @@ f.node('job-stop').disabled=true;f.byId('t-stop').click();assert.equal(f.clicks.
 f.send({machine:m({activeState:'Hold:0',workflow:'paused',canPause:false,canStop:true,canResume:true}),transportConnected:true});
 assert.equal(f.byId('t-state-text').textContent,'Pause');assert.equal(f.byId('t-state').getAttribute('data-tone'),'warn');assert(f.byId('t-pause').disabled);
 // In a pause the strip offers Resume (relayed to the job button, so its confirmation opens).
-f.clock.now+=1000;assert(!f.byId('t-resume').hidden&&!f.byId('t-resume').disabled);f.node('job-resume').addEventListener('click',()=>{f.clicks.resume=(f.clicks.resume||0)+1;});
+f.clock.now+=1000;assert(!f.byId('t-resume').hidden&&!f.byId('t-resume').disabled);assert(f.byId('t-pause').hidden,'in a pause, Resume takes the place of Pause');f.node('job-resume').addEventListener('click',()=>{f.clicks.resume=(f.clicks.resume||0)+1;});
 f.byId('t-resume').click();assert.equal(f.clicks.resume,1);
 f.byId('t-resume').click();assert.equal(f.clicks.resume,1,'a double tap is absorbed for 600 ms');
 f.byId('t-stop').click();assert.equal(f.clicks.stop,2,'Stop is never delayed');

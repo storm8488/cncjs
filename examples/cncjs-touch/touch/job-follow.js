@@ -56,7 +56,10 @@
   // to its end from a stop, and counts the lines Grbl refused.
   function describe(job,m){
     var errors=m&&typeof m.jobErrors==='number'&&m.jobErrors>0?m.jobErrors:0;
-    var result=m&&m.finished===true?'done':errors&&m.finishedWithErrors?'errors':'stopped';
+    // A job started from the PC is not marked finished by the server: every line
+    // acknowledged during the run (seen here before CNCjs rewinds its counters) says so.
+    var allSent=job.total>0&&job.received>=job.total;
+    var result=errors&&m.finishedWithErrors?'errors':m&&m.finished===true||allSent&&!errors?'done':'stopped';
     var parts=[result==='done'?t('Travail terminé'):result==='errors'?t('Fin du programme avec des erreurs Grbl'):t('Travail arrêté avant la fin')];
     if(job.name)parts.push(job.name);
     if(job.started)parts.push(t('durée ')+duration(Date.now()-job.started-job.pausedMs));

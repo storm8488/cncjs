@@ -85,7 +85,8 @@
     text(file,m&&m.name?(m.originalName||m.name):'—');
     var running=!!(m&&m.workflow&&m.workflow!=='idle'),usable=!!(m&&connected);
     // Stop also covers a homing cycle or a jog (the server ends them); Pause only a running job.
-    var stopShown=usable&&(running||!!m.canStop),pauseShown=usable&&running;
+    // In a pause, Resume takes the place of Pause (which is then inactive anyway).
+    var stopShown=usable&&(running||!!m.canStop),pauseShown=usable&&m.workflow==='running';
     var resumeShown=usable&&!screenLocked&&m.workflow==='paused'&&!!m.canResume;
     var unlockShown=usable&&!screenLocked&&!running&&/^alarm/i.test(String(m.activeState||''))&&!!m.canUnlock;
     prop(pause,'hidden',!pauseShown);prop(stop,'hidden',!stopShown);prop(resume,'hidden',!resumeShown);prop(unlock,'hidden',!unlockShown);
