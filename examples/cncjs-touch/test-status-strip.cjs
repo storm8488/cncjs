@@ -13,10 +13,11 @@ function fixture(simulation){
  const window={cncI18n:{t:s=>s,html:s=>s,locale:'fr-FR'},addEventListener(n,f){listeners[n]=f;},removeEventListener(n){delete listeners[n];}};
  const realCreate=document.createElement;
  document.createElement=tag=>{const e=element(tag);Object.defineProperty(e,'innerHTML',{set(){e._path={attributes:{},setAttribute(k,v){this.attributes[k]=v;}};},get(){return '';}});e.querySelector=()=>e._path;return e;};
- vm.runInNewContext(fs.readFileSync(__dirname+'/touch/status-strip.js','utf8'),{document,window});
+ const clock={now:1e12};
+ vm.runInNewContext(fs.readFileSync(__dirname+'/touch/status-strip.js','utf8'),{document,window,Date:{now:()=>clock.now}});
  // Elements built by the module are found in the banner tree (the fixture's getElementById only knows ids it created).
  const byId=id=>banner.querySelectorAll('*').find(e=>e.id===id);
- return {document,node,stats,window,listeners,clicks,banner,byId,send:detail=>listeners['cnc-job-status']({detail:Object.assign({simulation},detail)})};
+ return {clock,document,node,stats,window,listeners,clicks,banner,byId,send:detail=>listeners['cnc-job-status']({detail:Object.assign({simulation},detail)})};
 }
 let f=fixture(false);
 assert.equal(f.banner.children[0].id,'t-state');assert.equal(f.banner.children[1].id,'t-fresh');
@@ -38,6 +39,21 @@ f.byId('t-pause').click();f.byId('t-stop').click();assert.equal(f.clicks.pause,1
 f.node('job-stop').disabled=true;f.byId('t-stop').click();assert.equal(f.clicks.stop,1);f.node('job-stop').disabled=false;
 f.send({machine:m({activeState:'Hold:0',workflow:'paused',canPause:false,canStop:true,canResume:true}),transportConnected:true});
 assert.equal(f.byId('t-state-text').textContent,'Pause');assert.equal(f.byId('t-state').getAttribute('data-tone'),'warn');assert(f.byId('t-pause').disabled);
+// In a pause the strip offers Resume (relayed to the job button, so its confirmation opens).
+f.clock.now+=1000;assert(!f.byId('t-resume').hidden&&!f.byId('t-resume').disabled);f.node('job-resume').addEventListener('click',()=>{f.clicks.resume=(f.clicks.resume||0)+1;});
+f.byId('t-resume').click();assert.equal(f.clicks.resume,1);
+f.byId('t-resume').click();assert.equal(f.clicks.resume,1,'a double tap is absorbed for 600 ms');
+f.byId('t-stop').click();assert.equal(f.clicks.stop,2,'Stop is never delayed');
+// Locked screen: Resume and Unlock are hidden, Pause and Stop stay.
+f.listeners['cnc-screen-lock']({detail:true});assert(f.byId('t-resume').hidden);assert(!f.byId('t-stop').hidden);
+f.listeners['cnc-screen-lock']({detail:false});assert(!f.byId('t-resume').hidden);
+// Homing or a jog with the workflow idle: Stop is offered (the server ends them), Pause is not.
+f.send({machine:m({activeState:'Home',canStop:true}),transportConnected:true});assert(!f.byId('t-stop').hidden&&f.byId('t-pause').hidden);
+// Alarm: Unlock opens the $X confirmation through cncJobControls.
+const prepared=[];f.window.cncJobControls={prepareCommand:op=>prepared.push(op)};
+f.send({machine:m({activeState:'Alarm',alarmCode:1,canUnlock:true}),transportConnected:true});
+f.clock.now+=1000;assert(!f.byId('t-unlock').hidden);f.byId('t-unlock').click();assert.deepEqual(prepared,['unlock']);
+f.send({machine:m({activeState:'Alarm',alarmCode:1,canUnlock:false}),transportConnected:true});assert(f.byId('t-unlock').hidden,'not offered when the server refuses it');
 f.send({machine:m({activeState:'Alarm',alarmCode:1}),transportConnected:true});
 assert.equal(f.byId('t-state-text').textContent,'Alarme 1');assert.equal(f.byId('t-state').getAttribute('data-tone'),'danger');
 f.send({machine:m({activeState:'Door:1'}),transportConnected:true});assert.equal(f.byId('t-state-text').textContent,'Porte ouverte');

@@ -619,3 +619,18 @@
 .ks-ui main>.screen.kept:not(.active){content-visibility:hidden;z-index:-1}
 /* Arrêter : un liseré clair détache l'aplat rouge foncé du fond sombre (composant ≥ 3:1). */
 .t-btn--danger{border-color:var(--danger-text)}
+
+/* Pendant features (2026-10-19): rapids, screen lock, end-of-job summary. */
+.t-override--rapid .t-btn[aria-pressed="true"]{background:var(--info-soft);border-color:var(--info);color:var(--fg);font-weight:700}
+.t-lock{min-height:var(--tap);display:inline-flex;align-items:center;gap:var(--sp-2);padding:0 var(--sp-3)}
+.t-lock svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.t-lock[aria-pressed="true"]{background:var(--warn-soft);border-color:var(--warn);color:var(--fg)}
+.t-lock[data-armed="true"],.t-lock[data-flash="true"]{background:var(--warn);color:var(--on-warn)}
+.t-lock-shield{position:fixed;left:0;right:0;bottom:0;top:var(--statusbar-h);z-index:500;display:flex;align-items:flex-end;justify-content:center;padding:var(--sp-6);background:transparent}
+.t-lock-shield[hidden]{display:none}
+.t-lock-notice{margin:0;max-width:min(860px,90vw);padding:var(--sp-3) var(--sp-5);border-radius:var(--r-m);border:1px solid var(--warn);border-left-width:6px;background:var(--surface-2);color:var(--fg);font:var(--fs-18)/var(--lh) var(--font);text-align:center;box-shadow:var(--shadow)}
+body.is-locked .ks-exit{pointer-events:none;opacity:.4}
+.home-job-summary{align-items:center}
+.home-job-summary[hidden]{display:none}
+.home-job-summary-text{margin:0;flex:1 1 auto;overflow-wrap:anywhere}
+.home-job-summary .t-btn{min-height:var(--tap);flex:none}

@@ -1,6 +1,8 @@
 /* Status strip (UI 2027): the machine state is visible on every screen. One
  * row in the page header: Grbl state as a word and a colour, report age,
- * spindle and feed, loaded file, and Pause / Stop while a job runs. It only
+ * spindle and feed, loaded file, and the action the state calls for: Pause and
+ * Stop while a job runs, Stop during homing or a jog, Resume in a pause, Unlock
+ * in an alarm (both through their usual confirmation). It only
  * projects the `cnc-job-status` detail already published by job-controls.js
  * (no timer, no request); Pause and Stop relay to the existing #job-pause and
  * #job-stop buttons, so every guard and confirmation stays where it is. */
@@ -29,12 +31,23 @@
   var pause=el('button','t-btn t-btn--warn','t-pause');pause.type='button';pause.textContent=uiLocale.t('Pause');pause.hidden=true;
   var stop=el('button','t-btn t-btn--danger','t-stop');stop.type='button';stop.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>';
   var stopText=el('span');stopText.textContent=uiLocale.t('Arrêter');stop.appendChild(stopText);stop.hidden=true;
-  actions.appendChild(pause);actions.appendChild(stop);
+  var resume=el('button','t-btn t-btn--primary','t-resume');resume.type='button';resume.textContent=uiLocale.t('Reprendre…');resume.hidden=true;
+  var unlock=el('button','t-btn t-btn--primary','t-unlock');unlock.type='button';unlock.textContent=uiLocale.t('Déverrouiller…');unlock.hidden=true;
+  actions.appendChild(unlock);actions.appendChild(resume);actions.appendChild(pause);actions.appendChild(stop);
   // Before the title and the right-hand group written by touch-shell.js.
   var first=banner.firstChild||null;[state,fresh,vitals,actions].forEach(function(node){banner.insertBefore(node,first);});
   function relay(id){var source=$(id);if(source&&!source.disabled)source.click();}
-  pause.addEventListener('click',function(){relay('job-pause');});
+  // A tap on Pause, Resume or Unlock freezes those three for 600 ms: a double tap
+  // cannot reach the button that replaces the first one (Pause becoming Resume).
+  // Stop is never delayed.
+  var coolUntil=0;
+  function guarded(fn){return function(){var now=Date.now();if(now<coolUntil)return;coolUntil=now+600;fn();};}
+  pause.addEventListener('click',guarded(function(){relay('job-pause');}));
   stop.addEventListener('click',function(){relay('job-stop');});
+  resume.addEventListener('click',guarded(function(){relay('job-resume');}));
+  unlock.addEventListener('click',guarded(function(){var c=window.cncJobControls;if(c&&typeof c.prepareCommand==='function')c.prepareCommand('unlock');}));
+  var screenLocked=false;
+  window.addEventListener('cnc-screen-lock',function(e){screenLocked=!!(e&&e.detail);if(lastDetail)render(lastDetail);});
   function number(v){try{return Math.round(v).toLocaleString(uiLocale.locale||'fr-FR');}catch(_){return String(Math.round(v));}}
   function finite(v){return typeof v==='number'&&isFinite(v);}
   // Grbl state → word and tone. The word says what the machine does; the tone
@@ -54,8 +67,9 @@
     if(/^idle/i.test(a))return {word:uiLocale.t('Repos'),tone:'ok'};
     return {word:a||uiLocale.t('Inconnu'),tone:'info'};
   }
-  var tone='';
+  var tone='',lastDetail=null;
   function render(detail){
+    lastDetail=detail;
     var m=detail.machine,connected=simulation?!!m:!!detail.transportConnected&&!!m;
     var d=describe(m,connected);
     text(stateText,d.word);
@@ -69,11 +83,16 @@
     text(spindle,live&&finite(m.spindleSpeed)?number(m.spindleSpeed)+uiLocale.t(' tr/min'):'—');
     text(feed,live&&finite(m.feedrate)?number(m.feedrate)+' mm/min':'—');
     text(file,m&&m.name?(m.originalName||m.name):'—');
-    var running=!!(m&&m.workflow&&m.workflow!=='idle');
-    prop(pause,'hidden',!running);prop(stop,'hidden',!running);
+    var running=!!(m&&m.workflow&&m.workflow!=='idle'),usable=!!(m&&connected);
+    // Stop also covers a homing cycle or a jog (the server ends them); Pause only a running job.
+    var stopShown=usable&&(running||!!m.canStop),pauseShown=usable&&running;
+    var resumeShown=usable&&!screenLocked&&m.workflow==='paused'&&!!m.canResume;
+    var unlockShown=usable&&!screenLocked&&!running&&/^alarm/i.test(String(m.activeState||''))&&!!m.canUnlock;
+    prop(pause,'hidden',!pauseShown);prop(stop,'hidden',!stopShown);prop(resume,'hidden',!resumeShown);prop(unlock,'hidden',!unlockShown);
     // During a job the page switch link gives its room to the file name (and is not to be tapped then).
-    attr(banner,'data-job',String(running));
+    attr(banner,'data-job',String(running||stopShown));
     prop(pause,'disabled',!m||!m.canPause);prop(stop,'disabled',!m||!m.canStop);
+    prop(resume,'disabled',!m||!m.canResume);prop(unlock,'disabled',!m||!m.canUnlock);
   }
   var disposed=false;
   function onStatus(e){if(disposed||!e.detail||!!e.detail.simulation!==simulation)return;render(e.detail);}

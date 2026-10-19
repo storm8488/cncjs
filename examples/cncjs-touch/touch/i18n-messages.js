@@ -548,3 +548,26 @@ window.CNCTouchMessages.push([", contact à Z machine ", ", contact at machine Z
 window.CNCTouchMessages.push(["Dernier palpage échoué : ", "Last probe failed: ", "Último palpado fallido: "]);
 window.CNCTouchMessages.push([" Le zéro Z avec la plaque se règle ci-dessous.", " Z zero with the plate is set below.", " El cero Z con la placa se ajusta abajo."]);
 window.CNCTouchMessages.push(["Palpage en cours… Arrêter interrompt.", "Probing… Stop interrupts it.", "Palpando… Detener lo interrumpe."]);
+// Pendant features (2026-10-19): rapids, screen lock, job follow-up, state actions.
+window.CNCTouchMessages.push(["Verrouiller", "Lock", "Bloquear"]);
+window.CNCTouchMessages.push(["Toucher encore", "Tap again", "Tocar de nuevo"]);
+window.CNCTouchMessages.push(["Verrouillé", "Locked", "Bloqueado"]);
+window.CNCTouchMessages.push(["Verrouiller l’écran", "Lock the screen", "Bloquear la pantalla"]);
+window.CNCTouchMessages.push(["Déverrouiller l’écran (deux appuis)", "Unlock the screen (two taps)", "Desbloquear la pantalla (dos toques)"]);
+window.CNCTouchMessages.push(["Touchez encore le cadenas pour déverrouiller.", "Tap the padlock again to unlock.", "Toque de nuevo el candado para desbloquear."]);
+window.CNCTouchMessages.push(["Écran verrouillé : Pause et Arrêter restent actifs. Touchez deux fois le cadenas pour déverrouiller.", "Screen locked: Pause and Stop stay active. Tap the padlock twice to unlock.", "Pantalla bloqueada: Pausa y Detener siguen activos. Toque dos veces el candado para desbloquear."]);
+window.CNCTouchMessages.push(["Pendant un travail", "During a job", "Durante un trabajo"]);
+window.CNCTouchMessages.push(["Ce qui se passe au démarrage d’un travail, même lancé depuis le PC.", "What happens when a job starts, even one started from the PC.", "Lo que ocurre al iniciar un trabajo, aunque se inicie desde el PC."]);
+window.CNCTouchMessages.push(["Ouvrir le Suivi", "Open Job view", "Abrir Seguimiento"]);
+window.CNCTouchMessages.push(["OK", "OK", "OK"]);
+window.CNCTouchMessages.push(["Travail terminé", "Job finished", "Trabajo terminado"]);
+window.CNCTouchMessages.push(["Fin du programme avec des erreurs Grbl", "Program ended with Grbl errors", "Fin del programa con errores de Grbl"]);
+window.CNCTouchMessages.push(["Travail arrêté avant la fin", "Job stopped before the end", "Trabajo detenido antes del final"]);
+window.CNCTouchMessages.push(["durée", "duration", "duración"]);
+window.CNCTouchMessages.push(["lignes", "lines", "líneas"]);
+window.CNCTouchMessages.push(["erreur(s) Grbl", "Grbl error(s)", "error(es) de Grbl"]);
+window.CNCTouchMessages.push(["Déverrouiller…", "Unlock…", "Desbloquear…"]);
+window.CNCTouchMessages.push(["Rapides", "Rapids", "Rápidos"]);
+window.CNCTouchMessages.push(["Rapides ralentis : Grbl revient à 100 % à la fin du programme (M2/M30) ou après un arrêt.", "Rapids slowed: Grbl returns to 100 % at the end of the program (M2/M30) or after a stop.", "Rápidos reducidos: Grbl vuelve al 100 % al final del programa (M2/M30) o tras una parada."]);
+window.CNCTouchMessages.push(["Rapides à 25 % conseillés pour le premier essai d’un programme.", "Rapids at 25 % are advised for the first run of a program.", "Se aconsejan rápidos al 25 % para la primera prueba de un programa."]);
+window.CNCTouchMessages.push(["La vitesse des rapides se règle machine au repos (Idle) ou pendant un travail.", "The rapid speed is set with the machine at rest (Idle) or during a job.", "La velocidad de los rápidos se ajusta con la máquina en reposo (Idle) o durante un trabajo."]);
