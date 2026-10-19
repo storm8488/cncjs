@@ -17,7 +17,8 @@ vm.runInNewContext(fs.readFileSync(__dirname+'/touch/screen-lock.js','utf8'),{do
 const button=right.children[0],shield=document.body.children.find(c=>c.id==='t-lock-shield');
 assert.equal(button.id,'t-lock');assert(shield&&shield.hidden);assert.equal(button.getAttribute('aria-pressed'),'false');
 const main=node('main');main.inert=false;
-button.click();
+let sheetsClosed=0;window.cncShell={closeSheet:()=>{sheetsClosed++;}};
+button.click();assert.equal(sheetsClosed,1,'locking closes an open sheet (it sits above the shield)');
 assert.equal(window.cncScreenLock.locked(),true);assert.equal(shield.hidden,false);assert(classes.has('is-locked'));
 assert.deepEqual(events,[true]);assert.equal(button.getAttribute('aria-pressed'),'true');assert.equal(main.inert,false,'inert is never used');
 // One tap is not enough; the arming expires after 3 s.

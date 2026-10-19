@@ -43,7 +43,9 @@
   }
   function announce(){window.dispatchEvent(new CustomEvent('cnc-screen-lock',{detail:locked}));}
   function disarm(){clearTimeout(armTimer);armTimer=null;armedUntil=0;}
-  function lock(){if(locked)return;locked=true;disarm();paint();announce();}
+  // A sheet sits above the shield (and makes the strip inert): locking closes it, so the
+  // locked screen keeps nothing usable but Pause and Stop.
+  function lock(){if(locked)return;locked=true;disarm();if(window.cncShell&&typeof window.cncShell.closeSheet==='function')window.cncShell.closeSheet();paint();announce();}
   function unlock(){if(!locked)return;locked=false;disarm();paint();announce();}
   button.addEventListener('click',function(){
     if(!locked){lock();return;}
