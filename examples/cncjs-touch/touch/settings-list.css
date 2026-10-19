@@ -29,6 +29,9 @@
 
 /* On/off rows (machine coordinates, clock): the switch sits on the right. */
 .ks-ui #screen-settings .ks-display-card>.ks-display-toggle{grid-column:2;grid-row:1/span 2;min-width:300px;min-height:64px;padding:10px 18px;font-size:18px;border-bottom-width:3px}
+/* Two switches in one card (job follow-up): one row each, never in the same cell. */
+.ks-ui #screen-settings .ks-job-follow-card>#job-follow-open{grid-row:1}
+.ks-ui #screen-settings .ks-job-follow-card>#job-follow-lock{grid-row:2}
 .ks-ui #screen-settings .ks-display-toggle b{font-size:18px;padding:6px 12px;border-radius:999px;background:var(--bg)}
 .ks-ui #screen-settings .ks-display-toggle[aria-pressed=true] b{background:var(--surface-2);color:var(--ok-text)}
 

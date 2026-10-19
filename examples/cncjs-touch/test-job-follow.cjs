@@ -63,6 +63,9 @@ open.click();lock.click();assert.deepEqual(JSON.parse(f.store.get('cncjs-touch-j
 f.screen('files');f.send(M());f.send(M({workflow:'running'}));assert.deepEqual(f.went,[]);assert.deepEqual(f.locks,[true]);
 f=fixture(JSON.stringify({open:false,lock:true}));assert.equal(f.settings.children[0].children[2].getAttribute('aria-pressed'),'false');
 f=fixture('{broken');assert.equal(f.settings.children[0].children[2].getAttribute('aria-pressed'),'true','unreadable storage: defaults');
+// The two switches of the card sit in rows 1 and 2 of the right column (a shared cell hid one of them).
+const css=fs.readFileSync(__dirname+'/touch/settings-list.css','utf8');
+assert.match(css,/.ks-job-follow-card>#job-follow-open{grid-row:1}/);assert.match(css,/.ks-job-follow-card>#job-follow-lock{grid-row:2}/);
 for(const name of ['index.html','simulation.html']){
   const html=fs.readFileSync(__dirname+'/touch/'+name,'utf8');
   assert.equal((html.match(/src="job-follow\.js\?v=/g)||[]).length,1);
