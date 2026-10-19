@@ -85,10 +85,13 @@
     text(spindle,live&&finite(m.spindleSpeed)?number(m.spindleSpeed)+uiLocale.t(' tr/min'):'—');
     text(feed,live&&finite(m.feedrate)?number(m.feedrate)+' mm/min':'—');
     text(file,m&&m.name?(m.originalName||m.name):'—');
-    var running=!!(m&&m.workflow&&m.workflow!=='idle'),usable=!!(m&&connected);
+    // Stop and Pause need a recent machine state only: the server accepts them without the
+    // event stream, so they stay offered while the page reads the state by HTTP. Resume and
+    // Unlock need confirmations bound to the stream.
+    var running=!!(m&&m.workflow&&m.workflow!=='idle'),usable=!!(m&&connected),reachable=!!m;
     // Stop also covers a homing cycle or a jog (the server ends them); Pause only a running job.
     // In a pause, Resume takes the place of Pause (which is then inactive anyway).
-    var stopShown=usable&&(running||!!m.canStop),pauseShown=usable&&m.workflow==='running';
+    var stopShown=reachable&&(running||!!m.canStop),pauseShown=reachable&&m.workflow==='running';
     var resumeShown=usable&&!screenLocked&&m.workflow==='paused'&&!!m.canResume;
     var unlockShown=usable&&!screenLocked&&!running&&/^alarm/i.test(String(m.activeState||''))&&!!m.canUnlock;
     prop(pause,'hidden',!pauseShown);prop(stop,'hidden',!stopShown);prop(resume,'hidden',!resumeShown);prop(unlock,'hidden',!unlockShown);
