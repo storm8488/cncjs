@@ -49,6 +49,8 @@ f.listeners['cnc-screen-lock']({detail:true});assert(f.byId('t-resume').hidden);
 f.listeners['cnc-screen-lock']({detail:false});assert(!f.byId('t-resume').hidden);
 // Homing or a jog with the workflow idle: Stop is offered (the server ends them), Pause is not.
 f.send({machine:m({activeState:'Home',canStop:true}),transportConnected:true});assert(!f.byId('t-stop').hidden&&f.byId('t-pause').hidden);
+// Grbl sends no report during homing: the stale report still says Idle, the server says homing.
+f.send({machine:m({activeState:'Idle',fresh:false,statusAgeMs:4000,homing:true,canStop:true}),transportConnected:true});assert.equal(f.byId('t-state-text').textContent,'Prise d’origine');assert(!f.byId('t-stop').hidden&&!f.byId('t-stop').disabled);
 // Alarm: Unlock opens the $X confirmation through cncJobControls.
 const prepared=[];f.window.cncJobControls={prepareCommand:op=>prepared.push(op)};
 f.send({machine:m({activeState:'Alarm',alarmCode:1,canUnlock:true}),transportConnected:true});
