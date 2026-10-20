@@ -1,7 +1,7 @@
 /* Response decoding and geometry only. No controller, network or canvas API. */
 (function () {
   'use strict';
-  importScripts('toolpath-3d.js?v=worker11', 'library-preview.js?v=worker11');
+  importScripts('toolpath-3d.js?v=worker12', 'library-preview.js?v=worker12');
   // Floats per segment: x, y, xx, yy, mode, deepest Z of the segment.
   var job = null, maxText = 20 * 1048576, blockSize = 2048, stride = 6;
   // Geometry blocks in flight before parsing pauses: parsing and drawing overlap

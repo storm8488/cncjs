@@ -232,12 +232,12 @@
   function legend(ctx, x, y, zmin, zmax, locale) {
     if (!(zmin < 0) || typeof ctx.fillText !== 'function') return;
     ctx.globalAlpha = 1; ctx.font = '17px sans-serif'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'rgba(16,24,32,.85)'; ctx.fillRect(x - 8, y - 16, 400, 54);
+    // 300 px wide: in the 3D views it sits in the top right corner, clear of the view selector.
+    ctx.fillStyle = 'rgba(16,24,32,.85)'; ctx.fillRect(x - 8, y - 16, 300, 54);
     ctx.fillStyle = WORK; ctx.fillRect(x, y - 7, 18, 14);
     ctx.fillStyle = '#c9d6df'; ctx.fillText('≥ Z0', x + 24, y);
-    for (var i = 0; i < DEPTH.length; i++) { ctx.fillStyle = DEPTH[i]; ctx.fillRect(x + 80 + i * 16, y - 7, 16, 14); }
-    ctx.fillStyle = '#c9d6df';
-    ctx.fillText('Z0 → ' + format(zmin, locale, 2) + ' mm', x + 80 + DEPTH.length * 16 + 8, y);
+    for (var i = 0; i < DEPTH.length; i++) { ctx.fillStyle = DEPTH[i]; ctx.fillRect(x + 80 + i * 18, y - 7, 18, 14); }
+    ctx.fillStyle = '#c9d6df'; ctx.fillText(format(zmin, locale, 2), x + 80 + DEPTH.length * 18 + 6, y);
     ctx.fillText('Z min ' + format(zmin, locale, 2) + ' · Z max ' + format(zmax, locale, 2) + ' mm', x, y + 24);
   }
   function niceLength(target) {
@@ -339,7 +339,7 @@
         if (i < n) return false;
         ctx.globalAlpha = 1;
         if (typeof ctx.fillText === 'function') { ctx.font = 'bold 20px sans-serif'; ctx.textBaseline = 'bottom'; text(options.title || view, WIDTH / 2, HEIGHT - 12, '#eef3f6', 'center'); }
-        legend(ctx, 548, 28, zmin, b[5], locale);
+        legend(ctx, WIDTH - 300, 28, zmin, b[5], locale);
         triad(); scaleBar();
         return true;
       }

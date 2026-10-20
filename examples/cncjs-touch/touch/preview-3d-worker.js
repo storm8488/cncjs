@@ -2,7 +2,7 @@
  * Geometry and image encoding only: no controller, network or DOM access. */
 (function () {
   'use strict';
-  importScripts('toolpath-3d.js?v=view2');
+  importScripts('toolpath-3d.js?v=view3');
   var T3 = self.CNCToolpath3D, current = null, job = null;
   // One decoded path is kept: the views of a file are asked for one after the other.
   function decoded(key, path) {
