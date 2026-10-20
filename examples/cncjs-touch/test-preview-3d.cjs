@@ -49,7 +49,8 @@ function page(options = {}) {
     document, localStorage: { getItem: k => storage.has(k) ? storage.get(k) : null, setItem: (k, v) => storage.set(k, String(v)) },
     URL: { createObjectURL: () => 'blob:http://tablet/' + (++log.urls), revokeObjectURL: url => log.revoked.push(url) },
     MutationObserver: class { constructor(fn) { this.fn = fn; } observe(target) { this.target = target; observers.push(this); } },
-    requestIdleCallback: fn => { idle.push(fn); return idle.length; },
+    // Like Chromium: a detached call (no this in strict code) is an "Illegal invocation".
+    requestIdleCallback(fn) { if (this == null) throw new TypeError('Illegal invocation'); idle.push(fn); return idle.length; },
     CNCToolpath3D: T3, cncI18n: { t: s => s, html: s => s, locale: 'fr-FR' }, setTimeout, clearTimeout, Date
   };
   if (options.worker) window.Worker = class {

@@ -31,69 +31,77 @@
     return DEPTH[i < 0 ? 0 : i >= DEPTH.length ? DEPTH.length - 1 : i];
   }
 
-  // Radial-distance simplification, streamed: a point is kept when it is at least
-  // `tolerance` away from the last kept one, or when the move type changes after
-  // it. Z distances count `zScale` times (the exaggeration the side views use).
-  function Filter(tolerance, zScale, keepModes) {
-    this.tol2 = tolerance * tolerance; this.k = zScale; this.keepModes = keepModes;
-    this.xs = []; this.ys = []; this.zs = []; this.rapid = []; this.lines = []; this.pending = null;
-  }
-  Filter.prototype.commit = function (p) { this.xs.push(p[0]); this.ys.push(p[1]); this.zs.push(p[2]); this.rapid.push(p[3]); this.lines.push(p[4]); };
-  Filter.prototype.add = function (x, y, z, rapid, line) {
-    var p = this.pending;
-    if (!this.xs.length) { this.commit([x, y, z, rapid, line]); return; }
-    if (p) {
-      var last = this.xs.length - 1, dx = p[0] - this.xs[last], dy = p[1] - this.ys[last], dz = (p[2] - this.zs[last]) * this.k;
-      if (this.keepModes && p[3] !== rapid || dx * dx + dy * dy + dz * dz >= this.tol2) this.commit(p);
-    }
-    this.pending = [x, y, z, rapid, line];
-  };
-  Filter.prototype.flush = function () { if (this.pending) { this.commit(this.pending); this.pending = null; } };
-
+  // Radial-distance simplification, streamed into preallocated typed arrays: a point is
+  // kept when it is at least `tolerance` away from the last kept one, or when the move type
+  // changes after it (the end of a run). Z distances count `zScale` times (the exaggeration
+  // the side views use). The latest point waits in plain variables until the next one
+  // decides: nothing is allocated per move (measured on the Tegra: the 3D path was a
+  // third of the worker's second pass with JS arrays).
   // options: bounds [xmin, ymin, zmin, xmax, ymax, zmax] of the whole program, maxPoints.
   function createBuilder(options) {
     options = options || {};
     var b = Array.isArray(options.bounds) && options.bounds.length === 6 && options.bounds.every(isFinite) ? options.bounds : null;
-    var max = options.maxPoints > 1 ? Math.floor(options.maxPoints) : MAX_POINTS;
+    var max = options.maxPoints > 1 ? Math.floor(options.maxPoints) : MAX_POINTS, limit = Math.max(2, Math.floor(max * 0.8));
     var k = b ? zScale(b) : 1;
     var diagonal = b ? Math.sqrt(Math.pow(b[3] - b[0], 2) + Math.pow(b[4] - b[1], 2) + Math.pow((b[5] - b[2]) * k, 2)) : 0;
+    var cap = max + 4, X = new Float64Array(cap), Y = new Float64Array(cap), Z = new Float64Array(cap), L = new Float64Array(cap), R = new Uint8Array(cap), n = 0;
     // About a quarter of a pixel of the 960 px views: invisible, and arcs of 0.02 mm steps shrink a lot.
-    var tolerance = Math.max(1 / QUANTUM, diagonal / 4000), filter = new Filter(tolerance, k, true), input = 0, simplified = false, decimated = false;
+    var tolerance = Math.max(1 / QUANTUM, diagonal / 4000), tol2 = tolerance * tolerance;
+    var pending = false, px = 0, py = 0, pz = 0, pr = 0, pl = 0, input = 0, simplified = false, decimated = false;
+    function put(i, x, y, z, r, l) { X[i] = x; Y[i] = y; Z[i] = z; R[i] = r; L[i] = l; }
+    function add(x, y, z, r, l) {
+      if (!n) { put(n++, x, y, z, r, l); return; }
+      if (pending) {
+        var dx = px - X[n - 1], dy = py - Y[n - 1], dz = (pz - Z[n - 1]) * k;
+        if (pr !== r || dx * dx + dy * dy + dz * dz >= tol2) put(n++, px, py, pz, pr, pl);
+      }
+      pending = true; px = x; py = y; pz = z; pr = r; pl = l;
+    }
+    function flush() { if (pending) { put(n++, px, py, pz, pr, pl); pending = false; } }
+    // The same rule again on the kept points, in place: the output never passes the input.
+    function refilter() {
+      var w = 1, hold = false, hx = 0, hy = 0, hz = 0, hr = 0, hl = 0;
+      for (var i = 1; i < n; i++) {
+        if (hold) {
+          var dx = hx - X[w - 1], dy = hy - Y[w - 1], dz = (hz - Z[w - 1]) * k;
+          if (hr !== R[i] || dx * dx + dy * dy + dz * dz >= tol2) put(w++, hx, hy, hz, hr, hl);
+        }
+        hold = true; hx = X[i]; hy = Y[i]; hz = Z[i]; hr = R[i]; hl = L[i];
+      }
+      if (hold) put(w++, hx, hy, hz, hr, hl);
+      n = w;
+    }
     function reduce() {
-      if (!(diagonal > 0)) { var e = boundsOf(filter); diagonal = Math.sqrt(Math.pow(e[3] - e[0], 2) + Math.pow(e[4] - e[1], 2) + Math.pow((e[5] - e[2]) * k, 2)); }
+      flush();
+      if (!(diagonal > 0)) { var e = boundsOf(view()); diagonal = Math.sqrt(Math.pow(e[3] - e[0], 2) + Math.pow(e[4] - e[1], 2) + Math.pow((e[5] - e[2]) * k, 2)); }
       // Too many points: twice the tolerance, applied again to what was kept, up to a
       // fiftieth of the part (a coarse but faithful drawing of every move type).
-      while (filter.xs.length + 1 > max * 0.8 && tolerance * 2 <= diagonal / 50) {
-        tolerance *= 2; simplified = true;
-        var old = filter; old.flush();
-        filter = new Filter(tolerance, k, true);
-        for (var i = 0; i < old.xs.length; i++) filter.add(old.xs[i], old.ys[i], old.zs[i], old.rapid[i], old.lines[i]);
-      }
-      // Still too dense (a raster finer than that): one point in n, so the swept area,
+      while (n + 1 > limit && tolerance * 2 <= diagonal / 50) { tolerance *= 2; tol2 = tolerance * tolerance; simplified = true; refilter(); }
+      // Still too dense (a raster finer than that): one point in `step`, so the swept area,
       // its depth and its order remain visible. The first and the last points stay.
-      if (filter.xs.length + 1 > max * 0.8) {
-        simplified = decimated = true; filter.flush();
-        var n = filter.xs.length, step = Math.ceil(n / (max * 0.4)), keep = [];
-        for (var j = 0; j < n; j += step) keep.push(j);
-        if (keep[keep.length - 1] !== n - 1) keep.push(n - 1);
-        ['xs', 'ys', 'zs', 'rapid', 'lines'].forEach(function (name) { var a = filter[name]; filter[name] = keep.map(function (j) { return a[j]; }); });
+      if (n + 1 > limit) {
+        simplified = decimated = true;
+        var step = Math.ceil(n / (max * 0.4)), w = 0, last = n - 1;
+        for (var j = 0; j < n; j += step) put(w++, X[j], Y[j], Z[j], R[j], L[j]);
+        if ((w - 1) * step !== last) put(w++, X[last], Y[last], Z[last], R[last], L[last]);
+        n = w;
       }
     }
+    function view() { return { xs: X.subarray(0, n), ys: Y.subarray(0, n), zs: Z.subarray(0, n), rapid: R.subarray(0, n), lines: L.subarray(0, n) }; }
     return {
       // One move of the program, from (ax, ay, az) to (bx, by, bz). mode 0 = G0.
       move: function (ax, ay, az, bx, by, bz, mode, line) {
-        if (!input++) filter.add(ax, ay, az, 1, 0);
-        filter.add(bx, by, bz, mode === 0 ? 1 : 0, line);
-        if (filter.xs.length >= max * 0.8) reduce();
+        if (!input++) add(ax, ay, az, 1, 0);
+        add(bx, by, bz, mode === 0 ? 1 : 0, line);
+        if (n >= limit) reduce();
       },
       finish: function (totalLines) {
-        filter.flush();
-        if (filter.xs.length > max) reduce();
-        filter.flush();
-        var path = encode(filter);
+        flush();
+        if (n > max) reduce();
+        var f = view();
         return { version: 1, format: 'delta-varint-base64', quantum: 1 / QUANTUM, units: 'mm', wcs: 'G54',
-          count: filter.xs.length, moves: input, tolerance: Math.round(tolerance * QUANTUM) / QUANTUM, simplified: simplified || filter.xs.length < input + 1, decimated: decimated,
-          zScale: k, bounds: b ? b.slice() : boundsOf(filter), lines: typeof totalLines === 'number' ? totalLines : (filter.lines[filter.lines.length - 1] || 0), data: path };
+          count: n, moves: input, tolerance: Math.round(tolerance * QUANTUM) / QUANTUM, simplified: simplified || n < input + 1, decimated: decimated,
+          zScale: k, bounds: b ? b.slice() : boundsOf(f), lines: typeof totalLines === 'number' ? totalLines : (n ? L[n - 1] : 0), data: encode(f) };
       }
     };
   }

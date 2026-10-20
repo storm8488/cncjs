@@ -14,7 +14,7 @@
   var LABELS = { '2d': '2D', iso: t('Iso'), front: t('Face'), side: t('Côté'), top: t('Dessus') };
   var TITLES = { '2d': t('Aperçu 2D enregistré'), iso: t('Vue isométrique'), front: t('Vue de face (XZ)'), side: t('Vue de côté (YZ)'), top: t('Vue de dessus (XY)') };
   var source = document.currentScript && document.currentScript.src;
-  var workerURL = (source ? source.split(/[?#]/)[0].replace(/[^/]*$/, '') : '') + 'preview-3d-worker.js?v=view1';
+  var workerURL = (source ? source.split(/[?#]/)[0].replace(/[^/]*$/, '') : '') + 'preview-3d-worker.js?v=view2';
   var view = '2d', hosts = [], cache = [], queue = [], active = null, idle = null, nextId = 0;
   var worker = null, workerState = 'none', startup = null;
   try { var saved = root.localStorage.getItem(STORE); if (VIEWS.indexOf(saved) >= 0) view = saved; } catch (_) {}
@@ -114,9 +114,9 @@
     if (!job.urgent) {
       if (document.hidden) return;
       if (idle === null) {
-        var ric = root.requestIdleCallback;
-        if (typeof ric !== 'function') idle = setTimeout(function () { idle = null; startJob(); }, 300);
-        else idle = ric(function (deadline) {
+        // Called on window: Chromium refuses a detached requestIdleCallback (Illegal invocation).
+        if (typeof root.requestIdleCallback !== 'function') idle = setTimeout(function () { idle = null; startJob(); }, 300);
+        else idle = root.requestIdleCallback(function (deadline) {
           idle = null;
           if (deadline && typeof deadline.timeRemaining === 'function' && deadline.timeRemaining() < 20) { idle = setTimeout(function () { idle = null; pump(); }, 500); return; }
           startJob();

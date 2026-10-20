@@ -34,7 +34,7 @@ function setup(options = {}) {
   const metrics = { inputBytes: 0, geometryBytes: 0, outstanding: 0, peak: 0, transfers: 0, responseBlobs: 0 };
   class BrowserWorker {
     constructor(url) {
-      assert.match(url, /library-preview-worker\.js\?v=worker10$/);
+      assert.match(url, /library-preview-worker\.js\?v=worker11$/);
       if (options.constructorFailure) throw Error('CSP denied');
       this.terminated = false;
       this.thread = new Worker(harness, { eval: true, workerData: { directory: path.join(__dirname, 'touch'), readerMode: options.readerMode } });
@@ -92,7 +92,7 @@ function setup(options = {}) {
   const browser = { FileReader: Reader, Blob };
   if (!options.noWorker) browser.Worker = BrowserWorker;
   const context = {
-    window: browser, document: { currentScript: { src: 'https://offline.invalid/touch/library-preview.js?v=worker10' } },
+    window: browser, document: { currentScript: { src: 'https://offline.invalid/touch/library-preview.js?v=worker11' } },
     Promise, Date, Uint16Array, Float64Array, setTimeout, clearTimeout,
     setInterval(fn, delay) { const timer = setInterval(fn, delay); intervals.add(timer); return timer; },
     clearInterval(timer) { clearInterval(timer); intervals.delete(timer); }
