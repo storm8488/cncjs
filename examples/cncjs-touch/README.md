@@ -16,6 +16,10 @@ node preview-server.cjs
 
 Open the localhost URL printed by the preview server. It serves a local visual fixture with synthetic files, a virtual controller and simulated progress. Stop it with Ctrl+C. The mock controller rejects physical commands. The fixture is for local evaluation only; do not deploy its fake authentication or mock responses to a real CNCjs server.
 
+## Full pass (2026-10-19/20)
+
+A complete bug hunt (six reviews, refuters, a second round on the fixes) and a fluidity pass measured on the Surface RT: Stop now reaches Grbl whatever CNCjs cached (also during homing and macro dwells), stream renewals and Wi-Fi gaps no longer hide Stop, and Suivi costs about 10 % less CPU during a job. Details, figures and what was not changed in `TESTING.md`, "Full pass".
+
 ## Pendant features (2026-10-19)
 
 Rapids at 25 / 50 / 100 % in Suivi (also at rest, for a first run), the action the state calls for in the status strip (Resume, Unlock, Stop during homing or a jog), a screen lock that keeps only Pause and Stop reachable, and Suivi opening by itself when a job starts with a summary at the end. Details and the simulator run in `TESTING.md`, "Pendant features".
