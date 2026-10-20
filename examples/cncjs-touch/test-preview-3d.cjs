@@ -50,7 +50,7 @@ function page(options = {}) {
     URL: { createObjectURL: () => 'blob:http://tablet/' + (++log.urls), revokeObjectURL: url => log.revoked.push(url) },
     MutationObserver: class { constructor(fn) { this.fn = fn; } observe(target) { this.target = target; observers.push(this); } },
     // Like Chromium: a detached call (no this in strict code) is an "Illegal invocation".
-    requestIdleCallback(fn) { if (this == null) throw new TypeError('Illegal invocation'); idle.push(fn); return idle.length; },
+    requestIdleCallback(fn, options) { if (this == null) throw new TypeError('Illegal invocation'); log.idleTimeout = options && options.timeout; idle.push(fn); return idle.length; },
     CNCToolpath3D: T3, cncI18n: { t: s => s, html: s => s, locale: 'fr-FR' }, setTimeout, clearTimeout, Date
   };
   if (options.worker) window.Worker = class {
@@ -82,7 +82,8 @@ function page(options = {}) {
     status: img => img.parentNode.children.find(c => c.attributes.role === 'status'),
     button: (img, view) => img.parentNode.children.find(c => c.attributes.role === 'group').children.find(b => b.attributes['data-view'] === view),
     show(img, file, preview) { img.cncPreview = preview ? Object.assign({ file }, preview) : null; img.src = 'data:image/png;base64,' + Buffer.from(file).toString('base64'); },
-    async runIdle() { while (idle.length) { idle.shift()({ timeRemaining: () => 50 }); await settle(); } },
+    // Short idle periods, as in a page drawing frames (measured on the tablet: never 20 ms free).
+    async runIdle() { while (idle.length) { idle.shift()({ timeRemaining: () => 4, didTimeout: false }); await settle(); } },
     async settle() { await settle(); }
   };
   async function settle() { for (let i = 0; i < 40; i++) await tick(1); }
@@ -108,7 +109,7 @@ function page(options = {}) {
   assert.deepEqual(p.log.posted, ['render:iso'], 'only the asked view, at once');
   assert(p.log.texts.includes('Vue isométrique') && p.log.strokes > 0, 'drawn in the worker with its title');
   // The other views wait for an idle period, then are drawn one by one.
-  assert.equal(p.idle.length, 1);
+  assert.equal(p.idle.length, 1); assert(p.log.idleTimeout > 0 && p.log.idleTimeout <= 3000, 'started within 3 s even without idle time');
   await p.runIdle();
   assert.deepEqual(p.log.posted, ['render:iso', 'render:front', 'render:side', 'render:top']);
   assert.deepEqual(Array.from(p.window.cncPreviewViews.cached()[0].views).sort(), ['front', 'iso', 'side', 'top']);
@@ -127,7 +128,7 @@ function page(options = {}) {
   await p.settle();
   assert.equal(p.home.cncView.view, 'top'); assert.equal(p.log.posted.at(-1), 'render:top');
   // The asked view goes before a view drawn in the background.
-  p.idle.shift()({ timeRemaining: () => 50 });
+  p.idle.shift()({ timeRemaining: () => 4 });
   assert.equal(p.log.posted.at(-1), 'render:iso');
   p.button(p.home, 'side').click();
   assert.deepEqual(p.log.posted.slice(-2), ['cancel', 'render:side']);

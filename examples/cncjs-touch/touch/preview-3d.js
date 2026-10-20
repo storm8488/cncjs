@@ -114,13 +114,12 @@
     if (!job.urgent) {
       if (document.hidden) return;
       if (idle === null) {
-        // Called on window: Chromium refuses a detached requestIdleCallback (Illegal invocation).
+        // Starting a view only posts a message (the worker draws) or schedules 6 ms slices, so
+        // any idle period will do: no minimum length (a page drawing frames never has 20 ms
+        // free; measured on the tablet), and 3 s at most. Called on window: Chromium refuses
+        // a detached requestIdleCallback (Illegal invocation).
         if (typeof root.requestIdleCallback !== 'function') idle = setTimeout(function () { idle = null; startJob(); }, 300);
-        else idle = root.requestIdleCallback(function (deadline) {
-          idle = null;
-          if (deadline && typeof deadline.timeRemaining === 'function' && deadline.timeRemaining() < 20) { idle = setTimeout(function () { idle = null; pump(); }, 500); return; }
-          startJob();
-        });
+        else idle = root.requestIdleCallback(function () { idle = null; startJob(); }, { timeout: 3000 });
       }
       return;
     }
@@ -218,5 +217,6 @@
   }
   ['library-image', 'home-job-image'].forEach(attach);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) pump(); });
-  root.cncPreviewViews = { view: function () { return view; }, choose: choose, title: function (v) { return TITLES[v] || ''; }, cached: function () { return cache.map(function (e) { return { key: e.key, views: Object.keys(e.views), failed: e.failed }; }); } };
+  root.cncPreviewViews = { view: function () { return view; }, choose: choose, title: function (v) { return TITLES[v] || ''; },
+    state: function () { return { worker: workerState, active: active ? active.view + (active.urgent ? '!' : '') : null, idle: idle !== null, queue: queue.map(function (j) { return j.entry.key.split('|')[0] + ':' + j.view + (j.urgent ? '!' : ''); }) }; }, cached: function () { return cache.map(function (e) { return { key: e.key, views: Object.keys(e.views), failed: e.failed }; }); } };
 })(typeof window !== 'undefined' ? window : this);
