@@ -31,8 +31,9 @@
     uiLocale.html('<p id="library-dimensions-status" role="status">Sélectionnez un fichier dans la bibliothèque.</p>') +
     uiLocale.html('<table id="library-dimensions-table" class="ks-dimensions-table" hidden><thead><tr><th scope="col">Axe</th><th scope="col">Minimum</th><th scope="col">Maximum</th><th scope="col">Étendue</th></tr></thead>') +
     uiLocale.html('<tbody><tr><th scope="row">X</th><td id="library-dimensions-xmin"></td><td id="library-dimensions-xmax"></td><td id="library-dimensions-width"></td></tr>') +
-    uiLocale.html('<tr><th scope="row">Y</th><td id="library-dimensions-ymin"></td><td id="library-dimensions-ymax"></td><td id="library-dimensions-height"></td></tr></tbody></table>') +
-    uiLocale.html('<p>Trajets rapides G0 inclus. Départ supposé X0 Y0. Projection XY approximative : ce ne sont pas les dimensions de la pièce. Z non représenté.</p></div>') +
+    uiLocale.html('<tr><th scope="row">Y</th><td id="library-dimensions-ymin"></td><td id="library-dimensions-ymax"></td><td id="library-dimensions-height"></td></tr>') +
+    uiLocale.html('<tr id="library-dimensions-zrow" hidden><th scope="row">Z</th><td id="library-dimensions-zmin"></td><td id="library-dimensions-zmax"></td><td id="library-dimensions-depth"></td></tr></tbody></table>') +
+    uiLocale.html('<p>Trajets rapides G0 inclus. Départ supposé X0 Y0 Z0. Projection approximative : ce ne sont pas les dimensions de la pièce. Z minimum = passe la plus profonde, sous Z0 si négatif.</p></div>') +
     uiLocale.html('<button id="library-regenerate" type="button" disabled>Régénérer l’aperçu depuis ce PC</button>') +
     uiLocale.html('<p id="library-regenerate-status" role="status"></p>') +
     uiLocale.html('<div class="library-execution"><strong>Stocké pour plus tard</strong>') +
@@ -110,17 +111,25 @@
   }
   function size(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + uiLocale.t(' Mo') : Math.max(1, Math.ceil(n / 1024)) + uiLocale.t(' Ko'); }
   function displayName(name) { return name.replace(/--touch-\d{14}-[a-f0-9]{16}(?=\.[^.]+$)/, ''); }
-  function dimensions(bounds, message) {
+  function dimensions(bounds, message, zBounds) {
     var fields = ['xmin', 'ymin', 'xmax', 'ymax', 'width', 'height'];
     var valid = Array.isArray(bounds) && bounds.length === 4 && bounds.every(function (n) { return typeof n === 'number' && isFinite(n); }) &&
       bounds[2] >= bounds[0] && bounds[3] >= bounds[1] && isFinite(bounds[2] - bounds[0]) && isFinite(bounds[3] - bounds[1]);
+    // Depth (previews made since the 3D path): the deepest and highest Z of the program.
+    var depth = valid && Array.isArray(zBounds) && zBounds.length === 2 && zBounds.every(function (n) { return typeof n === 'number' && isFinite(n); }) && zBounds[1] >= zBounds[0];
     property($('library-dimensions-table'), 'hidden', !valid);
+    property($('library-dimensions-zrow'), 'hidden', !depth);
     setText('library-dimensions-status', valid ? uiLocale.t('D’après l’aperçu enregistré · en millimètres') : message || uiLocale.t('Dimensions indisponibles. Régénérez l’aperçu depuis le PC via « Détails de l’aperçu ».'));
     var values = valid ? bounds.concat([bounds[2] - bounds[0], bounds[3] - bounds[1]]) : [];
-    fields.forEach(function (field, i) {
-      var value = values[i];
-      setText('library-dimensions-' + field, valid ? (Math.abs(value) < 0.005 ? 0 : value).toLocaleString(window.cncI18n?window.cncI18n.locale:'fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—');
-    });
+    function mm(value) { return (Math.abs(value) < 0.005 ? 0 : value).toLocaleString(window.cncI18n?window.cncI18n.locale:'fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+    fields.forEach(function (field, i) { setText('library-dimensions-' + field, valid ? mm(values[i]) : '—'); });
+    setText('library-dimensions-zmin', depth ? mm(zBounds[0]) : '—');
+    setText('library-dimensions-zmax', depth ? mm(zBounds[1]) : '—');
+    setText('library-dimensions-depth', depth ? mm(zBounds[1] - zBounds[0]) : '—');
+  }
+  // What the 3D views read: the stored preview of the file whose image is shown.
+  function describe(file, preview) {
+    $('library-image').cncPreview = preview ? { file: file, projection: preview.projection, zBounds: preview.zBounds, path3d: preview.path3d || null } : null;
   }
   // Row thumbnails and XY extents come from each file's stored preview, read one
   // at a time in idle time after the list is drawn (never before the selected
@@ -266,7 +275,7 @@
     $('library-dimensions-file').textContent = displayName(f.name);
     dimensions(null, uiLocale.t('Chargement des dimensions enregistrées…'));
     $('library-meta').textContent = size(f.size) + ' · ' + new Date(f.mtime).toLocaleString(window.cncI18n?window.cncI18n.locale:'fr-FR');
-    $('library-image').hidden = true; $('library-image').removeAttribute('src');
+    $('library-image').hidden = true; $('library-image').removeAttribute('src'); describe(f.name, null);
     $('library-image-status').hidden = false; $('library-image-status').textContent = uiLocale.t('Chargement de l’image…');
     $('library-preview-note').textContent = '';
     request('POST', 'file', { file: f.name + suffix }, 'detail').then(function (response) {
@@ -276,9 +285,10 @@
       publishSelection(f.name, meta.originalName);
       $('library-name').textContent = meta.originalName;
       $('library-dimensions-file').textContent = meta.originalName;
-      dimensions(meta.preview && meta.preview.bounds);
+      dimensions(meta.preview && meta.preview.bounds, null, meta.preview && meta.preview.zBounds);
       var image = meta.preview && meta.preview.image;
       if (typeof image === 'string' && image.length <= 2500000 && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(image)) {
+        describe(f.name, meta.preview);
         $('library-image').onload = function () {
           if (id !== requestId) return;
           detailLoading = false;
@@ -445,10 +455,10 @@
       cancelRequest('detail'); requestId++; detailLoading = false; selectedRow();
       $('library-name').textContent = file.name; $('library-dimensions-file').textContent = file.name;
       $('library-meta').textContent = size(file.size) + ' · ' + new Date().toLocaleString(window.cncI18n?window.cncI18n.locale:'fr-FR');
-      dimensions(meta.preview && meta.preview.bounds);
+      dimensions(meta.preview && meta.preview.bounds, null, meta.preview && meta.preview.zBounds);
       var uploadedImage = meta.preview && meta.preview.image;
       $('library-image').onload = $('library-image').onerror = null;
-      if (typeof uploadedImage === 'string' && uploadedImage) { $('library-image').src = uploadedImage; $('library-image').hidden = false; $('library-image-status').hidden = true; }
+      if (typeof uploadedImage === 'string' && uploadedImage) { describe(stored, meta.preview); $('library-image').src = uploadedImage; $('library-image').hidden = false; $('library-image-status').hidden = true; }
       else { $('library-image').hidden = true; $('library-image').removeAttribute('src'); $('library-image-status').hidden = false;
         $('library-image-status').textContent = uiLocale.t('Aperçu indisponible : ') + String(meta.previewError || uiLocale.t('aucune image enregistrée')) + uiLocale.t('. Le G-code reste disponible.'); }
       status('✓ ' + file.name + uiLocale.t(' enregistré. Disponible sur la Surface.') + (legacy ? uiLocale.t(' Fichier non UTF-8 : lu en Windows-1252 (accents convertis).') : '') + (meta.previewError ? uiLocale.t(' Aperçu indisponible : ') + meta.previewError : ''));

@@ -8,6 +8,7 @@ const { Worker } = require('node:worker_threads');
 const { performance } = require('node:perf_hooks');
 const { scan } = require('./touch/library-preview.js');
 const script = fs.readFileSync(path.join(__dirname, 'touch/library-preview.js'), 'utf8');
+const toolpath3d = fs.readFileSync(path.join(__dirname, 'touch/toolpath-3d.js'), 'utf8');
 const harness = `
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const {parentPort,workerData}=require('node:worker_threads');
@@ -23,7 +24,7 @@ if(workerData.readerMode==='legacy') {
 }
 context.self=context;
 context.postMessage=(message,transfer)=>parentPort.postMessage(message,transfer);
-context.importScripts=name=>vm.runInContext(fs.readFileSync(path.join(workerData.directory,name.split('?')[0]),'utf8'),context);
+context.importScripts=(...names)=>names.forEach(name=>vm.runInContext(fs.readFileSync(path.join(workerData.directory,name.split('?')[0]),'utf8'),context));
 vm.createContext(context);
 parentPort.on('message',message=>context.onmessage({data:message}));
 vm.runInContext(fs.readFileSync(path.join(workerData.directory,'library-preview-worker.js'),'utf8'),context);
@@ -33,7 +34,7 @@ function setup(options = {}) {
   const metrics = { inputBytes: 0, geometryBytes: 0, outstanding: 0, peak: 0, transfers: 0, responseBlobs: 0 };
   class BrowserWorker {
     constructor(url) {
-      assert.match(url, /library-preview-worker\.js\?v=worker9$/);
+      assert.match(url, /library-preview-worker\.js\?v=worker10$/);
       if (options.constructorFailure) throw Error('CSP denied');
       this.terminated = false;
       this.thread = new Worker(harness, { eval: true, workerData: { directory: path.join(__dirname, 'touch'), readerMode: options.readerMode } });
@@ -91,13 +92,15 @@ function setup(options = {}) {
   const browser = { FileReader: Reader, Blob };
   if (!options.noWorker) browser.Worker = BrowserWorker;
   const context = {
-    window: browser, document: { currentScript: { src: 'https://offline.invalid/touch/library-preview.js?v=worker9' } },
+    window: browser, document: { currentScript: { src: 'https://offline.invalid/touch/library-preview.js?v=worker10' } },
     Promise, Date, Uint16Array, Float64Array, setTimeout, clearTimeout,
     setInterval(fn, delay) { const timer = setInterval(fn, delay); intervals.add(timer); return timer; },
     clearInterval(timer) { clearInterval(timer); intervals.delete(timer); }
   };
   if (options.forbidUIParse) context.JSON = { parse() { throw Error('JSON.parse called on the UI thread'); }, stringify: JSON.stringify };
-  vm.runInNewContext(script, context);
+  vm.createContext(context);
+  if (!options.no3d) vm.runInContext(toolpath3d, context);
+  vm.runInContext(script, context);
   let strokes = 0, position, endpoint;
   const lines = [], ctx = {
     fillRect() {}, beginPath() {},
@@ -132,10 +135,26 @@ async function run() {
   assert.deepEqual(actual.lines, target); assert.equal(actual.strokes, expected.count);
   assert(actual.metrics.peak >= 1 && actual.metrics.peak <= 4);
   assert(expected.count > 11000, 'Dense arc plus lines span multiple transferred blocks');
-  assert(actual.metrics.geometryBytes <= 81920); assert(actual.metrics.inputBytes <= 65536);
+  assert(actual.metrics.geometryBytes <= 2048 * 6 * 8); assert(actual.metrics.inputBytes <= 65536);
   assert(actual.progress.some(message => /Analyse du parcours/.test(message)));
   assert(actual.progress.includes('Dessin du parcours : 100 %'));
   assert(!/secours/.test(rendered.note)); actual.clean();
+
+  // Depth crosses the worker boundary: Z extent, the Z of each trail sample, depth colours
+  // and the simplified 3D path built in the worker. The page fallback builds the same path.
+  const T3 = require('./touch/toolpath-3d.js');
+  const depthCode = 'G21 G90\nG0 Z5\nG0 X10 Y10\nG1 Z-2 F100\nG2 X10 Y10 Z-4 I5 J0\nG1 X30\nG0 Z5\nM2';
+  const direct = await scan(depthCode), depthWorker = setup(), depthResult = await depthWorker.render(depthCode);
+  assert.deepEqual(Array.from(depthResult.zBounds), [-4, 5]); assert.deepEqual(Array.from(depthResult.trailZ), direct.trailZ);
+  const decodedPath = T3.decode(depthResult.path3d);
+  assert.equal(decodedPath.bounds[2], -4); assert.equal(decodedPath.positions[decodedPath.count * 3 - 1], 5); assert.equal(depthResult.path3d.lines, direct.lines);
+  assert(depthWorker.lines.some(line => line[4] === T3.colours.depth.at(-1)), 'deepest work drawn in the deepest colour');
+  assert(depthWorker.lines.some(line => line[4] === T3.colours.rapid));
+  assert.match(depthResult.note, /violet/); depthWorker.clean();
+  const depthLocal = setup({ noWorker: true, noRecord: true }), localDepth = await depthLocal.render(depthCode);
+  assert.equal(JSON.stringify(localDepth.path3d), JSON.stringify(depthResult.path3d)); assert.equal(JSON.stringify(localDepth.zBounds), '[-4,5]'); depthLocal.clean();
+  const no3d = setup({ noWorker: true, no3d: true }), plainDepth = await no3d.render(depthCode);
+  assert.equal(plainDepth.path3d, undefined); assert.equal(plainDepth.segments, depthResult.segments); no3d.clean();
 
   // Exact UTF-16 transfer across block boundaries, including non-ASCII comments.
   const unicode = ';é😀' + 'x'.repeat(7000) + '\n';

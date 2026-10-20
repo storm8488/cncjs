@@ -2,31 +2,45 @@
 (function (root) {
   'use strict';
   var source = typeof document !== 'undefined' && document.currentScript && document.currentScript.src;
-  var workerURL = source ? source.split(/[?#]/)[0].replace(/[^/]*$/, 'library-preview-worker.js?v=worker9') : 'library-preview-worker.js?v=worker9';
+  var workerURL = source ? source.split(/[?#]/)[0].replace(/[^/]*$/, 'library-preview-worker.js?v=worker10') : 'library-preview-worker.js?v=worker10';
   var generation = 0;
-  function scan(text, segment, cancelled, progress, yieldAfterLine) {
+  // Floats per drawn segment: x, y, xx, yy, mode, deepest Z of the segment.
+  var STRIDE = 6;
+  // The 3D path from the worker is kept only if it has the expected shape and a bounded size.
+  function validPath(p) {
+    return p && typeof p === 'object' && p.version === 1 && typeof p.data === 'string' && p.data.length <= 4 * 1048576 &&
+      typeof p.count === 'number' && p.count >= 1 && Array.isArray(p.bounds) && p.bounds.length === 6 ? p : null;
+  }
+  // segment(x, y, xx, yy, mode, z, zz): each XY segment (the 2D drawing).
+  // move(x, y, z, xx, yy, zz, mode, sentLine): each move, Z-only plunges included (the 3D path).
+  function scan(text, segment, cancelled, progress, yieldAfterLine, move) {
     return new Promise(function (resolve, reject) {
-      var offset = 0, line = 0, x = 0, y = 0, absolute = true;
+      var offset = 0, line = 0, x = 0, y = 0, z = 0, absolute = true;
       // A relative (G91) move on an axis whose absolute position was never given starts
       // from wherever the tool is: the drawing still starts at 0, but its placement is unknown.
-      var knownX = false, knownY = false, relativeStart = false;
+      var knownX = false, knownY = false, knownZ = false, relativeStart = false, relativeZ = false;
       var unit = 1, motion = null, comment = false, ended = false, count = 0, arcAbsolute = false;
-      var bounds = [Infinity, Infinity, -Infinity, -Infinity];
+      var bounds = [Infinity, Infinity, -Infinity, -Infinity], zmin = Infinity, zmax = -Infinity;
       // Progress trail: about a thousand samples of [sent line count, x, y],
-      // taken every text.length/1000 characters. The line count follows the
-      // CNCjs sender (non-empty lines), so a job's acknowledged line count maps
-      // onto the trail at run time.
-      var trail = [], sentLines = 0, nextSample = 0, sampleStep = Math.max(1, Math.floor(text.length / 1000));
-      function sample() { trail.push(sentLines, Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000); }
+      // taken every text.length/1000 characters, with the Z of each sample in
+      // trailZ. The line count follows the CNCjs sender (non-empty lines), so a
+      // job's acknowledged line count maps onto the trail at run time.
+      var trail = [], trailZ = [], sentLines = 0, nextSample = 0, sampleStep = Math.max(1, Math.floor(text.length / 1000));
+      function sample() { trail.push(sentLines, Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000); trailZ.push(Math.round(z * 1000) / 1000); }
       sample(); // the trail starts at the assumed origin, before any line
-      function add(ax, ay, bx, by, mode) {
-        if (ax === bx && ay === by) return;
-        count++;
-        bounds[0] = Math.min(bounds[0], ax, bx); bounds[1] = Math.min(bounds[1], ay, by);
-        bounds[2] = Math.max(bounds[2], ax, bx); bounds[3] = Math.max(bounds[3], ay, by);
-        if (segment) segment(ax, ay, bx, by, mode);
+      function add(ax, ay, az, bx, by, bz, mode) {
+        if (ax === bx && ay === by) {
+          if (az === bz) return;
+        } else {
+          count++;
+          bounds[0] = Math.min(bounds[0], ax, bx); bounds[1] = Math.min(bounds[1], ay, by);
+          bounds[2] = Math.max(bounds[2], ax, bx); bounds[3] = Math.max(bounds[3], ay, by);
+          if (segment) segment(ax, ay, bx, by, mode, az, bz);
+        }
+        zmin = Math.min(zmin, az, bz); zmax = Math.max(zmax, az, bz);
+        if (move) move(ax, ay, az, bx, by, bz, mode, sentLines + 1);
       }
-      function arc(xx, yy, hasI, iWord, hasJ, jWord, radiusWord) {
+      function arc(xx, yy, zz, hasI, iWord, hasJ, jWord, radiusWord) {
         var clockwise = motion === 2, cx, cy, radius;
         if (radiusWord !== null) {
           if (hasI || hasJ) throw new Error('arc avec R et I/J simultanés');
@@ -57,20 +71,22 @@
         var step = Math.min(Math.PI / 36, 2 * Math.acos(Math.max(-1, Math.min(1, 1 - 0.02 / radius))));
         var parts = Math.ceil(Math.abs(angle) / step);
         if (!isFinite(parts) || parts > 8192) throw new Error('arc trop étendu pour cet aperçu');
-        var px = x, py = y;
+        // A helix: Z moves linearly with the angle, as in Grbl's mc_arc.
+        var px = x, py = y, pz = z;
         for (var n = 1; n <= parts; n++) {
           var a = start + angle * n / parts;
           var qx = n === parts ? xx : cx + radius * Math.cos(a);
           var qy = n === parts ? yy : cy + radius * Math.sin(a);
-          add(px, py, qx, qy, motion); px = qx; py = qy;
+          var qz = n === parts ? zz : z + (zz - z) * n / parts;
+          add(px, py, pz, qx, qy, qz, motion); px = qx; py = qy; pz = qz;
         }
       }
       // Per-line word state, reset by resetLine(). Kept outside read() so the
       // fast tokenizer and the regex fallback share one word() implementation.
-      var nx, ny, axis, seenX, seenY, seenZ, seenI, seenJ, seenR, hasI, hasJ, iWord, jWord, radiusWord, finish, dwell, seenP;
+      var nx, ny, nz, axis, seenX, seenY, seenZ, seenI, seenJ, seenR, hasI, hasJ, iWord, jWord, radiusWord, finish, dwell, seenP;
       var groupMotion, groupDistance, groupArc, groupUnits;
       function resetLine() {
-        nx = null; ny = null; axis = false; finish = false; radiusWord = null; dwell = false; seenP = false;
+        nx = null; ny = null; nz = null; axis = false; finish = false; radiusWord = null; dwell = false; seenP = false;
         seenX = seenY = seenZ = seenI = seenJ = seenR = hasI = hasJ = false; iWord = jWord = 0;
         groupMotion = groupDistance = groupArc = groupUnits = false;
       }
@@ -87,7 +103,7 @@
           else if (v !== 17 && v !== 40 && v !== 49 && v !== 54 && v !== 94) throw new Error('G' + v + ' non pris en charge par cet aperçu');
         } else if (letter === 'X') { if (seenX) throw new Error('axe répété'); seenX = true; axis = true; nx = v; }
         else if (letter === 'Y') { if (seenY) throw new Error('axe répété'); seenY = true; axis = true; ny = v; }
-        else if (letter === 'Z') { if (seenZ) throw new Error('axe répété'); seenZ = true; axis = true; }
+        else if (letter === 'Z') { if (seenZ) throw new Error('axe répété'); seenZ = true; axis = true; nz = v; }
         else if (letter === 'I') { if (seenI) throw new Error('paramètre d’arc répété'); seenI = true; hasI = true; iWord = v; }
         else if (letter === 'J') { if (seenJ) throw new Error('paramètre d’arc répété'); seenJ = true; hasJ = true; jWord = v; }
         else if (letter === 'R') { if (seenR) throw new Error('paramètre d’arc répété'); seenR = true; radiusWord = v; }
@@ -164,12 +180,15 @@
           if (motion === null) throw new Error('mode G0/G1 non défini');
           var xx = nx === null ? x : nx * unit + (absolute ? 0 : x);
           var yy = ny === null ? y : ny * unit + (absolute ? 0 : y);
+          var zz = nz === null ? z : nz * unit + (absolute ? 0 : z);
           if (nx !== null) { if (absolute) knownX = true; else if (!knownX) relativeStart = true; }
           if (ny !== null) { if (absolute) knownY = true; else if (!knownY) relativeStart = true; }
-          if (!isFinite(xx) || !isFinite(yy) || Math.abs(xx) > 1e9 || Math.abs(yy) > 1e9) throw new Error('coordonnées hors plage');
-          if (motion === 2 || motion === 3) arc(xx, yy, hasI, iWord, hasJ, jWord, radiusWord);
-          else add(x, y, xx, yy, motion);
-          x = xx; y = yy;
+          // Depths of a program that moves Z relatively before any absolute Z are relative to its start.
+          if (nz !== null) { if (absolute) knownZ = true; else if (!knownZ) relativeZ = true; }
+          if (!isFinite(xx) || !isFinite(yy) || !isFinite(zz) || Math.abs(xx) > 1e9 || Math.abs(yy) > 1e9 || Math.abs(zz) > 1e9) throw new Error('coordonnées hors plage');
+          if (motion === 2 || motion === 3) arc(xx, yy, zz, hasI, iWord, hasJ, jWord, radiusWord);
+          else add(x, y, z, xx, yy, zz, motion);
+          x = xx; y = yy; z = zz;
         }
         if (finish) ended = true;
       }
@@ -206,37 +225,50 @@
           if (offset < text.length) { setTimeout(batch, 0); return; }
           if (comment) throw new Error('commentaire non fermé');
           sample();
-          resolve({ count: count, bounds: bounds, trail: trail, lines: sentLines, relativeStart: relativeStart });
+          resolve({ count: count, bounds: bounds, trail: trail, trailZ: trailZ, lines: sentLines, relativeStart: relativeStart,
+            zBounds: zmin <= zmax ? [zmin, zmax] : null, relativeZ: relativeZ });
         } catch (error) { reject(new Error('Ligne ' + line + ' : ' + error.message)); }
       }
       setTimeout(batch, 0);
     });
   }
+  function toolpath3d() { return root.CNCToolpath3D || null; }
   function painter(canvas) {
     var ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Canvas indisponible');
     canvas.width = 960; canvas.height = 540;
-    var b, scale, ox, oy;
+    var b, scale, ox, oy, zb = null, zmin = 0, depth = null;
     return {
       setup: function (result) {
         if (!result.count) throw new Error('Aucun déplacement XY');
         b = result.bounds; var sx = b[2] - b[0], sy = b[3] - b[1];
         scale = Math.min(880 / (sx || 1), 440 / (sy || 1));
         ox = (960 - sx * scale) / 2; oy = (540 - sy * scale) / 2;
+        // Work below Z0 takes the colour of its depth (the deepest end of the segment).
+        zb = Array.isArray(result.zBounds) ? result.zBounds : null; zmin = zb ? zb[0] : 0;
+        depth = zmin < 0 && toolpath3d() ? toolpath3d().depthColor : null;
         ctx.fillStyle = '#101820'; ctx.fillRect(0, 0, 960, 540); ctx.lineWidth = 1;
       },
-      segment: function (x, y, xx, yy, motion) {
-        ctx.strokeStyle = motion === 0 ? '#657c8f' : '#55d6ed';
+      segment: function (x, y, xx, yy, motion, z) {
+        ctx.strokeStyle = motion === 0 ? '#657c8f' : depth ? depth(z, zmin) : '#55d6ed';
         ctx.beginPath(); ctx.moveTo(ox + (x - b[0]) * scale, 540 - oy - (y - b[1]) * scale);
         ctx.lineTo(ox + (xx - b[0]) * scale, 540 - oy - (yy - b[1]) * scale); ctx.stroke();
+      },
+      // Depth legend in the bottom margin (only for a program that goes under Z0).
+      finish: function () {
+        if (depth && zb) toolpath3d().legend(ctx, 16, 504, zb[0], zb[1], root.cncI18n && root.cncI18n.locale);
       }
     };
+  }
+  function pathBounds(result) {
+    var z = result.zBounds || [0, 0], b = result.bounds;
+    return [b[0], b[1], z[0], b[2], b[3], z[1]];
   }
   function render(text, canvas, cancelled, progress, responseBlob) {
     progress = progress || function () {};
     return new Promise(function (resolve, reject) {
       var id = ++generation, worker = null, timer = null, startup = null, drawing = null, reader = null;
-      var finished = false, ready = false, fallback = false, output, result, input = 0, sequence = 0, drawn = 0, queue = [], localResume = null;
+      var finished = false, ready = false, fallback = false, output, result, input = 0, sequence = 0, drawn = 0, queue = [], localResume = null, path3d = null;
       var lastProgress = '';
       function report(message) { if (!finished && message !== lastProgress) { lastProgress = message; progress(message); } }
       function stopped() { return finished || !!(cancelled && cancelled()); }
@@ -254,17 +286,25 @@
       function check() { if (stopped()) { finish(new Error('Annulé')); return false; } return true; }
       function encoded(image, synchronous) {
         if (!check()) return;
-        finish(null, { image: image, segments: result.count, bounds: result.bounds,
+        var value = { image: image, segments: result.count, bounds: result.bounds,
           projection: {version:1,width:960,height:540,bounds:result.bounds,units:'mm',wcs:'G54',relativeStart:!!result.relativeStart},
-          trail: result.trail, lines: result.lines,
-          note: 'Projection XY indicative — G1/G2/G3 bleu, G0 gris. Arcs XY interpolés à 0,02 mm. Départ supposé X0 Y0, mm, absolu et centres I/J relatifs. Z et puissance laser non simulés.' +
+          trail: result.trail, lines: result.lines };
+        // Depth (version 2 of the preview): Z extent, the Z of each trail sample and the
+        // simplified 3D path. Older readers ignore these fields.
+        if (Array.isArray(result.zBounds)) value.zBounds = result.zBounds;
+        if (Array.isArray(result.trailZ) && result.trailZ.length * 3 === result.trail.length) value.trailZ = result.trailZ;
+        if (path3d) value.path3d = path3d;
+        var deep = !!(value.zBounds && value.zBounds[0] < 0);
+        value.note = 'Projection XY indicative — G1/G2/G3 ' + (deep ? 'cyan au-dessus de Z0, du violet (peu profond) au rouge (le plus profond) sous Z0' : 'bleu') + ', G0 gris. Arcs interpolés à 0,02 mm. Départ supposé X0 Y0' + (result.relativeZ ? ', Z relatif au point de départ' : ' Z0') + ', mm, absolu et centres I/J relatifs. Puissance laser non simulée.' +
             (fallback ? ' Calcul local de secours : réactivité à vérifier sur cet appareil.' : '') +
-            (synchronous ? ' Encodage PNG synchrone de secours.' : '') });
+            (synchronous ? ' Encodage PNG synchrone de secours.' : '');
+        finish(null, value);
       }
       function encode() {
         if (!check()) return;
         report('Encodage de l’image PNG…');
         try {
+          output.finish();
           if (typeof canvas.toBlob === 'function' && typeof root.FileReader === 'function') {
             canvas.toBlob(function (blob) {
               if (!check()) return;
@@ -317,18 +357,21 @@
         scan(text, null, stopped, function (p) { report('Analyse locale du parcours : ' + Math.floor(p * 100) + ' %'); }).then(function (value) {
           if (!check()) return;
           result = value; output.setup(result);
-          var data = new Float64Array(2048 * 5), used = 0;
+          var data = new Float64Array(2048 * STRIDE), used = 0, T3 = toolpath3d(), builder = T3 ? T3.createBuilder({ bounds: pathBounds(result) }) : null;
           function flush() {
             if (!used) return;
             queue.push({ data: data.subarray(0, used), offset: 0 });
-            data = new Float64Array(2048 * 5); used = 0;
+            data = new Float64Array(2048 * STRIDE); used = 0;
             if (drawing === null) drawing = setTimeout(draw, 0);
           }
           function pressure() { return queue.length ? new Promise(function (resolve) { localResume = resolve; }) : null; }
-          return scan(text, function (x, y, xx, yy, mode) {
-            data[used++] = x; data[used++] = y; data[used++] = xx; data[used++] = yy; data[used++] = mode;
+          return scan(text, function (x, y, xx, yy, mode, z, zz) {
+            data[used++] = x; data[used++] = y; data[used++] = xx; data[used++] = yy; data[used++] = mode; data[used++] = Math.min(z, zz);
             if (used === data.length) flush();
-          }, stopped, null, pressure).then(function () { flush(); return pressure(); }).then(encode);
+          }, stopped, null, pressure, builder && builder.move).then(function () {
+            if (builder) path3d = builder.finish(result.lines);
+            flush(); return pressure();
+          }).then(encode);
         }).catch(function (error) { finish(error); });
       }
       function sendInput() {
@@ -345,8 +388,8 @@
           var start = Date.now(), count = 0;
           while (queue.length && count < 1024 && Date.now() - start < 4) {
             var block = queue[0], a = block.data, j = block.offset;
-            output.segment(a[j], a[j + 1], a[j + 2], a[j + 3], a[j + 4]);
-            block.offset += 5; count++; drawn++;
+            output.segment(a[j], a[j + 1], a[j + 2], a[j + 3], a[j + 4], a[j + 5]);
+            block.offset += STRIDE; count++; drawn++;
             if (block.offset === a.length) {
               queue.shift();
               if (worker) worker.postMessage({ type: 'ack', id: id, sequence: block.sequence });
@@ -377,7 +420,7 @@
           var message = event.data || {};
           try {
             if (message.type === 'ready' && !ready) {
-              if (message.version !== 1) { local('Version du Worker incompatible'); return; }
+              if (message.version !== 2) { local('Version du Worker incompatible'); return; }
               if (responseBlob && !message.response) { local('Lecture du serveur indisponible dans le Worker'); return; }
               ready = true; clearTimeout(startup);
               report('Préparation du parcours hors interface…');
@@ -393,11 +436,12 @@
             else if (message.type === 'progress') report('Analyse du parcours : ' + Math.floor(message.value * 100) + ' %');
             else if (message.type === 'bounds') { result = message.result; output.setup(result); }
             else if (message.type === 'segments') {
-              if (!result || message.sequence !== sequence + 1 || !message.data || message.data.byteLength > 2048 * 5 * 8 || !message.data.byteLength || message.data.byteLength % 40 || queue.length >= 4) throw new Error('Bloc de parcours invalide');
+              if (!result || message.sequence !== sequence + 1 || !message.data || message.data.byteLength > 2048 * STRIDE * 8 || !message.data.byteLength || message.data.byteLength % (STRIDE * 8) || queue.length >= 4) throw new Error('Bloc de parcours invalide');
               sequence = message.sequence; queue.push({ sequence: sequence, data: new Float64Array(message.data), offset: 0 });
               if (drawing === null) drawing = setTimeout(draw, 0);
             } else if (message.type === 'done') {
               if (!result || queue.length || drawn !== result.count) throw new Error('Parcours incomplet');
+              path3d = validPath(message.path3d);
               worker.terminate(); worker = null; encode();
             } else if (message.type === 'error') finish(new Error(message.message || 'Aperçu indisponible'));
           } catch (error) { finish(error); }

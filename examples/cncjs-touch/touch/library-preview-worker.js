@@ -1,8 +1,9 @@
 /* Response decoding and geometry only. No controller, network or canvas API. */
 (function () {
   'use strict';
-  importScripts('library-preview.js?v=worker9');
-  var job = null, maxText = 20 * 1048576, blockSize = 2048;
+  importScripts('toolpath-3d.js?v=worker10', 'library-preview.js?v=worker10');
+  // Floats per segment: x, y, xx, yy, mode, deepest Z of the segment.
+  var job = null, maxText = 20 * 1048576, blockSize = 2048, stride = 6;
   // Geometry blocks in flight before parsing pauses: parsing and drawing overlap
   // instead of alternating one block at a time. The renderer refuses a fourth.
   var maxOutstanding = 3;
@@ -17,7 +18,7 @@
     send('error', { message: error.message || String(error) });
   }
   function parse(text) {
-    var state = job, data = new Float64Array(blockSize * 5), used = 0, sequence = 0, pending = {}, outstanding = 0;
+    var state = job, data = new Float64Array(blockSize * stride), used = 0, sequence = 0, pending = {}, outstanding = 0;
     function cancelled() { return state !== job || state.failed; }
     function flush() {
       if (!used) return;
@@ -26,7 +27,7 @@
       var buffer = trimmed.buffer;
       pending[++sequence] = true; outstanding++;
       send('segments', { sequence: sequence, data: buffer }, [buffer]);
-      data = new Float64Array(blockSize * 5); used = 0;
+      data = new Float64Array(blockSize * stride); used = 0;
     }
     // Resolves once fewer than `limit` blocks are outstanding.
     function waitBelow(limit) {
@@ -51,14 +52,17 @@
       if (cancelled()) return;
       if (!result.count) throw new Error('Aucun déplacement XY');
       send('bounds', { result: result });
-      return self.CNCLibraryPreview.scan(state.text, function (x, y, xx, yy, mode) {
-        data[used++] = x; data[used++] = y; data[used++] = xx; data[used++] = yy; data[used++] = mode;
+      // The simplified 3D path is built during the drawing pass, once the extent is known.
+      var z = result.zBounds || [0, 0], b = result.bounds;
+      var builder = self.CNCToolpath3D.createBuilder({ bounds: [b[0], b[1], z[0], b[2], b[3], z[1]] });
+      return self.CNCLibraryPreview.scan(state.text, function (x, y, xx, yy, mode, z0, z1) {
+        data[used++] = x; data[used++] = y; data[used++] = xx; data[used++] = yy; data[used++] = mode; data[used++] = Math.min(z0, z1);
         if (used === data.length) flush();
-      }, cancelled, null, pressure).then(function () {
+      }, cancelled, null, pressure, builder.move).then(function () {
         flush(); return drain();
       }).then(function () {
         if (cancelled()) return;
-        state.text = ''; send('done');
+        state.text = ''; send('done', { path3d: builder.finish(result.lines) });
       });
     }).catch(fail);
   }
@@ -115,5 +119,5 @@
       } else throw new Error('Message d’aperçu inconnu');
     } catch (error) { fail(error); }
   };
-  self.postMessage({ type: 'ready', version: 1, response: true });
+  self.postMessage({ type: 'ready', version: 2, response: true });
 })();

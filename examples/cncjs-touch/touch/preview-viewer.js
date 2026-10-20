@@ -37,6 +37,9 @@
     if(img.hidden||!img.complete||!img.naturalWidth||!img.getAttribute('src'))return;
     focusReturn=document.activeElement;source={naturalWidth:img.naturalWidth,naturalHeight:img.naturalHeight};zoom=1;x=0;y=0;drag=null;
     $('preview-viewer-file').textContent=name;
+    // A 3D view shown in place of the 2D image (preview-3d.js) gives its own title.
+    var view=img.cncView&&img.cncView.src===img.getAttribute('src')&&window.cncPreviewViews?window.cncPreviewViews.title(img.cncView.view):'';
+    $('preview-viewer-title').textContent=view||uiLocale.t('Aperçu XY');
     background=Array.prototype.map.call(document.querySelectorAll('main,#tabbar,#real-banner,#simulation-banner,#status-bar'),function(el){var entry={el:el,inert:el.inert};el.inert=true;return entry;});
     overlay.hidden=false;image.src=img.src;renderStatus();fit();$('preview-viewer-close').focus({preventScroll:true});
   }

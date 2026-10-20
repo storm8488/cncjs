@@ -3,13 +3,23 @@
  * See THIRD-PARTY-NOTICES.md for attribution. */
 (function(root){
   'use strict';
+  // Version 1: the stored XY image. Version 2: a fixed 3D view (preview-3d.js), an affine
+  // matrix of the image; Z is then needed, unless the view ignores it (top view).
   function project(meta,point){
-    if(!meta||meta.version!==1||meta.width!==960||meta.height!==540||meta.units!=='mm'||meta.wcs!=='G54')return null;
-    var b=meta.bounds;
-    if(!Array.isArray(b)||b.length!==4||!b.every(function(v){return typeof v==='number'&&isFinite(v);})||b[2]<b[0]||b[3]<b[1])return null;
+    if(!meta||meta.width!==960||meta.height!==540||meta.units!=='mm'||meta.wcs!=='G54')return null;
     if(!point||typeof point.x!=='number'||typeof point.y!=='number'||!isFinite(point.x)||!isFinite(point.y))return null;
-    var sx=b[2]-b[0],sy=b[3]-b[1],scale=Math.min(880/(sx||1),440/(sy||1));
-    var x=(960-sx*scale)/2+(point.x-b[0])*scale,y=540-(540-sy*scale)/2-(point.y-b[1])*scale;
+    var x,y;
+    if(meta.version===2){
+      var m=meta.matrix,z=point.z;
+      if(!Array.isArray(m)||m.length!==8||!m.every(function(v){return typeof v==='number'&&isFinite(v);}))return null;
+      if(typeof z!=='number'||!isFinite(z)){if(m[2]!==0||m[6]!==0)return null;z=0;}
+      x=m[0]*point.x+m[1]*point.y+m[2]*z+m[3];y=m[4]*point.x+m[5]*point.y+m[6]*z+m[7];
+    }else{
+      var b=meta.bounds;
+      if(meta.version!==1||!Array.isArray(b)||b.length!==4||!b.every(function(v){return typeof v==='number'&&isFinite(v);})||b[2]<b[0]||b[3]<b[1])return null;
+      var sx=b[2]-b[0],sy=b[3]-b[1],scale=Math.min(880/(sx||1),440/(sy||1));
+      x=(960-sx*scale)/2+(point.x-b[0])*scale;y=540-(540-sy*scale)/2-(point.y-b[1])*scale;
+    }
     return x<0||x>960||y<0||y>540?null:{x:x/960,y:y/540};
   }
   // Number of trail samples ([sentLine, x, y, ...]) whose sent-line count is within `acknowledged`.
@@ -48,17 +58,19 @@
   var box=null,boxAt=-Infinity;
   function invalidate(){box=null;}
   function hide(message){marker.hidden=true;trail.hidden=true;if(note.textContent!==message)note.textContent=message;}
-  function drawTrail(meta,s,box){
-    var samples=meta.trail;
-    if(!Array.isArray(samples)||samples.length<6||typeof s.total!=='number'||!(s.total>0)||typeof s.received!=='number'||!(s.received>=0)){trail.hidden=true;return;}
+  // projection: the shown image's (2D, or the chosen 3D view); a 3D view also needs the Z of each sample.
+  function drawTrail(meta,s,box,projection){
+    var samples=meta.trail,depth=projection.version===2?meta.trailZ:null;
+    if(!Array.isArray(samples)||samples.length<6||typeof s.total!=='number'||!(s.total>0)||typeof s.received!=='number'||!(s.received>=0)||
+      projection.version===2&&(!Array.isArray(depth)||depth.length*3!==samples.length)){trail.hidden=true;return;}
     // Simulation counts percent, real jobs count sender lines; both scale onto the trail's line count.
     // A finished program shows its whole path: CNCjs rewinds the line counters at the end.
     var totalLines=samples[samples.length-3];
     var n=trailCount(samples,acknowledged(s,totalLines));
-    if(drawnTrail.source!==samples||drawnTrail.points!==n){
+    if(drawnTrail.source!==samples||drawnTrail.points!==n||drawnTrail.projection!==projection){
       var points=[];
-      for(var i=0;i<n;i++){var p=project(meta.projection,{x:samples[i*3+1],y:samples[i*3+2]});if(p)points.push((p.x*960).toFixed(1)+','+(p.y*540).toFixed(1));}
-      trailLine.setAttribute('points',points.join(' '));drawnTrail={source:samples,points:n};
+      for(var i=0;i<n;i++){var p=project(projection,{x:samples[i*3+1],y:samples[i*3+2],z:depth?depth[i]:undefined});if(p)points.push((p.x*960).toFixed(1)+','+(p.y*540).toFixed(1));}
+      trailLine.setAttribute('points',points.join(' '));drawnTrail={source:samples,points:n,projection:projection};
     }
     var ratio=Math.min(box.width/960,box.height/540),width=960*ratio,height=540*ratio;
     trail.style.left=(box.left+(box.width-width)/2)+'px';trail.style.top=(box.top+(box.height-height)/2)+'px';
@@ -72,6 +84,8 @@
     var meta=img.cncPreview,s=state;
     if(!s||!s.fresh||Date.now()-received>2500||img.hidden||!meta||!s.name||meta.file!==s.name){hide(t('Position outil : données ou aperçu indisponibles.'));return;}
     if(!meta.projection){hide(t('Position outil : régénérez cet ancien aperçu dans Fichiers.'));return;}
+    // The chosen 3D view, when it is the image shown; otherwise the stored 2D image.
+    var view=img.cncView&&img.cncView.src===img.getAttribute('src')?img.cncView:null,projection=view?view.projection:meta.projection;
     // Layout reads are batched in one animation frame, only on the visible view.
     if(!box||Date.now()-boxAt>=1000||Date.now()<boxAt){
       var r=img.getBoundingClientRect(),parent=img.parentNode.getBoundingClientRect();
@@ -84,7 +98,7 @@
     if(!width||!height){hide('');return;}
     // The trail only needs the acknowledged lines and the preview, not the tool
     // position: it stays visible when the position cannot be projected.
-    drawTrail(meta,s,box);
+    drawTrail(meta,s,box,projection);
     var trailLabel=trail.hidden?'':simulation?t(' Tracé orange : avancement fictif.'):t(' Tracé orange : lignes acquittées, indicatif.');
     function noMarker(message){marker.hidden=true;var text=message+trailLabel;if(note.textContent!==text)note.textContent=text;}
     var point;
@@ -95,9 +109,9 @@
       if(!s.operator||s.operator.reportUnits!=='mm'||s.operator.wcs!=='G54'){noMarker(t('Position outil : repère G54 et rapports en mm requis.'));return;}
       var w=s.coordinates&&s.coordinates.wpos;
       if(!w||w.x===undefined||w.y===undefined){noMarker(t('Position outil inconnue.'));return;}
-      point={x:typeof w.x==='string'&&w.x.trim()!==''?Number(w.x):w.x,y:typeof w.y==='string'&&w.y.trim()!==''?Number(w.y):w.y};
+      point={x:typeof w.x==='string'&&w.x.trim()!==''?Number(w.x):w.x,y:typeof w.y==='string'&&w.y.trim()!==''?Number(w.y):w.y,z:typeof w.z==='string'&&w.z.trim()!==''?Number(w.z):w.z};
     }
-    var pixel=project(meta.projection,point);
+    var pixel=project(projection,point);
     if(!pixel){noMarker(t('Position outil hors aperçu ou projection invalide.'));return;}
     var left=(box.left+(box.width-width)/2)+'px',top=(box.top+(box.height-height)/2)+'px',move='translate('+(pixel.x*width)+'px,'+(pixel.y*height)+'px) translate(-50%,-50%)';
     if(marker.style.left!==left)marker.style.left=left;if(marker.style.top!==top)marker.style.top=top;
