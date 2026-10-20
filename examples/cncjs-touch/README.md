@@ -20,6 +20,18 @@ Open the localhost URL printed by the preview server. It serves a local visual f
 
 A complete bug hunt (six reviews, refuters, a second round on the fixes) and a fluidity pass measured on the Surface RT: Stop now reaches Grbl whatever CNCjs cached (also during homing and macro dwells), stream renewals and Wi-Fi gaps no longer hide Stop, and Suivi costs about 10 % less CPU during a job. Details, figures and what was not changed in `TESTING.md`, "Full pass".
 
+## Depth and fixed 3D views (2026-10-20)
+
+The Surface RT cannot run a WebGL view (no GPU in the kiosk; software WebGL gives 2–5 frames/s), so the previews show depth with the CPU, as still images:
+
+- **Depth in the preview.** The preview parser now follows Z (G90/G91, G20/G21, helical arcs with Z interpolated along the angle). The 2D image colours work below Z0 by depth (light violet just under the surface, red at the deepest pass; cyan at or above Z0, grey rapids) and prints the minimum and maximum Z. Fichiers → Dimensions has a Z row.
+- **A 3D path in the preview sidecar.** `preview.path3d` (version 1) holds the simplified toolpath: every move, plunges included, with its type (G0 or work) and the sent line that reached it, at most 30 000 points (radial simplification under a quarter of a pixel, then regular decimation for rasters finer than the image), packed as base64 varint deltas in 0.001 mm (a 20 000-line file: about 150 KB of text). `preview.zBounds` and `preview.trailZ` (the Z of each progress sample) come with it. Older sidecars keep working; their 3D views ask for a regeneration.
+- **Four fixed views**: isometric, front (XZ), side (YZ) and top (XY), chosen with a segmented control over the preview in Fichiers and Suivi (2D by default, remembered on the device). Each image carries the move colours and the depth scale, a small XYZ triad, a scale bar (with "Z ×n" when a shallow job is drawn with Z exaggerated), and the suggested Z0 plane. Views are drawn in a Web Worker on an OffscreenCanvas (`touch/preview-3d-worker.js`; in the page by 6 ms slices where OffscreenCanvas is missing), the asked view first, the other three when the page is idle, then kept for the three most recent files.
+- **During a job** the orange trail and the tool marker are projected with the same matrix as the chosen view (`img.cncView.projection`, version 2), with Z; the image itself is never redrawn.
+- **For a future tablet with a GPU**: `CNCToolpath3D.decode(preview.path3d)` returns `positions` (x, y, z per point), `rapid` and `lines` as typed arrays, ready for a `THREE.BufferGeometry` (three.js 0.103 is in CNCjs's dependencies). three.js is not loaded by the touch pages.
+
+Code: `touch/toolpath-3d.js` (path builder and codec, projections, renderer), `touch/preview-3d.js` (selector, cache, worker), `touch/library-preview.js` (Z in the parser). Measurements on the tablet and the simulator run are in TESTING.md, "Depth and fixed 3D views".
+
 ## Pendant features (2026-10-19)
 
 Rapids at 25 / 50 / 100 % in Suivi (also at rest, for a first run), the action the state calls for in the status strip (Resume, Unlock, Stop during homing or a jog), a screen lock that keeps only Pause and Stop reachable, and Suivi opening by itself when a job starts with a summary at the end. Details and the simulator run in `TESTING.md`, "Pendant features".

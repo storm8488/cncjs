@@ -100,6 +100,43 @@ Deployed (`318a8084` interface, server touch files from `d345a5e4`, `pm2 restart
 
 Not tested on the real machine (LUNYEE 4040 Nova, Grbl_ESP32 1.3a, not delivered yet): every stop sequence above (feed hold, reset at Hold:0) against real inertia, homing and its stop, the plate probe, the tool change spin-up, a board restart during a pause, and the new start guard on G20/G91 left by another program.
 
+## Depth and fixed 3D views (2026-10-20)
+
+What changed is in README.md, "Depth and fixed 3D views". Tests:
+
+- `test-preview-depth.cjs`: Z through G90/G91 and G20, a relative Z before any absolute Z (`relativeZ`), helices (Z linear with the angle, exact at the end), plunges reaching the 3D path but not the 2D drawing, sent lines on every move; the 3D path codec (exact to 0.001 mm, move types, monotonic lines), simplification (small holes on a large part), the 30 000-point bound on a 200 000-move raster (decimated, still spanning the part), malformed paths refused; depth colours, Z exaggeration, the four projections (box and Z0 plane inside the image, +X right, +Z up) and the sliced renderer (title, depth legend, triad, scale bar).
+- `test-preview-3d.cjs`: the selector and the remembered choice, nothing computed while 2D is shown, the asked view at once and the three others from an idle callback (4 ms idle periods, 3 s timeout, never a detached `requestIdleCallback`), cache shared by Fichiers and Suivi, a background view set aside for an asked one, an old sidecar (hint, 2D kept), a broken path, a hidden page, eviction with URL release, the real `preview-3d-worker.js` with a fake OffscreenCanvas, the page fallback without OffscreenCanvas or without Worker, and the tool marker projection (version 2 needs Z except for the top view).
+- `test-preview-worker.cjs`: Z bounds, trail Z, depth colours and the 3D path cross the worker boundary; the page fallback builds the same path.
+
+### Measured on the Surface RT
+
+Method: `pv3d-bench.js` (DevTools on a second Chromium 106 with the kiosk flags, kiosk frozen meanwhile), touch/ swapped between before (318a8084) and after, alternated before, after, before, after; deterministic programs of 20 002 and 120 002 lines (four passes at Z −0.75 to −3, a 120 × 200 mm raster and a circle per pass). Opening times are the median of 5 openings per pass.
+
+| | before | after |
+| --- | --- | --- |
+| Preview (render) 20 002 lines | 9.6 – 9.9 s | 10.7 – 11.9 s |
+| Preview (render) 120 002 lines | 38.3 – 39.1 s | 41.9 – 43.4 s |
+| Whole upload 20 002 / 120 002 lines | 10.7 – 10.9 / 41.0 – 42.0 s | 11.6 / 45.1 – 45.5 s |
+| Worst frame during a render | 52 – 122 ms | 62 – 149 ms |
+| Fichiers opening, 20 002 / 120 002 selected | 172 – 182 / 177 – 190 ms | 181 – 193 / 212 – 222 ms |
+| Suivi opening, 20 002 / 120 002 selected | 154 – 204 / 84 – 89 ms | 95 – 157 / 85 – 91 ms |
+| Sidecar | 52 KB | 214 KB (20 002) / 165 KB (120 002, path decimated to 12 108 points) |
+
+- Renders stay as fluid as before (no long task over 150 ms, as before); they take about 1.2 s (20 002 lines) and 3.5 s (120 002 lines) longer: Z tracking (about 5 % of the parse) and the 3D path, built in the worker's second pass. A first version cost twice that (measured per phase in the page: the path took a third of the second pass with JS arrays); it now streams into preallocated typed arrays.
+- Screen openings: within the run-to-run noise of this tablet (about ±50 %, see "UI 2027").
+- 3D views (after the fixes below, on a page drawing frames continuously): the asked isometric view in 1.3 s for the 20 002-line file (20 282 points) and 0.7 s for the 120 002-line one (12 108 points), all four views in 3.4 s and 2.6 s, worst frame 90 to 113 ms meanwhile; a view already drawn is shown in 5 to 30 ms.
+
+Found on the tablet and fixed (both now covered by `test-preview-3d.cjs`): the background views were never drawn, first because `requestIdleCallback` was called detached from `window` ("Illegal invocation" in Chromium, accepted by the test page then), then because a view waited for 20 ms of idle time, which a page drawing frames never has.
+
+### Simulator run (2026-10-20, Grbl simulator through CNCjs, deployed f6bc5f4e)
+
+`pv3d-run.js` sent a three-pass program (Z -0.5, -1, -1.5 around a 40 x 30 mm pocket, then a helical circle down to Z -1.5) with `cncLibraryImport`, then:
+- Fichiers: Dimensions read Z min -1.50 / Z max 5.00, path of 241 points; the isometric view in 1.2 s, the other three from the cache in 5 to 8 ms (drawn in the background meanwhile).
+- Loaded and started from Suivi: during the job, in each view, the marker sat on the reported work position (for instance X 9.29 Y 35 Z -1 on the back left corner of the pocket in the isometric view, X 29.58 Z -1.5 on the deepest pass in the front view) and the orange trail followed the acknowledged passes; the note read the usual marker and trail sentences. The program ran to its end; the port was closed and the simulator stopped (`$22` untouched).
+- Found: the depth legend ran under the view selector in Fichiers; it is now 300 px wide in the top right corner of the image.
+
+Nothing was run on the real machine, which is not there yet.
+
 ## Pendant features (2026-10-19)
 
 Four functions taken from what hand pendants offer (PiBot CNC Pendant V4.2, XHC, Masso), chosen because they need no new motion:
