@@ -1572,9 +1572,13 @@ notes: plan.notes
     }
   };
 
-  const list = () => {
+  // Forgets the controllers CNCjs closed and registers the open Grbl ones
+  // (status listeners), without building snapshots: the stream heartbeat
+  // calls it even without a client, so a host command can be judged on fresh
+  // reports and a closed controller is not kept for long.
+  const observe = () => {
     if (disposed) {
-      throw conflict('Service indisponible.');
+      return [];
     }
     const registry = controllers();
     for (const [c, r] of records) {
@@ -1583,10 +1587,18 @@ notes: plan.notes
         remove(c, r);
       }
     }
+    const open = Object.values(registry).filter((c) => c && !c.isClose() && c.type === 'Grbl');
+    open.forEach(record);
+    return open;
+  };
+
+  const list = () => {
+    if (disposed) {
+      throw conflict('Service indisponible.');
+    }
+    const open = observe();
     probeInput.sync();
-    return Object.values(registry)
-      .filter((c) => c && !c.isClose() && c.type === 'Grbl')
-      .map(snapshot);
+    return open.map(snapshot);
   };
 
   // Cheap key of everything a snapshot depends on, apart from elapsed time
@@ -1694,10 +1706,13 @@ notes: plan.notes
       if (feeder.queue || feeder.pending) {
         throw conflict('Commandes en attente sur ' + port + ' : commande système refusée.');
       }
-      const r = records.get(c);
       if (c.type === 'Grbl') {
-        if (!r || !Number.isFinite(r.seen) || clock() < r.seen || clock() - r.seen > MAX_REPORT_AGE_MS) {
-          throw conflict('État machine trop ancien sur ' + port + ' : attendre un rapport récent.');
+        // A controller may not have been listed yet (no stream client): give
+        // it its record and status listener here, so a retry can judge its
+        // freshness (the stream heartbeat does the same, see observe()).
+        const r = record(c);
+        if (!Number.isFinite(r.seen) || clock() < r.seen || clock() - r.seen > MAX_REPORT_AGE_MS) {
+          throw conflict('État machine trop ancien sur ' + port + ' : attendre un rapport récent, puis réessayer.');
         }
         if (r.probing) {
           throw conflict('Palpage en cours sur ' + port + ' : commande système refusée.');
@@ -1746,6 +1761,7 @@ notes: plan.notes
   return {
     action,
     previewMotion: motion.preview,
+    observe,
     list,
     fingerprint,
     subscribe,

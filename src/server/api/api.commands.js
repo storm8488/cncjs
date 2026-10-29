@@ -23,7 +23,7 @@ const CONFIG_KEY = 'commands';
 // Host commands that stop, restart or power the computer off, or kill
 // processes (CNCjs itself included): they take the machine's supervision away,
 // so they run only with every controller at rest and nothing starting meanwhile.
-const SENSITIVE = /(^|[^\w.-])(shutdown|reboot|poweroff|halt|init\s+[06]|systemctl\s+(?:[-\w]+\s+)*(?:stop|restart|poweroff|reboot|halt)|pm2\s+(?:[-\w]+\s+)*(?:stop|restart|delete|kill)|kill|killall|pkill|service\s+\S+\s+(?:stop|restart))(?![\w.-])/i;
+const SENSITIVE = /(^|[^\w.-])(shutdown|reboot|poweroff|halt|(?:init|telinit)\s+[06]|systemctl\s+(?:[-\w]+\s+)*(?:stop|restart|reload|reload-or-restart|try-restart|kill|poweroff|reboot|halt)|pm2\s+(?:[-\w]+\s+)*(?:stop|restart|reload|delete|kill)|kill|killall|pkill|service\s+\S+\s+(?:stop|restart|reload))(?![\w.-])/i;
 export const sensitiveCommand = (commands) => SENSITIVE.test(String(commands || ''));
 
 // A sensitive command holds the machine until its task ends. A task that never
@@ -56,6 +56,10 @@ const controllersAtRest = () => {
     }
     if (BUSY_STATES.includes(state) || /^Door/.test(state)) {
       throw conflict('Machine en mouvement ou occupée (' + state + ') sur ' + port + ' : commande système refusée.');
+    }
+    const feeder = c.feeder && typeof c.feeder.toJSON === 'function' ? c.feeder.toJSON() : {};
+    if (feeder.queue || feeder.pending) {
+      throw conflict('Commandes en attente sur ' + port + ' : commande système refusée.');
     }
   });
 };

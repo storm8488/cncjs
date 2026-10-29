@@ -405,6 +405,40 @@ describe('touch stream', () => {
     ctx.stream.dispose();
   });
 
+  test('a reservation taken before a client connects is in its first packet; a release and a new reservation are both published', () => {
+    const ctx = setup();
+    ctx.service.observe(); // what the heartbeat does before any client
+    ctx.registry.A.runner.emit('status');
+    const reservation = ctx.service.reserveSystemCommand({ id: 'c1', title: 'Redémarrer', commands: 'sudo reboot' });
+    const { res } = ctx.connect();
+    expect(res.lines.at(-1).systemCommand).toMatchObject({ title: 'Redémarrer' });
+    reservation.release();
+    const r2 = ctx.service.reserveSystemCommand({ id: 'c2', title: 'Éteindre', commands: 'sudo poweroff' });
+    ctx.timers.flush();
+    expect(res.lines.at(-1).systemCommand).toMatchObject({ title: 'Éteindre' });
+    r2.release();
+    ctx.timers.flush();
+    expect(res.lines.at(-1).systemCommand).toBe(null);
+    ctx.stream.dispose();
+  });
+
+  test('without any client, the heartbeat keeps the service listening: a host command is judged on fresh reports at once', () => {
+    const ctx = setup();
+    const c = ctx.registry.A;
+    expect(c.runner.listenerCount('status')).toBe(0);
+    const [heartbeat] = ctx.timers.intervals.values();
+    heartbeat();
+    expect(c.runner.listenerCount('status')).toBe(1);
+    c.runner.emit('status');
+    expect(() => ctx.service.reserveSystemCommand({ id: 'c1', title: 'Redémarrer', commands: 'sudo reboot' }).release()).not.toThrow();
+    // A closed controller is forgotten by the heartbeat too, client or not.
+    c.isClose = () => true;
+    heartbeat();
+    expect(c.runner.listenerCount('status')).toBe(0);
+    ctx.stream.dispose();
+    expect(() => heartbeat()).not.toThrow();
+  });
+
   test('dispose clears timers, listeners and the service', () => {
     const ctx = setup();
     const { res } = ctx.connect();

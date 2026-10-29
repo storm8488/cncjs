@@ -70,14 +70,15 @@ afterAll(async () => {
 const services = [];
 afterEach(() => {
   services.splice(0).forEach((service) => service.dispose());
+  jest.useRealTimers();
 });
 
 const setup = () => {
-  const ctx = { now: 10000, events: [], c: fakeController() };
+  const ctx = { now: 10000, events: [], macros: [], c: fakeController() };
   ctx.controllers = { TEST: ctx.c };
   ctx.service = createService(
     { get: () => ctx.controllers },
-    { get: (key) => (key === 'watchDirectory' ? root : ctx.events) },
+    { get: (key) => ({ watchDirectory: root, macros: ctx.macros }[key] || ctx.events) },
     () => ctx.now
   );
   services.push(ctx.service);
@@ -1036,6 +1037,108 @@ describe('job service', () => {
       expect(ctx.c.runner.listenerCount('status')).toBe(0);
     });
 
+    // Cross-check (audit 31) with Jest's fake timers: the timer count itself.
+    test('stop, dispose, clock ahead, Idle report: no timer, no command, no listener left', async () => {
+      jest.useFakeTimers();
+      const ctx = ready();
+      await ctx.req('load', { file: 'test.nc' });
+      realistic(ctx);
+      ctx.c.workflow.state = 'running';
+      ctx.c.state.status = { activeState: 'Run' };
+      await ctx.req('stop');
+      expect(ctx.c.commands.slice(-2)).toEqual([['gcode:stop'], ['feedhold']]);
+      expect(jest.getTimerCount()).toBe(1);
+      const sent = ctx.c.commands.length;
+      ctx.service.dispose();
+      expect(jest.getTimerCount()).toBe(0);
+      ctx.now += 6000;
+      ctx.c.state.status = { activeState: 'Idle' };
+      ctx.c.runner.emit('status');
+      jest.advanceTimersByTime(10000);
+      expect(ctx.c.commands).toHaveLength(sent);
+      ['status', 'startup', 'parserstate', 'raw', 'error', 'alarm'].forEach((e) => expect(ctx.c.runner.listenerCount(e)).toBe(0));
+      ['load', 'unload', 'end'].forEach((e) => expect(ctx.c.sender.listenerCount(e)).toBe(0));
+      expect(ctx.c.workflow.listenerCount('start')).toBe(0);
+      expect(() => ctx.service.list()).toThrow(/indisponible/);
+      expect(ctx.service.fingerprint()).toBe('');
+      expect(ctx.service.systemCommand()).toBe(null);
+      expect(() => ctx.service.closeTransport(ctx.transportId)).not.toThrow();
+      expect(ctx.service.ticketPending(ctx.transportId)).toBe(false);
+      ctx.service.dispose(); // idempotent
+    });
+
+    test('a completed stop leaves no timer; in alarm nothing is sent; at the time limit a stale Run is reset', async () => {
+      jest.useFakeTimers();
+      const ctx = ready();
+      await ctx.req('load', { file: 'test.nc' });
+      realistic(ctx);
+      ctx.c.workflow.state = 'running';
+      ctx.c.state.status = { activeState: 'Run' };
+      await ctx.req('stop');
+      ctx.c.state.status = { activeState: 'Hold', subState: 0 };
+      ctx.report();
+      jest.advanceTimersByTime(60);
+      expect(ctx.c.commands.at(-1)).toEqual(['reset']);
+      expect(jest.getTimerCount()).toBe(0);
+
+      // Second stop: an alarm during the wait, no reset, timer released.
+      ctx.c.workflow.state = 'running';
+      ctx.c.state.status = { activeState: 'Run' };
+      await ctx.req('stop');
+      const sent = ctx.c.commands.length;
+      ctx.c.state.status = { activeState: 'Alarm' };
+      ctx.report();
+      jest.advanceTimersByTime(60);
+      expect(ctx.c.commands).toHaveLength(sent);
+      expect(jest.getTimerCount()).toBe(0);
+
+      // Third: no report, the limit passes, the stale state says Run: reset at the limit.
+      ctx.c.workflow.state = 'running';
+      ctx.c.state.status = { activeState: 'Run' };
+      ctx.report();
+      await ctx.req('stop');
+      jest.advanceTimersByTime(450);
+      expect(ctx.c.commands.filter(([n]) => n === 'feedhold')).toHaveLength(3); // not sent again without a new report
+      ctx.now += 5001;
+      jest.advanceTimersByTime(60);
+      expect(ctx.c.commands.at(-1)).toEqual(['reset']);
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
+    test('a controller forgotten during its stop then back: the old timer is silent, a new stop works', async () => {
+      jest.useFakeTimers();
+      const ctx = ready();
+      await ctx.req('load', { file: 'test.nc' });
+      realistic(ctx);
+      ctx.c.workflow.state = 'running';
+      ctx.c.state.status = { activeState: 'Run' };
+      await ctx.req('stop');
+      ctx.c.isClose = () => true;
+      expect(ctx.service.list()).toEqual([]);
+      expect(jest.getTimerCount()).toBe(0);
+      const sent = ctx.c.commands.length;
+      // The same object is open again (CNCjs makes a new one, but be strict).
+      ctx.c.isClose = () => false;
+      ctx.c.state.status = { activeState: 'Hold', subState: 0 };
+      ctx.report(); // no listener: seen stays unknown
+      jest.advanceTimersByTime(1000);
+      expect(ctx.c.commands).toHaveLength(sent);
+      const [state] = ctx.service.list(); // a new record, a new generation
+      expect(state.generation).not.toBe(ctx.generation);
+      // Job service, motion preflight and probe input: three listeners, as at first.
+      expect(ctx.c.runner.listenerCount('status')).toBe(3);
+      ctx.report();
+      ctx.c.workflow.state = 'running';
+      ctx.c.state.status = { activeState: 'Run' };
+      await ctx.service.action({ port: 'TEST', action: 'stop' });
+      expect(ctx.c.commands.slice(-2)).toEqual([['gcode:stop'], ['feedhold']]);
+      ctx.c.state.status = { activeState: 'Idle' };
+      ctx.report();
+      jest.advanceTimersByTime(60);
+      expect(ctx.c.commands.at(-1)).toEqual(['reset']);
+      expect(jest.getTimerCount()).toBe(0);
+    });
+
     test('a macro waiting in a dwell (CNCjs queue not empty) can be stopped', async () => {
       const ctx = ready();
       realistic(ctx);
@@ -1567,8 +1670,272 @@ describe('job service', () => {
     });
   });
 
+  // Cross-check (audit 31): record() after dispose on the asynchronous paths.
+  describe('service lifecycle: record() after dispose', () => {
+    const toolChangeResume = async (ctx) => {
+      const state = await ctx.loaded();
+      let ticket = await ctx.req('prepare', { operation: 'start', revision: state.revision });
+      await ctx.req('start', { nonce: ticket.nonce });
+      ctx.c.workflow.state = 'paused';
+      ctx.c.sender.state = { ...ctx.c.sender.state, hold: true, holdReason: { data: 'M6', msg: 'T2 M6' } };
+      ctx.c.state.status = { activeState: 'Idle', spindle: 12000 };
+      ctx.c.state.parserstate = { modal: { wcs: 'G54', spindle: 'M3' }, spindle: '12000' };
+      ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
+      ctx.report();
+      ctx.c.state.status = { activeState: 'Idle', spindle: 0 };
+      ctx.c.state.parserstate = { modal: { wcs: 'G54', spindle: 'M5' }, spindle: '12000' };
+      ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
+      ctx.report();
+      ticket = await ctx.req('prepare', { operation: 'resume', revision: state.revision });
+      const resume = ctx.req('resume', { nonce: ticket.nonce });
+      expect(ctx.c.commands.at(-1)).toEqual(['gcode', ['M3 S12000', 'G4 P3']]);
+      // Wrapped: returning the promise itself would make the caller await the restart.
+      return { resume };
+    };
+
+    test('a load in flight at dispose is refused cleanly (no unhandled exception), loading falls back', async () => {
+      const ctx = setup();
+      ctx.report();
+      const load = ctx.req('load', { file: 'test.nc' });
+      expect(ctx.state().loading).toBe(true);
+      ctx.service.dispose();
+      await expect(load).rejects.toThrow(/indisponible/);
+      expect(ctx.c.commands.filter(([n]) => n === 'gcode:load')).toHaveLength(0);
+    });
+
+    test('a spindle restart (M6) in flight: dispose rejects it and no gcode:resume follows; same when the controller is forgotten', async () => {
+      jest.useFakeTimers();
+      let ctx = setup();
+      let { resume } = await toolChangeResume(ctx);
+      jest.advanceTimersByTime(250);
+      ctx.service.dispose();
+      await expect(resume).rejects.toThrow(/Broche non relancée/);
+      ctx.c.runner.emit('ok');
+      ctx.c.runner.emit('ok');
+      jest.advanceTimersByTime(1000);
+      expect(ctx.c.commands.some(([n]) => n === 'gcode:resume')).toBe(false);
+      expect(ctx.c.runner.listenerCount('ok')).toBe(0);
+
+      ctx = setup();
+      ({ resume } = await toolChangeResume(ctx));
+      ctx.c.isClose = () => true;
+      ctx.service.list();
+      await expect(resume).rejects.toThrow(/Broche non relancée/);
+      expect(jest.getTimerCount()).toBe(0);
+      expect(ctx.c.commands.some(([n]) => n === 'gcode:resume')).toBe(false);
+    });
+
+    test('every action after dispose is a 409 refusal, never a raw exception', async () => {
+      const ctx = setup();
+      ctx.report();
+      ctx.service.dispose();
+      const actions = ['load', 'resumePlan', 'prepare', 'start', 'pause', 'stop', 'spindleStop', 'settings', 'override'];
+      const errors = await Promise.all(actions.map((action) => ctx.req(action, { file: 'test.nc', line: 2, operation: 'start' }).catch((e) => e)));
+      errors.forEach((err) => expect(err).toMatchObject({ status: 409, message: 'Service indisponible.' }));
+      expect(() => ctx.service.previewMotion({ port: 'TEST', axis: 'X', direction: 1, step: 1, feed: 200 })).toThrow(/fermée/);
+    });
+  });
+
   describe('system commands (host shutdown, restart) reserved against the machine', () => {
     const reserve = (ctx, title = 'Redémarrer', commands = 'sudo reboot') => ctx.service.reserveSystemCommand({ id: 'cmd-1', title, commands });
+
+    test('a controller never listed (no stream client yet): the first attempt registers it, the next one passes', () => {
+      const c = fakeController();
+      const controllers = { TEST: c };
+      let now = 10000;
+      const service = createService({ get: () => controllers }, { get: () => [] }, () => now);
+      services.push(service);
+      c.runner.emit('status');
+      c.runner.emit('status'); // nobody listened
+      expect(c.runner.listenerCount('status')).toBe(0);
+      expect(() => service.reserveSystemCommand({ id: 'cmd', title: 'Redémarrer', commands: 'sudo reboot' })).toThrow(/trop ancien.*réessayer/);
+      expect(c.runner.listenerCount('status')).toBe(1); // now listening
+      now += 250;
+      c.runner.emit('status');
+      service.reserveSystemCommand({ id: 'cmd', title: 'Redémarrer', commands: 'sudo reboot' }).release();
+      // observe() does the same without building snapshots (the stream heartbeat calls it).
+      const other = fakeController('OTHER');
+      controllers.OTHER = other;
+      service.observe();
+      expect(other.runner.listenerCount('status')).toBe(1);
+      other.runner.emit('status');
+      service.reserveSystemCommand({ id: 'cmd', title: 'Redémarrer', commands: 'sudo reboot' }).release();
+    });
+
+    test('every perform() operation during a reservation: which pass, which are refused', async () => {
+      const ctx = setup();
+      ctx.macros = [{ id: 'm1', name: 'Park' }];
+      const state = await ctx.loaded();
+      const reservation = reserve(ctx);
+      const attempts = {
+        load: ['load', { file: 'test.nc' }],
+        resumePlan: ['resumePlan', { file: 'test.nc', line: 2 }],
+        readSettings: ['readSettings'],
+        prepareStart: ['prepare', { operation: 'start', revision: state.revision }],
+        prepareResume: ['prepare', { operation: 'resume', revision: state.revision }],
+        prepareMacro: ['prepare', { operation: 'macro', macroId: 'm1' }],
+        prepareUnlock: ['prepare', { operation: 'unlock' }],
+        prepareHome: ['prepare', { operation: 'home' }],
+        prepareSpindle: ['prepare', { operation: 'spindle' }],
+        prepareZeroZ: ['prepare', { operation: 'zeroZ', thickness: 5, search: 10 }],
+        overrideRapid: ['override', { kind: 'rapid', value: 50 }],
+        overrideFeed: ['override', { kind: 'feed', value: 10 }],
+        settings: ['settings']
+      };
+      const refused = {};
+      await Promise.all(Object.entries(attempts).map(([name, [action, extra]]) => ctx.req(action, extra).then(() => null, (e) => e.message).then((m) => {
+        refused[name] = m;
+      })));
+      Object.keys(attempts).filter((k) => k !== 'settings').forEach((k) => {
+        expect([k, refused[k]]).toEqual([k, expect.stringMatching(/Commande système en cours \(Redémarrer\)/)]);
+      });
+      expect(refused.settings).toBe(null); // read-only, no command
+      expect(ctx.c.commands.filter(([n]) => n !== 'gcode:load')).toEqual([]);
+      // pause / stop / M5 never go through available().
+      ctx.c.workflow.state = 'running';
+      ctx.c.state.status.activeState = 'Run';
+      await ctx.service.action({ port: 'TEST', action: 'pause' });
+      ctx.c.workflow.state = 'paused';
+      ctx.c.state.status.activeState = 'Hold';
+      await ctx.service.action({ port: 'TEST', action: 'stop' });
+      ctx.c.workflow.state = 'idle';
+      ctx.c.state.status.activeState = 'Idle';
+      await ctx.service.action({ port: 'TEST', action: 'spindleStop' });
+      expect(ctx.c.commands.map(([n, a]) => (n === 'gcode' ? a : n))).toEqual(['gcode:load', 'gcode:pause', 'gcode:stop', 'reset', 'M5']);
+      // Even with a stale report, pause passes (independent of available()).
+      ctx.now += 10000;
+      ctx.c.workflow.state = 'running';
+      await expect(ctx.service.action({ port: 'TEST', action: 'pause' })).resolves.toBeTruthy();
+      reservation.release();
+    });
+
+    test('a start confirmed but not yet sent is refused by a reservation; a running start refuses the reservation', async () => {
+      const ctx = setup();
+      const state = await ctx.loaded();
+      let ticket = await ctx.req('prepare', { operation: 'start', revision: state.revision });
+      // Reservation between prepare and start: start re-reads available().
+      const reservation = reserve(ctx);
+      await expect(ctx.req('start', { nonce: ticket.nonce })).rejects.toThrow(/Commande système/);
+      expect(ctx.c.commands.some(([n]) => n === 'gcode:start')).toBe(false);
+      reservation.release();
+      // The ticket was consumed by the attempt: a new prepare is needed.
+      await expect(ctx.req('start', { nonce: ticket.nonce })).rejects.toThrow(/expirée/);
+      ticket = await ctx.req('prepare', { operation: 'start', revision: state.revision });
+      await ctx.req('start', { nonce: ticket.nonce });
+      expect(ctx.c.workflow.state).toBe('running');
+      expect(() => reserve(ctx)).toThrow(/travail est en cours/);
+    });
+
+    test('a spindle restart (M6) in flight refuses the reservation, and still completes', async () => {
+      const ctx = setup();
+      const state = await ctx.loaded();
+      let ticket = await ctx.req('prepare', { operation: 'start', revision: state.revision });
+      await ctx.req('start', { nonce: ticket.nonce });
+      ctx.c.workflow.state = 'paused';
+      ctx.c.sender.state = { ...ctx.c.sender.state, hold: true, holdReason: { data: 'M6', msg: 'T2 M6' } };
+      ctx.c.state.status = { activeState: 'Idle', spindle: 12000 };
+      ctx.c.state.parserstate = { modal: { wcs: 'G54', spindle: 'M3' }, spindle: '12000' };
+      ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
+      ctx.report();
+      ctx.c.state.status = { activeState: 'Idle', spindle: 0 };
+      ctx.c.state.parserstate = { modal: { wcs: 'G54', spindle: 'M5' }, spindle: '12000' };
+      ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
+      ctx.report();
+      ticket = await ctx.req('prepare', { operation: 'resume', revision: state.revision });
+      const resume = ctx.req('resume', { nonce: ticket.nonce });
+      expect(() => reserve(ctx)).toThrow(/travail est en cours/);
+      ctx.c.runner.emit('ok');
+      ctx.c.runner.emit('ok');
+      await new Promise((resolve) => {
+        setTimeout(resolve, 150);
+      });
+      await expect(resume).resolves.toMatchObject({ message: expect.stringMatching(/relancée/) });
+      expect(ctx.c.commands.at(-1)).toEqual(['gcode:resume']);
+    });
+
+    test('a macro sent (feeder busy) refuses the reservation until the queue is empty', async () => {
+      const ctx = setup();
+      ctx.macros = [{ id: 'm1', name: 'Park' }];
+      ctx.report();
+      const original = ctx.c.command;
+      ctx.c.command = (name, ...args) => {
+        original(name, ...args);
+        if (name === 'macro:run') {
+          ctx.c.macroDone = args[2];
+        }
+      };
+      const ticket = await ctx.req('prepare', { operation: 'macro', macroId: 'm1' });
+      const run = ctx.req('macro', { nonce: ticket.nonce });
+      ctx.c.feeder = { toJSON: () => ({ queue: 1, pending: true }) };
+      expect(() => reserve(ctx)).toThrow(/attente/);
+      ctx.c.macroDone(null);
+      await run;
+      ctx.c.feeder = { toJSON: () => ({ queue: 0, pending: false }) };
+      reserve(ctx).release();
+    });
+
+    test('a reservation taken before a load makes its first check refuse; after release the load passes', async () => {
+      const ctx = setup();
+      ctx.report();
+      const reservation = reserve(ctx);
+      await expect(ctx.req('load', { file: 'test.nc' })).rejects.toThrow(/Commande système/);
+      expect(ctx.state().loading).toBe(false);
+      reservation.release();
+      await expect(ctx.req('load', { file: 'test.nc' })).resolves.toBeTruthy();
+    });
+
+    test('reservation, then the controller closes and a new one opens: the reservation holds, release frees it', () => {
+      const ctx = setup();
+      ctx.report();
+      const reservation = reserve(ctx);
+      ctx.c.isClose = () => true;
+      expect(ctx.service.list()).toEqual([]);
+      const fresh = fakeController();
+      ctx.controllers.TEST = fresh;
+      ctx.service.list(); // registers the new controller (listeners on)
+      fresh.runner.emit('status');
+      const [state] = ctx.service.list();
+      expect(state.canLoad).toBe(false);
+      expect(state.loadReason).toMatch(/Commande système en cours/);
+      expect(ctx.service.systemCommand()).toMatchObject({ title: 'Redémarrer' });
+      expect(() => reserve(ctx, 'Éteindre')).toThrow(/déjà en cours/);
+      reservation.release();
+      expect(ctx.service.list()[0].canLoad).toBe(true);
+      reserve(ctx, 'Éteindre').release();
+    });
+
+    test('reservation, dispose, release(): no error, and a new instance is not affected', () => {
+      const ctx = setup();
+      ctx.report();
+      const reservation = reserve(ctx);
+      ctx.service.dispose();
+      expect(ctx.service.systemCommand()).toBe(null);
+      expect(() => reservation.release()).not.toThrow();
+      expect(() => reservation.release()).not.toThrow();
+      const next = setup();
+      next.report();
+      expect(next.service.systemCommand()).toBe(null);
+      const r2 = reserve(next);
+      reservation.release(); // the old one does not touch the new one
+      expect(next.service.systemCommand()).toMatchObject({ title: 'Redémarrer' });
+      r2.release();
+    });
+
+    test('two synchronous reservations: one passes; a stale release does not free the next one; the title is bounded', () => {
+      const ctx = setup();
+      ctx.report();
+      const first = reserve(ctx, 'A');
+      expect(() => reserve(ctx, 'B')).toThrow(/déjà en cours \(A\)/);
+      first.release();
+      const second = reserve(ctx, 'B');
+      first.release(); // stale: must not free B
+      expect(ctx.service.systemCommand()).toMatchObject({ title: 'B' });
+      second.release();
+      expect(ctx.service.systemCommand()).toBe(null);
+      const r = ctx.service.reserveSystemCommand({ id: 'x', title: '', commands: 'y'.repeat(200) });
+      expect(ctx.service.systemCommand().title).toBe('y'.repeat(80));
+      r.release();
+    });
 
     test('a reservation is exclusive, blocks every start until released, and stays visible in the snapshot', async () => {
       const ctx = setup();

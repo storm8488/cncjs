@@ -1,4 +1,5 @@
 /* eslint-env jest */
+import { EventEmitter } from 'events';
 import config from '../../services/configstore';
 import taskRunner from '../../services/taskrunner';
 import touch from '../../services/touch';
@@ -18,13 +19,22 @@ jest.mock('../../services/taskrunner', () => {
   return { __esModule: true, default: runner };
 });
 
-jest.mock('../../services/touch', () => ({
-  __esModule: true,
-  default: {
-    isStarted: jest.fn(() => false),
-    reserveSystemCommand: jest.fn(() => ({ release: jest.fn() }))
-  }
-}));
+// The touch facade over a real job-service (concurrency and release are
+// exercised for real); tests that only need the API wiring stub the reservation.
+jest.mock('../../services/touch', () => {
+  const { createService } = require('../../services/touch/job-service');
+  const state = { registry: {}, now: 10000 };
+  const service = createService({ get: () => state.registry }, { get: () => [] }, () => state.now);
+  return {
+    __esModule: true,
+    default: {
+      __state: state,
+      __service: service,
+      isStarted: jest.fn(() => false),
+      reserveSystemCommand: jest.fn((command) => service.reserveSystemCommand(command))
+    }
+  };
+});
 
 jest.mock('../../store', () => ({
   __esModule: true,
@@ -34,8 +44,11 @@ jest.mock('../../store', () => ({
 const COMMANDS = [
   { id: 'list', title: 'Lister', enabled: true, commands: 'ls -la' },
   { id: 'off', title: 'Éteindre', enabled: false, commands: 'sudo shutdown -h now' },
+  { id: 'halt', title: 'Éteindre maintenant', enabled: true, commands: 'sudo shutdown -h now' },
   { id: 'reboot', title: 'Redémarrer', enabled: true, commands: 'sudo reboot' },
-  { id: 'restart', title: 'Relancer CNCjs', enabled: true, commands: 'pm2 restart cncjs' }
+  { id: 'restart', title: 'Relancer CNCjs', enabled: true, commands: 'pm2 restart cncjs' },
+  { id: 'deploy', title: 'Déployer', enabled: true, commands: 'git pull && pm2 restart cncjs-next' },
+  { id: 'kiosk', title: 'Relancer le kiosque', enabled: true, commands: 'pkill -f kiosk' }
 ];
 
 const makeReq = (id) => ({ params: { id }, body: {}, query: {} });
@@ -59,40 +72,82 @@ const conflict = (message) => {
   return err;
 };
 
-// A controller as CNCjs keeps it in the store.
-const controller = (workflow, activeState) => ({
+// A controller as CNCjs keeps it in the store (no events needed).
+const controller = (workflow, activeState, feeder = { queue: 0, pending: false }) => ({
   type: 'Grbl',
   isClose: () => false,
   workflow: { state: workflow },
   runner: { state: { status: { activeState } } },
-  feeder: { toJSON: () => ({ queue: 0, pending: false }) }
+  feeder: { toJSON: () => feeder }
+});
+
+// A Grbl controller the job-service can listen to.
+const liveController = (port = 'COM3') => {
+  const c = {
+    type: 'Grbl',
+    options: { port },
+    ready: true,
+    isClose: () => false,
+    runner: new EventEmitter(),
+    sender: new EventEmitter(),
+    workflow: Object.assign(new EventEmitter(), { state: 'idle' }),
+    state: { status: { activeState: 'Idle' } },
+    feeder: { toJSON: () => ({ queue: 0, pending: false }) },
+    settings: { settings: {} },
+    commands: []
+  };
+  c.runner.state = c.state;
+  c.sender.state = { name: '', context: {}, total: 0 };
+  c.sender.toJSON = () => ({ ...c.sender.state });
+  c.command = (name, ...args) => c.commands.push([name, ...args]);
+  return c;
+};
+
+const resetMocks = () => {
+  config.get.mockReset();
+  config.get.mockImplementation(() => COMMANDS.map((c) => ({ ...c })));
+  taskRunner.run.mockReset();
+  taskRunner.run.mockImplementation(() => 'task-1');
+  taskRunner.removeAllListeners();
+  touch.isStarted.mockReset();
+  touch.isStarted.mockReturnValue(false);
+  touch.reserveSystemCommand.mockReset();
+  touch.reserveSystemCommand.mockImplementation(() => ({ release: jest.fn() }));
+  store.get.mockReset();
+  store.get.mockReturnValue({});
+};
+
+afterAll(() => {
+  touch.__service.dispose();
 });
 
 describe('api.commands run', () => {
-  beforeEach(() => {
-    config.get.mockReset();
-    config.get.mockImplementation(() => COMMANDS.map((c) => ({ ...c })));
-    taskRunner.run.mockReset();
-    taskRunner.run.mockImplementation(() => 'task-1');
-    taskRunner.removeAllListeners();
-    touch.isStarted.mockReset();
-    touch.isStarted.mockReturnValue(false);
-    touch.reserveSystemCommand.mockReset();
-    touch.reserveSystemCommand.mockImplementation(() => ({ release: jest.fn() }));
-    store.get.mockReset();
-    store.get.mockReturnValue({});
-  });
+  beforeEach(resetMocks);
 
-  test('commands are classed sensitive by their content', () => {
-    ['sudo shutdown -h now', 'reboot', '/sbin/poweroff', 'halt', 'init 0', 'init 6', 'systemctl restart cncjs',
-      'systemctl stop cncjs', 'systemctl poweroff', 'pm2 restart cncjs', 'pm2 stop all', 'pm2 delete cncjs', 'pm2 kill',
-      'kill -9 1234', 'killall node', 'pkill -f cncjs', 'service cncjs restart', 'sudo service cncjs stop',
-      'echo bye && sudo reboot'].forEach((commands) => {
-      expect(sensitiveCommand(commands)).toBe(true);
+  test('commands are classed sensitive by their content (whole words only)', () => {
+    ['sudo shutdown -h now', 'reboot', '/sbin/poweroff', 'halt', 'init 0', 'init 6', 'sudo telinit 0', 'systemctl restart cncjs',
+      'systemctl stop cncjs', 'systemctl poweroff', 'sudo systemctl reload cncjs', 'sudo systemctl reload-or-restart cncjs',
+      'systemctl try-restart cncjs', 'systemctl kill cncjs', 'systemctl --user restart cncjs',
+      'pm2 restart cncjs', 'pm2 stop all', 'pm2 delete cncjs', 'pm2 kill', 'pm2 reload cncjs', 'pm2 reload all',
+      'pm2 stop cncjs; pm2 start cncjs', 'git pull && pm2 restart cncjs-next',
+      'kill -9 1234', 'kill -9 $(pgrep -f cncjs)', 'killall node', 'killall chromium', 'pkill -f cncjs', 'pkill -f kiosk',
+      'service cncjs restart', 'sudo service cncjs stop', 'service cncjs reload',
+      'echo bye && sudo reboot', 'cd /home/pi && sudo reboot', 'sudo shutdown -r +1 "redémarrage"', 'sudo /sbin/reboot',
+      'sudo halt -p', 'shutdown /r /t 0'].forEach((commands) => {
+      expect([commands, sensitiveCommand(commands)]).toEqual([commands, true]);
     });
-    ['ls -la', 'echo hello', 'git pull', 'systemctl status cncjs', 'pm2 list', 'pm2 logs', 'service cncjs status',
-      'cat /var/log/syslog', ''].forEach((commands) => {
-      expect(sensitiveCommand(commands)).toBe(false);
+    ['ls -la', 'echo hello', 'git pull', 'systemctl status cncjs', 'sudo systemctl start cncjs', 'pm2 list', 'pm2 logs',
+      'pm2 logs cncjs --lines 50', 'service cncjs status', 'cat /var/log/syslog', 'cat /var/log/shutdown.log', 'df -h', 'uptime',
+      'vcgencmd measure_temp', 'tail -n 20 /home/pi/.pm2/logs/cncjs-out.log', ''].forEach((commands) => {
+      expect([commands, sensitiveCommand(commands)]).toEqual([commands, false]);
+    });
+    // Known false positives: the command is merely reserved (refused during a job).
+    ['echo reboot', 'cat /var/log/shutdown', 'grep -i halt /var/log/syslog', 'man shutdown'].forEach((commands) => {
+      expect([commands, sensitiveCommand(commands)]).toEqual([commands, true]);
+    });
+    // Known false negatives: a wrapper script is not looked into (documented for .cncrc).
+    ['/home/pi/deploy-touch.sh', './shutdown-safe.sh', 'sh /opt/shutdown.sh', 'bash -c "$(cat /opt/cmd.txt)"'].forEach((commands) => {
+      expect([commands, sensitiveCommand(commands)]).toEqual([commands, false]);
     });
   });
 
@@ -212,18 +267,122 @@ describe('api.commands run', () => {
     expect(taskRunner.run).not.toHaveBeenCalled();
 
     touch.isStarted.mockReturnValue(false);
-    [['running', 'Run'], ['paused', 'Hold'], ['idle', 'Jog'], ['idle', 'Home'], ['idle', 'Run'], ['idle', 'Hold']].forEach(([workflow, activeState]) => {
+    [['running', 'Run'], ['paused', 'Hold'], ['idle', 'Jog'], ['idle', 'Home'], ['idle', 'Run'], ['idle', 'Hold'], ['idle', 'Door:0']].forEach(([workflow, activeState]) => {
       store.get.mockReturnValue({ A: controller(workflow, activeState) });
       res = makeRes();
       run(makeReq('reboot'), res);
       expect(res.statusCode).toBe(409);
       expect(taskRunner.run).not.toHaveBeenCalled();
     });
-    store.get.mockReturnValue({ A: controller('idle', 'Idle'), B: controller('idle', 'Alarm') });
+    // Without Touch: CNCjs's feeder queue counts too, a closed controller does not.
+    store.get.mockReturnValue({ A: controller('idle', 'Idle', { queue: 3, pending: true }) });
+    res = makeRes();
+    run(makeReq('reboot'), res);
+    expect(res.statusCode).toBe(409);
+    expect(res.payload.message).toMatch(/attente/);
+    store.get.mockReturnValue({ A: { ...controller('running', 'Run'), isClose: () => true }, B: controller('idle', 'Alarm') });
     res = makeRes();
     run(makeReq('reboot'), res);
     expect(res.statusCode).toBe(200);
     expect(taskRunner.run).toHaveBeenCalledTimes(1);
     expect(touch.reserveSystemCommand).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Cross-check (audit 31): run over the real job-service, for the concurrency
+// and the release as they happen.
+describe('api.commands run with a real job-service', () => {
+  const service = touch.__service;
+  const state = touch.__state;
+  let c;
+
+  beforeEach(() => {
+    resetMocks();
+    let n = 0;
+    taskRunner.run.mockImplementation(() => 'task-' + (++n));
+    touch.isStarted.mockReturnValue(true);
+    touch.reserveSystemCommand.mockImplementation((command) => service.reserveSystemCommand(command));
+    c = liveController();
+    state.registry = { COM3: c };
+    service.list(); // the controller is registered (a tablet is connected)
+    c.runner.emit('status');
+  });
+
+  test('two POST run at once: one taskRunner.run; the second gets 409 with the first title; finish releases', () => {
+    const a = makeRes();
+    const b = makeRes();
+    run(makeReq('reboot'), a);
+    run(makeReq('halt'), b);
+    expect(a.statusCode).toBe(200);
+    expect(b.statusCode).toBe(409);
+    expect(b.payload.message).toMatch(/déjà en cours \(Redémarrer\)/);
+    expect(taskRunner.run).toHaveBeenCalledTimes(1);
+    expect(service.systemCommand()).toMatchObject({ title: 'Redémarrer' });
+    expect(service.list()[0].canLoad).toBe(false);
+    taskRunner.emit('finish', 'task-1', 0);
+    expect(service.systemCommand()).toBe(null);
+    expect(service.list()[0].canLoad).toBe(true);
+    expect(taskRunner.listenerCount('finish')).toBe(0);
+    // The second one passes now.
+    const again = makeRes();
+    run(makeReq('halt'), again);
+    expect(again.statusCode).toBe(200);
+    taskRunner.emit('error', 'task-2', new Error('x'));
+    expect(service.systemCommand()).toBe(null);
+  });
+
+  test('taskRunner.run throwing: 500, reservation released, the machine is available again', () => {
+    taskRunner.run.mockImplementation(() => {
+      throw new Error('spawn');
+    });
+    const res = makeRes();
+    run(makeReq('deploy'), res);
+    expect(res.statusCode).toBe(500);
+    expect(service.systemCommand()).toBe(null);
+    expect(taskRunner.listenerCount('finish')).toBe(0);
+    expect(service.list()[0].canLoad).toBe(true);
+  });
+
+  test('a sensitive command during a job (Run / running): 409 without run; a harmless one: 200 without reservation', () => {
+    c.workflow.state = 'running';
+    c.state.status.activeState = 'Run';
+    c.runner.emit('status');
+    const res = makeRes();
+    run(makeReq('kiosk'), res);
+    expect(res.statusCode).toBe(409);
+    expect(res.payload.message).toMatch(/travail est en cours/);
+    expect(taskRunner.run).not.toHaveBeenCalled();
+    const ok = makeRes();
+    run(makeReq('list'), ok);
+    expect(ok.statusCode).toBe(200);
+    expect(service.systemCommand()).toBe(null);
+  });
+
+  test('a stale report: explicit 409 (no blind reservation)', () => {
+    state.now += 10000;
+    const res = makeRes();
+    run(makeReq('reboot'), res);
+    expect(res.statusCode).toBe(409);
+    expect(res.payload.message).toMatch(/trop ancien/);
+    expect(taskRunner.run).not.toHaveBeenCalled();
+    state.now -= 10000;
+  });
+
+  test('a controller never listed (no tablet connected): the first attempt starts listening, the next one runs', () => {
+    const fresh = liveController('COM4');
+    state.registry = { COM4: fresh };
+    fresh.runner.emit('status');
+    fresh.runner.emit('status'); // nobody listened yet
+    let res = makeRes();
+    run(makeReq('reboot'), res);
+    expect(res.statusCode).toBe(409);
+    expect(res.payload.message).toMatch(/réessayer/);
+    expect(fresh.runner.listenerCount('status')).toBe(1);
+    fresh.runner.emit('status');
+    res = makeRes();
+    run(makeReq('reboot'), res);
+    expect([res.statusCode, res.payload]).toEqual([200, { taskId: 'task-1' }]);
+    taskRunner.emit('finish', 'task-1', 0);
+    expect(service.systemCommand()).toBe(null);
   });
 });

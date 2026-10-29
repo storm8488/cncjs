@@ -78,6 +78,10 @@ tool: null,
 toolChanged: false,
     pos: { X: null, Y: null, Z: null },
 safeZ: null,
+    // Whether the clearance height was reached by a rapid (G0), a Z the
+    // program itself treats as free: a Z only reached by cutting moves is a
+    // depth, not a clearance.
+    safeZRapid: false,
     // Line of the last unit change that converted acquired values, of the
     // work offset change that made them unknown, and of a G43.1 still active.
     unitsChanged: null,
@@ -141,6 +145,7 @@ toolOffset: null
           if (positioned(s)) {
             s.pos = { X: null, Y: null, Z: null };
             s.safeZ = null;
+            s.safeZRapid = false;
             s.wcsReset = { line: lineNo, wcs };
           }
           s.wcs = wcs;
@@ -200,7 +205,14 @@ toolOffset: null
           s.plungeFeed = s.feed;
         }
         if (a === 'Z' && s.pos.Z !== null) {
-          s.safeZ = s.safeZ === null ? s.pos.Z : Math.max(s.safeZ, s.pos.Z);
+          // s.motion already holds this line's motion word, or the modal one.
+          const rapid = s.motion === 'G0';
+          if (s.safeZ === null || s.pos.Z > s.safeZ) {
+            s.safeZ = s.pos.Z;
+            s.safeZRapid = rapid;
+          } else if (s.pos.Z === s.safeZ && rapid) {
+            s.safeZRapid = true;
+          }
         }
       });
     }
@@ -250,7 +262,10 @@ export const buildResume = (gcode, from, { name = '' } = {}) => {
     }
     throw refuse('Position avant la ligne ' + from + ' inconnue (X, Y et Z doivent avoir été donnés en absolu) : choisissez une ligne plus loin.');
   }
-  if (s.safeZ === null || s.safeZ < s.pos.Z) {
+  // A clearance equal to the current Z is fine when the program went there in
+  // rapid (resume at the clearance height), not when that Z is only a cutting
+  // depth: the rapid XY move of the preamble would cross the part.
+  if (s.safeZ === null || s.safeZ < s.pos.Z || (s.safeZ === s.pos.Z && !s.safeZRapid)) {
     throw refuse('Hauteur de dégagement inconnue avant la ligne ' + from + ' : choisissez une ligne plus loin.');
   }
   if (s.feed === null || s.feed <= 0) {

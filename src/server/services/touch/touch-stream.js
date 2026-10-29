@@ -119,7 +119,15 @@ export const createStream = (service, options = {}) => {
       }, COALESCE_MS);
     }
   });
-  const heartbeat = timers.setInterval(publish, HEARTBEAT_MS);
+  // Even without a client, the heartbeat keeps the service listening to every
+  // open controller (a host command must be judged on fresh reports).
+  const tick = () => {
+    if (!disposed && typeof service.observe === 'function') {
+      service.observe();
+    }
+    publish();
+  };
+  const heartbeat = timers.setInterval(tick, HEARTBEAT_MS);
   // Connected clients keep the process alive on their own; an idle heartbeat
   // must not hold the event loop open once the server has been closed.
   if (heartbeat && typeof heartbeat.unref === 'function') {
