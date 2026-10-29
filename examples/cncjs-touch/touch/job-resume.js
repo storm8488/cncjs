@@ -33,9 +33,12 @@
     var p=c.programPause;
     if(operation==='resume'&&p&&p.kind==='M6')return t('Outil')+(p.tool!==null&&p.tool!==undefined?' T'+p.tool:'')+t(' en place et zéro Z vérifié ?')+(p.restartSpindle?t(' La broche sera relancée (')+spindleText(p.restartSpindle)+t(', 3 s) avant la reprise.'):'');
     if(operation==='start'&&c.resume){var r=c.resume;
-      return t('Reprise à la ligne ')+r.from+' / '+r.total+' : '+r.line+(r.tool!==null&&r.tool!==undefined?t(' — outil attendu T')+r.tool:'')+t('. La machine monte à la hauteur de dégagement, se place en XY, relance la broche puis plonge.');}
+      return t('Reprise à la ligne ')+r.from+' / '+r.total+' : '+r.line+(r.tool!==null&&r.tool!==undefined?t(' — outil attendu T')+r.tool:'')+t('. La machine monte à la hauteur de dégagement, se place en XY, relance la broche puis plonge.')+notesText(r.notes);}
     return '';
   }
+  // Server notes on a rebuilt program (units, work frame, clearance): French strings
+  // written by the server, like its messages, so they are shown as they come.
+  function notesText(notes){return Array.isArray(notes)&&notes.length?' '+notes.filter(function(n){return typeof n==='string'&&n;}).join(' '):'';}
   function suggestedLine(c,file){
     if(!c||typeof c.stoppedAtLine!=='number'||c.stoppedFile!==file)return null;
     return Math.max(2,c.stoppedAtLine-PLANNER_MARGIN);
@@ -46,6 +49,7 @@
     if(plan.spindle)parts.push(t('Broche ')+spindleText(plan.spindle)+t(' relancée 3 s avant la plongée.'));
     if(plan.coolant)parts.push(t('Arrosage ')+plan.coolant+'.');
     if(plan.tool!==null&&plan.tool!==undefined)parts.push(t('Outil attendu : T')+plan.tool+t(' (vérifiez qu’il est en place et que le zéro Z lui correspond).'));
+    if(Array.isArray(plan.notes))plan.notes.forEach(function(n){if(typeof n==='string'&&n)parts.push(n);});
     return parts.join(' ');
   }
   var api={pauseText:pauseText,dialogNote:dialogNote,suggestedLine:suggestedLine,planText:planText,plateNote:plateNote,lastZeroText:lastZeroText,PLANNER_MARGIN:PLANNER_MARGIN,
@@ -65,23 +69,41 @@
     label=el('label','home-resume-label','','Ligne de reprise'),input=el('input','home-resume-input'),hint=el('p','home-resume-hint','t-help'),
     check=el('button','home-resume-check','t-btn','Vérifier'),load=el('button','home-resume-load','t-btn t-btn--primary','Charger la reprise'),
     cancel=el('button','home-resume-cancel','t-btn t-btn--ghost','Annuler'),plan=el('p','home-resume-plan','t-help');
-  input.setAttribute('type','number');input.setAttribute('min','2');input.setAttribute('inputmode','numeric');
+  // Text fields read by the shared parser (numeric-pad.js): a comma or a point, empty, zero
+  // and unreadable kept apart; a tap opens the shared key pad with the unit and the limits.
+  input.setAttribute('type','text');input.setAttribute('inputmode','numeric');input.setAttribute('autocomplete','off');
+  var LINE_RULES={label:t('Ligne de reprise'),unit:t('ligne'),min:2,integer:true,negative:false};
   plan.setAttribute('role','status');open.hidden=true;panel.hidden=true;load.disabled=true;
-  [label,input,hint,check,load,cancel,plan].forEach(function(n){panel.appendChild(n);});
+  var lineRow=el('div','home-resume-row','t-field-row');lineRow.appendChild(input);var lineUnit=el('span');lineUnit.textContent=t('n° de ligne, 2 ou plus');lineRow.appendChild(lineUnit);
+  [label,lineRow,hint,check,load,cancel,plan].forEach(function(n){panel.appendChild(n);});
   // Z zero with a touch plate: thickness and search distance, remembered on this device.
   var plate=el('div','home-plate','t-card'),plateTitle=el('p','home-plate-title','','Zéro Z avec une plaque'),
     thickLabel=el('label','home-plate-thickness-label','','Épaisseur de la plaque (mm)'),thick=el('input','home-plate-thickness'),
     searchLabel=el('label','home-plate-search-label','','Descente maximale (mm)'),search=el('input','home-plate-search'),
     probe=el('button','home-plate-probe','t-btn','Palper le zéro Z…'),plateHelp=el('p','home-plate-help','t-help','Posez la plaque sur la pièce sous l’outil et branchez la sonde. Descente à 100 mm/min, recul 1 mm, seconde touche à 25 mm/min ; le dessus de la plaque devient Z = épaisseur, puis l’outil remonte 5 mm au-dessus.'),
     plateLast=el('p','home-plate-last','t-help'),plateStatus=el('p','home-plate-status','t-notice');
-  [thick,search].forEach(function(i){i.setAttribute('type','number');i.setAttribute('step','0.01');i.setAttribute('inputmode','decimal');});
+  var THICK_RULES={label:t('Épaisseur de la plaque'),unit:'mm',min:0.01,max:50,negative:false},SEARCH_RULES={label:t('Descente maximale'),unit:'mm',min:1,max:100,negative:false};
+  [thick,search].forEach(function(i){i.setAttribute('type','text');i.setAttribute('inputmode','decimal');i.setAttribute('autocomplete','off');});
+  function fieldRow(field,rules){var row=el('div','','t-field-row');row.appendChild(field);var unit=el('span');unit.textContent=rules.unit+' · '+(window.CNCNumeric?window.CNCNumeric.limits(rules):'');row.appendChild(unit);return row;}
   plateStatus.setAttribute('role','status');plate.hidden=true;
-  [plateTitle,thickLabel,thick,searchLabel,search,probe,plateHelp,plateLast,plateStatus].forEach(function(n){plate.appendChild(n);});
+  [plateTitle,thickLabel,fieldRow(thick,THICK_RULES),searchLabel,fieldRow(search,SEARCH_RULES),probe,plateHelp,plateLast,plateStatus].forEach(function(n){plate.appendChild(n);});
+  if(window.CNCNumeric&&typeof window.CNCNumeric.bind==='function'){window.CNCNumeric.bind(thick,THICK_RULES);window.CNCNumeric.bind(search,SEARCH_RULES);window.CNCNumeric.bind(input,LINE_RULES);}
   var PLATE_KEY='cncjs-touch-plate-v1';
   function loadPlate(){try{var v=JSON.parse(localStorage.getItem(PLATE_KEY)||'null');if(v&&typeof v==='object'){thick.value=v.thickness>0?String(v.thickness):'';search.value=v.search>0?String(v.search):'10';return;}}catch(_){}
     thick.value='';search.value='10';}
   function savePlate(p){try{localStorage.setItem(PLATE_KEY,JSON.stringify(p));}catch(_){}}
-  function numberOf(v){var n=Number(String(v).replace(',','.'));return isFinite(n)?n:NaN;}
+  // Shared parser (numeric-pad.js): {state, value, message}; only 'ok' carries a value.
+  function parsed(v,rules){
+    if(window.CNCNumeric&&typeof window.CNCNumeric.parse==='function')return window.CNCNumeric.parse(v,rules);
+    // Same rules without the pad (messages come from the pad module only).
+    var s=String(v===null||v===undefined?'':v).trim(),n=Number(s.replace(',','.'));rules=rules||{};
+    if(!s)return {state:'empty',value:null,message:''};
+    if(!/^[+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)$/.test(s)||!isFinite(n))return {state:'invalid',value:null,message:''};
+    if(n<0&&rules.negative===false)return {state:'negative',value:n,message:''};
+    if(rules.integer&&Math.floor(n)!==n)return {state:'integer',value:n,message:''};
+    if((typeof rules.min==='number'&&n<rules.min)||(typeof rules.max==='number'&&n>rules.max))return {state:'range',value:n,message:''};
+    return {state:'ok',value:n,message:''};
+  }
   loadPlate();
   after(ready,pause);after(pause,open);after(open,panel);after(panel,plate);
   var machine=null,selection=window.cncLibrarySelection||null,checked=null,sequence=0,plateMessage='';
@@ -105,7 +127,7 @@
     if(!panel.hidden&&(!machine||!selection||machine.workflow!=='idle'))close();
     else set(load,'disabled',!checked||!can);
   }
-  function line(){var n=Number(input.value);return Number.isInteger(n)&&n>=2?n:null;}
+  function line(){var p=parsed(input.value,LINE_RULES);return p.state==='ok'?p.value:null;}
   open.addEventListener('click',function(){
     if(!canResumeFromLine())return;
     var s=suggestedLine(machine,selection.file);input.value=s===null?'':String(s);
@@ -118,7 +140,7 @@
   input.addEventListener('input',function(){checked=null;set(load,'disabled',true);set(plan,'textContent','');});
   check.addEventListener('click',function(){
     var n=line(),c=controls(),own=++sequence;
-    if(n===null){set(plan,'textContent',t('Indiquez une ligne (2 ou plus).'));return;}
+    if(n===null){var why=parsed(input.value,LINE_RULES);set(plan,'textContent',t('Indiquez une ligne (2 ou plus).')+(why.message?' '+why.message:''));return;}
     if(!c||typeof c.resumePlan!=='function')return;
     set(plan,'textContent',t('Vérification…'));
     c.resumePlan(selection.file,n).then(function(data){if(own!==sequence)return;checked={file:selection.file,line:n};set(plan,'textContent',planText(data));set(load,'disabled',false);},
@@ -131,10 +153,11 @@
   });
   probe.addEventListener('click',function(){
     var c=controls();if(!c||typeof c.prepareCommand!=='function'||probe.disabled)return;
-    var th=numberOf(thick.value),se=numberOf(search.value);
-    if(!(th>0&&th<=50)){plateMessage=t('Indiquez l’épaisseur de la plaque (mm).');render();return;}
-    if(!(se>=1&&se<=100)){plateMessage=t('Descente maximale invalide (1 à 100 mm).');render();return;}
-    var params={thickness:Math.round(th*1000)/1000,search:Math.round(se*1000)/1000};
+    // Empty, unreadable and out-of-range values are told apart; none of them becomes a number.
+    var th=parsed(thick.value,THICK_RULES),se=parsed(search.value,SEARCH_RULES);
+    if(th.state!=='ok'){plateMessage=t('Indiquez l’épaisseur de la plaque (mm).')+(th.message?' '+th.message:'');render();return;}
+    if(se.state!=='ok'){plateMessage=t('Descente maximale invalide (1 à 100 mm).')+(se.message?' '+se.message:'');render();return;}
+    var params={thickness:Math.round(th.value*1000)/1000,search:Math.round(se.value*1000)/1000};
     savePlate(params);pendingPlate=params;plateMessage='';render();
     c.prepareCommand('zeroZ',params);
   });

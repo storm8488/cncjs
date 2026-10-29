@@ -562,7 +562,7 @@
   });
   window.addEventListener('cnc-library-page-size',function(e){
     var size=Number(e.detail);
-    if(size!==2&&size!==4&&size!==5)return;
+    if(size!==2&&size!==3&&size!==4&&size!==5)return;
     if(size!==pageSize){page=Math.floor(page*pageSize/size);pageSize=size;renderList();}
   });
   function mount() {

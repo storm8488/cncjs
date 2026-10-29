@@ -18,6 +18,10 @@ assert.equal(R.suggestedLine({stoppedAtLine:10,stoppedFile:'a.nc'},'a.nc'),2);
 assert.equal(R.suggestedLine({stoppedAtLine:200,stoppedFile:'b.nc'},'a.nc'),null);
 const plan={from:12,total:16,line:'G2 X50 Y40 I10 J0',safeZ:5,position:{X:40,Y:30,Z:-1.5},spindle:{mode:'M3',speed:12000},coolant:'M8',tool:2};
 assert.equal(R.planText(plan),'Ligne 12 / 16 : G2 X50 Y40 I10 J0. Départ : Z 5, puis X 40 Y 30, plongée à Z -1.5. Broche M3 S12000 relancée 3 s avant la plongée. Arrosage M8. Outil attendu : T2 (vérifiez qu’il est en place et que le zéro Z lui correspond).');
+// Server notes (A1: units, work frame, clearance) are appended to the plan and to the start note, as written.
+assert.match(R.planText(Object.assign({},plan,{notes:['Note A.','Note B.']})),/correspond\)\. Note A\. Note B\.$/);
+assert.match(R.dialogNote('start',{resume:{from:1,total:2,line:'G0',tool:null,notes:['Unités converties.']}}),/plonge\. Unités converties\.$/);
+assert.equal(R.planText(plan),R.planText(Object.assign({},plan,{notes:[]})),'no notes, no change');
 // Every phrase used by the module is in the FR/EN/ES catalog.
 const source=fs.readFileSync(__dirname+'/touch/job-resume.js','utf8');
 const phrases=[...source.matchAll(/\bt\('((?:[^'\\]|\\.)*)'\)/g)].map(m=>m[1]).concat([...source.matchAll(/el\('[a-z]+','[^']*','[^']*','((?:[^'\\]|\\.)*)'\)/g)].map(m=>m[1]));
@@ -39,7 +43,7 @@ const window={cncLibrarySelection:{file:'a.nc',name:'a.nc'},addEventListener:(n,
   cncJobControls:{resumePlan:(f,l)=>{calls.push(['plan',f,l]);return planResult;},loadFrom:(f,l)=>{calls.push(['load',f,l]);return Promise.resolve({});},spindleStop:()=>{calls.push(['m5']);return Promise.resolve({});},prepareCommand:(op,extra)=>{calls.push(['prepare',op,extra]);}}};
 vm.runInNewContext(source,{window,document,localStorage:{getItem:k=>stored.has(k)?stored.get(k):null,setItem:(k,v)=>stored.set(k,v)}});
 const ids=parent.children.map(c=>c.id);assert.deepEqual(ids,['home-job-ready','home-program-pause','home-resume-line','home-resume-panel','home-plate']);
-const byId=id=>parent.children.find(c=>c.id===id)||parent.children.flatMap(c=>c.children).find(c=>c.id===id);
+const byId=id=>parent.querySelectorAll('*').find(c=>c.id===id);
 const status=machine=>listeners['cnc-job-status'].forEach(f=>f({detail:{machine,simulation:false}}));
 const idle={fresh:true,workflow:'idle',canLoad:true,stoppedAtLine:200,stoppedFile:'a.nc',programPause:null};
 status(idle);assert.equal(byId('home-resume-line').hidden,false);assert.equal(byId('home-program-pause').hidden,true);

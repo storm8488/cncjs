@@ -14,7 +14,7 @@
     uiLocale.html('<label>Unité de saisie<select id="coordinate-unit"><option value="mm">mm</option><option value="in">pouces</option></select></label>')+
     uiLocale.html('<label>Opération<select id="coordinate-operation"><option value="goto">Aller à une coordonnée</option><option value="shift">Déplacer de ± une valeur</option><option value="set">Définir la coordonnée ici</option></select></label></div>')+
     uiLocale.html('<div class="coordinate-input-grid"><div><label for="coordinate-value">Valeur</label><input id="coordinate-value" inputmode="decimal" autocomplete="off" maxlength="18" placeholder="Saisir une valeur"><label for="coordinate-feed">Vitesse · mm/min</label><select id="coordinate-feed"><option>200</option><option selected>800</option><option>1500</option></select><p id="coordinate-current"></p></div>')+
-    uiLocale.html('<div class="coordinate-keypad" aria-label="Pavé numérique">')+['7','8','9','4','5','6','1','2','3','±','0','.','Effacer','⌫'].map(function(k){return uiLocale.html('<button type="button" data-coordinate-key="')+k+'">'+uiLocale.t(k)+uiLocale.html('</button>');}).join('')+uiLocale.html('</div></div>')+
+    uiLocale.html('<div class="coordinate-keypad" aria-label="Pavé numérique"></div></div>')+
     uiLocale.html('<p id="coordinate-result" role="status">Calcul local uniquement. Aucune commande à la machine.</p><div class="coordinate-actions"><button id="coordinate-calculate">Préparer</button><button id="coordinate-confirm" disabled>')+ (simulation?uiLocale.t('Confirmer la simulation'):uiLocale.t('Exécution réelle non activée'))+uiLocale.html('</button></div>')+
     uiLocale.html('<p class="coordinate-note">')+(simulation?uiLocale.t('Positions instantanées et fictives, sans calcul de trajectoire ni de limites physiques.'):uiLocale.t('Préparation indicative : limites, homing et trajet non validés. Aucun G-code envoyé.'))+uiLocale.html('</p></div>');
   document.body.appendChild(modal);
@@ -56,11 +56,9 @@
   entry.addEventListener('click',open);$('close').addEventListener('click',close);
   ['axis','unit','operation','feed'].forEach(function(id){$(id).addEventListener('change',function(){invalidate(uiLocale.t('Paramètres modifiés : préparez à nouveau.'));if(id==='unit')$('value').value='';render();});});
   $('value').addEventListener('input',function(){invalidate();});
-  modal.querySelectorAll('[data-coordinate-key]').forEach(function(button){button.addEventListener('click',function(){
-    var k=button.getAttribute('data-coordinate-key'),v=$('value').value;
-    if(k==='Effacer')v='';else if(k==='⌫')v=v.slice(0,-1);else if(k==='±')v=v.charAt(0)==='-'?v.slice(1):'-'+v;else if(v.length<18&&!(k==='.'&&/[.,]/.test(v)))v+=k;
-    $('value').value=v;invalidate();
-  });});
+  // The key pad is the shared one (numeric-pad.js), inline here; the same keys serve the plate and resume fields.
+  var pad=modal.querySelector('.coordinate-keypad');
+  if(window.CNCNumeric&&typeof window.CNCNumeric.keys==='function')window.CNCNumeric.keys(pad,function(){return $('value').value;},function(v){$('value').value=v;invalidate();},{negative:true},'data-coordinate-key');
   function act(body){
     busy=true;invalidate();render();
     return window.cncJobSimulation.request('POST',body).then(function(result){$('result').textContent=result.message;return window.cncJobSimulation.request('GET');})

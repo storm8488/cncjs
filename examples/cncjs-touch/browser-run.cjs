@@ -14,7 +14,8 @@
 //   --url URL        touch base URL of a running server (default: preview-server.cjs)
 //   --browser PATH   Chrome/Edge executable (default: CNC_BROWSER or well-known paths)
 //   --repeat N       start-up repetitions (default 5)
-//   --only LIST      comma list among measure,startup,e2e (default all)
+//   --only LIST      comma list among measure,sim,startup,e2e (default all; sim = the
+//                    simulation page with a job running, paused and in alarm, FR and ES)
 //   --keep-browser   do not kill the browser at the end (debugging)
 // Exit code 1 when a harness step fails; measurements under the project goals
 // are reported, not failed (they are the input of the UI work).
@@ -30,7 +31,7 @@ const OUT = path.resolve(option('--out', 'output/browser-run'));
 const BASELINE = args.includes('--baseline');
 const URL_BASE = option('--url', '');
 const REPEAT = Math.max(1, Number(option('--repeat', 5)) || 5);
-const ONLY = option('--only', 'measure,startup,e2e').split(',');
+const ONLY = option('--only', 'measure,sim,startup,e2e').split(',');
 const KEEP = args.includes('--keep-browser');
 
 // Project goals (design-tokens.css): not a WCAG requirement.
@@ -235,7 +236,9 @@ const MEASURE = String(function measure(goals) {
   function kind(el) {
     var c = el.classList;
     if (c.contains('jog')) return 'jog';
-    if (c.contains('t-btn--primary') || c.contains('t-btn--danger') || c.contains('t-btn--lg') || c.contains('job-start') || c.contains('job-stop') || c.contains('ks-tile') || c.contains('home-load') || /^(home-job-start|home-job-stop|home-job-pause|home-job-resume|home-job-load|job-confirm|job-dismiss|t-stop|t-pause|t-resume|t-unlock)$/.test(el.id)) return 'primary';
+    // "Charger la sélection" (home-load) is a secondary action by design (UI 2027: Démarrer or
+    // Reprendre is the one primary action of Suivi), so it is measured against 48 px.
+    if (c.contains('t-btn--primary') || c.contains('t-btn--danger') || c.contains('t-btn--lg') || c.contains('job-start') || c.contains('job-stop') || c.contains('ks-tile') || /^(home-job-start|home-job-stop|home-job-pause|home-job-resume|job-confirm|job-dismiss|t-stop|t-pause|t-resume|t-unlock)$/.test(el.id)) return 'primary';
     return 'secondary';
   }
   // viewport-fit.js scales a screen that does not fit (transform: scale): boxes
@@ -482,6 +485,78 @@ async function e2e(cdp, simUrl, lang, summary) {
   summary.e2e.push(result);
 }
 
+// --- Measurements with active commands and alerts, on the simulation page: Suivi while a
+// job runs (strip Pause/Stop, overrides) and in a pause, Machine and Suivi with the alarm
+// card, in French and Spanish (the longest texts), at both resolutions. Same measurer.
+async function simMeasure(cdp, simUrl, summary) {
+  for (const [w, h] of RESOLUTIONS) {
+    for (const lang of ['fr', 'es']) {
+      const tag = 'sim ' + w + 'x' + h + ' ' + lang, dirName = 'sim-' + w + 'x' + h + '-' + lang;
+      const dir = path.join(OUT, dirName);
+      fs.mkdirSync(dir, { recursive: true });
+      const results = [];
+      const capture = async (name, label, variant) => {
+        try {
+          await goScreen(cdp, name);
+          const data = await cdp.evaluate('(' + MEASURE + ')(' + JSON.stringify(GOALS) + ')');
+          data.screen = name; data.label = label; data.variant = tag + ' ' + variant;
+          fs.writeFileSync(path.join(dir, variant + '-' + name + '.json'), JSON.stringify(data, null, 1));
+          await screenshot(cdp, path.join(dir, variant + '-' + name + '.png'));
+          const below = data.targets.filter((t) => t.belowGoal), small = data.targets.filter((t) => t.textBelowGoal), gaps = data.targets.filter((t) => t.gapBelowGoal), unreachable = data.targets.filter((t) => !t.reachable);
+          const fonts = data.targets.map((t) => t.fontPx), fontStats = { min: fonts.length ? Math.min(...fonts) : null, median: median(fonts), max: fonts.length ? Math.max(...fonts) : null };
+          log(tag + ' ' + variant + ' ' + label + ': ' + data.targets.length + ' targets, ' + below.length + ' under size goal, ' + small.length + ' with text < 16 px, scale ' + data.screenScale + (data.verticalOverflow.active ? ', VERTICAL OVERFLOW' : ''));
+          results.push({ screen: name, label: label + ' · ' + variant, targets: data.targets.length, below, small: data.smallText, textTargets: small, gaps, unreachable, truncated: data.truncated, overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, fontStats });
+        } catch (e) { failures.push(tag + ' ' + variant + ' ' + label + ': ' + e.message); log('FAIL ' + tag + ' ' + variant + ': ' + e.message); results.push({ screen: name, label: label + ' · ' + variant, error: e.message }); }
+      };
+      try {
+        await setViewport(cdp, w, h, 1);
+        await navigate(cdp, simUrl);
+        await cdp.evaluate('localStorage.setItem("cncjs-touch-language-v1",' + JSON.stringify(lang) + ');true');
+        await navigate(cdp, simUrl + '?sim-measure=' + lang);
+        // A load that stalls once (seen after a viewport change) is retried once before failing.
+        try { await waitReady(cdp); } catch (_) { await navigate(cdp, simUrl + '?sim-measure=' + lang + '-retry'); await waitReady(cdp); }
+        await goScreen(cdp, 'files');
+        await cdp.evaluate('document.querySelector(".library-file").click();true');
+        await cdp.waitFor('(function(){var b=document.getElementById("job-load");return !!b&&!b.disabled;})()', 15000, 'load enabled');
+        await cdp.evaluate('document.getElementById("job-load").click();true');
+        await cdp.waitFor('(function(){var m=window.cncState.get().machine;return !!(m&&m.name);})()', 15000, 'loaded');
+        await goScreen(cdp, 'home');
+        await capture('home', 'Suivi', 'loaded');
+        await cdp.evaluate('document.getElementById("home-job-start").click();true');
+        await cdp.waitFor('!document.getElementById("job-dialog").hidden', 15000, 'dialog');
+        await sleep(300);
+        const dialog = await cdp.evaluate('(' + MEASURE + ')(' + JSON.stringify(GOALS) + ')');
+        const dialogTargets = dialog.targets.filter((t) => /^(job-check|job-confirm|job-dismiss)$/.test(t.id || '') || t.tag === 'label');
+        results.push({ screen: 'dialog', label: 'Confirmation · dialog', targets: dialogTargets.length, below: dialogTargets.filter((t) => t.belowGoal), small: dialog.smallText, textTargets: dialogTargets.filter((t) => t.textBelowGoal), gaps: dialogTargets.filter((t) => t.gapBelowGoal), unreachable: [], truncated: dialog.truncated, overflow: dialog.horizontalOverflow, vertical: dialog.verticalOverflow, scale: dialog.screenScale, fontStats: { min: null, median: null, max: null } });
+        await screenshot(cdp, path.join(dir, 'dialog.png'));
+        await cdp.evaluate('(function(){var c=document.getElementById("job-check");c.checked=true;c.dispatchEvent(new Event("change",{bubbles:true}));document.getElementById("job-confirm").click();return true;})()');
+        await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 15000, 'running');
+        await sleep(1500);
+        await capture('home', 'Suivi', 'running');
+        await capture('jog', 'Préparer', 'running');
+        await cdp.evaluate('(function(){var b=document.getElementById("t-pause");if(b&&!b.hidden&&!b.disabled)b.click();else document.getElementById("home-job-pause").click();return true;})()');
+        await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="paused"', 15000, 'paused');
+        await sleep(1200);
+        await capture('home', 'Suivi', 'paused');
+        // Alarm from the virtual controller: the Machine card and the Suivi notice.
+        await goScreen(cdp, 'machine');
+        const alarmed = await cdp.evaluate('(function(){var b=document.getElementById("sim-trigger-alarm");if(!b||b.disabled)return false;b.click();return true;})()');
+        if (alarmed) {
+          await cdp.waitFor('/^alarm/i.test(((window.cncState.get().machine||{}).activeState)||"")', 10000, 'alarm');
+          await sleep(1200);
+          await capture('machine', 'Machine', 'alarm');
+          await capture('home', 'Suivi', 'alarm');
+          await cdp.evaluate('(function(){var b=document.getElementById("sim-clear-alarm");if(b&&!b.disabled)b.click();return true;})()');
+        } else failures.push(tag + ': alarm button unavailable');
+        await cdp.evaluate('document.getElementById("home-job-stop").click();true');
+        await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="idle"', 15000, 'idle');
+      } catch (e) { failures.push(tag + ': ' + e.message); log('FAIL ' + tag + ': ' + e.message); }
+      summary.measurements.push({ variant: tag + ' (job running, paused, alarm)', dir: dirName, dpr: 1, results });
+    }
+  }
+  await cdp.evaluate('localStorage.removeItem("cncjs-touch-language-v1");true').catch(() => {});
+}
+
 // --- Synthesis.
 function fmtBytes(b) { return typeof b === 'number' ? (b >= 1048576 ? (b / 1048576).toFixed(2) + ' MB' : b >= 1024 ? Math.round(b / 1024) + ' kB' : b + ' B') : '—'; }
 function writeSummary(summary) {
@@ -597,6 +672,7 @@ async function main() {
         await cdp.send('Page.setFontSizes', { fontSizes: { standard: 16, fixed: 13 } });
       } catch (e) { summary.fontSizesUnsupported = e.message; log('font 200 % not available: ' + e.message); }
     }
+    if (ONLY.includes('sim')) await simMeasure(cdp, simUrl, summary);
     if (ONLY.includes('startup')) { await setViewport(cdp, 1366, 768, 1); await measureStartup(cdp, realUrl, summary); }
     if (ONLY.includes('e2e')) { await setViewport(cdp, 1366, 768, 1); for (const lang of ['fr', 'en', 'es']) await e2e(cdp, simUrl, lang, summary); await cdp.evaluate('localStorage.removeItem("cncjs-touch-language-v1");true').catch(() => {}); }
   } catch (e) { failures.push('harness: ' + (e.stack || e.message)); log('FAIL harness: ' + e.message); }

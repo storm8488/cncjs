@@ -21,13 +21,21 @@
     // The confirmation window is visible: a countdown in words and a bar that empties.
     uiLocale.html('<div class="t-countdown"><p id="job-countdown"></p><div class="t-bar"><i id="job-countdown-bar"></i></div></div><div class="job-dialog-actions"><button id="job-dismiss" class="t-btn t-btn--ghost t-btn--lg">Annuler</button><button id="job-confirm" class="t-btn t-btn--primary" disabled>Confirmer</button></div></div></div>');
   var $ = function(id) {return document.getElementById(id);};
-  // The confirmation must remain visible when opened from the home screen.
+  // Status line for a host command running on the server (fixed under the strip, ui-2027.css).
+  var systemLine=document.createElement('p');systemLine.id='t-system-command';systemLine.className='t-system-command';systemLine.setAttribute('role','status');systemLine.hidden=true;
+  if(document.body&&typeof document.body.appendChild==='function')document.body.appendChild(systemLine);
+  // The confirmation must remain visible when opened from the home screen (appended last).
   document.body.appendChild($('job-dialog'));
   var selection=window.cncLibrarySelection||null, machines=[], current=null, busy=false, polling=false, lastSeen=0, ticket=null, until=0, portSignature='';
   var store=window.cncState, compact=!!(store&&window.CNCJobStream), stream=null, transportId=null, epoch='', serverSequence=0;
   var generation=0, mutation=0, confirmation=0, pending=0, commandSequence=0, feedbackSequence=0, nextPoll=0, disposed=false, stateSignature='', streamReason='';
   var latestMachine=null, lastTransit=0, appliedRequest=0, requestSequence=0, requests=[], bindings=[], explicitPort=false, protocolReady=false;
   var dialogReturn=null,dialogBackground=[], observationSuspended=!!document.hidden, preparing=0, renewing=0;
+  // Host command (shutdown, restart…) holding the machine on the server: {title, since} or null,
+  // carried by every snapshot (stream packet and HTTP read); shown in a status line under the strip.
+  var systemCommand=null,feedbackState='';
+  // Action feedback state (ui-2027.css .t-sent): sent → confirmed | failed | uncertain (no answer).
+  function setFeedbackState(state){feedbackState=state;var node=$('job-feedback');if(node&&typeof node.setAttribute==='function'&&typeof node.getAttribute==='function'&&node.getAttribute('data-state')!==state)node.setAttribute('data-state',state);}
   // A planned stream renewal (every minute) is not a disconnection: for up to 3 s
   // the transport still counts as connected and no notice is shown, while the
   // confirmations bound to the old stream are void as before.
@@ -52,7 +60,8 @@
       xhr.onload=function(){done();var data;try{data=JSON.parse(xhr.responseText);}catch(_){data={};}
         if(xhr.status>=200&&xhr.status<300) resolve(data);
         else reject(new Error(data.message || uiLocale.t('Commandes indisponibles (HTTP ')+xhr.status+').'));};
-      xhr.onerror=xhr.ontimeout=function(){done();reject(new Error(uiLocale.t('Connexion perdue ou réponse incertaine. Vérifiez l’état avant toute nouvelle action.')));};
+      // No answer is not a refusal: the command may have been applied (the next state says).
+      xhr.onerror=xhr.ontimeout=function(){done();var e=new Error(uiLocale.t('Connexion perdue ou réponse incertaine. Vérifiez l’état avant toute nouvelle action.'));e.uncertain=true;reject(e);};
       xhr.send(body?JSON.stringify(body):null);
     });
   }
@@ -85,7 +94,7 @@
   function unavailable(reason,rotating){
     var dropped=!!ticket||preparing>0;generation++;mutation++;dismiss();transportId=null;
     renewing=rotating?Date.now():0;
-    if(!rotating){current=null;latestMachine=null;lastSeen=0;}
+    if(!rotating){current=null;latestMachine=null;lastSeen=0;systemCommand=null;}
     streamReason=reason||'';
     if(dropped)text('job-feedback',uiLocale.t('Confirmation annulée : le suivi a été renouvelé. Touchez à nouveau le bouton.'));
     render();
@@ -108,8 +117,11 @@
     var online=current && Date.now()-lastSeen<3000;
     var grace=compact&&!simulation&&!transportId&&renewalGrace();
     var transportConnected=compact&&!simulation?(!!transportId&&!!stream&&stream.alive())||grace:!!lastSeen&&Date.now()-lastSeen<3000;
-    var detail={machine:online?current:null,observedAt:lastSeen,transportConnected:transportConnected,simulation:!!simulation,busy:busy,feedback:$('job-feedback').textContent};
-    if(store)store.set({machine:detail.machine,controllerId:detail.machine?detail.machine.port:null,transportConnected:transportConnected,transportReason:grace?'':streamReason});
+    var command=online?systemCommand:null;
+    var detail={machine:online?current:null,observedAt:lastSeen,transportConnected:transportConnected,simulation:!!simulation,busy:busy,feedback:$('job-feedback').textContent,feedbackState:feedbackState,systemCommand:command};
+    if(store)store.set({machine:detail.machine,controllerId:detail.machine?detail.machine.port:null,transportConnected:transportConnected,transportReason:grace?'':streamReason,systemCommand:command});
+    var line=command?uiLocale.t('Commande système en cours : ')+command.title:'';
+    if(systemLine.textContent!==line)systemLine.textContent=line;if(systemLine.hidden!==!line)systemLine.hidden=!line;
     var signature=JSON.stringify(detail);
     if(signature!==stateSignature){stateSignature=signature;window.dispatchEvent(new CustomEvent('cnc-job-status',{detail:detail}));}
     var selectedText=selection?uiLocale.t('Sélectionné dans la bibliothèque : ')+selection.name:uiLocale.t('Aucun fichier sélectionné dans la bibliothèque.');
@@ -160,6 +172,7 @@
         epoch=data.epoch;serverSequence=data.sequence;
       }
       machines=data.controllers||[];lastSeen=Date.now();lastTransit=transit||0;
+      var sc=data.systemCommand;systemCommand=sc&&typeof sc==='object'&&typeof sc.title==='string'&&sc.title?{title:sc.title,since:sc.since}:null;
       var old=$('job-port').value, signature=machines.map(function(m){return m.port;}).join('|');
       if(signature!==portSignature){
         portSignature=signature;$('job-port').textContent='';
@@ -203,15 +216,19 @@
     return api('POST',body);
   }
   function command(action,extra) {
-    var id=++commandSequence, ownGeneration=generation, started=Date.now();mutation++;pending++;busy=true;render();
+    var id=++commandSequence, ownGeneration=generation, started=Date.now();mutation++;pending++;busy=true;
+    // Sent, not yet answered: the text says so until the server's answer (or its absence) replaces it.
+    if(id>=feedbackSequence){feedbackSequence=id;text('job-feedback',uiLocale.t('Demande envoyée…'));setFeedbackState('sent');}
+    render();
+    // After the answer (or none), the state is read again from the server: nothing is replayed.
     function finish(){pending--;busy=pending>0;render();if(!stream||!stream.alive())poll(true);}
     return run(action,extra).then(function(data){
       if(ownGeneration===generation){
-        if(id>=feedbackSequence){feedbackSequence=id;text('job-feedback',data.message||'');}
+        if(id>=feedbackSequence){feedbackSequence=id;text('job-feedback',data.message||'');setFeedbackState('confirmed');}
         if(data.snapshot)apply(data.snapshot,Date.now()-started);
       }
       return data;
-    }).catch(function(e){if(ownGeneration===generation&&id>=feedbackSequence){feedbackSequence=id;text('job-feedback',e.message);}throw e;})
+    }).catch(function(e){if(ownGeneration===generation&&id>=feedbackSequence){feedbackSequence=id;text('job-feedback',e.message);setFeedbackState(e&&e.uncertain?'uncertain':'failed');}throw e;})
       .then(function(data){finish();return data;},function(e){finish();throw e;});
   }
   // operation: 'start' | 'resume' (the loaded program) | 'macro' (extra.macroId).

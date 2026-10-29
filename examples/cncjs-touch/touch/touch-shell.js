@@ -47,7 +47,13 @@
     var b=document.createElement('button');b.className='ks-nav';b.setAttribute('aria-label',label);b.innerHTML=icon(name)+uiLocale.html('<span>')+label+uiLocale.html('</span>');b.setAttribute('data-ks-screen',name);b.addEventListener('click',function(){go(name==='back'?trail.pop()||'menu':name,name==='back');});nav.appendChild(b);
   });
   var active='menu',trail=[];
-  function fitLibrary(){window.dispatchEvent(new CustomEvent('cnc-library-page-size',{detail:window.innerHeight<650?2:5}));window.dispatchEvent(new CustomEvent('cnc-history-page-size',{detail:window.innerHeight<650?3:8}));}
+  // Compact layout (ui-2027.css, body.t-compact) under 1100 x 650: screens are laid out
+  // shorter rather than shrunk by viewport-fit.js, which stays a safety net. Decided
+  // from the window only (a visual preference, never a permission).
+  function fitLibrary(){
+    var compact=window.innerHeight<650||window.innerWidth<1100;
+    if(document.body.classList.contains('t-compact')!==compact)document.body.classList.toggle('t-compact',compact);
+    window.dispatchEvent(new CustomEvent('cnc-library-page-size',{detail:compact?3:5}));window.dispatchEvent(new CustomEvent('cnc-history-page-size',{detail:compact?4:8}));}
   window.addEventListener('resize',fitLibrary);fitLibrary();
   var openedSheet=null,sheetReturn=null;
   function closeSheet(){

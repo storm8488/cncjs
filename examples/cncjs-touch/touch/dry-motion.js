@@ -27,7 +27,7 @@
     var disabled = !!why || !!request;
     buttons.forEach(function (b) { if (b.disabled !== disabled) b.disabled = disabled; });
     if(currentScreen!=='jog')return;
-    setText($('jog-msg'), why || (request ? t('Vérification par le serveur…') : t('Prêt pour un essai à blanc · pas ') + step + ' mm · ' + feed + ' mm/min.'));
+    setText($('jog-msg'), why || (request ? t('Vérification par le serveur…') : t('Vérifier le déplacement · aucun mouvement envoyé · pas ') + step + ' mm · ' + feed + ' mm/min.'));
     var mid=typeof document.querySelector==='function'?document.querySelector('#screen-jog .pad-mid'):null;
     if(mid)setText(mid, step + ' mm');
     setText($('jog-controller'), machine && machine.port ? uiLocale.t('Contrôleur suivi : ') + machine.port : uiLocale.t('Contrôleur suivi : aucun'));

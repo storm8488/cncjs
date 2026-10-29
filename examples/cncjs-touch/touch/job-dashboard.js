@@ -141,6 +141,8 @@
     // Real values from Grbl's FS: field. A feed hold stops the axes, not the spindle.
     var liveOk=!!(c&&c.fresh),feed=liveOk&&finiteNumber(c.feedrate)?c.feedrate:null,rpm=liveOk&&finiteNumber(c.spindleSpeed)?c.spindleSpeed:null;
     set('home-live','textContent',feed===null&&rpm===null?'':uiLocale.t('Avance réelle ')+(feed===null?'—':number(feed)+' mm/min')+uiLocale.t(' · Broche ')+(rpm===null?'—':number(rpm)+uiLocale.t(' tr/min')));
+    // Work frame (G54…) next to the work coordinates, as reported by the controller; blank when unknown.
+    var frameNode=$('home-work-frame');if(frameNode){var frame=c&&c.fresh&&c.operator&&/^G5[4-9]$/.test(String(c.operator.wcs||''))?' · '+c.operator.wcs:'';set('home-work-frame','textContent',frame);}
     set('home-live-feed','textContent',feed===null?'—':number(feed)+' mm/min');
     set('home-live-spindle','textContent',rpm===null?'—':number(rpm)+uiLocale.t(' tr/min'));
     // Reprendre takes the primary place while the job is held; Démarrer otherwise.
@@ -209,7 +211,10 @@
     if(visible('files'))set('job-progress-summary','textContent',percent+' · '+eta);
   }
   window.addEventListener('cnc-library-select',function(e){selection=e.detail;render();});
-  window.addEventListener('cnc-job-status',function(e){machine=e.detail.machine;simulation=e.detail.simulation;busy=!!e.detail.busy;feedback=e.detail.feedback||'';render();});
+  window.addEventListener('cnc-job-status',function(e){machine=e.detail.machine;simulation=e.detail.simulation;busy=!!e.detail.busy;feedback=e.detail.feedback||'';
+    // Sent / confirmed / failed / uncertain, mirrored from job-controls.js (ui-2027.css .t-sent).
+    var fb=$('home-job-feedback'),state=e.detail.feedbackState||'';if(fb&&typeof fb.setAttribute==='function'&&(!fb.getAttribute||fb.getAttribute('data-state')!==state))fb.setAttribute('data-state',state);
+    render();});
   window.addEventListener('cnc-library-preview-updated',function(e){
     var file=machine&&machine.name?machine.name:selection&&selection.file||'';
     if(e.detail&&e.detail.file&&e.detail.file!==file)return;

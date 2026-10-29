@@ -5,7 +5,8 @@
   function fit(){
     pending=false;if(disposed)return;
     var vh=window.innerHeight,vw=window.innerWidth,top=0;
-    ['status-bar','simulation-banner','real-banner','notice'].forEach(function(id){var el=document.getElementById(id);if(el&&!el.hidden)top=Math.max(top,el.getBoundingClientRect().bottom);});
+    // #notice lies over the screen (ui-2027.css): it never changes the room to fit.
+    ['status-bar','simulation-banner','real-banner'].forEach(function(id){var el=document.getElementById(id);if(el&&!el.hidden)top=Math.max(top,el.getBoundingClientRect().bottom);});
     var nav=document.getElementById('tabbar'),shell=document.body.classList.contains('ks-ui'),bottom=shell?0:nav?nav.getBoundingClientRect().height:0;
     var viewHeight=Math.max(100,vh-top-bottom-16)+'px';
     var screen=main.querySelector('.screen.active');
