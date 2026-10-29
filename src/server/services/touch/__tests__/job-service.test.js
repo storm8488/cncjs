@@ -65,6 +65,13 @@ afterAll(async () => {
   await fs.rm(root, { recursive: true, force: true });
 });
 
+// Every service is disposed after its test: a stop sequence still polling
+// would otherwise keep the Jest worker alive (its clock is frozen here).
+const services = [];
+afterEach(() => {
+  services.splice(0).forEach((service) => service.dispose());
+});
+
 const setup = () => {
   const ctx = { now: 10000, events: [], c: fakeController() };
   ctx.controllers = { TEST: ctx.c };
@@ -73,6 +80,7 @@ const setup = () => {
     { get: (key) => (key === 'watchDirectory' ? root : ctx.events) },
     () => ctx.now
   );
+  services.push(ctx.service);
   ctx.generation = ctx.service.list()[0].generation;
   ctx.transportId = 'offline-transport';
   ctx.service.openTransport(ctx.transportId);
@@ -986,6 +994,48 @@ describe('job service', () => {
       expect(ctx.c.commands.at(-1)).toEqual(['reset']);
     });
 
+    test('a stop followed by the service disposal leaves nothing behind: no reset, no new listener, no command', async () => {
+      const ctx = ready();
+      await ctx.req('load', { file: 'test.nc' });
+      realistic(ctx);
+      ctx.c.workflow.state = 'running';
+      ctx.c.state.status = { activeState: 'Run' };
+      await ctx.req('stop');
+      expect(ctx.c.commands.slice(-2)).toEqual([['gcode:stop'], ['feedhold']]);
+      const sent = ctx.c.commands.length;
+      ctx.service.dispose();
+      expect(ctx.c.runner.listenerCount('status')).toBe(0);
+      // The hold time limit passes and Grbl reports at rest: the service is gone.
+      ctx.now += 6000;
+      ctx.c.state.status = { activeState: 'Idle' };
+      ctx.c.runner.emit('status');
+      await wait(200);
+      expect(ctx.c.runner.listenerCount('status')).toBe(0);
+      expect(ctx.c.sender.listenerCount('load')).toBe(0);
+      expect(ctx.c.commands.filter(([n]) => n === 'reset')).toHaveLength(0);
+      expect(ctx.c.commands).toHaveLength(sent);
+      await expect(ctx.service.action({ port: 'TEST', action: 'stop' })).rejects.toThrow(/indisponible/);
+    });
+
+    test('a controller forgotten while its stop still polls is left alone', async () => {
+      const ctx = ready();
+      await ctx.req('load', { file: 'test.nc' });
+      realistic(ctx);
+      ctx.c.workflow.state = 'running';
+      ctx.c.state.status = { activeState: 'Run' };
+      await ctx.req('stop');
+      const sent = ctx.c.commands.length;
+      // The port closes: CNCjs destroys the controller and the next listing forgets it.
+      ctx.c.isClose = () => true;
+      ctx.service.list();
+      expect(ctx.c.runner.listenerCount('status')).toBe(0);
+      ctx.c.isClose = () => false; // reopened: the same object is not reused by CNCjs, but be strict
+      ctx.now += 6000;
+      await wait(200);
+      expect(ctx.c.commands).toHaveLength(sent);
+      expect(ctx.c.runner.listenerCount('status')).toBe(0);
+    });
+
     test('a macro waiting in a dwell (CNCjs queue not empty) can be stopped', async () => {
       const ctx = ready();
       realistic(ctx);
@@ -1072,6 +1122,8 @@ describe('job service', () => {
       const plan = await ctx.req('resumePlan', { file: 'resume.nc', line: 7 });
       expect(plan).toMatchObject({ from: 7, total: 11, line: 'G1 Y10', spindle: { mode: 'M3', speed: 9000 } });
       expect(plan.preamble).toEqual(['(CNCjs Touch : reprise a la ligne 7 de resume.nc)', 'G21 G90 G17 G94', 'G0 Z5', 'G0 X10 Y0', 'M3 S9000', 'G4 P3', 'G1 Z-1 F200', 'F800']);
+      expect(plan.notes[0]).toMatch(/dégagement Z5 .*pas une garantie/);
+      expect(plan.program).toBeUndefined();
       expect(ctx.c.commands).toEqual([]);
       await expect(ctx.req('resumePlan', { file: 'resume.nc', line: 4 })).rejects.toThrow(/Position|dégagement/);
       await expect(ctx.req('resumePlan', { file: '../resume.nc', line: 7 })).rejects.toThrow(/Nom de fichier/);
@@ -1086,7 +1138,7 @@ describe('job service', () => {
       expect(file).toBe('resume.nc');
       expect(program.split('\n').slice(0, 9)).toEqual(['(CNCjs Touch : reprise a la ligne 7 de resume.nc)', 'G21 G90 G17 G94', 'G0 Z5', 'G0 X10 Y0', 'M3 S9000', 'G4 P3', 'G1 Z-1 F200', 'F800', 'G1 Y10']);
       const state = ctx.state();
-      expect(state.resume).toMatchObject({ from: 7, total: 11, line: 'G1 Y10' });
+      expect(state.resume).toMatchObject({ from: 7, total: 11, line: 'G1 Y10', notes: [expect.stringMatching(/dégagement/), expect.stringMatching(/repère/)] });
       expect(state.canStart).toBe(true);
       // A normal load clears it.
       await ctx.req('load', { file: 'resume.nc' });
@@ -1339,6 +1391,23 @@ describe('job service', () => {
       expect(ctx.state().probing).toBe(false);
     });
 
+    test('disposing the service during a probe ends it: the sequence rejects and sends no further line', async () => {
+      const ctx = plate({ delay: 60 });
+      const ticket = await ctx.req('prepare', { operation: 'zeroZ', thickness: 5, search: 20 });
+      const run = ctx.req('zeroZ', { nonce: ticket.nonce });
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20);
+      });
+      expect(ctx.c.sent).toEqual(['G38.2 Z-17 F100']);
+      ctx.service.dispose();
+      await expect(run).rejects.toThrow(/abandonné/);
+      await new Promise((resolve) => {
+        setTimeout(resolve, 250);
+      });
+      expect(ctx.c.sent).toEqual(['G38.2 Z-17 F100']);
+      expect(ctx.c.runner.listenerCount('ok')).toBe(0);
+    });
+
     test('a report taken before Grbl starts a probe line is not taken for its end (the ok of the line is awaited)', async () => {
       const ctx = plate({ delay: 250 });
       const ticket = await ctx.req('prepare', { operation: 'zeroZ', thickness: 10, search: 20 });
@@ -1358,6 +1427,7 @@ describe('job service', () => {
       expect(state.probing).toBe(true);
       expect(state.loadReason).toMatch(/Palpage en cours/);
       expect(state.macroReason).toMatch(/Palpage en cours/);
+      expect(() => ctx.service.reserveSystemCommand({ id: 'cmd', title: 'Éteindre', commands: 'sudo poweroff' })).toThrow(/Palpage en cours/);
       expect(state.canZeroZ).toBe(false);
       expect(state.canStop).toBe(true);
       await run;
@@ -1494,6 +1564,91 @@ describe('job service', () => {
       ctx.c.state.status = { ...ctx.c.state.status, activeState: 'Hold' };
       ctx.c.report();
       expect(ctx.state().zeroZReason).toMatch(/repos ou pendant une pause|Idle/);
+    });
+  });
+
+  describe('system commands (host shutdown, restart) reserved against the machine', () => {
+    const reserve = (ctx, title = 'Redémarrer', commands = 'sudo reboot') => ctx.service.reserveSystemCommand({ id: 'cmd-1', title, commands });
+
+    test('a reservation is exclusive, blocks every start until released, and stays visible in the snapshot', async () => {
+      const ctx = setup();
+      const state = await ctx.loaded();
+      const ticket = await ctx.req('prepare', { operation: 'start', revision: state.revision });
+      const reservation = reserve(ctx);
+      expect(ctx.service.systemCommand()).toEqual({ title: 'Redémarrer', since: expect.any(Number) });
+      expect(() => ctx.service.reserveSystemCommand({ id: 'cmd-2', title: 'Éteindre', commands: 'sudo poweroff' })).toThrow(/déjà en cours/);
+      await expect(ctx.req('start', { nonce: ticket.nonce })).rejects.toThrow(/commande système en cours/i);
+      expect(ctx.c.commands.filter(([n]) => n === 'gcode:start')).toHaveLength(0);
+      await expect(ctx.req('load', { file: 'test.nc' })).rejects.toThrow(/commande système/i);
+      await expect(ctx.req('prepare', { operation: 'home' })).rejects.toThrow(/commande système/i);
+      await expect(ctx.req('prepare', { operation: 'macro', macroId: 'x' })).rejects.toThrow(/commande système/i);
+      await expect(ctx.req('prepare', { operation: 'zeroZ', thickness: 5, search: 10 })).rejects.toThrow(/commande système/i);
+      await expect(ctx.req('resumePlan', { file: 'resume.nc', line: 7 })).rejects.toThrow(/commande système/i);
+      const snapshot = ctx.state();
+      ['canLoad', 'canStart', 'canHome', 'canUnlock', 'canMacro', 'canSpindleTest', 'canZeroZ'].forEach((key) => {
+        expect(snapshot[key]).toBe(false);
+      });
+      expect(snapshot.startReason).toMatch(/commande système/i);
+      expect(ctx.c.commands.filter(([n]) => n !== 'gcode:load')).toEqual([]);
+      reservation.release();
+      reservation.release(); // idempotent
+      expect(ctx.service.systemCommand()).toBe(null);
+      expect(ctx.state().canStart).toBe(true);
+    });
+
+    test('a reservation is refused while a controller works, pauses, homes, moves, loads or has a stale report', async () => {
+      const ctx = setup();
+      expect(() => reserve(ctx)).toThrow(/trop ancien/);
+      ctx.report();
+      ctx.c.workflow.state = 'running';
+      expect(() => reserve(ctx)).toThrow(/travail/);
+      ctx.c.workflow.state = 'paused';
+      expect(() => reserve(ctx)).toThrow(/travail/);
+      ctx.c.workflow.state = 'idle';
+      ['Run', 'Hold', 'Home', 'Jog'].forEach((activeState) => {
+        ctx.c.state.status.activeState = activeState;
+        expect(() => reserve(ctx)).toThrow(/mouvement|occupée/);
+      });
+      ctx.c.state.status.activeState = 'Idle';
+      ctx.c.feeder = { toJSON: () => ({ queue: 1, pending: false }) };
+      expect(() => reserve(ctx)).toThrow(/attente/);
+      ctx.c.feeder = { toJSON: () => ({ queue: 0, pending: false }) };
+      // A homing cycle: Grbl reports nothing during it, the $H sent is enough.
+      ctx.c.settings = { settings: { $22: 1, $110: 1000, $111: 1000, $112: 200 } };
+      const ticket = await ctx.req('prepare', { operation: 'home' });
+      await ctx.req('home', { nonce: ticket.nonce });
+      expect(() => reserve(ctx)).toThrow(/origine/);
+      ctx.now += 5000;
+      ctx.report();
+      // A load in progress.
+      const load = ctx.req('load', { file: 'test.nc' });
+      expect(() => reserve(ctx)).toThrow(/Chargement/);
+      await load;
+      expect(ctx.service.systemCommand()).toBe(null);
+      reserve(ctx).release();
+      // A closed controller does not count.
+      ctx.c.isClose = () => true;
+      reserve(ctx).release();
+    });
+
+    test('pause, stop and M5 stay possible during a reservation; a disposed service refuses one', async () => {
+      const ctx = setup();
+      ctx.report();
+      const reservation = reserve(ctx);
+      // A job started from the PC during the reservation can still be paused and stopped.
+      ctx.c.workflow.state = 'running';
+      ctx.c.state.status.activeState = 'Run';
+      await ctx.req('pause');
+      expect(ctx.c.commands.at(-1)).toEqual(['gcode:pause']);
+      await ctx.req('stop');
+      expect(ctx.c.commands.some(([n]) => n === 'gcode:stop')).toBe(true);
+      ctx.c.state.status.activeState = 'Idle';
+      ctx.c.workflow.state = 'idle';
+      await ctx.service.action({ port: 'TEST', action: 'spindleStop' });
+      expect(ctx.c.commands.at(-1)).toEqual(['gcode', 'M5']);
+      reservation.release();
+      ctx.service.dispose();
+      expect(() => reserve(ctx)).toThrow(/indisponible/);
     });
   });
 

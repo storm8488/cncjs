@@ -48,6 +48,10 @@ const previewMotion = (body) => service.previewMotion(body);
 
 const openEvents = (req, res) => stream.open(req, res);
 
+// Reserves the machine for a host command (see job-service): throws 409 when
+// a controller is busy or another command holds it; returns { release }.
+const reserveSystemCommand = (command) => service.reserveSystemCommand(command);
+
 const systemStats = () => system.read();
 
 const backlightStatus = () => backlight.status();
@@ -68,6 +72,7 @@ export default {
   action,
   previewMotion,
   openEvents,
+  reserveSystemCommand,
   systemStats,
   backlightStatus,
   setBacklight,

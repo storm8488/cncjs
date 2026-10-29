@@ -45,7 +45,9 @@ export const createStream = (service, options = {}) => {
     epoch,
     sequence: ++sequence,
     sentAt: clock(),
-    controllers: service.list()
+    controllers: service.list(),
+    // Host command (shutdown, restart…) holding the machine: {title, since} or null.
+    systemCommand: typeof service.systemCommand === 'function' ? service.systemCommand() : null
   });
 
   const send = (client, packet) => {
@@ -92,7 +94,7 @@ export const createStream = (service, options = {}) => {
       }
       lastKey = key;
       const packet = snapshot();
-      const signature = JSON.stringify(packet.controllers, (key, value) => {
+      const signature = JSON.stringify([packet.controllers, packet.systemCommand], (key, value) => {
         return VOLATILE_KEYS.includes(key) ? undefined : value;
       });
       if (signature === lastSignature && elapsed() - lastPublished < HEARTBEAT_MS) {

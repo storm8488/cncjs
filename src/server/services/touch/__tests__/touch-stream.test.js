@@ -386,6 +386,25 @@ describe('touch stream', () => {
     stream.dispose();
   });
 
+  test('a host command reservation is published to every client, and its release too', () => {
+    const ctx = setup();
+    const { res } = ctx.connect();
+    ctx.registry.A.runner.emit('status');
+    ctx.timers.flush();
+    expect(res.lines.at(-1).systemCommand).toBe(null);
+    const before = res.lines.length;
+    const reservation = ctx.service.reserveSystemCommand({ id: 'c1', title: 'Redémarrer', commands: 'sudo reboot' });
+    ctx.timers.flush();
+    expect(res.lines.length).toBe(before + 1);
+    expect(res.lines.at(-1).systemCommand).toEqual({ title: 'Redémarrer', since: expect.any(Number) });
+    expect(res.lines.at(-1).controllers[0].canLoad).toBe(false);
+    reservation.release();
+    ctx.timers.flush();
+    expect(res.lines.at(-1).systemCommand).toBe(null);
+    expect(res.lines.at(-1).controllers[0].canLoad).toBe(true);
+    ctx.stream.dispose();
+  });
+
   test('dispose clears timers, listeners and the service', () => {
     const ctx = setup();
     const { res } = ctx.connect();

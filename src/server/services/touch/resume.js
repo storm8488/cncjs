@@ -31,7 +31,31 @@ const words = (code) => {
 
 const fmt = (n) => String(Math.round(n * 10000) / 10000);
 
+const MM_PER_INCH = 25.4;
+
 export const programLines = (gcode) => String(gcode).split('\n').filter((line) => line.trim().length > 0);
+
+// Everything kept in program units: positions, clearance height and feeds
+// (G94: units per minute). They are converted together when the program
+// changes units, so a clearance seen in millimetres is never sent in inches.
+const acquired = (s) => s.feed !== null || s.safeZ !== null || ['X', 'Y', 'Z'].some((a) => s.pos[a] !== null);
+const positioned = (s) => s.safeZ !== null || ['X', 'Y', 'Z'].some((a) => s.pos[a] !== null);
+const scale = (s, k) => {
+  ['X', 'Y', 'Z'].forEach((a) => {
+    if (s.pos[a] !== null) {
+      s.pos[a] *= k;
+    }
+  });
+  if (s.safeZ !== null) {
+    s.safeZ *= k;
+  }
+  if (s.feed !== null) {
+    s.feed *= k;
+  }
+  if (s.plungeFeed !== null) {
+    s.plungeFeed *= k;
+  }
+};
 
 // State of the program just before line `from` (1-based, sender numbering).
 // Units and work offset stay null when the program never chose them: the
@@ -53,7 +77,12 @@ coolant: 'M9',
 tool: null,
 toolChanged: false,
     pos: { X: null, Y: null, Z: null },
-safeZ: null
+safeZ: null,
+    // Line of the last unit change that converted acquired values, of the
+    // work offset change that made them unknown, and of a G43.1 still active.
+    unitsChanged: null,
+wcsReset: null,
+toolOffset: null
   };
   for (let i = 0; i < from - 1; i++) {
     const code = clean(lines[i]);
@@ -74,9 +103,30 @@ safeZ: null
     if (g.includes(93)) {
       throw refuse('Avance inverse du temps (G93) avant la ligne ' + from + ' : reprise impossible.');
     }
+    // Compensations the preamble does not replay (Grbl supports G43.1/G49 only).
+    if (g.some((v) => [41, 41.1, 42, 42.1].includes(v))) {
+      throw refuse('Compensation de rayon d’outil (G41/G42) à la ligne ' + lineNo + ' : non rejouée, reprise impossible.');
+    }
+    if (g.includes(43)) {
+      throw refuse('Décalage de longueur d’outil (G43) à la ligne ' + lineNo + ' : non rejoué, reprise impossible.');
+    }
     g.forEach((v) => {
       if (v === 20 || v === 21) {
-        s.units = 'G' + v;
+        const units = 'G' + v;
+        if (s.units !== units) {
+          if (s.units === null && acquired(s)) {
+            throw refuse('Le programme fixe ses unités (' + units + ') à la ligne ' + lineNo + ' après des déplacements faits dans les unités de la machine : reprise impossible.');
+          }
+          if (s.units !== null && acquired(s)) {
+            scale(s, v === 20 ? 1 / MM_PER_INCH : MM_PER_INCH);
+            s.unitsChanged = lineNo;
+          }
+          s.units = units;
+        }
+      } else if (v === 43.1) {
+        s.toolOffset = lineNo;
+      } else if (v === 49) {
+        s.toolOffset = null;
       } else if (v === 90 || v === 91) {
         s.distance = 'G' + v;
       } else if (v === 17 || v === 18 || v === 19) {
@@ -84,7 +134,17 @@ safeZ: null
       } else if (v === 94) {
         s.feedMode = 'G94';
       } else if ([54, 55, 56, 57, 58, 59].includes(v)) {
-        s.wcs = 'G' + v;
+        const wcs = 'G' + v;
+        if (s.wcs !== wcs) {
+          // Positions acquired under another offset (or under the controller's
+          // unknown one) do not carry over: X, Y and Z must be given again.
+          if (positioned(s)) {
+            s.pos = { X: null, Y: null, Z: null };
+            s.safeZ = null;
+            s.wcsReset = { line: lineNo, wcs };
+          }
+          s.wcs = wcs;
+        }
       } else if ([0, 1, 2, 3].includes(v)) {
         s.motion = 'G' + v;
       } else if (v === 80) {
@@ -110,11 +170,17 @@ safeZ: null
       }
     });
     const machineMove = g.includes(53) || g.includes(28) || g.includes(30);
+    const probe = g.some((v) => v >= 38.2 && v <= 38.5);
     const axes = ['X', 'Y', 'Z'].filter((a) => at(a) !== null);
-    if (machineMove) {
-      // G53/G28/G30 moves are in machine coordinates: the work position of
-      // those axes is unknown until the program sets it again.
-      (g.includes(53) ? axes : ['X', 'Y', 'Z']).forEach((a) => {
+    if (g.includes(43.1)) {
+      // The axis word of G43.1 is the offset, not a move.
+      continue;
+    }
+    if (machineMove || probe) {
+      // G53/G28/G30 moves are in machine coordinates and a probe stops at the
+      // contact: the work position of those axes is unknown until the program
+      // sets it again.
+      (g.includes(53) || probe ? axes : ['X', 'Y', 'Z']).forEach((a) => {
         s.pos[a] = null;
       });
       continue;
@@ -175,7 +241,13 @@ export const buildResume = (gcode, from, { name = '' } = {}) => {
   if (s.distance === 'G91') {
     throw refuse('Le programme est en coordonnées relatives (G91) à la ligne ' + from + ' : reprise impossible.');
   }
+  if (s.toolOffset !== null) {
+    throw refuse('Décalage de longueur d’outil (G43.1) actif depuis la ligne ' + s.toolOffset + ' : non rejoué, reprise impossible avant son annulation (G49).');
+  }
   if (s.pos.X === null || s.pos.Y === null || s.pos.Z === null) {
+    if (s.wcsReset) {
+      throw refuse('Le programme change de repère (' + s.wcsReset.wcs + ' à la ligne ' + s.wcsReset.line + ') : X, Y et Z doivent être redonnés en absolu sous ce repère avant la ligne ' + from + '. Choisissez une ligne plus loin.');
+    }
     throw refuse('Position avant la ligne ' + from + ' inconnue (X, Y et Z doivent avoir été donnés en absolu) : choisissez une ligne plus loin.');
   }
   if (s.safeZ === null || s.safeZ < s.pos.Z) {
@@ -215,6 +287,22 @@ export const buildResume = (gcode, from, { name = '' } = {}) => {
     first = s.motion + ' ' + first.trim();
   }
   const program = preamble.concat([first], lines.slice(from)).join('\n') + '\n';
+  // Limits the operator must know before confirming (shown with the plan).
+  const notes = [
+    'Le dégagement Z' + fmt(s.safeZ) + ' est le Z le plus haut vu avant la ligne ' + from + ', pas une garantie d’absence d’obstacle (brides, pièce).'
+  ];
+  if (!s.units) {
+    notes.push('Le programme ne fixe pas ses unités (G20/G21) : la machine garde les siennes.');
+  }
+  if (!s.wcs) {
+    notes.push('Le programme ne choisit pas de repère (G54-G59) : la machine garde le sien.');
+  }
+  if (s.unitsChanged) {
+    notes.push('Le programme change d’unités (ligne ' + s.unitsChanged + ') : positions et avances de la reprise converties en ' + s.units + '.');
+  }
+  if (s.wcsReset) {
+    notes.push('Repère ' + s.wcs + ' choisi à la ligne ' + s.wcsReset.line + ' : la reprise part des positions redonnées sous ce repère.');
+  }
   return {
     program,
     from,
@@ -228,6 +316,7 @@ export const buildResume = (gcode, from, { name = '' } = {}) => {
     safeZ: s.safeZ,
     units: s.units,
     wcs: s.wcs,
-    preamble
+    preamble,
+    notes
   };
 };

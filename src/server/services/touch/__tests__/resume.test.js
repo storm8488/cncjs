@@ -102,4 +102,89 @@ describe('resume from a line', () => {
     expect(r.spindle).toBe(null);
     expect(r.coolant).toBe(null);
   });
+
+  test('a unit change converts positions, clearance and feeds together (5 mm under G20 is Z0.1969, never Z5)', () => {
+    const prog = ['G21 G90', 'G0 X100 Y0 Z5', 'G20', 'G1 X4 F10', 'G1 Y1'].join('\n');
+    const r = buildResume(prog, 5);
+    expect(r.preamble).toEqual(['(CNCjs Touch : reprise a la ligne 5)', 'G20 G90 G17 G94', 'G0 Z0.1969', 'G0 X4 Y0', 'G1 Z0.1969 F10']);
+    expect(r.preamble.join('\n')).not.toMatch(/Z5\b/);
+    expect(r.units).toBe('G20');
+    expect(r.safeZ).toBeCloseTo(5 / 25.4, 6);
+    expect(r.notes).toEqual(expect.arrayContaining([expect.stringMatching(/unités.*ligne 3/)]));
+    // Feeds (units per minute) and the plunge feed follow the same conversion.
+    const feeds = ['G21 G90', 'G0 X0 Y0 Z5', 'G1 Z-1 F300', 'G20', 'G1 X1'].join('\n');
+    expect(buildResume(feeds, 5).preamble.slice(1)).toEqual(['G20 G90 G17 G94', 'G0 Z0.1969', 'G0 X0 Y0', 'G1 Z-0.0394 F11.811']);
+  });
+
+  test('a program that alternates units several times, with incremental moves in between, is followed', () => {
+    const prog = ['G21 G90', 'G0 X25.4 Y0 Z5', 'G20', 'G1 X2 F10', 'G91 G1 X1', 'G90 G21', 'G1 Y10 F200', 'G1 X3'].join('\n');
+    const r = buildResume(prog, 8);
+    expect(r.position.X).toBeCloseTo(76.2, 6);
+    expect(r.position).toMatchObject({ Y: 10 });
+    expect(r.position.Z).toBeCloseTo(5, 6);
+    expect(r.preamble.slice(1)).toEqual(['G21 G90 G17 G94', 'G0 Z5', 'G0 X76.2 Y10', 'G1 Z5 F200']);
+  });
+
+  test('units chosen after moves made in the machine units cannot be converted: refused', () => {
+    const prog = ['G0 Z5', 'G0 X0 Y0', 'G21', 'G1 Z-1 F100', 'G1 X10', 'M30'].join('\n');
+    expect(() => buildResume(prog, 5)).toThrow(/unités.*ligne 3/);
+  });
+
+  test('a work offset change makes the positions acquired under the old one unknown until X, Y and Z are given again', () => {
+    const prog = ['G21 G90 G54', 'G0 X10 Y20 Z5', 'G1 Z-1 F100', 'G55', 'G1 X20', 'G1 Y5', 'G0 Z3', 'G1 Z-1', 'G1 X30'].join('\n');
+    expect(() => buildResume(prog, 5)).toThrow(/repère.*G55.*ligne 4/);
+    expect(() => buildResume(prog, 6)).toThrow(/repère/);
+    expect(() => buildResume(prog, 7)).toThrow(/repère/);
+    expect(buildResume(prog, 8)).toMatchObject({ wcs: 'G55', position: { X: 20, Y: 5, Z: 3 }, safeZ: 3 });
+    const r = buildResume(prog, 9);
+    expect(r).toMatchObject({ wcs: 'G55', position: { X: 20, Y: 5, Z: -1 }, safeZ: 3 });
+    expect(r.preamble.slice(1)).toEqual(['G21 G90 G17 G55 G94', 'G0 Z3', 'G0 X20 Y5', 'G1 Z-1 F100']);
+    // Selecting the same offset again changes nothing.
+    const same = ['G21 G90 G54', 'G0 X10 Y20 Z5', 'G1 Z-1 F100', 'G54', 'G1 X20'].join('\n');
+    expect(buildResume(same, 5).position).toEqual({ X: 10, Y: 20, Z: -1 });
+  });
+
+  test('tool compensations are not replayed: G41/G42/G43 are refused, a G43.1 still active too, and its Z is not a move', () => {
+    const base = ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G1 X5', 'G1 X6', 'M30'];
+    const at = (insert, from) => {
+      const prog = base.slice(0, 4).concat(insert, base.slice(4)).join('\n');
+      return () => buildResume(prog, from);
+    };
+    expect(at(['G41 D1'], 7)).toThrow(/G41\/G42/);
+    expect(at(['G42'], 7)).toThrow(/G41\/G42/);
+    expect(at(['G43 H1'], 7)).toThrow(/G43/);
+    expect(at(['G43.1 Z2.5'], 7)).toThrow(/G43\.1.*ligne 5/);
+    expect(at(['G43.1 Z2.5', 'G49'], 8)().position).toEqual({ X: 5, Y: 0, Z: -1 });
+  });
+
+  test('arcs: end points are followed, I/J/R are never taken for positions, a modal arc line gets its G2 back', () => {
+    const prog = ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G2 X10 Y10 I5 J5', 'X0 Y0 I-5 J-5', 'G3 X4 Y4 R3', 'G1 X1'].join('\n');
+    expect(buildResume(prog, 6).position).toEqual({ X: 10, Y: 10, Z: -1 });
+    expect(buildResume(prog, 6).program.split('\n')).toContain('G2 X0 Y0 I-5 J-5');
+    expect(buildResume(prog, 7).position).toEqual({ X: 0, Y: 0, Z: -1 });
+    expect(buildResume(prog, 7).program.split('\n')).toContain('G3 X4 Y4 R3');
+    expect(buildResume(prog, 8).position).toEqual({ X: 4, Y: 4, Z: -1 });
+  });
+
+  test('machine-coordinate and probe moves hide the touched axes until they are set again', () => {
+    const base = ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G1 X5', 'G1 X6', 'M30'];
+    const at = (insert, from) => {
+      const prog = base.slice(0, 4).concat(insert, base.slice(4)).join('\n');
+      return () => buildResume(prog, from);
+    };
+    expect(at(['G30'], 6)).toThrow(/Position/);
+    expect(at(['G38.2 Z-10 F50'], 6)).toThrow(/Position/);
+    expect(at(['G53 G0 Z-1', 'G0 Z5'], 7)().preamble.slice(1)).toEqual(['G21 G90 G17 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z5 F100']);
+  });
+
+  test('notes state the limits: the clearance is the highest Z seen, modes left to the controller are named', () => {
+    const r = buildResume(PROGRAM, 12);
+    expect(r.notes).toEqual([expect.stringMatching(/dégagement.*Z5.*pas une garantie/)]);
+    const bare = buildResume(['G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200', 'G1 X10 F800', 'G1 Y10', 'M30'].join('\n'), 5);
+    expect(bare.notes).toEqual([
+      expect.stringMatching(/dégagement/),
+      expect.stringMatching(/unités/),
+      expect.stringMatching(/repère/)
+    ]);
+  });
 });

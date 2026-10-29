@@ -162,6 +162,8 @@ export const createService = (store, config, clock = monotonic) => {
   const listeners = new Set();
   const transports = new Set();
   let disposed = false;
+  // Host command (shutdown, restart…) reserved against the machine: see reserveSystemCommand.
+  let systemCommand = null;
 
   const changed = () => {
     listeners.forEach((fn) => fn());
@@ -169,9 +171,30 @@ export const createService = (store, config, clock = monotonic) => {
 
   const controllers = () => store.get('controllers') || {};
 
+  // Deferred step of a stop, a probe or a spin-up, kept on the controller's
+  // record so that forgetting the controller or disposing the service cancels
+  // it: nothing runs, and no listener or command follows, once the record is
+  // gone. `cancel` tells a waiting promise that its sequence was abandoned.
+  const later = (c, r, fn, ms, cancel) => {
+    const entry = { cancel };
+    entry.handle = setTimeout(() => {
+      r.timers.delete(entry);
+      if (disposed || records.get(c) !== r) {
+        return;
+      }
+      fn();
+    }, ms);
+    r.timers.add(entry);
+  };
+
   const record = (c) => {
+    if (disposed) {
+      throw conflict('Service indisponible.');
+    }
     if (!records.has(c)) {
       const r = {
+        // Deferred steps (see later()).
+        timers: new Set(),
         seen: null,
         modalSeen: null,
         wcs: null,
@@ -350,6 +373,13 @@ export const createService = (store, config, clock = monotonic) => {
 
   const remove = (c, r) => {
     records.delete(c);
+    Array.from(r.timers).forEach((entry) => {
+      clearTimeout(entry.handle);
+      r.timers.delete(entry);
+      if (entry.cancel) {
+        entry.cancel();
+      }
+    });
     if (c.runner) {
       c.runner.removeListener('status', r.status);
       c.runner.removeListener('startup', r.reset);
@@ -396,6 +426,11 @@ export const createService = (store, config, clock = monotonic) => {
     const r = record(c);
     if (!Number.isFinite(r.seen) || clock() < r.seen || clock() - r.seen > MAX_REPORT_AGE_MS) {
       throw conflict('État machine trop ancien : attendre un rapport récent.');
+    }
+    // Nothing that moves the machine starts while a host command runs (pause,
+    // stop and M5 do not come through here).
+    if (systemCommand) {
+      throw conflict('Commande système en cours (' + systemCommand.title + ') : attendez sa fin.');
     }
   };
 
@@ -504,7 +539,8 @@ export const createService = (store, config, clock = monotonic) => {
       c.command('feedhold');
     }
     const deadline = clock() + HALT_MS;
-    const mark = record(c).reports;
+    const r = record(c);
+    const mark = r.reports;
     // A feed hold byte lost on the link (seen with the simulator) would leave the axes
     // running until the time limit: while a newer report still says Run, it is sent again.
     let heldAt = clock();
@@ -512,8 +548,8 @@ export const createService = (store, config, clock = monotonic) => {
       if (controllers()[c.options.port] !== c || c.isClose() || !c.runner) {
         return;
       }
-      if (record(c).reports <= mark && clock() <= deadline) {
-        setTimeout(wait, 50);
+      if (r.reports <= mark && clock() <= deadline) {
+        later(c, r, wait, 50);
         return;
       }
       const s = controllerStatus(c);
@@ -529,9 +565,9 @@ export const createService = (store, config, clock = monotonic) => {
         heldAt = clock();
         c.command('feedhold');
       }
-      setTimeout(wait, 50);
+      later(c, r, wait, 50);
     };
-    setTimeout(wait, 50);
+    later(c, r, wait, 50);
   };
 
   const readyFor = (c, action, revision) => {
@@ -845,7 +881,7 @@ export const createService = (store, config, clock = monotonic) => {
         reject(conflict('Palpage sans réponse à temps : arrêtez et vérifiez la machine.'));
         return;
       }
-      setTimeout(check, 100);
+      later(c, r, check, 100, () => reject(conflict('Palpage abandonné (service arrêté ou contrôleur retiré) : vérifiez la machine.')));
     };
     check();
   });
@@ -1211,7 +1247,8 @@ tool: plan.tool,
 toolChanged: plan.toolChanged,
           spindle: plan.spindle,
 coolant: plan.coolant,
-preambleLength: plan.preamble.length
+preambleLength: plan.preamble.length,
+notes: plan.notes
         };
       }
       const revision = crypto.randomBytes(20).toString('hex');
@@ -1279,7 +1316,7 @@ preambleLength: plan.preamble.length
         fail('Broche non relancée à temps : reprise annulée. Vérifiez la machine.');
         return;
       }
-      setTimeout(check, 100);
+      later(c, r, check, 100, () => fail('Broche non relancée (service arrêté ou contrôleur retiré) : reprise annulée, vérifiez la machine.'));
     };
     check();
   });
@@ -1574,7 +1611,7 @@ preambleLength: plan.preamble.length
       return '';
     }
     const registry = controllers();
-    return Object.keys(registry).map((port) => {
+    return (systemCommand ? systemCommand.since + '#' : '') + Object.keys(registry).map((port) => {
       const c = registry[port];
       if (!c) {
         return port;
@@ -1626,10 +1663,79 @@ preambleLength: plan.preamble.length
     changed();
   };
 
+  // A host command (shutdown, restart, service restart…) is about to run on
+  // the computer: refused while any connected controller works, pauses, moves,
+  // homes, probes or loads, or while its report is too old to tell; exclusive
+  // otherwise. Taken synchronously by the API before the task starts, so no
+  // start can slip in between; while it holds, available() refuses every
+  // action that moves the machine and the stream shows it to the operator.
+  // The caller releases it when the task ends.
+  const reserveSystemCommand = ({ id, title, commands } = {}) => {
+    if (disposed) {
+      throw conflict('Service indisponible.');
+    }
+    if (systemCommand) {
+      throw conflict('Commande système déjà en cours (' + systemCommand.title + ').');
+    }
+    const registry = controllers();
+    Object.keys(registry).forEach((port) => {
+      const c = registry[port];
+      if (!c || c.isClose()) {
+        return;
+      }
+      if (c.workflow && c.workflow.state !== 'idle') {
+        throw conflict('Un travail est en cours ou en pause sur ' + port + ' : commande système refusée.');
+      }
+      const state = controllerStatus(c).activeState || '';
+      if (['Run', 'Hold', 'Home', 'Jog'].includes(state) || /^Door/.test(state)) {
+        throw conflict('Machine en mouvement ou occupée (' + state + ') sur ' + port + ' : commande système refusée.');
+      }
+      const feeder = c.feeder && typeof c.feeder.toJSON === 'function' ? c.feeder.toJSON() : {};
+      if (feeder.queue || feeder.pending) {
+        throw conflict('Commandes en attente sur ' + port + ' : commande système refusée.');
+      }
+      const r = records.get(c);
+      if (c.type === 'Grbl') {
+        if (!r || !Number.isFinite(r.seen) || clock() < r.seen || clock() - r.seen > MAX_REPORT_AGE_MS) {
+          throw conflict('État machine trop ancien sur ' + port + ' : attendre un rapport récent.');
+        }
+        if (r.probing) {
+          throw conflict('Palpage en cours sur ' + port + ' : commande système refusée.');
+        }
+        if (r.loading) {
+          throw conflict('Chargement en cours sur ' + port + ' : commande système refusée.');
+        }
+        if (homingActive(r)) {
+          throw conflict('Prise d’origine en cours sur ' + port + ' : commande système refusée.');
+        }
+      }
+    });
+    const reservation = {
+      id: String(id || ''),
+      title: String(title || commands || '').slice(0, 80),
+      since: Date.now()
+    };
+    systemCommand = reservation;
+    changed();
+    return {
+      release: () => {
+        if (systemCommand !== reservation) {
+          return;
+        }
+        systemCommand = null;
+        changed();
+      }
+    };
+  };
+
+  // What the operator is shown while a host command runs.
+  const systemCommandOf = () => (systemCommand ? { title: systemCommand.title, since: systemCommand.since } : null);
+
   const dispose = () => {
     disposed = true;
     listeners.clear();
     transports.clear();
+    systemCommand = null;
     for (const [c, r] of records) {
       remove(c, r);
     }
@@ -1646,6 +1752,8 @@ preambleLength: plan.preamble.length
     openTransport,
     closeTransport,
     ticketPending,
+    reserveSystemCommand,
+    systemCommand: systemCommandOf,
     dispose
   };
 };
