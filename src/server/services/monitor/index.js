@@ -1,13 +1,21 @@
 import { EventEmitter } from 'events';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { pipeline, Transform } from 'stream';
+import { pipeline, Readable, Transform } from 'stream';
 import minimatch from 'minimatch';
 import FSMonitor from './FSMonitor';
+import { createHasher } from '../touch/program-identity';
 
 const monitor = new FSMonitor();
 
 const emitter = new EventEmitter();
+
+const fsp = fs.promises;
+
+// Largest program handed to a controller from the library (the job service's
+// limit; examples/cncjs-touch refuses larger uploads too).
+const MAX_PROGRAM_SIZE = 20 * 1024 * 1024;
 
 const start = ({ watchDirectory }) => {
   monitor.watch(watchDirectory);
@@ -77,41 +85,17 @@ const getFiles = (searchPath) => {
     });
 };
 
-const readFile = (file, callback) => {
-  const root = monitor.root;
-
-  if (!root) {
-    callback(new Error('Watch directory is not configured'));
-    return;
-  }
-
-  // Refuse names that leave the watched directory (`../`, absolute paths).
-  const target = path.resolve(root, String(file));
-  if (path.relative(path.resolve(root), target).split(path.sep)[0] === '..' || path.isAbsolute(path.relative(path.resolve(root), target))) {
-    callback(new Error('File is outside of the watch directory'));
-    return;
-  }
-
-  fs.readFile(target, 'utf8', callback);
-};
-
-const writeFile = (file, data, callback) => {
-  const root = monitor.root;
-
-  if (!root) {
-    callback(new Error('Watch directory is not configured'));
-    return;
-  }
-
-  // Strip any directory components to prevent writing outside of the watched directory
-  const filename = path.basename(file);
-  const target = path.join(root, filename);
-
-  fs.writeFile(target, data, 'utf8', callback);
-};
-
 // Errors carry a `code` so the API layer can map them to a status without
-// matching on message text.
+// matching on message text:
+//   ENOTCONFIGURED  no watch directory
+//   EINVALIDNAME    not a plain file name (readProgram, rename, delete)
+//   EOUTSIDE        the real file is not inside the real watch directory
+//   ENOENT          no such file
+//   ENOTFILE        a directory, a symbolic link or a special file
+//   ETOOLARGE       over the size limit
+//   EEMPTY/EBINARY  not a program (readProgram)
+//   ECHANGED        the file changed while it was read
+//   EEXIST/EPARTIAL rename
 const failure = (code, message) => {
   const err = new Error(message);
   err.code = code;
@@ -137,6 +121,190 @@ const resolveInRoot = (root, name) => {
     return null;
   }
   return resolved;
+};
+
+// Fingerprints of programs already hashed, so a sidecar check does not read
+// 20 MB again at every detail (the server may run on a Tegra 3 tablet). The
+// key is the file's identity on disk: real path, size, mtime and inode — a
+// file replaced under the same name gets a new key. Bounded; least recently
+// used entries go first.
+const FINGERPRINT_CACHE_LIMIT = 64;
+const fingerprints = new Map();
+const cacheKey = (real, stats) => `${real}\0${stats.size}\0${stats.mtimeMs}\0${stats.ino}`;
+const recall = (real, stats) => {
+  const key = cacheKey(real, stats);
+  const hit = fingerprints.get(key);
+  if (hit) {
+    fingerprints.delete(key);
+    fingerprints.set(key, hit);
+  }
+  return hit || null;
+};
+const remember = (real, stats, fingerprint) => {
+  const key = cacheKey(real, stats);
+  fingerprints.delete(key);
+  fingerprints.set(key, fingerprint);
+  while (fingerprints.size > FINGERPRINT_CACHE_LIMIT) {
+    fingerprints.delete(fingerprints.keys().next().value);
+  }
+};
+
+const sameStat = (a, b) => a.size === b.size && a.mtimeMs === b.mtimeMs && a.ino === b.ino;
+
+const hashBuffer = (buffer) => {
+  const hasher = createHasher();
+  hasher.update(buffer);
+  return hasher.digest();
+};
+
+// Where `target` (an absolute path under the watch root) really is. Resolves
+// {real, stats} for a plain file whose real location is inside the real watch
+// directory (`direct`: immediately inside it, no subdirectory).
+//
+// `lstat()` first: a symbolic link is refused as such, whatever it points at,
+// so `prog.nc -> /etc/passwd` is neither read nor written through. Then both
+// the root and the target go through `realpath()`: a directory link inside
+// the watch directory (a junction, a symlinked folder) makes `sub/x.nc`
+// textually inside while the file is elsewhere.
+const locateFile = async (target, { direct = false } = {}) => {
+  let stats;
+  try {
+    stats = await fsp.lstat(target);
+  } catch (err) {
+    throw err.code === 'ENOENT' ? failure('ENOENT', 'File not found') : err;
+  }
+  if (stats.isSymbolicLink()) {
+    throw failure('ENOTFILE', 'Symbolic links are not allowed');
+  }
+  if (!stats.isFile()) {
+    throw failure('ENOTFILE', 'Not a file');
+  }
+  const [root, real] = await Promise.all([fsp.realpath(monitor.root), fsp.realpath(target)]);
+  const inside = direct ? path.dirname(real) === root : real.indexOf(root + path.sep) === 0;
+  if (!inside) {
+    throw failure('EOUTSIDE', 'File is outside of the watch directory');
+  }
+  return { real, stats };
+};
+
+// Read a located file whole, then check that what was read is the file that
+// was located: same size, mtime and inode before and after.
+const readChecked = async (target, { maxFileSize = Infinity, direct = false, withFingerprint = false } = {}) => {
+  const { real, stats } = await locateFile(target, { direct });
+  if (stats.size > maxFileSize) {
+    throw failure('ETOOLARGE', 'File too large');
+  }
+  const buffer = await fsp.readFile(real);
+  const after = await fsp.stat(real);
+  if (buffer.length !== stats.size || !sameStat(stats, after)) {
+    throw failure('ECHANGED', 'File changed while it was read');
+  }
+  let fingerprint;
+  if (withFingerprint) {
+    fingerprint = hashBuffer(buffer);
+    remember(real, after, fingerprint);
+  }
+  return { real, buffer, stats: after, fingerprint };
+};
+
+// Hand a promise's outcome to a Node-style callback, outside the promise
+// chain so an exception thrown by the callback is not mistaken for a failure.
+const settle = (promise, callback, onValue) => {
+  promise.then((value) => {
+    process.nextTick(() => callback(null, ...onValue(value)));
+  }, (err) => {
+    process.nextTick(() => callback(err));
+  });
+};
+
+// Read a file inside the watch directory, in a subdirectory if the name has
+// one (the Watch Directory widget navigates them). `options.maxFileSize`
+// bounds the read; `options.withFingerprint` adds a third callback argument
+// `{fingerprint, size, mtimeMs}` describing the bytes served.
+const readFile = (file, options, callback) => {
+  if (typeof options === 'function') {
+    callback = options;
+    options = {};
+  }
+  const { maxFileSize = Infinity, withFingerprint = false } = options || {};
+  const root = monitor.root;
+
+  if (!root) {
+    callback(failure('ENOTCONFIGURED', 'Watch directory is not configured'));
+    return;
+  }
+
+  // Refuse names that leave the watched directory (`../`, absolute paths).
+  const base = path.resolve(root);
+  const target = path.resolve(base, String(file));
+  const relative = path.relative(base, target);
+  if (!relative || relative.split(path.sep)[0] === '..' || path.isAbsolute(relative)) {
+    callback(failure('EOUTSIDE', 'File is outside of the watch directory'));
+    return;
+  }
+
+  settle(readChecked(target, { maxFileSize, withFingerprint }), callback, ({ buffer, stats, fingerprint }) => [
+    buffer.toString('utf8'),
+    withFingerprint ? { fingerprint, size: stats.size, mtimeMs: stats.mtimeMs } : undefined
+  ]);
+};
+
+// Read a program directly inside the watch directory, with the guarantees the
+// job service relies on before handing it to a controller: a plain file (no
+// link) really inside the directory, not empty, at most MAX_PROGRAM_SIZE, no
+// NUL byte, unchanged between the stat before and after the read. Resolves
+// {text, fingerprint, size, mtimeMs}; `fingerprint` describes the exact bytes
+// read.
+const readProgram = async (name) => {
+  const root = monitor.root;
+  if (!root) {
+    throw failure('ENOTCONFIGURED', 'Watch directory is not configured');
+  }
+  const target = resolveInRoot(root, name);
+  if (!target) {
+    throw failure('EINVALIDNAME', 'Invalid file name');
+  }
+  const { buffer, stats, fingerprint } = await readChecked(target, { maxFileSize: MAX_PROGRAM_SIZE, direct: true, withFingerprint: true });
+  if (!stats.size) {
+    throw failure('EEMPTY', 'Empty file');
+  }
+  if (buffer.includes(0)) {
+    throw failure('EBINARY', 'Binary file');
+  }
+  return { text: buffer.toString('utf8'), fingerprint, size: stats.size, mtimeMs: stats.mtimeMs };
+};
+
+// The fingerprint of a program directly inside the watch directory, from the
+// cache when the file has not changed since it was last hashed or written.
+// Resolves {fingerprint, size, mtimeMs}.
+const fingerprintOf = async (name) => {
+  const root = monitor.root;
+  if (!root) {
+    throw failure('ENOTCONFIGURED', 'Watch directory is not configured');
+  }
+  const target = resolveInRoot(root, name);
+  if (!target) {
+    throw failure('EINVALIDNAME', 'Invalid file name');
+  }
+  const { real, stats } = await locateFile(target, { direct: true });
+  if (stats.size > MAX_PROGRAM_SIZE) {
+    throw failure('ETOOLARGE', 'File too large');
+  }
+  const cached = recall(real, stats);
+  if (cached) {
+    return { fingerprint: cached, size: stats.size, mtimeMs: stats.mtimeMs };
+  }
+  const hasher = createHasher();
+  for await (const chunk of fs.createReadStream(real)) {
+    hasher.update(chunk);
+  }
+  const after = await fsp.stat(real);
+  if (!sameStat(stats, after)) {
+    throw failure('ECHANGED', 'File changed while it was read');
+  }
+  const fingerprint = hasher.digest();
+  remember(real, after, fingerprint);
+  return { fingerprint, size: after.size, mtimeMs: after.mtimeMs };
 };
 
 // Stat a name inside the watch directory, rejecting anything that is not a
@@ -279,8 +447,9 @@ const deleteFile = (file, callback) => {
 
 // Fail the stream once more than `maxFileSize` bytes have passed through.
 // Counting here rather than trusting Content-Length means a body that lies
-// about its length, or sends none at all, is still bounded.
-const createLimitStream = (maxFileSize) => {
+// about its length, or sends none at all, is still bounded. `observe` sees
+// every chunk let through, in order.
+const createLimitStream = (maxFileSize, observe) => {
   let size = 0;
 
   return new Transform({
@@ -294,58 +463,127 @@ const createLimitStream = (maxFileSize) => {
         return;
       }
 
+      observe(chunk);
       callback(null, chunk);
     }
+  });
+};
+
+// Replace `target` with `temp`. Windows refuses to replace a file that another
+// handle holds open at that instant (EPERM/EBUSY/EACCES), which a concurrent
+// writer's stat, the directory monitor or an antivirus scan can cause for a few
+// milliseconds: a bounded retry, as graceful-fs does, rather than a failed
+// upload. Other platforms never take the retry path.
+const RENAME_RETRY_CODES = ['EPERM', 'EBUSY', 'EACCES'];
+const RENAME_ATTEMPTS = 20;
+const replaceFile = (temp, target, callback, attempt = 1) => {
+  fs.rename(temp, target, (err) => {
+    if (err && RENAME_RETRY_CODES.indexOf(err.code) >= 0 && attempt < RENAME_ATTEMPTS) {
+      setTimeout(() => replaceFile(temp, target, callback, attempt + 1), 25);
+      return;
+    }
+    callback(err || null);
   });
 };
 
 // Stream a readable (e.g. a request body) into the watch directory without
 // holding the whole file in memory. Writes to a temporary name first and
 // renames into place on completion, so a partially written file never appears
-// under its final name inside the watched directory.
+// under its final name inside the watched directory, and a write that fails
+// midway leaves the previous version untouched. Two writers of the same name
+// each have their own temporary; the last rename wins whole.
 //
 // `pipeline()` owns the lifecycle: it propagates errors in either direction,
 // applies backpressure, destroys every participating stream when one fails,
 // and reports a client that disconnects mid-upload as a premature close. The
 // temporary file is removed on any of those, so a failed or abandoned upload
 // leaves nothing behind.
+//
+// The callback receives `{fingerprint, size, mtimeMs}` describing the bytes
+// written; the fingerprint is cached for `fingerprintOf()`.
 const writeStream = (file, readable, { maxFileSize = Infinity } = {}, callback) => {
   const root = monitor.root;
 
   if (!root) {
-    callback(new Error('Watch directory is not configured'));
+    callback(failure('ENOTCONFIGURED', 'Watch directory is not configured'));
     return;
   }
 
   // Strip any directory components to prevent writing outside of the watched directory
-  const filename = path.basename(file);
+  const filename = path.basename(String(file));
+  if (!filename || filename === '.' || filename === '..') {
+    callback(failure('EINVALIDNAME', 'Invalid file name'));
+    return;
+  }
   const target = path.join(root, filename);
-  const temp = path.join(root, `.${filename}.${process.pid}.${Date.now()}.tmp`);
+  const temp = path.join(root, `.${filename}.${process.pid}.${Date.now()}.${crypto.randomBytes(4).toString('hex')}.tmp`);
 
-  pipeline(
-    readable,
-    createLimitStream(maxFileSize),
-    fs.createWriteStream(temp),
-    (err) => {
-      if (err) {
-        fs.unlink(temp, () => {
-          callback(err);
-        });
-        return;
-      }
+  // An existing link under this name is neither written through nor replaced,
+  // and a directory is never overwritten. (A link planted between this check
+  // and the rename would be replaced by the rename, never followed.)
+  fs.lstat(target, (statErr, existing) => {
+    if (statErr && statErr.code !== 'ENOENT') {
+      callback(statErr);
+      return;
+    }
+    if (existing && !existing.isFile()) {
+      callback(failure('ENOTFILE', existing.isSymbolicLink() ? 'Symbolic links are not allowed' : 'Not a file'));
+      return;
+    }
 
-      fs.rename(temp, target, (renameErr) => {
-        if (renameErr) {
+    const hasher = createHasher();
+    let size = 0;
+
+    pipeline(
+      readable,
+      createLimitStream(maxFileSize, (chunk) => {
+        hasher.update(chunk);
+        size += chunk.length;
+      }),
+      fs.createWriteStream(temp, { flags: 'wx' }),
+      (err) => {
+        if (err) {
           fs.unlink(temp, () => {
-            callback(renameErr);
+            callback(err);
           });
           return;
         }
 
-        callback(null);
-      });
-    }
-  );
+        replaceFile(temp, target, (renameErr) => {
+          if (renameErr) {
+            fs.unlink(temp, () => {
+              callback(renameErr);
+            });
+            return;
+          }
+
+          const fingerprint = hasher.digest();
+          const described = (async () => {
+            const real = await fsp.realpath(target);
+            const stats = await fsp.stat(real);
+            if (stats.size === size) {
+              remember(real, stats, fingerprint);
+            }
+            return { fingerprint, size, mtimeMs: stats.mtimeMs };
+          })();
+          described.then((info) => {
+            process.nextTick(() => callback(null, info));
+          }, () => {
+            // The file is written; only the description after the fact failed.
+            process.nextTick(() => callback(null, { fingerprint, size, mtimeMs: undefined }));
+          });
+        });
+      }
+    );
+  });
+};
+
+// Write a string (or buffer) as a file in the watch directory, through the
+// same temporary-then-rename path as `writeStream()`: never a direct write
+// over the previous version.
+const writeFile = (file, data, callback) => {
+  const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data === undefined || data === null ? '' : String(data), 'utf8');
+  writeStream(file, Readable.from([buffer]), {}, callback);
 };
 
 const on = (...args) => {
@@ -357,11 +595,14 @@ const removeListener = (...args) => {
 };
 
 export default {
+  MAX_PROGRAM_SIZE,
   start,
   stop,
   isConfigured,
   getFiles,
   readFile,
+  readProgram,
+  fingerprintOf,
   writeFile,
   writeStream,
   renameFile,

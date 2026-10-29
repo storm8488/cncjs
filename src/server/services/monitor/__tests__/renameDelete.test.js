@@ -4,6 +4,24 @@ import os from 'os';
 import path from 'path';
 import monitor from '../index';
 
+// Whether this platform lets the test process create file symlinks (Windows
+// refuses without the SeCreateSymbolicLink privilege or developer mode). The
+// probe is real, so the symlink test is skipped only where no link can be
+// made, never unconditionally.
+const canSymlink = (() => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cncjs-symlink-probe-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'target.txt'), 'x');
+    fs.symlinkSync(path.join(dir, 'target.txt'), path.join(dir, 'link.txt'));
+    return fs.lstatSync(path.join(dir, 'link.txt')).isSymbolicLink();
+  } catch (err) {
+    return false;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+})();
+const symlinkTest = canSymlink ? test : test.skip;
+
 describe('monitor.renameFile / monitor.deleteFile', () => {
   let watchDirectory;
 
@@ -117,7 +135,7 @@ describe('monitor.renameFile / monitor.deleteFile', () => {
   // stat() follows symlinks, so a link to a regular file would satisfy
   // isFile() and be acted on — including a link whose target lives outside the
   // watch directory. lstat() sees the link itself.
-  test('refuses a symlink rather than following it', async () => {
+  symlinkTest('refuses a symlink rather than following it', async () => {
     const outside = path.join(watchDirectory, '..', `cncjs-outside-${process.pid}.nc`);
     fs.writeFileSync(outside, 'outside the watch directory\r\n');
     write('real.nc', 'inside\r\n');

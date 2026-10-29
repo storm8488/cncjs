@@ -59,6 +59,22 @@
     s=Math.max(0,Math.ceil(s));var h=Math.floor(s/3600),m=Math.floor(s%3600/60),sec=s%60;
     return (h?h+' h ':'')+(m?m+' min ':'')+sec+' s';
   }
+  // API base of this CNCjs installation (cnc-state.js derives it from the page's path).
+  function apiBase(){try{return window.cncState.get().apiBase;}catch(_){return '/api';}}
+  // The server's verdict on a stored preview (same rule as shared-library.js): the sidecar's
+  // fingerprint is compared with the program on disk; stale is never shown, unchecked is flagged.
+  function verdict(response,meta){
+    var p=response&&response.preview;
+    if(p&&typeof p==='object')return p.stale?{state:'stale',reason:String(p.reason||'')}:{state:'ok',reason:''};
+    if(meta&&meta.preview&&meta.preview.stale)return {state:'stale',reason:String(meta.preview.reason||'')};
+    return {state:'unverified',reason:'unverified'};
+  }
+  function previewNotice(v){
+    if(v.reason==='no-fingerprint')return uiLocale.t('Aperçu sans empreinte (ancienne version) : régénérez-le depuis le PC.');
+    if(v.reason==='program-missing')return uiLocale.t('Fichier G-code introuvable sur le serveur : actualisez la liste.');
+    if(v.state==='unverified')return uiLocale.t('Aperçu non vérifié par le serveur : régénérez-le depuis le PC.');
+    return uiLocale.t('Aperçu périmé : régénérez-le depuis le PC.');
+  }
   // Remaining time: to the second under 2 minutes, then to the (next) minute. Shown at every
   // report, a seconds count rewrote the text 4 times a second, and each rewrite lays Suivi out.
   function remainingText(s) {
@@ -76,21 +92,27 @@
     if(!file)return;
     var token='';try{token=JSON.parse(localStorage.getItem('cnc')).state.session.token;}catch(_){}
     if(!token){$('home-image-status').textContent=uiLocale.t('Session CNCjs requise pour lire l’aperçu.');return;}
-    var xhr=new XMLHttpRequest();previewRequest=xhr;xhr.open('POST','/api/watch/file',true);xhr.timeout=20000;
+    var xhr=new XMLHttpRequest();previewRequest=xhr;xhr.open('POST',apiBase()+'/watch/file',true);xhr.timeout=20000;
     xhr.setRequestHeader('Authorization','Bearer '+token);xhr.setRequestHeader('Content-Type','application/json');
-    function fail(){if(id===request){previewRequest=null;imageLoading=false;previewFailed=true;img.hidden=true;$('home-image-status').hidden=false;set('home-image-status','textContent',uiLocale.t('Aperçu indisponible. Régénérez-le dans Fichiers.'));}}
+    function fail(notice){if(id===request){previewRequest=null;imageLoading=false;previewFailed=true;img.hidden=true;$('home-image-status').hidden=false;set('home-image-status','textContent',typeof notice==='string'&&notice?notice:uiLocale.t('Aperçu indisponible. Régénérez-le dans Fichiers.'));}}
     xhr.onload=function(){
       if(id!==request)return;
       previewRequest=null;
       try{
         if(xhr.status!==200)throw new Error();
-        var meta=JSON.parse(JSON.parse(xhr.responseText).data),src=meta.preview&&meta.preview.image;
-        if(meta.file!==file||typeof src!=='string'||src.length>2500000||!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(src))throw new Error();
+        var envelope=JSON.parse(xhr.responseText),meta=JSON.parse(envelope.data);
+        if(meta.file!==file)throw new Error();
+        // A preview of another version of the program (replaced under the same name, older
+        // sidecar) is never shown: the server's verdict says so.
+        var v=verdict(envelope,meta);
+        if(v.state==='stale'){fail(previewNotice(v));return;}
+        var src=meta.preview&&meta.preview.image,note=v.state==='unverified'?previewNotice(v):'';
+        if(typeof src!=='string'||src.length>2500000||!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(src))throw new Error();
         // Depth and the 3D path (newer previews) feed the 3D views and their trail (preview-3d.js).
-        img.cncPreview={file:file,projection:meta.preview.projection,trail:Array.isArray(meta.preview.trail)?meta.preview.trail:null,lines:meta.preview.lines,
+        img.cncPreview={file:file,fingerprint:typeof meta.fingerprint==='string'?meta.fingerprint:'',projection:meta.preview.projection,trail:Array.isArray(meta.preview.trail)?meta.preview.trail:null,lines:meta.preview.lines,
           trailZ:Array.isArray(meta.preview.trailZ)?meta.preview.trailZ:null,zBounds:meta.preview.zBounds,path3d:meta.preview.path3d||null};
         imageLoading=true;
-        img.onload=function(){if(id===request){imageLoading=false;img.hidden=false;$('home-image-status').hidden=true;}};
+        img.onload=function(){if(id===request){imageLoading=false;img.hidden=false;if(note)set('home-image-status','textContent',note);$('home-image-status').hidden=!note;}};
         img.onerror=fail;img.src=src;
       }catch(_){fail();}
     };xhr.onerror=xhr.ontimeout=fail;xhr.send(JSON.stringify({file:file+'.cnctouch.json'}));

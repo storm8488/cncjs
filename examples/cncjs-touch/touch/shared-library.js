@@ -74,7 +74,12 @@
     try { var d = JSON.parse(localStorage.getItem('cnc') || '{}'); return d.state.session.token || ''; }
     catch (_) { return ''; }
   }
+  // API base of this CNCjs installation, derived from the page's path by cnc-state.js
+  // (CNCjs may be served under a route prefix such as /cnc/).
+  function apiBase() { try { return window.cncState.get().apiBase; } catch (_) { return '/api'; } }
   var pendingUpload = '', pendingUntil = 0;
+  // Resolves with the parsed JSON, or for a Blob response with { blob, fingerprint, size }:
+  // the server names the exact bytes it served in headers the Blob cannot carry.
   function request(method, path, body, kind, cancelled, responseBlob) {
     return new Promise(function (resolve, reject) {
       if (cancelled && cancelled()) { reject(new Error(uiLocale.t('Lecture annulée.'))); return; }
@@ -83,7 +88,8 @@
       var xhr = new XMLHttpRequest();
       if (kind) requests[kind] = xhr;
       function done() { if (kind && requests[kind] === xhr) delete requests[kind]; }
-      xhr.open(method, '/api/watch/' + path, true);
+      function header(name) { try { return xhr.getResponseHeader(name) || ''; } catch (_) { return ''; } }
+      xhr.open(method, apiBase() + '/watch/' + path, true);
       if (responseBlob) {
         try {
           xhr.responseType = 'blob';
@@ -100,7 +106,7 @@
         if (xhr.status < 200 || xhr.status >= 300) {
           reject(new Error(xhr.status === 401 || xhr.status === 403 ? uiLocale.t('Session expirée : ouvrez CNCjs et reconnectez-vous.') : uiLocale.t('Le serveur a refusé la demande (HTTP ') + xhr.status + ').')); return;
         }
-        if (responseBlob) { resolve(xhr.response); return; }
+        if (responseBlob) { resolve({ blob: xhr.response, fingerprint: header('X-Program-Fingerprint'), size: Number(header('X-Program-Size')) || 0 }); return; }
         try { resolve(JSON.parse(xhr.responseText)); } catch (_) { reject(new Error(uiLocale.t('Réponse du serveur illisible.'))); }
       };
       xhr.onerror = function () { done(); reject(new Error(uiLocale.t('Serveur inaccessible. Vérifiez la connexion réseau.'))); };
@@ -111,7 +117,23 @@
   }
   function size(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + uiLocale.t(' Mo') : Math.max(1, Math.ceil(n / 1024)) + uiLocale.t(' Ko'); }
   function displayName(name) { return name.replace(/--touch-\d{14}-[a-f0-9]{16}(?=\.[^.]+$)/, ''); }
-  function dimensions(bounds, message, zBounds) {
+  // Whether a stored preview describes the program on the server. The server compares the
+  // sidecar's fingerprint with the file and answers `preview: {stale, reason}` beside the data;
+  // a stale preview is never shown, and one the server did not check (older server) is shown
+  // only as unverified. Returns { state: 'ok' | 'stale' | 'unverified', reason }.
+  function verdict(response, meta) {
+    var p = response && response.preview;
+    if (p && typeof p === 'object') return p.stale ? { state: 'stale', reason: String(p.reason || '') } : { state: 'ok', reason: '' };
+    if (meta && meta.preview && meta.preview.stale) return { state: 'stale', reason: String(meta.preview.reason || '') };
+    return { state: 'unverified', reason: 'unverified' };
+  }
+  function previewNotice(v) {
+    if (v.reason === 'no-fingerprint') return uiLocale.t('Aperçu sans empreinte (ancienne version) : régénérez-le depuis le PC.');
+    if (v.reason === 'program-missing') return uiLocale.t('Fichier G-code introuvable sur le serveur : actualisez la liste.');
+    if (v.state === 'unverified') return uiLocale.t('Aperçu non vérifié par le serveur : régénérez-le depuis le PC.');
+    return uiLocale.t('Aperçu périmé : régénérez-le depuis le PC.');
+  }
+  function dimensions(bounds, message, zBounds, note) {
     var fields = ['xmin', 'ymin', 'xmax', 'ymax', 'width', 'height'];
     var valid = Array.isArray(bounds) && bounds.length === 4 && bounds.every(function (n) { return typeof n === 'number' && isFinite(n); }) &&
       bounds[2] >= bounds[0] && bounds[3] >= bounds[1] && isFinite(bounds[2] - bounds[0]) && isFinite(bounds[3] - bounds[1]);
@@ -119,7 +141,7 @@
     var depth = valid && Array.isArray(zBounds) && zBounds.length === 2 && zBounds.every(function (n) { return typeof n === 'number' && isFinite(n); }) && zBounds[1] >= zBounds[0];
     property($('library-dimensions-table'), 'hidden', !valid);
     property($('library-dimensions-zrow'), 'hidden', !depth);
-    setText('library-dimensions-status', valid ? uiLocale.t('D’après l’aperçu enregistré · en millimètres') : message || uiLocale.t('Dimensions indisponibles. Régénérez l’aperçu depuis le PC via « Détails de l’aperçu ».'));
+    setText('library-dimensions-status', valid ? note || uiLocale.t('D’après l’aperçu enregistré · en millimètres') : message || uiLocale.t('Dimensions indisponibles. Régénérez l’aperçu depuis le PC via « Détails de l’aperçu ».'));
     var values = valid ? bounds.concat([bounds[2] - bounds[0], bounds[3] - bounds[1]]) : [];
     function mm(value) { return (Math.abs(value) < 0.005 ? 0 : value).toLocaleString(window.cncI18n?window.cncI18n.locale:'fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
     fields.forEach(function (field, i) { setText('library-dimensions-' + field, valid ? mm(values[i]) : '—'); });
@@ -127,9 +149,11 @@
     setText('library-dimensions-zmax', depth ? mm(zBounds[1]) : '—');
     setText('library-dimensions-depth', depth ? mm(zBounds[1] - zBounds[0]) : '—');
   }
-  // What the 3D views read: the stored preview of the file whose image is shown.
-  function describe(file, preview) {
-    $('library-image').cncPreview = preview ? { file: file, projection: preview.projection, zBounds: preview.zBounds, path3d: preview.path3d || null } : null;
+  // What the 3D views and the tool marker read: the stored preview of the file whose image is
+  // shown, with the fingerprint of the program it was drawn from (the 3D views are kept per
+  // fingerprint; without one they are not drawn).
+  function describe(file, preview, fingerprint) {
+    $('library-image').cncPreview = preview ? { file: file, fingerprint: typeof fingerprint === 'string' ? fingerprint : '', projection: preview.projection, zBounds: preview.zBounds, path3d: preview.path3d || null } : null;
   }
   // Row thumbnails and XY extents come from each file's stored preview, read one
   // at a time in idle time after the list is drawn (never before the selected
@@ -166,7 +190,7 @@
     if (Object.keys(thumbs).length > 40) thumbs = Object.create(null);
     thumbBusy = true;
     request('POST', 'file', { file: file.name + suffix }, 'thumb').then(function (response) {
-      var meta = JSON.parse(response.data), p = meta && meta.file === file.name && meta.preview || {};
+      var meta = JSON.parse(response.data), p = meta && meta.file === file.name && verdict(response, meta).state !== 'stale' && meta.preview || {};
       var image = typeof p.image === 'string' && p.image.length <= 2500000 && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(p.image) ? p.image : '';
       var bounds = Array.isArray(p.bounds) ? p.bounds : null;
       // The stored preview is 960 × 540: a 192 × 108 copy is kept for the row, so the
@@ -285,14 +309,19 @@
       publishSelection(f.name, meta.originalName);
       $('library-name').textContent = meta.originalName;
       $('library-dimensions-file').textContent = meta.originalName;
-      dimensions(meta.preview && meta.preview.bounds, null, meta.preview && meta.preview.zBounds);
-      var image = meta.preview && meta.preview.image;
-      if (typeof image === 'string' && image.length <= 2500000 && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(image)) {
-        describe(f.name, meta.preview);
+      // The server's verdict on the sidecar: a stale preview (program replaced under the same
+      // name, older sidecar without fingerprint) shows a notice instead of the old image.
+      var v = verdict(response, meta), usable = v.state !== 'stale', note = v.state === 'unverified' ? previewNotice(v) : '';
+      dimensions(usable && meta.preview && meta.preview.bounds, usable ? null : previewNotice(v), usable && meta.preview && meta.preview.zBounds, note);
+      var image = usable && meta.preview && meta.preview.image;
+      if (!usable) { detailLoading = false; $('library-image-status').textContent = previewNotice(v); }
+      else if (typeof image === 'string' && image.length <= 2500000 && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(image)) {
+        describe(f.name, meta.preview, meta.fingerprint);
         $('library-image').onload = function () {
           if (id !== requestId) return;
           detailLoading = false;
-          $('library-image').hidden = false; $('library-image-status').hidden = true;
+          $('library-image').hidden = false; $('library-image-status').hidden = !note;
+          if (note) $('library-image-status').textContent = note;
         };
         $('library-image').onerror = function () {
           if (id !== requestId) return;
@@ -443,8 +472,11 @@
       status(uiLocale.t('Envoi du G-code au serveur…'));
       text = '';
       return request('PUT', 'file', payload);
-    }).then(function () {
+    }).then(function (written) {
       wrote = true; text = ''; status(uiLocale.t('Enregistrement de l’image 2D…'));
+      // The sidecar names the exact bytes the server wrote (fingerprint and size): once the
+      // program is replaced under this name, the server serves this preview as stale.
+      if (written && typeof written.fingerprint === 'string' && written.fingerprint) { meta.fingerprint = written.fingerprint; meta.size = written.size; }
       return request('PUT', 'file', { file: stored + suffix, data: JSON.stringify(meta) });
     }).then(function () {
       if (selected !== stored) { cancelRegeneration(); setText('library-regenerate-status', ''); }
@@ -458,10 +490,10 @@
       dimensions(meta.preview && meta.preview.bounds, null, meta.preview && meta.preview.zBounds);
       var uploadedImage = meta.preview && meta.preview.image;
       $('library-image').onload = $('library-image').onerror = null;
-      if (typeof uploadedImage === 'string' && uploadedImage) { describe(stored, meta.preview); $('library-image').src = uploadedImage; $('library-image').hidden = false; $('library-image-status').hidden = true; }
+      if (typeof uploadedImage === 'string' && uploadedImage) { describe(stored, meta.preview, meta.fingerprint); $('library-image').src = uploadedImage; $('library-image').hidden = false; $('library-image-status').hidden = true; }
       else { $('library-image').hidden = true; $('library-image').removeAttribute('src'); $('library-image-status').hidden = false;
         $('library-image-status').textContent = uiLocale.t('Aperçu indisponible : ') + String(meta.previewError || uiLocale.t('aucune image enregistrée')) + uiLocale.t('. Le G-code reste disponible.'); }
-      status('✓ ' + file.name + uiLocale.t(' enregistré. Disponible sur la Surface.') + (legacy ? uiLocale.t(' Fichier non UTF-8 : lu en Windows-1252 (accents convertis).') : '') + (meta.previewError ? uiLocale.t(' Aperçu indisponible : ') + meta.previewError : ''));
+      status('✓ ' + file.name + uiLocale.t(' enregistré. Disponible sur la Surface.') + (legacy ? uiLocale.t(' Fichier non UTF-8 : lu en Windows-1252 (accents convertis).') : '') + (meta.previewError ? uiLocale.t(' Aperçu indisponible : ') + meta.previewError : '') + (meta.fingerprint ? '' : uiLocale.t(' Serveur sans empreinte : l’aperçu sera signalé « à vérifier ».')));
       previewChanged(stored);
       // CNCjs's watch list sees a new file a few seconds after it is written
       // (measured: about 4 s on the tablet): look again a few times.
@@ -498,7 +530,10 @@
       return request('POST', 'file', {file:name}, 'regenerate', cancelled, true);
     }).then(function (response) {
       check();
-      return window.CNCLibraryPreview.renderResponse(response, document.createElement('canvas'), cancelled, status);
+      // The server names the bytes it served; the new sidecar describes exactly those.
+      if (!response.fingerprint) throw new Error(uiLocale.t('Empreinte du fichier absente : mettez le serveur CNCjs à jour.'));
+      meta.fingerprint = response.fingerprint; meta.size = response.size;
+      return window.CNCLibraryPreview.renderResponse(response.blob, document.createElement('canvas'), cancelled, status);
     }).then(function (preview) {
       check();
       if (preview.image.length > 2500000) throw new Error(uiLocale.t('Image trop volumineuse.'));

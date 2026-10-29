@@ -3,18 +3,20 @@
 // asked view first then the others only when idle, cache, old previews, errors,
 // both the OffscreenCanvas worker (preview-3d-worker.js run for real) and the page fallback.
 const assert = require('node:assert/strict');
-const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
+const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm'), crypto = require('node:crypto');
 const T3 = require('./touch/toolpath-3d.js');
 global.self = { CNCToolpath3D: T3 };
 const { scan } = require('./touch/library-preview.js');
 const dir = path.join(__dirname, 'touch');
 const tick = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms));
 
+// A stored preview as the sidecar carries it: the 3D path, the Z extent and the
+// fingerprint of the program it was drawn from (set by the server at upload).
 async function pathOf(code) {
   const first = await scan(code), z = first.zBounds, b = first.bounds;
   const builder = T3.createBuilder({ bounds: [b[0], b[1], z[0], b[2], b[3], z[1]] });
   await scan(code, null, null, null, null, builder.move);
-  return { path3d: builder.finish(first.lines), zBounds: z };
+  return { path3d: builder.finish(first.lines), zBounds: z, fingerprint: 'sha256:' + crypto.createHash('sha256').update(code).digest('hex') };
 }
 function fakeContext(log) {
   return { fillRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, fill() {}, arc() {}, setLineDash() {},
@@ -92,6 +94,7 @@ function page(options = {}) {
 (async () => {
   const pocket = await pathOf('G21 G90\nG0 Z5\nG0 X10 Y10\nG1 Z-1 F100\nG1 X50\nG1 Y30\nG1 Z-2\nG1 X10\nG0 Z5\nM2');
   const other = await pathOf('G21 G90\nG0 X0 Y0\nG1 Z-0.5 F100\nG2 X0 Y0 I8 J0\nG0 Z3\nM2');
+  const third = await pathOf('G21 G90\nG0 X0 Y0\nG1 Z-1 F100\nG1 X20\nG1 Y15\nG0 Z3\nM2');
 
   // OffscreenCanvas worker.
   let p = page({ worker: true });
@@ -145,10 +148,11 @@ function page(options = {}) {
   p.files.removeAttribute('src'); await p.settle();
   assert.equal(p.status(p.files).hidden, true); assert.equal(p.files.cncView, null);
   // A broken path: refused with a message, the 2D image stays.
-  p.show(p.files, 'bad.nc', { path3d: Object.assign({}, pocket.path3d, { data: '@@@@' }) }); await p.settle();
+  p.show(p.files, 'bad.nc', Object.assign({}, pocket, { path3d: Object.assign({}, pocket.path3d, { data: '@@@@' }) })); await p.settle();
   assert.match(p.status(p.files).textContent, /^Vue 3D indisponible : parcours 3D illisible/); assert.match(p.files.src, /^data:/);
-  // Hidden page: views nobody asked for are not drawn.
-  p.document.hidden = true; p.show(p.files, 'c.nc', other); await p.settle();
+  // Hidden page: views nobody asked for are not drawn. (A third program: the same program
+  // under another name would reuse b.nc's views.)
+  p.document.hidden = true; p.show(p.files, 'c.nc', third); await p.settle();
   assert(p.files.cncView && p.files.cncView.view === 'iso', 'the asked view is still drawn');
   const hiddenPosted = p.log.posted.length; await p.runIdle(); assert.equal(p.log.posted.length, hiddenPosted);
   // Three files at most are kept; the evicted views are released.
@@ -184,5 +188,31 @@ function page(options = {}) {
   const flat = { version: 1, width: 960, height: 540, units: 'mm', wcs: 'G54', bounds: [0, 0, 90, 50] };
   const corner = project(flat, { x: 0, y: 50 }); // scale 8.8: 84 px left margin, 50 px top margin
   assert(Math.abs(corner.x - 84 / 960) < 1e-12 && Math.abs(corner.y - 50 / 540) < 1e-12);
-  console.log('PASS preview views: selector and remembered choice, asked view first then idle-only background, cache shared by Fichiers and Suivi, eviction, old previews, broken paths, hidden page, worker and page rendering.');
+
+  // Identity: the kept views belong to a program (its fingerprint), not to a name plus the
+  // path's point count, length and last characters. Two programs that differ only in their
+  // first move share all of those; replaced under the same name, the second must be drawn.
+  const zigzag = Array.from({ length: 30 }, (_, i) => 'G1 X' + (20 + i % 2 * 30) + ' Y' + (10 + i)).join('\n');
+  const twin1 = await pathOf('G21 G90\nG0 Z5\nG0 X10 Y10\nG1 Z-1 F100\n' + zigzag + '\nG0 Z5\nM2');
+  const twin2 = await pathOf('G21 G90\nG0 Z5\nG0 X11 Y10\nG1 Z-1 F100\n' + zigzag + '\nG0 Z5\nM2');
+  assert.equal(twin1.path3d.count, twin2.path3d.count); assert.equal(twin1.path3d.data.length, twin2.path3d.data.length);
+  assert.equal(twin1.path3d.data.slice(-48), twin2.path3d.data.slice(-48)); assert.notEqual(twin1.path3d.data, twin2.path3d.data);
+  assert.notEqual(twin1.fingerprint, twin2.fingerprint);
+  p = page({ worker: true, saved: 'iso' });
+  p.show(p.files, 'twin.nc', twin1); await p.settle();
+  const firstView = p.files.src; assert.match(firstView, /^blob:/); assert.deepEqual(p.log.posted, ['render:iso']);
+  p.show(p.files, 'twin.nc', twin2); await p.settle();
+  assert.deepEqual(p.log.posted, ['render:iso', 'render:iso'], 'the replaced program is drawn again, not served from the cache');
+  assert.match(p.files.src, /^blob:/); assert.notEqual(p.files.src, firstView);
+  assert.equal(p.window.cncPreviewViews.cached().length, 2, 'both programs kept apart');
+  // The same program under another name reuses its views.
+  const before3d = p.log.posted.length;
+  p.show(p.home, 'copy-of-twin.nc', twin2); await p.settle();
+  assert.equal(p.home.cncView.view, 'iso'); assert.equal(p.log.posted.length, before3d, 'same fingerprint: no new drawing');
+  // A preview without fingerprint (older sidecar, unverified) gets no 3D view and says why.
+  p.show(p.files, 'nofp.nc', { path3d: twin1.path3d, zBounds: twin1.zBounds }); await p.settle();
+  assert.match(p.files.src, /^data:/); assert.equal(p.files.cncView, null);
+  assert.match(p.status(p.files).textContent, /régénérez-le dans Fichiers/);
+  assert.equal(p.window.cncPreviewViews.cached().length, 2, 'nothing cached for it');
+  console.log('PASS preview views: selector and remembered choice, asked view first then idle-only background, cache shared by Fichiers and Suivi, eviction, old previews, broken paths, hidden page, worker and page rendering, views keyed by program fingerprint.');
 })().catch(e => { console.error(e); process.exitCode = 1; });

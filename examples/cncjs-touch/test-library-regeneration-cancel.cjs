@@ -24,8 +24,9 @@ async function fixture() {
     localStorage: { getItem: () => '{"state":{"session":{"token":"fake"}}}' },
     XMLHttpRequest: function () {
       this.open = (method, url) => { this.method = method; this.url = url; };
-      this.headers = {};
+      this.headers = {}; this.responseHeaders = {};
       this.setRequestHeader = (key, value) => { this.headers[key] = value; };
+      this.getResponseHeader = key => (key in this.responseHeaders ? this.responseHeaders[key] : null);
       this.send = body => { this.body = body && JSON.parse(body); pending.push(this); requests.push(this); };
       this.abort = () => { this.aborted = true; this.onabort(); };
     }
@@ -39,6 +40,8 @@ async function fixture() {
   function reply(xhr, value) {
     xhr.status = 200;
     if (xhr.responseType === 'blob') {
+      // The server names the served program's bytes in headers (the sidecar records them).
+      xhr.responseHeaders = { 'X-Program-Fingerprint': 'sha256:' + 'f'.repeat(64), 'X-Program-Size': '10' };
       xhr.response = new Blob([JSON.stringify(value)], { type: 'application/json' });
       Object.defineProperty(xhr, 'responseText', { get() { throw Error('Large JSON responseText must never be read on the UI thread'); } });
     } else xhr.responseText = JSON.stringify(value);
@@ -113,6 +116,7 @@ async function fixture() {
   f = await fixture(); (await f.drawing('a.nc')).resolve(preview); await flush();
   f.reply(f.take('POST', 'files'), { files }); await flush();
   const write = f.take('PUT', 'file', 'a.nc.cnctouch.json');
+  assert.equal(JSON.parse(write.body.data).fingerprint, 'sha256:' + 'f'.repeat(64), 'the sidecar records the served program');
   await f.select('b.nc'); f.start('b.nc'); assert(!write.aborted);
   f.reply(write, {}); await flush();
   assert.equal(f.node('library-regenerate-status').textContent, 'Lecture du fichier enregistré…');

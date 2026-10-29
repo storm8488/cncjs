@@ -19,15 +19,18 @@
   var worker = null, workerState = 'none', startup = null;
   try { var saved = root.localStorage.getItem(STORE); if (VIEWS.indexOf(saved) >= 0) view = saved; } catch (_) {}
 
-  // The cache: a few files, each with its finished views ({url, projection}).
+  // The cache: a few programs, each with its finished views ({url, projection}). A program is
+  // its fingerprint (the SHA-256 of the file, set by the server when the sidecar was made),
+  // not its name: a file replaced under the same name is another program. The path's point
+  // count, length and tail only tell two previews of the same program apart.
   function keyOf(meta) {
-    var p = meta && meta.path3d;
-    return p && typeof p.data === 'string' ? String(meta.file || '') + '|' + p.count + '|' + p.data.length + '|' + p.data.slice(-48) : '';
+    var p = meta && meta.path3d, fp = meta && meta.fingerprint;
+    return p && typeof p.data === 'string' && typeof fp === 'string' && fp ? fp + '|' + p.count + '|' + p.data.length + '|' + p.data.slice(-48) : '';
   }
-  function entryFor(key, create) {
+  function entryFor(key, file, create) {
     for (var i = 0; i < cache.length; i++) if (cache[i].key === key) { var hit = cache.splice(i, 1)[0]; cache.unshift(hit); return hit; }
     if (!create) return null;
-    var entry = { key: key, views: {}, pending: {}, failed: {} };
+    var entry = { key: key, file: String(file || ''), views: {}, pending: {}, failed: {} };
     cache.unshift(entry);
     // Three files at most; never one whose image is on screen.
     for (var j = cache.length - 1; j >= 0 && cache.length > 3; j--) {
@@ -57,11 +60,13 @@
     host.key = '';
     if (!host.base) { host.img.cncView = null; status(host, ''); return; }
     if (view === '2d') { show(host, host.base, null); status(host, ''); return; }
-    if (!meta || !meta.path3d) {
+    // No 3D path (old preview) or no fingerprint (older or unverified sidecar): the 2D image stays.
+    var key = keyOf(meta);
+    if (!key) {
       show(host, host.base, null);
       status(host, t('Vues 3D indisponibles pour cet ancien aperçu : régénérez-le dans Fichiers.')); return;
     }
-    var key = keyOf(meta), entry = entryFor(key, true), done = entry.views[view];
+    var entry = entryFor(key, meta.file, true), done = entry.views[view];
     host.key = key;
     if (done) { show(host, done.url, { view: view, projection: done.projection }); status(host, ''); background(entry, meta); return; }
     show(host, host.base, null);
@@ -218,5 +223,5 @@
   ['library-image', 'home-job-image'].forEach(attach);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) pump(); });
   root.cncPreviewViews = { view: function () { return view; }, choose: choose, title: function (v) { return TITLES[v] || ''; },
-    state: function () { return { worker: workerState, active: active ? active.view + (active.urgent ? '!' : '') : null, idle: idle !== null, queue: queue.map(function (j) { return j.entry.key.split('|')[0] + ':' + j.view + (j.urgent ? '!' : ''); }) }; }, cached: function () { return cache.map(function (e) { return { key: e.key, views: Object.keys(e.views), failed: e.failed }; }); } };
+    state: function () { return { worker: workerState, active: active ? active.view + (active.urgent ? '!' : '') : null, idle: idle !== null, queue: queue.map(function (j) { return j.entry.file + ':' + j.view + (j.urgent ? '!' : ''); }) }; }, cached: function () { return cache.map(function (e) { return { key: e.key, file: e.file, views: Object.keys(e.views), failed: e.failed }; }); } };
 })(typeof window !== 'undefined' ? window : this);
