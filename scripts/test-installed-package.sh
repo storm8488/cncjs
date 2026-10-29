@@ -8,9 +8,10 @@
 #   TOUCH_REQUIRED=0 bash scripts/test-installed-package.sh  # /touch/ reported, not blocking
 #
 # Works with bash on Ubuntu and with Git Bash on Windows. Exit code 1 on any
-# failed check. The Touch assets (/touch/) are not part of the npm package yet
-# (chantier A6): that check fails today with an explicit message unless
-# TOUCH_REQUIRED=0 (what ci.yml sets until A6 lands).
+# failed check. The touch interface ships in the package as dist/cncjs/touch
+# (scripts/copy-touch-assets.sh, resolved by settings.base.js), so /touch/,
+# /touch/app.js and /touch/VERSION.json are checked and blocking by default;
+# TOUCH_REQUIRED=0 only reports them.
 set -euo pipefail
 # Git Bash: hand Node native paths (C:/...) for the files it opens, and keep
 # "/api/..." arguments from being turned into Windows paths (MSYS_NO_PATHCONV,
@@ -57,7 +58,14 @@ log "tarball $(basename "$TGZ") ($(wc -c <"$TGZ") bytes)"
 # (listed to a file: `grep -q` closing the pipe early trips `pipefail`)
 tar tzf "$TGZ" >"$WORK/files.txt"
 grep -c '^package/dist/cncjs/server-cli.js$' "$WORK/files.txt" >/dev/null || fail "tarball lacks dist/cncjs/server-cli.js"
-if grep -c 'touch/index.html$' "$WORK/files.txt" >/dev/null; then log "tarball carries the touch assets"; else log "tarball has no touch assets (A6 pending)"; fi
+if grep -c '^package/dist/cncjs/touch/index.html$' "$WORK/files.txt" >/dev/null; then
+  log "tarball carries the touch assets ($(grep -c '^package/dist/cncjs/touch/' "$WORK/files.txt") entries under dist/cncjs/touch/)"
+  grep -c '^package/dist/cncjs/touch/VERSION.json$' "$WORK/files.txt" >/dev/null || fail "tarball lacks dist/cncjs/touch/VERSION.json (scripts/copy-touch-assets.sh)"
+elif [ "$TOUCH_REQUIRED" = "1" ]; then
+  fail "tarball has no dist/cncjs/touch/index.html: the build did not copy the touch assets (scripts/copy-touch-assets.sh)"
+else
+  log "tarball has no touch assets (TOUCH_REQUIRED=0: reported, not blocking)"
+fi
 
 INSTALL="$WORK/install"
 mkdir -p "$INSTALL"
@@ -120,15 +128,22 @@ http_check GET /api/custom/health 200 '"loaded":true' "Authorization: Bearer $TO
 http_check GET /api/custom/health 403 "Forbidden" || fail "touch backend health should refuse a request without session (403 Forbidden Access)"
 http_check GET /api/version/latest 200 "\"version\"" "Authorization: Bearer $TOKEN" || log "note: /api/version/latest needs the npm registry (not required)"
 
+# The touch interface, served from dist/cncjs/touch of the installed package
+# (no examples/ directory, no mount point in .cncrc). VERSION.json is the
+# build's default (commit, branch, package version), in the format read by
+# touch/tablet-actions.js.
 TOUCH_OK=1
 http_check GET /touch/ 200 'touch-shell' || TOUCH_OK=0
 http_check GET /touch/app.js 200 '' || TOUCH_OK=0
+http_check GET /touch/touch-shell.js 200 '' || TOUCH_OK=0
+http_check GET /touch/simulation.html 200 'touch-shell' || TOUCH_OK=0
+http_check GET /touch/VERSION.json 200 '"version"' || TOUCH_OK=0
 if [ "$TOUCH_OK" != "1" ]; then
   echo
-  echo "Touch assets absent du paquet (A6) : /touch/ n'est pas servi par le paquet npm installé."
-  echo "Le dossier examples/cncjs-touch/touch n'est pas dans \"files\" de package.json et settings.assets.touch"
-  echo "le cherche depuis le checkout. Attendu tant que le chantier A6 n'est pas livré."
-  if [ "$TOUCH_REQUIRED" = "1" ]; then STATUS=1; else echo "(TOUCH_REQUIRED=0 : signalé, non bloquant)"; fi
+  echo "The installed package does not serve the touch interface: check that the build copied"
+  echo "examples/cncjs-touch/touch to dist/cncjs/touch (scripts/copy-touch-assets.sh) and that"
+  echo "settings.base.js (findTouchAssets) resolves dist/cncjs/touch from dist/cncjs/server/config."
+  if [ "$TOUCH_REQUIRED" = "1" ]; then STATUS=1; else echo "(TOUCH_REQUIRED=0: reported, not blocking)"; fi
 fi
 
 log "stopping server"

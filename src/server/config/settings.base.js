@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 import pkg from '../../package.json';
 
@@ -8,6 +9,26 @@ const SESSION_PATH = '.cncjs-sessions';
 const secret = pkg.version;
 
 const getUserHome = () => (process.env[(process.platform === 'win32') ? 'USERPROFILE' : 'HOME']);
+
+// Directory of the touch interface (examples/cncjs-touch/touch), served at
+// "<route>/touch/". The build copies it next to the compiled server
+// (dist/cncjs/touch, output/cncjs/touch: scripts/copy-touch-assets.sh), which
+// is what a packaged install (npm, Docker, electron-builder) carries. A
+// compiled server run inside the checkout without that copy, and the source
+// tree (src/server/config, e.g. under Jest), fall back to the examples
+// directory. When nothing exists the shipped location is returned and app.js
+// skips the asset with a warning.
+export const findTouchAssets = (configDirectory = __dirname, exists = fs.existsSync) => {
+  const candidates = [
+    // dist/cncjs/server/config or output/cncjs/server/config → ../../touch
+    path.resolve(configDirectory, '..', '..', 'touch'),
+    // compiled server inside the checkout, four levels under it
+    path.resolve(configDirectory, '..', '..', '..', '..', 'examples', 'cncjs-touch', 'touch'),
+    // source tree, three levels under the checkout
+    path.resolve(configDirectory, '..', '..', '..', 'examples', 'cncjs-touch', 'touch')
+  ];
+  return candidates.find(candidate => exists(path.join(candidate, 'index.html'))) || candidates[0];
+};
 
 export default {
   rcfile: path.resolve(getUserHome(), RC_FILE),
@@ -26,16 +47,14 @@ export default {
 
   // Static assets; the environment-specific settings add the main web app.
   assets: {
-    // The experimental touchscreen interface (examples/cncjs-touch) is served
-    // from the repository checkout at "<route>/touch/". The path is resolved
-    // from the compiled server (output/cncjs/server/config or
-    // dist/cncjs/server/config), so a packaged install without the examples
-    // directory simply skips this asset (see app.js).
+    // The touchscreen interface (examples/cncjs-touch), served at
+    // "<route>/touch/" from the copy shipped next to the compiled server, or
+    // from the checkout in development (see findTouchAssets above).
     touch: {
       routes: [
         'touch/'
       ],
-      path: path.resolve(__dirname, '..', '..', '..', '..', 'examples', 'cncjs-touch', 'touch'),
+      path: findTouchAssets(),
       maxAge: 0 // the pages carry their own cache-busting query strings
     }
   },
