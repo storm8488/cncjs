@@ -1,0 +1,613 @@
+#!/usr/bin/env node
+'use strict';
+// Browser harness for the touch interface: drives a headless Chrome or Edge
+// through the DevTools protocol (no npm package), serves the local visual
+// fixture (preview-server.cjs) or an existing server, and writes screenshots,
+// rendered tap-target measurements, start-up figures and an end-to-end run on
+// the simulation page. Runs on a development PC, never on the tablet.
+//
+//   node examples/cncjs-touch/browser-run.cjs --out output/browser-run --baseline
+//
+// Options:
+//   --out DIR        output directory (default output/browser-run)
+//   --baseline       label the report as the reference ("before") measurement
+//   --url URL        touch base URL of a running server (default: preview-server.cjs)
+//   --browser PATH   Chrome/Edge executable (default: CNC_BROWSER or well-known paths)
+//   --repeat N       start-up repetitions (default 5)
+//   --only LIST      comma list among measure,startup,e2e (default all)
+//   --keep-browser   do not kill the browser at the end (debugging)
+// Exit code 1 when a harness step fails; measurements under the project goals
+// are reported, not failed (they are the input of the UI work).
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const http = require('http');
+const { spawn, execSync } = require('child_process');
+
+const args = process.argv.slice(2);
+function option(name, fallback) { const i = args.indexOf(name); return i >= 0 && args[i + 1] !== undefined ? args[i + 1] : fallback; }
+const OUT = path.resolve(option('--out', 'output/browser-run'));
+const BASELINE = args.includes('--baseline');
+const URL_BASE = option('--url', '');
+const REPEAT = Math.max(1, Number(option('--repeat', 5)) || 5);
+const ONLY = option('--only', 'measure,startup,e2e').split(',');
+const KEEP = args.includes('--keep-browser');
+
+// Project goals (design-tokens.css): not a WCAG requirement.
+const GOALS = { primary: 64, secondary: 48, jog: 96, gap: 12, text: 16 };
+const RESOLUTIONS = [[1366, 768], [1024, 600]];
+const SCREENS = [['menu', 'Menu'], ['home', 'Suivi'], ['files', 'Fichiers'], ['jog', 'Préparer'], ['machine', 'Machine'], ['history', 'Journal'], ['settings', 'Réglages']];
+const STATE_WORDS = { fr: { idle: 'Repos', running: 'En cours', paused: 'Pause' }, en: { idle: 'Idle', running: 'Running', paused: 'Pause' }, es: { idle: 'Reposo', running: 'En curso', paused: 'Pausa' } };
+
+const failures = [];
+const log = (m) => console.log(new Date().toISOString().slice(11, 19) + ' ' + m);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const median = (a) => { const s = a.filter((v) => typeof v === 'number' && isFinite(v)).sort((x, y) => x - y); return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : null; };
+const r1 = (v) => (typeof v === 'number' && isFinite(v) ? Math.round(v * 10) / 10 : v);
+
+function findBrowser() {
+  const given = option('--browser', process.env.CNC_BROWSER);
+  const candidates = given ? [given] : process.platform === 'win32' ? [
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe'
+  ] : process.platform === 'darwin' ? [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'
+  ] : ['google-chrome', 'google-chrome-stable', 'chromium-browser', 'chromium', 'microsoft-edge', '/usr/bin/google-chrome'];
+  for (const c of candidates) {
+    if (c.includes(path.sep) || c.includes('/')) { if (fs.existsSync(c)) return c; continue; }
+    try { const found = execSync((process.platform === 'win32' ? 'where ' : 'command -v ') + c, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().split(/\r?\n/)[0].trim(); if (found) return found; } catch (_) { /* next */ }
+  }
+  throw new Error('No Chrome/Edge found: pass --browser PATH or set CNC_BROWSER');
+}
+
+function getJson(url) {
+  return new Promise((resolve, reject) => {
+    http.get(url, (res) => { let b = ''; res.on('data', (d) => { b += d; }); res.on('end', () => { try { resolve(JSON.parse(b)); } catch (e) { reject(e); } }); }).on('error', reject);
+  });
+}
+
+// --- DevTools protocol client over the WebSocket of Node 22+ (or the ws package).
+function WebSocketImpl() {
+  if (typeof WebSocket === 'function') return WebSocket;
+  return require('ws'); // eslint-disable-line global-require
+}
+class CDP {
+  constructor(url) { this.url = url; this.seq = 0; this.pending = new Map(); this.listeners = new Map(); }
+  connect() {
+    const WS = WebSocketImpl();
+    return new Promise((resolve, reject) => {
+      const ws = new WS(this.url);
+      this.ws = ws;
+      const onMessage = (data) => {
+        const msg = JSON.parse(typeof data === 'string' ? data : data.toString());
+        if (msg.id && this.pending.has(msg.id)) {
+          const p = this.pending.get(msg.id); this.pending.delete(msg.id);
+          if (msg.error) p.reject(new Error(msg.error.message + ' (' + p.method + ')')); else p.resolve(msg.result || {});
+        } else if (msg.method) {
+          (this.listeners.get(msg.method) || []).forEach((fn) => fn(msg.params));
+        }
+      };
+      if (typeof ws.addEventListener === 'function') {
+        ws.addEventListener('open', () => resolve());
+        ws.addEventListener('error', (e) => reject(new Error('WebSocket error ' + (e.message || ''))));
+        ws.addEventListener('message', (e) => onMessage(e.data));
+      } else {
+        ws.on('open', resolve); ws.on('error', reject); ws.on('message', onMessage);
+      }
+    });
+  }
+  send(method, params, timeoutMs) {
+    return new Promise((resolve, reject) => {
+      const id = ++this.seq;
+      this.pending.set(id, { resolve, reject, method });
+      this.ws.send(JSON.stringify({ id, method, params: params || {} }));
+      setTimeout(() => { if (this.pending.has(id)) { this.pending.delete(id); reject(new Error('timeout ' + method)); } }, timeoutMs || 60000);
+    });
+  }
+  on(method, fn) { if (!this.listeners.has(method)) this.listeners.set(method, []); this.listeners.get(method).push(fn); }
+  once(method, timeoutMs) {
+    return new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('timeout waiting ' + method)), timeoutMs || 30000);
+      this.on(method, function handler(p) { clearTimeout(t); resolve(p); });
+    });
+  }
+  async evaluate(expression) {
+    const r = await this.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+    if (r.exceptionDetails) throw new Error('page exception: ' + ((r.exceptionDetails.exception && r.exceptionDetails.exception.description) || r.exceptionDetails.text).slice(0, 400));
+    return r.result.value;
+  }
+  async waitFor(expression, ms, label) {
+    const until = Date.now() + ms;
+    for (;;) {
+      let v = null;
+      try { v = await this.evaluate(expression); } catch (_) { v = null; }
+      if (v) return v;
+      if (Date.now() > until) throw new Error('timeout: ' + (label || expression));
+      await sleep(150);
+    }
+  }
+  close() { try { this.ws.close(); } catch (_) { /* ignore */ } }
+}
+
+// --- Browser and fixture server.
+async function launchBrowser(width, height) {
+  const exe = findBrowser();
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'cnc-browser-run-'));
+  const flags = ['--headless=new', '--disable-gpu', '--remote-debugging-port=0', '--user-data-dir=' + profile, '--no-first-run', '--no-default-browser-check',
+    '--window-size=' + width + ',' + height, '--force-device-scale-factor=1', '--disable-extensions', '--disable-background-networking', '--disable-sync',
+    '--disable-features=Translate,OptimizationHints,MediaRouter', '--lang=fr-FR', 'about:blank'];
+  if (process.env.CI || process.getuid && process.getuid() === 0) flags.unshift('--no-sandbox');
+  const child = spawn(exe, flags, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
+  let stderr = '';
+  child.stderr.on('data', (d) => { stderr += d; if (stderr.length > 20000) stderr = stderr.slice(-10000); });
+  const portFile = path.join(profile, 'DevToolsActivePort');
+  const until = Date.now() + 30000;
+  while (!fs.existsSync(portFile) || !fs.readFileSync(portFile, 'utf8').trim()) {
+    if (child.exitCode !== null) throw new Error('browser exited early: ' + stderr.slice(-800));
+    if (Date.now() > until) throw new Error('DevToolsActivePort not written: ' + stderr.slice(-800));
+    await sleep(100);
+  }
+  const port = Number(fs.readFileSync(portFile, 'utf8').split(/\r?\n/)[0]);
+  const version = await getJson('http://127.0.0.1:' + port + '/json/version');
+  let targets = [];
+  for (let i = 0; i < 50 && !targets.some((t) => t.type === 'page'); i++) { targets = await getJson('http://127.0.0.1:' + port + '/json/list'); if (!targets.some((t) => t.type === 'page')) await sleep(100); }
+  const page = targets.find((t) => t.type === 'page');
+  if (!page) throw new Error('no page target');
+  const cdp = new CDP(page.webSocketDebuggerUrl);
+  await cdp.connect();
+  await cdp.send('Page.enable'); await cdp.send('Runtime.enable'); await cdp.send('Network.enable'); await cdp.send('Performance.enable');
+  await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: '(function(){function tick(){var h=document.documentElement,b=document.body;if(h&&b&&b.classList.contains("ks-ui")&&!h.classList.contains("cnc-loading")){window.__cncReadyAt=performance.now();return;}requestAnimationFrame(tick);}tick();})();' });
+  cdp.on('Runtime.exceptionThrown', (p) => { const d = p.exceptionDetails; pageErrors.push((d.exception && d.exception.description) || d.text); });
+  return { exe, child, profile, port, cdp, version: version.Browser, userAgent: version['User-Agent'] };
+}
+const pageErrors = [];
+
+function startFixture() {
+  return new Promise((resolve, reject) => {
+    const script = path.join(__dirname, 'preview-server.cjs');
+    const child = spawn(process.execPath, [script], { cwd: __dirname, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)\//); if (m) resolve({ child, base: 'http://127.0.0.1:' + m[1] + '/' }); });
+    child.stderr.on('data', (d) => { out += d; });
+    child.on('exit', (code) => reject(new Error('preview-server exited (' + code + '): ' + out.slice(-800))));
+    setTimeout(() => reject(new Error('preview-server did not print its URL: ' + out.slice(-800))), 20000);
+  });
+}
+
+// --- Page helpers.
+async function setViewport(cdp, width, height, dpr) {
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: dpr || 1, mobile: false, screenWidth: width, screenHeight: height });
+}
+async function navigate(cdp, url, timeoutMs) {
+  const loaded = cdp.once('Page.loadEventFired', timeoutMs || 60000);
+  await cdp.send('Page.navigate', { url });
+  await loaded;
+}
+async function waitReady(cdp) {
+  await cdp.waitFor('!!(window.cncShell&&document.body.classList.contains("ks-ui")&&!document.documentElement.classList.contains("cnc-loading"))', 40000, 'touch shell ready');
+}
+// The fixture's controller state settles a few seconds after load (stream
+// fallback, first polls): measure the same state in every pass.
+async function waitSettled(cdp) {
+  await waitReady(cdp);
+  let previous = null, stable = 0;
+  for (let i = 0; i < 40 && stable < 3; i++) {
+    await sleep(500);
+    const now = await cdp.evaluate('(function(){var t=function(id){var e=document.getElementById(id);return e?e.textContent:"";};return t("t-state-text")+"|"+t("home-job-ready")+"|"+(document.getElementById("notice")||{}).hidden;})()');
+    stable = now === previous ? stable + 1 : 0; previous = now;
+  }
+}
+async function goScreen(cdp, name) {
+  await cdp.evaluate('window.cncShell.go(' + JSON.stringify(name) + ');true');
+  await cdp.waitFor('(function(){var s=document.getElementById("screen-' + name + '");return !!(s&&s.classList.contains("active")&&!s._fitHidden&&getComputedStyle(s).visibility!=="hidden");})()', 15000, 'screen ' + name + ' visible');
+  if (name === 'files') { try { await cdp.waitFor('document.querySelectorAll(".library-file").length>0', 15000, 'file list'); } catch (e) { failures.push('files list: ' + e.message); } }
+  await sleep(700);
+  await cdp.evaluate('new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(r);});})');
+}
+async function screenshot(cdp, file) {
+  const r = await cdp.send('Page.captureScreenshot', { format: 'png' }, 60000);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, Buffer.from(r.data, 'base64'));
+}
+
+// Measures what is really rendered: every visible button/link/field of the
+// active screen plus the header and the rail. Sizes in CSS px of the page.
+const MEASURE = String(function measure(goals) {
+  var vw = window.innerWidth, vh = window.innerHeight, dpr = window.devicePixelRatio || 1;
+  var active = document.querySelector('main .screen.active');
+  function hiddenAncestor(el) { for (var n = el; n; n = n.parentElement) { if (n.hidden || n.getAttribute('aria-hidden') === 'true') return true; } return false; }
+  function visible(el) {
+    if (hiddenAncestor(el)) return false;
+    for (var n = el; n && n !== document.body; n = n.parentElement) { var cs = getComputedStyle(n); if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0 || cs.contentVisibility === 'hidden') return false; }
+    var r = el.getBoundingClientRect();
+    return r.width >= 1 && r.height >= 1 && r.bottom > 0 && r.right > 0 && r.top < vh && r.left < vw;
+  }
+  function label(el) { var t = (el.textContent || '').replace(/\s+/g, ' ').trim(); return (t || el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('placeholder') || el.value || ('#' + (el.id || el.className || el.tagName.toLowerCase()))).slice(0, 60); }
+  function textFont(el) {
+    var min = Infinity, walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (var node = walker.nextNode(); node; node = walker.nextNode()) { if (!node.data.trim()) continue; var p = node.parentElement; if (p && visible(p)) { var size = parseFloat(getComputedStyle(p).fontSize); if (size < min) min = size; } }
+    return isFinite(min) ? min : parseFloat(getComputedStyle(el).fontSize);
+  }
+  function kind(el) {
+    var c = el.classList;
+    if (c.contains('jog')) return 'jog';
+    if (c.contains('t-btn--primary') || c.contains('t-btn--danger') || c.contains('t-btn--lg') || c.contains('job-start') || c.contains('job-stop') || c.contains('ks-tile') || c.contains('home-load') || /^(home-job-start|home-job-stop|home-job-pause|home-job-resume|home-job-load|job-confirm|job-dismiss|t-stop|t-pause|t-resume|t-unlock)$/.test(el.id)) return 'primary';
+    return 'secondary';
+  }
+  // viewport-fit.js scales a screen that does not fit (transform: scale): boxes
+  // from getBoundingClientRect are already rendered sizes, font sizes are not.
+  var transform = active ? getComputedStyle(active).transform : 'none', m = /matrix\(([^,]+),/.exec(transform);
+  var screenScale = m ? Math.round(parseFloat(m[1]) * 1000) / 1000 : 1;
+  function renderedFont(el, size) { return active && active.contains(el) ? size * screenScale : size; }
+  var selector = 'button, a[href], input, select, textarea, [role="button"], [role="tab"], label.t-check, summary';
+  var nodes = Array.prototype.filter.call(document.querySelectorAll(selector), function (el) {
+    var screen = el.closest('main .screen'); if (screen && screen !== active) return false;
+    if (el.closest('#cnc-boot')) return false;
+    if (el.tagName === 'INPUT' && el.closest('label.t-check')) return false; // measured with its label
+    return visible(el);
+  });
+  var rects = nodes.map(function (el) { return el.getBoundingClientRect(); });
+  var targets = nodes.map(function (el, i) {
+    var r = rects[i], k = kind(el), goal = goals[k];
+    var cx = r.left + r.width / 2, cy = r.top + r.height / 2, hit = document.elementFromPoint(cx, cy);
+    // A disabled control has pointer-events:none (ui-2027.css): the tap reaches
+    // its container, which explains why the control is disabled. That is by design.
+    var disabled = !!(el.disabled || el.getAttribute('aria-disabled') === 'true');
+    var reachable = !!hit && (hit === el || el.contains(hit) || (hit.contains(el) && (hit.tagName === 'LABEL' || disabled)));
+    var gap = Infinity, neighbour = null, overlaps = [];
+    rects.forEach(function (o, j) {
+      if (j === i || nodes[j].contains(el) || el.contains(nodes[j])) return;
+      var dx = Math.max(o.left - r.right, r.left - o.right, 0), dy = Math.max(o.top - r.bottom, r.top - o.bottom, 0), d = Math.sqrt(dx * dx + dy * dy);
+      if (dx === 0 && dy === 0) overlaps.push(label(nodes[j]));
+      if (d < gap) { gap = d; neighbour = label(nodes[j]); }
+    });
+    var font = renderedFont(el, textFont(el));
+    return { label: label(el), id: el.id || null, tag: el.tagName.toLowerCase(), kind: k, goal: goal, x: Math.round(r.left * 10) / 10, y: Math.round(r.top * 10) / 10, w: Math.round(r.width * 10) / 10, h: Math.round(r.height * 10) / 10,
+      minSide: Math.round(Math.min(r.width, r.height) * 10) / 10, belowGoal: Math.min(r.width, r.height) * dpr < goal - 0.5, fontPx: Math.round(font * 10) / 10, textBelowGoal: font * dpr < goals.text - 0.5,
+      gap: isFinite(gap) ? Math.round(gap * 10) / 10 : null, neighbour: neighbour, gapBelowGoal: isFinite(gap) && gap * dpr < goals.gap - 0.5, overlaps: overlaps, disabled: disabled, reachable: reachable, hit: reachable ? null : (hit ? label(hit) : 'nothing') };
+  });
+  // Small text: visible text nodes under 16 px, anywhere on the active screen, header or rail.
+  var small = [], truncated = [], seen = new Set();
+  var all = document.querySelectorAll('body *');
+  Array.prototype.forEach.call(all, function (el) {
+    var screen = el.closest('main .screen'); if (screen && screen !== active) return;
+    if (el.closest('#cnc-boot') || /^(SCRIPT|STYLE|LINK|SVG|PATH)$/.test(el.tagName)) return;
+    var own = Array.prototype.filter.call(el.childNodes, function (n) { return n.nodeType === 3 && n.data.trim(); }).map(function (n) { return n.data.replace(/\s+/g, ' ').trim(); }).join(' ');
+    if (!own || !visible(el)) return;
+    var size = renderedFont(el, parseFloat(getComputedStyle(el).fontSize));
+    if (size * dpr < goals.text - 0.5) { var key = own + '@' + size; if (!seen.has(key)) { seen.add(key); small.push({ text: own.slice(0, 60), fontPx: Math.round(size * 10) / 10, tag: el.tagName.toLowerCase(), id: el.id || null }); } }
+    var cs = getComputedStyle(el);
+    // Screen-reader-only text (.ks-sr-only: 1 px clipped box) is not truncation.
+    if (el.scrollWidth > el.clientWidth + 1 && cs.overflowX !== 'visible' && el.clientWidth > 2 && !el.classList.contains('ks-sr-only')) truncated.push({ text: own.slice(0, 60), tag: el.tagName.toLowerCase(), id: el.id || null, scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, textOverflow: cs.textOverflow });
+  });
+  var de = document.documentElement, main = document.querySelector('main');
+  return { viewport: { width: vw, height: vh, dpr: dpr }, activeScreen: active ? active.id : null, screenScale: screenScale,
+    horizontalOverflow: { document: de.scrollWidth > de.clientWidth + 1, documentScrollWidth: de.scrollWidth, clientWidth: de.clientWidth, main: !!main && main.scrollWidth > main.clientWidth + 1, active: !!active && active.scrollWidth > active.clientWidth + 1 },
+    verticalOverflow: { document: de.scrollHeight > de.clientHeight + 1, active: !!active && active.scrollHeight > active.clientHeight + 1 && active.getAttribute('data-fit') !== 'scroll' },
+    targets: targets, smallText: small, truncated: truncated, bodyClass: document.body.className, theme: de.getAttribute('data-theme') || 'dark' };
+});
+
+async function measureScreens(cdp, baseUrl, variant, dirName, dpr, summary) {
+  const dir = path.join(OUT, dirName);
+  fs.mkdirSync(dir, { recursive: true });
+  const results = [];
+  for (const [name, label] of SCREENS) {
+    try {
+      await goScreen(cdp, name);
+      const data = await cdp.evaluate('(' + MEASURE + ')(' + JSON.stringify(GOALS) + ')');
+      data.screen = name; data.label = label; data.variant = variant;
+      fs.writeFileSync(path.join(dir, name + '.json'), JSON.stringify(data, null, 1));
+      await screenshot(cdp, path.join(dir, name + '.png'));
+      const below = data.targets.filter((t) => t.belowGoal), small = data.targets.filter((t) => t.textBelowGoal), gaps = data.targets.filter((t) => t.gapBelowGoal), unreachable = data.targets.filter((t) => !t.reachable);
+      const fonts = data.targets.map((t) => t.fontPx), fontStats = { min: fonts.length ? Math.min(...fonts) : null, median: median(fonts), max: fonts.length ? Math.max(...fonts) : null };
+      log(variant + ' ' + label + ': ' + data.targets.length + ' targets, ' + below.length + ' under size goal, ' + small.length + ' with text < 16 px, ' + gaps.length + ' gaps < 12 px, ' + unreachable.length + ' unreachable, scale ' + data.screenScale + ', target font ' + fontStats.min + '–' + fontStats.max + ' px' + (data.horizontalOverflow.document ? ', HORIZONTAL OVERFLOW' : ''));
+      results.push({ screen: name, label, targets: data.targets.length, below, small: data.smallText, textTargets: small, gaps, unreachable, truncated: data.truncated, overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, fontStats });
+    } catch (e) {
+      failures.push(variant + ' ' + label + ': ' + e.message); log('FAIL ' + variant + ' ' + label + ': ' + e.message);
+      results.push({ screen: name, label, error: e.message });
+    }
+  }
+  summary.measurements.push({ variant, dir: dirName, dpr, results });
+}
+
+async function setDisplaySize(cdp, size) {
+  await goScreen(cdp, 'settings');
+  const ok = await cdp.evaluate('(function(){var b=document.querySelector("[data-display-size=\\"' + size + '\\"]");if(!b)return false;b.click();return document.body.classList.contains("display-large")===' + (size === 'large') + ';})()');
+  if (!ok) throw new Error('display size ' + size + ' not applied');
+  await sleep(400);
+}
+
+// --- Start-up: cold (cache cleared) then warm, REPEAT times, medians.
+const STARTUP_COLLECT = String(function collect() {
+  var nav = performance.getEntriesByType('navigation')[0], entries = performance.getEntriesByType('resource');
+  var byType = {}, bytes = 0, encoded = 0, decoded = 0, fromCache = 0, list = [];
+  entries.forEach(function (e) {
+    var ext = (e.name.split(/[?#]/)[0].match(/\.([a-z0-9]+)$/i) || [])[1] || e.initiatorType;
+    var type = /^(js|cjs|mjs)$/.test(ext) ? 'script' : ext === 'css' ? 'style' : /^(png|jpg|svg|ico|webp)$/.test(ext) ? 'image' : /^(woff2?|ttf)$/.test(ext) ? 'font' : e.initiatorType === 'xmlhttprequest' || e.initiatorType === 'fetch' ? 'xhr' : 'other';
+    byType[type] = (byType[type] || 0) + 1; bytes += e.transferSize || 0; encoded += e.encodedBodySize || 0; decoded += e.decodedBodySize || 0; if (e.transferSize === 0 && e.decodedBodySize > 0) fromCache++;
+    list.push({ name: e.name.replace(location.origin, ''), type: type, transferSize: e.transferSize, decodedBodySize: e.decodedBodySize, duration: Math.round(e.duration * 10) / 10 });
+  });
+  var t = nav || {};
+  return { readyAt: window.__cncReadyAt || null, navigation: nav ? { type: nav.type, responseEnd: t.responseEnd, domInteractive: t.domInteractive, domContentLoaded: t.domContentLoadedEventEnd, loadEventEnd: t.loadEventEnd, transferSize: t.transferSize, decodedBodySize: t.decodedBodySize } : null,
+    legacyTiming: performance.timing ? { domContentLoaded: performance.timing.domContentLoadedEventEnd - performance.timing.navigationStart, load: performance.timing.loadEventEnd - performance.timing.navigationStart } : null,
+    resources: { count: entries.length, byType: byType, transferBytes: bytes, encodedBytes: encoded, decodedBytes: decoded, servedFromCache: fromCache, list: list },
+    memory: performance.memory ? { usedJSHeapSize: performance.memory.usedJSHeapSize, totalJSHeapSize: performance.memory.totalJSHeapSize } : null };
+});
+async function startupRun(cdp, url, cold, index) {
+  if (cold) { await cdp.send('Network.clearBrowserCache'); await cdp.send('Network.setCacheDisabled', { cacheDisabled: false }); }
+  pageErrors.length = 0;
+  await navigate(cdp, url + (url.includes('?') ? '&' : '?') + 'run=' + (cold ? 'cold' : 'warm') + index);
+  await waitReady(cdp);
+  await sleep(1500);
+  const data = await cdp.evaluate('(' + STARTUP_COLLECT + ')()');
+  try { await cdp.send('HeapProfiler.collectGarbage'); } catch (_) { /* optional */ }
+  const heap = await cdp.send('Runtime.getHeapUsage');
+  const metrics = await cdp.send('Performance.getMetrics');
+  const m = {}; (metrics.metrics || []).forEach((x) => { m[x.name] = x.value; });
+  data.heapAfterGc = { usedSize: heap.usedSize, totalSize: heap.totalSize };
+  data.metrics = { Nodes: m.Nodes, JSEventListeners: m.JSEventListeners, Documents: m.Documents, Frames: m.Frames, LayoutCount: m.LayoutCount, RecalcStyleCount: m.RecalcStyleCount, LayoutDurationMs: r1((m.LayoutDuration || 0) * 1000), RecalcStyleDurationMs: r1((m.RecalcStyleDuration || 0) * 1000), ScriptDurationMs: r1((m.ScriptDuration || 0) * 1000), TaskDurationMs: r1((m.TaskDuration || 0) * 1000), JSHeapUsedSize: m.JSHeapUsedSize, JSHeapTotalSize: m.JSHeapTotalSize };
+  data.pageErrors = pageErrors.slice();
+  return data;
+}
+async function measureStartup(cdp, url, summary) {
+  const runs = { cold: [], warm: [] };
+  for (let i = 1; i <= REPEAT; i++) {
+    try {
+      runs.cold.push(await startupRun(cdp, url, true, i));
+      runs.warm.push(await startupRun(cdp, url, false, i));
+      log('startup ' + i + '/' + REPEAT + ': cold ready ' + r1(runs.cold[i - 1].readyAt) + ' ms, warm ready ' + r1(runs.warm[i - 1].readyAt) + ' ms');
+    } catch (e) { failures.push('startup run ' + i + ': ' + e.message); log('FAIL startup ' + i + ': ' + e.message); }
+  }
+  const pick = (list, fn) => median(list.map(fn));
+  const stats = (list) => ({
+    runs: list.length,
+    readyAtMs: r1(pick(list, (x) => x.readyAt)), domContentLoadedMs: r1(pick(list, (x) => x.navigation && x.navigation.domContentLoaded)), loadEventEndMs: r1(pick(list, (x) => x.navigation && x.navigation.loadEventEnd)),
+    resources: pick(list, (x) => x.resources.count), scripts: pick(list, (x) => x.resources.byType.script || 0), styles: pick(list, (x) => x.resources.byType.style || 0), xhr: pick(list, (x) => x.resources.byType.xhr || 0),
+    transferBytes: pick(list, (x) => x.resources.transferBytes), decodedBytes: pick(list, (x) => x.resources.decodedBytes), servedFromCache: pick(list, (x) => x.resources.servedFromCache),
+    heapUsedAfterGcBytes: pick(list, (x) => x.heapAfterGc.usedSize), domNodes: pick(list, (x) => x.metrics.Nodes), listeners: pick(list, (x) => x.metrics.JSEventListeners),
+    scriptMs: r1(pick(list, (x) => x.metrics.ScriptDurationMs)), layoutMs: r1(pick(list, (x) => x.metrics.LayoutDurationMs)), styleMs: r1(pick(list, (x) => x.metrics.RecalcStyleDurationMs)), taskMs: r1(pick(list, (x) => x.metrics.TaskDurationMs)),
+    pageErrors: list.reduce((n, x) => n + x.pageErrors.length, 0)
+  });
+  const result = { url, repeat: REPEAT, cold: stats(runs.cold), warm: stats(runs.warm), runs };
+  fs.mkdirSync(OUT, { recursive: true });
+  fs.writeFileSync(path.join(OUT, 'startup.json'), JSON.stringify(result, null, 1));
+  summary.startup = result;
+}
+
+// --- End-to-end run on the simulation page, one language at a time.
+async function e2e(cdp, simUrl, lang, summary) {
+  const dir = path.join(OUT, 'e2e-' + lang);
+  fs.mkdirSync(dir, { recursive: true });
+  const steps = [];
+  const t0 = Date.now();
+  const step = async (name, fn) => {
+    const start = Date.now();
+    try { const info = await fn(); steps.push({ step: name, ok: true, ms: Date.now() - start, ...(info || {}) }); log('e2e ' + lang + ' ' + name + ' ok' + (info && info.stateWord ? ' (' + info.stateWord + ')' : '')); }
+    catch (e) { steps.push({ step: name, ok: false, ms: Date.now() - start, error: e.message }); failures.push('e2e ' + lang + ' ' + name + ': ' + e.message); log('FAIL e2e ' + lang + ' ' + name + ': ' + e.message); throw e; }
+  };
+  const state = () => cdp.evaluate('(function(){var m=window.cncState&&window.cncState.get().machine;var t=function(id){var e=document.getElementById(id);return e?e.textContent.trim():null;};return {workflow:m?m.workflow:null,activeState:m?m.activeState:null,stateWord:t("t-state-text"),ready:t("home-job-ready"),feedback:t("home-job-feedback"),percent:t("home-job-percent"),lang:window.cncI18n&&window.cncI18n.language,htmlLang:document.documentElement.lang};})()');
+  const expectWord = async (key, where) => {
+    const s = await state();
+    const expected = STATE_WORDS[lang][key];
+    const fromTable = await cdp.evaluate('window.cncI18n.t(' + JSON.stringify(STATE_WORDS.fr[key]) + ')');
+    if (s.stateWord !== expected) throw new Error(where + ': state word "' + s.stateWord + '" instead of "' + expected + '" (i18n table says "' + fromTable + '")');
+    if (fromTable !== expected) throw new Error(where + ': i18n table gives "' + fromTable + '" for ' + key + ', expected "' + expected + '"');
+    return s;
+  };
+  const confirmDialog = async (shotName) => {
+    await cdp.waitFor('!document.getElementById("job-dialog").hidden', 15000, 'confirmation dialog');
+    await sleep(400);
+    const dialog = await cdp.evaluate('(function(){var d=document.getElementById("job-dialog"),c=document.getElementById("job-check"),l=c.closest("label"),b=document.getElementById("job-countdown-bar"),r=c.getBoundingClientRect(),rl=l.getBoundingClientRect();return {title:document.getElementById("job-dialog-title").textContent,label:l.textContent.trim(),countdown:document.getElementById("job-countdown").textContent,barWidth:b.getBoundingClientRect().width,confirmDisabled:document.getElementById("job-confirm").disabled,checkbox:{w:Math.round(r.width),h:Math.round(r.height)},labelBox:{w:Math.round(rl.width),h:Math.round(rl.height)},prefix:window.cncI18n.t("Confirmation valable "),expectedLabel:window.cncI18n.t("Je souhaite lancer cette simulation.")};})()');
+    await screenshot(cdp, path.join(dir, shotName + '.png'));
+    if (!dialog.confirmDisabled) throw new Error('Confirm enabled before the box is ticked');
+    if (dialog.label !== dialog.expectedLabel) throw new Error('dialog label "' + dialog.label + '" differs from "' + dialog.expectedLabel + '"');
+    if (!dialog.countdown.startsWith(dialog.prefix) || !/\d+/.test(dialog.countdown)) throw new Error('countdown text "' + dialog.countdown + '" does not start with "' + dialog.prefix + '"');
+    const ticked = await cdp.evaluate('(function(){var c=document.getElementById("job-check");c.checked=true;c.dispatchEvent(new Event("change",{bubbles:true}));return !document.getElementById("job-confirm").disabled;})()');
+    if (!ticked) throw new Error('Confirm still disabled after ticking the box');
+    // The countdown ticks once a second: waiting two ticks guarantees a visible change.
+    const later = await cdp.evaluate('new Promise(function(r){setTimeout(function(){r(document.getElementById("job-countdown").textContent);},2200);})');
+    if (later === dialog.countdown) throw new Error('countdown did not advance: "' + later + '"');
+    await cdp.evaluate('document.getElementById("job-confirm").click();true');
+    await cdp.waitFor('document.getElementById("job-dialog").hidden', 10000, 'dialog closed');
+    return { title: dialog.title, label: dialog.label, countdown: dialog.countdown, countdownLater: later, checkboxBox: dialog.checkbox, labelBox: dialog.labelBox };
+  };
+  try {
+    await step('open simulation page (' + lang + ')', async () => {
+      await navigate(cdp, simUrl);
+      await cdp.evaluate('localStorage.setItem("cncjs-touch-language-v1",' + JSON.stringify(lang) + ');true');
+      await navigate(cdp, simUrl + '?lang-run=' + lang);
+      await waitReady(cdp);
+      const s = await state();
+      if (s.lang !== lang) throw new Error('page language ' + s.lang + ' instead of ' + lang);
+      await screenshot(cdp, path.join(dir, '01-loaded.png'));
+      return { lang: s.lang, htmlLang: s.htmlLang };
+    });
+    await step('select and load a file', async () => {
+      await goScreen(cdp, 'files');
+      const file = await cdp.evaluate('(function(){var b=document.querySelector(".library-file");b.click();return b.getAttribute("data-file");})()');
+      await cdp.waitFor('(function(){var b=document.getElementById("job-load");return !!b&&!b.disabled;})()', 15000, 'load button enabled');
+      await screenshot(cdp, path.join(dir, '02-file-selected.png'));
+      await cdp.evaluate('document.getElementById("job-load").click();true');
+      await cdp.waitFor('(function(){var m=window.cncState.get().machine;return !!(m&&m.name);})()', 15000, 'file loaded in the simulated controller');
+      await goScreen(cdp, 'home');
+      await cdp.waitFor('(function(){var b=document.getElementById("home-job-start");return !!b&&!b.disabled;})()', 15000, 'Démarrer enabled');
+      await screenshot(cdp, path.join(dir, '03-loaded-suivi.png'));
+      const s = await expectWord('idle', 'after load');
+      return { file, stateWord: s.stateWord, ready: s.ready };
+    });
+    await step('start with confirmation', async () => {
+      await cdp.evaluate('document.getElementById("home-job-start").click();true');
+      const dialog = await confirmDialog('04-start-dialog');
+      await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 15000, 'running');
+      await cdp.waitFor('(function(){var p=document.getElementById("home-job-percent").textContent;return p&&p!=="—"&&!/^0\\s*%/.test(p);})()', 20000, 'progress moving');
+      await sleep(500);
+      await screenshot(cdp, path.join(dir, '05-running.png'));
+      const s = await expectWord('running', 'after start');
+      return { dialog, stateWord: s.stateWord, percent: s.percent, feedback: s.feedback };
+    });
+    await step('pause', async () => {
+      await cdp.evaluate('(function(){var b=document.getElementById("t-pause");if(b&&!b.hidden&&!b.disabled){b.click();return "strip";}document.getElementById("home-job-pause").click();return "suivi";})()');
+      await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="paused"', 15000, 'paused');
+      await sleep(1200);
+      await screenshot(cdp, path.join(dir, '06-paused.png'));
+      const s = await expectWord('paused', 'after pause');
+      return { stateWord: s.stateWord, percent: s.percent, feedback: s.feedback };
+    });
+    await step('resume with confirmation', async () => {
+      await cdp.waitFor('(function(){var b=document.getElementById("home-job-resume");return !!b&&!b.disabled&&!b.closest("[hidden]");})()', 10000, 'Reprendre enabled');
+      await cdp.evaluate('document.getElementById("home-job-resume").click();true');
+      const dialog = await confirmDialog('07-resume-dialog');
+      await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 15000, 'running again');
+      await sleep(1200);
+      await screenshot(cdp, path.join(dir, '08-resumed.png'));
+      const s = await expectWord('running', 'after resume');
+      return { dialog: { title: dialog.title }, stateWord: s.stateWord, percent: s.percent };
+    });
+    await step('stop', async () => {
+      await cdp.evaluate('document.getElementById("home-job-stop").click();true');
+      await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="idle"', 15000, 'idle after stop');
+      await sleep(1200);
+      await screenshot(cdp, path.join(dir, '09-stopped.png'));
+      const s = await expectWord('idle', 'after stop');
+      const startDisabled = await cdp.evaluate('document.getElementById("home-job-start").disabled');
+      return { stateWord: s.stateWord, percent: s.percent, feedback: s.feedback, startDisabledAfterStop: startDisabled };
+    });
+  } catch (_) { /* recorded in steps and failures */ }
+  const result = { lang, ok: steps.every((s) => s.ok) && steps.length === 6, ms: Date.now() - t0, steps };
+  fs.writeFileSync(path.join(dir, 'steps.json'), JSON.stringify(result, null, 1));
+  summary.e2e.push(result);
+}
+
+// --- Synthesis.
+function fmtBytes(b) { return typeof b === 'number' ? (b >= 1048576 ? (b / 1048576).toFixed(2) + ' MB' : b >= 1024 ? Math.round(b / 1024) + ' kB' : b + ' B') : '—'; }
+function writeSummary(summary) {
+  const L = [];
+  L.push('# Touch interface — browser harness report' + (BASELINE ? ' (baseline, « avant »)' : ''));
+  L.push('');
+  L.push('**Measured on a development PC with a recent headless ' + summary.browser + ' (' + os.platform() + ' ' + os.release() + ', Node ' + process.version + '), not on the Surface RT (Chromium 106, Tegra 3, --disable-gpu).** Pixel sizes are comparable; timings and memory are not.');
+  L.push('');
+  L.push('- Date: ' + summary.date + (summary.commit ? '  \n- Commit: ' + summary.commit : '') + '  \n- Pages: ' + summary.realUrl + ' and ' + summary.simUrl + '  \n- Goals (design tokens, not WCAG): primary 64 px, secondary 48 px, jog cross 96 px, gaps 12 px, text ≥ 16 px.');
+  L.push('- Harness steps failed: ' + failures.length + (failures.length ? '\n' + failures.map((f) => '  - ' + f).join('\n') : ''));
+  L.push('');
+  for (const m of summary.measurements) {
+    L.push('## Tap targets — ' + m.variant + ' (`' + m.dir + '/`)');
+    L.push('');
+    L.push('| Screen | Scale | Targets | Under size goal | Text < 16 px (targets / all) | Target font px, rendered (min–median–max) | Gaps < 12 px | Covered | Truncated | Horizontal overflow |');
+    L.push('| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- |');
+    for (const r of m.results) {
+      if (r.error) { L.push('| ' + r.label + ' | — | error: ' + r.error + ' | | | | | | | |'); continue; }
+      L.push('| ' + r.label + ' | ' + r.scale + ' | ' + r.targets + ' | ' + r.below.length + ' | ' + r.textTargets.length + ' / ' + r.small.length + ' | ' + r.fontStats.min + '–' + r.fontStats.median + '–' + r.fontStats.max + ' | ' + r.gaps.length + ' | ' + r.unreachable.length + ' | ' + r.truncated.length + ' | ' + (r.overflow.document ? 'YES (' + r.overflow.documentScrollWidth + ' > ' + r.overflow.clientWidth + ')' : 'no') + ' |');
+    }
+    L.push('');
+    const below = [];
+    for (const r of m.results) if (!r.error) for (const t of r.below) below.push('| ' + r.label + ' | ' + t.label.replace(/\|/g, '\\|') + ' | ' + t.kind + ' | ' + t.w + ' × ' + t.h + (m.dpr !== 1 ? ' (× ' + m.dpr + ')' : '') + ' | ' + t.goal + ' | ' + (t.gap === null ? '—' : t.gap) + ' | ' + (t.disabled ? 'disabled' : '') + ' |');
+    if (below.length) { L.push('Targets under the size goal (rendered CSS px, width × height):'); L.push(''); L.push('| Screen | Label | Kind | Rendered | Goal | Gap to neighbour | |'); L.push('| --- | --- | --- | --- | ---: | ---: | --- |'); L.push(...below); L.push(''); }
+    const small = [];
+    for (const r of m.results) if (!r.error) for (const t of r.small) small.push('| ' + r.label + ' | ' + t.text.replace(/\|/g, '\\|') + ' | ' + t.fontPx + ' |');
+    if (small.length) { L.push('Visible text under 16 px (rendered size, screen scale applied):'); L.push(''); L.push('| Screen | Text | Font px |'); L.push('| --- | --- | ---: |'); L.push(...small); L.push(''); }
+    const gaps = [];
+    for (const r of m.results) if (!r.error) for (const t of r.gaps) gaps.push('| ' + r.label + ' | ' + t.label.replace(/\|/g, '\\|') + ' | ' + t.gap + ' | ' + String(t.neighbour).replace(/\|/g, '\\|') + ' |');
+    if (gaps.length) { L.push('Gaps under 12 px (touching segmented buttons included):'); L.push(''); L.push('| Screen | Label | Gap px | Neighbour |'); L.push('| --- | --- | ---: | --- |'); L.push(...gaps); L.push(''); }
+    const unreachable = [];
+    for (const r of m.results) if (!r.error) for (const t of r.unreachable) unreachable.push('| ' + r.label + ' | ' + t.label.replace(/\|/g, '\\|') + ' | ' + String(t.hit).replace(/\|/g, '\\|') + ' |');
+    if (unreachable.length) { L.push('Targets whose centre is covered by another element:'); L.push(''); L.push('| Screen | Label | Element hit at centre |'); L.push('| --- | --- | --- |'); L.push(...unreachable); L.push(''); }
+    const trunc = [];
+    for (const r of m.results) if (!r.error) for (const t of r.truncated) trunc.push('| ' + r.label + ' | ' + t.text.replace(/\|/g, '\\|') + ' | ' + t.scrollWidth + ' > ' + t.clientWidth + ' | ' + t.textOverflow + ' |');
+    if (trunc.length) { L.push('Text wider than its box (scrollWidth > clientWidth, overflow not visible):'); L.push(''); L.push('| Screen | Text | Widths | text-overflow |'); L.push('| --- | --- | --- | --- |'); L.push(...trunc); L.push(''); }
+  }
+  if (summary.startup) {
+    const s = summary.startup;
+    L.push('## Start-up of the real page (' + s.repeat + ' repetitions, medians)');
+    L.push('');
+    L.push('| | Cold (cache cleared) | Warm (second load) |');
+    L.push('| --- | ---: | ---: |');
+    const row = (k, f) => L.push('| ' + k + ' | ' + f(s.cold) + ' | ' + f(s.warm) + ' |');
+    row('Shell ready (`cnc-loading` removed), ms', (x) => x.readyAtMs);
+    row('DOMContentLoaded, ms', (x) => x.domContentLoadedMs);
+    row('load event, ms', (x) => x.loadEventEndMs);
+    row('Resources (scripts / styles / xhr)', (x) => x.resources + ' (' + x.scripts + ' / ' + x.styles + ' / ' + x.xhr + ')');
+    row('Transferred / decoded', (x) => fmtBytes(x.transferBytes) + ' / ' + fmtBytes(x.decodedBytes));
+    row('Served from cache', (x) => x.servedFromCache);
+    row('JS heap after GC', (x) => fmtBytes(x.heapUsedAfterGcBytes));
+    row('DOM nodes / listeners', (x) => x.domNodes + ' / ' + x.listeners);
+    row('Script / style / layout / task time, ms', (x) => x.scriptMs + ' / ' + x.styleMs + ' / ' + x.layoutMs + ' / ' + x.taskMs);
+    row('Page exceptions', (x) => x.pageErrors);
+    L.push('');
+    L.push('Note: the local fixture server sends no caching headers, so the warm run may re-download everything; against a real CNCjs server the static files carry ETag/Last-Modified. Details per run in `startup.json`.');
+    L.push('');
+  }
+  if (summary.e2e.length) {
+    L.push('## Simulation run (load → start → pause → resume → stop)');
+    L.push('');
+    for (const e of summary.e2e) {
+      L.push('### ' + e.lang + ' — ' + (e.ok ? 'OK' : 'FAILED') + ' (' + e.ms + ' ms, `e2e-' + e.lang + '/`)');
+      L.push('');
+      L.push('| Step | Result | State word | Details |');
+      L.push('| --- | --- | --- | --- |');
+      for (const st of e.steps) {
+        const details = st.error ? st.error : [st.file && 'file ' + st.file, st.percent && 'progress ' + st.percent, st.dialog && st.dialog.countdown && 'dialog "' + st.dialog.title + '", box ' + st.dialog.checkboxBox.w + '×' + st.dialog.checkboxBox.h + ' px, countdown "' + st.dialog.countdown + '" → "' + st.dialog.countdownLater + '"', st.feedback && 'feedback "' + st.feedback + '"', st.startDisabledAfterStop !== undefined && 'Démarrer disabled after stop: ' + st.startDisabledAfterStop].filter(Boolean).join('; ');
+        L.push('| ' + st.step + ' | ' + (st.ok ? 'ok' : 'FAIL') + ' | ' + (st.stateWord || '') + ' | ' + details.replace(/\|/g, '\\|') + ' |');
+      }
+      L.push('');
+    }
+  }
+  L.push('## Limits');
+  L.push('');
+  L.push('- Headless Chrome on a PC: no touch digitiser, no Tegra 3 timings, GPU disabled like the kiosk but a different compositor; the Surface RT resolves the font stack to Bitstream Vera Sans, wider than Segoe UI.');
+  L.push('- "Zoom 200 %" is emulated as a 683 × 384 CSS viewport at device scale factor 2 (what Ctrl + does at 1366 × 768); "font 200 %" uses `Page.setFontSizes` (default font size 32 px), which only moves text sized relative to the default.');
+  L.push('- The simulation page has no Réglages screen, so the language is set through its storage key (`cncjs-touch-language-v1`) and a reload, which is what the Réglages control does on the real page.');
+  fs.writeFileSync(path.join(OUT, 'summary.md'), L.join('\n') + '\n');
+  fs.writeFileSync(path.join(OUT, 'summary.json'), JSON.stringify(summary, null, 1));
+}
+
+async function main() {
+  fs.mkdirSync(OUT, { recursive: true });
+  let commit = null; try { commit = execSync('git rev-parse --short HEAD', { cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch (_) { /* not a checkout */ }
+  const summary = { label: BASELINE ? 'baseline' : 'run', date: new Date().toISOString(), commit, node: process.version, measurements: [], e2e: [] };
+  let fixture = null, base = URL_BASE;
+  if (!base) { fixture = await startFixture(); base = fixture.base; log('fixture ' + base); }
+  if (!base.endsWith('/')) base += '/';
+  const realUrl = URL_BASE ? base : base + 'index.html', simUrl = base + 'simulation.html';
+  summary.realUrl = realUrl; summary.simUrl = simUrl;
+  const browser = await launchBrowser(1366, 768);
+  summary.browser = browser.version; summary.userAgent = browser.userAgent;
+  log('browser ' + browser.version + ' (' + browser.exe + ')');
+  const cdp = browser.cdp;
+  try {
+    if (ONLY.includes('measure')) {
+      for (const [w, h] of RESOLUTIONS) {
+        await setViewport(cdp, w, h, 1);
+        await navigate(cdp, realUrl); await waitSettled(cdp);
+        await measureScreens(cdp, realUrl, w + 'x' + h, w + 'x' + h, 1, summary);
+        try { await setDisplaySize(cdp, 'large'); await measureScreens(cdp, realUrl, w + 'x' + h + ' texte agrandi', w + 'x' + h + '-large', 1, summary); await setDisplaySize(cdp, 'standard'); }
+        catch (e) { failures.push('large text ' + w + 'x' + h + ': ' + e.message); log('FAIL large text: ' + e.message); }
+      }
+      await setViewport(cdp, 683, 384, 2);
+      await navigate(cdp, realUrl); await waitSettled(cdp);
+      await measureScreens(cdp, realUrl, '1366x768 zoom 200 % (683x384 @2)', '1366x768-zoom200', 2, summary);
+      await setViewport(cdp, 1366, 768, 1);
+      try {
+        await cdp.send('Page.setFontSizes', { fontSizes: { standard: 32, fixed: 26 } });
+        await navigate(cdp, realUrl); await waitSettled(cdp);
+        await measureScreens(cdp, realUrl, '1366x768 default font 200 % (Page.setFontSizes 32)', '1366x768-font200', 1, summary);
+        await cdp.send('Page.setFontSizes', { fontSizes: { standard: 16, fixed: 13 } });
+      } catch (e) { summary.fontSizesUnsupported = e.message; log('font 200 % not available: ' + e.message); }
+    }
+    if (ONLY.includes('startup')) { await setViewport(cdp, 1366, 768, 1); await measureStartup(cdp, realUrl, summary); }
+    if (ONLY.includes('e2e')) { await setViewport(cdp, 1366, 768, 1); for (const lang of ['fr', 'en', 'es']) await e2e(cdp, simUrl, lang, summary); await cdp.evaluate('localStorage.removeItem("cncjs-touch-language-v1");true').catch(() => {}); }
+  } catch (e) { failures.push('harness: ' + (e.stack || e.message)); log('FAIL harness: ' + e.message); }
+  writeSummary(summary);
+  cdp.close();
+  if (!KEEP) { try { await cdp.send('Browser.close', {}, 3000); } catch (_) { /* closed */ } try { browser.child.kill(); } catch (_) { /* gone */ } }
+  if (fixture) fixture.child.kill();
+  await sleep(300);
+  if (!KEEP) { try { fs.rmSync(browser.profile, { recursive: true, force: true }); } catch (_) { /* profile busy */ } }
+  log('report: ' + path.join(OUT, 'summary.md'));
+  if (failures.length) { console.error('FAILED steps:\n- ' + failures.join('\n- ')); process.exit(1); }
+  console.log('browser-run: every step passed.');
+}
+main().catch((e) => { console.error('browser-run: ' + (e.stack || e.message)); process.exit(1); });
