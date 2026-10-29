@@ -23,7 +23,9 @@ const CONFIG_KEY = 'commands';
 // Host commands that stop, restart or power the computer off, or kill
 // processes (CNCjs itself included): they take the machine's supervision away,
 // so they run only with every controller at rest and nothing starting meanwhile.
-const SENSITIVE = /(^|[^\w.-])(shutdown|reboot|poweroff|halt|(?:init|telinit)\s+[06]|systemctl\s+(?:[-\w]+\s+)*(?:stop|restart|reload|reload-or-restart|try-restart|kill|poweroff|reboot|halt)|pm2\s+(?:[-\w]+\s+)*(?:stop|restart|reload|delete|kill)|kill|killall|pkill|service\s+\S+\s+(?:stop|restart|reload))(?![\w.-])/i;
+// Linux hosts (systemd, pm2, SysV) and Windows hosts (shutdown.exe, taskkill,
+// PowerShell Restart-/Stop-Computer|Service, net stop, sc stop) alike.
+const SENSITIVE = /(^|[^\w.-])(shutdown(?:\.exe)?|reboot|poweroff|halt|(?:init|telinit)\s+[06]|systemctl\s+(?:[-\w]+\s+)*(?:stop|restart|reload|reload-or-restart|try-restart|kill|poweroff|reboot|halt|isolate)|pm2\s+(?:[-\w]+\s+)*(?:stop|restart|reload|delete|kill)|kill|killall|pkill|taskkill(?:\.exe)?|(?:restart|stop)-(?:computer|service)|net\s+stop|sc(?:\.exe)?\s+stop|service\s+\S+\s+(?:stop|restart|reload|force-reload))(?![\w.-])/i;
 export const sensitiveCommand = (commands) => SENSITIVE.test(String(commands || ''));
 
 // A sensitive command holds the machine until its task ends. A task that never
@@ -321,6 +323,21 @@ export const run = (req, res) => {
 
   let reservation = null;
   if (sensitiveCommand(commands)) {
+    // Someone else holds the control of a port (F5): the command would take
+    // the machine away from them.
+    if (touch.isStarted() && typeof touch.refuseSystemCommand === 'function') {
+      const user = req.user && typeof req.user === 'object' ? req.user : {};
+      let name = typeof user.name === 'string' ? user.name : '';
+      if (!name && user.id) {
+        name = String(user.id);
+      }
+      const refused = touch.refuseSystemCommand({ kind: 'http', id: 'http:' + (name || 'anonyme'), user: name });
+      if (refused) {
+        log.warn(`run refused: title="${title}", reason="${refused.message}"`);
+        res.status(ERR_CONFLICT).send({ msg: refused.message, message: refused.message });
+        return;
+      }
+    }
     try {
       reservation = reserveMachine({ id, title, commands });
     } catch (err) {

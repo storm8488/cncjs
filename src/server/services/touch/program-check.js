@@ -1,0 +1,485 @@
+// Server-side pre-check of a program's XYZ travel (F2): the exact text that
+// will be sent to the controller is walked once at load time (units, distance
+// mode, work offset, linear and arc moves, machine-coordinate moves, offset
+// changes, uninterpreted words), then its extent is compared with the Grbl
+// travel settings ($130-$132, homing direction $23), the current position and
+// the active work offset. Every verdict is `validated`, `outside` or `unknown`
+// with French reasons; anything the analysis could not follow (a macro, a
+// probe, a dynamic tool offset, an offset change, a homing not observed) ends
+// in `unknown`, never in `validated`. This is a travel check against the
+// machine envelope, not a collision check against clamps, tool or stock.
+
+const MM_PER_INCH = 25.4;
+const TOLERANCE_MM = 0.001;
+const AXES = ['X', 'Y', 'Z'];
+
+// Words Grbl 1.1 accepts; everything else is listed as not interpreted.
+const KNOWN_G = [0, 1, 2, 3, 4, 10, 17, 18, 19, 20, 21, 28, 28.1, 30, 30.1, 38.2, 38.3, 38.4, 38.5, 40, 43.1, 49, 53,
+  54, 55, 56, 57, 58, 59, 61, 80, 90, 90.1, 91, 91.1, 92, 92.1, 93, 94];
+const KNOWN_M = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 30];
+
+export const programLines = (gcode) => String(gcode).split('\n').filter((line) => line.trim().length > 0);
+
+const clean = (line) => line.replace(/\([^)]*\)/g, ' ').replace(/;.*$/, '').trim().toUpperCase();
+
+const words = (code) => {
+  const out = [];
+  const re = /([A-Z])\s*([-+]?(?:\d+\.?\d*|\.\d+))/g;
+  let m;
+  while ((m = re.exec(code))) {
+    out.push([m[1], Number(m[2])]);
+  }
+  return out;
+};
+
+const fmt = (n) => String(Math.round(n * 1000) / 1000);
+
+const extend = (extent, axis, value) => {
+  if (value === null || !Number.isFinite(value)) {
+    return;
+  }
+  const e = extent[axis];
+  if (!e) {
+    extent[axis] = { min: value, max: value };
+  } else {
+    e.min = Math.min(e.min, value);
+    e.max = Math.max(e.max, value);
+  }
+};
+
+// Walks the program. `extent` is in millimetres in the work coordinates of the
+// (single) work offset the program uses; `unknownAxes[axis]` tells why an axis
+// could not be followed. `rawUnits` is true when the program never fixes its
+// units before moving: the extent is then in the controller's units, which the
+// comparison converts when the machine's modal state is known.
+export const analyzeProgram = (gcode) => {
+  const lines = programLines(gcode);
+  const a = {
+    lines: lines.length,
+    moves: 0,
+    units: null,
+    unitsChanges: [],
+    rawUnits: false,
+    distance: null,
+    distanceChanges: [],
+    relativeStart: false,
+    wcs: null,
+    wcsChanges: [],
+    offsetChanges: [],
+    machineMoves: [],
+    uninterpreted: [],
+    extent: { X: null, Y: null, Z: null },
+    unknownAxes: { X: null, Y: null, Z: null },
+    zMin: null,
+    zMax: null
+  };
+  const pos = { X: null, Y: null, Z: null };
+  // Modal state while walking (one object, so the per-line closures below
+  // never capture a loop-modified binding).
+  const st = {
+    scale: 1, // mm per program unit
+    unitsKnown: false, // the program chose G20/G21 before moving
+    distance: 'G90',
+    distanceSet: false,
+    motion: null,
+    plane: 'G17',
+    arcMode: 'G91.1',
+    moved: false
+  };
+  const unknown = (axis, reason) => {
+    if (!a.unknownAxes[axis]) {
+      a.unknownAxes[axis] = reason;
+    }
+  };
+  const listed = (lineNo, code, impact) => {
+    if (a.uninterpreted.length < 50) {
+      a.uninterpreted.push({ line: lineNo, code, impact });
+    }
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const lineNo = i + 1;
+    const raw = lines[i];
+    const code = clean(raw);
+    if (!code || code === '%') {
+      continue;
+    }
+    // CNCjs directives and expressions execute on the server, G-code words
+    // depend on variables: nothing can be followed after them.
+    if (/^%/.test(code) || /[[\]#]/.test(code)) {
+      listed(lineNo, raw.trim().slice(0, 40), true);
+      AXES.forEach((axis) => unknown(axis, 'Macro ou expression CNCjs à la ligne ' + lineNo + ' : contenu non prévisible.'));
+      continue;
+    }
+    const w = words(code);
+    const g = w.filter(([l]) => l === 'G').map(([, v]) => v);
+    const m = w.filter(([l]) => l === 'M').map(([, v]) => v);
+    const at = (letter) => {
+      const found = w.find(([l]) => l === letter);
+      return found ? found[1] : null;
+    };
+    g.forEach((v) => {
+      if (!KNOWN_G.includes(v)) {
+        listed(lineNo, 'G' + v, true);
+        AXES.forEach((axis) => unknown(axis, 'Code G' + v + ' (ligne ' + lineNo + ') non interprété.'));
+      }
+    });
+    m.forEach((v) => {
+      if (!KNOWN_M.includes(v)) {
+        listed(lineNo, 'M' + v, false);
+      }
+    });
+
+    // Modal words first (G90 G1 X10 on one line is absolute).
+    g.forEach((v) => {
+      if (v === 20 || v === 21) {
+        const next = v === 20 ? MM_PER_INCH : 1;
+        if (!st.unitsKnown) {
+          if (st.moved) {
+            a.unitsChanges.push(lineNo);
+            AXES.forEach((axis) => unknown(axis, 'Unités fixées (G' + v + ') à la ligne ' + lineNo + ' après des déplacements faits dans les unités de la machine.'));
+          } else {
+            a.units = 'G' + v;
+          }
+          st.unitsKnown = true;
+          st.scale = next;
+        } else if (st.scale !== next) {
+          a.unitsChanges.push(lineNo);
+          st.scale = next;
+        }
+      } else if (v === 90 || v === 91) {
+        const next = 'G' + v;
+        if (!st.distanceSet && !st.moved) {
+          a.distance = next;
+        } else if (next !== st.distance) {
+          a.distanceChanges.push(lineNo);
+        }
+        st.distance = next;
+        st.distanceSet = true;
+      } else if (v === 90.1 || v === 91.1) {
+        st.arcMode = 'G' + v;
+      } else if (v === 17 || v === 18 || v === 19) {
+        st.plane = 'G' + v;
+      } else if (v >= 54 && v <= 59) {
+        const next = 'G' + v;
+        if (a.wcs === null) {
+          a.wcs = next;
+          if (st.moved) {
+            a.wcsChanges.push(lineNo);
+          }
+        } else if (a.wcs !== next) {
+          a.wcsChanges.push(lineNo);
+        }
+      } else if (v === 92 || v === 92.1 || v === 10) {
+        a.offsetChanges.push({ line: lineNo, code: 'G' + v });
+      } else if ([0, 1, 2, 3].includes(v)) {
+        st.motion = 'G' + v;
+      } else if (v === 80) {
+        st.motion = null;
+      }
+    });
+    if (a.wcsChanges.length) {
+      AXES.forEach((axis) => unknown(axis, 'Le programme change de repère (ligne ' + a.wcsChanges[0] + ') : une seule origine de travail peut être vérifiée.'));
+    }
+    if (a.offsetChanges.length) {
+      const first = a.offsetChanges[0];
+      AXES.forEach((axis) => unknown(axis, 'Le programme modifie l’origine (' + first.code + ' ligne ' + first.line + ') : position de travail non prévisible.'));
+    }
+
+    const axes = AXES.filter((axis) => at(axis) !== null);
+    const probe = g.some((v) => v >= 38.2 && v <= 38.5);
+    const machineMove = g.includes(53) || g.includes(28) || g.includes(30) || g.includes(28.1) || g.includes(30.1);
+    if (g.includes(43.1)) {
+      listed(lineNo, 'G43.1', true);
+      unknown('Z', 'Décalage d’outil dynamique (G43.1 ligne ' + lineNo + ') : position Z non prévisible.');
+      continue;
+    }
+    if (probe) {
+      listed(lineNo, 'G' + g.find((v) => v >= 38.2 && v <= 38.5), true);
+      axes.forEach((axis) => {
+        pos[axis] = null;
+        unknown(axis, 'Palpage (G38 ligne ' + lineNo + ') : la position ' + axis + ' dépend du contact.');
+      });
+      continue;
+    }
+    if (machineMove) {
+      a.machineMoves.push({ line: lineNo, code: 'G' + g.find((v) => [53, 28, 30, 28.1, 30.1].includes(v)) });
+      (g.includes(53) ? axes : AXES).forEach((axis) => {
+        pos[axis] = null;
+      });
+      continue;
+    }
+    if (!axes.length || !(st.motion || g.some((v) => [0, 1, 2, 3].includes(v)))) {
+      continue;
+    }
+
+    // A move.
+    if (!st.moved) {
+      st.moved = true;
+      if (!st.unitsKnown) {
+        a.rawUnits = true;
+      }
+      if (st.distance === 'G91') {
+        a.relativeStart = true;
+      }
+    }
+    a.moves += 1;
+    const start = { ...pos };
+    axes.forEach((axis) => {
+      const v = at(axis) * st.scale;
+      if (st.distance === 'G91') {
+        if (pos[axis] === null) {
+          unknown(axis, 'Déplacement relatif (G91 ligne ' + lineNo + ') depuis une position ' + axis + ' inconnue.');
+        } else {
+          pos[axis] += v;
+        }
+      } else {
+        pos[axis] = v;
+      }
+    });
+    const arc = st.motion === 'G2' || st.motion === 'G3';
+    if (arc) {
+      if (st.plane !== 'G17' || st.arcMode !== 'G91.1') {
+        listed(lineNo, st.motion + ' ' + (st.plane !== 'G17' ? st.plane : st.arcMode), true);
+        AXES.forEach((axis) => unknown(axis, 'Arc hors plan XY ou en centre absolu (ligne ' + lineNo + ') : non interprété.'));
+      } else if (start.X === null || start.Y === null || pos.X === null || pos.Y === null) {
+        unknown('X', 'Arc (ligne ' + lineNo + ') depuis une position XY inconnue.');
+        unknown('Y', 'Arc (ligne ' + lineNo + ') depuis une position XY inconnue.');
+      } else {
+        const r = at('R');
+        let cx;
+        let cy;
+        let radius;
+        if (r !== null) {
+          const dx = pos.X - start.X;
+          const dy = pos.Y - start.Y;
+          const d2 = dx * dx + dy * dy;
+          radius = Math.abs(r) * st.scale;
+          const h2 = 4 * radius * radius - d2;
+          if (h2 < -TOLERANCE_MM || d2 === 0) {
+            listed(lineNo, st.motion + ' R', true);
+            unknown('X', 'Arc impossible (rayon trop court, ligne ' + lineNo + ').');
+            unknown('Y', 'Arc impossible (rayon trop court, ligne ' + lineNo + ').');
+          } else {
+            let h = -Math.sqrt(Math.max(0, h2)) / Math.sqrt(d2);
+            if (st.motion === 'G3') {
+              h = -h;
+            }
+            if (r < 0) {
+              h = -h;
+            }
+            cx = start.X + 0.5 * (dx - dy * h);
+            cy = start.Y + 0.5 * (dy + dx * h);
+          }
+        } else {
+          const ci = (at('I') || 0) * st.scale;
+          const cj = (at('J') || 0) * st.scale;
+          cx = start.X + ci;
+          cy = start.Y + cj;
+          radius = Math.hypot(ci, cj);
+        }
+        if (cx !== undefined) {
+          // Conservative envelope: the whole circle the arc lies on.
+          extend(a.extent, 'X', cx - radius);
+          extend(a.extent, 'X', cx + radius);
+          extend(a.extent, 'Y', cy - radius);
+          extend(a.extent, 'Y', cy + radius);
+        }
+      }
+    }
+    AXES.forEach((axis) => {
+      extend(a.extent, axis, start[axis]);
+      extend(a.extent, axis, pos[axis]);
+    });
+  }
+  AXES.forEach((axis) => {
+    if (a.unknownAxes[axis]) {
+      a.extent[axis] = null;
+    }
+  });
+  if (a.extent.Z) {
+    a.zMin = a.extent.Z.min;
+    a.zMax = a.extent.Z.max;
+  }
+  return a;
+};
+
+const number = (v) => {
+  const n = typeof v === 'string' ? Number(v) : v;
+  return typeof n === 'number' && Number.isFinite(n) ? n : null;
+};
+
+// Compares an analysis with the machine:
+//   machine = { settings: {$20,$22,$23,$130,$131,$132}, mpos: {x,y,z}, wpos: {x,y,z},
+//               modal: {units, distance, wcs} (fresh $G only, else null),
+//               parameters: {G54: {x,y,z}, …, G92: {…}, TLO: n} ($# if known, else null),
+//               homed: true when a homing cycle was seen complete since the last board restart,
+//               reportUnits: 'mm' | 'in' | null }
+export const checkProgram = (analysis, machine = {}) => {
+  const s = machine.settings || {};
+  const modal = machine.modal || null;
+  const global = [];
+  const info = [];
+  const axesOut = {};
+  const homingSetting = number(s.$22);
+  if (homingSetting === null) {
+    global.push('Réglage $22 inconnu : relisez les réglages de la carte.');
+  } else if (homingSetting !== 1) {
+    global.push('Prise d’origine désactivée ($22=0) : les coordonnées machine ne sont pas repérées.');
+  } else if (machine.homed !== true) {
+    global.push('Référencement non constaté depuis le dernier redémarrage de la carte ($22=1 signifie activé, pas effectué) : course non vérifiable.');
+  }
+  if (machine.reportUnits === 'in') {
+    global.push('Positions rapportées en pouces ($13=1) : comparaison non faite.');
+  } else if (machine.reportUnits !== 'mm') {
+    global.push('Unités des rapports ($13) inconnues.');
+  }
+  // Units and distance mode the program leaves to the machine.
+  let scale = 1;
+  if (analysis.rawUnits) {
+    if (!modal || !modal.units) {
+      global.push('Le programme ne fixe pas ses unités (G20/G21) et l’état modal de la machine est inconnu.');
+    } else {
+      scale = modal.units === 'G20' ? MM_PER_INCH : 1;
+      info.push('Unités laissées à la machine : ' + modal.units + ' appliqué.');
+    }
+  }
+  if (analysis.distance === null && analysis.moves > 0) {
+    if (!modal || modal.distance !== 'G90') {
+      global.push('Le programme ne fixe pas son mode (G90/G91) et la machine n’est pas en G90 connu.');
+    }
+  }
+  if (analysis.relativeStart) {
+    global.push('Le programme commence en déplacements relatifs (G91) : parcours lié à la position de l’outil, non vérifiable.');
+  }
+  // Work offset: mpos = wpos + offset for the offset active now; another
+  // offset selected by the program needs the $# parameters.
+  const offset = { X: null, Y: null, Z: null };
+  const mpos = machine.mpos || {};
+  const wpos = machine.wpos || {};
+  const activeWcs = modal && /^G5[4-9]$/.test(modal.wcs || '') ? modal.wcs : null;
+  const programWcs = analysis.wcs;
+  if (programWcs && activeWcs && programWcs !== activeWcs) {
+    const p = machine.parameters && machine.parameters[programWcs];
+    if (p && AXES.every((axis) => number(p[axis.toLowerCase()]) !== null)) {
+      const g92 = (machine.parameters && machine.parameters.G92) || {};
+      const tlo = number(machine.parameters && machine.parameters.TLO) || 0;
+      AXES.forEach((axis) => {
+        offset[axis] = number(p[axis.toLowerCase()]) + (number(g92[axis.toLowerCase()]) || 0) + (axis === 'Z' ? tlo : 0);
+      });
+      info.push('Repère ' + programWcs + ' du programme lu dans les paramètres ($#) ; repère actif ' + activeWcs + '.');
+    } else {
+      global.push('Le programme utilise ' + programWcs + ' alors que le repère actif est ' + activeWcs + ' et que ses décalages ($#) sont inconnus.');
+    }
+  } else {
+    if (programWcs && !activeWcs) {
+      global.push('Repère actif inconnu (état $G trop ancien) : le programme utilise ' + programWcs + '.');
+    }
+    AXES.forEach((axis) => {
+      const m = number(mpos[axis.toLowerCase()]);
+      const w = number(wpos[axis.toLowerCase()]);
+      if (m !== null && w !== null) {
+        offset[axis] = m - w;
+      }
+    });
+  }
+  const mask = number(s.$23) || 0;
+  const softLimits = number(s.$20);
+  if (softLimits === 1) {
+    info.push('Limites logicielles Grbl actives ($20=1) : la carte refuserait elle-même un dépassement (alarme 2).');
+  } else if (softLimits === 0) {
+    info.push('Limites logicielles Grbl inactives ($20=0) : aucune protection de la carte.');
+  }
+
+  AXES.forEach((axis, i) => {
+    const reasons = global.slice();
+    const travel = number(s['$' + (130 + i)]);
+    const extent = analysis.extent[axis];
+    if (!extent && !analysis.unknownAxes[axis]) {
+      // The program never moves this axis: it stays where the operator left it.
+      axesOut[axis] = { axis, verdict: 'validated', min: null, max: null, low: null, high: null, reasons: ['Axe ' + axis + ' non sollicité par le programme.'] };
+      return;
+    }
+    if (analysis.unknownAxes[axis]) {
+      reasons.push(analysis.unknownAxes[axis]);
+    }
+    if (travel === null || travel <= 0) {
+      reasons.push('Course $' + (130 + i) + ' inconnue.');
+    }
+    if (offset[axis] === null) {
+      reasons.push('Position machine ou de travail ' + axis + ' inconnue.');
+    }
+    const entry = { axis, verdict: 'unknown', min: null, max: null, low: null, high: null, reasons };
+    if (extent) {
+      entry.min = extent.min * scale;
+      entry.max = extent.max * scale;
+    }
+    if (travel !== null && travel > 0) {
+      entry.low = Math.floor(mask / (2 ** i)) % 2 === 1 ? 0 : -travel;
+      entry.high = entry.low + travel;
+    }
+    if (!reasons.length && extent) {
+      const min = entry.min + offset[axis];
+      const max = entry.max + offset[axis];
+      entry.machineMin = min;
+      entry.machineMax = max;
+      if (min < entry.low - TOLERANCE_MM || max > entry.high + TOLERANCE_MM) {
+        entry.verdict = 'outside';
+        entry.reasons = ['Hors course ' + axis + ' : ' + fmt(min) + ' → ' + fmt(max) + ' mm machine (course ' + fmt(entry.low) + ' → ' + fmt(entry.high) + ').'];
+      } else {
+        entry.verdict = 'validated';
+      }
+    } else if (extent && entry.low !== null && offset[axis] !== null && !global.length) {
+      // The position reference is sound but part of the program could not be
+      // followed: what was followed already leaves the travel, say so. (With
+      // a doubtful reference, mpos means nothing: no false alarm from it.)
+      const min = entry.min + offset[axis];
+      const max = entry.max + offset[axis];
+      if (min < entry.low - TOLERANCE_MM || max > entry.high + TOLERANCE_MM) {
+        entry.verdict = 'outside';
+        entry.reasons = ['Hors course ' + axis + ' : ' + fmt(min) + ' → ' + fmt(max) + ' mm machine (course ' + fmt(entry.low) + ' → ' + fmt(entry.high) + ').'].concat(reasons);
+      }
+    }
+    axesOut[axis] = entry;
+  });
+
+  const verdicts = AXES.map((axis) => axesOut[axis].verdict);
+  let verdict = 'validated';
+  if (verdicts.includes('outside')) {
+    verdict = 'outside';
+  } else if (verdicts.includes('unknown')) {
+    verdict = 'unknown';
+  }
+  const reasons = [];
+  AXES.forEach((axis) => {
+    axesOut[axis].reasons.forEach((r) => {
+      if (!reasons.includes(r)) {
+        reasons.push(r);
+      }
+    });
+  });
+  return {
+    verdict,
+    axes: axesOut,
+    reasons,
+    info,
+    zMin: analysis.zMin === null ? null : analysis.zMin * scale,
+    zMax: analysis.zMax === null ? null : analysis.zMax * scale,
+    units: analysis.units,
+    unitsChanges: analysis.unitsChanges,
+    distance: analysis.distance,
+    distanceChanges: analysis.distanceChanges,
+    wcs: analysis.wcs,
+    wcsChanges: analysis.wcsChanges,
+    offsetChanges: analysis.offsetChanges,
+    machineMoves: analysis.machineMoves,
+    uninterpreted: analysis.uninterpreted,
+    moves: analysis.moves,
+    lines: analysis.lines,
+    scope: 'Course machine X/Y/Z et profondeur Z du programme, dans le repère de travail : ni brides, ni outil, ni matière.'
+  };
+};
+
+export const programCheck = (gcode, machine) => checkProgram(analyzeProgram(gcode), machine);
+
+export default { analyzeProgram, checkProgram, programCheck };

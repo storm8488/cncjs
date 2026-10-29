@@ -15,6 +15,12 @@ import { createPreflight, controllerStatus } from './motion-preflight.js';
 import { createProbeInput } from './probe-input.js';
 // eslint-disable-next-line import/extensions
 import { buildResume, modalsBeforeFirstMove, programLines } from './resume.js';
+// eslint-disable-next-line import/extensions
+import { analyzeProgram, checkProgram } from './program-check.js';
+// eslint-disable-next-line import/extensions
+import { createControl, SAFE_ACTIONS } from './control.js';
+// eslint-disable-next-line import/extensions
+import { fingerprint as fingerprintOfText, sameProgram } from './program-identity.js';
 
 // A status report older than this is not trusted to describe the machine.
 const MAX_REPORT_AGE_MS = 2500;
@@ -157,13 +163,100 @@ const hasAutomations = (config) => {
 // the wall clock can be set back by NTP, which would keep a ticket alive.
 const monotonic = () => performance.now();
 
-export const createService = (store, config, clock = monotonic) => {
+// Actions that need the control lease when the port is owned by someone
+// else; a touch client that identifies itself claims a free port with them.
+const GUARDED_ACTIONS = ['load', 'prepare', 'start', 'resume', 'macro', 'override', 'unlock', 'home', 'spindle', 'zeroZ', 'readSettings'];
+
+// Reads a program from the watch directory without the monitor service (the
+// offline preview server loads this module natively, outside of Babel): the
+// same guarantees as before, plus the fingerprint of the bytes read.
+// Production injects the monitor (`options.files`), see touch/index.js.
+const localFiles = (config) => {
+  const fileError = (code, message) => {
+    const err = new Error(message);
+    err.code = code;
+    return err;
+  };
+  const locate = async (name) => {
+    const root = await fs.realpath(config.get('watchDirectory'));
+    const file = await fs.realpath(path.join(root, name));
+    if (path.dirname(file) !== root) {
+      throw fileError('EOUTSIDE', 'File is outside of the watch directory');
+    }
+    const stats = await fs.stat(file);
+    if (!stats.isFile()) {
+      throw fileError('ENOTFILE', 'Not a file');
+    }
+    if (stats.size > MAX_FILE_SIZE) {
+      throw fileError('ETOOLARGE', 'File too large');
+    }
+    return { file, stats };
+  };
+  const readProgram = async (name) => {
+    const { file, stats } = await locate(name);
+    if (stats.size === 0) {
+      throw fileError('EEMPTY', 'Empty file');
+    }
+    const buffer = await fs.readFile(file);
+    const after = await fs.stat(file);
+    if (stats.mtimeMs !== after.mtimeMs || stats.ino !== after.ino || buffer.length !== stats.size) {
+      throw fileError('ECHANGED', 'File changed while it was read');
+    }
+    if (buffer.includes(0)) {
+      throw fileError('EBINARY', 'Binary file');
+    }
+    return { text: buffer.toString('utf8'), fingerprint: fingerprintOfText(buffer), size: stats.size, mtimeMs: stats.mtimeMs };
+  };
+  const fingerprintOf = async (name) => {
+    const { file, stats } = await locate(name);
+    const buffer = await fs.readFile(file);
+    return { fingerprint: fingerprintOfText(buffer), size: stats.size, mtimeMs: stats.mtimeMs };
+  };
+  return { readProgram, fingerprintOf };
+};
+
+// French message for a file access failure (codes of monitor/index.js).
+const FILE_MESSAGES = {
+  ENOTCONFIGURED: 'Bibliothèque non configurée (répertoire surveillé absent).',
+  EINVALIDNAME: 'Nom de fichier invalide.',
+  EOUTSIDE: 'Fichier hors de la bibliothèque.',
+  ENOENT: 'Fichier introuvable dans la bibliothèque.',
+  ENOTFILE: 'Ce nom ne désigne pas un fichier ordinaire (lien ou dossier refusé).',
+  ETOOLARGE: 'Fichier supérieur à 20 Mo.',
+  EEMPTY: 'Fichier vide.',
+  EBINARY: 'Fichier binaire : format invalide.',
+  ECHANGED: 'Fichier modifié pendant la lecture : réessayez.'
+};
+const fileConflict = (err) => {
+  const message = err && FILE_MESSAGES[err.code];
+  return message ? conflict(message) : err;
+};
+
+export const createService = (store, config, clock = monotonic, options = {}) => {
   const records = new Map();
   const listeners = new Set();
   const transports = new Set();
+  // Transport id → actor ({kind, id, label, user}) whose presence it carries.
+  const transportActors = new Map();
   let disposed = false;
   // Host command (shutdown, restart…) reserved against the machine: see reserveSystemCommand.
   let systemCommand = null;
+  const files = options.files || localFiles(config);
+  // Durable job history (F4) and attribution of control (F5), owned by the
+  // caller in production; a service without them behaves as before.
+  const history = options.history || null;
+  const control = options.control || createControl();
+  const log = (event) => {
+    if (history) {
+      history.record(event);
+    }
+  };
+  // What the history keeps of a controller: port, type, firmware.
+  const controllerInfo = (c, r) => ({ port: c.options.port, type: c.type, firmware: (r && r.firmware) || firmwareOf(c) });
+  const jobInfo = (j) => (j ? {
+    jobId: j.id, program: j.originalName, file: j.name, fingerprint: j.fingerprint, fromLine: j.resume ? j.resume.from : null
+  } : {});
+  const SYSTEM = { kind: 'system', id: 'grbl', label: 'machine' };
 
   const changed = () => {
     listeners.forEach((fn) => fn());
@@ -218,6 +311,11 @@ export const createService = (store, config, clock = monotonic) => {
         zeroZ: null,
         // Homing cycle sent ($H) and not yet over (see HOMING_MIN_MS).
         homing: null,
+        // A homing cycle was seen complete (ours, or a Home state followed by
+        // Idle) since the last board restart or alarm: the only ground for the
+        // travel check (F2). $22=1 alone means enabled, not done.
+        homed: false,
+        sawHome: false,
         // Status reports received, so a step can wait for a newer one.
         reports: 0,
         generation: crypto.randomBytes(12).toString('hex')
@@ -225,9 +323,20 @@ export const createService = (store, config, clock = monotonic) => {
       r.status = () => {
         r.seen = clock();
         r.reports += 1;
-        if (r.homing && clock() - r.homing.since >= HOMING_MIN_MS &&
-            /^(Idle|Alarm)/.test(controllerStatus(c).activeState || '')) {
+        const active = controllerStatus(c).activeState || '';
+        if (r.homing && clock() - r.homing.since >= HOMING_MIN_MS && /^(Idle|Alarm)/.test(active)) {
+          if (active === 'Idle') {
+            r.homed = true;
+          }
           r.homing = null;
+        }
+        if (active === 'Home') {
+          r.sawHome = true;
+        } else if (r.sawHome && active === 'Idle') {
+          r.sawHome = false;
+          r.homed = true;
+        } else if (r.sawHome && !/^(Home|Idle)/.test(active)) {
+          r.sawHome = false;
         }
         const s = c.sender && c.sender.state;
         const waiting = c.workflow && c.workflow.state === 'running' && controllerStatus(c).activeState === 'Idle' &&
@@ -243,6 +352,11 @@ export const createService = (store, config, clock = monotonic) => {
       r.alarmed = (res) => {
         r.alarm = grblCode(res);
         r.homing = null;
+        // An alarm may have lost the position (hard/soft limit, abort during a cycle).
+        r.homed = false;
+        if (r.job && r.job.started && !r.job.stopped && !r.job.finishedAt) {
+          log({ event: 'alarm', ...jobInfo(r.job), controller: controllerInfo(c, r), code: r.alarm, actor: SYSTEM });
+        }
         changed();
       };
       r.reset = (payload) => {
@@ -253,11 +367,16 @@ export const createService = (store, config, clock = monotonic) => {
         r.alarm = null;
         r.stall = null;
         r.homing = null;
+        r.homed = false;
         r.startups += 1;
         // A restart (E-stop wired to reset, an alarm abort, a reset from another
         // client) during a pause: Grbl is back to G54, G21, G0 and F0.
         if (r.job && r.job.started && c.workflow && c.workflow.state !== 'idle') {
           r.job.boardRestarted = true;
+          if (!r.job.aborted) {
+            r.job.aborted = true;
+            log({ event: 'aborted', ...jobInfo(r.job), controller: controllerInfo(c, r), result: 'aborted', actor: SYSTEM });
+          }
         }
         if (payload && typeof payload.firmware === 'string' && typeof payload.version === 'string') {
           r.firmware = (payload.firmware + ' ' + payload.version).slice(0, 63);
@@ -293,6 +412,15 @@ export const createService = (store, config, clock = monotonic) => {
       r.end = () => {
         if (r.job && r.job.started && !r.job.stopped) {
           r.job.finishedAt = clock();
+          log({
+            event: 'finish',
+            ...jobInfo(r.job),
+            controller: controllerInfo(c, r),
+            result: r.job.errors ? 'error' : 'finished',
+            errors: r.job.errors || 0,
+            lastError: r.job.lastError || null,
+            actor: SYSTEM
+          });
           changed();
         }
       };
@@ -306,6 +434,10 @@ export const createService = (store, config, clock = monotonic) => {
         if (r.job && r.job.started && !r.job.stopped && c.workflow && c.workflow.state !== 'idle') {
           r.job.errors = (r.job.errors || 0) + 1;
           r.job.lastError = grblCode(res);
+          // The first refused line of a run is recorded; the count goes with the end.
+          if (r.job.errors === 1) {
+            log({ event: 'error', ...jobInfo(r.job), controller: controllerInfo(c, r), code: r.job.lastError, line: Number(c.sender.state.received) || null, actor: SYSTEM });
+          }
           changed();
         }
       };
@@ -321,9 +453,14 @@ export const createService = (store, config, clock = monotonic) => {
           r.job.stopped = false;
           r.job.finishedAt = null;
           r.job.boardRestarted = false;
+          r.job.aborted = false;
           r.job.probeFailed = false;
           r.job.errors = 0;
           r.job.lastError = null;
+          // Our own start names its actor; a start made from the classic interface does not.
+          const actor = r.job.startActor || { kind: 'socket', id: 'cncjs', label: 'interface CNCjs' };
+          r.job.startActor = null;
+          log({ event: 'start', ...jobInfo(r.job), controller: controllerInfo(c, r), startedAt: new Date().toISOString(), actor });
           changed();
         }
       };
@@ -1090,6 +1227,7 @@ export const createService = (store, config, clock = monotonic) => {
         ['running', 'paused'].includes(c.workflow.state)) {
       wcs = r.job.wcsAtStart;
     }
+    const attribution = control.inspect(c.options.port);
 
     return {
       port: c.options.port,
@@ -1109,6 +1247,13 @@ export const createService = (store, config, clock = monotonic) => {
       name: sender.name || '',
       revision,
       originalName: r.job && r.job.originalName,
+      // SHA-256 of the loaded file (A5): the client compares it with its preview's.
+      fingerprint: (r.job && r.job.fingerprint) || null,
+      // Travel pre-check of the loaded program against this machine now (F2).
+      programCheck: r.job && r.job.analysis ? checkProgram(r.job.analysis, machineForCheck(c, r)) : null,
+      homed: r.homed === true,
+      // Who pilots this port (F5): {owner, lastChange}; the client derives its own role from its clientId.
+      control: { owner: attribution.owner, lastChange: attribution.lastChange },
       total: sender.total,
       sent: sender.sent,
       received: sender.received,
@@ -1180,42 +1325,80 @@ export const createService = (store, config, clock = monotonic) => {
     }
   };
 
+  // The exact program and its fingerprint (A5), through the monitor in
+  // production (plain file really inside the directory, unchanged while read).
   const readProgram = async (name) => {
-    const root = await fs.realpath(config.get('watchDirectory'));
-    const file = await fs.realpath(path.join(root, name));
-    if (path.dirname(file) !== root) {
-      throw conflict('Fichier hors de la bibliothèque.');
+    let read;
+    try {
+      read = await files.readProgram(name);
+    } catch (err) {
+      throw fileConflict(err);
     }
-    const before = await fs.stat(file);
-    if (!before.isFile() || before.size === 0 || before.size > MAX_FILE_SIZE) {
-      throw conflict('Fichier vide ou supérieur à 20 Mo.');
-    }
-    const buffer = await fs.readFile(file);
-    const after = await fs.stat(file);
-    if (before.mtimeMs !== after.mtimeMs || before.ino !== after.ino ||
-        buffer.length !== before.size || buffer.includes(0)) {
-      throw conflict('Fichier modifié pendant la lecture ou format invalide.');
-    }
-    const gcode = buffer.toString('utf8');
     // CNCjs % directives execute expressions; this library accepts plain G-code only.
-    if (/^[ \t]*%[ \t]*[^\r\n \t]/m.test(gcode)) {
+    if (/^[ \t]*%[ \t]*[^\r\n \t]/m.test(read.text)) {
       throw conflict('Les directives CNCjs % ne sont pas acceptées par cette bibliothèque.');
     }
-    return gcode;
+    return read;
+  };
+
+  // The file on disk must still be the one that was loaded (A5): a program
+  // replaced under the same name since the load is refused at start/resume.
+  const sameFileAsLoaded = async (j) => {
+    let current;
+    try {
+      current = await files.fingerprintOf(j.name);
+    } catch (err) {
+      throw fileConflict(err);
+    }
+    if (!sameProgram(j.fingerprint, current.fingerprint)) {
+      throw conflict('Fichier modifié depuis le chargement : rechargez-le.');
+    }
+  };
+
+  // What the travel check (F2) needs from the machine right now.
+  const machineForCheck = (c, r) => {
+    const status = controllerStatus(c);
+    const parser = modalFresh(r) ? ((c.runner.state && c.runner.state.parserstate) || {}).modal || null : null;
+    const reportSetting = allSettings(c).$13;
+    let reportUnits = null;
+    if (reportSetting === 0 || reportSetting === '0') {
+      reportUnits = 'mm';
+    } else if (reportSetting === 1 || reportSetting === '1') {
+      reportUnits = 'in';
+    }
+    const parameters = c.settings && c.settings.parameters && typeof c.settings.parameters === 'object' ? c.settings.parameters : null;
+    return {
+      settings: allSettings(c),
+      mpos: status.mpos || {},
+      wpos: status.wpos || {},
+      modal: parser ? { units: parser.units, distance: parser.distance, wcs: parser.wcs } : null,
+      parameters,
+      homed: r.homed === true,
+      reportUnits
+    };
   };
 
   // What a resume from a line would send, without loading anything.
   const resumePlan = async (c, body) => {
     available(c);
     validName(body.file);
-    const gcode = await readProgram(body.file);
+    const { text: gcode } = await readProgram(body.file);
     const plan = buildResume(gcode, Number(body.line), { name: body.file.replace(/--touch-\d{14}-[a-f0-9]{16}(?=\.[^.]+$)/, '') });
     const summary = { ...plan };
     delete summary.program;
     return summary;
   };
 
-  const load = async (c, r, body) => {
+  // Travel pre-check of any library file against this controller (F2); the
+  // loaded job's check is in every snapshot as `programCheck`.
+  const checkFile = async (c, body) => {
+    validName(body.file);
+    const { text, fingerprint } = await readProgram(body.file);
+    const r = record(c);
+    return { file: body.file, fingerprint, programCheck: checkProgram(analyzeProgram(text), machineForCheck(c, r)) };
+  };
+
+  const load = async (c, r, body, actor) => {
     idle(c);
     if (r.loading) {
       throw conflict('Un chargement est déjà en cours.');
@@ -1225,7 +1408,7 @@ export const createService = (store, config, clock = monotonic) => {
     r.loading = true;
     r.ticket = null;
     try {
-      const gcode = await readProgram(body.file);
+      const { text: gcode, fingerprint } = await readProgram(body.file);
 
       // Recheck after asynchronous disk access, before replacing the loaded job.
       idle(c);
@@ -1263,15 +1446,23 @@ notes: plan.notes
       });
       r.job = {
         revision,
+        // Short id for the history (the revision itself is credential-shaped and masked there).
+        id: revision.slice(0, 12),
         name: body.file,
         originalName,
+        // SHA-256 of the file as loaded (A5): checked again at start/resume.
+        fingerprint,
         started: false,
         // G54-G59.x select, G10 L2/L20 and G92 change the work offset.
         changesOffset: changesOffset(resume ? programLines(gcode).slice(resume.from - 1).join('\n') : gcode),
         sets: modalsBeforeFirstMove(program),
+        // Travel pre-check (F2) of the program as sent (the rebuilt one for a resume).
+        analysis: analyzeProgram(program),
         wcsAtStart: null,
+        startActor: null,
         resume
       };
+      log({ event: 'load', ...jobInfo(r.job), controller: controllerInfo(c, r), actor: actor || null });
       return { message: resume ? 'Reprise à la ligne ' + resume.from + ' chargée dans CNCjs. Aucun démarrage envoyé.' : 'Fichier chargé dans CNCjs. Aucun démarrage envoyé.' };
     } finally {
       r.loading = false;
@@ -1321,13 +1512,39 @@ notes: plan.notes
     check();
   });
 
-  const perform = (body) => {
+  const perform = (body, actor) => {
     if (!body || typeof body.port !== 'string') {
       throw conflict('Choisissez une machine.');
     }
     const c = get(body.port);
     const r = record(c);
     const a = body.action;
+
+    // Attribution of control (F5): a port owned by someone else refuses every
+    // operation that moves or prepares the machine; Pause, Stop and M5 never
+    // need the lease. A touch client (persistent clientId) claims a free port
+    // by its first guarded operation; other callers leave it free.
+    if (a === 'control') {
+      const op = body.operation;
+      if (op === 'status') {
+        return control.inspect(c.options.port, actor);
+      }
+      if (op === 'claim') {
+        return control.claim(c.options.port, actor);
+      }
+      if (op === 'release') {
+        return control.release(c.options.port, actor);
+      }
+      if (op === 'takeover') {
+        return control.takeover(c.options.port, actor, body.reason);
+      }
+      throw conflict('Opération de pilotage inconnue.');
+    }
+    if (GUARDED_ACTIONS.includes(a)) {
+      control.authorize(c.options.port, actor, a, { claim: !!(actor && actor.kind === 'touch') });
+    } else if (SAFE_ACTIONS.includes(a)) {
+      control.authorize(c.options.port, actor, a, { safe: true });
+    }
 
     if (['prepare', 'start', 'resume', 'macro', 'override', 'unlock', 'home', 'spindle', 'zeroZ', 'readSettings'].includes(a)) {
       if (typeof body.generation !== 'string' || body.generation !== r.generation) {
@@ -1346,11 +1563,15 @@ notes: plan.notes
     }
 
     if (a === 'load') {
-      return load(c, r, body);
+      return load(c, r, body, actor);
     }
 
     if (a === 'resumePlan') {
       return resumePlan(c, body);
+    }
+
+    if (a === 'check') {
+      return checkFile(c, body);
     }
 
     if (a === 'settings') {
@@ -1388,18 +1609,32 @@ notes: plan.notes
         const macro = findMacro(body.macroId);
         name = macro.name;
         r.ticket = { nonce, macroId: macro.id, operation: 'macro', expires: clock() + TICKET_LIFETIME_MS, transportId: body.transportId };
-      } else {
-        const j = readyFor(c, body.operation, body.revision);
-        name = j.originalName;
-        r.ticket = { nonce, revision: j.revision, operation: body.operation, expires: clock() + TICKET_LIFETIME_MS, transportId: body.transportId };
       }
-      return {
+      const ticketOf = (programCheck) => ({
         nonce,
         name,
         operation: body.operation,
         expiresIn: TICKET_LIFETIME_MS / 1000,
-        generation: r.generation
-      };
+        generation: r.generation,
+        programCheck: programCheck || null
+      });
+      if (COMMISSIONING[body.operation] || body.operation === 'macro') {
+        return ticketOf(null);
+      }
+      const j = readyFor(c, body.operation, body.revision);
+      name = j.originalName;
+      if (body.operation === 'resume') {
+        r.ticket = { nonce, revision: j.revision, operation: body.operation, expires: clock() + TICKET_LIFETIME_MS, transportId: body.transportId };
+        return ticketOf(null);
+      }
+      // A start confirmation is issued only for the file as loaded (A5), and
+      // carries the travel pre-check (F2) as a warning: `unknown` is never a
+      // green light, and the operator is told why.
+      return sameFileAsLoaded(j).then(() => {
+        readyFor(c, 'start', body.revision);
+        r.ticket = { nonce, revision: j.revision, operation: 'start', expires: clock() + TICKET_LIFETIME_MS, transportId: body.transportId };
+        return ticketOf(j.analysis ? checkProgram(j.analysis, machineForCheck(c, r)) : null);
+      });
     }
 
     if (a === 'macro') {
@@ -1464,16 +1699,29 @@ notes: plan.notes
         throw conflict('Confirmation expirée ou déjà utilisée.');
       }
       const j = readyFor(c, a, t.revision);
-      if (a === 'start') {
+      if (a === 'resume') {
+        // The program already sits in CNCjs's sender: a resume from a pause
+        // stays synchronous (the stop/M6 sequences and their tests rely on it).
+        j.started = true;
+        const restart = pauseKind(c) === 'M6' && r.toolChange && r.toolChange.restart;
+        log({ event: 'resume', ...jobInfo(j), controller: controllerInfo(c, r), pause: pauseKind(c), actor: actor || null });
+        if (restart) {
+          return restartSpindleThenResume(c, restart);
+        }
+        c.command('gcode:resume');
+        return { message: 'Reprise demandée.' };
+      }
+      // A start sends the loaded program: the file on disk is read again
+      // (cached fingerprint) first, and the machine re-checked after that
+      // asynchronous step (A5).
+      return sameFileAsLoaded(j).then(() => {
+        readyFor(c, a, t.revision);
         j.wcsAtStart = modalWcs(r);
-      }
-      j.started = true;
-      const restart = a === 'resume' && pauseKind(c) === 'M6' && r.toolChange && r.toolChange.restart;
-      if (restart) {
-        return restartSpindleThenResume(c, restart);
-      }
-      c.command(a === 'start' ? 'gcode:start' : 'gcode:resume');
-      return { message: a === 'start' ? 'Démarrage demandé.' : 'Reprise demandée.' };
+        j.started = true;
+        j.startActor = actor || null;
+        c.command('gcode:start');
+        return { message: 'Démarrage demandé.' };
+      });
     }
 
     if (a === 'pause') {
@@ -1482,6 +1730,7 @@ notes: plan.notes
       }
       r.ticket = null;
       c.command('gcode:pause');
+      log({ event: 'pause', ...jobInfo(r.job), controller: controllerInfo(c, r), line: Number(c.sender.state.received) || null, actor: actor || null });
       return { message: 'Pause demandée. Attendre l’état Hold.' };
     }
 
@@ -1524,6 +1773,7 @@ notes: plan.notes
           r.job.started = true;
           r.job.stopped = true;
           r.job.finishedAt = null;
+          log({ event: 'stop', ...jobInfo(r.job), controller: controllerInfo(c, r), result: 'stopped', line, probing: !!r.probing, actor: actor || null });
         }
       };
       // A plate probe in progress: feed hold then reset, and the sequence gives
@@ -1564,9 +1814,9 @@ notes: plan.notes
 
   // perform() starts synchronously, so a pending load is visible to the very
   // next snapshot; every refusal still reaches the caller as a rejection.
-  const action = (body) => {
+  const action = (body, actor) => {
     try {
-      return Promise.resolve(perform(body));
+      return Promise.resolve(perform(body, actor));
     } catch (err) {
       return Promise.reject(err);
     }
@@ -1585,10 +1835,20 @@ notes: plan.notes
       if (registry[c.options.port] !== c || c.isClose()) {
         motion.inspect(c.options.port);
         remove(c, r);
+        // A closed port ends its control lease without transfer (F5).
+        if (!registry[c.options.port] || registry[c.options.port].isClose()) {
+          control.forget(c.options.port);
+        }
       }
     }
     const open = Object.values(registry).filter((c) => c && !c.isClose() && c.type === 'Grbl');
     open.forEach(record);
+    // The probe-input observer forgets closed controllers here too (counter-review 2).
+    probeInput.sync();
+    // Leases whose grace delay is over end here, every heartbeat (F5).
+    if (control.tick().length) {
+      changed();
+    }
     return open;
   };
 
@@ -1597,7 +1857,6 @@ notes: plan.notes
       throw conflict('Service indisponible.');
     }
     const open = observe();
-    probeInput.sync();
     return open.map(snapshot);
   };
 
@@ -1623,7 +1882,7 @@ notes: plan.notes
       return '';
     }
     const registry = controllers();
-    return (systemCommand ? systemCommand.since + '#' : '') + Object.keys(registry).map((port) => {
+    return (systemCommand ? systemCommand.since + '#' : '') + control.signature() + '#' + Object.keys(registry).map((port) => {
       const c = registry[port];
       if (!c) {
         return port;
@@ -1651,8 +1910,18 @@ notes: plan.notes
     return () => listeners.delete(fn);
   };
 
-  const openTransport = (id) => {
+  // `actor` (optional) is the client the stream carries: its presence keeps
+  // its control lease alive (F5) until the transport closes plus the grace delay.
+  const openTransport = (id, actor) => {
     transports.add(id);
+    if (actor && actor.kind && actor.id) {
+      try {
+        control.attach(actor, id);
+        transportActors.set(id, actor);
+      } catch (_) {
+        // An unidentifiable actor carries no presence.
+      }
+    }
   };
 
   const ticketPending = (id) => {
@@ -1667,6 +1936,11 @@ notes: plan.notes
   // Closing a transport revokes every confirmation it was issued.
   const closeTransport = (id) => {
     transports.delete(id);
+    const actor = transportActors.get(id);
+    if (actor) {
+      transportActors.delete(id);
+      control.detach(actor, id);
+    }
     records.forEach((r) => {
       if (r.ticket && r.ticket.transportId === id) {
         r.ticket = null;
@@ -1750,6 +2024,7 @@ notes: plan.notes
     disposed = true;
     listeners.clear();
     transports.clear();
+    transportActors.clear();
     systemCommand = null;
     for (const [c, r] of records) {
       remove(c, r);
@@ -1770,6 +2045,7 @@ notes: plan.notes
     ticketPending,
     reserveSystemCommand,
     systemCommand: systemCommandOf,
+    control,
     dispose
   };
 };

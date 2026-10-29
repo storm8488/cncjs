@@ -475,3 +475,39 @@ describe('touch stream', () => {
     ctx.stream.dispose();
   });
 });
+
+describe('touch stream: presence for the attribution of control (F5) and a guarded heartbeat', () => {
+  test('a stream opened for an identified client carries its presence: its lease is present while the stream lives, absent (grace) once it closes', () => {
+    const ctx = setup();
+    const tablet = { kind: 'touch', id: 'tablet-abc', label: 'Tablette', user: 'ana' };
+    const req = new EventEmitter();
+    const res = fakeResponse();
+    expect(ctx.stream.open(req, res, tablet)).toBe(true);
+    ctx.service.control.claim('A', tablet);
+    ctx.registry.A.runner.emit('status');
+    ctx.timers.flush();
+    expect(res.lines.at(-1).controllers[0].control.owner).toMatchObject({ id: 'tablet-abc', present: true, expires: null });
+    res.emit('close');
+    const owner = ctx.service.list()[0].control.owner;
+    expect(owner).toMatchObject({ id: 'tablet-abc', present: false });
+    expect(owner.expires).toBeGreaterThan(Date.now());
+    // The same client back on a new stream: present again, nothing transferred.
+    expect(ctx.stream.open(new EventEmitter(), fakeResponse(), tablet)).toBe(true);
+    expect(ctx.service.list()[0].control.owner).toMatchObject({ id: 'tablet-abc', present: true });
+    // A stream without an actor (older client) carries no presence and breaks nothing.
+    expect(ctx.stream.open(new EventEmitter(), fakeResponse())).toBe(true);
+    ctx.stream.dispose();
+  });
+
+  test('a heartbeat tick survives an observe() failure (the heartbeat runs in a real setInterval)', () => {
+    const ctx = setup();
+    const [tick] = ctx.timers.intervals.values();
+    ctx.registry.A.runner = null; // never happens with GrblController; the heartbeat must not die on it
+    expect(() => ctx.service.observe()).toThrow(TypeError);
+    expect(() => tick()).not.toThrow();
+    ctx.registry.A = fakeController();
+    expect(() => tick()).not.toThrow();
+    expect(ctx.registry.A.runner.listenerCount('status')).toBe(1);
+    ctx.stream.dispose();
+  });
+});

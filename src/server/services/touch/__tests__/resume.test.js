@@ -179,10 +179,11 @@ describe('resume from a line', () => {
 
   test('notes state the limits: the clearance is the highest Z seen, modes left to the controller are named', () => {
     const r = buildResume(PROGRAM, 12);
-    expect(r.notes).toEqual([expect.stringMatching(/dégagement.*Z5.*pas une garantie/)]);
+    expect(r.notes).toEqual([expect.stringMatching(/dégagement.*Z5.*pas une garantie/), expect.stringMatching(/Retrait en rapide constaté à Z5/)]);
     const bare = buildResume(['G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200', 'G1 X10 F800', 'G1 Y10', 'M30'].join('\n'), 5);
     expect(bare.notes).toEqual([
       expect.stringMatching(/dégagement/),
+      expect.stringMatching(/Retrait en rapide/),
       expect.stringMatching(/unités/),
       expect.stringMatching(/repère/)
     ]);
@@ -253,7 +254,8 @@ describe('resume cross-check: units', () => {
     const r = buildResume(prog, 6);
     expect(r).toMatchObject({ units: 'G21', wcs: 'G54', position: { X: 20, Y: 10, Z: -1 }, safeZ: 5 });
     expect(r.preamble.slice(1)).toEqual(['G21 G90 G17 G54 G94', 'G0 Z5', 'G0 X20 Y10', 'G1 Z-1 F100']);
-    expect(r.notes).toHaveLength(1);
+    // The clearance note and the rapid-retract note only (no mode left to the machine).
+    expect(r.notes).toHaveLength(2);
   });
 
   test('a program without G20/G21 nor G54 keeps units/wcs null', () => {
@@ -262,7 +264,7 @@ describe('resume cross-check: units', () => {
     expect(r).toMatchObject({ units: null, wcs: null });
     expect(r.preamble[1]).toBe('G90 G17 G94');
     expect(r.notes).toEqual([
-      expect.stringMatching(/dégagement/), expect.stringMatching(/unités/), expect.stringMatching(/repère/)
+      expect.stringMatching(/dégagement/), expect.stringMatching(/Retrait en rapide/), expect.stringMatching(/unités/), expect.stringMatching(/repère/)
     ]);
   });
 });
@@ -301,7 +303,7 @@ describe('resume cross-check: work offsets, origin, machine coordinates', () => 
     const r = buildResume(prog, at);
     expect(r).toMatchObject({ units: 'G21', wcs: 'G54', tool: 1, toolChanged: true, coolant: 'M8', position: { X: 20, Y: 10, Z: -1 }, safeZ: 15 });
     expect(r.preamble.slice(1)).toEqual(['G21 G90 G17 G54 G94', 'G0 Z15', 'G0 X20 Y10', 'M3 S12000', 'G4 P3', 'M8', 'G1 Z-1 F300']);
-    expect(r.notes).toHaveLength(1);
+    expect(r.notes).toHaveLength(2);
     // G53 G0 Z0 as the safe retract: same result.
     const g53 = prog.replace(/G28 G91 Z0\nG90/g, 'G53 G0 Z0');
     expect(buildResume(g53, programLines(g53).indexOf('G1 Y20') + 1).preamble[2]).toBe('G0 Z15');
@@ -382,5 +384,155 @@ describe('resume cross-check: a clearance that is only a cutting depth is refuse
     // A G1 up to the same height as an earlier rapid keeps that height as a clearance.
     const same = ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G1 Z5 F500', 'G1 X10'].join('\n');
     expect(buildResume(same, 6).preamble[2]).toBe('G0 Z5');
+  });
+});
+
+// Counter-review 2 (audit 31): the motion word of the current line decides
+// whether a Z is a rapid; CAM posts; variant B (the clearance needs a rapid Z
+// retract under the current offset: `rapidZ`).
+const xvState = (lines, from) => stateBefore(programLines(lines.join('\n')), from);
+// The preamble (as one string) or the refusal message: a failing expectation shows the real program.
+const xvOutcome = (lines, from) => {
+  try {
+    return buildResume(lines.join('\n'), from).preamble.join(' / ');
+  } catch (err) {
+    return err.message;
+  }
+};
+
+describe('resume cross-check 2: the motion of the current line decides whether a Z is a rapid', () => {
+  test('Z5 without a G word under a modal G0 (after a G0 X5 line) is a rapid', () => {
+    const prog = ['G21 G90', 'G0 X0 Y0 Z5', 'G1 Z-1 F100', 'G0 X5', 'Z5', 'G1 X10'];
+    expect(xvState(prog, 6)).toMatchObject({ motion: 'G0', safeZ: 5, rapidZ: 5, pos: { X: 5, Y: 0, Z: 5 } });
+    expect(buildResume(prog.join('\n'), 6).preamble.slice(1)).toEqual(['G21 G90 G17 G94', 'G0 Z5', 'G0 X5 Y0', 'G1 Z5 F100']);
+  });
+
+  test('G1 Z5 after a modal G0 line, never reached in rapid: refused (no rapid Z at all)', () => {
+    const prog = ['G21 G90', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 X5', 'G1 Z5', 'G1 X10'];
+    expect(xvState(prog, 6)).toMatchObject({ motion: 'G1', safeZ: 5, rapidZ: null });
+    expect(xvOutcome(prog, 6)).toMatch(/dégagement.*aucun déplacement rapide G0 en Z/);
+  });
+
+  test('G1 Z5 first, then G0 Z5 on the same height: the rapid marks it free', () => {
+    const prog = ['G21 G90', 'G0 X0 Y0', 'G1 Z5 F100', 'G0 Z5', 'G1 X10'];
+    expect(xvState(prog, 4)).toMatchObject({ safeZ: 5, rapidZ: null });
+    expect(xvState(prog, 5)).toMatchObject({ safeZ: 5, rapidZ: 5 });
+    expect(buildResume(prog.join('\n'), 5).preamble[2]).toBe('G0 Z5');
+  });
+
+  test('G0 X10 Z5 combined: Z is a rapid whatever the axis order on the line', () => {
+    ['G0 X10 Z5', 'G0 Z5 X10', 'X10 Z5 G0', 'G0X10Z5'].forEach((line) => {
+      const prog = ['G21 G90', 'G0 X0 Y0 Z0', 'G1 Z-1 F100', line, 'G1 X20'];
+      expect(xvState(prog, 5)).toMatchObject({ safeZ: 5, rapidZ: 5, pos: { X: 10, Y: 0, Z: 5 } });
+      expect(buildResume(prog.join('\n'), 5).preamble.slice(2)).toEqual(['G0 Z5', 'G0 X10 Y0', 'G1 Z5 F100']);
+    });
+  });
+
+  test('G91, G0 Z6 relative, G90: the absolute height reached is a rapid; in G1 it is a cut above the rapid Z2 (accepted at Z5 >= rapid)', () => {
+    const rapid = ['G21 G90', 'G0 X0 Y0 Z2', 'G1 Z-1 F100', 'G91', 'G0 Z6', 'G90', 'G1 X10'];
+    expect(xvState(rapid, 7)).toMatchObject({ safeZ: 5, rapidZ: 5, pos: { Z: 5 }, distance: 'G90' });
+    expect(buildResume(rapid.join('\n'), 7).preamble.slice(2)).toEqual(['G0 Z5', 'G0 X0 Y0', 'G1 Z5 F100']);
+    // Variant B: the G0 Z2 of line 2 is a rapid under this offset, so Z5 (above it) is a clearance.
+    const feed = ['G21 G90', 'G0 X0 Y0 Z2', 'G1 Z-1 F100', 'G91', 'G1 Z6', 'G90', 'G1 X10'];
+    expect(xvState(feed, 7)).toMatchObject({ safeZ: 5, rapidZ: 2 });
+    expect(xvOutcome(feed, 7)).toMatch(/G0 Z5 \/ G0 X0 Y0/);
+  });
+
+  test('a unit change scales the clearance and the rapid Z together', () => {
+    const rapid = ['G21 G90', 'G0 X0 Y0 Z5', 'G1 Z-1 F100', 'G0 Z5', 'G20', 'G1 X1'];
+    expect(xvState(rapid, 6)).toMatchObject({ rapidZ: expect.closeTo(5 / 25.4, 6), unitsChanged: 5 });
+    expect(buildResume(rapid.join('\n'), 6).preamble.slice(1)).toEqual(['G20 G90 G17 G94', 'G0 Z0.1969', 'G0 X0 Y0', 'G1 Z0.1969 F3.937']);
+    const feed = ['G21 G90', 'G0 X0 Y0', 'G1 Z-1 F100', 'G1 Z5', 'G20', 'G1 X1'];
+    expect(xvState(feed, 6)).toMatchObject({ rapidZ: null });
+    expect(xvOutcome(feed, 6)).toMatch(/dégagement/);
+  });
+
+  test('a work offset change resets the rapid Z: a G1 Z5 under G55 is not a clearance, a G0 Z5 is', () => {
+    const feed = ['G21 G90 G54', 'G0 X0 Y0 Z5', 'G55', 'G0 X1 Y1', 'G1 Z5 F100', 'G1 X2'];
+    expect(xvState(feed, 3)).toMatchObject({ rapidZ: 5 });
+    expect(xvState(feed, 4)).toMatchObject({ safeZ: null, rapidZ: null });
+    expect(xvState(feed, 6)).toMatchObject({ safeZ: 5, rapidZ: null });
+    expect(xvOutcome(feed, 6)).toMatch(/dégagement.*aucun déplacement rapide G0 en Z sous G55/);
+    const rapid = ['G21 G90 G54 F100', 'G0 X0 Y0 Z5', 'G55', 'G0 X1 Y1', 'G0 Z5', 'G1 X2'];
+    expect(buildResume(rapid.join('\n'), 6).preamble.slice(1)).toEqual(['G21 G90 G17 G55 G94', 'G0 Z5', 'G0 X1 Y1', 'G1 Z5 F100']);
+    // Same offset repeated (G54 again): nothing is reset.
+    const same = ['G21 G90 G54', 'G0 X0 Y0 Z5', 'G54', 'G1 Z-1 F100', 'G1 X2'];
+    expect(xvState(same, 5)).toMatchObject({ safeZ: 5, rapidZ: 5, wcsReset: null });
+  });
+
+  test('G53 Z0 keeps the clearance and the rapid Z; a G1 back to that height keeps them too', () => {
+    const prog = ['G21 G90', 'G0 X0 Y0 Z5', 'G1 Z-1 F100', 'G53 G0 Z0', 'G1 Z5', 'G1 X10'];
+    expect(xvState(prog, 5)).toMatchObject({ safeZ: 5, rapidZ: 5, pos: { X: 0, Y: 0, Z: null } });
+    expect(xvState(prog, 6)).toMatchObject({ safeZ: 5, rapidZ: 5, pos: { Z: 5 } });
+    expect(buildResume(prog.join('\n'), 6).preamble[2]).toBe('G0 Z5');
+    const modal = ['G21 G90', 'G0 X0 Y0 Z5', 'G1 Z-1 F100', 'G53 Z0', 'G0 Z5', 'G1 X10'];
+    expect(buildResume(modal.join('\n'), 6).preamble[2]).toBe('G0 Z5');
+  });
+
+  test('a helical arc climbing to or above the rapid height: the clearance is at or above a rapid Z, accepted', () => {
+    const same = ['G21 G90', 'G0 X0 Y0 Z5', 'G1 Z-1 F100', 'G2 X10 Y0 Z5 I5 J0', 'G1 X20'];
+    expect(xvState(same, 5)).toMatchObject({ safeZ: 5, rapidZ: 5, pos: { X: 10, Y: 0, Z: 5 } });
+    expect(buildResume(same.join('\n'), 5).preamble.slice(2)).toEqual(['G0 Z5', 'G0 X10 Y0', 'G1 Z5 F100']);
+    // Variant B: Z6 reached by the arc is above the rapid Z5: accepted at Z6 (inverted from the strict reading).
+    const above = ['G21 G90', 'G0 X0 Y0 Z5', 'G1 Z-1 F100', 'G2 X10 Y0 Z6 I5 J0', 'G1 X20', 'G1 Z-1', 'G1 Y5'];
+    expect(xvState(above, 5)).toMatchObject({ safeZ: 6, rapidZ: 5 });
+    expect(buildResume(above.join('\n'), 5).preamble[2]).toBe('G0 Z6');
+    expect(buildResume(above.join('\n'), 7).preamble[2]).toBe('G0 Z6');
+    // Modal arc line (no G word) after G3, no rapid Z anywhere: refused.
+    const modal = ['G21 G90', 'G0 X0 Y0', 'G1 Z-1 F100', 'G3 X10 Y0 I5 J0', 'X0 Y0 Z5 I-5 J0', 'G1 X20'];
+    expect(xvState(modal, 6)).toMatchObject({ motion: 'G3', safeZ: 5, rapidZ: null });
+    expect(xvOutcome(modal, 6)).toMatch(/dégagement/);
+  });
+});
+
+describe('resume cross-check 2: CAM programs', () => {
+  const fusion = (clearanceLine) => [
+    '%', '(1001)', 'G90 G94 G17', 'G21', 'G53 G0 Z0', '(2D Adaptive1)', 'T1 M6', 'S12000 M3', 'G54', 'M8',
+    'G0 X10 Y10', clearanceLine, 'G1 Z-1 F300', 'G1 X20', 'G1 Y20', 'G0 Z15', 'M5', 'M9', 'G53 G0 Z0', 'M30', '%'
+  ];
+
+  test('Fusion 360 grbl.cps (G0 Z15 after the XY rapid): accepted everywhere after the plunge', () => {
+    const prog = fusion('G0 Z15');
+    const lines = programLines(prog.join('\n'));
+    const at = lines.indexOf('G1 Y20') + 1;
+    const r = buildResume(prog.join('\n'), at);
+    expect(r.preamble.slice(1)).toEqual(['G21 G90 G17 G54 G94', 'G0 Z15', 'G0 X20 Y10', 'M3 S12000', 'G4 P3', 'M8', 'G1 Z-1 F300']);
+    // Resume on the plunge line itself: refused, but for the feed (F300 is on that
+    // very line, Fusion gives F with the first G1): the clearance is fine there.
+    const plunge = lines.indexOf('G1 Z-1 F300') + 1;
+    expect(xvOutcome(prog, plunge)).toMatch(/^Avance inconnue/);
+    expect(xvState(prog, plunge)).toMatchObject({ safeZ: 15, rapidZ: 15, pos: { X: 10, Y: 10, Z: 15 } });
+    expect(buildResume(prog.join('\n'), plunge + 1).preamble.slice(2, 4)).toEqual(['G0 Z15', 'G0 X10 Y10']);
+    expect(buildResume(prog.join('\n'), lines.lastIndexOf('G0 Z15') + 1).position).toEqual({ X: 20, Y: 20, Z: -1 });
+    // On the clearance line itself (just after G53 G0 Z0): Z unknown, explicit refusal.
+    expect(xvOutcome(prog, lines.indexOf('G0 Z15') + 1)).toMatch(/^Position avant la ligne 12 inconnue/);
+  });
+
+  test('Fusion 360 generic post (G43 Z15 H1): refused on the G43 line (Grbl 1.1 rejects G43 Hn itself)', () => {
+    const prog = fusion('G43 Z15 H1');
+    const lines = programLines(prog.join('\n'));
+    expect(xvOutcome(prog, lines.indexOf('G1 Y20') + 1)).toMatch(/G43.*ligne 12/);
+  });
+
+  test('G1-only post (Easel style): without any rapid Z, no line is resumable (variant B, documented compromise)', () => {
+    const prog = ['G90 G21', 'G1 Z3.81 F228.6', 'G1 X0 Y0 F762', 'G1 Z-1.5875 F228.6', 'G1 X10 F762', 'G1 Y10',
+      'G1 Z3.81 F228.6', 'G1 X20 Y20 F762', 'G1 Z-1.5875 F228.6', 'G1 X30'];
+    [6, 8, 10].forEach((from) => {
+      expect(xvOutcome(prog, from)).toMatch(/aucun déplacement rapide G0 en Z/);
+    });
+  });
+});
+
+describe('resume cross-check 2: a highest Z reached by cutting only, above the current depth (variant B)', () => {
+  test('after an offset change without a Z retract, a cut at -0.5 then -1: refused instead of G0 Z-0.5', () => {
+    const prog = ['G21 G90 G54', 'G0 X10 Y20 Z5', 'G1 Z-1 F100', 'G55', 'G0 X20 Y5', 'G1 Z-0.5', 'G1 Z-1', 'G1 X30'];
+    expect(xvState(prog, 8)).toMatchObject({ safeZ: -0.5, rapidZ: null, pos: { X: 20, Y: 5, Z: -1 } });
+    expect(xvOutcome(prog, 8)).toMatch(/dégagement.*aucun déplacement rapide G0 en Z sous G55/);
+  });
+
+  test('clearance made in G91, then two cutting depths in G90: refused instead of G0 Z-0.5', () => {
+    const prog = ['G21 G90', 'G0 X0 Y0', 'G91', 'G0 Z5', 'G90', 'G1 Z-0.5 F100', 'G1 Z-1', 'G1 X10', 'G1 Y10'];
+    expect(xvState(prog, 9)).toMatchObject({ safeZ: -0.5, rapidZ: null, pos: { X: 10, Y: 0, Z: -1 } });
+    expect(xvOutcome(prog, 9)).toMatch(/dégagement.*aucun déplacement rapide/);
   });
 });

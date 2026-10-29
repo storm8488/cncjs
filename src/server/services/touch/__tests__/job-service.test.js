@@ -4,6 +4,11 @@ import { promises as fs } from 'fs';
 import os from 'os';
 import path from 'path';
 import { createService, changesOffset, spindleTestSpeed } from '../job-service';
+import { createStream } from '../touch-stream';
+import { createHistory } from '../history';
+import { createControl } from '../control';
+import { fingerprint as sha256 } from '../program-identity';
+import monitor from '../../monitor';
 
 // A fake Grbl controller that records commands and mimics the sender/workflow
 // transitions the service observes. It never touches a serial port.
@@ -59,6 +64,7 @@ beforeAll(async () => {
   await fs.writeFile(path.join(root, 'bare.nc'), '(no units, no distance mode)\nG1 X1 F100\nM2');
   await fs.writeFile(path.join(root, 'resume.nc'), ['G21 G90', 'M3 S9000', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200',
     'G1 X10 F800', 'G1 Y10', 'G1 X0', 'G0 Z5', 'M5', 'M30'].join('\n'));
+  await fs.writeFile(path.join(root, 'square.nc'), ['G21 G90 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-3 F100', 'G1 X40 F500', 'G1 Y30', 'G1 X0', 'G1 Y0', 'G0 Z5', 'M30'].join('\n'));
 });
 
 afterAll(async () => {
@@ -73,25 +79,26 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-const setup = () => {
+const setup = (options = {}) => {
   const ctx = { now: 10000, events: [], macros: [], c: fakeController() };
   ctx.controllers = { TEST: ctx.c };
   ctx.service = createService(
     { get: () => ctx.controllers },
     { get: (key) => ({ watchDirectory: root, macros: ctx.macros }[key] || ctx.events) },
-    () => ctx.now
+    () => ctx.now,
+    options
   );
   services.push(ctx.service);
   ctx.generation = ctx.service.list()[0].generation;
   ctx.transportId = 'offline-transport';
   ctx.service.openTransport(ctx.transportId);
-  ctx.req = (action, extra = {}) => ctx.service.action({
+  ctx.req = (action, extra = {}, actor) => ctx.service.action({
     port: 'TEST',
     generation: ctx.generation,
     transportId: ctx.transportId,
     action,
     ...extra
-  });
+  }, actor);
   ctx.report = () => ctx.c.runner.emit('status');
   ctx.state = () => ctx.service.list()[0];
   // Loads test.nc on a fresh, idle controller.
@@ -1241,7 +1248,7 @@ describe('job service', () => {
       expect(file).toBe('resume.nc');
       expect(program.split('\n').slice(0, 9)).toEqual(['(CNCjs Touch : reprise a la ligne 7 de resume.nc)', 'G21 G90 G17 G94', 'G0 Z5', 'G0 X10 Y0', 'M3 S9000', 'G4 P3', 'G1 Z-1 F200', 'F800', 'G1 Y10']);
       const state = ctx.state();
-      expect(state.resume).toMatchObject({ from: 7, total: 11, line: 'G1 Y10', notes: [expect.stringMatching(/dégagement/), expect.stringMatching(/repère/)] });
+      expect(state.resume).toMatchObject({ from: 7, total: 11, line: 'G1 Y10', notes: [expect.stringMatching(/dégagement/), expect.stringMatching(/Retrait en rapide/), expect.stringMatching(/repère/)] });
       expect(state.canStart).toBe(true);
       // A normal load clears it.
       await ctx.req('load', { file: 'resume.nc' });
@@ -2044,5 +2051,721 @@ describe('job service', () => {
 
     ctx.now += 10000;
     expect(ctx.state().canRapidOverride).toBe(false);
+  });
+});
+
+// Audit 31, wave 2 (Services): the start bound to the exact program (A5), the
+// durable history (F4), the travel pre-check (F2) and the attribution of
+// control (F5), as wired into the service.
+const TABLET_A = { kind: 'touch', id: 'tablet-A', label: 'Tablette A', user: 'ana' };
+const TABLET_B = { kind: 'touch', id: 'tablet-B', label: 'Tablette B', user: 'bob' };
+const HTTP_USER = { kind: 'http', id: 'http:carl', user: 'carl' };
+
+// Loads `file`, confirms and starts it as `actor`; returns the state after the start.
+const started = async (ctx, actor, file = 'test.nc') => {
+  ctx.report();
+  await ctx.req('load', { file }, actor);
+  const ticket = await ctx.req('prepare', { operation: 'start', revision: ctx.state().revision }, actor);
+  await ctx.req('start', { nonce: ticket.nonce }, actor);
+  return ctx.state();
+};
+
+describe('A5: a start is bound to the exact file that was loaded', () => {
+  test('the snapshot carries the SHA-256 of the loaded file; a file replaced since the load refuses the confirmation and the start', async () => {
+    const ctx = setup();
+    const file = path.join(root, 'replaced.nc');
+    await fs.writeFile(file, 'G21 G90\nG1 X1 F100\nM2');
+    ctx.report();
+    await ctx.req('load', { file: 'replaced.nc' });
+    const state = ctx.state();
+    expect(state.fingerprint).toBe(sha256('G21 G90\nG1 X1 F100\nM2'));
+    expect(state.fingerprint).toMatch(/^sha256:[0-9a-f]{64}$/);
+    // A confirmation issued, then the file replaced under the same name (a new upload from the PC).
+    const ticket = await ctx.req('prepare', { operation: 'start', revision: state.revision });
+    await fs.writeFile(file, 'G21 G90\nG1 X999 F100\nM2');
+    await expect(ctx.req('start', { nonce: ticket.nonce })).rejects.toThrow(/Fichier modifié depuis le chargement : rechargez-le\./);
+    expect(ctx.c.commands.some(([n]) => n === 'gcode:start')).toBe(false);
+    expect(ctx.state().canStart).toBe(true); // the state itself is fine: a reload fixes it
+    await expect(ctx.req('prepare', { operation: 'start', revision: state.revision })).rejects.toThrow(/Fichier modifié depuis le chargement/);
+    // Reloaded: the new content is the one bound to the start.
+    await ctx.req('load', { file: 'replaced.nc' });
+    expect(ctx.state().fingerprint).toBe(sha256('G21 G90\nG1 X999 F100\nM2'));
+    const again = await ctx.req('prepare', { operation: 'start', revision: ctx.state().revision });
+    await ctx.req('start', { nonce: again.nonce });
+    expect(ctx.c.commands.at(-1)[0]).toBe('gcode:start');
+  });
+
+  test('the same bytes written again (new mtime) or under another name are the same program: accepted', async () => {
+    const ctx = setup();
+    const file = path.join(root, 'rewritten.nc');
+    await fs.writeFile(file, 'G21 G90\nG1 X2 F100\nM2');
+    ctx.report();
+    await ctx.req('load', { file: 'rewritten.nc' });
+    const ticket = await ctx.req('prepare', { operation: 'start', revision: ctx.state().revision });
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
+    await fs.writeFile(file, 'G21 G90\nG1 X2 F100\nM2');
+    await ctx.req('start', { nonce: ticket.nonce });
+    expect(ctx.c.commands.at(-1)[0]).toBe('gcode:start');
+    // Another name with the same content: its own load, its own (equal) fingerprint.
+    await fs.writeFile(path.join(root, 'rewritten-copy.nc'), 'G21 G90\nG1 X2 F100\nM2');
+    ctx.c.workflow.state = 'idle';
+    ctx.report();
+    await ctx.req('load', { file: 'rewritten-copy.nc' });
+    expect(ctx.state().fingerprint).toBe(sha256('G21 G90\nG1 X2 F100\nM2'));
+    const t2 = await ctx.req('prepare', { operation: 'start', revision: ctx.state().revision });
+    await ctx.req('start', { nonce: t2.nonce });
+    expect(ctx.c.commands.at(-1)[0]).toBe('gcode:start');
+  });
+
+  test('file access failures are answered with a stable French message (monitor error codes)', async () => {
+    const ctx = setup();
+    ctx.report();
+    await expect(ctx.req('load', { file: 'missing.nc' })).rejects.toThrow(/introuvable/);
+    const codes = ['ENOTCONFIGURED', 'EINVALIDNAME', 'EOUTSIDE', 'ENOTFILE', 'ETOOLARGE', 'EEMPTY', 'EBINARY', 'ECHANGED'];
+    for (const code of codes) {
+      const failing = setup({
+        files: {
+          readProgram: () => Promise.reject(Object.assign(new Error(code), { code })),
+          fingerprintOf: () => Promise.resolve({})
+        }
+      });
+      failing.report();
+      // eslint-disable-next-line no-await-in-loop
+      await expect(failing.req('load', { file: 'test.nc' })).rejects.toMatchObject({ status: 409, message: expect.not.stringMatching(/^E[A-Z]+$/) });
+    }
+    // A failure the monitor did not code is passed through (a server fault, not a 409).
+    const odd = setup({
+      files: {
+        readProgram: () => Promise.reject(new Error('disk on fire')),
+        fingerprintOf: () => Promise.resolve({})
+      }
+    });
+    odd.report();
+    await expect(odd.req('load', { file: 'test.nc' })).rejects.toThrow('disk on fire');
+  });
+
+  describe('through the real monitor service (production wiring)', () => {
+    beforeAll(async () => {
+      monitor.start({ watchDirectory: root });
+      await new Promise((resolve, reject) => {
+        const until = Date.now() + 5000;
+        const poll = () => {
+          if (monitor.isConfigured()) {
+            resolve();
+          } else if (Date.now() > until) {
+            reject(new Error('monitor did not become configured'));
+          } else {
+            setTimeout(poll, 20);
+          }
+        };
+        poll();
+      });
+    });
+
+    afterAll(() => {
+      monitor.stop();
+    });
+
+    test('load reads through monitor.readProgram, the start re-reads monitor.fingerprintOf, a replaced file is refused', async () => {
+      const ctx = setup({ files: monitor });
+      const file = path.join(root, 'monitored.nc');
+      await fs.writeFile(file, 'G21 G90\nG1 X3 F100\nM2');
+      ctx.report();
+      await ctx.req('load', { file: 'monitored.nc' });
+      expect(ctx.state().fingerprint).toBe(sha256('G21 G90\nG1 X3 F100\nM2'));
+      const ticket = await ctx.req('prepare', { operation: 'start', revision: ctx.state().revision });
+      await fs.writeFile(file, 'G21 G90\nG1 X4 F100\nM2');
+      await expect(ctx.req('start', { nonce: ticket.nonce })).rejects.toThrow(/Fichier modifié depuis le chargement/);
+      await expect(ctx.req('load', { file: '../monitored.nc' })).rejects.toThrow(/invalide/);
+      await expect(ctx.req('load', { file: 'absent.nc' })).rejects.toThrow(/introuvable/);
+    });
+  });
+});
+
+describe('F4: job events reach the durable history', () => {
+  let dir;
+  beforeAll(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cnc-touch-job-history-'));
+  });
+  afterAll(async () => {
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+  let n = 0;
+  const withHistory = () => {
+    const history = createHistory({ file: path.join(dir, 'h' + (++n) + '.jsonl'), now: () => 1700000000000 });
+    const ctx = setup({ history });
+    ctx.history = history;
+    ctx.recorded = async () => {
+      await history.flush();
+      return (await history.read({ limit: 50 })).entries.reverse();
+    };
+    return ctx;
+  };
+
+  test('load, start, pause, resume and stop are recorded with the job, the controller and the actor; no ticket reaches the file', async () => {
+    const ctx = withHistory();
+    await started(ctx, TABLET_A);
+    await ctx.req('pause', {}, TABLET_B);
+    let ticket = await ctx.req('prepare', { operation: 'resume', revision: ctx.state().revision }, TABLET_A);
+    await ctx.req('resume', { nonce: ticket.nonce }, TABLET_A);
+    ctx.c.state.status.activeState = 'Hold';
+    ctx.c.sender.state = { ...ctx.c.sender.state, received: 2 };
+    await ctx.req('stop', {}, HTTP_USER);
+    const events = await ctx.recorded();
+    expect(events.map((e) => e.event)).toEqual(['load', 'start', 'pause', 'resume', 'stop']);
+    const [load, start, pause, , stop] = events;
+    expect(load).toMatchObject({ program: 'test.nc', file: 'test.nc', fingerprint: sha256('G21 G90\nG1 X1 F100\nM2'), controller: { port: 'TEST', type: 'Grbl' }, actor: { kind: 'touch', id: 'tablet-A', label: 'Tablette A', user: 'ana' } });
+    expect(load.jobId).toMatch(/^[0-9a-f]{12}$/);
+    expect(start).toMatchObject({ jobId: load.jobId, actor: { id: 'tablet-A' }, startedAt: expect.any(String) });
+    expect(pause.actor).toMatchObject({ id: 'tablet-B' });
+    expect(stop).toMatchObject({ result: 'stopped', line: 2, actor: { kind: 'http', id: 'http:carl', user: 'carl' } });
+    const text = await fs.readFile(ctx.history.file, 'utf8');
+    expect(text).not.toContain(ticket.nonce);
+    expect(text).not.toContain('offline-transport');
+    expect(text).not.toMatch(/"nonce"|"revision"|"transportId"/);
+    ticket = null;
+  });
+
+  test('a program that ends is recorded finished (or in error with the count); the first refused line, an alarm and a board restart are recorded', async () => {
+    const ctx = withHistory();
+    await started(ctx, TABLET_A);
+    ctx.c.sender.emit('end');
+    let events = await ctx.recorded();
+    expect(events.at(-1)).toMatchObject({ event: 'finish', result: 'finished', errors: 0, actor: { kind: 'system' } });
+
+    // A new run from the PC, two refused lines, then the end.
+    ctx.c.workflow.state = 'running';
+    ctx.c.workflow.emit('start');
+    ctx.c.sender.state = { ...ctx.c.sender.state, received: 1 };
+    ctx.c.runner.emit('error', { message: '20' });
+    ctx.c.runner.emit('error', { message: '33' });
+    ctx.c.sender.emit('end');
+    events = await ctx.recorded();
+    expect(events.slice(-4).map((e) => e.event)).toEqual(['finish', 'start', 'error', 'finish']);
+    expect(events.at(-3)).toMatchObject({ event: 'start', actor: { kind: 'socket', id: 'cncjs' } });
+    expect(events.at(-2)).toMatchObject({ event: 'error', code: 20, line: 1 });
+    expect(events.at(-1)).toMatchObject({ event: 'finish', result: 'error', errors: 2, lastError: 33 });
+
+    // Alarm during a run, then a board restart during a pause.
+    ctx.c.workflow.state = 'running';
+    ctx.c.workflow.emit('start');
+    ctx.c.runner.emit('alarm', { message: '1' });
+    ctx.c.workflow.state = 'paused';
+    ctx.c.runner.emit('startup', { firmware: 'Grbl', version: '1.1h' });
+    ctx.c.runner.emit('startup', {}); // a second restart is not a second abort
+    events = await ctx.recorded();
+    expect(events.slice(-3).map((e) => [e.event, e.code || e.result])).toEqual([['start', undefined], ['alarm', 1], ['aborted', 'aborted']]);
+  });
+});
+
+describe('F2: the travel pre-check of the loaded program follows the machine state', () => {
+  const machineReady = (ctx, extra = {}) => {
+    ctx.c.settings.settings = { ...ctx.c.settings.settings, $13: 0, $20: 1, $22: 1, $23: 0, $130: 300, $131: 200, $132: 80, ...extra };
+    ctx.c.state.status = { ...ctx.c.state.status, activeState: 'Idle', mpos: { x: -250, y: -150, z: -40 }, wpos: { x: 0, y: 0, z: 0 } };
+    ctx.c.state.parserstate = { modal: { wcs: 'G54', units: 'G21', distance: 'G90' } };
+    ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
+    ctx.report();
+  };
+
+  test('homing enabled is not homing done: unknown until a homing cycle is seen complete, then validated; an alarm or a restart undoes it', async () => {
+    const ctx = setup();
+    machineReady(ctx);
+    await ctx.req('load', { file: 'square.nc' });
+    let check = ctx.state().programCheck;
+    expect(check.verdict).toBe('unknown');
+    expect(check.reasons.join(' ')).toMatch(/Référencement non constaté/);
+    expect(ctx.state().homed).toBe(false);
+    // The confirmation carries the same check, as a warning: the start is not blocked.
+    const ticket = await ctx.req('prepare', { operation: 'start', revision: ctx.state().revision });
+    expect(ticket.programCheck.verdict).toBe('unknown');
+    // A homing made from anywhere (Home state then Idle) is observed.
+    ctx.c.state.status.activeState = 'Home';
+    ctx.report();
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.report();
+    expect(ctx.state().homed).toBe(true);
+    check = ctx.state().programCheck;
+    expect(check.verdict).toBe('validated');
+    expect(check.axes.Z).toMatchObject({ verdict: 'validated', machineMin: -43, machineMax: -35 });
+    expect(check.zMin).toBe(-3);
+    // A shorter Z travel: outside, with the figures.
+    machineReady(ctx, { $132: 40 });
+    check = ctx.state().programCheck;
+    expect(check.verdict).toBe('outside');
+    expect(check.axes.Z.reasons[0]).toMatch(/Hors course Z : -43 → -35 mm machine \(course -40 → 0\)/);
+    // An alarm loses the reference.
+    ctx.c.runner.emit('alarm', { message: '1' });
+    ctx.report();
+    expect(ctx.state().homed).toBe(false);
+    expect(ctx.state().programCheck.verdict).toBe('unknown');
+    // Our own homing cycle, seen complete, restores it; a board restart undoes it.
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.report();
+    const home = await ctx.req('prepare', { operation: 'home' });
+    await ctx.req('home', { nonce: home.nonce });
+    ctx.now += 1500;
+    ctx.report();
+    expect(ctx.state().homed).toBe(true);
+    ctx.c.runner.emit('startup', {});
+    ctx.report();
+    expect(ctx.state().homed).toBe(false);
+  });
+
+  test('a program that leaves its units to the machine, a stale $G, and a macro file: never a green light', async () => {
+    const ctx = setup();
+    machineReady(ctx);
+    ctx.c.state.status.activeState = 'Home';
+    ctx.report();
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.report();
+    await ctx.req('load', { file: 'bare.nc' });
+    expect(ctx.state().programCheck.verdict).toBe('validated'); // machine in a fresh G21 G90
+    ctx.now += 3000;
+    ctx.report();
+    expect(ctx.state().programCheck.verdict).toBe('unknown');
+    expect(ctx.state().programCheck.reasons.join(' ')).toMatch(/ne fixe pas ses unités.*modal.*inconnu/);
+    // The `check` action looks at any library file against this controller, without loading it.
+    ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
+    ctx.report();
+    const result = await ctx.req('check', { file: 'square.nc' });
+    expect(result).toMatchObject({ file: 'square.nc', fingerprint: expect.stringMatching(/^sha256:/), programCheck: { verdict: 'validated', scope: expect.stringMatching(/ni brides/) } });
+    // A CNCjs macro file is refused outright (the library takes plain G-code only); an
+    // unfollowed word (dynamic tool offset) makes the verdict unknown, never validated.
+    await fs.writeFile(path.join(root, 'macro-check.nc'), 'G21 G90\n%wait\nG0 X10');
+    await expect(ctx.req('check', { file: 'macro-check.nc' })).rejects.toThrow(/directives CNCjs %/);
+    await fs.writeFile(path.join(root, 'tlo-check.nc'), 'G21 G90\nG43.1 Z2\nG0 X10 Z5');
+    const tlo = await ctx.req('check', { file: 'tlo-check.nc' });
+    expect(tlo.programCheck.verdict).toBe('unknown');
+    expect(tlo.programCheck.axes.X.verdict).toBe('validated');
+    expect(tlo.programCheck.uninterpreted).toEqual([{ line: 2, code: 'G43.1', impact: true }]);
+    // A resume from a line checks the rebuilt program (preamble included).
+    await ctx.req('load', { file: 'resume.nc', fromLine: 7 });
+    expect(ctx.state().programCheck).toMatchObject({ verdict: 'validated', zMax: 5 });
+  });
+});
+
+describe('F5: attribution of control in the service', () => {
+  const withControl = () => {
+    // The control module shares the test clock (ctx.now) through a box read by both.
+    const box = { now: 10000 };
+    const control = createControl({ now: () => box.now, elapsed: () => box.now, graceMs: 60000 });
+    const ctx = setup({ control });
+    Object.defineProperty(ctx, 'now', {
+      get: () => box.now,
+      set: (v) => {
+        box.now = v;
+      }
+    });
+    ctx.control = control;
+    return ctx;
+  };
+
+  test('a touch client claims a free port by its first guarded operation; a second one is refused naming it; Pause and Stop stay open to everyone', async () => {
+    const ctx = withControl();
+    expect(ctx.state().control.owner).toBeNull();
+    await started(ctx, TABLET_A);
+    expect(ctx.state().control.owner).toMatchObject({ kind: 'touch', id: 'tablet-A', label: 'Tablette A', user: 'ana' });
+    expect(ctx.state().control.lastChange).toMatchObject({ type: 'claim' });
+    await expect(ctx.req('prepare', { operation: 'resume', revision: ctx.state().revision }, TABLET_B)).rejects.toMatchObject({
+      status: 409,
+      code: 'ECONTROL',
+      message: expect.stringMatching(/Pilotage de TEST attribué à « Tablette A » \(tablette, ana\).*Pause et Arrêt restent possibles/)
+    });
+    await expect(ctx.req('override', { kind: 'feed', value: 10 }, TABLET_B)).rejects.toThrow(/Tablette A/);
+    await expect(ctx.req('load', { file: 'test.nc' }, HTTP_USER)).rejects.toThrow(/Tablette A/);
+    // Pause by another tablet, stop by an HTTP caller, M5 by anyone: never refused for the lease.
+    await ctx.req('pause', {}, TABLET_B);
+    expect(ctx.c.commands.at(-1)).toEqual(['gcode:pause']);
+    ctx.c.state.status.activeState = 'Hold';
+    await ctx.req('stop', {}, HTTP_USER);
+    expect(ctx.c.commands.slice(-2)).toEqual([['gcode:stop'], ['reset']]);
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.report();
+    await ctx.req('spindleStop', {}, TABLET_B);
+    expect(ctx.c.commands.at(-1)).toEqual(['gcode', 'M5']);
+    // The owner still pilots; the status operation tells each client its role.
+    expect(await ctx.req('control', { operation: 'status' }, TABLET_A)).toMatchObject({ role: 'operator', owner: { id: 'tablet-A' } });
+    expect(await ctx.req('control', { operation: 'status' }, TABLET_B)).toMatchObject({ role: 'observer' });
+  });
+
+  test('a free port is open to the classic interface (HTTP without clientId) and is not claimed by it', async () => {
+    const ctx = withControl();
+    await started(ctx, HTTP_USER);
+    expect(ctx.state().control.owner).toBeNull();
+    // And to an anonymous call (no actor at all), as before this wave.
+    ctx.c.workflow.state = 'idle';
+    ctx.report();
+    await ctx.req('load', { file: 'test.nc' });
+    expect(ctx.state().control.owner).toBeNull();
+  });
+
+  test('an abandoned tablet (stream closed) frees the port after the grace delay; a reconnection with the same clientId inside it keeps the lease', async () => {
+    const ctx = withControl();
+    ctx.service.openTransport('stream-A', TABLET_A);
+    await started(ctx, TABLET_A);
+    expect(ctx.state().control.owner).toMatchObject({ id: 'tablet-A', present: true, expires: null });
+    // The tablet's stream closes (tab closed, network lost).
+    ctx.service.closeTransport('stream-A');
+    expect(ctx.state().control.owner).toMatchObject({ id: 'tablet-A', present: false, expires: ctx.now + 60000 });
+    ctx.now += 30000;
+    ctx.report();
+    await expect(ctx.req('pause', {}, TABLET_B)).resolves.toBeTruthy(); // pause stays open
+    await expect(ctx.req('prepare', { operation: 'resume', revision: ctx.state().revision }, TABLET_B)).rejects.toThrow(/Tablette A/);
+    // Back within the grace delay: the lease is restored, nothing was transferred.
+    ctx.service.openTransport('stream-A2', TABLET_A);
+    expect(ctx.state().control.owner).toMatchObject({ id: 'tablet-A', present: true });
+    expect(ctx.state().control.lastChange.type).toBe('restored');
+    ctx.service.closeTransport('stream-A2');
+    ctx.now += 60001;
+    ctx.report();
+    // The heartbeat's observe() ends the lease: the port is free, nobody inherited it.
+    ctx.service.observe();
+    expect(ctx.state().control.owner).toBeNull();
+    expect(ctx.state().control.lastChange).toMatchObject({ type: 'expired', previous: { id: 'tablet-A' } });
+    const ticket = await ctx.req('prepare', { operation: 'resume', revision: ctx.state().revision }, TABLET_B);
+    expect(ctx.state().control.owner).toMatchObject({ id: 'tablet-B' });
+    await ctx.req('resume', { nonce: ticket.nonce }, TABLET_B);
+    expect(ctx.c.commands.at(-1)).toEqual(['gcode:resume']);
+  });
+
+  test('an explicit takeover needs a reason, is visible to the previous owner through the snapshot, and the previous owner is then refused', async () => {
+    const ctx = withControl();
+    ctx.service.openTransport('stream-A', TABLET_A);
+    await started(ctx, TABLET_A);
+    await expect(ctx.req('control', { operation: 'takeover' }, TABLET_B)).rejects.toThrow(/indiquez un motif/);
+    await expect(ctx.req('control', { operation: 'claim' }, TABLET_B)).rejects.toThrow(/Tablette A/);
+    const taken = await ctx.req('control', { operation: 'takeover', reason: 'Tablette A hors de portée' }, TABLET_B);
+    expect(taken).toMatchObject({ owner: { id: 'tablet-B' }, previous: { id: 'tablet-A' }, role: 'operator' });
+    expect(ctx.state().control).toMatchObject({ owner: { id: 'tablet-B' }, lastChange: { type: 'takeover', reason: 'Tablette A hors de portée', previous: { id: 'tablet-A' } } });
+    await ctx.req('pause', {}, TABLET_A);
+    await expect(ctx.req('prepare', { operation: 'resume', revision: ctx.state().revision }, TABLET_A)).rejects.toThrow(/Tablette B/);
+    // Release by the owner: free again; by someone else: refused.
+    await expect(ctx.req('control', { operation: 'release' }, TABLET_A)).rejects.toThrow(/Tablette B/);
+    expect(await ctx.req('control', { operation: 'release' }, TABLET_B)).toMatchObject({ owner: null });
+    expect(ctx.state().control.owner).toBeNull();
+    await expect(ctx.req('control', { operation: 'nonsense' }, TABLET_B)).rejects.toThrow(/inconnue/);
+  });
+
+  test('a port whose controller closes loses its lease (release by the system, no transfer)', async () => {
+    const ctx = withControl();
+    await started(ctx, TABLET_A);
+    ctx.c.isClose = () => true;
+    ctx.service.observe();
+    expect(ctx.control.inspect('TEST').owner).toBeNull();
+    expect(ctx.control.inspect('TEST').lastChange).toMatchObject({ type: 'release', by: { kind: 'system', id: 'port-closed' } });
+  });
+});
+
+// Counter-review 2 (audit 31): observe() / tick() / reserveSystemCommand
+// without a stream client, now with the stream's guarded tick and the
+// probe-input sync made by observe().
+const fakeTimers = () => {
+  let id = 0;
+  const intervals = new Map();
+  const timeouts = new Map();
+  return {
+    intervals,
+    timeouts,
+    setInterval: (fn) => {
+      intervals.set(++id, fn);
+      return id;
+    },
+    clearInterval: (key) => intervals.delete(key),
+    setTimeout: (fn) => {
+      timeouts.set(++id, fn);
+      return id;
+    },
+    clearTimeout: (key) => timeouts.delete(key),
+    flush: () => {
+      const tasks = Array.from(timeouts.values());
+      timeouts.clear();
+      tasks.forEach((fn) => fn());
+    }
+  };
+};
+
+const fakeResponse = () => {
+  const res = new EventEmitter();
+  return Object.assign(res, {
+    lines: [],
+    headers: {},
+    ended: false,
+    setHeader(key, value) {
+      this.headers[key] = value;
+    },
+    write(line) {
+      this.lines.push(JSON.parse(line));
+      return true;
+    },
+    flush() {},
+    flushHeaders() {},
+    end() {
+      this.ended = true;
+    }
+  });
+};
+
+const RUNNER_EVENTS = ['status', 'startup', 'parserstate', 'raw', 'error', 'alarm'];
+const listenersOf = (c) => ({
+  runner: Object.fromEntries(RUNNER_EVENTS.map((e) => [e, c.runner.listenerCount(e)])),
+  sender: Object.fromEntries(['load', 'unload', 'end'].map((e) => [e, c.sender.listenerCount(e)])),
+  workflow: c.workflow.listenerCount('start')
+});
+const ONE = {
+  runner: { status: 1, startup: 1, parserstate: 1, raw: 1, error: 1, alarm: 1 },
+  sender: { load: 1, unload: 1, end: 1 },
+  workflow: 1
+};
+const NONE = {
+  runner: { status: 0, startup: 0, parserstate: 0, raw: 0, error: 0, alarm: 0 },
+  sender: { load: 0, unload: 0, end: 0 },
+  workflow: 0
+};
+
+const xvSetup = () => {
+  const ctx = { now: 10000, registry: { A: fakeController('A') }, timers: fakeTimers(), gets: 0 };
+  const store = {
+    get: () => {
+      ctx.gets += 1;
+      return ctx.registry;
+    }
+  };
+  ctx.service = createService(store, { get: () => [] }, () => ctx.now);
+  services.push(ctx.service);
+  ctx.stream = createStream(ctx.service, { clock: () => ctx.now, timers: ctx.timers });
+  [ctx.tick] = ctx.timers.intervals.values();
+  ctx.connect = () => {
+    const req = new EventEmitter();
+    const res = fakeResponse();
+    expect(ctx.stream.open(req, res)).toBe(true);
+    return { req, res };
+  };
+  ctx.reserve = (title = 'Redémarrer') => ctx.service.reserveSystemCommand({ id: 'c1', title, commands: 'sudo reboot' });
+  return ctx;
+};
+
+describe('observe cross-check: cost and idempotence of the heartbeat without a client', () => {
+  test('100 ticks: one listener per event, one store.get per tick, the same generation', () => {
+    const ctx = xvSetup();
+    const c = ctx.registry.A;
+    expect(listenersOf(c)).toEqual(NONE);
+    ctx.tick();
+    expect(listenersOf(c)).toEqual(ONE);
+    const before = ctx.gets;
+    for (let i = 0; i < 100; i++) {
+      ctx.now += 1000;
+      ctx.tick();
+    }
+    expect(listenersOf(c)).toEqual(ONE);
+    // observe() reads the registry once, probeInput.sync() once more; publish() leaves at once without a client.
+    expect(ctx.gets - before).toBe(200);
+    c.runner.emit('status');
+    const [first] = ctx.service.list();
+    expect(ctx.service.list()[0].generation).toBe(first.generation);
+    // A listing adds the probe-input and motion-preflight status listeners (3 in all), once.
+    expect(c.runner.listenerCount('status')).toBe(3);
+    const perTick = [];
+    for (let i = 0; i < 100; i++) {
+      const start = ctx.gets;
+      ctx.now += 1000;
+      ctx.tick();
+      perTick.push(ctx.gets - start);
+    }
+    expect(c.runner.listenerCount('status')).toBe(3);
+    expect(new Set(perTick).size).toBe(1);
+    expect(ctx.service.list()[0].generation).toBe(first.generation);
+    ctx.stream.dispose();
+    expect(listenersOf(c)).toEqual(NONE);
+  });
+
+  test('with a client, the cost per tick is constant (no growth over 50 ticks) and reports still coalesce', () => {
+    const ctx = xvSetup();
+    const c = ctx.registry.A;
+    const { res } = ctx.connect();
+    c.runner.emit('status');
+    ctx.timers.flush();
+    const perTick = [];
+    for (let i = 0; i < 50; i++) {
+      const start = ctx.gets;
+      ctx.now += 1000;
+      ctx.tick();
+      perTick.push(ctx.gets - start);
+    }
+    // The cost depends on the content (a stale report short-circuits some checks), never grows.
+    expect(perTick.slice(1).every((v) => v <= perTick[1])).toBe(true);
+    expect(new Set(perTick).size).toBeLessThanOrEqual(2);
+    expect(c.runner.listenerCount('status')).toBe(3);
+    expect(res.lines.length).toBeGreaterThanOrEqual(50);
+    ctx.stream.dispose();
+  });
+
+  test('observe() after dispose: [] and no listener; a tick after the stream is disposed is harmless', () => {
+    const ctx = xvSetup();
+    const c = ctx.registry.A;
+    ctx.tick();
+    expect(listenersOf(c)).toEqual(ONE);
+    ctx.service.dispose();
+    expect(listenersOf(c)).toEqual(NONE);
+    expect(ctx.service.observe()).toEqual([]);
+    expect(listenersOf(c)).toEqual(NONE);
+    expect(() => ctx.service.list()).toThrow(/indisponible/);
+    expect(() => ctx.tick()).not.toThrow();
+    ctx.registry.B = fakeController('B');
+    expect(() => ctx.tick()).not.toThrow();
+    expect(listenersOf(ctx.registry.B)).toEqual(NONE);
+    ctx.stream.dispose();
+    expect(() => ctx.tick()).not.toThrow();
+  });
+});
+
+describe('observe cross-check: controllers replaced, closed or destroyed between two ticks', () => {
+  test('closed then reopened (new object, same port): the old one is forgotten, the new one listened to', () => {
+    const ctx = xvSetup();
+    const old = ctx.registry.A;
+    ctx.tick();
+    old.runner.emit('status');
+    old.isClose = () => true;
+    const fresh = fakeController('A');
+    ctx.registry.A = fresh;
+    ctx.tick();
+    expect(listenersOf(old)).toEqual(NONE);
+    // observe() calls motion.inspect(port) while forgetting the old one: the
+    // preflight then watches the replacement too (status: job-service + preflight).
+    expect(listenersOf(fresh)).toEqual({ ...ONE, runner: { ...ONE.runner, status: 2 } });
+    old.runner = null;
+    old.sender = null;
+    old.workflow = null;
+    expect(() => ctx.tick()).not.toThrow();
+    expect(listenersOf(fresh)).toEqual({ ...ONE, runner: { ...ONE.runner, status: 2 } });
+    expect(() => ctx.reserve()).toThrow(/trop ancien/);
+    fresh.runner.emit('status');
+    expect(() => ctx.reserve().release()).not.toThrow();
+    ctx.stream.dispose();
+  });
+
+  test('replaced by a new object while the old one still says open: forgotten anyway (registry identity)', () => {
+    const ctx = xvSetup();
+    const old = ctx.registry.A;
+    ctx.tick();
+    const fresh = fakeController('A');
+    ctx.registry.A = fresh;
+    ctx.tick();
+    expect(listenersOf(old)).toEqual(NONE);
+    expect(listenersOf(fresh)).toEqual({ ...ONE, runner: { ...ONE.runner, status: 2 } });
+    for (let i = 0; i < 10; i++) {
+      ctx.tick();
+    }
+    expect(listenersOf(fresh)).toEqual({ ...ONE, runner: { ...ONE.runner, status: 2 } });
+    ctx.stream.dispose();
+  });
+
+  test('destroyed as CNCjs does it (closed, runner/sender/workflow null) before any tick: skipped, no throw', () => {
+    const ctx = xvSetup();
+    const c = ctx.registry.A;
+    c.isClose = () => true;
+    c.runner = null;
+    c.sender = null;
+    c.workflow = null;
+    expect(() => ctx.tick()).not.toThrow();
+    expect(ctx.service.observe()).toEqual([]);
+    delete ctx.registry.A;
+    expect(() => ctx.tick()).not.toThrow();
+    ctx.stream.dispose();
+  });
+
+  test('a controller open but without runner: observe() throws, the heartbeat tick does not (guarded)', () => {
+    const ctx = xvSetup();
+    ctx.registry.A.runner = null;
+    expect(() => ctx.service.observe()).toThrow(TypeError);
+    expect(() => ctx.tick()).not.toThrow();
+    ctx.registry.A = fakeController('A');
+    expect(() => ctx.tick()).not.toThrow();
+    expect(listenersOf(ctx.registry.A)).toEqual(ONE);
+    ctx.stream.dispose();
+  });
+
+  test('probeInput.sync() runs with observe(): after a client listed, a replaced controller loses its probe-input listeners at the next tick', () => {
+    const ctx = xvSetup();
+    const old = ctx.registry.A;
+    const { res } = ctx.connect();
+    old.runner.emit('status');
+    ctx.timers.flush();
+    expect(old.runner.listenerCount('status')).toBe(3);
+    res.emit('close');
+    old.isClose = () => true;
+    ctx.registry.A = fakeController('A');
+    ctx.tick();
+    expect(old.runner.listenerCount('status')).toBe(0);
+    expect(old.runner.listenerCount('startup')).toBe(0);
+    ctx.stream.dispose();
+  });
+});
+
+describe('observe cross-check: host command reservation without a client', () => {
+  test('controller opened after the last tick: a report nobody heard, 409 then OK; after a tick: OK at once', () => {
+    const ctx = xvSetup();
+    const c = ctx.registry.A;
+    c.runner.emit('status');
+    expect(() => ctx.reserve()).toThrow(/trop ancien.*réessayer/);
+    expect(listenersOf(c)).toEqual(ONE);
+    c.runner.emit('status');
+    const r = ctx.reserve();
+    expect(ctx.service.systemCommand()).toMatchObject({ title: 'Redémarrer' });
+    r.release();
+    ctx.registry.B = fakeController('B');
+    ctx.tick();
+    ctx.registry.B.runner.emit('status');
+    expect(() => ctx.reserve().release()).not.toThrow();
+    ctx.now += 2501;
+    c.runner.emit('status');
+    expect(() => ctx.reserve()).toThrow(/trop ancien sur B/);
+    ctx.registry.B.runner.emit('status');
+    expect(() => ctx.reserve().release()).not.toThrow();
+    ctx.stream.dispose();
+  });
+
+  test('the record made by the reservation is the one the heartbeat and list() reuse (no second listener)', () => {
+    const ctx = xvSetup();
+    const c = ctx.registry.A;
+    expect(() => ctx.reserve()).toThrow(/réessayer/);
+    expect(listenersOf(c)).toEqual(ONE);
+    ctx.tick();
+    ctx.tick();
+    expect(listenersOf(c)).toEqual(ONE);
+    c.runner.emit('status');
+    expect(ctx.service.list()).toHaveLength(1);
+    expect(c.runner.listenerCount('status')).toBe(3);
+    expect(() => ctx.reserve().release()).not.toThrow();
+    expect(c.runner.listenerCount('status')).toBe(3);
+    ctx.stream.dispose();
+  });
+
+  test('reservation versus list()/tick: a closed controller is skipped, a tick that forgets a controller keeps the reservation, a new controller is listed as held', () => {
+    const ctx = xvSetup();
+    const a = ctx.registry.A;
+    ctx.tick();
+    a.runner.emit('status');
+    const closed = Object.assign(fakeController('C'), { isClose: () => true, workflow: Object.assign(new EventEmitter(), { state: 'running' }) });
+    ctx.registry.C = closed;
+    const r = ctx.reserve();
+    expect(listenersOf(closed)).toEqual(NONE);
+    expect(ctx.service.list().map((s) => s.port)).toEqual(['A']);
+    a.isClose = () => true;
+    ctx.tick();
+    // probe-input's pair goes with the tick too now (sync in observe()).
+    expect(listenersOf(a)).toEqual(NONE);
+    expect(ctx.service.systemCommand()).toMatchObject({ title: 'Redémarrer' });
+    ctx.registry.A = fakeController('A');
+    ctx.tick();
+    ctx.registry.A.runner.emit('status');
+    const [s] = ctx.service.list();
+    expect(s.canLoad).toBe(false);
+    expect(s.loadReason).toMatch(/Commande système/);
+    expect(() => ctx.reserve('Éteindre')).toThrow(/déjà en cours \(Redémarrer\)/);
+    r.release();
+    expect(ctx.service.list()[0].canLoad).toBe(true);
+    ctx.stream.dispose();
   });
 });

@@ -49,6 +49,9 @@ const scale = (s, k) => {
   if (s.safeZ !== null) {
     s.safeZ *= k;
   }
+  if (s.rapidZ !== null) {
+    s.rapidZ *= k;
+  }
   if (s.feed !== null) {
     s.feed *= k;
   }
@@ -78,10 +81,11 @@ tool: null,
 toolChanged: false,
     pos: { X: null, Y: null, Z: null },
 safeZ: null,
-    // Whether the clearance height was reached by a rapid (G0), a Z the
-    // program itself treats as free: a Z only reached by cutting moves is a
-    // depth, not a clearance.
-    safeZRapid: false,
+    // Highest absolute Z reached by a rapid (G0) under the current work
+    // offset: a Z the program itself treats as free. The clearance (highest Z
+    // of all) is at or above it; without any rapid Z, the highest Z is only a
+    // cutting depth, not a clearance.
+    rapidZ: null,
     // Line of the last unit change that converted acquired values, of the
     // work offset change that made them unknown, and of a G43.1 still active.
     unitsChanged: null,
@@ -145,7 +149,7 @@ toolOffset: null
           if (positioned(s)) {
             s.pos = { X: null, Y: null, Z: null };
             s.safeZ = null;
-            s.safeZRapid = false;
+            s.rapidZ = null;
             s.wcsReset = { line: lineNo, wcs };
           }
           s.wcs = wcs;
@@ -205,13 +209,10 @@ toolOffset: null
           s.plungeFeed = s.feed;
         }
         if (a === 'Z' && s.pos.Z !== null) {
+          s.safeZ = s.safeZ === null ? s.pos.Z : Math.max(s.safeZ, s.pos.Z);
           // s.motion already holds this line's motion word, or the modal one.
-          const rapid = s.motion === 'G0';
-          if (s.safeZ === null || s.pos.Z > s.safeZ) {
-            s.safeZ = s.pos.Z;
-            s.safeZRapid = rapid;
-          } else if (s.pos.Z === s.safeZ && rapid) {
-            s.safeZRapid = true;
+          if (s.motion === 'G0') {
+            s.rapidZ = s.rapidZ === null ? s.pos.Z : Math.max(s.rapidZ, s.pos.Z);
           }
         }
       });
@@ -262,11 +263,15 @@ export const buildResume = (gcode, from, { name = '' } = {}) => {
     }
     throw refuse('Position avant la ligne ' + from + ' inconnue (X, Y et Z doivent avoir été donnés en absolu) : choisissez une ligne plus loin.');
   }
-  // A clearance equal to the current Z is fine when the program went there in
-  // rapid (resume at the clearance height), not when that Z is only a cutting
-  // depth: the rapid XY move of the preamble would cross the part.
-  if (s.safeZ === null || s.safeZ < s.pos.Z || (s.safeZ === s.pos.Z && !s.safeZRapid)) {
+  if (s.safeZ === null || s.safeZ < s.pos.Z) {
     throw refuse('Hauteur de dégagement inconnue avant la ligne ' + from + ' : choisissez une ligne plus loin.');
+  }
+  // The clearance is the highest Z seen; it is a height the program treats as
+  // free only when a rapid (G0) reached that height or one below it. Without
+  // any rapid Z under this offset, the highest Z is a cutting depth: the rapid
+  // XY move of the preamble would cross the part.
+  if (s.rapidZ === null) {
+    throw refuse('Hauteur de dégagement inconnue avant la ligne ' + from + ' (aucun déplacement rapide G0 en Z' + (s.wcsReset ? ' sous ' + s.wcs : '') + ') : choisissez une ligne après un retrait en rapide.');
   }
   if (s.feed === null || s.feed <= 0) {
     throw refuse('Avance inconnue avant la ligne ' + from + ' : choisissez une ligne plus loin.');
@@ -304,7 +309,10 @@ export const buildResume = (gcode, from, { name = '' } = {}) => {
   const program = preamble.concat([first], lines.slice(from)).join('\n') + '\n';
   // Limits the operator must know before confirming (shown with the plan).
   const notes = [
-    'Le dégagement Z' + fmt(s.safeZ) + ' est le Z le plus haut vu avant la ligne ' + from + ', pas une garantie d’absence d’obstacle (brides, pièce).'
+    'Le dégagement Z' + fmt(s.safeZ) + ' est le Z le plus haut vu avant la ligne ' + from + ', pas une garantie d’absence d’obstacle (brides, pièce).',
+    // Variant B of the counter-review: a program without any rapid Z retract
+    // (G1-only posts) is not resumable; the rapid that justifies the clearance is named.
+    'Retrait en rapide constaté à Z' + fmt(s.rapidZ) + (s.wcsReset ? ' sous ' + s.wcs : '') + ' : sans déplacement rapide G0 en Z, aucune reprise ne serait proposée.'
   ];
   if (!s.units) {
     notes.push('Le programme ne fixe pas ses unités (G20/G21) : la machine garde les siennes.');

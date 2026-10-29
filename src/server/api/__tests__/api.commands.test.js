@@ -31,7 +31,8 @@ jest.mock('../../services/touch', () => {
       __state: state,
       __service: service,
       isStarted: jest.fn(() => false),
-      reserveSystemCommand: jest.fn((command) => service.reserveSystemCommand(command))
+      reserveSystemCommand: jest.fn((command) => service.reserveSystemCommand(command)),
+      refuseSystemCommand: jest.fn(() => null)
     }
   };
 });
@@ -113,6 +114,8 @@ const resetMocks = () => {
   touch.isStarted.mockReturnValue(false);
   touch.reserveSystemCommand.mockReset();
   touch.reserveSystemCommand.mockImplementation(() => ({ release: jest.fn() }));
+  touch.refuseSystemCommand.mockReset();
+  touch.refuseSystemCommand.mockReturnValue(null);
   store.get.mockReset();
   store.get.mockReturnValue({});
 };
@@ -133,12 +136,18 @@ describe('api.commands run', () => {
       'kill -9 1234', 'kill -9 $(pgrep -f cncjs)', 'killall node', 'killall chromium', 'pkill -f cncjs', 'pkill -f kiosk',
       'service cncjs restart', 'sudo service cncjs stop', 'service cncjs reload',
       'echo bye && sudo reboot', 'cd /home/pi && sudo reboot', 'sudo shutdown -r +1 "redémarrage"', 'sudo /sbin/reboot',
-      'sudo halt -p', 'shutdown /r /t 0'].forEach((commands) => {
+      'sudo halt -p', 'shutdown /r /t 0',
+      // Windows hosts and the two Linux forms added by the counter-review.
+      'shutdown.exe /r /t 0', 'C:\\Windows\\System32\\shutdown.exe /s /t 0', 'taskkill /F /IM node.exe', 'taskkill.exe /IM chrome.exe',
+      'Restart-Computer -Force', 'Stop-Computer', 'Restart-Service cncjs', 'Stop-Service cncjs', 'net stop cncjs', 'sc stop cncjs', 'sc.exe stop cncjs',
+      'service nginx force-reload', 'systemctl isolate rescue.target'].forEach((commands) => {
       expect([commands, sensitiveCommand(commands)]).toEqual([commands, true]);
     });
     ['ls -la', 'echo hello', 'git pull', 'systemctl status cncjs', 'sudo systemctl start cncjs', 'pm2 list', 'pm2 logs',
       'pm2 logs cncjs --lines 50', 'service cncjs status', 'cat /var/log/syslog', 'cat /var/log/shutdown.log', 'df -h', 'uptime',
-      'vcgencmd measure_temp', 'tail -n 20 /home/pi/.pm2/logs/cncjs-out.log', ''].forEach((commands) => {
+      'vcgencmd measure_temp', 'tail -n 20 /home/pi/.pm2/logs/cncjs-out.log', '',
+      'Get-Service cncjs', 'sc query cncjs', 'net start cncjs', 'netstat -an', 'tasklist /FI "IMAGENAME eq node.exe"', 'Restart-Computer.txt',
+      'C:\\tools\\shutdown-safe.cmd'].forEach((commands) => {
       expect([commands, sensitiveCommand(commands)]).toEqual([commands, false]);
     });
     // Known false positives: the command is merely reserved (refused during a job).
@@ -384,5 +393,129 @@ describe('api.commands run with a real job-service', () => {
     expect([res.statusCode, res.payload]).toEqual([200, { taskId: 'task-1' }]);
     taskRunner.emit('finish', 'task-1', 0);
     expect(service.systemCommand()).toBe(null);
+  });
+});
+
+// Counter-review 2 (audit 31): realistic commands, documented false positives
+// and negatives, the feeder check without the touch service (real
+// Feeder.toJSON shape), and the attribution of control (F5) on host commands.
+const check = (list, expected) => {
+  list.forEach((commands) => {
+    expect([commands, sensitiveCommand(commands)]).toEqual([commands, expected]);
+  });
+};
+
+describe('api.commands cross-check 2: sensitiveCommand on realistic commands', () => {
+  test('realistic sensitive commands are detected', () => {
+    check([
+      'systemctl kill cncjs', 'sudo systemctl kill -s TERM cncjs', 'systemctl --user kill cncjs',
+      'pm2 reload all', 'pm2 reload', 'pm2 reload ecosystem.config.js --env production', 'sudo -u pi pm2 reload cncjs',
+      'service nginx reload', 'telinit 6', 'sudo telinit 0', 'sudo systemctl try-restart cncjs',
+      'systemctl reload-or-restart cncjs', 'sudo systemctl --no-block restart cncjs', 'systemctl restart --no-block cncjs',
+      'pm2 restart cncjs --update-env', 'git pull && pm2 reload cncjs-next', 'sudo systemctl daemon-reload && sudo systemctl restart cncjs',
+      'shutdown /r /t 0', 'Shutdown -h now', 'sudo /sbin/reboot', 'reboot;', '(reboot)', 'nohup reboot &'
+    ], true);
+  });
+
+  test('realistic harmless commands are not', () => {
+    check([
+      'echo "reload"', 'ls reload/', 'cat reload.txt', 'systemctl daemon-reload', 'sudo systemctl daemon-reload',
+      'pm2 reloadLogs', 'pm2 save', 'pm2 startup', 'pm2 describe cncjs', 'pm2 flush', 'systemctl is-active cncjs',
+      'systemctl list-units', 'journalctl -u cncjs -n 50', 'service cncjs status', 'sudo systemctl enable cncjs',
+      'git pull', 'npm run build', 'ping -c 1 8.8.8.8', 'raspi-config nonint get_hostname', 'skill -9 node', 'rebooted.txt',
+      'cat /var/log/reboot-required.log'
+    ], false);
+  });
+
+  test('known false positives (merely reserved) and remaining false negatives (documented)', () => {
+    check(['echo "pm2 reload"', 'grep "systemctl reload" /etc/x', 'man shutdown', 'echo halt'], true);
+    check(['grep reload /etc/x', 'man systemctl', 'man telinit'], false);
+    // Still outside the list: runlevel 1, killall5, systemctl emergency.
+    check(['telinit 1', 'init 1', 'killall5', 'systemctl emergency'], false);
+  });
+});
+
+const restController = (extra = {}) => ({
+  type: 'Grbl',
+  isClose: () => false,
+  workflow: { state: 'idle' },
+  runner: { state: { status: { activeState: 'Idle' } } },
+  feeder: { toJSON: () => ({ hold: false, holdReason: null, queue: 0, pending: false, changed: false }) },
+  ...extra
+});
+
+describe('api.commands cross-check 2: feeder check without the touch service', () => {
+  beforeEach(resetMocks);
+
+  const attempt = (registry) => {
+    store.get.mockReturnValue(registry);
+    const res = makeRes();
+    run(makeReq('reboot'), res);
+    return res;
+  };
+
+  test('an idle controller with an empty feeder (the real Feeder.toJSON shape): 200', () => {
+    const res = attempt({ A: restController() });
+    expect(res.statusCode).toBe(200);
+    expect(taskRunner.run).toHaveBeenCalledTimes(1);
+    expect(touch.reserveSystemCommand).not.toHaveBeenCalled();
+  });
+
+  test('lines queued, or one pending: 409 naming the port, nothing runs', () => {
+    [{ queue: 2, pending: false }, { queue: 0, pending: true }, { queue: 1, pending: true }].forEach((feeder) => {
+      const res = attempt({ COM7: restController({ feeder: { toJSON: () => feeder } }) });
+      expect(res.statusCode).toBe(409);
+      expect(res.payload.message).toMatch(/attente sur COM7/);
+    });
+    expect(taskRunner.run).not.toHaveBeenCalled();
+  });
+
+  test('a controller without feeder, or whose feeder has no toJSON: tolerated (200)', () => {
+    expect(attempt({ A: restController({ feeder: undefined }) }).statusCode).toBe(200);
+    expect(attempt({ A: restController({ feeder: {} }) }).statusCode).toBe(200);
+    expect(attempt({ A: restController({ feeder: null }) }).statusCode).toBe(200);
+  });
+
+  test('a non-Grbl controller (Marlin) with a queued feeder is refused too: the store check is type-agnostic', () => {
+    const res = attempt({ A: restController({ type: 'Marlin', feeder: { toJSON: () => ({ queue: 1, pending: false }) } }) });
+    expect(res.statusCode).toBe(409);
+  });
+
+  test('the feeder check comes after the workflow and state checks (message precedence)', () => {
+    const res = attempt({ A: restController({ workflow: { state: 'paused' }, feeder: { toJSON: () => ({ queue: 5, pending: true }) } }) });
+    expect(res.statusCode).toBe(409);
+    expect(res.payload.message).toMatch(/travail est en cours/);
+  });
+});
+
+describe('api.commands: attribution of control (F5) on sensitive host commands', () => {
+  beforeEach(resetMocks);
+
+  test('a sensitive command is refused while another client pilots a port; the caller is identified from the session', () => {
+    touch.isStarted.mockReturnValue(true);
+    touch.refuseSystemCommand.mockReturnValue({ message: 'Pilotage de COM3 attribué à « Tablette A » (tablette) : commande système refusée tant qu’il pilote.', owner: { id: 'tablet-A' } });
+    const res = makeRes();
+    run({ ...makeReq('reboot'), user: { id: 'u1', name: 'ana' } }, res);
+    expect(res.statusCode).toBe(409);
+    expect(res.payload).toEqual({ msg: expect.stringMatching(/Tablette A/), message: expect.stringMatching(/Tablette A/) });
+    expect(touch.refuseSystemCommand).toHaveBeenCalledWith({ kind: 'http', id: 'http:ana', user: 'ana' });
+    expect(touch.reserveSystemCommand).not.toHaveBeenCalled();
+    expect(taskRunner.run).not.toHaveBeenCalled();
+    // Without a session object: an anonymous HTTP actor.
+    run(makeReq('reboot'), makeRes());
+    expect(touch.refuseSystemCommand).toHaveBeenLastCalledWith({ kind: 'http', id: 'http:anonyme', user: '' });
+  });
+
+  test('a harmless command never consults the control policy; the owner itself (allowed) goes on to the reservation', () => {
+    touch.isStarted.mockReturnValue(true);
+    let res = makeRes();
+    run(makeReq('list'), res);
+    expect(res.statusCode).toBe(200);
+    expect(touch.refuseSystemCommand).not.toHaveBeenCalled();
+    res = makeRes();
+    run(makeReq('reboot'), res);
+    expect(touch.refuseSystemCommand).toHaveBeenCalledTimes(1);
+    expect(touch.reserveSystemCommand).toHaveBeenCalledTimes(1);
+    expect(res.statusCode).toBe(200);
   });
 });

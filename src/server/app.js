@@ -343,6 +343,7 @@ const appMain = () => {
     app.post(urljoin(settings.route, 'api/touch-job'), api.touch.postJob);
     app.post(urljoin(settings.route, 'api/touch-motion/preview'), api.touch.previewMotion);
     app.get(urljoin(settings.route, 'api/touch-events'), api.touch.getEvents);
+    app.get(urljoin(settings.route, 'api/touch-history'), api.touch.getHistory);
     app.get(urljoin(settings.route, 'api/touch-system'), api.touch.getSystem);
     app.get(urljoin(settings.route, 'api/touch-backlight'), api.touch.getBacklight);
     app.post(urljoin(settings.route, 'api/touch-backlight'), api.touch.postBacklight);

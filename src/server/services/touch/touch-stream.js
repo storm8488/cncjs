@@ -123,7 +123,11 @@ export const createStream = (service, options = {}) => {
   // open controller (a host command must be judged on fresh reports).
   const tick = () => {
     if (!disposed && typeof service.observe === 'function') {
-      service.observe();
+      try {
+        service.observe();
+      } catch (err) {
+        // A registry oddity must never take the heartbeat (and the process) down.
+      }
     }
     publish();
   };
@@ -135,8 +139,10 @@ export const createStream = (service, options = {}) => {
   }
 
   // Turns `res` into an NDJSON event stream for `req`. Returns false, without
-  // touching the response, when another client cannot be accepted.
-  const open = (req, res) => {
+  // touching the response, when another client cannot be accepted. `actor`
+  // ({kind, id, label, user}, optional) is the client whose presence this
+  // stream carries for the attribution of control (F5).
+  const open = (req, res, actor) => {
     if (disposed || clients.size >= MAX_CLIENTS) {
       return false;
     }
@@ -173,7 +179,7 @@ export const createStream = (service, options = {}) => {
     res.on('close', onClose);
     req.on('aborted', onClose);
 
-    service.openTransport(client.id);
+    service.openTransport(client.id, actor);
     clients.add(client);
     try {
       send(client, snapshot());
