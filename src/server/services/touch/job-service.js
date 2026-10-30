@@ -4,8 +4,6 @@
 // require a short-lived confirmation ticket bound to the client's event
 // stream, so a stale page or a replayed request cannot move the machine.
 import crypto from 'crypto';
-import { promises as fs } from 'fs';
-import path from 'path';
 import { performance } from 'perf_hooks';
 // Explicit extensions: examples/cncjs-touch/preview-server.cjs loads this
 // module with Node's native ES module loader, outside of Babel.
@@ -14,23 +12,31 @@ import { createPreflight, controllerStatus } from './motion-preflight.js';
 // eslint-disable-next-line import/extensions
 import { createProbeInput } from './probe-input.js';
 // eslint-disable-next-line import/extensions
-import { buildResume, modalsBeforeFirstMove, programLines } from './resume.js';
-// eslint-disable-next-line import/extensions
-import { analyzeProgram, checkProgram } from './program-check.js';
+import { checkProgram } from './program-check.js';
 // eslint-disable-next-line import/extensions
 import { createControl, SAFE_ACTIONS } from './control.js';
 // eslint-disable-next-line import/extensions
-import { fingerprint as fingerprintOfText, sameProgram } from './program-identity.js';
-// eslint-disable-next-line import/extensions
 import { createMotion } from './motion.js';
+// Parts of the service behind explicit contracts (audit 31, E2): the
+// orchestration, the guards and the public API stay here.
+// eslint-disable-next-line import/extensions
+import { createLoader, localFiles } from './job-load.js';
+// eslint-disable-next-line import/extensions
+import { createHalt } from './halt.js';
+// eslint-disable-next-line import/extensions
+import { createPlateProbe } from './plate-probe.js';
+// eslint-disable-next-line import/extensions
+import { createSystemCommands } from './system-command.js';
+
+// Kept exported from here for the existing callers and tests.
+// eslint-disable-next-line import/extensions
+export { changesOffset } from './job-load.js';
 
 // A status report older than this is not trusted to describe the machine.
 const MAX_REPORT_AGE_MS = 2500;
 
 // A start/resume confirmation must be used within this window.
 const TICKET_LIFETIME_MS = 15000;
-
-const MAX_FILE_SIZE = 20 * 1048576;
 
 // Grbl settings exposed to the client: report mask/units, max rates, max
 // accelerations, travel limits and spindle range. The full list ($$) is only
@@ -44,37 +50,12 @@ const STALL_MS = 30000;
 // Spin-up dwell when the spindle is started again after a tool change.
 const TOOL_CHANGE_SPINUP_S = 3;
 
-// Stop: how long a feed hold may take to bring the axes to rest before the
-// soft reset is sent anyway.
-const HALT_MS = 5000;
-
 // Grbl sends no status report during a homing cycle: the cycle is taken as
 // running from the $H until a report shows Idle or Alarm again (at least this
 // long after it, so a report already on its way does not end it), an alarm,
 // a board restart, or this limit.
 const HOMING_MIN_MS = 1000;
 const HOMING_MAX_MS = 180000;
-
-// Z zero with a touch plate: a fast probe down, a 1 mm back-off, a slow probe,
-// then the work Z is set so that the plate top reads its thickness, and the
-// tool rises 5 mm above it. Everything in absolute coordinates (G90, mm), so
-// an alarm in the middle leaves no relative mode behind.
-const PLATE = {
-  fastFeed: 100,
-  slowFeed: 25,
-  backOff: 1,
-  clearance: 5,
-  minSearch: 1,
-  maxSearch: 100,
-  maxThickness: 50
-};
-
-const axisNumber = (v) => {
-  const n = typeof v === 'string' ? Number(v) : v;
-  return typeof n === 'number' && Number.isFinite(n) ? n : null;
-};
-
-const fmt = (n) => String(Math.round(n * 1000) / 1000);
 
 const grblCode = (res) => {
   const n = Number(res && res.message);
@@ -132,12 +113,6 @@ const overridesOf = (state) => {
   return { feed: ov[0], rapid: ov[1], spindle: ov[2] };
 };
 
-// Words that select or change the work offset; comments are ignored.
-export const changesOffset = (gcode) => {
-  const code = String(gcode).replace(/\([^)]*\)/g, ' ').replace(/;.*$/gm, ' ');
-  return /(?<![A-Z])G\s*0*(?:5[4-9](?:\.\d)?|10|92(?:\.\d)?)(?![\d.])/i.test(code);
-};
-
 // Grbl reports the real feed rate and spindle speed as FS:feed,speed; CNCjs
 // keeps them as status.feedrate and status.spindle.
 const realtimeValue = (value) => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null);
@@ -173,71 +148,6 @@ const GUARDED_ACTIONS = ['load', 'prepare', 'start', 'resume', 'macro', 'overrid
 // actions above, except `jog-stop`, which is free for everyone like Stop.
 const guarded = (body) => GUARDED_ACTIONS.includes(body.action) || (body.action === 'motion' && body.operation !== 'jog-stop');
 
-// Reads a program from the watch directory without the monitor service (the
-// offline preview server loads this module natively, outside of Babel): the
-// same guarantees as before, plus the fingerprint of the bytes read.
-// Production injects the monitor (`options.files`), see touch/index.js.
-const localFiles = (config) => {
-  const fileError = (code, message) => {
-    const err = new Error(message);
-    err.code = code;
-    return err;
-  };
-  const locate = async (name) => {
-    const root = await fs.realpath(config.get('watchDirectory'));
-    const file = await fs.realpath(path.join(root, name));
-    if (path.dirname(file) !== root) {
-      throw fileError('EOUTSIDE', 'File is outside of the watch directory');
-    }
-    const stats = await fs.stat(file);
-    if (!stats.isFile()) {
-      throw fileError('ENOTFILE', 'Not a file');
-    }
-    if (stats.size > MAX_FILE_SIZE) {
-      throw fileError('ETOOLARGE', 'File too large');
-    }
-    return { file, stats };
-  };
-  const readProgram = async (name) => {
-    const { file, stats } = await locate(name);
-    if (stats.size === 0) {
-      throw fileError('EEMPTY', 'Empty file');
-    }
-    const buffer = await fs.readFile(file);
-    const after = await fs.stat(file);
-    if (stats.mtimeMs !== after.mtimeMs || stats.ino !== after.ino || buffer.length !== stats.size) {
-      throw fileError('ECHANGED', 'File changed while it was read');
-    }
-    if (buffer.includes(0)) {
-      throw fileError('EBINARY', 'Binary file');
-    }
-    return { text: buffer.toString('utf8'), fingerprint: fingerprintOfText(buffer), size: stats.size, mtimeMs: stats.mtimeMs };
-  };
-  const fingerprintOf = async (name) => {
-    const { file, stats } = await locate(name);
-    const buffer = await fs.readFile(file);
-    return { fingerprint: fingerprintOfText(buffer), size: stats.size, mtimeMs: stats.mtimeMs };
-  };
-  return { readProgram, fingerprintOf };
-};
-
-// French message for a file access failure (codes of monitor/index.js).
-const FILE_MESSAGES = {
-  ENOTCONFIGURED: 'Bibliothèque non configurée (répertoire surveillé absent).',
-  EINVALIDNAME: 'Nom de fichier invalide.',
-  EOUTSIDE: 'Fichier hors de la bibliothèque.',
-  ENOENT: 'Fichier introuvable dans la bibliothèque.',
-  ENOTFILE: 'Ce nom ne désigne pas un fichier ordinaire (lien ou dossier refusé).',
-  ETOOLARGE: 'Fichier supérieur à 20 Mo.',
-  EEMPTY: 'Fichier vide.',
-  EBINARY: 'Fichier binaire : format invalide.',
-  ECHANGED: 'Fichier modifié pendant la lecture : réessayez.'
-};
-const fileConflict = (err) => {
-  const message = err && FILE_MESSAGES[err.code];
-  return message ? conflict(message) : err;
-};
-
 export const createService = (store, config, clock = monotonic, options = {}) => {
   const records = new Map();
   const listeners = new Set();
@@ -245,8 +155,6 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
   // Transport id → actor ({kind, id, label, user}) whose presence it carries.
   const transportActors = new Map();
   let disposed = false;
-  // Host command (shutdown, restart…) reserved against the machine: see reserveSystemCommand.
-  let systemCommand = null;
   const files = options.files || localFiles(config);
   // Durable job history (F4) and attribution of control (F5), owned by the
   // caller in production; a service without them behaves as before.
@@ -590,8 +498,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
     // Nothing that moves the machine starts while a host command runs (pause,
     // stop and M5 do not come through here).
-    if (systemCommand) {
-      throw conflict('Commande système en cours (' + systemCommand.title + ') : attendez sa fin.');
+    if (systemCommands.current()) {
+      throw conflict('Commande système en cours (' + systemCommands.current().title + ') : attendez sa fin.');
     }
   };
 
@@ -658,78 +566,22 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
 
   const homingActive = (r) => !!r.homing && clock() - r.homing.since < HOMING_MAX_MS;
 
-  // CNCjs's forced stop decides from its own copy of the state, refreshed every
-  // 250 ms: it sends a feed hold only if that copy says Run and a reset only if
-  // it says Hold, so lines already buffered in Grbl kept running when Grbl was
-  // Idle at that moment (a G4 dwell, the first instants of a start, a tool
-  // change with the spindle on). The decision is taken here from the latest
-  // report, before CNCjs rewinds its sender. Moving axes, or buffered lines that
-  // may start moving any moment (the report can be 250 ms old), get a feed hold
-  // first (in Idle Grbl turns Hold:0 at once and starts no new block), then a
-  // reset once a report newer than the request shows them at rest, or after
-  // HALT_MS: a reset in motion would raise ALARM:3 and lose the position. A hold
-  // or a spindle left on with nothing buffered is reset at once.
-  const haltPlan = (c) => {
-    const s = controllerStatus(c);
-    const state = s.activeState || '';
-    const sender = (c.sender && c.sender.state) || {};
-    const feeder = c.feeder.toJSON();
-    if (state === 'Run') {
-      return 'hold';
-    }
-    if (state === 'Hold' && Number(s.subState) === 1) {
-      return 'settle';
-    }
-    if (state === 'Hold') {
-      return 'reset';
-    }
-    if (Number(sender.sent) > Number(sender.received) || feeder.queue || feeder.pending) {
-      return 'hold';
-    }
-    return spindleOn(c) ? 'reset' : '';
-  };
-  const halt = (c, plan) => {
-    if (plan === 'reset') {
-      c.command('reset');
-      return;
-    }
-    if (plan !== 'hold' && plan !== 'settle') {
-      return;
-    }
-    if (plan === 'hold') {
-      c.command('feedhold');
-    }
-    const deadline = clock() + HALT_MS;
-    const r = record(c);
-    const mark = r.reports;
-    // A feed hold byte lost on the link (seen with the simulator) would leave the axes
-    // running until the time limit: while a newer report still says Run, it is sent again.
-    let heldAt = clock();
-    const wait = () => {
-      if (controllers()[c.options.port] !== c || c.isClose() || !c.runner) {
-        return;
-      }
-      if (r.reports <= mark && clock() <= deadline) {
-        later(c, r, wait, 50);
-        return;
-      }
-      const s = controllerStatus(c);
-      const state = s.activeState || '';
-      if (/^(Alarm|Door)/.test(state)) {
-        return;
-      }
-      if ((state === 'Hold' && Number(s.subState) !== 1) || state === 'Idle' || clock() > deadline) {
-        c.command('reset');
-        return;
-      }
-      if (state === 'Run' && clock() - heldAt >= 400) {
-        heldAt = clock();
-        c.command('feedhold');
-      }
-      later(c, r, wait, 50);
-    };
-    later(c, r, wait, 50);
-  };
+  // Host command (shutdown, restart…) reserved against the machine: see
+  // system-command.js. While it holds, available() refuses every action that
+  // moves the machine.
+  const systemCommands = createSystemCommands({
+    isDisposed: () => disposed,
+    clock,
+    conflict,
+    controllers,
+    record,
+    homingActive,
+    changed,
+    MAX_REPORT_AGE_MS
+  });
+
+  // Stop sequence (feed hold, then soft reset once at rest): see halt.js.
+  const { haltPlan, halt } = createHalt({ clock, controllers, record, later, spindleOn });
 
   const readyFor = (c, action, revision) => {
     const j = validJob(c, revision);
@@ -891,224 +743,26 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
   };
 
-  // The plate probe runs at rest, or during a pause the program asked for
-  // (tool change) once the machine has stopped, with the probe free, the
-  // spindle still and the modal state known: G90 and G21.
-  const zeroZReady = (c) => {
-    available(c);
-    const r = record(c);
-    if (r.probing) {
-      throw conflict('Palpage en cours.');
-    }
-    if (r.loading) {
-      throw conflict('Chargement en cours.');
-    }
-    const programPause = c.workflow.state === 'paused' && ['M0', 'M1', 'M6'].includes(pauseKind(c));
-    if (c.workflow.state !== 'idle' && !programPause) {
-      throw conflict('Le zéro Z avec plaque se règle au repos ou pendant une pause du programme (M0, M1, M6).');
-    }
-    const status = controllerStatus(c);
-    if (status.activeState !== 'Idle') {
-      throw conflict('La machine doit être au repos (Idle).');
-    }
-    const feeder = c.feeder.toJSON();
-    if (feeder.queue || feeder.pending) {
-      throw conflict('Des commandes sont en attente.');
-    }
-    spindleStill(c);
-    if (!modalFresh(r)) {
-      throw conflict('État modal ($G) trop ancien : attendre un rapport récent.');
-    }
-    const modal = ((c.runner.state && c.runner.state.parserstate) || {}).modal || {};
-    if (modal.distance !== 'G90') {
-      throw conflict('Mode relatif (G91) actif : le zéro Z avec plaque exige G90.');
-    }
-    if (modal.units !== 'G21') {
-      throw conflict('Unités en pouces (G20) : le zéro Z avec plaque exige G21.');
-    }
-    // The positions read back are in the report units: $13=1 reports inches
-    // whatever G21 says, and they would be sent back as millimetres.
-    if (settingNumber(allSettings(c), 13) !== 0) {
-      throw conflict('Rapports en pouces ($13=1) ou réglage $13 inconnu : le zéro Z avec plaque exige $13=0.');
-    }
-    // During a program pause, the probe ends in G0 with F25: the program's own
-    // motion mode and feed are sent back at the end, which Grbl accepts without
-    // axis words for G0 and G1 only.
-    if (programPause && modal.motion !== 'G0' && !(modal.motion === 'G1' && Number(((c.runner.state && c.runner.state.parserstate) || {}).feedrate) > 0)) {
-      throw conflict('Mode de déplacement ' + (modal.motion || 'inconnu') + ' actif : pendant une pause, le zéro Z avec plaque exige G0 ou G1 avec une avance.');
-    }
-    if (!r.wcs) {
-      throw conflict('Repère de travail inconnu : attendre un rapport $G.');
-    }
-    if (axisNumber(status.wpos && status.wpos.z) === null) {
-      throw conflict('Position Z inconnue.');
-    }
-    const probe = probeInput.inspect(c.options.port);
-    if (!probe.fresh) {
-      throw conflict('Entrée sonde : rapport trop ancien.');
-    }
-    if (probe.state === 'contact') {
-      throw conflict('La sonde est déjà en contact : dégagez-la avant de palper.');
-    }
-    if (probe.code !== 'EXPLICIT' && probe.code !== 'MISSING') {
-      throw conflict('Entrée sonde illisible dans le rapport Grbl.');
-    }
-    if (hasAutomations(config)) {
-      throw conflict('Des automatismes CNCjs sont configurés. Leur compatibilité doit être vérifiée avant utilisation.');
-    }
-  };
-
-  const plateParams = (body) => {
-    const thickness = Number(body.thickness);
-    const search = Number(body.search);
-    if (!Number.isFinite(thickness) || thickness <= 0 || thickness > PLATE.maxThickness) {
-      throw conflict('Épaisseur de plaque invalide (plus de 0 et au plus ' + PLATE.maxThickness + ' mm).');
-    }
-    if (!Number.isFinite(search) || search < PLATE.minSearch || search > PLATE.maxSearch) {
-      throw conflict('Distance de recherche invalide (' + PLATE.minSearch + ' à ' + PLATE.maxSearch + ' mm).');
-    }
-    return { thickness: Math.round(thickness * 1000) / 1000, search: Math.round(search * 1000) / 1000 };
-  };
-
-  // Grbl's answers to lines the touch service sends through CNCjs's feeder:
-  // the feeder clears `pending` as soon as it sends its last line, before
-  // Grbl answers, so only the `ok` tells that a line was executed (G38.2 and
-  // G4 answer once done). The `ok` that follows a $G reply belongs to CNCjs's
-  // own parser state query, sent every 500 ms, paused or not.
-  const answers = (c, r) => {
-    const runner = c.runner;
-    const t = { oks: 0, error: null, reportsAtOk: 0 };
-    // A $G reply already parsed whose ok is still on its way (CNCjs's own flag).
-    let parserReply = !!(c.actionMask && c.actionMask.queryParserState && c.actionMask.queryParserState.reply);
-    const onParser = () => {
-      parserReply = true;
-    };
-    const onOk = () => {
-      if (parserReply) {
-        parserReply = false;
-        return;
-      }
-      t.oks += 1;
-      t.reportsAtOk = r.reports;
-    };
-    const onError = (res) => {
-      parserReply = false;
-      t.error = grblCode(res) || -1;
-    };
-    runner.on('parserstate', onParser);
-    runner.on('ok', onOk);
-    runner.on('error', onError);
-    t.done = () => {
-      runner.removeListener('parserstate', onParser);
-      runner.removeListener('ok', onOk);
-      runner.removeListener('error', onError);
-    };
-    return t;
-  };
-
-  // Resolves once the line sent is acknowledged and two reports received after
-  // its `ok` show the machine idle (a move answers `ok` when it is planned;
-  // the second report is at least one polling period later); rejects on an
-  // alarm, a Grbl error, a lost controller or the time limit.
-  const quiet = (c, r, t, limitMs) => new Promise((resolve, reject) => {
-    const deadline = clock() + limitMs;
-    const check = () => {
-      if (controllers()[c.options.port] !== c || c.isClose() || !c.runner || !c.feeder) {
-        reject(conflict('Connexion machine perdue pendant le palpage.'));
-        return;
-      }
-      const state = controllerStatus(c).activeState || '';
-      if (/^Alarm/.test(state)) {
-        reject(conflict('Alarme pendant le palpage (' + (r.alarm ? 'ALARM:' + r.alarm : 'code non reçu') + ') : arrêtez le travail, déverrouillez ($X) et vérifiez la sonde.'));
-        return;
-      }
-      if (r.probing && r.probing.error) {
-        reject(conflict('Grbl a refusé une ligne du palpage (error:' + r.probing.error + ').'));
-        return;
-      }
-      if (r.probing && r.probing.cancelled) {
-        reject(conflict('Palpage interrompu par l’opérateur.'));
-        return;
-      }
-      if (t.error) {
-        reject(conflict('Grbl a refusé une ligne du palpage (error:' + t.error + ').'));
-        return;
-      }
-      if (t.oks >= 1 && state === 'Idle' && r.reports >= t.reportsAtOk + 2) {
-        resolve();
-        return;
-      }
-      if (clock() > deadline) {
-        reject(conflict('Palpage sans réponse à temps : arrêtez et vérifiez la machine.'));
-        return;
-      }
-      later(c, r, check, 100, () => reject(conflict('Palpage abandonné (service arrêté ou contrôleur retiré) : vérifiez la machine.')));
-    };
-    check();
+  // Z zero with a touch plate, and the tracking of Grbl's answers to the
+  // lines the service sends itself: see plate-probe.js.
+  const { zeroZReady, plateParams, answers, zeroZ } = createPlateProbe({
+    config,
+    clock,
+    conflict,
+    controllers,
+    record,
+    later,
+    changed,
+    available,
+    spindleStill,
+    pauseKind,
+    modalFresh,
+    allSettings,
+    settingNumber,
+    hasAutomations,
+    grblCode,
+    probeInput
   });
-
-  const zeroZ = (c, t) => {
-    zeroZReady(c);
-    const r = record(c);
-    const p = t.params;
-    const zOf = () => axisNumber(controllerStatus(c).wpos && controllerStatus(c).wpos.z);
-    const send = (line, limitMs) => {
-      const t = answers(c, r);
-      c.command('gcode', line);
-      return quiet(c, r, t, limitMs).then(() => t.done(), (err) => {
-        t.done();
-        throw err;
-      });
-    };
-    r.probing = { contact: null, error: null };
-    changed();
-    const z0 = zOf();
-    // What the paused program expects back (see zeroZReady).
-    const parser = (c.runner.state && c.runner.state.parserstate) || {};
-    const inPause = c.workflow.state === 'paused';
-    const feed = Number(parser.feedrate);
-    const restore = inPause ? parser.modal.motion + (feed > 0 ? ' F' + fmt(feed) : '') : null;
-    return send('G38.2 Z' + fmt(z0 - p.search) + ' F' + PLATE.fastFeed, 60000 * p.search / PLATE.fastFeed + 15000)
-      .then(() => {
-        const cz = zOf();
-        if (cz === null || cz > z0 - 0.01 || cz <= z0 - p.search + 0.001) {
-          throw conflict('Palpage sans contact net (Z ' + cz + ' depuis ' + z0 + ').');
-        }
-        r.probing.contact = cz;
-        return send('G0 Z' + fmt(cz + PLATE.backOff), 15000);
-      })
-      .then(() => send('G38.2 Z' + fmt(r.probing.contact - PLATE.backOff) + ' F' + PLATE.slowFeed, 30000))
-      .then(() => {
-        const status = controllerStatus(c);
-        r.probing.contact = zOf();
-        r.probing.machineZ = axisNumber(status.mpos && status.mpos.z);
-        return send('G10 L20 P0 Z' + fmt(p.thickness), 15000);
-      })
-      .then(() => {
-        const now = zOf();
-        if (now === null || Math.abs(now - p.thickness) > 0.05) {
-          throw conflict('Le repère n’a pas pris la valeur attendue (Z ' + now + ' au lieu de ' + p.thickness + ').');
-        }
-        return send('G0 Z' + fmt(p.thickness + PLATE.clearance), 15000);
-      })
-      .then(() => (restore ? send(restore, 15000) : null))
-      .then(() => {
-        r.zeroZ = { at: Date.now(), thickness: p.thickness, machineZ: r.probing.machineZ, wcs: r.wcs };
-        r.probing = null;
-        changed();
-        return { message: 'Zéro Z réglé avec la plaque de ' + p.thickness + ' mm (contact à Z machine ' + fmt(r.zeroZ.machineZ) + ', repère ' + r.zeroZ.wcs + '). Outil dégagé à Z ' + fmt(p.thickness + PLATE.clearance) + '.' };
-      })
-      .catch((err) => {
-        r.zeroZ = { at: Date.now(), failed: err.message };
-        // The modal state the paused program relies on is no longer known.
-        if (inPause && r.job) {
-          r.job.probeFailed = true;
-        }
-        r.probing = null;
-        changed();
-        throw err;
-      });
-  };
 
   // Real jogging and work origins (F1): experimental, disabled unless .cncrc
   // has touch.motion.enabled: true (see motion.js).
@@ -1368,46 +1022,6 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     };
   };
 
-  // Reads a program from the watch directory and hands it to the controller.
-  // The file must sit directly in the watch directory and must not change
-  // while it is read.
-  const validName = (file) => {
-    if (typeof file !== 'string' || file !== path.basename(file) ||
-        /[\\/\0]/.test(file) || !/\.(nc|gcode|ngc|tap|cnc|txt)$/i.test(file)) {
-      throw conflict('Nom de fichier invalide.');
-    }
-  };
-
-  // The exact program and its fingerprint (A5), through the monitor in
-  // production (plain file really inside the directory, unchanged while read).
-  const readProgram = async (name) => {
-    let read;
-    try {
-      read = await files.readProgram(name);
-    } catch (err) {
-      throw fileConflict(err);
-    }
-    // CNCjs % directives execute expressions; this library accepts plain G-code only.
-    if (/^[ \t]*%[ \t]*[^\r\n \t]/m.test(read.text)) {
-      throw conflict('Les directives CNCjs % ne sont pas acceptées par cette bibliothèque.');
-    }
-    return read;
-  };
-
-  // The file on disk must still be the one that was loaded (A5): a program
-  // replaced under the same name since the load is refused at start/resume.
-  const sameFileAsLoaded = async (j) => {
-    let current;
-    try {
-      current = await files.fingerprintOf(j.name);
-    } catch (err) {
-      throw fileConflict(err);
-    }
-    if (!sameProgram(j.fingerprint, current.fingerprint)) {
-      throw conflict('Fichier modifié depuis le chargement : rechargez-le.');
-    }
-  };
-
   // What the travel check (F2) needs from the machine right now.
   const machineForCheck = (c, r) => {
     const status = controllerStatus(c);
@@ -1431,97 +1045,22 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     };
   };
 
-  // What a resume from a line would send, without loading anything.
-  const resumePlan = async (c, body) => {
-    available(c);
-    validName(body.file);
-    const { text: gcode } = await readProgram(body.file);
-    const plan = buildResume(gcode, Number(body.line), { name: body.file.replace(/--touch-\d{14}-[a-f0-9]{16}(?=\.[^.]+$)/, '') });
-    const summary = { ...plan };
-    delete summary.program;
-    return summary;
-  };
-
-  // Travel pre-check of any library file against this controller (F2); the
-  // loaded job's check is in every snapshot as `programCheck`.
-  const checkFile = async (c, body) => {
-    validName(body.file);
-    const { text, fingerprint } = await readProgram(body.file);
-    const r = record(c);
-    return { file: body.file, fingerprint, programCheck: checkProgram(analyzeProgram(text), machineForCheck(c, r)) };
-  };
-
-  const load = async (c, r, body, actor) => {
-    idle(c);
-    if (r.loading) {
-      throw conflict('Un chargement est déjà en cours.');
-    }
-    validName(body.file);
-
-    r.loading = true;
-    r.ticket = null;
-    try {
-      const { text: gcode, fingerprint } = await readProgram(body.file);
-
-      // Recheck after asynchronous disk access, before replacing the loaded job.
-      idle(c);
-      if (hasAutomations(config)) {
-        throw conflict('Automatismes CNCjs à vérifier avant chargement.');
-      }
-
-      const originalName = body.file.replace(/--touch-\d{14}-[a-f0-9]{16}(?=\.[^.]+$)/, '');
-      let program = gcode;
-      let resume = null;
-      if (body.fromLine !== undefined && body.fromLine !== null) {
-        const plan = buildResume(gcode, Number(body.fromLine), { name: originalName });
-        program = plan.program;
-        resume = {
-          from: plan.from,
-total: plan.total,
-line: plan.line,
-tool: plan.tool,
-toolChanged: plan.toolChanged,
-          spindle: plan.spindle,
-coolant: plan.coolant,
-preambleLength: plan.preamble.length,
-notes: plan.notes
-        };
-      }
-      const revision = crypto.randomBytes(20).toString('hex');
-      await new Promise((resolve, reject) => {
-        c.command('gcode:load', body.file, program, { touchJob: revision }, (err) => {
-          if (err) {
-            reject(err);
-          } else {
-            resolve();
-          }
-        });
-      });
-      r.job = {
-        revision,
-        // Short id for the history (the revision itself is credential-shaped and masked there).
-        id: revision.slice(0, 12),
-        name: body.file,
-        originalName,
-        // SHA-256 of the file as loaded (A5): checked again at start/resume.
-        fingerprint,
-        started: false,
-        // G54-G59.x select, G10 L2/L20 and G92 change the work offset.
-        changesOffset: changesOffset(resume ? programLines(gcode).slice(resume.from - 1).join('\n') : gcode),
-        sets: modalsBeforeFirstMove(program),
-        // Travel pre-check (F2) of the program as sent (the rebuilt one for a resume).
-        analysis: analyzeProgram(program),
-        wcsAtStart: null,
-        startActor: null,
-        resume
-      };
-      log({ event: 'load', ...jobInfo(r.job), controller: controllerInfo(c, r), actor: actor || null });
-      return { message: resume ? 'Reprise à la ligne ' + resume.from + ' chargée dans CNCjs. Aucun démarrage envoyé.' : 'Fichier chargé dans CNCjs. Aucun démarrage envoyé.' };
-    } finally {
-      r.loading = false;
-      changed();
-    }
-  };
+  // Reading, fingerprint (A5) and load of a program, resume plan, travel check
+  // of a library file: see job-load.js.
+  const { sameFileAsLoaded, resumePlan, checkFile, load } = createLoader({
+    files,
+    config,
+    conflict,
+    available,
+    idle,
+    hasAutomations,
+    record,
+    changed,
+    log,
+    jobInfo,
+    controllerInfo,
+    machineForCheck
+  });
 
   // After a tool change the spindle was stopped by the operator: start it at
   // the programmed speed and wait for the spin-up dwell to be acknowledged
@@ -1937,8 +1476,8 @@ notes: plan.notes
     // loading, probing, homing, jogging, waiting in the feeder or waiting for
     // a confirmation keeps a kiosk's lease alive by itself.
     const busy = (port) => {
-      // A host command holds the machine (see reserveSystemCommand): its owner keeps it.
-      if (systemCommand) {
+      // A host command holds the machine (see system-command.js): its owner keeps it.
+      if (systemCommands.current()) {
         return true;
       }
       const c = registry[port];
@@ -1988,7 +1527,7 @@ notes: plan.notes
       return '';
     }
     const registry = controllers();
-    return (systemCommand ? systemCommand.since + '#' : '') + control.signature() + '#' + Object.keys(registry).map((port) => {
+    return (systemCommands.current() ? systemCommands.current().since + '#' : '') + control.signature() + '#' + Object.keys(registry).map((port) => {
       const c = registry[port];
       if (!c) {
         return port;
@@ -2062,83 +1601,12 @@ notes: plan.notes
     changed();
   };
 
-  // A host command (shutdown, restart, service restart…) is about to run on
-  // the computer: refused while any connected controller works, pauses, moves,
-  // homes, probes or loads, or while its report is too old to tell; exclusive
-  // otherwise. Taken synchronously by the API before the task starts, so no
-  // start can slip in between; while it holds, available() refuses every
-  // action that moves the machine and the stream shows it to the operator.
-  // The caller releases it when the task ends.
-  const reserveSystemCommand = ({ id, title, commands } = {}) => {
-    if (disposed) {
-      throw conflict('Service indisponible.');
-    }
-    if (systemCommand) {
-      throw conflict('Commande système déjà en cours (' + systemCommand.title + ').');
-    }
-    const registry = controllers();
-    Object.keys(registry).forEach((port) => {
-      const c = registry[port];
-      if (!c || c.isClose()) {
-        return;
-      }
-      if (c.workflow && c.workflow.state !== 'idle') {
-        throw conflict('Un travail est en cours ou en pause sur ' + port + ' : commande système refusée.');
-      }
-      const state = controllerStatus(c).activeState || '';
-      if (['Run', 'Hold', 'Home', 'Jog'].includes(state) || /^Door/.test(state)) {
-        throw conflict('Machine en mouvement ou occupée (' + state + ') sur ' + port + ' : commande système refusée.');
-      }
-      const feeder = c.feeder && typeof c.feeder.toJSON === 'function' ? c.feeder.toJSON() : {};
-      if (feeder.queue || feeder.pending) {
-        throw conflict('Commandes en attente sur ' + port + ' : commande système refusée.');
-      }
-      if (c.type === 'Grbl') {
-        // A controller may not have been listed yet (no stream client): give
-        // it its record and status listener here, so a retry can judge its
-        // freshness (the stream heartbeat does the same, see observe()).
-        const r = record(c);
-        if (!Number.isFinite(r.seen) || clock() < r.seen || clock() - r.seen > MAX_REPORT_AGE_MS) {
-          throw conflict('État machine trop ancien sur ' + port + ' : attendre un rapport récent, puis réessayer.');
-        }
-        if (r.probing) {
-          throw conflict('Palpage en cours sur ' + port + ' : commande système refusée.');
-        }
-        if (r.loading) {
-          throw conflict('Chargement en cours sur ' + port + ' : commande système refusée.');
-        }
-        if (homingActive(r)) {
-          throw conflict('Prise d’origine en cours sur ' + port + ' : commande système refusée.');
-        }
-      }
-    });
-    const reservation = {
-      id: String(id || ''),
-      title: String(title || commands || '').slice(0, 80),
-      since: Date.now()
-    };
-    systemCommand = reservation;
-    changed();
-    return {
-      release: () => {
-        if (systemCommand !== reservation) {
-          return;
-        }
-        systemCommand = null;
-        changed();
-      }
-    };
-  };
-
-  // What the operator is shown while a host command runs.
-  const systemCommandOf = () => (systemCommand ? { title: systemCommand.title, since: systemCommand.since } : null);
-
   const dispose = () => {
     disposed = true;
     listeners.clear();
     transports.clear();
     transportActors.clear();
-    systemCommand = null;
+    systemCommands.clear();
     for (const [c, r] of records) {
       remove(c, r);
     }
@@ -2156,8 +1624,8 @@ notes: plan.notes
     openTransport,
     closeTransport,
     ticketPending,
-    reserveSystemCommand,
-    systemCommand: systemCommandOf,
+    reserveSystemCommand: systemCommands.reserve,
+    systemCommand: systemCommands.view,
     control,
     dispose
   };
