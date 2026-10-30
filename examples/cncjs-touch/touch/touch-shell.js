@@ -55,11 +55,18 @@
     if(document.body.classList.contains('t-compact')!==compact)document.body.classList.toggle('t-compact',compact);
     window.dispatchEvent(new CustomEvent('cnc-library-page-size',{detail:compact?3:5}));window.dispatchEvent(new CustomEvent('cnc-history-page-size',{detail:compact?4:8}));}
   window.addEventListener('resize',fitLibrary);fitLibrary();
-  var openedSheet=null,sheetReturn=null;
+  var openedSheet=null,sheetReturn=null,sheetRestore=null;
+  // Pause / Arrêter of the strip stay usable over a sheet (strip-guard.js, U5): the sheet
+  // starts below the strip and makes the rest inert; without the guard, everything else.
+  function isolate(overlay){
+    if(window.CNCStripGuard)return window.CNCStripGuard.isolate(overlay);
+    main.inert=true;nav.inert=true;banner.inert=true;
+    return function(){main.inert=false;nav.inert=false;banner.inert=false;};
+  }
   function closeSheet(){
     if(!openedSheet)return;
     openedSheet.hidden=true;openedSheet=null;
-    main.inert=false;nav.inert=false;banner.inert=false;
+    if(sheetRestore){sheetRestore();sheetRestore=null;}
     if(sheetReturn)sheetReturn.focus({preventScroll:true});
   }
   function sheet(id,title){
@@ -67,13 +74,15 @@
     overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-labelledby',id+'-title');
     overlay.innerHTML=uiLocale.html('<div class="ks-sheet-card"><header><h2 id="')+id+uiLocale.html('-title"></h2><button type="button" aria-label="Fermer">Fermer ×</button></header><div class="ks-sheet-content"></div></div>');
     overlay.querySelector('h2').textContent=title;overlay.querySelector('button').addEventListener('click',closeSheet);document.body.appendChild(overlay);
-    return {content:overlay.querySelector('.ks-sheet-content'),open:function(){sheetReturn=document.activeElement;openedSheet=overlay;overlay.hidden=false;main.inert=true;nav.inert=true;banner.inert=true;overlay.querySelector('button').focus();}};
+    return {content:overlay.querySelector('.ks-sheet-content'),open:function(){if(openedSheet===overlay)return;if(openedSheet)closeSheet();sheetReturn=document.activeElement;openedSheet=overlay;sheetRestore=isolate(overlay);overlay.hidden=false;overlay.querySelector('button').focus();}};
   }
   document.addEventListener('keydown',function(e){
     if(!openedSheet)return;
     if(e.key==='Escape'){e.preventDefault();closeSheet();}
     if(e.key==='Tab'){
       var focusable=Array.prototype.filter.call(openedSheet.querySelectorAll('button,input,select,a[href]'),function(el){return !el.disabled&&!el.hidden&&el.getClientRects().length;});
+      // The strip's Pause / Arrêter belong to the cycle (strip-guard.js).
+      if(window.CNCStripGuard){window.CNCStripGuard.tab(e,openedSheet,focusable);return;}
       var first=focusable[0],last=focusable[focusable.length-1];
       if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
       else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
@@ -183,7 +192,7 @@
     live('settings','',uiLocale.t('Affichage · veille · système'));
     // Machine screen: the state word and the alarm explained.
     setText(machineWord,word.word);if(machineWord.getAttribute('data-tone')!==word.tone)machineWord.setAttribute('data-tone',word.tone);
-    var help=alarm?(simulation?{title:uiLocale.t('Alarme fictive'),action:uiLocale.t('Effacez l’alarme ci-contre, puis confirmez la reprise dans Suivi.')}:window.CNCGrblHelp?window.CNCGrblHelp.alarm(m.alarmCode):{title:word.word,action:''}):null;
+    var help=alarm?(simulation?{title:uiLocale.t('Alarme fictive'),action:uiLocale.t('Effacez l’alarme ci-contre, puis confirmez la reprise dans Suivi.')}:window.CNCGrblHelp?window.CNCGrblHelp.alarm(m.alarmCode,m.alarmCodeInferred):{title:word.word,action:''}):null;
     if(machineAlarm.hidden!==!help)machineAlarm.hidden=!help;
     if(help){setText(document.getElementById('ks-machine-alarm-title'),help.title);setText(document.getElementById('ks-machine-alarm-action'),help.action);}
   }

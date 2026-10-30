@@ -3,7 +3,7 @@
   var uiLocale=(typeof window!=='undefined'&&window.cncI18n)||{t:function(s){return s;},html:function(s){return s;}};
   var model=window.CNCCoordinates,host=document.querySelector('#screen-jog .ks-motion-coordinates');
   if(!model||!host)return;
-  var simulation=document.body.getAttribute('data-simulation')==='true',machine=null,busy=false,received=0,draft=null,returnTo=null,background=[];
+  var simulation=document.body.getAttribute('data-simulation')==='true',machine=null,busy=false,received=0,draft=null,returnTo=null,background=null;
   var entry=document.createElement('button');entry.id='coordinate-open';entry.className='ks-secondary coordinate-entry';entry.textContent=simulation?uiLocale.t('Coordonnées · Aller à / Définir'):uiLocale.t('Coordonnées · préparer sans mouvement');host.appendChild(entry);
   var frameLabel=document.createElement('span');frameLabel.className='coordinate-frame';frameLabel.id='coordinate-frame-label';host.querySelector('h2').appendChild(frameLabel);
   var modal=document.createElement('div');modal.id='coordinate-editor';modal.className='coordinate-editor';modal.hidden=true;
@@ -47,10 +47,13 @@
     try{put($('current'),'textContent',s?'Machine : '+model.number(s.machinePosition[a]).toFixed(3)+' mm · Travail : '+model.number(s.workPosition[a]).toFixed(3)+' mm':uiLocale.t('Coordonnées indisponibles'));}catch(_){put($('current'),'textContent',uiLocale.t('Coordonnées indisponibles'));put($('calculate'),'disabled',true);}
     put($('confirm'),'disabled',!simulation||!draft||!!why);
   }
-  function close(){modal.hidden=true;invalidate();background.forEach(function(e){e.node.inert=e.inert;});background=[];if(returnTo&&returnTo.isConnected)returnTo.focus({preventScroll:true});}
+  function close(){modal.hidden=true;invalidate();var restore=background;background=null;if(typeof restore==='function')restore();if(returnTo&&returnTo.isConnected)returnTo.focus({preventScroll:true});}
   function open(){
     returnTo=document.activeElement;invalidate(uiLocale.t('Saisissez une valeur, puis préparez l’opération.'));$('value').value='';
-    background=Array.prototype.filter.call(document.body.children,function(n){return n!==modal&&!/^(SCRIPT|LINK|STYLE)$/.test(n.tagName);}).map(function(n){var e={node:n,inert:n.inert};n.inert=true;return e;});
+    // Pause / Arrêter of the strip stay usable over the editor (strip-guard.js, U5).
+    if(typeof background==='function')background();
+    if(window.CNCStripGuard)background=window.CNCStripGuard.isolate(modal);
+    else{var entries=Array.prototype.filter.call(document.body.children,function(n){return n!==modal&&!/^(SCRIPT|LINK|STYLE)$/.test(n.tagName);}).map(function(n){var e={node:n,inert:n.inert};n.inert=true;return e;});background=function(){entries.forEach(function(e){e.node.inert=e.inert;});};}
     modal.hidden=false;render();$('close').focus();
   }
   entry.addEventListener('click',open);$('close').addEventListener('click',close);
@@ -84,6 +87,6 @@
   document.addEventListener('visibilitychange',function(){invalidate();if(document.hidden&&!modal.hidden)close();});
   document.addEventListener('keydown',function(e){
     if(modal.hidden)return;if(e.key==='Escape'){e.preventDefault();close();}
-    if(e.key==='Tab'){var controls=Array.prototype.filter.call(modal.querySelectorAll('button,input,select'),function(n){return !n.disabled;});var first=controls[0],last=controls[controls.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}
+    if(e.key==='Tab'){var controls=Array.prototype.filter.call(modal.querySelectorAll('button,input,select'),function(n){return !n.disabled;});if(window.CNCStripGuard){window.CNCStripGuard.tab(e,modal,controls);return;}var first=controls[0],last=controls[controls.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}
   });
 })();

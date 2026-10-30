@@ -82,6 +82,16 @@ try {
     vm.runInNewContext(fs.readFileSync(path.join(tinyOut, tm.pages[0].js), 'utf8'), sandbox);
     assert.deepEqual(sandbox.window.order, ['a', 'b', 'c'], 'the modules after a failing one still run');
     assert.deepEqual(reported, ['boom'], 'the failure is reported to the page (window error event)');
+    // A syntax error would lose the whole bundle (the try blocks do not cover it): the build
+    // refuses, names the file and writes nothing (audit 31, R-B2).
+    const refusedOut = path.join(tinyOut, 'refused');
+    fs.writeFileSync(path.join(tiny, 'b.js'), '(function () { window.order.push("b"; })();\n');
+    assert.throws(() => build(refusedOut, tiny), /bundle refused: b\.js does not compile \(line 1/);
+    assert(!fs.existsSync(refusedOut), 'nothing written when a module does not compile');
+    // Syntax newer than the tablet's Chromium 106 level used by the sources (ES2017) is refused too.
+    fs.writeFileSync(path.join(tiny, 'b.js'), '(function () { var x = window.order ?? []; x.push("b"); })();\n');
+    let acornAvailable = true; try { require('acorn'); } catch (_) { acornAvailable = false; }
+    if (acornAvailable) assert.throws(() => build(refusedOut, tiny), /bundle refused: b\.js/);
   } finally { fs.rmSync(tiny, { recursive: true, force: true }); fs.rmSync(tinyOut, { recursive: true, force: true }); }
 } finally { fs.rmSync(out, { recursive: true, force: true }); }
 console.log('PASS bundle: every deferred script and sheet concatenated in page order, verbatim and parseable, each module isolated (a failing one is reported, the next ones run); externals before the bundle; startup.js blocking, startup-ready last; content-hashed names, deterministic, renamed on change; original files kept for the workers.');

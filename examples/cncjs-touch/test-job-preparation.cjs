@@ -15,6 +15,9 @@ assert.equal(states(r),'file:blocking tool:todo origin:todo checks:blocking read
 // Selected, not loaded.
 r=P.assess({machine:{...idle,name:''},selection:sel,ticks:{}});
 assert.equal(r.steps[0].state,'todo');assert.match(r.steps[0].next,/Chargez-le/);assert.equal(r.steps[4].state,'todo');
+// Validation D2: before any load the server's start reason (« Le fichier chargé a changé… ») is not shown.
+r=P.assess({machine:{...idle,name:'',canStart:false,startReason:'Le fichier chargé a changé. Rechargez-le et confirmez à nouveau.'},selection:sel,ticks:{}});
+assert.equal(r.steps[4].detail,'Après le chargement du fichier.');assert.doesNotMatch(r.steps.map(x=>x.detail).join(' '),/a changé/);
 // Loaded and selected, nothing ticked: the machine accepts a start but steps remain; not ready.
 r=P.assess({machine:idle,selection:sel,ticks:{},travel:{state:'ok',message:'Dans la course machine en X et Y.'}});
 assert.equal(states(r),'file:ok tool:todo origin:todo checks:ok ready:todo');assert(!r.ready);assert.match(r.steps[4].detail,/étapes à cocher/);

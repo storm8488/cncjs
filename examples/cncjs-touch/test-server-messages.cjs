@@ -71,11 +71,19 @@ const refusal = (fn) => { try { fn(); } catch (err) { return err; } throw new Er
   assert.equal(en.format('ETOUCH_NOT_A_CODE', null, 'Réponse de suivi invalide.'), 'Invalid monitoring response.');
   assert.equal(en.format(null, null, ''), 'Refused by the server, no details.');
   assert.equal(fr.format(null, null, '   '), 'Refus du serveur sans détail.');
-  // HTML in a value is escaped, and a value is never read again as a template.
+  // The output is plain text (written with textContent, never as markup): a value is shown as
+  // written (no « &amp; » entity on screen, audit 31 D-T1) and is never read again as a template.
   const html = en.format('ETOUCH_RESUME_UNITS_LATE', { units: '<img src=x onerror="alert(1)">', line: 3 }, french);
-  assert.doesNotMatch(html, /<|>|"/); assert.match(html, /&lt;img src=x onerror=&quot;alert\(1\)&quot;&gt;/);
-  assert.equal(en.format('ETOUCH_RESUME_UNITS_LATE', { units: "{line}'\u0007", line: 3 }, french),
-    'The program sets its units ({line}&#39;) at line 3 after moves made in the machine’s units: cannot resume.');
+  assert.equal(html, 'The program sets its units (<img src=x onerror="alert(1)">) at line 3 after moves made in the machine’s units: cannot resume.');
+  assert.equal(en.format('ETOUCH_RESUME_UNITS_LATE', { units: "A&B{line}'\u0007", line: 3 }, french),
+    'The program sets its units (A&B{line}\') at line 3 after moves made in the machine’s units: cannot resume.');
+  // Contract of that plain text: no caller writes it as HTML.
+  const touchDir = path.join(__dirname, 'touch');
+  for (const file of fs.readdirSync(touchDir).filter((f) => f.endsWith('.js') && f !== 'i18n.js')) {
+    fs.readFileSync(path.join(touchDir, file), 'utf8').split('\n').forEach((line, i) => {
+      if (/\.format\(/.test(line) && /innerHTML|insertAdjacentHTML|outerHTML|\.html\(/.test(line)) assert.fail(file + ':' + (i + 1) + ' writes cncI18n.format() as HTML');
+    });
+  }
   assert.equal(en.format('ETOUCH_RESUME_UNITS_LATE', { units: 'G' + 'x'.repeat(200), line: 3 }, french).match(/\(G(x+)\)/)[1].length, 63, 'values capped');
 
   // Catalog: four non-empty texts per row, the same values in every language, no duplicate.
@@ -127,5 +135,5 @@ const refusal = (fn) => { try { fn(); } catch (err) { return err; } throw new Er
   const e = await plan.then(() => null, (x) => x);
   assert.equal(e.message, 'Spindle speed unknown before line 40: cannot resume.'); assert.equal(e.code, 'ETOUCH_RESUME_SPINDLE_SPEED'); assert.equal(e.params.from, 40);
   c.dispose();
-  console.log('PASS server messages: ' + rows.length + ' coded templates FR/EN/ES, French templates equal to the server, French fallback, escaped values, every server code covered, F2 coded reasons, job controls.');
+  console.log('PASS server messages: ' + rows.length + ' coded templates FR/EN/ES, French templates equal to the server, French fallback, plain-text values, every server code covered, F2 coded reasons, job controls.');
 })().catch((error) => { console.error(error); process.exit(1); });

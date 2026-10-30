@@ -79,6 +79,9 @@
     var ticksOk = !!(ticks.tool && ticks.origin), blocked = steps.some(function (st) { return st.state === 'blocking'; });
     if (!fresh) { ready.state = 'blocking'; ready.detail = t('État machine indisponible.'); }
     else if (busy) { ready.state = 'ok'; ready.detail = t('Travail en cours ou en pause : voir Suivi.'); }
+    // Nothing loaded yet: the server's start reason (« Le fichier chargé a changé… » there,
+    // validation D2) does not describe that case; the next step is the loading itself.
+    else if (!loaded) { ready.state = blocked ? 'blocking' : 'todo'; ready.detail = t('Après le chargement du fichier.'); }
     else if (!c.canStart) { ready.state = blocked ? 'blocking' : 'todo'; ready.detail = msg(c.startReason || t('Démarrage indisponible.')); }
     else if (!ticksOk) { ready.state = 'todo'; ready.detail = t('La machine accepte le démarrage ; il reste des étapes à cocher.'); ready.next = t('Terminez les étapes ci-dessus.'); }
     else { ready.state = 'ok'; ready.detail = t('Tout est coché et la machine est prête.'); ready.next = t('Démarrer se touche dans Suivi, avec sa confirmation. Rien ne part d’ici.'); }

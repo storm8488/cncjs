@@ -112,7 +112,7 @@
     '.library-project-head,.library-project-actions,#project-version-actions,#project-related-links{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center}' +
     '#library-project .project-line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:0;min-width:100%}#library-project [data-tone="danger"],#project-version-full{color:var(--danger-text);font-weight:600}#library-project [data-tone="warn"]{color:var(--warn-text,var(--fg))}' +
     '#project-warnings{margin:0;padding-left:var(--sp-4)}#project-warnings li[data-tone="danger"]{color:var(--danger-text)}#project-details-summary{white-space:pre-line;color:var(--fg)}' +
-    '#project-dialog[hidden],#project-dialog section[hidden]{display:none}#project-dialog .t-dialog{max-height:calc(100vh - 48px);overflow:auto}' +
+    '#project-dialog[hidden],#project-dialog section[hidden]{display:none}#project-dialog .t-dialog{max-height:calc(100vh - 48px);overflow:auto}#project-dialog.t-below-strip .t-dialog{max-height:calc(100vh - var(--statusbar-h,72px) - 48px)}' +
     '#project-dialog label{display:block;margin-top:var(--sp-2);color:var(--fg);font-size:var(--fs-18,18px)}#project-dialog input[type=text],#project-dialog select,#project-dialog textarea{width:100%;box-sizing:border-box}' +
     '#project-dialog .project-stock{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--sp-2)}#project-dialog .t-check input{min-height:0;width:28px;height:28px}';
   document.head && document.head.appendChild && document.head.appendChild(style);
@@ -186,10 +186,28 @@
     if (!current) return;
     fillEditor();
     $('project-details').hidden = section !== 'details'; $('project-editor').hidden = section !== 'editor'; $('project-compensation').hidden = section !== 'compensation';
-    $('project-dialog-status').textContent = ''; $('project-dialog').hidden = false;
+    $('project-dialog-status').textContent = '';
+    // Pause / Arrêter of the strip stay usable over the sheet (strip-guard.js, U5): it starts
+    // below the strip and makes the rest of the page inert.
+    if ($('project-dialog').hidden) { dialogReturn = document.activeElement; if (root.CNCStripGuard) dialogRestore = root.CNCStripGuard.isolate($('project-dialog')); }
+    $('project-dialog').hidden = false;
     renderCapture();
+    var sheet = $('project-dialog'), first = typeof sheet.querySelector === 'function' ? sheet.querySelector('section:not([hidden]) button, section:not([hidden]) input, #project-dialog-close') : null; if (first && typeof first.focus === 'function') first.focus({ preventScroll: true });
   }
-  function closeDialog() { if (!$('project-dialog').hidden) { $('project-dialog').hidden = true; $('project-dialog-status').textContent = ''; } }
+  var dialogRestore = null, dialogReturn = null;
+  function closeDialog() {
+    if ($('project-dialog').hidden) return;
+    $('project-dialog').hidden = true; $('project-dialog-status').textContent = '';
+    var restore = dialogRestore; dialogRestore = null; if (restore) restore();
+    var target = dialogReturn; dialogReturn = null;
+    if (target && target.isConnected && !target.disabled && typeof target.focus === 'function') target.focus({ preventScroll: true });
+  }
+  // Escape closes the sheet; Tab cycles through the strip's Pause / Arrêter and the sheet.
+  document.addEventListener('keydown', function (e) {
+    if ($('project-dialog').hidden) return;
+    if (e.key === 'Escape') { e.preventDefault(); closeDialog(); return; }
+    if (e.key === 'Tab' && root.CNCStripGuard) root.CNCStripGuard.tab(e, $('project-dialog'));
+  });
   function updated() { indexRevision++; root.dispatchEvent(new CustomEvent('cnc-projects-updated', { detail: { revision: indexRevision } })); }
   function remember(file, entry, version) {
     if (entry) index[file] = { favorite: !!entry.favorite, version: version, compensated: !!entry.compensation, haystack: haystack(entry) };

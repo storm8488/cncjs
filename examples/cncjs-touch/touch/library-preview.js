@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
   var source = typeof document !== 'undefined' && document.currentScript && document.currentScript.src;
-  var workerURL = source ? source.split(/[?#]/)[0].replace(/[^/]*$/, 'library-preview-worker.js?v=worker13') : 'library-preview-worker.js?v=worker13';
+  var workerURL = source ? source.split(/[?#]/)[0].replace(/[^/]*$/, 'library-preview-worker.js?v=worker31f') : 'library-preview-worker.js?v=worker31f';
   var generation = 0;
   // Floats per drawn segment: x, y, xx, yy, mode, deepest Z of the segment.
   var STRIDE = 6;
@@ -500,7 +500,60 @@
       } catch (error) { finish(error); }
     });
   }
-  var api = { scan: scan, render: render,
+  // The note and the refusals are composed in French and kept in the sidecar (written once,
+  // read on every device): they are translated where they are shown, sentence by sentence,
+  // by the patterns below (anything not matched stays as written). Plain text, for textContent.
+  var NOTE_TEXT = [
+    [/Projection XY indicative — G1\/G2\/G3 cyan au-dessus de Z0, du violet \(peu profond\) au rouge \(le plus profond\) sous Z0, G0 gris\./g,
+      'Indicative XY projection — G1/G2/G3 cyan above Z0, from purple (shallow) to red (deepest) below Z0, G0 grey.',
+      'Proyección XY indicativa — G1/G2/G3 cian por encima de Z0, del violeta (poco profundo) al rojo (más profundo) bajo Z0, G0 gris.'],
+    [/Projection XY indicative — G1\/G2\/G3 bleu, G0 gris\./g, 'Indicative XY projection — G1/G2/G3 blue, G0 grey.', 'Proyección XY indicativa — G1/G2/G3 azul, G0 gris.'],
+    [/Arcs interpolés à 0,02 mm\./g, 'Arcs interpolated at 0.02 mm.', 'Arcos interpolados a 0,02 mm.'],
+    [/Départ supposé X0 Y0, Z relatif au point de départ, mm, absolu et centres I\/J relatifs\./g,
+      'Start assumed at X0 Y0, Z relative to the starting point, mm, absolute, relative I/J centres.',
+      'Inicio supuesto en X0 Y0, Z relativo al punto de partida, mm, absoluto y centros I/J relativos.'],
+    [/Départ supposé X0 Y0 Z0, mm, absolu et centres I\/J relatifs\./g,
+      'Start assumed at X0 Y0 Z0, mm, absolute, relative I/J centres.', 'Inicio supuesto en X0 Y0 Z0, mm, absoluto y centros I/J relativos.'],
+    [/Puissance laser non simulée\./g, 'Laser power not simulated.', 'Potencia láser no simulada.'],
+    [/Mot O \(ligne (\d+)\) ignoré par l’aperçu ; Grbl 1\.1 ne le prend pas en charge \(erreur 20 attendue\)\./g,
+      'O word (line $1) ignored by the preview; Grbl 1.1 does not support it (error 20 expected).',
+      'Palabra O (línea $1) ignorada por la vista previa; Grbl 1.1 no la admite (error 20 esperado).'],
+    [/Retour G(\d+) \(ligne (\d+)\) : position inconnue de l’aperçu, tracé coupé jusqu’à ce que X, Y et Z soient redonnés en absolu\./g,
+      'G$1 return (line $2): position unknown to the preview, drawing cut until X, Y and Z are given again in absolute.',
+      'Retorno G$1 (línea $2): posición desconocida para la vista previa, trazado cortado hasta que X, Y y Z se vuelvan a dar en absoluto.'],
+    [/Tracé en coordonnées de travail (G5[4-9](?:\.\d)?), le repère choisi par le programme\./g,
+      'Drawn in work coordinates $1, the offset chosen by the program.', 'Trazado en coordenadas de trabajo $1, el sistema elegido por el programa.'],
+    [/Vues 3D non produites hors du repère G54\./g, '3D views not produced outside the G54 offset.', 'Vistas 3D no generadas fuera del sistema G54.'],
+    [/Calcul local de secours : réactivité à vérifier sur cet appareil\./g, 'Local fallback computation: check responsiveness on this device.', 'Cálculo local de respaldo: compruebe la fluidez en este dispositivo.'],
+    [/Encodage PNG synchrone de secours\./g, 'Fallback synchronous PNG encoding.', 'Codificación PNG síncrona de respaldo.'],
+    [/(\d[\d\s  .,]*) segments\./g, '$1 segments.', '$1 segmentos.'],
+    // Refusals (« Ligne n : reason »), among them those added with the G28/G30 and work offset support.
+    [/^Ligne (\d+) : /, 'Line $1: ', 'Línea $1: '],
+    [/changement de repère \((G5[4-9](?:\.\d)?)\) après des déplacements : l’aperçu trace un seul repère/g,
+      'work offset change ($1) after moves: the preview draws a single offset', 'cambio de sistema de coordenadas ($1) tras desplazamientos: la vista previa traza un solo sistema'],
+    [/déplacement relatif depuis une position inconnue après G28\/G30/g, 'relative move from an unknown position after G28/G30', 'desplazamiento relativo desde una posición desconocida tras G28/G30'],
+    [/arc depuis une position inconnue après G28\/G30/g, 'arc from an unknown position after G28/G30', 'arco desde una posición desconocida tras G28/G30'],
+    [/paramètre d’arc avec G(\d+)/g, 'arc parameter with G$1', 'parámetro de arco con G$1'],
+    [/arc sans X ni Y \(refusé par Grbl, erreur 26\)/g, 'arc without X or Y (refused by Grbl, error 26)', 'arco sin X ni Y (rechazado por Grbl, error 26)'],
+    [/^G(\d+(?:\.\d+)?) non pris en charge par cet aperçu/, 'G$1 not supported by this preview', 'G$1 no admitido por esta vista previa'],
+    [/^M(\d+(?:\.\d+)?) non pris en charge par cet aperçu/, 'M$1 not supported by this preview', 'M$1 no admitido por esta vista previa'],
+    [/^mot ([A-Z]) non pris en charge/, 'word $1 not supported', 'palabra $1 no admitida'],
+    [/^modes G contradictoires$/, 'contradictory G modes', 'modos G contradictorios'],
+    [/^axe répété$/, 'repeated axis', 'eje repetido'],
+    [/^coordonnées hors plage$/, 'coordinates out of range', 'coordenadas fuera de rango'],
+    [/^mode G0\/G1 non défini$/, 'G0/G1 mode not set', 'modo G0/G1 no definido'],
+    [/^Aucun déplacement XY$/, 'No XY move', 'Ningún desplazamiento XY']
+  ];
+  function localize(text, language) {
+    var s = String(text == null ? '' : text), col = language === 'en' ? 1 : language === 'es' ? 2 : 0;
+    if (!col) return s;
+    // A refusal: « Ligne n : » then its reason, matched on its own (patterns anchored on it).
+    var line = /^(Ligne \d+ : )([\s\S]*)$/.exec(s);
+    if (line) return apply(line[1], col) + apply(line[2], col);
+    return apply(s, col);
+  }
+  function apply(s, col) { NOTE_TEXT.forEach(function (row) { s = s.replace(row[0], row[col]); }); return s; }
+  var api = { scan: scan, render: render, localize: localize,
     renderResponse: function (blob, canvas, cancelled, progress) { return render(null, canvas, cancelled, progress, blob); } };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CNCLibraryPreview = api;

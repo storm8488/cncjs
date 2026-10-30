@@ -133,7 +133,10 @@
   function render(detail){
     lastDetail=detail;
     var m=detail.machine,connected=simulation?!!m:!!detail.transportConnected&&!!m;
-    var d=describe(m,connected);
+    // State lost (stream muted, HTTP read failing): the last busy controller stays the target
+    // of Pause and Arrêter (job-controls.js, detail.halt); the word says the state is lost.
+    var h=!m&&!simulation&&detail.halt&&typeof detail.halt==='object'?detail.halt:null;
+    var d=h?{word:uiLocale.t('État perdu'),tone:'warn'}:describe(m,connected);
     text(stateText,d.word);
     if(d.tone!==tone){tone=d.tone;attr(state,'data-tone',tone);state.querySelector('path').setAttribute('d',icons[tone]);}
     var age=m&&m.statusAgeMs,known=finite(age)&&age>=0;
@@ -153,13 +156,15 @@
     // In a pause, Resume takes the place of Pause (which is then inactive anyway).
     // A real jog of the server's (F1) is stoppable before Grbl reports Jog too.
     var jogging=!!(m&&m.motion&&typeof m.motion==='object'&&(m.motion.jog||m.motion.cancelling));
-    var stopShown=reachable&&(running||!!m.canStop||jogging),pauseShown=reachable&&m.workflow==='running';
+    var stopShown=reachable?(running||!!m.canStop||jogging):!!(h&&h.canStop),pauseShown=reachable?m.workflow==='running':!!(h&&h.workflow==='running');
     var resumeShown=usable&&!screenLocked&&m.workflow==='paused'&&!!m.canResume;
     var unlockShown=usable&&!screenLocked&&!running&&/^alarm/i.test(String(m.activeState||''))&&!!m.canUnlock;
     prop(pause,'hidden',!pauseShown);prop(stop,'hidden',!stopShown);prop(resume,'hidden',!resumeShown);prop(unlock,'hidden',!unlockShown);
     // During a job the page switch link gives its room to the file name (and is not to be tapped then).
-    attr(banner,'data-job',String(running||stopShown));
-    prop(pause,'disabled',!m||!m.canPause);prop(stop,'disabled',!m||!(m.canStop||jogging));
+    attr(banner,'data-job',String(running||stopShown));attr(banner,'data-lost',String(!!h));
+    prop(pause,'disabled',m?!m.canPause:!(h&&h.canPause));prop(stop,'disabled',m?!(m.canStop||jogging):!(h&&h.canStop));
+    var lostTitle=h?uiLocale.t('État machine perdu : Pause et Arrêter sont envoyés quand même (sans confirmation) ; les autres commandes attendent le retour du suivi.'):'';
+    attr(pause,'title',lostTitle);attr(stop,'title',lostTitle);attr(state,'title',lostTitle);
     prop(resume,'disabled',!m||!m.canResume);prop(unlock,'disabled',!m||!m.canUnlock);
     // The pilot never changes what Pause and Stop accept: the server takes them from everyone.
     var p=!simulation&&detail.pilot&&typeof detail.pilot==='object'?detail.pilot:null,pilotState=p?p.state:'unknown';

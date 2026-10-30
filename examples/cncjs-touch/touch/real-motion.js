@@ -127,6 +127,10 @@
       render();
     },function(e){
       if(hold===h){hold=null;quietUntil=Date.now()+REPEAT_GUARD_MS;}
+      // No answer (network error, 30 s timeout): the jog may have started on the server. A
+      // precautionary jog-stop of this port goes at once (without jogId the server stops any
+      // jog of ours), rather than relying on its 250 ms keepalive timeout alone.
+      if(e&&e.uncertain)post({operation:'jog-stop',port:h.port}).catch(noop);
       answer(refusal(e),e&&e.uncertain?'uncertain':'failed');render();
     });
   }
@@ -334,6 +338,9 @@
     machine=next;connected=!!d.transportConnected;pilot=d.pilot||null;render();
   });
   window.addEventListener('blur',function(){stopHold(t('fenêtre quittée'));});
+  // Arrêter (strip, Suivi or preview viewer) during a hold also ends the keepalives here, in the
+  // same tap (capture, before the stop is relayed): the jog never waits for the server's answer.
+  document.addEventListener('click',function(e){var n=e&&e.target;if(hold&&n&&typeof n.closest==='function'&&n.closest('#t-stop,#job-stop,#home-job-stop,#preview-job-stop'))stopHold(t('arrêt demandé'));},true);
   document.addEventListener('visibilitychange',function(){if(document.hidden){stopHold(t('page masquée'));closePanel(false);}});
   window.addEventListener('cnc-screen-change',function(){stopHold(t('écran changé'));closePanel(false);});
   document.addEventListener('keydown',function(e){if(ui&&!ui.panel.hidden&&e.key==='Escape'){if(e.preventDefault)e.preventDefault();closePanel();}});

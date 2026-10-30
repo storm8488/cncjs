@@ -120,14 +120,17 @@
       }catch(_){fail();}
     };xhr.onerror=xhr.ontimeout=fail;xhr.send(JSON.stringify({file:file+'.cnctouch.json'}));
   }
+  var halt=null;
+  function jogging(m){return !!(m&&m.motion&&typeof m.motion==='object'&&(m.motion.jog||m.motion.cancelling));}
   function render() {
     var c=machine,now=elapsedClock(),file=c&&c.name?c.name:selection&&selection.file||'';
     set('home-job-load','disabled',busy||!c||!c.fresh||!selection||!c.canLoad);
     set('home-job-start','disabled',busy||!c||!c.fresh||!c.canStart);
     // These states also guard the enlarged preview's command relay while Home is hidden.
-    set('home-job-pause','disabled',!c||!c.canPause);
+    // During a loss of the state, Pause and Arrêter follow the last busy controller (detail.halt).
+    set('home-job-pause','disabled',c?!c.canPause:!(halt&&halt.canPause));
     set('home-job-resume','disabled',busy||!c||!c.canResume);
-    set('home-job-stop','disabled',!c||!c.canStop);
+    set('home-job-stop','disabled',c?!(c.canStop||jogging(c)):!(halt&&halt.canStop));
     var overrides=c&&c.overrides&&typeof c.overrides==='object'?c.overrides:null,overrideOn=!!(c&&c.fresh&&c.canOverride&&!busy);
     set('home-overrides','hidden',!c||!('canOverride' in c));
     set('home-override-feed','textContent',overrides&&finiteNumber(overrides.feed)?overrides.feed+' %':'—');
@@ -193,7 +196,7 @@
     }
     if(visible('home')){
       var same=!!(c&&selection&&c.name===selection.file),different=!!(c&&c.name&&selection&&!same);
-      var readiness=!c||!c.fresh?uiLocale.t('État indisponible : attendre la connexion.'):busy?uiLocale.t('Opération en cours…'):/^alarm/i.test(c.activeState||'')?(!simulation&&window.CNCGrblHelp?window.CNCGrblHelp.text(window.CNCGrblHelp.alarm(c.alarmCode)):(c.loadReason?(uiLocale.message||uiLocale.t)(c.loadReason):uiLocale.t('Alarme active : commandes bloquées.'))):
+      var readiness=!c||!c.fresh?uiLocale.t('État indisponible : attendre la connexion.'):busy?uiLocale.t('Opération en cours…'):/^alarm/i.test(c.activeState||'')?(!simulation&&window.CNCGrblHelp?window.CNCGrblHelp.text(window.CNCGrblHelp.alarm(c.alarmCode,c.alarmCodeInferred)):(c.loadReason?(uiLocale.message||uiLocale.t)(c.loadReason):uiLocale.t('Alarme active : commandes bloquées.'))):
         // CNCjs still waits for Grbl's reply while Grbl stays idle: a lost line or acknowledgement.
         c.workflow==='running'&&finiteNumber(c.stalledMs)?uiLocale.t('Travail bloqué ? Grbl est au repos depuis ')+Math.round(c.stalledMs/1000)+uiLocale.t(' s alors que CNCjs attend encore sa réponse (ligne ou acquittement perdu). Si rien ne bouge, arrêtez le travail.'):
         c.workflow==='running'?uiLocale.t('Travail en cours.'):
@@ -217,7 +220,7 @@
     if(visible('files'))set('job-progress-summary','textContent',percent+' · '+eta);
   }
   window.addEventListener('cnc-library-select',function(e){selection=e.detail;render();});
-  window.addEventListener('cnc-job-status',function(e){machine=e.detail.machine;simulation=e.detail.simulation;busy=!!e.detail.busy;feedback=e.detail.feedback||'';
+  window.addEventListener('cnc-job-status',function(e){machine=e.detail.machine;halt=!machine&&e.detail.halt&&typeof e.detail.halt==='object'?e.detail.halt:null;simulation=e.detail.simulation;busy=!!e.detail.busy;feedback=e.detail.feedback||'';
     // Sent / confirmed / failed / uncertain, mirrored from job-controls.js (ui-2027.css .t-sent).
     var fb=$('home-job-feedback'),state=e.detail.feedbackState||'';if(fb&&typeof fb.setAttribute==='function'&&(!fb.getAttribute||fb.getAttribute('data-state')!==state))fb.setAttribute('data-state',state);
     render();});

@@ -157,6 +157,17 @@ tablet, build it into a directory and serve that directory with a `/touch` mount
 point, as the performance comparisons did; remove the mount point to go back.
 It has been measured on a PC only (TESTING.md, "Audit 2026-10").
 
+Risk of the bundle: with separate files, a file the browser cannot parse loses
+only that file; in the bundle, one syntax error loses the whole script, so the
+status strip (Pause / Arrêter) is never built. Each module runs in its own
+`try` block, which covers an exception while a module runs, not a syntax
+error. `build-bundle.cjs` therefore compiles every script on its own first
+(acorn at ES2017, the level the sources use for the tablet's Chromium 106, or
+Node's parser when acorn is absent) and writes nothing if one fails, naming
+the file and the line. A module that throws at load (bundle or not) leaves
+« Chargement incomplet » shown below a strip that stays usable
+(`startup.js`, class `cnc-degraded`).
+
 ## Updating
 
 - Repository or tablet: build (`yarn build-prod`), copy `dist/cncjs` to the

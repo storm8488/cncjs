@@ -26,6 +26,22 @@ const crypto = require('crypto');
 const SOURCE = path.join(__dirname, 'touch');
 const PAGES = ['index.html', 'simulation.html'];
 
+// A syntax error in one file would lose the whole bundle (every module, Pause / Arrêter too),
+// where separate files lose only that one: every script must parse on its own, at the
+// language level of the tablet's Chromium 106 (ES2017 is what the sources use; acorn when it
+// is installed, otherwise Node's own parser), or nothing is written.
+function compileCheck(file, text) {
+  let acorn = null;
+  try { acorn = require('acorn'); } catch (_) { /* Node's parser below */ }
+  try {
+    if (acorn) acorn.parse(text, { ecmaVersion: 2017, sourceType: 'script' });
+    else new (require('vm').Script)(text, { filename: file });
+  } catch (error) {
+    const where = error.loc ? ' (line ' + error.loc.line + ', column ' + (error.loc.column + 1) + ')' : '';
+    throw new Error('bundle refused: ' + file + ' does not compile' + where + ': ' + error.message);
+  }
+}
+
 const hash = (data) => crypto.createHash('sha256').update(data).digest('hex').slice(0, 12);
 const isExternal = (ref) => /^(?:\/|[a-z]+:)/i.test(ref);
 
@@ -90,6 +106,11 @@ function buildPage(name, source, outDir, written) {
 
 function build(outDir, source) {
   source = source || SOURCE;
+  // Every bundled script of every page is compiled first: nothing is written if one fails.
+  PAGES.filter((p) => fs.existsSync(path.join(source, p))).forEach((p) => {
+    resources(fs.readFileSync(path.join(source, p), 'utf8')).filter((r) => r.kind === 'script' && !isExternal(r.ref))
+      .forEach((r) => compileCheck(r.file, fs.readFileSync(path.join(source, r.file), 'utf8')));
+  });
   fs.mkdirSync(outDir, { recursive: true });
   // The whole directory first (workers, notices, VERSION.json, deep links), then the bundles over it.
   fs.readdirSync(source).forEach((f) => { if (fs.statSync(path.join(source, f)).isFile()) fs.copyFileSync(path.join(source, f), path.join(outDir, f)); });
@@ -123,4 +144,4 @@ if (require.main === module) {
     console.log('written to ' + out);
   }
 }
-module.exports = { build, check, resources, SOURCE };
+module.exports = { build, check, resources, compileCheck, SOURCE };

@@ -331,5 +331,54 @@ function choice(f, value) { return findAll(f.el('real-motion'), (n) => n.getAttr
     assert(!/touch-motion\/preview/.test(src) && !/querySelectorAll\('\.jog'\)/.test(src));
     assert(!/real|jog-start|touch-job/.test(fs.readFileSync(path.join(__dirname, 'touch', 'dry-motion.js'), 'utf8').replace(/Aucun déplacement réel|déplacement réel/g, '')), 'dry-motion.js unchanged in meaning');
   }
+  // Audit 31 (R-M1): Arrêter (strip, Suivi or viewer) during a hold ends the keepalives in the
+  // same tap, before the stop is relayed; the job's stop still leaves at once.
+  for (const target of ['#t-stop', '#job-stop', '#home-job-stop', '#preview-job-stop']) {
+    const f = await opened();
+    const start = await holding(f);
+    f.answer(start, { jogId: 'j-stop', keepalivePeriodMs: 100 }); await f.flush();
+    f.push([machine({ canStop: true, activeState: 'Jog', motion: Object.assign(machine().motion, { jog: { axis: 'Y', direction: 1, feed: 250, distanceMm: 49 } }) })]); await f.flush();
+    const n = f.posts().length;
+    f.fireDoc('click', { target: { closest: (sel) => (sel.split(',').indexOf(target) >= 0 ? {} : null) } });
+    f.el('job-stop').click();
+    const sent = f.posts().slice(n).map((r) => r.body.action + (r.body.operation ? ':' + r.body.operation : ''));
+    assert.deepEqual(sent, ['motion:jog-stop', 'stop'], target + ': jog-stop and stop in the same tap (' + sent.join(', ') + ')');
+    assert.equal(f.window.cncRealMotion.holding(), false, target + ': no longer holding');
+    const keepalives = f.motion('jog-keepalive').length;
+    f.tick(100); await f.flush();
+    assert.equal(f.motion('jog-keepalive').length, keepalives, target + ': no keepalive after Arrêter');
+  }
+  // Another click (not a stop) during a hold changes nothing.
+  {
+    const f = await opened();
+    const start = await holding(f);
+    f.answer(start, { jogId: 'j-other', keepalivePeriodMs: 100 }); await f.flush();
+    f.fireDoc('click', { target: { closest: () => null } });
+    assert.equal(f.window.cncRealMotion.holding(), true, 'an unrelated click keeps the hold');
+  }
+  // Audit 31 (R-M2): a jog-start left without an answer (network error, timeout) sends a
+  // precautionary jog-stop of the port at once; a refusal (answered) sends none.
+  {
+    const f = await opened();
+    const start = await holding(f);
+    start.onerror(); await f.flush();
+    const stops = f.motion('jog-stop');
+    assert.equal(stops.length, 1, 'precautionary jog-stop after a jog-start without answer');
+    assert.equal(stops[0].body.port, machine().port); assert(!('jogId' in stops[0].body), 'without jogId: any jog of ours');
+    f.el('real-motion-yp').fire('pointerup'); await f.flush();
+    assert.equal(f.motion('jog-stop').length, 1, 'the release then sends nothing more (no hold left)');
+  }
+  {
+    const f = await opened();
+    const start = await holding(f);
+    start.ontimeout(); await f.flush();
+    assert.equal(f.motion('jog-stop').length, 1, 'precautionary jog-stop after a jog-start timeout');
+  }
+  {
+    const f = await opened();
+    const start = await holding(f);
+    f.answer(start, { message: 'Refusé.', code: 'ETOUCH_X' }, 409); await f.flush();
+    assert.equal(f.motion('jog-stop').length, 0, 'a refused jog-start (answered) needs no stop');
+  }
   console.log('PASS: real moves hidden unless enabled; step; hold → keepalive → release; pointercancel/leave, blur, hidden, screen change; stream loss without restart; refused keepalive; ECONTROL; origin in two steps; idle release.');
 })().catch((e) => { console.error(e); process.exit(1); });

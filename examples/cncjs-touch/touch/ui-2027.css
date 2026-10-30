@@ -189,7 +189,7 @@
 .ks-ui #notice{margin:0;border-radius:0;border:0;border-bottom:1px solid var(--line);border-left:6px solid var(--warn);background:var(--warn-soft);color:var(--fg);font:var(--fs-18)/var(--lh) var(--font);padding:var(--sp-2) var(--sp-4)}
 .ks-ui #tabbar{width:var(--rail-w);background:var(--bg);border-right:1px solid var(--line);padding:var(--sp-2)!important;gap:var(--sp-2)}
 .ks-ui .ks-nav{min-height:76px;gap:var(--sp-1);padding:var(--sp-2) 2px;font:600 var(--fs-14)/1 var(--font);letter-spacing:.02em;color:var(--mute);border:0;border-radius:var(--r-m)}
-.ks-ui .ks-nav span{font-size:var(--fs-16);font-weight:500}
+.ks-ui .ks-nav span{font-size:var(--fs-16);font-weight:500;max-width:100%;text-align:center;line-height:1.1;hyphens:manual;overflow-wrap:normal}
 .ks-ui .ks-nav svg{width:28px;height:28px;stroke-width:1.8}
 .ks-ui .ks-nav.active{background:var(--surface-2);color:var(--fg);box-shadow:inset 4px 0 0 var(--accent);border-left:0}
 .ks-ui .ks-nav:active:not(:disabled){transform:scale(.95)}
@@ -561,7 +561,7 @@
 .ks-why{position:fixed;left:50%;bottom:var(--sp-6);transform:translateX(-50%);z-index:900;max-width:min(900px,90vw);padding:var(--sp-3) var(--sp-5);background:var(--surface-2);color:var(--fg);border:1px solid var(--line-strong);border-left:6px solid var(--info);border-radius:var(--r-m);box-shadow:var(--shadow);font:var(--fs-20)/var(--lh) var(--font);text-align:center;overflow-wrap:anywhere}
 .ks-why[hidden]{display:none}
 /* Fichiers : rangées de hauteur définie (grille), pour un seul passage de mise en page des images. */
-.ks-ui #screen-files .library-detail{display:grid;grid-template-rows:auto auto auto auto minmax(0,1fr) auto auto;gap:var(--sp-2)}
+.ks-ui #screen-files .library-detail{display:grid;grid-template-rows:auto auto auto auto minmax(64px,1fr) auto auto;gap:var(--sp-2)}
 .ks-ui #screen-files .library-detail>*{min-height:0}
 .ks-ui #screen-files .library-image-wrap{flex:none;min-height:0;height:auto;overflow:hidden}
 .ks-ui #screen-files #library-preview-note,.ks-ui #screen-files #library-dimensions-content,.ks-ui #screen-files #library-regenerate,.ks-ui #screen-files #library-regenerate-status{display:none}
@@ -962,6 +962,9 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
 /* 1024 x 600: the label and the size/date line (also on the file's row) give their room to the
  * preview; the name keeps one line; the view choice stays on Suivi (one choice for both). */
 .ks-ui.t-compact #screen-files .library-eyebrow,.ks-ui.t-compact #screen-files #library-meta,.ks-ui.t-compact #screen-files .library-image-wrap .pv3d-views{display:none}
+/* The preview's row keeps its 64 px (Agrandir, the view bar) in the regular layout too: with
+ * large text the row shrank to 21 px and the image covered Favori / Ouvrir la fiche of the
+ * project sheet below it (seen once a file is selected, audit 31 fixes). */
 .ks-ui.t-compact #screen-files #library-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.15;min-height:1.15em}
 /* The reason under a blocked load (an alarm explained) shrinks before the preview, down to two
  * lines, and scrolls inside its box: the load button never leaves the card. */
@@ -1008,3 +1011,31 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
 .ks-ui.t-compact #screen-machine .ks-machine-overview{grid-column:1;grid-row:1/span 2}
 .ks-ui.t-compact #screen-machine .ks-machine-coordinates{grid-column:2;grid-row:2}
 }
+/* Overlays below the status strip (strip-guard.js, U5 generalised): sheets, project sheet,
+ * numeric pad, coordinate editor and preview viewer start under the strip, whose Pause and
+ * Arrêter stay usable; each card keeps its own scroll within the shorter overlay. */
+.t-below-strip{top:var(--statusbar-h,72px)!important}
+.ks-ui #project-dialog{top:var(--statusbar-h)}
+.ks-ui .t-below-strip .ks-sheet-card{max-height:calc(100vh - var(--statusbar-h) - 48px)}
+.t-below-strip .t-numpad-card{max-height:calc(100vh - var(--statusbar-h) - 32px)}
+.coordinate-editor.t-below-strip{padding:var(--sp-2)}
+.t-below-strip .coordinate-card{max-height:calc(100vh - var(--statusbar-h) - 16px);overflow:auto}
+/* Compact window (1024 x 600): under the strip the pad has 528 px; its keys go beside the
+ * value, so nothing scrolls and every key keeps the 48 px target. */
+.ks-ui.t-compact .t-below-strip .t-numpad-card{width:min(860px,100%);display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"head head" "bounds keys" "value keys" "error keys" "actions keys";grid-template-rows:auto auto auto 1fr auto;column-gap:var(--sp-4);align-items:start}
+.ks-ui.t-compact .t-below-strip .t-numpad-card>header{grid-area:head}
+.ks-ui.t-compact .t-below-strip .t-numpad-bounds{grid-area:bounds}
+.ks-ui.t-compact .t-below-strip .t-numpad-value{grid-area:value}
+.ks-ui.t-compact .t-below-strip .t-numpad-keys{grid-area:keys}
+.ks-ui.t-compact .t-below-strip .t-numpad-error{grid-area:error}
+.ks-ui.t-compact .t-below-strip .t-numpad-actions{grid-area:actions;align-self:end}
+.ks-ui.t-compact .coordinate-editor.t-below-strip .coordinate-keypad{grid-template-columns:repeat(4,1fr)}
+.ks-ui.t-compact .coordinate-editor.t-below-strip .coordinate-card{padding:var(--sp-3)}
+/* Strip commands never break a word (validation D3: « Déverrouil / ler… » at 1024 x 600):
+ * one line; in the compact window the confirmation commands take the 20 px text. */
+.t-strip-actions .t-btn{white-space:nowrap}
+.ks-ui.t-compact .t-strip-actions #t-unlock,.ks-ui.t-compact .t-strip-actions #t-resume{font-size:var(--fs-20);padding-left:var(--sp-3);padding-right:var(--sp-3)}
+/* Override steps: « −10 % » / « 100 % » inside their buttons at 1024 x 600 (narrower padding). */
+.t-override .t-btn{padding-left:var(--sp-1);padding-right:var(--sp-1);white-space:nowrap}
+.ks-ui.t-compact .t-ov-row{gap:var(--sp-2)}
+.ks-ui.t-compact .t-ov-row .t-btn{font-size:var(--fs-18)}

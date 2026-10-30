@@ -54,9 +54,17 @@ function create(options) {
     };
   }
 
+  // options.alarm: the controller at rest in ALARM (a hard limit), program loaded, unlock
+  // offered: the strip shows « Déverrouiller… » (layout check of browser-run.cjs --strict).
+  function alarmed(now) {
+    const c = controller(now);
+    return Object.assign(c, { activeState: 'Alarm', workflow: 'idle', alarmCode: 1, feedrate: 0, spindleSpeed: 0, homed: false, sent: 0, received: 0,
+      canPause: false, canStop: false, canOverride: false, canRapidOverride: false, canUnlock: true, unlockReason: '', canHome: true, homeReason: '',
+      startReason: 'Machine en alarme.', loadReason: 'Machine en alarme.', resumeReason: 'Machine en alarme.' });
+  }
   function packet() {
     const now = Date.now();
-    return { version: 1, epoch, sequence: ++sequence, sentAt: now, controllers: [controller(now)] };
+    return { version: 1, epoch, sequence: ++sequence, sentAt: now, controllers: [options && options.alarm ? alarmed(now) : controller(now)] };
   }
 
   // NDJSON like src/server/services/touch/touch-stream.js: a packet at once, then

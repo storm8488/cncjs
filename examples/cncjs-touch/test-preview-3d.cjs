@@ -214,5 +214,18 @@ function page(options = {}) {
   assert.match(p.files.src, /^data:/); assert.equal(p.files.cncView, null);
   assert.match(p.status(p.files).textContent, /régénérez-le dans Fichiers/);
   assert.equal(p.window.cncPreviewViews.cached().length, 2, 'nothing cached for it');
+  // Validation D1: a file without image (status shown in its place) has no view bar over the
+  // message; the bar comes back with an image. The observer follows « hidden » too.
+  {
+    const q = page({ worker: true });
+    q.show(q.files, 'a.nc', pocket); await q.settle();
+    assert.equal(q.bar(q.files).hidden, false, 'bar shown with an image');
+    q.files.hidden = true; q.files.removeAttribute('src'); await q.settle();
+    assert.equal(q.bar(q.files).hidden, true, 'no image: no view bar over « Aucune image disponible »');
+    q.files.hidden = false; q.show(q.files, 'b.nc', pocket); await q.settle();
+    assert.equal(q.bar(q.files).hidden, false, 'image back: bar back');
+    assert.match(fs.readFileSync(path.join(dir, 'preview-3d.js'), 'utf8'), /attributeFilter: \['src', 'hidden'\]/);
+    assert.match(fs.readFileSync(path.join(dir, 'preview-3d.css'), 'utf8'), /\.pv3d-views\[hidden\]\{display:none!important\}/);
+  }
   console.log('PASS preview views: selector and remembered choice, asked view first then idle-only background, cache shared by Fichiers and Suivi, eviction, old previews, broken paths, hidden page, worker and page rendering, views keyed by program fingerprint.');
 })().catch(e => { console.error(e); process.exitCode = 1; });

@@ -58,7 +58,14 @@
   }
   // Modal pad for an input: opened by a tap on the field (a physical keyboard still types in it).
   var modal = null, display = null, error = null, title = null, bounds = null, unit = null, ok = null, cancel = null, close = null;
-  var draft = '', bound = null, returnTo = null, background = [];
+  var draft = '', bound = null, returnTo = null, background = null;
+  // Makes everything but the overlay inert, except the strip's Pause / Arrêter when the guard
+  // is loaded (strip-guard.js); returns the function that restores the previous values.
+  function isolate(overlay) {
+    if (root.CNCStripGuard) return root.CNCStripGuard.isolate(overlay);
+    var entries = Array.prototype.filter.call(document.body.children, function (n) { return n !== overlay && !/^(SCRIPT|LINK|STYLE)$/.test(n.tagName); }).map(function (n) { var e = { node: n, inert: n.inert }; n.inert = true; return e; });
+    return function () { entries.forEach(function (e) { e.node.inert = e.inert; }); };
+  }
   function build() {
     modal = document.createElement('div'); modal.id = 't-numpad'; modal.className = 't-numpad'; modal.hidden = true;
     modal.setAttribute('role', 'dialog'); modal.setAttribute('aria-modal', 'true'); modal.setAttribute('aria-labelledby', 't-numpad-title');
@@ -85,6 +92,8 @@
       if (e.key === 'Enter') { e.preventDefault(); apply(); return; }
       if (e.key === 'Tab') {
         var focusable = Array.prototype.filter.call(modal.querySelectorAll('button'), function (el) { return !el.disabled; });
+        // The strip's Pause / Arrêter belong to the cycle (strip-guard.js).
+        if (root.CNCStripGuard) { root.CNCStripGuard.tab(e, modal, focusable); return; }
         var first = focusable[0], last = focusable[focusable.length - 1];
         if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
         else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
@@ -112,7 +121,7 @@
   function hide() {
     if (!modal || modal.hidden) return;
     modal.hidden = true; bound = null;
-    background.forEach(function (e) { e.node.inert = e.inert; }); background = [];
+    var restore = background; background = null; if (typeof restore === 'function') restore();
     var target = returnTo; returnTo = null;
     if (target && target.isConnected && typeof target.focus === 'function') target.focus({ preventScroll: true });
   }
@@ -123,7 +132,9 @@
     title.textContent = rules.label || input.getAttribute('aria-label') || '';
     bounds.textContent = limits(rules) ? t('Valeur attendue : ') + limits(rules) + (rules.integer ? t(' (entier)') : '') : (rules.integer ? t('Nombre entier') : '');
     unit.textContent = rules.unit || '';
-    background = Array.prototype.filter.call(document.body.children, function (n) { return n !== modal && !/^(SCRIPT|LINK|STYLE)$/.test(n.tagName); }).map(function (n) { var e = { node: n, inert: n.inert }; n.inert = true; return e; });
+    // Pause / Arrêter of the strip stay usable over the pad (strip-guard.js, U5); the rest is inert.
+    if (typeof background === 'function') background();
+    background = isolate(modal);
     modal.hidden = false; paint(); close.focus();
   }
   // bind(input, rules): a tap (click) on the field opens the pad; typing stays possible.

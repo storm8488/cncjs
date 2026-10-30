@@ -22,16 +22,16 @@
   function escape(value){return value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
   // Server refusals with a stable code (ETOUCH_*): [code, fr, en, es] templates with {name}
   // values and [optional parts] dropped when one of their values is null. A string value is
-  // trimmed, stripped of control characters, capped and HTML-escaped (values are G-code
-  // words and numbers; nothing a server sends can become markup); it is never re-read as a
-  // template. Unknown code, missing value or no row: the server's French message, through
+  // trimmed, stripped of control characters and capped; it is never re-read as a template.
+  // The result is plain text: callers write it with textContent, never with innerHTML (it
+  // is not HTML-escaped, so « A&B » is shown as written, not as « A&amp;B »). Unknown code, missing value or no row: the server's French message, through
   // message(); never an empty text.
   var templates=Object.create(null);
   (window.CNCTouchCodes||[]).forEach(function(row){templates[row[0]]=row;});
   function value(params,name){
     var v=params&&typeof params==='object'&&Object.prototype.hasOwnProperty.call(params,name)?params[name]:undefined;
     if(typeof v==='number')return isFinite(v)?String(v):undefined;
-    if(typeof v==='string'){v=v.replace(/[\u0000-\u001f\u007f]/g,'').trim().slice(0,64);return v?escape(v).replace(/'/g,'&#39;'):undefined;}
+    if(typeof v==='string'){v=v.replace(/[\u0000-\u001f\u007f]/g,'').trim().slice(0,64);return v?v:undefined;}
     return v===null?null:undefined;
   }
   function format(code,params,fallback){

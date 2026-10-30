@@ -57,8 +57,20 @@
   // Host command (shutdown, restart…) holding the machine on the server: {title, since} or null,
   // carried by every snapshot (stream packet and HTTP read); shown in a status line under the strip.
   var systemCommand=null,feedbackState='';
+  // Pause / Arrêter during a loss of the state (stream muted, HTTP read failing, offline flag):
+  // the last controller seen busy (a job, a jog, anything Stop can end) stays the target of
+  // these two commands, which the server accepts without the stream (relayed by HTTP). Every
+  // other command waits for a recent state. Cleared by a fresh idle state or a port change.
+  var halt=null;
+  // Action feedback (D5): what the confirmed command was to lead to, and whether it was seen.
+  // When the observed workflow later leaves it (another device paused, stopped or resumed),
+  // the line « Démarrage demandé. » no longer describes the machine and is cleared.
+  var feedbackExpect=null,feedbackReached=false;
+  // Last alarm code per port (D6): Grbl's restart banner after ALARM:3 makes the server forget
+  // the code; the alarm's help stays shown while the controller remains in Alarm.
+  var alarmMemory=null,previousMachine=null;
   // Action feedback state (ui-2027.css .t-sent): sent → confirmed | failed | uncertain (no answer).
-  function setFeedbackState(state){feedbackState=state;var node=$('job-feedback');if(node&&typeof node.setAttribute==='function'&&typeof node.getAttribute==='function'&&node.getAttribute('data-state')!==state)node.setAttribute('data-state',state);}
+  function setFeedbackState(state){feedbackState=state;if(state!=='confirmed'){feedbackExpect=null;feedbackReached=false;}var node=$('job-feedback');if(node&&typeof node.setAttribute==='function'&&typeof node.getAttribute==='function'&&node.getAttribute('data-state')!==state)node.setAttribute('data-state',state);}
   // A planned stream renewal (every minute) is not a disconnection: for up to 3 s
   // the transport still counts as connected and no notice is shown, while the
   // confirmations bound to the old stream are void as before.
@@ -115,10 +127,13 @@
     return e;
   }
   function jogStop(body){return !!(body&&body.action==='motion'&&body.operation==='jog-stop');}
+  // Commands that only bring the machine to rest: attempted even without a recent state.
+  function halting(body){return jogStop(body)||!!(body&&(body.action==='pause'||body.action==='stop'));}
   function api(method,body) {
     if(simulation) return simulation.request(method,body);
-    // A jog stop (F1) is always attempted: the browser's offline flag may be wrong, and it costs nothing.
-    if(networkOffline&&!jogStop(body))return Promise.reject(new Error(uiLocale.t('Réseau indisponible. Suivi suspendu ; aucune commande ne sera relancée automatiquement.')));
+    // A jog stop (F1), Pause and Stop are always attempted: the browser's offline flag may be
+    // wrong, and they cost nothing.
+    if(networkOffline&&!halting(body))return Promise.reject(new Error(uiLocale.t('Réseau indisponible. Suivi suspendu ; aucune commande ne sera relancée automatiquement.')));
     if(document.body && document.body.getAttribute('data-simulation')==='true') return Promise.reject(new Error(uiLocale.t('Simulateur indisponible. Rechargez la page.')));
     return new Promise(function(resolve,reject) {
       var credential=token();
@@ -180,7 +195,10 @@
     pilotReturn=document.activeElement;
     // The status strip stays usable under this dialog (ui-2027.css starts it below the strip):
     // Pause and Arrêter must never wait for the operator to close a dialog about who pilots.
-    pilotBackground=Array.prototype.filter.call(document.body.children||[],function(node){return node!==$('pilot-dialog')&&node.id!=='real-banner'&&!/^(SCRIPT|LINK|STYLE)$/.test(node.tagName);}).map(function(node){var entry={node:node,inert:node.inert};node.inert=true;return entry;});
+    // With the guard (strip-guard.js), only the strip's Pause / Arrêter stay active, as for the
+    // confirmation; otherwise the whole strip.
+    if(window.CNCStripGuard&&typeof window.CNCStripGuard.isolate==='function'){var restore=window.CNCStripGuard.isolate($('pilot-dialog'));pilotBackground=[{restore:restore}];}
+    else pilotBackground=Array.prototype.filter.call(document.body.children||[],function(node){return node!==$('pilot-dialog')&&node.id!=='real-banner'&&!/^(SCRIPT|LINK|STYLE)$/.test(node.tagName);}).map(function(node){var entry={node:node,inert:node.inert};node.inert=true;return entry;});
     $('pilot-reason').value='';text('pilot-feedback','');$('pilot-dialog').hidden=false;renderPilotDialog();
     (pilot.state==='other'?$('pilot-reason'):$('pilot-dismiss')).focus();
     return true;
@@ -188,7 +206,7 @@
   function closePilot(restore){
     if($('pilot-dialog').hidden)return;
     $('pilot-dialog').hidden=true;$('pilot-reason').value='';
-    pilotBackground.forEach(function(entry){entry.node.inert=entry.inert;});pilotBackground=[];
+    pilotBackground.forEach(function(entry){if(entry.restore)entry.restore();else entry.node.inert=entry.inert;});pilotBackground=[];
     var target=pilotReturn;pilotReturn=null;
     if(restore!==false&&!document.hidden&&target&&target.isConnected&&!target.disabled&&target.getClientRects().length)target.focus({preventScroll:true});
   }
@@ -247,6 +265,9 @@
     streamReason=reason||'';
     if(dropped){text('job-feedback',uiLocale.t('Confirmation annulée : le suivi a été renouvelé. Touchez à nouveau le bouton.'));setFeedbackState('failed');}
     render();
+    // The state by HTTP at once rather than at the next tick of the 1 s loop (Pause / Arrêter
+    // stay offered meanwhile through `halt`).
+    if(!rotating&&!simulation&&!networkOffline&&!disposed){nextPoll=0;poll(true);}
   }
   function projected(){
     if(!latestMachine)return null;
@@ -271,7 +292,9 @@
     if(pilot.takenOver&&pilot.changeAt!==takeoverSeen){takeoverSeen=pilot.changeAt;text('job-feedback',pilot.takenOver);setFeedbackState('failed');}
     else if(pilot.idleNotice&&pilot.changeAt!==takeoverSeen){takeoverSeen=pilot.changeAt;text('job-feedback',pilot.idleNotice);setFeedbackState('');}
     renderPilotDialog();previewIdentity(online?current:null);
-    var detail={machine:online?current:null,observedAt:lastSeen,transportConnected:transportConnected,simulation:!!simulation,busy:busy,feedback:$('job-feedback').textContent,feedbackState:feedbackState,systemCommand:command,pilot:pilot};
+    if(online&&current.fresh!==false)halt=haltOf(current);
+    var lost=!online&&halt&&!simulation?halt:null;
+    var detail={machine:online?current:null,observedAt:lastSeen,transportConnected:transportConnected,simulation:!!simulation,busy:busy,feedback:$('job-feedback').textContent,feedbackState:feedbackState,systemCommand:command,pilot:pilot,halt:lost};
     if(store)store.set({machine:detail.machine,controllerId:detail.machine?detail.machine.port:null,transportConnected:transportConnected,transportReason:grace?'':streamReason,systemCommand:command});
     var line=command?uiLocale.t('Commande système en cours : ')+command.title:'';
     if(systemLine.textContent!==line)systemLine.textContent=line;if(systemLine.hidden!==!line)systemLine.hidden=!line;
@@ -280,8 +303,8 @@
     var selectedText=selection?uiLocale.t('Sélectionné dans la bibliothèque : ')+selection.name:uiLocale.t('Aucun fichier sélectionné dans la bibliothèque.');
     var loadedText=online?(current.name?uiLocale.t('Chargé dans CNCjs : ')+(current.originalName||current.name):uiLocale.t('Aucun fichier chargé dans CNCjs.')):uiLocale.t('Fichier chargé : état indisponible.');
     var reason='';
-    if(!online) reason=streamReason||uiLocale.t('Connectez le contrôleur dans CNCjs et attendez un état récent.');
-    else if(/^alarm/i.test(current.activeState)) reason=simulation?uiLocale.t('Alarme fictive : ouvrez Machine pour terminer le test d’alarme. La reprise devra être confirmée.'):(window.CNCGrblHelp?window.CNCGrblHelp.text(window.CNCGrblHelp.alarm(current.alarmCode))+' ':'')+uiLocale.t('Chargement et démarrage bloqués : le contrôleur est en ALARM. Consultez le message d’alarme dans CNCjs et résolvez sa cause. Quand la machine sera prête (Idle), chargez le fichier puis touchez Démarrer.');
+    if(!online) reason=(streamReason||uiLocale.t('Connectez le contrôleur dans CNCjs et attendez un état récent.'))+(lost?' '+uiLocale.t('Pause et Arrêter restent disponibles ; les autres commandes attendent un état récent.'):'');
+    else if(/^alarm/i.test(current.activeState)) reason=simulation?uiLocale.t('Alarme fictive : ouvrez Machine pour terminer le test d’alarme. La reprise devra être confirmée.'):(window.CNCGrblHelp?window.CNCGrblHelp.text(window.CNCGrblHelp.alarm(current.alarmCode,current.alarmCodeInferred))+' ':'')+uiLocale.t('Chargement et démarrage bloqués : le contrôleur est en ALARM. Consultez le message d’alarme dans CNCjs et résolvez sa cause. Quand la machine sera prête (Idle), chargez le fichier puis touchez Démarrer.');
     else if(!current.fresh) reason=uiLocale.t('En attente d’un état récent du contrôleur.');
     else if(!current.name) reason=current.canLoad?(selection?uiLocale.t('Étape suivante : Charger le fichier sélectionné, puis Démarrer.'):uiLocale.t('Sélectionnez un fichier dans la bibliothèque.')):(current.loadReason||uiLocale.t('Chargement indisponible.'));
     else if(current.workflow==='paused') reason=current.canResume?uiLocale.t('Travail en pause. Touchez Reprendre pour confirmer la reprise.'):current.resumeReason;
@@ -298,8 +321,8 @@
     prop('job-start','disabled',busy || !online || !current.canStart);
     prop('job-resume','disabled',busy || !online || !current.canResume);
     // Pause and stop stay available while another request is pending.
-    prop('job-pause','disabled',!online || !current.canPause);
-    prop('job-stop','disabled',!online || !(current.canStop||jogging(current)));
+    prop('job-pause','disabled',online?!current.canPause:!(lost&&lost.canPause));
+    prop('job-stop','disabled',online?!(current.canStop||jogging(current)):!(lost&&lost.canStop));
     if(!online){text('job-state',uiLocale.t('Machine non connectée ou état indisponible.'));prop('job-progress','value',0);if(ticket)dismiss();return;}
     text('job-state',current.port+' · '+current.activeState+' · '+({idle:uiLocale.t('au repos'),running:uiLocale.t('travail en cours'),paused:uiLocale.t('en pause')}[current.workflow]||current.workflow));
     prop('job-progress','value',current.total?Math.min(100,Math.round(current.received/current.total*100)):0);
@@ -311,6 +334,37 @@
   }
   // A real jog of the server's (F1) can be stopped even before Grbl reports Jog.
   function jogging(m){return !!(m&&m.motion&&typeof m.motion==='object'&&(m.motion.jog||m.motion.cancelling));}
+  function haltOf(m){
+    var stoppable=!!(m.canStop||jogging(m));
+    return m.workflow!=='idle'||stoppable?{port:m.port,generation:m.generation||null,workflow:m.workflow,canPause:!!m.canPause,canStop:stoppable}:null;
+  }
+  // D6: an Alarm without code just after a code was seen on the same port keeps that code
+  // (marked alarmCodeKept); after a motion reset (Run/Jog then Alarm with the code wiped by the
+  // restart banner) Grbl 1.1 raised ALARM:3 (6 during homing): shown as such, marked inferred.
+  function recall(m,before){
+    if(!m||!/^alarm/i.test(String(m.activeState||''))){alarmMemory=null;return m;}
+    var code=typeof m.alarmCode==='number'&&isFinite(m.alarmCode)?m.alarmCode:null;
+    if(code!==null){alarmMemory={port:m.port,code:code};return m;}
+    var known=alarmMemory&&alarmMemory.port===m.port?alarmMemory.code:null,inferred=false;
+    if(known===null&&before&&before.port===m.port){
+      var a=String(before.activeState||'');
+      if(/^home/i.test(a)||before.homing){known=6;inferred=true;}
+      else if(/^(run|jog|hold)/i.test(a)||(before.workflow&&before.workflow!=='idle')||jogging(before)){known=3;inferred=true;}
+      if(known!==null)alarmMemory={port:m.port,code:known,inferred:true};
+    }else if(alarmMemory&&alarmMemory.port===m.port)inferred=!!alarmMemory.inferred;
+    if(known===null)return m;
+    var copy={};Object.keys(m).forEach(function(k){copy[k]=m[k];});
+    copy.alarmCode=known;copy.alarmCodeKept=true;if(inferred)copy.alarmCodeInferred=true;
+    return copy;
+  }
+  // D5: the confirmed action's line stays while the workflow it led to is observed; once the
+  // workflow leaves it (another device acted), the line is cleared rather than kept beside a
+  // state it no longer describes.
+  function followFeedback(m){
+    if(feedbackState!=='confirmed'||!feedbackExpect||!m)return;
+    if(m.workflow===feedbackExpect){feedbackReached=true;return;}
+    if(feedbackReached){feedbackExpect=null;feedbackReached=false;text('job-feedback','');setFeedbackState('');}
+  }
   function apply(data,transit) {
       if(disposed||networkOffline)return;
       if(!data||!Array.isArray(data.controllers)||(!simulation&&compact&&
@@ -341,7 +395,8 @@
       }
       var next=machines.filter(function(m){return m.port===$('job-port').value;})[0]||null;
       if(latestMachine&&(!next||latestMachine.port!==next.port||latestMachine.generation!==next.generation)){generation++;dismiss();}
-      latestMachine=next;
+      next=recall(next,previousMachine);previousMachine=next;
+      latestMachine=next;followFeedback(next);
       render();
   }
   function poll(force) {
@@ -362,6 +417,10 @@
     });
   }
   function run(action,extra) {
+    if((!current || Date.now()-lastSeen>=3000)&&halt&&!simulation&&(action==='pause'||action==='stop')){
+      var target={action:action,port:halt.port};if(halt.generation)target.generation=halt.generation;
+      return api('POST',target);
+    }
     if(!current || Date.now()-lastSeen>=3000)return Promise.reject(new Error('État indisponible.'));
     if(!simulation&&(['prepare','start','resume','macro','override','unlock','home','spindle','readSettings','set-origin'].indexOf(action)>=0||(action==='motion'&&!(extra&&extra.operation==='jog-stop')))&&(!current.generation||!transportId||!stream||!stream.alive()))return Promise.reject(new Error(uiLocale.t('Suivi continu interrompu. Nouvelle confirmation requise.')));
     var body={action:action,port:current.port};
@@ -379,7 +438,7 @@
     function finish(){pending--;busy=pending>0;render();if(!stream||!stream.alive())poll(true);}
     return run(action,extra).then(function(data){
       if(ownGeneration===generation){
-        if(id>=feedbackSequence){feedbackSequence=id;text('job-feedback',data.message||'');setFeedbackState('confirmed');}
+        if(id>=feedbackSequence){feedbackSequence=id;text('job-feedback',data.message||'');setFeedbackState('confirmed');feedbackExpect={start:'running',resume:'running',pause:'paused',stop:'idle'}[action]||null;feedbackReached=false;}
         if(data.snapshot)apply(data.snapshot,Date.now()-started);
       }
       return data;
@@ -422,7 +481,7 @@
     },function(){preparing--;});
   }
   bind(window,'cnc-library-select',function(event){selection=event.detail;if(store)store.set({selection:selection});render();});
-  bind($('job-port'),'change',function(){generation++;explicitPort=!!$('job-port').value;dismiss();latestMachine=machines.filter(function(m){return m.port===$('job-port').value;})[0]||null;render();});
+  bind($('job-port'),'change',function(){generation++;explicitPort=!!$('job-port').value;halt=null;dismiss();latestMachine=machines.filter(function(m){return m.port===$('job-port').value;})[0]||null;render();});
   bind($('job-load'),'click',function(){
     if(!selection||busy)return;dismiss();
     // Loading from Fichiers leads to the Suivi, where the start is confirmed.
@@ -460,10 +519,14 @@
   ['pilot-reason-a','pilot-reason-b'].forEach(function(id){bind($(id),'click',function(){$('pilot-reason').value=this.textContent;renderPilotDialog();$('pilot-takeover').focus();});});
   // Escape closes, Tab stays inside the open pilot dialog.
   bind(document,'keydown',function(e){
-    if($('pilot-dialog').hidden)return;
+    // The confirmation, when open, owns the keys (its handler comes first).
+    if($('pilot-dialog').hidden||!$('job-dialog').hidden)return;
     if(e.key==='Escape'){closePilot();e.preventDefault();e.stopImmediatePropagation();return;}
     if(e.key!=='Tab')return;
     var order=['pilot-reason','pilot-reason-a','pilot-reason-b','pilot-dismiss','pilot-takeover'].map($).filter(function(n){return n&&!n.hidden&&!n.disabled&&!(pilot.state!=='other'&&/^pilot-reason/.test(n.id));});
+    // One cycle with the strip's Pause / Arrêter first, as for the confirmation (U5).
+    order=stripStops().concat(order);
+    if(order.length){var at=order.indexOf(document.activeElement),next=order[at<0?(e.shiftKey?order.length-1:0):(at+(e.shiftKey?order.length-1:1))%order.length];e.preventDefault();next.focus();e.stopImmediatePropagation();return;}
     var first=order[0],last=order[order.length-1];
     if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
     else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}

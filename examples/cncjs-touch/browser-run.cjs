@@ -14,15 +14,19 @@
 //   --url URL        touch base URL of a running server (default: preview-server.cjs)
 //   --browser PATH   Chrome/Edge executable (default: CNC_BROWSER or well-known paths)
 //   --repeat N       start-up repetitions (default 5)
-//   --only LIST      comma list among measure,sim,startup,e2e (default all; sim = the
-//                    simulation page with a job running, paused and in alarm, FR and ES)
+//   --only LIST      comma list among measure,sim,startup,e2e,strip (default all; sim = the
+//                    simulation page with a job running, paused and in alarm, FR and ES,
+//                    plus the real page with the controller at rest in alarm; strip =
+//                    Pause / Arrêter over every overlay, browser-strip.cjs)
 //   --keep-browser   do not kill the browser at the end (debugging)
 //   --strict         also fail (exit 1) on a layout regression in the variants the
 //                    interface is made for (1366 x 768 and 1024 x 600, standard and
 //                    large text, simulation FR/ES): a command whose centre is covered
 //                    by another element, a screen that does not scroll shrunk below
 //                    scale 1, a primary target under 64 px, a secondary under 48 px, a
-//                    jog arrow under 96 px, or text under 16 px, except the entries of
+//                    jog arrow under 96 px, text under 16 px, a control's text drawn
+//                    outside its box or a word cut across two lines, or a rail that
+//                    scrolls horizontally, except the entries of
 //                    layout-exceptions.json (each with its reason). Browser zoom 200 %
 //                    and the default-font variant stay reported only.
 //   --exceptions F   another exceptions file (default layout-exceptions.json here)
@@ -42,7 +46,7 @@ const URL_BASE = option('--url', '');
 // --root DIR: serve another copy of the pages through the fixture (a bundled build, output/touch-bundle).
 const ROOT_DIR = option('--root', '');
 const REPEAT = Math.max(1, Number(option('--repeat', 5)) || 5);
-const ONLY = option('--only', 'measure,sim,startup,e2e').split(',');
+const ONLY = option('--only', 'measure,sim,startup,e2e,strip').split(',');
 const KEEP = args.includes('--keep-browser');
 const STRICT = args.includes('--strict');
 const EXCEPTIONS_FILE = path.resolve(option('--exceptions', path.join(__dirname, 'layout-exceptions.json')));
@@ -267,6 +271,34 @@ const MEASURE = String(function measure(goals) {
     return visible(el);
   });
   var rects = nodes.map(function (el) { return el.getBoundingClientRect(); });
+  // Text of a control drawn outside its box (px beyond the left/right edge), and a word cut
+  // across two lines without a hyphenation point (a soft hyphen is a chosen break).
+  function textFit(el, r) {
+    var out = 0, broken = [], walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (var node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (!node.data.trim() || !node.parentElement || !visible(node.parentElement)) continue;
+      // What is drawn: the text clipped by its ancestors up to the control (an ellipsis, a
+      // screen-reader-only label in a 1 px clipped box is not text out of its control).
+      var clip = { left: -Infinity, right: Infinity };
+      for (var a = node.parentElement; a; a = a.parentElement) {
+        var cs = getComputedStyle(a);
+        if (cs.overflowX !== 'visible' || cs.clip !== 'auto' || cs.clipPath !== 'none') { var ar = a.getBoundingClientRect(); clip.left = Math.max(clip.left, ar.left); clip.right = Math.min(clip.right, ar.right); }
+        if (a === el) break;
+      }
+      var range = document.createRange(); range.selectNodeContents(node);
+      Array.prototype.forEach.call(range.getClientRects(), function (q) {
+        var left = Math.max(q.left, clip.left), right = Math.min(q.right, clip.right);
+        if (q.width && right > left) out = Math.max(out, r.left - left, right - r.right);
+      });
+      var re = /[^\s\u00ad]+/g, m;
+      if (node.data.indexOf('\u00ad') < 0) while ((m = re.exec(node.data))) {
+        var w = document.createRange(); w.setStart(node, m.index); w.setEnd(node, m.index + m[0].length);
+        var tops = {}; Array.prototype.forEach.call(w.getClientRects(), function (q) { if (q.width) tops[Math.round(q.top)] = 1; });
+        if (Object.keys(tops).length > 1) broken.push(m[0]);
+      }
+    }
+    return { out: Math.round(out * 10) / 10, broken: broken };
+  }
   var targets = nodes.map(function (el, i) {
     var r = rects[i], k = kind(el), goal = goals[k];
     var cx = r.left + r.width / 2, cy = r.top + r.height / 2, hit = document.elementFromPoint(cx, cy);
@@ -288,8 +320,8 @@ const MEASURE = String(function measure(goals) {
       if (dx === 0 && dy === 0) overlaps.push(label(nodes[j]));
       if (d < gap) { gap = d; neighbour = label(nodes[j]); }
     });
-    var font = renderedFont(el, textFont(el));
-    return { label: label(el), id: el.id || null, tag: el.tagName.toLowerCase(), kind: k, goal: goal, x: Math.round(r.left * 10) / 10, y: Math.round(r.top * 10) / 10, w: Math.round(r.width * 10) / 10, h: Math.round(r.height * 10) / 10,
+    var font = renderedFont(el, textFont(el)), fit = textFit(el, r);
+    return { textOut: fit.out, brokenWords: fit.broken, label: label(el), id: el.id || null, tag: el.tagName.toLowerCase(), kind: k, goal: goal, x: Math.round(r.left * 10) / 10, y: Math.round(r.top * 10) / 10, w: Math.round(r.width * 10) / 10, h: Math.round(r.height * 10) / 10,
       minSide: Math.round(Math.min(r.width, r.height) * 10) / 10, belowGoal: Math.min(r.width, r.height) * dpr < goal - 0.5, fontPx: Math.round(font * 10) / 10, textBelowGoal: font * dpr < goals.text - 0.5,
       gap: isFinite(gap) ? Math.round(gap * 10) / 10 : null, neighbour: neighbour, gapBelowGoal: isFinite(gap) && gap * dpr < goals.gap - 0.5, overlaps: overlaps, disabled: disabled, reachable: reachable, offscreen: offscreen, hit: reachable ? null : (hit ? label(hit) : 'nothing') };
   });
@@ -307,13 +339,18 @@ const MEASURE = String(function measure(goals) {
     // Screen-reader-only text (.ks-sr-only: 1 px clipped box) is not truncation.
     if (el.scrollWidth > el.clientWidth + 1 && cs.overflowX !== 'visible' && el.clientWidth > 2 && !el.classList.contains('ks-sr-only')) truncated.push({ text: own.slice(0, 60), tag: el.tagName.toLowerCase(), id: el.id || null, scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, textOverflow: cs.textOverflow });
   });
-  var de = document.documentElement, main = document.querySelector('main');
+  var de = document.documentElement, main = document.querySelector('main'), rail = document.getElementById('tabbar');
   return { viewport: { width: vw, height: vh, dpr: dpr }, activeScreen: active ? active.id : null, screenScale: screenScale, scrolls: !!active && active.getAttribute('data-fit') === 'scroll',
+    railScroll: !!rail && rail.scrollWidth > rail.clientWidth + 1 ? rail.scrollWidth + ' > ' + rail.clientWidth : null,
     horizontalOverflow: { document: de.scrollWidth > de.clientWidth + 1, documentScrollWidth: de.scrollWidth, clientWidth: de.clientWidth, main: !!main && main.scrollWidth > main.clientWidth + 1, active: !!active && active.scrollWidth > active.clientWidth + 1 },
     verticalOverflow: { document: de.scrollHeight > de.clientHeight + 1, active: !!active && active.scrollHeight > active.clientHeight + 1 && active.getAttribute('data-fit') !== 'scroll' },
     targets: targets, smallText: small, truncated: truncated, bodyClass: document.body.className, theme: de.getAttribute('data-theme') || 'dark' };
 });
 
+// Controls whose text leaves their box (> 1 px) or breaks a word across lines.
+function textFitOf(data) {
+  return data.targets.filter((t) => t.textOut > 1 || (t.brokenWords && t.brokenWords.length)).map((t) => ({ label: t.label, id: t.id, out: t.textOut, broken: t.brokenWords }));
+}
 async function measureScreens(cdp, baseUrl, variant, dirName, dpr, summary, strict) {
   const dir = path.join(OUT, dirName);
   fs.mkdirSync(dir, { recursive: true });
@@ -328,7 +365,7 @@ async function measureScreens(cdp, baseUrl, variant, dirName, dpr, summary, stri
       const below = data.targets.filter((t) => t.belowGoal), small = data.targets.filter((t) => t.textBelowGoal), gaps = data.targets.filter((t) => t.gapBelowGoal), unreachable = data.targets.filter((t) => !t.reachable);
       const fonts = data.targets.map((t) => t.fontPx), fontStats = { min: fonts.length ? Math.min(...fonts) : null, median: median(fonts), max: fonts.length ? Math.max(...fonts) : null };
       log(variant + ' ' + label + ': ' + data.targets.length + ' targets, ' + below.length + ' under size goal, ' + small.length + ' with text < 16 px, ' + gaps.length + ' gaps < 12 px, ' + unreachable.length + ' unreachable, scale ' + data.screenScale + ', target font ' + fontStats.min + '–' + fontStats.max + ' px' + (data.horizontalOverflow.document ? ', HORIZONTAL OVERFLOW' : ''));
-      results.push({ screen: name, label, targets: data.targets.length, below, small: data.smallText, textTargets: small, gaps, unreachable, truncated: data.truncated, overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, scrolls: data.scrolls, fontStats });
+      results.push({ screen: name, label, targets: data.targets.length, below, small: data.smallText, textTargets: small, gaps, unreachable, truncated: data.truncated, overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, scrolls: data.scrolls, fontStats, textFit: textFitOf(data), railScroll: data.railScroll });
     } catch (e) {
       failures.push(variant + ' ' + label + ': ' + e.message); log('FAIL ' + variant + ' ' + label + ': ' + e.message);
       results.push({ screen: name, label, error: e.message });
@@ -514,7 +551,7 @@ async function simMeasure(cdp, simUrl, summary) {
       const tag = 'sim ' + w + 'x' + h + ' ' + lang, dirName = 'sim-' + w + 'x' + h + '-' + lang;
       const dir = path.join(OUT, dirName);
       fs.mkdirSync(dir, { recursive: true });
-      const results = [];
+      const results = [], reportOnly = [];
       const capture = async (name, label, variant) => {
         try {
           await goScreen(cdp, name);
@@ -525,7 +562,7 @@ async function simMeasure(cdp, simUrl, summary) {
           const below = data.targets.filter((t) => t.belowGoal), small = data.targets.filter((t) => t.textBelowGoal), gaps = data.targets.filter((t) => t.gapBelowGoal), unreachable = data.targets.filter((t) => !t.reachable);
           const fonts = data.targets.map((t) => t.fontPx), fontStats = { min: fonts.length ? Math.min(...fonts) : null, median: median(fonts), max: fonts.length ? Math.max(...fonts) : null };
           log(tag + ' ' + variant + ' ' + label + ': ' + data.targets.length + ' targets, ' + below.length + ' under size goal, ' + small.length + ' with text < 16 px, scale ' + data.screenScale + (data.verticalOverflow.active ? ', VERTICAL OVERFLOW' : ''));
-          results.push({ screen: name, label: label + ' · ' + variant, targets: data.targets.length, below, small: data.smallText, textTargets: small, gaps, unreachable, truncated: data.truncated, overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, scrolls: data.scrolls, fontStats });
+          results.push({ screen: name, label: label + ' · ' + variant, targets: data.targets.length, below, small: data.smallText, textTargets: small, gaps, unreachable, truncated: data.truncated, overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, scrolls: data.scrolls, fontStats, textFit: textFitOf(data), railScroll: data.railScroll });
         } catch (e) { failures.push(tag + ' ' + variant + ' ' + label + ': ' + e.message); log('FAIL ' + tag + ' ' + variant + ': ' + e.message); results.push({ screen: name, label: label + ' · ' + variant, error: e.message }); }
       };
       try {
@@ -570,11 +607,66 @@ async function simMeasure(cdp, simUrl, summary) {
         } else failures.push(tag + ': alarm button unavailable');
         await cdp.evaluate('document.getElementById("home-job-stop").click();true');
         await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="idle"', 15000, 'idle');
+        // Alarm at rest (no job): the strip and Suivi as the operator finds them (validation D3).
+        await goScreen(cdp, 'machine');
+        if (await cdp.evaluate('(function(){var b=document.getElementById("sim-trigger-alarm");if(!b||b.disabled)return false;b.click();return true;})()')) {
+          await cdp.waitFor('/^alarm/i.test(((window.cncState.get().machine||{}).activeState)||"")', 10000, 'alarm at rest');
+          await sleep(1200);
+          // The end-of-job summary still shown beside the alarm: reported only (Suivi is scaled
+          // to fit, see the fix report); then acknowledged (OK), the state the check enforces.
+          const strictResults = results.splice(0, results.length);
+          await capture('home', 'Suivi', 'alarm-idle-summary');
+          reportOnly.push(...results.splice(0, results.length)); results.push(...strictResults);
+          await cdp.evaluate('(function(){var b=document.getElementById("home-job-summary-close");if(b&&!b.hidden)b.click();return true;})()');
+          await sleep(600);
+          await capture('home', 'Suivi', 'alarm-idle');
+          await cdp.evaluate('(function(){var b=document.getElementById("sim-clear-alarm");if(b&&!b.disabled)b.click();return true;})()');
+        } else failures.push(tag + ': alarm button unavailable at rest');
       } catch (e) { failures.push(tag + ': ' + e.message); log('FAIL ' + tag + ': ' + e.message); }
-      summary.measurements.push({ variant: tag + ' (job running, paused, alarm)', dir: dirName, dpr: 1, results, strict: true });
+      summary.measurements.push({ variant: tag + ' (job running, paused, alarm, alarm at rest)', dir: dirName, dpr: 1, results, strict: true });
+      if (reportOnly.length) summary.measurements.push({ variant: tag + ' (alarm at rest, end summary not acknowledged)', dir: dirName, dpr: 1, results: reportOnly, strict: false });
     }
   }
   await cdp.evaluate('localStorage.removeItem("cncjs-touch-language-v1");true').catch(() => {});
+}
+
+// Real page with the controller at rest in ALARM (preview-server.cjs --replay-alarm): the
+// strip offers « Déverrouiller… » beside Pilote (validation D3), FR and ES, standard and large.
+async function alarmMeasure(cdp, summary) {
+  const fixture = await startFixture(['--replay-alarm']);
+  try {
+    for (const [w, h] of RESOLUTIONS) {
+      for (const lang of ['fr', 'es']) {
+        for (const size of ['standard', 'large']) {
+          const tag = 'alarm at rest ' + w + 'x' + h + ' ' + lang + (size === 'large' ? ' texte agrandi' : ''), dirName = 'alarm-' + w + 'x' + h + '-' + lang + '-' + size;
+          const dir = path.join(OUT, dirName); fs.mkdirSync(dir, { recursive: true });
+          const results = [], reportOnly = [];
+          try {
+            await setViewport(cdp, w, h, 1);
+            await navigate(cdp, fixture.base + 'README.md');
+            await cdp.evaluate('localStorage.setItem("cncjs-touch-language-v1",' + JSON.stringify(lang) + ');localStorage.setItem("cncjs-touch-display-v1",' + JSON.stringify(JSON.stringify({ size })) + ');true');
+            await navigate(cdp, fixture.base + 'index.html?alarm=' + lang + size); await waitReady(cdp);
+            await cdp.waitFor('(function(){var b=document.getElementById("t-unlock");return !!b&&!b.hidden;})()', 20000, 'Déverrouiller offered');
+            for (const [name, label] of [['home', 'Suivi'], ['menu', 'Menu'], ['machine', 'Machine']]) {
+              await goScreen(cdp, name);
+              const data = await cdp.evaluate('(' + MEASURE + ')(' + JSON.stringify(GOALS) + ')');
+              fs.writeFileSync(path.join(dir, name + '.json'), JSON.stringify(data, null, 1));
+              await screenshot(cdp, path.join(dir, name + '.png'));
+              const fit = textFitOf(data);
+              log(tag + ' ' + label + ': ' + data.targets.length + ' targets, ' + fit.length + ' text overflow / cut words' + (fit.length ? ' (' + fit.map((t) => t.label + (t.broken && t.broken.length ? ' cut ' + t.broken.join('/') : '') + (t.out > 1 ? ' +' + t.out + ' px' : '')).join('; ') + ')' : ''));
+              (name === 'menu' ? results : reportOnly).push({ screen: name, label: label + ' · alarm at rest', targets: data.targets.length, below: data.targets.filter((t) => t.belowGoal), small: data.smallText, textTargets: data.targets.filter((t) => t.textBelowGoal), gaps: [], unreachable: data.targets.filter((t) => !t.reachable), truncated: data.truncated, overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, scrolls: data.scrolls, fontStats: {}, textFit: fit, railScroll: data.railScroll });
+            }
+          } catch (e) { failures.push(tag + ': ' + e.message); log('FAIL ' + tag + ': ' + e.message); }
+          // Enforced on the menu (the strip and the rail, D3); Suivi and Machine in this state are
+          // reported (a real alarm's help card and the replayed program: not the layout variants
+          // the screens are made for so far, see the fix report).
+          summary.measurements.push({ variant: tag, dir: dirName, dpr: 1, results, strict: true });
+          summary.measurements.push({ variant: tag + ' (report only)', dir: dirName, dpr: 1, results: reportOnly, strict: false });
+        }
+      }
+    }
+    await cdp.evaluate('localStorage.removeItem("cncjs-touch-language-v1");localStorage.removeItem("cncjs-touch-display-v1");true').catch(() => {});
+  } finally { fixture.child.kill(); }
 }
 
 // --- Strict layout check (--strict): the regressions the layout must never show, minus the
@@ -601,6 +693,11 @@ function strictCheck(summary, exceptionList) {
       if (!r.scrolls && typeof r.scale === 'number' && r.scale < 0.999) add(Object.assign({ check: 'scale', label: r.label, detail: 'scale ' + r.scale + ' on a screen that does not scroll' }, base));
       for (const t of r.unreachable || []) if (!(r.scrolls && t.offscreen)) add(Object.assign({ check: 'covered', label: t.label, detail: 'centre ' + (t.offscreen ? 'clipped' : 'covered') + ' by ' + t.hit }, base));
       for (const t of r.below || []) add(Object.assign({ check: 'size', label: t.label, detail: t.kind + ' ' + t.w + ' x ' + t.h + ' px, goal ' + t.goal }, base));
+      for (const t of r.textFit || []) {
+        if (t.out > 1) add(Object.assign({ check: 'text-overflow', label: t.label, detail: 'text ' + t.out + ' px outside its control' }, base));
+        if (t.broken && t.broken.length) add(Object.assign({ check: 'word-break', label: t.label, detail: 'word cut across lines: ' + t.broken.join(', ') }, base));
+      }
+      if (r.railScroll) add(Object.assign({ check: 'rail-scroll', label: 'rail', detail: 'rail scrolls horizontally (' + r.railScroll + ')' }, base));
       const seen = new Set();
       for (const t of (r.textTargets || []).concat(r.small || [])) { const label = t.label || t.text; if (seen.has(label)) continue; seen.add(label); add(Object.assign({ check: 'text', label, detail: t.fontPx + ' px, goal ' + GOALS.text }, base)); }
     }
@@ -735,7 +832,9 @@ async function main() {
         await cdp.send('Page.setFontSizes', { fontSizes: { standard: 16, fixed: 13 } });
       } catch (e) { summary.fontSizesUnsupported = e.message; log('font 200 % not available: ' + e.message); }
     }
-    if (ONLY.includes('sim')) await simMeasure(cdp, simUrl, summary);
+    if (ONLY.includes('sim')) { await simMeasure(cdp, simUrl, summary); if (!URL_BASE) await alarmMeasure(cdp, summary); }
+    // Pause / Arrêter over every overlay, degraded start-up, offline flag (browser-strip.cjs).
+    if (ONLY.includes('strip') && !URL_BASE) { await setViewport(cdp, 1366, 768, 1); const list = await require('./browser-strip.cjs').run(cdp, module.exports, { simBase: base, out: path.join(OUT, 'strip'), log }); list.forEach((f) => failures.push(f)); summary.strip = list; }
     if (ONLY.includes('startup')) { await setViewport(cdp, 1366, 768, 1); await measureStartup(cdp, realUrl, summary); }
     if (ONLY.includes('e2e')) { await setViewport(cdp, 1366, 768, 1); for (const lang of ['fr', 'en', 'es']) await e2e(cdp, simUrl, lang, summary); await cdp.evaluate('localStorage.removeItem("cncjs-touch-language-v1");true').catch(() => {}); }
   } catch (e) { failures.push('harness: ' + (e.stack || e.message)); log('FAIL harness: ' + e.message); }

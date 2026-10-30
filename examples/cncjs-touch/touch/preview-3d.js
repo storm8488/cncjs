@@ -77,7 +77,11 @@
   function refresh() { hosts.forEach(update); }
 
   // A host's 2D image changed (another file, a new preview, none): that becomes its base.
+  // No image (a file without preview, an image that failed): no view to choose, and the bar
+  // would cover the message shown in the image's place (validation D1).
+  function visibility(host) { var off = !!host.img.hidden || !host.img.getAttribute('src'); if (host.bar.hidden !== off) host.bar.hidden = off; }
   function observe(host) {
+    visibility(host);
     var src = host.img.getAttribute('src') || '';
     if (src === host.shown) return;
     host.base = src && !/^blob:/.test(src) ? src : '';
@@ -217,7 +221,7 @@
     note.className = 'pv3d-status'; note.setAttribute('role', 'status'); note.hidden = true;
     box.classList.add('pv3d-host'); box.appendChild(bar); box.appendChild(note);
     hosts.push(host);
-    new root.MutationObserver(function () { observe(host); }).observe(img, { attributes: true, attributeFilter: ['src'] });
+    new root.MutationObserver(function () { observe(host); }).observe(img, { attributes: true, attributeFilter: ['src', 'hidden'] });
     observe(host); buttons(host);
   }
   ['library-image', 'home-job-image'].forEach(attach);

@@ -7,7 +7,7 @@
   overlay.innerHTML=uiLocale.html('<header><div><h2 id="preview-viewer-title">Aperçu XY</h2><p id="preview-viewer-file"></p></div><button id="preview-viewer-close" type="button">Fermer ×</button></header><div id="preview-viewer-stage" tabindex="0" aria-label="Aperçu agrandi, déplacez avec un doigt ou les flèches du clavier"><img id="preview-viewer-image" alt="Parcours XY agrandi" draggable="false"></div><footer><div class="preview-zoom"><button id="preview-zoom-out" type="button" aria-label="Réduire le zoom">−</button><output id="preview-zoom-level" aria-live="polite">100 %</output><button id="preview-zoom-in" type="button" aria-label="Augmenter le zoom">＋</button><button id="preview-zoom-fit" type="button">Recentrer</button></div><div class="preview-machine"><span id="preview-machine-state"></span><button id="preview-job-stop" type="button" disabled>Arrêter le travail</button></div></footer><p class="preview-hint">Image indicative · Glissez avec un doigt · Zoom + / − · Échap pour fermer</p>');
   document.body.appendChild(overlay);
   var stage=$('preview-viewer-stage'),image=$('preview-viewer-image');
-  var zoom=1,drawnZoom=null,x=0,y=0,baseWidth=1,baseHeight=1,width=1,height=1,source=null,focusReturn=null,drag=null,pending=false,background=[],jobState=null;
+  var zoom=1,drawnZoom=null,x=0,y=0,baseWidth=1,baseHeight=1,width=1,height=1,source=null,focusReturn=null,drag=null,pending=false,background=null,jobState=null;
   function draw(){
     pending=false;if(overlay.hidden)return;
     var maxX=Math.max(0,(baseWidth*zoom-width)/2),maxY=Math.max(0,(baseHeight*zoom-height)/2);
@@ -30,7 +30,7 @@
   function close(){
     if(overlay.hidden)return;
     overlay.hidden=true;source=null;drag=null;image.removeAttribute('src');
-    background.forEach(function(entry){entry.el.inert=entry.inert;});background=[];
+    var restore=background;background=null;if(typeof restore==='function')restore();
     if(focusReturn)focusReturn.focus({preventScroll:true});
   }
   function open(img,name){
@@ -40,7 +40,11 @@
     // A 3D view shown in place of the 2D image (preview-3d.js) gives its own title.
     var view=img.cncView&&img.cncView.src===img.getAttribute('src')&&window.cncPreviewViews?window.cncPreviewViews.title(img.cncView.view):'';
     $('preview-viewer-title').textContent=view||uiLocale.t('Aperçu XY');
-    background=Array.prototype.map.call(document.querySelectorAll('main,#tabbar,#real-banner,#simulation-banner,#status-bar'),function(el){var entry={el:el,inert:el.inert};el.inert=true;return entry;});
+    // Pause / Arrêter of the strip stay usable over the viewer (strip-guard.js, U5): it starts
+    // below the strip; without the guard the page is inert and the viewer's own Arrêter remains.
+    if(typeof background==='function')background();
+    if(window.CNCStripGuard)background=window.CNCStripGuard.isolate(overlay);
+    else{var entries=Array.prototype.map.call(document.querySelectorAll('main,#tabbar,#real-banner,#simulation-banner,#status-bar'),function(el){var entry={el:el,inert:el.inert};el.inert=true;return entry;});background=function(){entries.forEach(function(entry){entry.el.inert=entry.inert;});};}
     overlay.hidden=false;image.src=img.src;renderStatus();fit();$('preview-viewer-close').focus({preventScroll:true});
   }
   [['library-image','library-name'],['home-job-image','home-job-name']].forEach(function(pair){
@@ -72,6 +76,7 @@
     if(document.activeElement===stage&&/^Arrow/.test(e.key)){e.preventDefault();if(e.key==='ArrowLeft')x-=40;if(e.key==='ArrowRight')x+=40;if(e.key==='ArrowUp')y-=40;if(e.key==='ArrowDown')y+=40;schedule();}
     if(e.key==='Tab'){
       var controls=Array.prototype.filter.call(overlay.querySelectorAll('button,[tabindex="0"]'),function(el){return !el.disabled;});
+      if(window.CNCStripGuard){window.CNCStripGuard.tab(e,overlay,controls);return;}
       var first=controls[0],last=controls[controls.length-1];
       if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
       else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
@@ -82,12 +87,16 @@
   window.addEventListener('cnc-job-status',function(e){
     jobState=e.detail;renderStatus();
   });
+  function jogging(m){return !!(m&&m.motion&&typeof m.motion==='object'&&(m.motion.jog||m.motion.cancelling));}
   function renderStatus(){
     if(overlay.hidden)return;
     var detail=jobState||{},c=detail.machine;
-    var text=(detail.simulation?'Simulation · ':'Machine · ')+(c?({Idle:uiLocale.t('Au repos'),Run:uiLocale.t('Travail en cours'),Hold:uiLocale.t('En pause'),Alarm:uiLocale.t('Alarme')}[c.activeState]||c.activeState):uiLocale.t('État indisponible'));
+    var text=(detail.simulation?uiLocale.t('Simulation'):uiLocale.t('Machine'))+' · '+(c?({Idle:uiLocale.t('Au repos'),Run:uiLocale.t('Travail en cours'),Hold:uiLocale.t('En pause'),Alarm:uiLocale.t('Alarme')}[c.activeState]||c.activeState):uiLocale.t('État indisponible'));
     if($('preview-machine-state').textContent!==text)$('preview-machine-state').textContent=text;
-    if(stop.disabled!==(!c||!c.canStop))stop.disabled=!c||!c.canStop;
+    // As the strip's Arrêter (status-strip.js): a real jog of the server's is stoppable too, and
+    // during a loss of the state the last busy controller stays stoppable (detail.halt).
+    var h=detail.halt,off=c?!(c.canStop||jogging(c)):!(h&&h.canStop);
+    if(stop.disabled!==off)stop.disabled=off;
   }
   $('preview-machine-state').textContent=uiLocale.t('État en cours de lecture');
   window.addEventListener('resize',fit);

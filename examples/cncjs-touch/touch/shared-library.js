@@ -5,7 +5,7 @@
   if (!screen) return;
   screen.innerHTML =
     uiLocale.html('<div class="card wide library-header"><div><h2>Bibliothèque partagée</h2>') +
-    uiLocale.html('<p class="mute">Envoyez depuis le PC, retrouvez vos fichiers sur la Surface.</p></div>') +
+    uiLocale.html('<p class="mute">Envoyez depuis le PC, retrouvez vos fichiers sur la tablette.</p></div>') +
     uiLocale.html('<button id="library-refresh" type="button">↻ Actualiser</button></div>') +
     uiLocale.html('<div class="card library-list-panel"><div class="library-list-title"><h2>Fichiers sur le serveur</h2><span id="library-count" class="tag">0</span></div>') +
     uiLocale.html('<label class="library-label" for="library-search">Rechercher un fichier</label>') +
@@ -43,6 +43,8 @@
     uiLocale.html('<button type="button" disabled>Exécution — prochaine étape</button></div></div>');
 
   var $ = function (id) { return document.getElementById(id); };
+  // The preview's note and refusals are stored in French (sidecar): shown in the interface language.
+  function previewText(text) { var p = window.CNCLibraryPreview; return p && typeof p.localize === 'function' ? p.localize(text, window.cncI18n ? window.cncI18n.language : 'fr') : text; }
   var files = [], selected = '', detailVersion = '', requestId = 0;
   var refreshing = false, busy = false, generation = 0, reader = null, pageSize = 4, page = 0;
   var mounted = false, refreshId = 0, refreshAgain = 0, refreshPromise = null, requests = {}, rows = Object.create(null), listKey = '', deferredText = {}, detailLoading = false;
@@ -378,8 +380,8 @@
           $('library-image-status').textContent = uiLocale.t('Image illisible. Le G-code reste enregistré.');
         };
         $('library-image').src = image;
-        $('library-preview-note').textContent = String(meta.preview.note || '') + ' · ' + Number(meta.preview.segments || 0).toLocaleString(window.cncI18n?window.cncI18n.locale:'fr-FR') + ' segments.';
-      } else { detailLoading = false; $('library-image-status').textContent = uiLocale.t('Aperçu indisponible : ') + String(meta.previewError || uiLocale.t('aucune image enregistrée')) + uiLocale.t('. Le G-code reste disponible.'); }
+        $('library-preview-note').textContent = previewText(String(meta.preview.note || '')) + ' · ' + Number(meta.preview.segments || 0).toLocaleString(window.cncI18n?window.cncI18n.locale:'fr-FR') + uiLocale.t(' segments.');
+      } else { detailLoading = false; $('library-image-status').textContent = uiLocale.t('Aperçu indisponible : ') + (meta.previewError ? previewText(String(meta.previewError)) : uiLocale.t('aucune image enregistrée')) + uiLocale.t('. Le G-code reste disponible.'); }
     }).catch(function () {
       if (id !== requestId) return;
       detailLoading = false;
@@ -543,8 +545,8 @@
       $('library-image').onload = $('library-image').onerror = null;
       if (typeof uploadedImage === 'string' && uploadedImage) { describe(stored, meta.preview, meta.fingerprint); $('library-image').src = uploadedImage; $('library-image').hidden = false; $('library-image-status').hidden = true; }
       else { $('library-image').hidden = true; $('library-image').removeAttribute('src'); $('library-image-status').hidden = false;
-        $('library-image-status').textContent = uiLocale.t('Aperçu indisponible : ') + String(meta.previewError || uiLocale.t('aucune image enregistrée')) + uiLocale.t('. Le G-code reste disponible.'); }
-      status('✓ ' + file.name + uiLocale.t(' enregistré. Disponible sur la Surface.') + (legacy ? uiLocale.t(' Fichier non UTF-8 : lu en Windows-1252 (accents convertis).') : '') + (meta.previewError ? uiLocale.t(' Aperçu indisponible : ') + meta.previewError : '') + (meta.fingerprint ? '' : uiLocale.t(' Serveur sans empreinte : l’aperçu sera signalé « à vérifier ».')));
+        $('library-image-status').textContent = uiLocale.t('Aperçu indisponible : ') + (meta.previewError ? previewText(String(meta.previewError)) : uiLocale.t('aucune image enregistrée')) + uiLocale.t('. Le G-code reste disponible.'); }
+      status('✓ ' + file.name + uiLocale.t(' enregistré. Disponible sur la tablette.') + (legacy ? uiLocale.t(' Fichier non UTF-8 : lu en Windows-1252 (accents convertis).') : '') + (meta.previewError ? uiLocale.t(' Aperçu indisponible : ') + previewText(String(meta.previewError)) : '') + (meta.fingerprint ? '' : uiLocale.t(' Serveur sans empreinte : l’aperçu sera signalé « à vérifier ».')));
       previewChanged(stored);
       // CNCjs's watch list sees a new file a few seconds after it is written
       // (measured: about 4 s on the tablet): look again a few times.
@@ -601,7 +603,7 @@
       return request('PUT', 'file?file=' + encodeURIComponent(name + suffix), new Blob([JSON.stringify(meta)], { type: 'application/octet-stream' }));
     }).then(function () {
       if (selected === name) detailVersion = '';
-      status(uiLocale.t('✓ Aperçu mis à jour sur le serveur, visible aussi sur la Surface.'));
+      status(uiLocale.t('✓ Aperçu mis à jour sur le serveur, visible aussi sur la tablette.'));
       previewChanged(name);
       return refresh(false);
     }).catch(function (error) { status(uiLocale.t('Aperçu non modifié : ') + error.message); }).then(function () { if (current === regenerationId) regenerating = false; });
