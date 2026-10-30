@@ -34,8 +34,60 @@
   var resume=el('button','t-btn t-btn--primary','t-resume');resume.type='button';resume.textContent=uiLocale.t('Reprendre…');resume.hidden=true;
   var unlock=el('button','t-btn t-btn--primary','t-unlock');unlock.type='button';unlock.textContent=uiLocale.t('Déverrouiller…');unlock.hidden=true;
   actions.appendChild(unlock);actions.appendChild(resume);actions.appendChild(pause);actions.appendChild(stop);
+  // Messages (what to do next, a system command running): one cell of the strip laid over the
+  // report age and the live values, never over the state, the actions or the right-hand group.
+  // Showing a message therefore moves no command and covers none, on the strip or on the screen.
+  // Three lines at most (two plus one when both are shown); a tap on the cell drops the whole
+  // text below it until the next tap anywhere, or 15 s.
+  var messages=el('div','t-messages','t-messages');messages.hidden=true;messages.setAttribute('data-count','0');
+  var more=el('div','t-messages-more','t-messages-more');more.hidden=true;more.setAttribute('aria-hidden','true');
   // Before the title and the right-hand group written by touch-shell.js.
-  var first=banner.firstChild||null;[state,fresh,vitals,actions].forEach(function(node){banner.insertBefore(node,first);});
+  var first=banner.firstChild||null;[state,fresh,vitals,actions,messages].forEach(function(node){banner.insertBefore(node,first);});
+  // The strip is contained (contain:strict): the full text lies in the body, under the cell.
+  if(document.body&&typeof document.body.appendChild==='function')document.body.appendChild(more);
+  var opened=false,closeTimer=0,moreFrame=0;
+  function adopt(){['notice','t-system-command'].forEach(function(id){var n=$(id);if(n&&n.parentNode!==messages)messages.appendChild(n);});}
+  function shownMessages(){var list=[];for(var i=0;i<messages.children.length;i++){var c=messages.children[i];if(!c.hidden&&c.textContent)list.push(c);}return list;}
+  function fill(list){
+    more.textContent='';
+    list.forEach(function(c){var p=el('p',c.id==='notice'?'t-messages-notice':'t-messages-system');p.textContent=c.textContent;more.appendChild(p);});
+    if(typeof messages.getBoundingClientRect!=='function')return;
+    // From the rail to the cell's right edge (never past the strip actions' left edge, so never
+    // over Suivi's right-hand column with Démarrer / Pause / Arrêter).
+    var r=messages.getBoundingClientRect(),nav=$('tabbar'),left=nav&&nav.getBoundingClientRect?Math.ceil(nav.getBoundingClientRect().right)+8:r.left;
+    left=Math.min(left,r.left);
+    more.style.left=Math.round(left)+'px';more.style.width=Math.round(r.right-left)+'px';
+  }
+  function close(){
+    if(!opened)return;opened=false;prop(more,'hidden',true);attr(messages,'aria-expanded','false');
+    if(closeTimer&&window.clearTimeout)window.clearTimeout(closeTimer);closeTimer=0;
+    if(document.removeEventListener)document.removeEventListener('pointerdown',outside,true);
+  }
+  function outside(e){var t=e&&e.target;if(t&&(messages.contains(t)||more.contains(t)))return;close();}
+  function toggle(){
+    if(opened){close();return;}
+    var list=shownMessages();if(!list.length)return;
+    opened=true;fill(list);prop(more,'hidden',false);attr(messages,'aria-expanded','true');
+    if(window.setTimeout)closeTimer=window.setTimeout(close,15000);
+    if(document.addEventListener)document.addEventListener('pointerdown',outside,true);
+  }
+  function measureMore(){
+    moreFrame=0;var clipped=false;
+    shownMessages().forEach(function(c){if(c.scrollHeight>c.clientHeight+1)clipped=true;});
+    attr(messages,'data-more',String(clipped));
+  }
+  function syncMessages(){
+    adopt();
+    var list=shownMessages(),count=list.length;
+    attr(messages,'data-count',String(count));prop(messages,'hidden',!count);attr(banner,'data-message',String(!!count));
+    if(!count){close();attr(messages,'data-more','false');return;}
+    if(opened)fill(list);
+    if(!moreFrame&&window.requestAnimationFrame)moreFrame=window.requestAnimationFrame(measureMore);
+  }
+  messages.addEventListener('click',toggle);more.addEventListener('click',close);
+  var messageObserver=typeof window.MutationObserver==='function'?new window.MutationObserver(syncMessages):null;
+  if(messageObserver)messageObserver.observe(messages,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['hidden']});
+  syncMessages();
   function relay(id){var source=$(id);if(source&&!source.disabled)source.click();}
   // A tap on Pause, Resume or Unlock freezes those three for 600 ms: a double tap
   // cannot reach the button that replaces the first one (Pause becoming Resume).
@@ -103,8 +155,8 @@
   var disposed=false;
   function onStatus(e){if(disposed||!e.detail||!!e.detail.simulation!==simulation)return;render(e.detail);}
   window.addEventListener('cnc-job-status',onStatus);
-  function leave(e){if(e&&e.persisted)return;disposed=true;window.removeEventListener('cnc-job-status',onStatus);window.removeEventListener('pagehide',leave);}
+  function leave(e){if(e&&e.persisted)return;disposed=true;close();if(messageObserver)messageObserver.disconnect();window.removeEventListener('cnc-job-status',onStatus);window.removeEventListener('pagehide',leave);}
   window.addEventListener('pagehide',leave);
   render({machine:null,transportConnected:false});
-  window.cncStatusStrip={render:render,describe:describe};
+  window.cncStatusStrip={render:render,describe:describe,syncMessages:syncMessages,toggleMessages:toggle};
 })();

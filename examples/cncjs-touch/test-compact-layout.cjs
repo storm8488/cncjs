@@ -42,7 +42,13 @@ for(const s of ['menu','jog','files','home','machine','history']){
 }
 assert(has('.ks-ui.t-compact .job-dashboard','grid-template-columns:minmax(0,1fr) 440px'),'Suivi right column 440 px in compact');
 assert(has('.ks-ui.t-compact .home-live-tiles','display:none')&&has('.ks-ui.display-large .home-live-tiles','display:none'),'duplicated live tiles hidden (the strip shows them)');
-assert(has('.ks-ui.t-compact .t-coords-card .t-val','font-size:var(--fs-36)'),'coordinates on one row at 36 px in compact');
+// Work coordinates one axis per row at 24 px (a -600.000 value fits beside its unit), nowrap.
+assert(has('.ks-ui.t-compact .t-coords-card .t-val','font-size:var(--fs-24)')&&has('.ks-ui.t-compact .t-coords-card .t-val','white-space:nowrap'),'compact coordinates at 24 px, never wrapped');
+assert(has('.ks-ui.t-compact .t-coords-card .t-coords','grid-template-columns:auto minmax(0,1fr) auto;'),'compact work coordinates: one axis per row');
+// The preview note lies over the bottom of the image instead of a 44 px column beside it.
+assert(has('.ks-ui.t-compact .job-art #home-image-status:not(:only-child)','position:absolute'),'compact preview note over the image');
+// 12 px between Charger la sélection and Démarrer / Pause (6 px column gap + 6 px).
+assert(has('.ks-ui .job-metrics>.home-load','margin-bottom:6px'),'12 px under Charger la sélection');
 assert(has('.ks-ui.t-compact #screen-jog.active','grid-template-columns:minmax(0,1fr) auto')&&has('.ks-ui.t-compact #screen-jog.kept','grid-template-columns:minmax(0,1fr) auto'),'Préparer: the cross card takes its own width');
 assert(has('.ks-ui.t-compact .ks-coordinate-table tbody tr','height:48px'),'48 px table rows in compact');
 assert(has('.ks-ui.t-compact #screen-machine .ks-machine-commands','grid-template-columns:repeat(3,minmax(0,1fr))'),'Machine commands on one row');
@@ -61,13 +67,23 @@ assert(/\.ks-ui \.pv3d-views button\{[^}]*min-height:var\(--tap\)/.test(strip(re
 const large=find('.ks-ui.display-large main')[0];assert(large&&/--fs-16:18px;--fs-18:20px;--fs-20:22px;--fs-24:27px;--fs-28:31px/.test(large.body),'large text redefines the tokens');
 assert(large.sel.includes('.ks-ui.display-large .ks-sheet')&&large.sel.includes('.ks-ui.display-large .job-dialog')&&large.sel.includes('.ks-ui.display-large .t-numpad'),'sheets, dialogs and the pad grow too');
 assert(!/display-large[^{]*\{[^}]*transform:scale/.test(css),'no compensating scale for large text');
-// The notice overlays the screen and lets taps through; viewport-fit no longer measures it as a top band.
-assert(has('.ks-ui #notice','position:fixed')&&has('.ks-ui #notice','pointer-events:none'),'notice overlay');
+// The notice and the system line live in the strip's message cell (columns 2-3, over the age and
+// the live values): every strip child has its own column, nothing lies over a screen.
+assert(has('.t-messages','grid-column:2/4')&&has('.t-messages','grid-row:1'),'message cell over columns 2-3 of the strip');
+for(const [cls,col] of [['t-state',1],['t-fresh',2],['t-vitals',3],['t-strip-actions',4],['t-strip-right',5]])assert(has('.ks-ui #real-banner>.'+cls,'grid-column:'+col+';')&&has('.ks-ui #simulation-banner>.'+cls,'grid-column:'+col+';'),cls+' pinned to column '+col);
+assert(has('.ks-ui .t-messages>#notice','position:static')&&has('.ks-ui .t-messages>#notice','font:var(--fs-16)/1.2'),'notice in the cell, 16 px');
+assert(!find('.ks-ui #notice').some(r=>r.body.includes('position:fixed')),'the notice no longer lies over the screen');
+assert(has('.t-messages[data-count="2"]>#notice','-webkit-line-clamp:2')&&has('.t-messages[data-count="2"]>.t-system-command','-webkit-line-clamp:1'),'both messages share the cell');
+assert(has('.t-messages-more','position:fixed')&&has('.t-messages-more','top:var(--statusbar-h)'),'full text below the strip');
+assert(!find('.t-messages-more').some(r=>/max-height:none/.test(r.body)),'full text height bounded');
 assert(!/\['status-bar','simulation-banner','real-banner','notice'\]/.test(fit)&&/\['status-bar','simulation-banner','real-banner'\]/.test(fit),'viewport-fit ignores the notice');
 // The system command line and the action feedback states exist in the sheet.
-assert(has('.t-system-command','position:fixed'),'system command status line');
+assert(has('.t-system-command','position:fixed'),'system command status line (fallback without the strip)');
+assert(has('.ks-ui .t-messages>.t-system-command','border-left-color:var(--info)'),'system command line in the strip cell');
+// Dark-theme failure marks drawn with the readable text red (the --danger fill is 1.86:1 on --surface-2).
+assert(has('.t-sent[data-state="failed"]::before','background:var(--danger-text)')&&has('.ks-prep-step[data-state="blocking"] .ks-prep-mark','background:var(--danger-text)'),'failure marks in --danger-text');
 for(const s of ['sent','confirmed','failed','uncertain'])assert(find('.t-sent[data-state="'+s+'"]').length,'feedback state '+s);
 // The freshness details live with the coordinates on the real page.
 assert(read('index.html').includes('class="card ks-machine-coordinates"'),'coordinates card marked');
 assert(read('connection-status.js').includes("querySelector('#screen-machine .ks-machine-coordinates')"),'freshness panel moves to the coordinates card');
-console.log('PASS compact layout: body.t-compact from the window, 3-row pages, compact heights for the six kept screens, targets kept at 48/64/96 px, 48 px segments, 16 px strip labels, large-text tokens without scale, notice overlay, feedback states.');
+console.log('PASS compact layout: body.t-compact from the window, 3-row pages, compact heights for the six kept screens, targets kept at 48/64/96 px, 48 px segments, 16 px strip labels, large-text tokens without scale, notice and system line in the strip cell, feedback states.');
