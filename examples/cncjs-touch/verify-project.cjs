@@ -17,7 +17,7 @@ const tests = [
  'library-lifecycle','library-upload-payload','library-regeneration-cancel','history-view',
  'job-stream-client','stream-protocol','library-identity','api-prefix','controller-state','connection-status','operator-tools','i18n','journal-languages','profile-storage','perf-harness','viewport-recall','viewport-warmup','macros','system-monitor','tablet-actions','header-clock','backlight','viewport-scroll','commissioning','kept-screens','viewport-mutation','dom-fixture','interface-guide','grbl-help','travel-check','job-resume','status-strip','screen-lock','job-follow','viewport-throttle','tool-position','preview-depth','preview-3d',
  'numeric-pad','job-preparation','compact-layout','action-feedback','library-context','bundle',
- 'feedback-states','numeric-rules','preparation-keys','strip-messages','job-dialog-strip','real-motion',
+ 'feedback-states','numeric-rules','preparation-keys','strip-messages','job-dialog-strip','real-motion','gcode-corpus',
  'control-attribution','program-check-view','preview-identity','server-history','projects'
 ].map(name=>'test-'+name+'.cjs');
 // The backend (job service, event stream, motion preflight, probe input) lives in

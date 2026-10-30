@@ -1,0 +1,42 @@
+{
+  "title": "Metric, absolute, rectangle pocket outline",
+  "covers": ["G21", "G90", "G17"],
+  "truth": {
+    "bbox": {
+      "X": [10, 50],
+      "Y": [10, 30],
+      "Z": [-1, 5]
+    },
+    "units": "G21",
+    "relativeStart": false,
+    "final": [10, 10, 5],
+    "arcs": false
+  },
+  "preview": {
+    "accept": true,
+    "count": 5,
+    "bounds": [0, 0, 50, 30],
+    "zBounds": [-1, 5],
+    "relativeStart": false
+  },
+  "travel": "ok",
+  "programCheck": {
+    "verdict": "validated",
+    "unknownAxes": [],
+    "extent": {
+      "X": [10, 50],
+      "Y": [10, 30],
+      "Z": [-1, 5]
+    },
+    "rawUnits": false
+  },
+  "resume": {
+    "final": [10, 10, 5]
+  },
+  "toolpath": {
+    "bounds": {
+      "min": [0, 0, -1],
+      "max": [50, 30, 5]
+    }
+  }
+}

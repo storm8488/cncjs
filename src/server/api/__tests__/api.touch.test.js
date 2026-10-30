@@ -119,6 +119,25 @@ describe('api.touch', () => {
     expect(res.statusCode).toBe(400);
   });
 
+  test('postJob forwards a stable ETOUCH_* code and its parameters, never another code', async () => {
+    const refused = new Error('Avance inconnue avant la ligne 4 : choisissez une ligne plus loin.');
+    Object.assign(refused, { status: 409, code: 'ETOUCH_RESUME_FEED', params: { from: 4 } });
+    touch.action.mockReturnValueOnce(Promise.reject(refused));
+    let res = makeRes();
+    postJob(makeReq(), res);
+    await settled();
+    expect(res.statusCode).toBe(409);
+    expect(res.payload).toEqual({ message: refused.message, code: 'ETOUCH_RESUME_FEED', params: { from: 4 } });
+
+    // File-system or internal codes stay on the server.
+    const internal = Object.assign(new Error('Fichier introuvable.'), { status: 409, code: 'ENOENT' });
+    touch.action.mockReturnValueOnce(Promise.reject(internal));
+    res = makeRes();
+    postJob(makeReq(), res);
+    await settled();
+    expect(res.payload).toEqual({ message: internal.message });
+  });
+
   test('previewMotion answers 409 for a coded refusal and 500 otherwise', () => {
     let res = makeRes();
     previewMotion(makeReq({ body: { port: 'A' } }), res);

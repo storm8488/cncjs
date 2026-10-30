@@ -1,0 +1,14 @@
+;Created with Easel
+G20
+G90
+G0 Z0.15
+G0 X0.5 Y0.5
+M3 S12000
+G1 Z-0.0625 F9
+G1 X1.5 F30
+G1 Y1
+G1 X0.5
+G1 Y0.5
+G0 Z0.15
+M5
+M2

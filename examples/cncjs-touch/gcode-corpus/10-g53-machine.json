@@ -1,0 +1,51 @@
+{
+  "title": "G53 machine-coordinate moves around a work pass",
+  "covers": ["G53"],
+  "truth": {
+    "bbox": {
+      "X": [10, 20],
+      "Y": [10, 10],
+      "Z": [-1, 5]
+    },
+    "units": "G21",
+    "relativeStart": false,
+    "final": null,
+    "arcs": false,
+    "machineBbox": {
+      "X": [-5, -5],
+      "Y": [-5, -5],
+      "Z": [-1, -1]
+    }
+  },
+  "preview": {
+    "accept": false,
+    "error": "G53 non pris en charge par cet aperçu",
+    "line": 2,
+    "difference": "D-REFUSE"
+  },
+  "programCheck": {
+    "verdict": "validated",
+    "unknownAxes": [],
+    "extent": {
+      "X": [10, 20],
+      "Y": [10, 10],
+      "Z": [-1, 5]
+    },
+    "rawUnits": false,
+    "machineExtent": {
+      "X": [-5, -5],
+      "Y": [-5, -5],
+      "Z": [-1, -1]
+    }
+  },
+  "resume": {
+    "final": null
+  },
+  "toolpath": {
+    "bounds": {
+      "min": [-5, -5, -1],
+      "max": [20, 10, 5]
+    },
+    "difference": "D-CLASSIC-MACHINE"
+  }
+}

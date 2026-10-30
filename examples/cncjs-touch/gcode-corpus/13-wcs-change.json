@@ -1,0 +1,37 @@
+{
+  "title": "G54 then G56 in the same program (two frames: no single box)",
+  "covers": ["G54", "G56"],
+  "truth": {
+    "bbox": null,
+    "units": "G21",
+    "relativeStart": false,
+    "final": null,
+    "arcs": false
+  },
+  "preview": {
+    "accept": false,
+    "error": "G56 non pris en charge par cet aperçu",
+    "line": 5,
+    "difference": "D-REFUSE"
+  },
+  "programCheck": {
+    "verdict": "unknown",
+    "unknownAxes": ["X", "Y", "Z"],
+    "extent": {
+      "X": null,
+      "Y": null,
+      "Z": null
+    },
+    "rawUnits": false,
+    "difference": "D-UNKNOWN"
+  },
+  "resume": {
+    "final": null
+  },
+  "toolpath": {
+    "bounds": {
+      "min": [0, 0, 5],
+      "max": [10, 5, 5]
+    }
+  }
+}

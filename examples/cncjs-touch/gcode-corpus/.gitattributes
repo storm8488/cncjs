@@ -1,0 +1,3 @@
+# Corpus bytes are test data: keep CRLF and Latin-1 files exactly as written.
+*.nc -text
+*.json text eol=lf

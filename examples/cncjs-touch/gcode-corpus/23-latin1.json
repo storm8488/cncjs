@@ -1,0 +1,42 @@
+{
+  "title": "Latin-1 accented bytes in comments",
+  "covers": ["Latin-1"],
+  "truth": {
+    "bbox": {
+      "X": [10, 15],
+      "Y": [10, 12],
+      "Z": [-2, 5]
+    },
+    "units": "G21",
+    "relativeStart": false,
+    "final": [15, 12, 5],
+    "arcs": false
+  },
+  "preview": {
+    "accept": true,
+    "count": 2,
+    "bounds": [0, 0, 15, 12],
+    "zBounds": [-2, 5],
+    "relativeStart": false
+  },
+  "travel": "ok",
+  "programCheck": {
+    "verdict": "validated",
+    "unknownAxes": [],
+    "extent": {
+      "X": [10, 15],
+      "Y": [10, 12],
+      "Z": [-2, 5]
+    },
+    "rawUnits": false
+  },
+  "resume": {
+    "final": [15, 12, 5]
+  },
+  "toolpath": {
+    "bounds": {
+      "min": [0, 0, -2],
+      "max": [15, 12, 5]
+    }
+  }
+}

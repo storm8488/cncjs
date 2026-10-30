@@ -1,0 +1,42 @@
+{
+  "title": "Goes past the X travel of the reference machine",
+  "covers": ["outside travel"],
+  "truth": {
+    "bbox": {
+      "X": [10, 500],
+      "Y": [10, 10],
+      "Z": [-1, 5]
+    },
+    "units": "G21",
+    "relativeStart": false,
+    "final": [500, 10, 5],
+    "arcs": false
+  },
+  "preview": {
+    "accept": true,
+    "count": 2,
+    "bounds": [0, 0, 500, 10],
+    "zBounds": [-1, 5],
+    "relativeStart": false
+  },
+  "travel": "outside",
+  "programCheck": {
+    "verdict": "outside",
+    "unknownAxes": [],
+    "extent": {
+      "X": [10, 500],
+      "Y": [10, 10],
+      "Z": [-1, 5]
+    },
+    "rawUnits": false
+  },
+  "resume": {
+    "final": [500, 10, 5]
+  },
+  "toolpath": {
+    "bounds": {
+      "min": [0, 0, -1],
+      "max": [500, 10, 5]
+    }
+  }
+}

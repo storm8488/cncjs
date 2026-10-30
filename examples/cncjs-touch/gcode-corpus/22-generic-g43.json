@@ -1,0 +1,43 @@
+{
+  "title": "Generic post with O word, N numbers, G43 H1 (refused by Grbl, error 20)",
+  "covers": ["post generic", "G43", "N", "O", "G40", "G80"],
+  "truth": {
+    "bbox": {
+      "X": [5, 25],
+      "Y": [5, 5],
+      "Z": [-1, 25]
+    },
+    "units": "G21",
+    "relativeStart": false,
+    "final": null,
+    "arcs": false,
+    "grblRefuses": true
+  },
+  "preview": {
+    "accept": false,
+    "error": "mot O non pris en charge",
+    "line": 2,
+    "difference": "D-REFUSE"
+  },
+  "programCheck": {
+    "verdict": "unknown",
+    "unknownAxes": ["X", "Y", "Z"],
+    "extent": {
+      "X": null,
+      "Y": null,
+      "Z": null
+    },
+    "rawUnits": false,
+    "difference": "D-UNKNOWN"
+  },
+  "resume": {
+    "final": null,
+    "difference": "D-REFUSE"
+  },
+  "toolpath": {
+    "bounds": {
+      "min": [5, 5, -1],
+      "max": [25, 5, 25]
+    }
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "title": "G92 then G10 L20 change the origin",
+  "covers": ["G92", "G10"],
+  "truth": {
+    "bbox": {
+      "X": [10, 15],
+      "Y": [10, 10],
+      "Z": [5, 5]
+    },
+    "units": "G21",
+    "relativeStart": false,
+    "final": null,
+    "arcs": false
+  },
+  "preview": {
+    "accept": false,
+    "error": "G92 non pris en charge par cet aperçu",
+    "line": 4,
+    "difference": "D-REFUSE"
+  },
+  "programCheck": {
+    "verdict": "unknown",
+    "unknownAxes": ["X", "Y", "Z"],
+    "extent": {
+      "X": null,
+      "Y": null,
+      "Z": null
+    },
+    "rawUnits": false,
+    "difference": "D-UNKNOWN"
+  },
+  "resume": {
+    "final": null,
+    "difference": "D-REFUSE"
+  },
+  "toolpath": {
+    "bounds": {
+      "min": [0, 0, 5],
+      "max": [15, 10, 5]
+    }
+  }
+}

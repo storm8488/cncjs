@@ -1,0 +1,40 @@
+{
+  "title": "Whole program in G55",
+  "covers": ["G55"],
+  "truth": {
+    "bbox": {
+      "X": [10, 20],
+      "Y": [10, 10],
+      "Z": [-1, 5]
+    },
+    "units": "G21",
+    "relativeStart": false,
+    "final": [20, 10, 5],
+    "arcs": false
+  },
+  "preview": {
+    "accept": false,
+    "error": "G55 non pris en charge par cet aperçu",
+    "line": 1,
+    "difference": "D-REFUSE"
+  },
+  "programCheck": {
+    "verdict": "unknown",
+    "unknownAxes": [],
+    "extent": {
+      "X": [10, 20],
+      "Y": [10, 10],
+      "Z": [-1, 5]
+    },
+    "rawUnits": false
+  },
+  "resume": {
+    "final": [20, 10, 5]
+  },
+  "toolpath": {
+    "bounds": {
+      "min": [0, 0, -1],
+      "max": [20, 10, 5]
+    }
+  }
+}

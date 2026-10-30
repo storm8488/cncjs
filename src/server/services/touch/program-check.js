@@ -21,7 +21,38 @@ const KNOWN_M = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 30];
 
 export const programLines = (gcode) => String(gcode).split('\n').filter((line) => line.trim().length > 0);
 
-const clean = (line) => line.replace(/\([^)]*\)/g, ' ').replace(/;.*$/, '').trim().toUpperCase();
+// The code part of a line exactly as the CNCjs sender keeps it (gcode-parser
+// 2.2 stripComments, the `line` it sends to Grbl): parentheses nest, so
+// "(a (b) G0 X50" is a comment to the end of the line; a ';' outside
+// parentheses ends the line, inside them it is comment text; an unmatched ')'
+// is dropped. Shared with resume.js so both read the lines the sender sends.
+export const stripComments = (line) => {
+  const text = String(line);
+  if (text.indexOf('(') < 0 && text.indexOf(')') < 0) {
+    const semicolon = text.indexOf(';');
+    return semicolon < 0 ? text : text.slice(0, semicolon);
+  }
+  let out = '';
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === ';' && depth === 0) {
+      break;
+    }
+    if (c === '(') {
+      depth++;
+    } else if (c === ')') {
+      depth = Math.max(0, depth - 1);
+    } else if (depth === 0) {
+      out += c;
+    }
+  }
+  return out;
+};
+
+export const codeOf = (line) => stripComments(line).trim().toUpperCase();
+
+const clean = codeOf;
 
 const words = (code) => {
   const out = [];

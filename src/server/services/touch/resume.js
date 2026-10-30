@@ -9,15 +9,25 @@
 // Lines are numbered like the CNCjs sender counts them: non-empty lines,
 // comment-only lines included, so the number shown during a job can be used.
 
+// The offline preview server loads these modules natively: keep the extension.
+// eslint-disable-next-line import/extensions
+import { codeOf } from './program-check.js';
+
 const SPINUP_SECONDS = 3;
 
-const refuse = (message) => {
+// Every refusal carries a stable code (ETOUCH_RESUME_*) and the values its
+// French message is built from, so a client can translate it without parsing
+// the text; the message itself is unchanged.
+const refuse = (code, message, params = {}) => {
   const err = new Error(message);
   err.status = 409;
+  err.code = code;
+  err.params = params;
   return err;
 };
 
-const clean = (line) => line.replace(/\([^)]*\)/g, ' ').replace(/;.*$/, '').trim().toUpperCase();
+// Comments removed the way the CNCjs sender does (nested parentheses).
+const clean = codeOf;
 
 const words = (code) => {
   const out = [];
@@ -106,24 +116,24 @@ toolOffset: null
     };
     const lineNo = i + 1;
     if (g.some((v) => [10, 92, 92.1, 92.2, 92.3].includes(v))) {
-      throw refuse('Le programme change l’origine (G10/G92) avant la ligne ' + from + ' (ligne ' + lineNo + ') : reprise impossible.');
+      throw refuse('ETOUCH_RESUME_ORIGIN_CHANGED', 'Le programme change l’origine (G10/G92) avant la ligne ' + from + ' (ligne ' + lineNo + ') : reprise impossible.', { from, line: lineNo });
     }
     if (g.includes(93)) {
-      throw refuse('Avance inverse du temps (G93) avant la ligne ' + from + ' : reprise impossible.');
+      throw refuse('ETOUCH_RESUME_INVERSE_TIME', 'Avance inverse du temps (G93) avant la ligne ' + from + ' : reprise impossible.', { from });
     }
     // Compensations the preamble does not replay (Grbl supports G43.1/G49 only).
     if (g.some((v) => [41, 41.1, 42, 42.1].includes(v))) {
-      throw refuse('Compensation de rayon d’outil (G41/G42) à la ligne ' + lineNo + ' : non rejouée, reprise impossible.');
+      throw refuse('ETOUCH_RESUME_CUTTER_COMPENSATION', 'Compensation de rayon d’outil (G41/G42) à la ligne ' + lineNo + ' : non rejouée, reprise impossible.', { line: lineNo });
     }
     if (g.includes(43)) {
-      throw refuse('Décalage de longueur d’outil (G43) à la ligne ' + lineNo + ' : non rejoué, reprise impossible.');
+      throw refuse('ETOUCH_RESUME_TOOL_LENGTH', 'Décalage de longueur d’outil (G43) à la ligne ' + lineNo + ' : non rejoué, reprise impossible.', { line: lineNo });
     }
     g.forEach((v) => {
       if (v === 20 || v === 21) {
         const units = 'G' + v;
         if (s.units !== units) {
           if (s.units === null && acquired(s)) {
-            throw refuse('Le programme fixe ses unités (' + units + ') à la ligne ' + lineNo + ' après des déplacements faits dans les unités de la machine : reprise impossible.');
+            throw refuse('ETOUCH_RESUME_UNITS_LATE', 'Le programme fixe ses unités (' + units + ') à la ligne ' + lineNo + ' après des déplacements faits dans les unités de la machine : reprise impossible.', { units, line: lineNo });
           }
           if (s.units !== null && acquired(s)) {
             scale(s, v === 20 ? 1 / MM_PER_INCH : MM_PER_INCH);
@@ -248,37 +258,37 @@ export const modalsBeforeFirstMove = (gcode) => {
 export const buildResume = (gcode, from, { name = '' } = {}) => {
   const lines = programLines(gcode);
   if (!Number.isInteger(from) || from < 2 || from > lines.length) {
-    throw refuse('Ligne de reprise invalide : choisissez entre 2 et ' + lines.length + '.');
+    throw refuse('ETOUCH_RESUME_LINE', 'Ligne de reprise invalide : choisissez entre 2 et ' + lines.length + '.', { min: 2, max: lines.length });
   }
   const s = stateBefore(lines, from);
   if (s.distance === 'G91') {
-    throw refuse('Le programme est en coordonnées relatives (G91) à la ligne ' + from + ' : reprise impossible.');
+    throw refuse('ETOUCH_RESUME_RELATIVE', 'Le programme est en coordonnées relatives (G91) à la ligne ' + from + ' : reprise impossible.', { from });
   }
   if (s.toolOffset !== null) {
-    throw refuse('Décalage de longueur d’outil (G43.1) actif depuis la ligne ' + s.toolOffset + ' : non rejoué, reprise impossible avant son annulation (G49).');
+    throw refuse('ETOUCH_RESUME_TOOL_OFFSET_ACTIVE', 'Décalage de longueur d’outil (G43.1) actif depuis la ligne ' + s.toolOffset + ' : non rejoué, reprise impossible avant son annulation (G49).', { line: s.toolOffset });
   }
   if (s.pos.X === null || s.pos.Y === null || s.pos.Z === null) {
     if (s.wcsReset) {
-      throw refuse('Le programme change de repère (' + s.wcsReset.wcs + ' à la ligne ' + s.wcsReset.line + ') : X, Y et Z doivent être redonnés en absolu sous ce repère avant la ligne ' + from + '. Choisissez une ligne plus loin.');
+      throw refuse('ETOUCH_RESUME_WCS_POSITION', 'Le programme change de repère (' + s.wcsReset.wcs + ' à la ligne ' + s.wcsReset.line + ') : X, Y et Z doivent être redonnés en absolu sous ce repère avant la ligne ' + from + '. Choisissez une ligne plus loin.', { wcs: s.wcsReset.wcs, line: s.wcsReset.line, from });
     }
-    throw refuse('Position avant la ligne ' + from + ' inconnue (X, Y et Z doivent avoir été donnés en absolu) : choisissez une ligne plus loin.');
+    throw refuse('ETOUCH_RESUME_POSITION', 'Position avant la ligne ' + from + ' inconnue (X, Y et Z doivent avoir été donnés en absolu) : choisissez une ligne plus loin.', { from });
   }
   if (s.safeZ === null || s.safeZ < s.pos.Z) {
-    throw refuse('Hauteur de dégagement inconnue avant la ligne ' + from + ' : choisissez une ligne plus loin.');
+    throw refuse('ETOUCH_RESUME_CLEARANCE', 'Hauteur de dégagement inconnue avant la ligne ' + from + ' : choisissez une ligne plus loin.', { from });
   }
   // The clearance is the highest Z seen; it is a height the program treats as
   // free only when a rapid (G0) reached that height or one below it. Without
   // any rapid Z under this offset, the highest Z is a cutting depth: the rapid
   // XY move of the preamble would cross the part.
   if (s.rapidZ === null) {
-    throw refuse('Hauteur de dégagement inconnue avant la ligne ' + from + ' (aucun déplacement rapide G0 en Z' + (s.wcsReset ? ' sous ' + s.wcs : '') + ') : choisissez une ligne après un retrait en rapide.');
+    throw refuse('ETOUCH_RESUME_NO_RAPID_Z', 'Hauteur de dégagement inconnue avant la ligne ' + from + ' (aucun déplacement rapide G0 en Z' + (s.wcsReset ? ' sous ' + s.wcs : '') + ') : choisissez une ligne après un retrait en rapide.', { from, wcs: s.wcsReset ? s.wcs : null });
   }
   if (s.feed === null || s.feed <= 0) {
-    throw refuse('Avance inconnue avant la ligne ' + from + ' : choisissez une ligne plus loin.');
+    throw refuse('ETOUCH_RESUME_FEED', 'Avance inconnue avant la ligne ' + from + ' : choisissez une ligne plus loin.', { from });
   }
   const spindleOn = s.spindle === 'M3' || s.spindle === 'M4';
   if (spindleOn && !(s.speed > 0)) {
-    throw refuse('Vitesse de broche inconnue avant la ligne ' + from + ' : reprise impossible.');
+    throw refuse('ETOUCH_RESUME_SPINDLE_SPEED', 'Vitesse de broche inconnue avant la ligne ' + from + ' : reprise impossible.', { from });
   }
   const preamble = [
     '(CNCjs Touch : reprise a la ligne ' + from + (name ? ' de ' + name.replace(/[()]/g, '') : '') + ')',

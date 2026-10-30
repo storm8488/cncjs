@@ -73,7 +73,11 @@ export const postJob = authorized((req, res) => {
     .catch((err) => {
       // A control refusal (F5) names its code and the current owner, as documented.
       const control = err.code === 'ECONTROL' ? { code: err.code, owner: err.owner || null } : {};
-      res.status(err.status || ERR_BAD_REQUEST).send({ message: err.message, ...control });
+      // A stable Touch refusal code (ETOUCH_*) travels with the values of its
+      // message, so a client can translate it; the French message is unchanged.
+      const coded = typeof err.code === 'string' && /^ETOUCH_[A-Z0-9_]+$/.test(err.code)
+        ? { code: err.code, ...(err.params && typeof err.params === 'object' ? { params: err.params } : {}) } : {};
+      res.status(err.status || ERR_BAD_REQUEST).send({ message: err.message, ...control, ...coded });
     });
 });
 

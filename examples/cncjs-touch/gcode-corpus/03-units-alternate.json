@@ -1,0 +1,42 @@
+{
+  "title": "G21 then G20 then G21 again in the middle of the program",
+  "covers": ["G21", "G20", "units change"],
+  "truth": {
+    "bbox": {
+      "X": [10, 40],
+      "Y": [5, 25.4],
+      "Z": [-1, 5]
+    },
+    "units": "G21",
+    "relativeStart": false,
+    "final": [40, 5, 5],
+    "arcs": false
+  },
+  "preview": {
+    "accept": true,
+    "count": 3,
+    "bounds": [0, 0, 40, 25.4],
+    "zBounds": [-1, 5],
+    "relativeStart": false
+  },
+  "travel": "ok",
+  "programCheck": {
+    "verdict": "validated",
+    "unknownAxes": [],
+    "extent": {
+      "X": [10, 40],
+      "Y": [5, 25.4],
+      "Z": [-1, 5]
+    },
+    "rawUnits": false
+  },
+  "resume": {
+    "final": [40, 5, 5]
+  },
+  "toolpath": {
+    "bounds": {
+      "min": [0, 0, -1],
+      "max": [40, 25.4, 5]
+    }
+  }
+}

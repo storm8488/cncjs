@@ -21,6 +21,51 @@ const PROGRAM = [
   'M30'
 ].join('\n');
 
+describe('resume after a nested comment', () => {
+  test('a "(" inside an unclosed comment hides the rest of the line, as the CNCjs sender does', () => {
+    // The sender (gcode-parser 2.2) sends nothing of line 4: the tool stays at X0 Y0.
+    const program = ['G21 G90', 'G0 Z5', 'G0 X0 Y0', '(old (v1) G0 X50 Y50', 'G1 Z-1 F100', 'G1 X10', 'G0 Z5', 'M30'].join('\n');
+    const plan = buildResume(program, 6);
+    expect(plan.position).toEqual({ X: 0, Y: 0, Z: -1 });
+    expect(plan.preamble).toContain('G0 X0 Y0');
+    // A balanced nested comment still leaves the code after it.
+    expect(stateBefore(programLines('G21 G90\nG0 Z5 X1 Y1\n(note (v2) end) G1 X5 F100\nM30'), 4).pos).toEqual({ X: 5, Y: 1, Z: 5 });
+  });
+});
+
+describe('resume refusals carry a stable code and the values of their message', () => {
+  const P = (...lines) => lines.join('\n');
+  const refusal = (fn) => {
+    try {
+      fn();
+    } catch (err) {
+      return { status: err.status, code: err.code, params: err.params, message: err.message };
+    }
+    throw new Error('not refused');
+  };
+  test.each([
+    ['ETOUCH_RESUME_LINE', () => buildResume(P('G21 G90', 'G0 Z5'), 9), { min: 2, max: 2 }],
+    ['ETOUCH_RESUME_ORIGIN_CHANGED', () => buildResume(P('G21 G90', 'G92 X0', 'G0 Z5'), 3), { from: 3, line: 2 }],
+    ['ETOUCH_RESUME_INVERSE_TIME', () => buildResume(P('G21 G90', 'G93', 'G0 Z5'), 3), { from: 3 }],
+    ['ETOUCH_RESUME_CUTTER_COMPENSATION', () => buildResume(P('G21 G90', 'G41 D1', 'G0 Z5'), 3), { line: 2 }],
+    ['ETOUCH_RESUME_TOOL_LENGTH', () => buildResume(P('G21 G90', 'G43 H1', 'G0 Z5'), 3), { line: 2 }],
+    ['ETOUCH_RESUME_UNITS_LATE', () => buildResume(P('G0 Z5', 'G21', 'G0 X1'), 3), { units: 'G21', line: 2 }],
+    ['ETOUCH_RESUME_RELATIVE', () => buildResume(P('G21 G91', 'G0 Z5', 'G0 X1'), 3), { from: 3 }],
+    ['ETOUCH_RESUME_TOOL_OFFSET_ACTIVE', () => buildResume(P('G21 G90', 'G43.1 Z2', 'G0 Z5 X0 Y0', 'G1 Z-1 F100', 'G1 X1'), 5), { line: 2 }],
+    ['ETOUCH_RESUME_POSITION', () => buildResume(P('G21 G90', 'G0 Z5', 'G1 X1 F100'), 3), { from: 3 }],
+    ['ETOUCH_RESUME_WCS_POSITION', () => buildResume(P('G21 G90 G54', 'G0 Z5 X0 Y0', 'G55', 'G0 X1', 'G1 X2 F100'), 5), { wcs: 'G55', line: 3, from: 5 }],
+    // ETOUCH_RESUME_CLEARANCE is defensive: a known Z always sets the clearance.
+    ['ETOUCH_RESUME_NO_RAPID_Z', () => buildResume(P('G21 G90', 'G0 X0 Y0', 'G1 Z5 F100', 'G1 Z-1', 'G1 X1'), 5), { from: 5, wcs: null }],
+    ['ETOUCH_RESUME_FEED', () => buildResume(P('G21 G90', 'G0 Z5 X0 Y0', 'G0 Z1', 'G1 X1'), 4), { from: 4 }],
+    ['ETOUCH_RESUME_SPINDLE_SPEED', () => buildResume(P('G21 G90', 'M3', 'G0 Z5 X0 Y0', 'G1 Z-1 F100', 'G1 X1'), 5), { from: 5 }]
+  ])('%s', (code, fn, params) => {
+    const r = refusal(fn);
+    expect(r).toMatchObject({ status: 409, code, params });
+    // The French message is built from the same values.
+    Object.values(params).filter((v) => v !== null).forEach((v) => expect(r.message).toContain(String(v)));
+  });
+});
+
 describe('resume from a line', () => {
   test('lines are numbered like the CNCjs sender: non-empty lines, comments included', () => {
     const lines = programLines(PROGRAM);

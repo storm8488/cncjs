@@ -1,0 +1,9 @@
+G21 G90
+G0 Z5
+G0 X0 Y0
+(old (v1) G0 X50 Y50
+G1 Z-1 F100
+G1 X10
+(note (v2) end) G1 X5
+G0 Z5
+M30

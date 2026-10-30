@@ -1,0 +1,42 @@
+{
+  "title": "G2/G3 with R, positive and negative (major arc)",
+  "covers": ["G2", "G3", "R", "R<0"],
+  "truth": {
+    "bbox": {
+      "X": [0, 40],
+      "Y": [-10, 30],
+      "Z": [-1, 5]
+    },
+    "units": "G21",
+    "relativeStart": false,
+    "final": [40, 20, 5],
+    "arcs": true
+  },
+  "preview": {
+    "accept": true,
+    "count": 133,
+    "bounds": [0, -10, 40, 29.997053],
+    "zBounds": [-1, 5],
+    "relativeStart": false
+  },
+  "travel": "ok",
+  "programCheck": {
+    "verdict": "validated",
+    "unknownAxes": [],
+    "extent": {
+      "X": [0, 40],
+      "Y": [-10, 30],
+      "Z": [-1, 5]
+    },
+    "rawUnits": false
+  },
+  "resume": {
+    "final": [40, 20, 5]
+  },
+  "toolpath": {
+    "bounds": {
+      "min": [0, -10, -1],
+      "max": [40, 30, 5]
+    }
+  }
+}
