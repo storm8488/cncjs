@@ -8,6 +8,9 @@
 // probe, a dynamic tool offset, an offset change, a homing not observed) ends
 // in `unknown`, never in `validated`. This is a travel check against the
 // machine envelope, not a collision check against clamps, tool or stock.
+// Every reason also exists as `{ code, params, message }` (codedReasons): a
+// stable ETOUCH_CHECK_* code and the values of its French message, so a client
+// can show it in its own language; the French text is unchanged.
 
 const MM_PER_INCH = 25.4;
 const TOLERANCE_MM = 0.001;
@@ -66,6 +69,9 @@ const words = (code) => {
 
 const fmt = (n) => String(Math.round(n * 1000) / 1000);
 
+// A reason: the French text (unchanged) with its stable code and its values.
+const reason = (code, params, message) => ({ code, params, message });
+
 const extend = (extent, axis, value) => {
   if (value === null || !Number.isFinite(value)) {
     return;
@@ -104,6 +110,8 @@ export const analyzeProgram = (gcode) => {
     // G53 targets, in machine coordinates (program units when rawUnits).
     machineExtent: { X: null, Y: null, Z: null },
     unknownAxes: { X: null, Y: null, Z: null },
+    // The same first reason per axis, coded ({ code, params, message }).
+    unknownCodes: { X: null, Y: null, Z: null },
     zMin: null,
     zMax: null
   };
@@ -120,9 +128,10 @@ export const analyzeProgram = (gcode) => {
     arcMode: 'G91.1',
     moved: false
   };
-  const unknown = (axis, reason) => {
+  const unknown = (axis, r) => {
     if (!a.unknownAxes[axis]) {
-      a.unknownAxes[axis] = reason;
+      a.unknownAxes[axis] = r.message;
+      a.unknownCodes[axis] = r;
     }
   };
   const listed = (lineNo, code, impact) => {
@@ -142,7 +151,7 @@ export const analyzeProgram = (gcode) => {
     // depend on variables: nothing can be followed after them.
     if (/^%/.test(code) || /[[\]#]/.test(code)) {
       listed(lineNo, raw.trim().slice(0, 40), true);
-      AXES.forEach((axis) => unknown(axis, 'Macro ou expression CNCjs à la ligne ' + lineNo + ' : contenu non prévisible.'));
+      AXES.forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_MACRO', { line: lineNo }, 'Macro ou expression CNCjs à la ligne ' + lineNo + ' : contenu non prévisible.')));
       continue;
     }
     const w = words(code);
@@ -155,7 +164,7 @@ export const analyzeProgram = (gcode) => {
     g.forEach((v) => {
       if (!KNOWN_G.includes(v)) {
         listed(lineNo, 'G' + v, true);
-        AXES.forEach((axis) => unknown(axis, 'Code G' + v + ' (ligne ' + lineNo + ') non interprété.'));
+        AXES.forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_UNINTERPRETED', { code: 'G' + v, line: lineNo }, 'Code G' + v + ' (ligne ' + lineNo + ') non interprété.')));
       }
     });
     m.forEach((v) => {
@@ -171,7 +180,7 @@ export const analyzeProgram = (gcode) => {
         if (!st.unitsKnown) {
           if (st.moved) {
             a.unitsChanges.push(lineNo);
-            AXES.forEach((axis) => unknown(axis, 'Unités fixées (G' + v + ') à la ligne ' + lineNo + ' après des déplacements faits dans les unités de la machine.'));
+            AXES.forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_UNITS_LATE', { code: 'G' + v, line: lineNo }, 'Unités fixées (G' + v + ') à la ligne ' + lineNo + ' après des déplacements faits dans les unités de la machine.')));
           } else {
             a.units = 'G' + v;
           }
@@ -213,11 +222,11 @@ export const analyzeProgram = (gcode) => {
       }
     });
     if (a.wcsChanges.length) {
-      AXES.forEach((axis) => unknown(axis, 'Le programme change de repère (ligne ' + a.wcsChanges[0] + ') : une seule origine de travail peut être vérifiée.'));
+      AXES.forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_WCS_CHANGE', { line: a.wcsChanges[0] }, 'Le programme change de repère (ligne ' + a.wcsChanges[0] + ') : une seule origine de travail peut être vérifiée.')));
     }
     if (a.offsetChanges.length) {
       const first = a.offsetChanges[0];
-      AXES.forEach((axis) => unknown(axis, 'Le programme modifie l’origine (' + first.code + ' ligne ' + first.line + ') : position de travail non prévisible.'));
+      AXES.forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_ORIGIN_CHANGE', { code: first.code, line: first.line }, 'Le programme modifie l’origine (' + first.code + ' ligne ' + first.line + ') : position de travail non prévisible.')));
     }
 
     const axes = AXES.filter((axis) => at(axis) !== null);
@@ -225,14 +234,14 @@ export const analyzeProgram = (gcode) => {
     const machineMove = g.includes(53) || g.includes(28) || g.includes(30) || g.includes(28.1) || g.includes(30.1);
     if (g.includes(43.1)) {
       listed(lineNo, 'G43.1', true);
-      unknown('Z', 'Décalage d’outil dynamique (G43.1 ligne ' + lineNo + ') : position Z non prévisible.');
+      unknown('Z', reason('ETOUCH_CHECK_DYNAMIC_TLO', { line: lineNo }, 'Décalage d’outil dynamique (G43.1 ligne ' + lineNo + ') : position Z non prévisible.'));
       continue;
     }
     if (probe) {
       listed(lineNo, 'G' + g.find((v) => v >= 38.2 && v <= 38.5), true);
       axes.forEach((axis) => {
         pos[axis] = null;
-        unknown(axis, 'Palpage (G38 ligne ' + lineNo + ') : la position ' + axis + ' dépend du contact.');
+        unknown(axis, reason('ETOUCH_CHECK_PROBE', { line: lineNo, axis }, 'Palpage (G38 ligne ' + lineNo + ') : la position ' + axis + ' dépend du contact.'));
       });
       continue;
     }
@@ -259,7 +268,7 @@ export const analyzeProgram = (gcode) => {
       // zero (G28 G91 Z0) is no intermediate motion; any other point is not
       // followed. The stored position itself is not compared (see report).
       if ((g.includes(28) || g.includes(30)) && !(st.distance === 'G91' && axes.every((axis) => at(axis) === 0))) {
-        axes.forEach((axis) => unknown(axis, 'Retour ' + machineCode + ' par un point intermédiaire ' + axis + ' (ligne ' + lineNo + ') : non suivi.'));
+        axes.forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_RETURN_INTERMEDIATE', { code: machineCode, axis, line: lineNo }, 'Retour ' + machineCode + ' par un point intermédiaire ' + axis + ' (ligne ' + lineNo + ') : non suivi.')));
       }
       AXES.forEach((axis) => {
         pos[axis] = null;
@@ -275,7 +284,7 @@ export const analyzeProgram = (gcode) => {
       if (!g.some((v) => [10, 92, 92.1].includes(v))) {
         axes.forEach((axis) => {
           pos[axis] = null;
-          unknown(axis, 'Mot d’axe ' + axis + ' sans mode de déplacement (ligne ' + lineNo + ') : exécuté dans le mode modal de la carte, non suivi.');
+          unknown(axis, reason('ETOUCH_CHECK_NO_MOTION_MODE', { axis, line: lineNo }, 'Mot d’axe ' + axis + ' sans mode de déplacement (ligne ' + lineNo + ') : exécuté dans le mode modal de la carte, non suivi.'));
         });
       }
       continue;
@@ -297,7 +306,7 @@ export const analyzeProgram = (gcode) => {
       const v = at(axis) * st.scale;
       if (st.distance === 'G91') {
         if (pos[axis] === null) {
-          unknown(axis, 'Déplacement relatif (G91 ligne ' + lineNo + ') depuis une position ' + axis + ' inconnue.');
+          unknown(axis, reason('ETOUCH_CHECK_RELATIVE_FROM_UNKNOWN', { line: lineNo, axis }, 'Déplacement relatif (G91 ligne ' + lineNo + ') depuis une position ' + axis + ' inconnue.'));
         } else {
           pos[axis] += v;
         }
@@ -309,10 +318,9 @@ export const analyzeProgram = (gcode) => {
     if (arc) {
       if (st.plane !== 'G17' || st.arcMode !== 'G91.1') {
         listed(lineNo, st.motion + ' ' + (st.plane !== 'G17' ? st.plane : st.arcMode), true);
-        AXES.forEach((axis) => unknown(axis, 'Arc hors plan XY ou en centre absolu (ligne ' + lineNo + ') : non interprété.'));
+        AXES.forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_ARC_PLANE', { line: lineNo }, 'Arc hors plan XY ou en centre absolu (ligne ' + lineNo + ') : non interprété.')));
       } else if (start.X === null || start.Y === null || pos.X === null || pos.Y === null) {
-        unknown('X', 'Arc (ligne ' + lineNo + ') depuis une position XY inconnue.');
-        unknown('Y', 'Arc (ligne ' + lineNo + ') depuis une position XY inconnue.');
+        ['X', 'Y'].forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_ARC_FROM_UNKNOWN', { line: lineNo }, 'Arc (ligne ' + lineNo + ') depuis une position XY inconnue.')));
       } else {
         const r = at('R');
         let cx;
@@ -326,8 +334,7 @@ export const analyzeProgram = (gcode) => {
           const h2 = 4 * radius * radius - d2;
           if (h2 < -TOLERANCE_MM || d2 === 0) {
             listed(lineNo, st.motion + ' R', true);
-            unknown('X', 'Arc impossible (rayon trop court, ligne ' + lineNo + ').');
-            unknown('Y', 'Arc impossible (rayon trop court, ligne ' + lineNo + ').');
+            ['X', 'Y'].forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_ARC_RADIUS', { line: lineNo }, 'Arc impossible (rayon trop court, ligne ' + lineNo + ').')));
           } else {
             let h = -Math.sqrt(Math.max(0, h2)) / Math.sqrt(d2);
             if (st.motion === 'G3') {
@@ -402,22 +409,22 @@ export const checkProgram = (analysis, machine = {}) => {
   const axesOut = {};
   const homingSetting = number(s.$22);
   if (homingSetting === null) {
-    global.push('Réglage $22 inconnu : relisez les réglages de la carte.');
+    global.push(reason('ETOUCH_CHECK_HOMING_SETTING', {}, 'Réglage $22 inconnu : relisez les réglages de la carte.'));
   } else if (homingSetting !== 1) {
-    global.push('Prise d’origine désactivée ($22=0) : les coordonnées machine ne sont pas repérées.');
+    global.push(reason('ETOUCH_CHECK_HOMING_DISABLED', {}, 'Prise d’origine désactivée ($22=0) : les coordonnées machine ne sont pas repérées.'));
   } else if (machine.homed !== true) {
-    global.push('Référencement non constaté depuis le dernier redémarrage de la carte ($22=1 signifie activé, pas effectué) : course non vérifiable.');
+    global.push(reason('ETOUCH_CHECK_NOT_HOMED', {}, 'Référencement non constaté depuis le dernier redémarrage de la carte ($22=1 signifie activé, pas effectué) : course non vérifiable.'));
   }
   if (machine.reportUnits === 'in') {
-    global.push('Positions rapportées en pouces ($13=1) : comparaison non faite.');
+    global.push(reason('ETOUCH_CHECK_REPORT_INCHES', {}, 'Positions rapportées en pouces ($13=1) : comparaison non faite.'));
   } else if (machine.reportUnits !== 'mm') {
-    global.push('Unités des rapports ($13) inconnues.');
+    global.push(reason('ETOUCH_CHECK_REPORT_UNITS', {}, 'Unités des rapports ($13) inconnues.'));
   }
   // Units and distance mode the program leaves to the machine.
   let scale = 1;
   if (analysis.rawUnits) {
     if (!modal || !modal.units) {
-      global.push('Le programme ne fixe pas ses unités (G20/G21) et l’état modal de la machine est inconnu.');
+      global.push(reason('ETOUCH_CHECK_UNITS_UNKNOWN', {}, 'Le programme ne fixe pas ses unités (G20/G21) et l’état modal de la machine est inconnu.'));
     } else {
       scale = modal.units === 'G20' ? MM_PER_INCH : 1;
       info.push('Unités laissées à la machine : ' + modal.units + ' appliqué.');
@@ -425,11 +432,11 @@ export const checkProgram = (analysis, machine = {}) => {
   }
   if (analysis.distance === null && analysis.moves > 0) {
     if (!modal || modal.distance !== 'G90') {
-      global.push('Le programme ne fixe pas son mode (G90/G91) et la machine n’est pas en G90 connu.');
+      global.push(reason('ETOUCH_CHECK_DISTANCE_UNKNOWN', {}, 'Le programme ne fixe pas son mode (G90/G91) et la machine n’est pas en G90 connu.'));
     }
   }
   if (analysis.relativeStart) {
-    global.push('Le programme commence en déplacements relatifs (G91) : parcours lié à la position de l’outil, non vérifiable.');
+    global.push(reason('ETOUCH_CHECK_RELATIVE_START', {}, 'Le programme commence en déplacements relatifs (G91) : parcours lié à la position de l’outil, non vérifiable.'));
   }
   // Work offset: mpos = wpos + offset for the offset active now; another
   // offset selected by the program needs the $# parameters.
@@ -448,11 +455,11 @@ export const checkProgram = (analysis, machine = {}) => {
       });
       info.push('Repère ' + programWcs + ' du programme lu dans les paramètres ($#) ; repère actif ' + activeWcs + '.');
     } else {
-      global.push('Le programme utilise ' + programWcs + ' alors que le repère actif est ' + activeWcs + ' et que ses décalages ($#) sont inconnus.');
+      global.push(reason('ETOUCH_CHECK_WCS_OFFSET_UNKNOWN', { wcs: programWcs, active: activeWcs }, 'Le programme utilise ' + programWcs + ' alors que le repère actif est ' + activeWcs + ' et que ses décalages ($#) sont inconnus.'));
     }
   } else {
     if (programWcs && !activeWcs) {
-      global.push('Repère actif inconnu (état $G trop ancien) : le programme utilise ' + programWcs + '.');
+      global.push(reason('ETOUCH_CHECK_ACTIVE_WCS_UNKNOWN', { wcs: programWcs }, 'Repère actif inconnu (état $G trop ancien) : le programme utilise ' + programWcs + '.'));
     }
     AXES.forEach((axis) => {
       const m = number(mpos[axis.toLowerCase()]);
@@ -477,20 +484,23 @@ export const checkProgram = (analysis, machine = {}) => {
     const machineExtent = (analysis.machineExtent && analysis.machineExtent[axis]) || null;
     if (!extent && !machineExtent && !analysis.unknownAxes[axis]) {
       // The program never moves this axis: it stays where the operator left it.
-      axesOut[axis] = { axis, verdict: 'validated', min: null, max: null, low: null, high: null, reasons: ['Axe ' + axis + ' non sollicité par le programme.'] };
+      const idle = reason('ETOUCH_CHECK_AXIS_IDLE', { axis }, 'Axe ' + axis + ' non sollicité par le programme.');
+      axesOut[axis] = { axis, verdict: 'validated', min: null, max: null, low: null, high: null, reasons: [idle.message], codedReasons: [idle] };
       return;
     }
     if (analysis.unknownAxes[axis]) {
-      reasons.push(analysis.unknownAxes[axis]);
+      // An analysis made before reasons were coded keeps its text, uncoded.
+      const coded = analysis.unknownCodes && analysis.unknownCodes[axis];
+      reasons.push(coded && coded.message === analysis.unknownAxes[axis] ? coded : reason(null, {}, analysis.unknownAxes[axis]));
     }
     if (travel === null || travel <= 0) {
-      reasons.push('Course $' + (130 + i) + ' inconnue.');
+      reasons.push(reason('ETOUCH_CHECK_TRAVEL_UNKNOWN', { setting: 130 + i }, 'Course $' + (130 + i) + ' inconnue.'));
     }
     // G53 targets need no work offset; everything else does.
     if (offset[axis] === null && (extent || analysis.unknownAxes[axis])) {
-      reasons.push('Position machine ou de travail ' + axis + ' inconnue.');
+      reasons.push(reason('ETOUCH_CHECK_POSITION_UNKNOWN', { axis }, 'Position machine ou de travail ' + axis + ' inconnue.'));
     }
-    const entry = { axis, verdict: 'unknown', min: null, max: null, low: null, high: null, reasons };
+    const entry = { axis, verdict: 'unknown', min: null, max: null, low: null, high: null, reasons: [], codedReasons: [] };
     if (extent) {
       entry.min = extent.min * scale;
       entry.max = extent.max * scale;
@@ -503,27 +513,29 @@ export const checkProgram = (analysis, machine = {}) => {
     // no comparison at all, no false alarm. Otherwise what was followed is
     // compared, even when another part of the program could not be.
     const outside = [];
-    const compare = (min, max, label, unit) => {
+    const compare = (min, max, code, label, unit) => {
       entry.machineMin = entry.machineMin === undefined ? min : Math.min(entry.machineMin, min);
       entry.machineMax = entry.machineMax === undefined ? max : Math.max(entry.machineMax, max);
       if (min < entry.low - TOLERANCE_MM || max > entry.high + TOLERANCE_MM) {
-        outside.push(label + fmt(min) + ' → ' + fmt(max) + unit + ' (course ' + fmt(entry.low) + ' → ' + fmt(entry.high) + ').');
+        outside.push(reason(code, { axis, min: fmt(min), max: fmt(max), low: fmt(entry.low), high: fmt(entry.high) }, label + fmt(min) + ' → ' + fmt(max) + unit + ' (course ' + fmt(entry.low) + ' → ' + fmt(entry.high) + ').'));
       }
     };
     if (entry.low !== null && !global.length) {
       if (extent && offset[axis] !== null) {
-        compare(entry.min + offset[axis], entry.max + offset[axis], 'Hors course ' + axis + ' : ', ' mm machine');
+        compare(entry.min + offset[axis], entry.max + offset[axis], 'ETOUCH_CHECK_OUTSIDE', 'Hors course ' + axis + ' : ', ' mm machine');
       }
       if (machineExtent) {
-        compare(machineExtent.min * scale, machineExtent.max * scale, 'Hors course ' + axis + ' en coordonnées machine (G53) : ', ' mm');
+        compare(machineExtent.min * scale, machineExtent.max * scale, 'ETOUCH_CHECK_OUTSIDE_G53', 'Hors course ' + axis + ' en coordonnées machine (G53) : ', ' mm');
       }
     }
+    const listed = outside.concat(reasons);
     if (outside.length) {
       entry.verdict = 'outside';
-      entry.reasons = outside.concat(reasons);
     } else if (!reasons.length) {
       entry.verdict = 'validated';
     }
+    entry.reasons = listed.map((r) => r.message);
+    entry.codedReasons = listed;
     axesOut[axis] = entry;
   });
 
@@ -534,11 +546,14 @@ export const checkProgram = (analysis, machine = {}) => {
   } else if (verdicts.includes('unknown')) {
     verdict = 'unknown';
   }
+  // Deduplicated by message, in the same order: codedReasons[i].message === reasons[i].
   const reasons = [];
+  const codedReasons = [];
   AXES.forEach((axis) => {
-    axesOut[axis].reasons.forEach((r) => {
-      if (!reasons.includes(r)) {
-        reasons.push(r);
+    axesOut[axis].codedReasons.forEach((r) => {
+      if (!reasons.includes(r.message)) {
+        reasons.push(r.message);
+        codedReasons.push(r);
       }
     });
   });
@@ -546,6 +561,7 @@ export const checkProgram = (analysis, machine = {}) => {
     verdict,
     axes: axesOut,
     reasons,
+    codedReasons,
     info,
     zMin: analysis.zMin === null ? null : analysis.zMin * scale,
     zMax: analysis.zMax === null ? null : analysis.zMax * scale,

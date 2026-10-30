@@ -8,6 +8,7 @@ import {
   capabilitiesOf, envelopeOf, limitsAt, maxFeedOf, grblVersion, jogLine, originLine, motionEnabled,
   DISABLED_MESSAGE, KEEPALIVE_TIMEOUT_MS, FALLBACK_MAX_FEED
 } from '../motion';
+import { catalogCodes, expectCatalogMatch } from './touch-codes-catalog';
 
 // A fake Grbl controller: `written` holds the exact bytes GrblController
 // would put on the serial line for the commands the service uses
@@ -1994,5 +1995,97 @@ describe('motion, cross-check 7', () => {
       // Expected: false (nothing was cancelled). Observed value is reported in the log.
       expect({ step: normal.cancelUnconfirmed, hold: normalHold.cancelUnconfirmed }).toEqual({ step: false, hold: false });
     }, 60000);
+  });
+});
+
+describe('real moves (F1): stable refusal codes (ETOUCH_MOTION_*)', () => {
+  // The refusal as the API forwards it: 409, the unchanged French message, its
+  // code and values; the client's French template filled with them is that message.
+  const refused = async (promise, code, params) => {
+    const err = await promise.then(() => null, (e) => e);
+    expect(err).toBeTruthy();
+    expect({ status: err.status, code: err.code, params: err.params }).toEqual({ status: 409, code, params });
+    expectCatalogMatch(err);
+    return err;
+  };
+  const prepare = (ctx, axes = ['X', 'Y']) => ctx.req('prepare', { operation: 'set-origin', axes });
+
+  test('ETOUCH_MOTION_ALARM, with and without the alarm number', async () => {
+    const ctx = setup();
+    ctx.c.state.status.activeState = 'Alarm';
+    let err = await refused(ctx.motion('jog', STEP), 'ETOUCH_MOTION_ALARM', { alarm: null });
+    expect(err.message).toBe('Machine en alarme : déverrouillez ($X) ou référencez ($H) d’abord.');
+    ctx.c.runner.emit('alarm', { message: '1' });
+    err = await refused(ctx.motion('jog', STEP), 'ETOUCH_MOTION_ALARM', { alarm: 1 });
+    expect(err.message).toBe('Machine en alarme (ALARM:1) : déverrouillez ($X) ou référencez ($H) d’abord.');
+    expect(ctx.c.written).toEqual([]);
+  });
+
+  test('ETOUCH_MOTION_STATE', async () => {
+    const ctx = setup();
+    ctx.c.state.status.activeState = 'Hold';
+    const err = await refused(ctx.motion('jog', STEP), 'ETOUCH_MOTION_STATE', { state: 'Hold' });
+    expect(err.message).toBe('La machine doit être au repos (Idle) : état Hold.');
+  });
+
+  test('ETOUCH_MOTION_SPINDLE_STEP', async () => {
+    const ctx = setupHeld();
+    ctx.c.state.status.spindle = 12000;
+    const err = await refused(ctx.motion('jog', STEP), 'ETOUCH_MOTION_SPINDLE_STEP', { max: '0.1' });
+    expect(err.message).toBe('Broche en rotation : pas de 0.1 mm au plus (maintien continu refusé). Arrêtez la broche (M5) pour de plus grands déplacements.');
+  });
+
+  test('ETOUCH_MOTION_STEP_OUTSIDE', async () => {
+    const ctx = setup({ homed: true });
+    ctx.c.state.status.mpos.x = '-395.000';
+    const err = await refused(ctx.motion('jog', { ...STEP, direction: -1, step: 10 }), 'ETOUCH_MOTION_STEP_OUTSIDE', { axis: 'X', target: '-405', low: '-400', high: '0' });
+    expect(err.message).toBe('Pas refusé : X sortirait de la course (-405 mm machine, course -400 → 0).');
+  });
+
+  test('ETOUCH_MOTION_STEP_SLOW', async () => {
+    const ctx = fresh();
+    const err = await refused(ctx.motion('jog', { axis: 'X', direction: -1, step: 10, feed: 1 }), 'ETOUCH_MOTION_STEP_SLOW', { step: '10', feed: '1', seconds: 600, max: 60 });
+    expect(err.message).toBe('Pas trop lent : 10 mm à 1 mm/min durerait 600 s (60 s au plus). Augmentez l’avance ou réduisez le pas.');
+  });
+
+  test('ETOUCH_MOTION_EDGE, towards + and towards −', async () => {
+    const ctx = setup({ homed: true });
+    ctx.c.state.status.mpos.x = '-1.200';
+    let err = await refused(ctx.motion('jog-start', HOLD), 'ETOUCH_MOTION_EDGE', { axis: 'X', direction: '+', room: '0.199' });
+    expect(err.message).toBe('Fin de course proche : pas de maintien continu vers X+ (0.199 mm disponibles).');
+    ctx.c.state.status.mpos.x = '-399.500';
+    err = await refused(ctx.motion('jog-start', { ...HOLD, direction: -1 }), 'ETOUCH_MOTION_EDGE', { axis: 'X', direction: '−', room: '0' });
+    expect(err.message).toBe('Fin de course proche : pas de maintien continu vers X− (0 mm disponibles).');
+    expect(ctx.c.written).toEqual([]);
+  });
+
+  test('ETOUCH_MOTION_POSITION_UNKNOWN (work origin)', async () => {
+    const ctx = setup();
+    ctx.modal('G54');
+    delete ctx.c.state.status.mpos.y;
+    const err = await refused(prepare(ctx), 'ETOUCH_MOTION_POSITION_UNKNOWN', { axis: 'Y' });
+    expect(err.message).toBe('Position machine Y inconnue.');
+  });
+
+  test('ETOUCH_MOTION_WCS_CHANGED (work origin confirmation)', async () => {
+    const ctx = setup();
+    ctx.modal('G54');
+    const ticket = await prepare(ctx);
+    ctx.modal('G56');
+    const err = await refused(ctx.req('set-origin', { nonce: ticket.nonce }), 'ETOUCH_MOTION_WCS_CHANGED', { from: 'G54', to: 'G56' });
+    expect(err.message).toBe('Le repère actif a changé depuis la confirmation (G54 → G56) : confirmez à nouveau.');
+    expect(ctx.c.written).toEqual([]);
+  });
+
+  test('every ETOUCH_MOTION_* row of the client catalog is emitted by motion.js; other refusals stay uncoded', async () => {
+    const catalog = catalogCodes().filter((code) => /^ETOUCH_MOTION_/.test(code)).sort();
+    const source = require('fs').readFileSync(require('path').join(__dirname, '../motion.js'), 'utf8');
+    const emitted = Array.from(new Set(source.match(/'ETOUCH_MOTION_[A-Z_]+'/g).map((s) => s.slice(1, -1)))).sort();
+    expect(emitted).toEqual(catalog);
+    expect(emitted).toHaveLength(8);
+    const ctx = setup();
+    const err = await ctx.motion('jog', { ...STEP, step: 0.5 }).then(() => null, (e) => e);
+    expect(err).toMatchObject({ status: 409, message: expect.stringMatching(/pas invalide/) });
+    expect(err.code).toBeUndefined();
   });
 });

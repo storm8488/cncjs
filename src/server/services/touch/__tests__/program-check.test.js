@@ -1,5 +1,6 @@
 /* eslint-env jest */
 import { analyzeProgram, checkProgram, programCheck } from '../program-check';
+import { catalogCodes, expectCatalogMatch } from './touch-codes-catalog';
 
 // A homed Grbl with 300 x 200 x 80 mm travel, homing towards positive (machine
 // space [-travel, 0]), work origin at machine X-250 Y-150 Z-40 (G54 active).
@@ -439,5 +440,105 @@ describe('program check (F2), cross-check 3: unités laissées à la machine', (
     expect(checkProgram(noMode, machine()).verdict).toBe('validated');
     // $13=1 : comparaison non faite.
     expect(programCheck('G21 G90\nG0 X10', machine({ reportUnits: 'in' })).verdict).toBe('unknown');
+  });
+});
+
+describe('program check (F2): coded reasons (ETOUCH_CHECK_*)', () => {
+  const P = (...lines) => lines.join('\n');
+  const noWcs = { units: 'G21', distance: 'G90', wcs: null };
+  // [code, program, machine overrides, expected params]
+  const cases = [
+    ['ETOUCH_CHECK_HOMING_SETTING', SQUARE, { settings: { $22: undefined } }, {}],
+    ['ETOUCH_CHECK_HOMING_DISABLED', SQUARE, { settings: { $22: '0' } }, {}],
+    ['ETOUCH_CHECK_NOT_HOMED', SQUARE, { homed: false }, {}],
+    ['ETOUCH_CHECK_REPORT_INCHES', SQUARE, { reportUnits: 'in' }, {}],
+    ['ETOUCH_CHECK_REPORT_UNITS', SQUARE, { reportUnits: null }, {}],
+    ['ETOUCH_CHECK_UNITS_UNKNOWN', P('G90', 'G0 X10'), { modal: null }, {}],
+    ['ETOUCH_CHECK_DISTANCE_UNKNOWN', P('G21', 'G0 X10'), { modal: { units: 'G21', distance: 'G91', wcs: 'G54' } }, {}],
+    ['ETOUCH_CHECK_RELATIVE_START', P('G21 G91', 'G0 X10'), {}, {}],
+    ['ETOUCH_CHECK_WCS_OFFSET_UNKNOWN', P('G21 G90 G55', 'G0 X10'), {}, { wcs: 'G55', active: 'G54' }],
+    ['ETOUCH_CHECK_ACTIVE_WCS_UNKNOWN', P('G21 G90 G55', 'G0 X10'), { modal: noWcs }, { wcs: 'G55' }],
+    ['ETOUCH_CHECK_AXIS_IDLE', P('G21 G90', 'G0 X10 Y10'), {}, { axis: 'Z' }],
+    ['ETOUCH_CHECK_TRAVEL_UNKNOWN', SQUARE, { settings: { $131: undefined } }, { setting: 131 }],
+    ['ETOUCH_CHECK_POSITION_UNKNOWN', P('G21 G90', 'G0 X10'), { mpos: {} }, { axis: 'X' }],
+    ['ETOUCH_CHECK_OUTSIDE', P('G21 G90', 'G0 X300.0004'), {}, { axis: 'X', min: '50', max: '50', low: '-300', high: '0' }],
+    ['ETOUCH_CHECK_OUTSIDE_G53', P('G21 G90', 'G53 G0 X10'), {}, { axis: 'X', min: '10', max: '10', low: '-300', high: '0' }],
+    ['ETOUCH_CHECK_MACRO', P('G21 G90', '%wait', 'G0 X1'), {}, { line: 2 }],
+    ['ETOUCH_CHECK_UNINTERPRETED', P('G21 G90', 'G0 X1', 'G5 X2'), {}, { code: 'G5', line: 3 }],
+    ['ETOUCH_CHECK_UNITS_LATE', P('G90', 'G0 X10 Y10', 'G21', 'G1 Z-1 F100'), {}, { code: 'G21', line: 3 }],
+    ['ETOUCH_CHECK_WCS_CHANGE', P('G21 G90 G54', 'G0 X1', 'G55', 'G0 X2'), {}, { line: 3 }],
+    ['ETOUCH_CHECK_ORIGIN_CHANGE', P('G21 G90', 'G92 X0', 'G0 X1'), {}, { code: 'G92', line: 2 }],
+    ['ETOUCH_CHECK_DYNAMIC_TLO', P('G21 G90', 'G43.1 Z2', 'G0 Z1'), {}, { line: 2 }],
+    ['ETOUCH_CHECK_PROBE', P('G21 G90', 'G38.2 Z-10 F50'), {}, { line: 2, axis: 'Z' }],
+    ['ETOUCH_CHECK_RETURN_INTERMEDIATE', P('G21 G90', 'G28 Z5'), {}, { code: 'G28', axis: 'Z', line: 2 }],
+    ['ETOUCH_CHECK_NO_MOTION_MODE', P('G21 G90', 'X10'), {}, { axis: 'X', line: 2 }],
+    ['ETOUCH_CHECK_RELATIVE_FROM_UNKNOWN', P('G21 G90', 'G0 X0', 'G91', 'G0 Y5'), {}, { line: 4, axis: 'Y' }],
+    ['ETOUCH_CHECK_ARC_PLANE', P('G21 G90 G18', 'G0 X0 Z0', 'G2 X10 Z0 I5 K0 F100'), {}, { line: 3 }],
+    ['ETOUCH_CHECK_ARC_FROM_UNKNOWN', P('G21 G90', 'G0 X0', 'G2 X10 Y0 I5 J0 F100'), {}, { line: 3 }],
+    ['ETOUCH_CHECK_ARC_RADIUS', P('G21 G90', 'G0 X0 Y0', 'G2 X10 Y0 R1 F100'), {}, { line: 3 }]
+  ];
+  // Every list of reasons has its coded twin: same length, same order, same text.
+  const expectParallel = (r) => {
+    expect(r.codedReasons.map((c) => c.message)).toEqual(r.reasons);
+    ['X', 'Y', 'Z'].forEach((axis) => {
+      expect(r.axes[axis].codedReasons.map((c) => c.message)).toEqual(r.axes[axis].reasons);
+    });
+  };
+
+  test.each(cases)('%s: code, params and the unchanged French reason', (code, program, over, params) => {
+    const r = programCheck(program, machine(over));
+    expectParallel(r);
+    const found = r.codedReasons.filter((c) => c.code === code);
+    expect(found).toHaveLength(1);
+    expect(found[0].params).toEqual(params);
+    expect(r.reasons).toContain(found[0].message);
+    // The client's French template, filled with these params, is this very message.
+    expectCatalogMatch(found[0]);
+  });
+
+  test('every ETOUCH_CHECK_* row of the client catalog is emitted by one case above', () => {
+    const catalog = catalogCodes().filter((code) => /^ETOUCH_CHECK_/.test(code)).sort();
+    expect(cases.map(([code]) => code).sort()).toEqual(catalog);
+    expect(catalog).toHaveLength(28);
+  });
+
+  test('French reasons and verdicts are those of the uncoded check; a validated program has none', () => {
+    expect(programCheck(SQUARE, machine())).toMatchObject({ verdict: 'validated', reasons: [], codedReasons: [] });
+    const stale = programCheck(P('G21 G90 G55', 'G0 X10'), machine({ modal: noWcs, homed: false }));
+    expectParallel(stale);
+    expect(stale.verdict).toBe('unknown');
+    expect(stale.reasons).toEqual([
+      'Référencement non constaté depuis le dernier redémarrage de la carte ($22=1 signifie activé, pas effectué) : course non vérifiable.',
+      'Repère actif inconnu (état $G trop ancien) : le programme utilise G55.',
+      'Axe Y non sollicité par le programme.',
+      'Axe Z non sollicité par le programme.'
+    ]);
+    // Deduplicated by message: a global reason shared by X and Y is listed once.
+    const shared = programCheck(P('G21 G90', 'G0 X10 Y10'), machine({ homed: false }));
+    expect(shared.codedReasons.filter((c) => c.code === 'ETOUCH_CHECK_NOT_HOMED')).toHaveLength(1);
+    expect(shared.axes.X.codedReasons[0]).toBe(shared.axes.Y.codedReasons[0]);
+    // Outside first on its axis, then the other reasons, as before.
+    const out = programCheck(P('G21 G90', 'G0 X300', 'G0 Y-10', 'G91', 'G0 Z1'), machine({ settings: { $131: undefined } }));
+    expectParallel(out);
+    expect(out.axes.X).toMatchObject({ verdict: 'outside' });
+    expect(out.axes.X.codedReasons.map((c) => c.code)).toEqual(['ETOUCH_CHECK_OUTSIDE']);
+    expect(out.axes.Y.codedReasons.map((c) => c.code)).toEqual(['ETOUCH_CHECK_TRAVEL_UNKNOWN']);
+    expect(out.axes.Z.codedReasons.map((c) => c.code)).toEqual(['ETOUCH_CHECK_RELATIVE_FROM_UNKNOWN']);
+  });
+
+  test('the analysis keeps the first reason per axis as text and as a coded reason', () => {
+    const a = analyzeProgram(P('G21 G90', 'G0 X0', 'G5', 'G38.2 Z-1 F10'));
+    expect(a.unknownAxes.Z).toBe('Code G5 (ligne 3) non interprété.');
+    expect(a.unknownCodes.Z).toEqual({ code: 'ETOUCH_CHECK_UNINTERPRETED', params: { code: 'G5', line: 3 }, message: a.unknownAxes.Z });
+    expect(analyzeProgram(SQUARE).unknownCodes).toEqual({ X: null, Y: null, Z: null });
+  });
+
+  test('an analysis made without coded reasons keeps its French reason, uncoded (shown as sent)', () => {
+    const a = analyzeProgram(P('G21 G90', 'G0 X1', 'G5 X2'));
+    delete a.unknownCodes;
+    const r = checkProgram(a, machine());
+    expect(r.verdict).toBe('unknown');
+    expect(r.codedReasons).toEqual([{ code: null, params: {}, message: 'Code G5 (ligne 3) non interprété.' }]);
+    expect(r.reasons).toEqual(['Code G5 (ligne 3) non interprété.']);
   });
 });

@@ -246,6 +246,16 @@ export const createMotion = (deps) => {
     hasAutomations, control, transports, transportActors, log, controllerInfo, allSettings, modalWcs, spindleOn
   } = deps;
 
+  // A refusal with a stable code (ETOUCH_MOTION_*) and the values of its
+  // message: the French text is unchanged, the API forwards code and params so
+  // a client can show it in its own language.
+  const refusal = (message, code, params) => {
+    const err = conflict(message);
+    err.code = code;
+    err.params = params;
+    return err;
+  };
+
   const stateOf = (r) => {
     if (!r.motion) {
       // pending: the last line sent (jog or origin) until Grbl answered it and
@@ -322,13 +332,15 @@ export const createMotion = (deps) => {
     }
     const state = activeOf(c);
     if (/^Alarm/.test(state)) {
-      throw conflict('Machine en alarme' + (r.alarm ? ' (ALARM:' + r.alarm + ')' : '') + ' : déverrouillez ($X) ou référencez ($H) d’abord.');
+      throw refusal('Machine en alarme' + (r.alarm ? ' (ALARM:' + r.alarm + ')' : '') + ' : déverrouillez ($X) ou référencez ($H) d’abord.',
+        'ETOUCH_MOTION_ALARM',
+        { alarm: r.alarm || null });
     }
     if (s.session || s.cancel || !settle(c, r) || state === 'Jog') {
       throw conflict('Déplacement précédent non terminé : attendez le retour au repos (Idle).');
     }
     if (state !== 'Idle') {
-      throw conflict('La machine doit être au repos (Idle) : état ' + (state || 'inconnu') + '.');
+      throw refusal('La machine doit être au repos (Idle) : état ' + (state || 'inconnu') + '.', 'ETOUCH_MOTION_STATE', { state: state || 'inconnu' });
     }
     const feeder = c.feeder.toJSON();
     if (feeder.queue || feeder.pending) {
@@ -376,7 +388,9 @@ export const createMotion = (deps) => {
     jogReady(c, r);
     const p = jogParams(c, body, false);
     if (p.step > MAX_SPINDLE_STEP_MM && spindleOn(c)) {
-      throw conflict('Broche en rotation : pas de ' + fmt(MAX_SPINDLE_STEP_MM) + ' mm au plus (maintien continu refusé). Arrêtez la broche (M5) pour de plus grands déplacements.');
+      throw refusal('Broche en rotation : pas de ' + fmt(MAX_SPINDLE_STEP_MM) + ' mm au plus (maintien continu refusé). Arrêtez la broche (M5) pour de plus grands déplacements.',
+        'ETOUCH_MOTION_SPINDLE_STEP',
+        { max: fmt(MAX_SPINDLE_STEP_MM) });
     }
     const pos = positionOf(c, 'mpos', p.axis);
     const at = limitsAt(envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen, wposReported: r.wposReported })[p.axis], pos, p.axis);
@@ -393,13 +407,17 @@ export const createMotion = (deps) => {
         if (at.ambiguous) {
           throw conflict('Pas refusé : ' + at.ambiguous + '.');
         }
-        throw conflict('Pas refusé : ' + p.axis + ' sortirait de la course (' + fmt(target) + ' mm machine, course ' + fmt(at.limits.low) + ' → ' + fmt(at.limits.high) + ').');
+        throw refusal('Pas refusé : ' + p.axis + ' sortirait de la course (' + fmt(target) + ' mm machine, course ' + fmt(at.limits.low) + ' → ' + fmt(at.limits.high) + ').',
+          'ETOUCH_MOTION_STEP_OUTSIDE',
+          { axis: p.axis, target: fmt(target), low: fmt(at.limits.low), high: fmt(at.limits.high) });
       }
     }
     const ms = 60000 * p.step / p.feed;
     if (ms > MAX_JOG_MS) {
-      throw conflict('Pas trop lent : ' + fmt(p.step) + ' mm à ' + fmt(p.feed) + ' mm/min durerait ' + Math.ceil(ms / 1000) + ' s (' + (MAX_JOG_MS / 1000) +
-        ' s au plus). Augmentez l’avance ou réduisez le pas.');
+      throw refusal('Pas trop lent : ' + fmt(p.step) + ' mm à ' + fmt(p.feed) + ' mm/min durerait ' + Math.ceil(ms / 1000) + ' s (' + (MAX_JOG_MS / 1000) +
+        ' s au plus). Augmentez l’avance ou réduisez le pas.',
+      'ETOUCH_MOTION_STEP_SLOW',
+      { step: fmt(p.step), feed: fmt(p.feed), seconds: Math.ceil(ms / 1000), max: MAX_JOG_MS / 1000 });
     }
     const line = jogLine(p.axis, distance, p.feed);
     const pending = send(c, r, 'jog', line, ms + 10000);
@@ -613,7 +631,9 @@ export const createMotion = (deps) => {
       throw conflict('Maintien continu impossible : ' + ambiguous + '.');
     }
     if (!(room >= MIN_CONTINUOUS_MM)) {
-      throw conflict('Fin de course proche : pas de maintien continu vers ' + p.axis + (p.direction > 0 ? '+' : '−') + ' (' + fmt(Math.max(0, room)) + ' mm disponibles).');
+      throw refusal('Fin de course proche : pas de maintien continu vers ' + p.axis + (p.direction > 0 ? '+' : '−') + ' (' + fmt(Math.max(0, room)) + ' mm disponibles).',
+        'ETOUCH_MOTION_EDGE',
+        { axis: p.axis, direction: p.direction > 0 ? '+' : '−', room: fmt(Math.max(0, room)) });
     }
     const line = jogLine(p.axis, p.direction * room, p.feed);
     const session = {
@@ -750,7 +770,7 @@ export const createMotion = (deps) => {
     params.axes.forEach((axis) => {
       const v = positionOf(c, 'mpos', axis);
       if (v === null) {
-        throw conflict('Position machine ' + axis + ' inconnue.');
+        throw refusal('Position machine ' + axis + ' inconnue.', 'ETOUCH_MOTION_POSITION_UNKNOWN', { axis });
       }
       machine[axis] = v;
     });
@@ -763,7 +783,9 @@ export const createMotion = (deps) => {
     const { axes, wcs, p, machine } = t.params;
     const now = modalWcs(r);
     if (now !== wcs) {
-      throw conflict('Le repère actif a changé depuis la confirmation (' + wcs + ' → ' + (now || 'inconnu') + ') : confirmez à nouveau.');
+      throw refusal('Le repère actif a changé depuis la confirmation (' + wcs + ' → ' + (now || 'inconnu') + ') : confirmez à nouveau.',
+        'ETOUCH_MOTION_WCS_CHANGED',
+        { from: wcs, to: now || 'inconnu' });
     }
     if (axes.some((axis) => positionOf(c, 'mpos', axis) === null || Math.abs(positionOf(c, 'mpos', axis) - machine[axis]) > ORIGIN_MOVED_MM)) {
       throw conflict('La machine a bougé depuis la confirmation : confirmez à nouveau à la position actuelle.');
