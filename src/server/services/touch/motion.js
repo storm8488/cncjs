@@ -64,6 +64,9 @@ const POSITION_TOLERANCE_MM = 0.001;
 const CANCEL_MAX_MS = 120000;
 // With the spindle turning: no continuous jog, steps of 0.1 mm at most.
 export const MAX_SPINDLE_STEP_MM = 0.1;
+// Margin beyond the longest planned duration after which a line of ours is
+// let go whatever the reports say (see settle).
+const PENDING_MARGIN_MS = 60000;
 const STEP_WATCH_MS = 50;
 const WCS_P = { G54: 1, G55: 2, G56: 3, G57: 4, G58: 5, G59: 6 };
 
@@ -290,9 +293,16 @@ export const createMotion = (deps) => {
     }
     const state = activeOf(c);
     const answered = p.t.oks >= 1 && r.reports >= p.t.reportsAtOk + 2 && state !== 'Jog';
-    // No answer at all (link trouble) but reports at rest long after: let go.
-    const lost = clock() - p.sentAt > p.limitMs && state === 'Idle' && r.reports >= p.mark + 3;
-    if (p.t.error || answered || lost) {
+    const age = clock() - p.sentAt;
+    // No answer at all (link trouble) but reports at rest or in alarm long after: let go.
+    const lost = age > p.limitMs && /^(Idle|Alarm)/.test(state) && r.reports >= p.mark + 3;
+    // The board restarted after the line was sent: Grbl dropped it, no answer will come.
+    const restarted = r.startups !== p.startups && state !== 'Jog';
+    // Safety bound: no line of ours can still be running after the longest
+    // planned duration plus a margin, whatever is reported; nothing stays
+    // blocked for ever behind it.
+    const expired = age > Math.max(p.limitMs, MAX_JOG_MS + 10000) + PENDING_MARGIN_MS;
+    if (p.t.error || answered || lost || restarted || expired) {
       p.t.done();
       s.pending = null;
       return true;
@@ -303,7 +313,7 @@ export const createMotion = (deps) => {
   const send = (c, r, kind, line, limitMs) => {
     const s = stateOf(r);
     const t = answers(c, r);
-    s.pending = { t, kind, line, sentAt: clock(), mark: r.reports, limitMs };
+    s.pending = { t, kind, line, sentAt: clock(), mark: r.reports, limitMs, startups: r.startups };
     c.command('gcode', line);
     changed();
     return s.pending;

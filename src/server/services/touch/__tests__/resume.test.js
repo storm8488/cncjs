@@ -752,3 +752,123 @@ describe('final cross-check · reprise après commentaires imbriqués', () => {
     expect(buildResume(program.replace('G0 X[40+10] Y50', 'G0 X50 Y50'), 9).position).toEqual({ X: 50, Y: 50, Z: -1 });
   });
 });
+
+// Re-check (xvg) of c4c048c7: CNCjs expressions and directives before the resume
+// line (D3; %wait and %msg are refused on purpose, see audit31-machine.md) and
+// changesOffset (D4). Own helpers, scoped.
+describe('resume, re-check of c4c048c7 (xvg)', () => {
+  // What GrblController's sender writes for a program line (dataFilter, l. 375-414):
+  // '%' lines are directives (nothing sent), else expressions then comments stripped.
+  const sent = (line, context = {}) => {
+    const t = line.trim();
+    if (t[0] === '%') {
+      return '';
+    }
+    return gcodeParser.parseLine(translateExpression(t, context), { flatten: true, lineMode: 'stripped' }).line;
+  };
+
+  const BASE = ['G21 G90 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200', 'G1 X5 F600'];
+  // Program with `extra` inserted as line 6, resume at line 8 (G1 X8).
+  const prog = (extra) => BASE.concat([extra, 'G1 Y7', 'G1 X8', 'G0 Z5', 'M30']).join('\n');
+  const attempt = (gcode, from) => {
+    try {
+      return { ok: buildResume(gcode, from) };
+    } catch (err) {
+      return { err };
+    }
+  };
+
+  describe('re-check c4c048c7 · D3 : expressions et directives CNCjs avant la ligne de reprise', () => {
+    test.each([
+      ['G0 X[40+10] Y5'],
+      ['G0 x[1]'],
+      ['G0 X1 ]'],
+      ['#1=5'],
+      ['G0 X#1'],
+      ['%_x=posx'],
+      ['  %wait'],
+      ['%msg bonjour'],
+      ['(c) %_x=5']
+    ])('« %s » avant la ligne : ETOUCH_RESUME_EXPRESSION, ligne 6, catalogue identique', (extra) => {
+      const { err } = attempt(prog(extra), 8);
+      expect(err).toMatchObject({ status: 409, code: 'ETOUCH_RESUME_EXPRESSION', params: { line: 6, from: 8 } });
+      expect(err.message).toBe('Expression ou macro CNCjs à la ligne 6 avant la ligne 8 : reprise impossible.');
+      expectCatalogMatch(err);
+    });
+
+    test.each([
+      ['(note [x])', ''],
+      ['G1 Y6 ; [posx] 50%', 'G1 Y6'],
+      ['(50%) G1 Y6', 'G1 Y6'],
+      ['; 50%', ''],
+      ['(#1 = outil)', ''],
+      ['(%wait)', ''],
+      ['(a (b [c]) d) G1 Y6', 'G1 Y6'],
+      ['%', '']
+    ])('« %s » (commentaire ou % seul) : pas de refus', (extra, cncjs) => {
+      expect(sent(extra)).toBe(cncjs);
+      const { ok, err } = attempt(prog(extra), 8);
+      expect(err).toBeUndefined();
+      expect(ok.position).toEqual({ X: 5, Y: 7, Z: -1 });
+    });
+
+    test('expressions APRÈS la ligne de reprise : acceptées et laissées à CNCjs (évaluées à l’envoi)', () => {
+      const gcode = BASE.concat(['G1 Y7', 'G1 X8', 'G1 X[posx+1]', '%_z=5', 'G0 Z[_z]', 'M30']).join('\n');
+      const { ok } = attempt(gcode, 7);
+      expect(ok.position).toEqual({ X: 5, Y: 7, Z: -1 });
+      expect(ok.program).toMatch(/G1 X\[posx\+1\]\n%_z=5\nG0 Z\[_z\]/);
+    });
+
+    test('la ligne de reprise elle-même est une expression : acceptée, envoyée telle quelle', () => {
+      const gcode = BASE.concat(['G1 Y7', 'G1 X[4*2]', 'G0 Z5', 'M30']).join('\n');
+      const { ok } = attempt(gcode, 7);
+      const first = ok.program.split('\n')[ok.preamble.length];
+      // eslint-disable-next-line no-console
+      console.log('first line', first);
+      expect(first).toBe('G1 X[4*2]');
+    });
+
+    // Observation : une première ligne « X[..] » sans mot de mouvement ne reçoit pas le
+    // mouvement modal (hasAxis exige un chiffre après la lettre) ; elle est exécutée
+    // dans le mode laissé par le préambule (G1), pas dans le mode du programme.
+    test('première ligne « X[..] Y[..] » après un G0 modal : pas de G0 rajouté (exécutée en G1)', () => {
+      const gcode = BASE.concat(['G0 Z5', 'G0 X1 Y1', 'X[4*2] Y[3]', 'M30']).join('\n');
+      const { ok } = attempt(gcode, 8);
+      const first = ok.program.split('\n')[ok.preamble.length];
+      expect(ok.preamble[ok.preamble.length - 1]).toMatch(/^(G1 Z|F)/);
+      expect(first).toBe('X[4*2] Y[3]');
+      // Même ligne sans expression : le G0 modal est rajouté.
+      const plain = attempt(gcode.replace('X[4*2] Y[3]', 'X8 Y3'), 8).ok;
+      expect(plain.program.split('\n')[plain.preamble.length]).toBe('G0 X8 Y3');
+    });
+  });
+
+  describe('re-check c4c048c7 · D4 : changesOffset', () => {
+    test.each([
+      ['(a (b) ; c) G55', true],
+      ['(a (G55) b) G0 X1', false],
+      ['(a (b) G55', false],
+      ['G0 X1 (G92 X0)', false],
+      ['G0 X1 ; G10 L20 P1 X0', false],
+      ['G[54+1]', true],
+      ['(G[54+1])', false],
+      ['G0 X1 ; G[54+1]', false],
+      ['g55', true],
+      ['G10 L20 P1 X0', true],
+      ['G92.1', true],
+      // G54.1 (LinuxCNC, absent de Grbl) compte comme changement : sur-détection sans effet.
+      ['G54.1', true],
+      ['G540', false],
+      ['M54', false],
+      ['G0 X[posx]', true],
+      ['G0 X1\r\nG55\r\n', true]
+    ])('%j → %s', (gcode, expected) => {
+      expect(changesOffset(gcode)).toBe(expected);
+      // Same verdict on what CNCjs sends, for the lines without expression.
+      if (!/[[\]]/.test(gcode)) {
+        const cncjs = gcode.split('\n').map((l) => sent(l)).join('\n');
+        expect(/G0*(5[4-9]|10|92)/i.test(cncjs.replace(/G540/gi, ''))).toBe(expected);
+      }
+    });
+  });
+});

@@ -245,7 +245,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         r.reports += 1;
         const active = controllerStatus(c).activeState || '';
         if (r.homing && clock() - r.homing.since >= HOMING_MIN_MS && /^(Idle|Alarm)/.test(active)) {
-          if (active === 'Idle') {
+          // An error received while our $H was outstanding: never a completed homing
+          // (a Home report seen meanwhile still is, see sawHome below).
+          if (active === 'Idle' && !r.homing.refused) {
             r.homed = true;
           }
           r.homing = null;
@@ -359,11 +361,14 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       // or goes on with ignoreErrors, and ends the job either way when it was
       // the last line. Such a program is never reported finished.
       r.error = (res) => {
-        // A $H refused at once (error:8 while a jog runs, error:5 when $22=0 was
-        // set from the console): Grbl answers before any report, no cycle ran,
-        // and the next Idle must not be taken for a completed homing.
-        if (r.homing && clock() - r.homing.since < HOMING_MIN_MS) {
-          r.homing = null;
+        // Grbl answers $H with ok at the end of the cycle, or ALARM: an error:N
+        // while our $H is outstanding is its refusal (error:8 during a jog,
+        // error:5 when $22=0 was set from the console), whenever it is processed,
+        // or the answer to another line. Either way the next Idle is not taken for
+        // a completed homing, and `homing` stays set until a report says Idle or
+        // Alarm, so Stop keeps its reset during a real (silent) cycle.
+        if (r.homing && !r.homing.refused) {
+          r.homing.refused = true;
           changed();
         }
         if (r.probing) {
