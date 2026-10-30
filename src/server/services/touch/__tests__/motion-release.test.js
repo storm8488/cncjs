@@ -1,3 +1,4 @@
+/* eslint-env jest */
 // Release of a $J line after two reports without Jog, also on a foreign error or a board
 // restart (a0998c97), from the audit 31 counter-review. Own fixture (copied from
 // job-service.test.js). The « LIMITE » case records a known limit (S-R1, no line identity):
