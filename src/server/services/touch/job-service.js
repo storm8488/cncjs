@@ -989,7 +989,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       canPause: c.workflow.state === 'running',
       // A macro waiting in a dwell (CNCjs queue not empty) can be stopped too.
       canStop: c.workflow.state !== 'idle' || ['Run', 'Hold', 'Home', 'Jog'].includes(state.activeState) || /^Door/.test(state.activeState || '') ||
-        !!r.probing || homingActive(r) || !!(feederState.queue || feederState.pending),
+        !!r.probing || homingActive(r) || !!(feederState.queue || feederState.pending) ||
+        // A jog sent by the service may run before Grbl reports Jog (F1).
+        moves.moving(c, r),
       homing: homingActive(r),
       overrides: overridesOf(state),
       canOverride: !overrideReason,

@@ -380,6 +380,8 @@ describe('continuous jog (F1)', () => {
   test('the Stop button stops a jog Grbl has not reported yet (report still Idle)', async () => {
     const ctx = setup({ homed: true });
     await ctx.motion('jog-start', HOLD);
+    // The snapshot offers Stop already: the page must not depend on a Jog report.
+    expect(ctx.state().canStop).toBe(true);
     await expect(ctx.req('stop')).resolves.toMatchObject({ message: expect.stringMatching(/0x85/) });
     expect(ctx.c.written).toEqual(['$J=G91 G21 X99 F500\n', '\x85']);
   });
