@@ -3672,3 +3672,208 @@ describe('job service F5, cross-check 7', () => {
     });
   });
 });
+
+// Final server cross-check (xvf) of 33b32db9, integrated with its own fixtures:
+// the window between a $J sent and the first Jog report (D1, D2 fixed), R1, canStop.
+describe('job service, final cross-check (xvf)', () => {
+  const fakeController = (port = 'TEST') => {
+    const c = {
+      type: 'Grbl',
+      options: { port },
+      ready: true,
+      isClose: () => false,
+      runner: new EventEmitter(),
+      sender: new EventEmitter(),
+      workflow: Object.assign(new EventEmitter(), { state: 'idle' }),
+      state: {
+        status: {
+          activeState: 'Idle',
+          spindle: 0,
+          mpos: { x: '-100.000', y: '-100.000', z: '-10.000' },
+          wpos: { x: '5.000', y: '5.000', z: '2.000' }
+        }
+      },
+      feeder: { toJSON: () => ({ queue: 0, pending: false }) },
+      settings: {
+        version: '1.1h',
+        settings: { $10: '1', $13: '0', $22: '1', $23: '0', $110: '1000', $111: '1000', $112: '500', $130: '400', $131: '400', $132: '80' }
+      },
+      commands: [],
+      written: []
+    };
+    c.runner.state = c.state;
+    c.sender.state = { name: '', context: {}, total: 0 };
+    c.sender.toJSON = () => ({ ...c.sender.state });
+    c.command = (name, ...args) => {
+      c.commands.push([name, ...args]);
+      if (name === 'gcode') {
+        [].concat(args[0]).forEach((line) => c.written.push(line + '\n'));
+      }
+      if (name === 'jogCancel') {
+        c.written.push('\x85');
+      }
+    };
+    return c;
+  };
+
+  const A = { kind: 'touch', id: 'tablet-A', label: 'Tablette A', user: 'op' };
+  const B = { kind: 'touch', id: 'tablet-B', label: 'Tablette B', user: 'op' };
+
+  const services = [];
+  afterEach(() => {
+    services.splice(0).forEach((service) => service.dispose());
+    jest.useRealTimers();
+  });
+
+  const setup = ({ homed = false } = {}) => {
+    jest.useFakeTimers();
+    const ctx = { now: 10000, c: fakeController(), history: [] };
+    ctx.controllers = { TEST: ctx.c };
+    ctx.control = createControl({ now: () => ctx.now, elapsed: () => ctx.now });
+    ctx.service = createService(
+      { get: () => ctx.controllers },
+      { get: (key) => ({ 'touch.motion.enabled': true, events: [], macros: [] }[key]) },
+      () => ctx.now,
+      { control: ctx.control, history: { record: (event) => ctx.history.push(event) } }
+    );
+    services.push(ctx.service);
+    ctx.generation = ctx.service.list()[0].generation;
+    ctx.service.openTransport('tA', A);
+    ctx.service.openTransport('tB', B);
+    ctx.report = () => ctx.c.runner.emit('status');
+    ctx.tick = (ms) => {
+      for (let t = 0; t < ms; t += 50) {
+        ctx.now += 50;
+        ctx.report();
+        jest.advanceTimersByTime(50);
+      }
+    };
+    ctx.req = (action, extra = {}, actor = A, transportId = actor === B ? 'tB' : 'tA') => ctx.service.action({
+      port: 'TEST', generation: ctx.generation, transportId, action, ...extra
+    }, actor);
+    ctx.state = () => ctx.service.list()[0];
+    ctx.report();
+    if (homed) {
+      ctx.c.state.status.activeState = 'Home';
+      ctx.report();
+      ctx.c.state.status.activeState = 'Idle';
+      ctx.report();
+    }
+    return ctx;
+  };
+
+  const STEP = { axis: 'X', direction: 1, step: 1, feed: 500 };
+
+  describe('fenêtre $J envoyé, Grbl encore rapporté Idle', () => {
+    test('canStop vrai et Stop par un autre client annule le jog (1dd66f87)', async () => {
+      const ctx = setup({ homed: true });
+      await ctx.req('motion', { operation: 'jog', ...STEP });
+      expect(ctx.c.written).toContain('$J=G91 G21 X1 F500\n');
+      expect(ctx.state().canStop).toBe(true);
+      const res = await ctx.req('stop', {}, B);
+      expect(res.message).toMatch(/0x85/);
+      expect(ctx.c.written.filter((b) => b === '\x85')).toHaveLength(1);
+    });
+
+    // D2 (corrigé) : la réservation passait pendant la fenêtre.
+    test('D2 : une réservation de commande système est refusée pendant la fenêtre', async () => {
+      const ctx = setup({ homed: true });
+      await ctx.req('motion', { operation: 'jog', ...STEP });
+      expect(() => ctx.service.reserveSystemCommand({ id: 'x', title: 'Redémarrer', commands: 'sudo reboot' }))
+        .toThrow('Déplacement en cours sur TEST : commande système refusée.');
+      expect(ctx.service.systemCommand()).toBe(null);
+    });
+
+    test('D2 : prise d’origine, zéro Z, chargement et lecture des réglages refusés pendant la fenêtre ; acceptés une fois le pas soldé', async () => {
+      const ctx = setup({ homed: true });
+      await ctx.req('motion', { operation: 'jog', ...STEP });
+      const busy = /Déplacement en cours : attendez le retour au repos \(Idle\)\./;
+      await expect(ctx.req('prepare', { operation: 'home' })).rejects.toThrow(busy);
+      await expect(ctx.req('prepare', { operation: 'zeroZ', thickness: 10, search: 20 })).rejects.toThrow(busy);
+      await expect(ctx.req('load', { file: 'test.nc' })).rejects.toThrow(busy);
+      await expect(ctx.req('readSettings')).rejects.toThrow(busy);
+      expect(ctx.state()).toMatchObject({ canHome: false, homeReason: expect.stringMatching(busy), canLoad: false });
+      ctx.c.runner.emit('ok');
+      ctx.tick(150);
+      await expect(ctx.req('prepare', { operation: 'home' })).resolves.toMatchObject({ operation: 'home' });
+    });
+
+    // D1 (corrigé) : la confirmation $H passait pendant la fenêtre, Grbl répondait
+    // error:8 et le premier Idle rendait `homed` vrai sans prise d'origine.
+    test('D1 : $H confirmé pendant la fenêtre d’un pas : refusé, rien envoyé, homed reste faux', async () => {
+      const ctx = setup({ homed: false });
+      expect(ctx.state().homed).toBe(false);
+      const ticket = await ctx.req('prepare', { operation: 'home' });
+      await ctx.req('motion', { operation: 'jog', ...STEP });
+      await expect(ctx.req('home', { nonce: ticket.nonce })).rejects.toThrow(/Déplacement en cours/);
+      expect(ctx.c.commands.map((x) => x[0])).not.toContain('homing');
+      ctx.c.runner.emit('ok');
+      ctx.tick(1500);
+      expect(ctx.state().homed).toBe(false);
+    });
+
+    test('D1 : $H refusé aussitôt par Grbl (error:8 / error:5) puis Idle : homed reste faux, le cycle n’est plus « en cours »', async () => {
+      for (const code of ['8', '5']) {
+        const ctx = setup({ homed: false });
+        // eslint-disable-next-line no-await-in-loop
+        const ticket = await ctx.req('prepare', { operation: 'home' });
+        // eslint-disable-next-line no-await-in-loop
+        await ctx.req('home', { nonce: ticket.nonce });
+        expect(ctx.state().homing).toBe(true);
+        ctx.c.runner.emit('error', { message: code });
+        expect(ctx.state().homing).toBe(false);
+        ctx.tick(1200);
+        expect(ctx.state().homed).toBe(false);
+      }
+    });
+
+    test('D1 : un vrai cycle (Home puis Idle) rend toujours homed vrai', async () => {
+      const ctx = setup({ homed: false });
+      const ticket = await ctx.req('prepare', { operation: 'home' });
+      await ctx.req('home', { nonce: ticket.nonce });
+      ctx.tick(1100);
+      ctx.c.state.status.activeState = 'Home';
+      ctx.tick(2000);
+      ctx.c.state.status.activeState = 'Idle';
+      ctx.tick(100);
+      expect(ctx.state().homed).toBe(true);
+    });
+  });
+
+  describe('R1, la ligne de rapport décide MPos/WPos (46994b85)', () => {
+    const raw = (ctx, line) => ctx.c.runner.emit('raw', { raw: line });
+
+    test('$10=1 en cache mais rapports WPos : pas de 10 mm refusé, puis WCO reçu : accepté', async () => {
+      const ctx = setup({ homed: true });
+      raw(ctx, '<Idle|WPos:5.000,5.000,2.000|FS:0,0>');
+      await expect(ctx.req('motion', { operation: 'jog', axis: 'X', direction: -1, step: 10, feed: 500 }))
+        .rejects.toThrow(/WPos/);
+      // Un WCO arrive : CNCjs dérive MPos = WPos + WCO, la course redevient connue.
+      ctx.c.runner.emit('status', { wco: { x: '-105', y: '-105', z: '-12' } });
+      const res = await ctx.req('motion', { operation: 'jog', axis: 'X', direction: -1, step: 10, feed: 500 });
+      expect(res.command).toBe('$J=G91 G21 X-10 F500');
+    });
+
+    test('une ligne Grbl 0.9 (virgules) ne change rien ; une ligne MPos rétablit la confiance', async () => {
+      const ctx = setup({ homed: true });
+      raw(ctx, '<Idle|WPos:5.000,5.000,2.000|FS:0,0>');
+      raw(ctx, '<Idle,MPos:0.000,0.000,0.000,WPos:0.000,0.000,0.000>');
+      await expect(ctx.req('motion', { operation: 'jog', axis: 'X', direction: -1, step: 10, feed: 500 }))
+        .rejects.toThrow(/WPos/);
+      raw(ctx, '<Idle|MPos:-100.000,-100.000,-10.000|FS:0,0>');
+      const res = await ctx.req('motion', { operation: 'jog', axis: 'X', direction: -1, step: 10, feed: 500 });
+      expect(res.command).toBe('$J=G91 G21 X-10 F500');
+    });
+
+    test('redémarrage de carte : wcoSeen oublié, wposReported conservé (la ligne suivante tranche)', async () => {
+      const ctx = setup({ homed: true });
+      raw(ctx, '<Idle|WPos:5.000,5.000,2.000|FS:0,0>');
+      ctx.c.runner.emit('status', { wco: { x: '-105', y: '-105', z: '-12' } });
+      ctx.c.runner.emit('startup', { firmware: 'Grbl', version: '1.1h' });
+      ctx.report();
+      // Après redémarrage : plus de WCO vu, rapports encore WPos : 10 mm refusé.
+      await expect(ctx.req('motion', { operation: 'jog', axis: 'X', direction: -1, step: 10, feed: 500 }))
+        .rejects.toThrow(/WCO|référencée|non constaté/);
+    });
+  });
+});

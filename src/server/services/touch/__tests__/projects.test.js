@@ -294,3 +294,139 @@ probeProfile: { name: 'Plaque', revision: 'abc123' }
     });
   });
 });
+
+// Final server cross-check (xvf) of 33b32db9, integrated (own helpers, scoped).
+describe('projects, final cross-check', () => {
+  const waitConfigured = () => new Promise((resolve, reject) => {
+    const deadline = Date.now() + 2000;
+    const poll = () => {
+      if (monitor.isConfigured()) {
+        resolve();
+      } else if (Date.now() > deadline) {
+        reject(new Error('monitor not configured'));
+      } else {
+        setTimeout(poll, 20);
+      }
+    };
+    poll();
+  });
+  const code = (promise) => promise.then(() => 'resolved', (err) => err.code);
+
+  describe('projects, final cross-check (xvf): concurrence, chemins, fichier changé, vrai moniteur', () => {
+    let dir;
+    let outside;
+    const fp = (name) => fingerprint(fs.readFileSync(path.join(dir, name)));
+    const store = () => JSON.parse(fs.readFileSync(path.join(dir, STORE_NAME), 'utf8'));
+
+    beforeAll(async () => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'xvf-projects-'));
+      outside = fs.mkdtempSync(path.join(os.tmpdir(), 'xvf-outside-'));
+      ['a.nc', 'b.nc', 'c.nc', 'same.nc'].forEach((n) => fs.writeFileSync(path.join(dir, n), 'G21 G90\nG0 X1 ; ' + n + '\n'));
+      fs.writeFileSync(path.join(outside, 'secret.nc'), 'G0 X999\n');
+      monitor.start({ watchDirectory: dir });
+      await waitConfigured();
+      // The monitor of the suite above may still answer for its own (removed)
+      // directory for a moment: wait until this one serves its files.
+      const deadline = Date.now() + 5000;
+      for (;;) {
+        // eslint-disable-next-line no-await-in-loop
+        const seen = await monitor.fingerprintOf('a.nc').then(() => true, () => false);
+        if (seen || Date.now() > deadline) {
+          break;
+        }
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => {
+          setTimeout(resolve, 20);
+        });
+      }
+    });
+
+    afterAll(() => {
+      monitor.stop();
+      fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(outside, { recursive: true, force: true });
+    });
+
+    test('20 écritures simultanées sur 3 fichiers : toutes gardées, magasin JSON valide, aucun temporaire', async () => {
+      const jobs = [];
+      for (let i = 0; i < 20; i++) {
+        const file = ['a.nc', 'b.nc', 'c.nc'][i % 3];
+        jobs.push(projects.write({ file, fingerprint: fp(file), meta: { notes: 'n' + i } }));
+      }
+      const results = await Promise.all(jobs);
+      expect(results.every((r) => r.version === 'current')).toBe(true);
+      const s = store();
+      // Dernière écriture de chaque fichier (ordre d'arrivée conservé par la file).
+      expect(s.entries['a.nc'].notes).toBe('n18');
+      expect(s.entries['b.nc'].notes).toBe('n19');
+      expect(s.entries['c.nc'].notes).toBe('n17');
+      expect(fs.readdirSync(dir).filter((n) => !/\.nc$/.test(n) && n !== STORE_NAME)).toEqual([]);
+    });
+
+    test('deux clients, champs différents en même temps : fusion ; même champ : le dernier gagne sans avertissement', async () => {
+      const f = fp('same.nc');
+      await Promise.all([
+        projects.write({ file: 'same.nc', fingerprint: f, meta: { material: 'MDF' } }),
+        projects.write({ file: 'same.nc', fingerprint: f, meta: { tool: 'fraise 3 mm' } })
+      ]);
+      expect(store().entries['same.nc']).toMatchObject({ material: 'MDF', tool: 'fraise 3 mm' });
+      const [first, second] = await Promise.all([
+        projects.write({ file: 'same.nc', fingerprint: f, meta: { notes: 'client A' } }),
+        projects.write({ file: 'same.nc', fingerprint: f, meta: { notes: 'client B' } })
+      ]);
+      expect(first.entry.notes).toBe('client A');
+      expect(second.entry.notes).toBe('client B');
+      expect(store().entries['same.nc'].notes).toBe('client B');
+    });
+
+    test('noms hors bibliothèque refusés, rien écrit', async () => {
+      const before = fs.readFileSync(path.join(dir, STORE_NAME), 'utf8');
+      for (const file of ['../' + path.basename(outside) + '/secret.nc', path.join(outside, 'secret.nc'), '..\\x.nc', STORE_NAME, '.hidden.nc', 'a.nc\0']) {
+        expect(await code(projects.write({ file, fingerprint: fp('a.nc'), meta: { notes: 'x' } }))).toBe('EINVALIDNAME');
+      }
+      expect(fs.readFileSync(path.join(dir, STORE_NAME), 'utf8')).toBe(before);
+    });
+
+    test('lien vers un fichier hors bibliothèque : refusé comme absent (si le système permet le lien)', async () => {
+      let linked = true;
+      try {
+        fs.symlinkSync(path.join(outside, 'secret.nc'), path.join(dir, 'link.nc'));
+      } catch (err) {
+        linked = false;
+      }
+      if (!linked) {
+        // Windows sans privilège : EPERM, rien à vérifier ici.
+        expect(linked).toBe(false);
+        return;
+      }
+      expect(await code(projects.read('link.nc'))).toBe('ENOENT');
+      expect(await code(projects.write({ file: 'link.nc', fingerprint: fingerprint(fs.readFileSync(path.join(outside, 'secret.nc'))), meta: { notes: 'x' } }))).toBe('ENOENT');
+    });
+
+    test('magasin remplacé par un dossier : illisible, jamais écrasé', async () => {
+      const saved = fs.readFileSync(path.join(dir, STORE_NAME), 'utf8');
+      fs.rmSync(path.join(dir, STORE_NAME));
+      fs.mkdirSync(path.join(dir, STORE_NAME));
+      expect(await code(projects.write({ file: 'a.nc', fingerprint: fp('a.nc'), meta: { notes: 'y' } }))).toBe('ECORRUPT');
+      expect(fs.statSync(path.join(dir, STORE_NAME)).isDirectory()).toBe(true);
+      fs.rmdirSync(path.join(dir, STORE_NAME));
+      fs.writeFileSync(path.join(dir, STORE_NAME), saved);
+    });
+
+    // Sur NTFS, utimes ne rend pas la date au 100 ns près : l'identité diffère et la
+    // liste détecte aussi le changement. Sur FAT32 (date à 2 s) la liste pourrait dire « current ».
+    test('fichier modifié en place, même taille, date remise : liste et lecture disent « other » ici (NTFS)', async () => {
+      const file = path.join(dir, 'b.nc');
+      const st = fs.statSync(file);
+      const text = fs.readFileSync(file, 'utf8');
+      const changed = text.replace('X1', 'X9');
+      expect(changed.length).toBe(text.length);
+      fs.writeFileSync(file, changed);
+      fs.utimesSync(file, st.atime, st.mtime);
+      const listed = (await projects.list()).entries.find((e) => e.file === 'b.nc');
+      const read = await projects.read('b.nc');
+      expect(listed.version).toBe('other');
+      expect(read.version).toBe('other');
+    });
+  });
+});

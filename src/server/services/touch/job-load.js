@@ -10,16 +10,18 @@ import path from 'path';
 // eslint-disable-next-line import/extensions
 import { buildResume, modalsBeforeFirstMove, programLines } from './resume.js';
 // eslint-disable-next-line import/extensions
-import { analyzeProgram, checkProgram } from './program-check.js';
+import { analyzeProgram, checkProgram, codeOf } from './program-check.js';
 // eslint-disable-next-line import/extensions
 import { fingerprint as fingerprintOfText, sameProgram } from './program-identity.js';
 
 const MAX_FILE_SIZE = 20 * 1048576;
 
-// Words that select or change the work offset; comments are ignored.
+// Words that select or change the work offset; comments are ignored the way
+// CNCjs's sender strips them (nested parentheses included, see codeOf). An
+// expression may select an offset too (G[54+1]): treated as a change.
 export const changesOffset = (gcode) => {
-  const code = String(gcode).replace(/\([^)]*\)/g, ' ').replace(/;.*$/gm, ' ');
-  return /(?<![A-Z])G\s*0*(?:5[4-9](?:\.\d)?|10|92(?:\.\d)?)(?![\d.])/i.test(code);
+  const code = String(gcode).split('\n').map(codeOf).join('\n');
+  return /[[\]]/.test(code) || /(?<![A-Z])G\s*0*(?:5[4-9](?:\.\d)?|10|92(?:\.\d)?)(?![\d.])/i.test(code);
 };
 
 // Reads a program from the watch directory without the monitor service (the

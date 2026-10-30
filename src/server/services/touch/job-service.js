@@ -359,6 +359,13 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       // or goes on with ignoreErrors, and ends the job either way when it was
       // the last line. Such a program is never reported finished.
       r.error = (res) => {
+        // A $H refused at once (error:8 while a jog runs, error:5 when $22=0 was
+        // set from the console): Grbl answers before any report, no cycle ran,
+        // and the next Idle must not be taken for a completed homing.
+        if (r.homing && clock() - r.homing.since < HOMING_MIN_MS) {
+          r.homing = null;
+          changed();
+        }
         if (r.probing) {
           r.probing.error = grblCode(res);
         }
@@ -503,11 +510,20 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
   };
 
+  // A jog of ours sent and not over, even before Grbl reports Jog (F1): the
+  // CNCjs feeder clears `pending` as soon as the line is written.
+  const notJogging = (c, r) => {
+    if (moves.moving(c, r)) {
+      throw conflict('Déplacement en cours : attendez le retour au repos (Idle).');
+    }
+  };
+
   const idle = (c) => {
     available(c);
     if (record(c).probing) {
       throw conflict('Palpage en cours.');
     }
+    notJogging(c, record(c));
     const feeder = c.feeder.toJSON();
     if (c.workflow.state !== 'idle' || controllerStatus(c).activeState !== 'Idle' || feeder.queue || feeder.pending) {
       throw conflict('La machine doit être au repos (Idle), sans commande en attente.');
@@ -576,6 +592,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     controllers,
     record,
     homingActive,
+    moving: (c, r) => moves.moving(c, r),
     changed,
     MAX_REPORT_AGE_MS
   });
@@ -685,6 +702,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     if (record(c).probing) {
       throw conflict('Palpage en cours.');
     }
+    notJogging(c, record(c));
     const feeder = c.feeder.toJSON();
     if (c.workflow.state !== 'idle' || feeder.queue || feeder.pending) {
       throw conflict('Impossible pendant un travail ou avec des commandes en attente.');
@@ -761,7 +779,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     settingNumber,
     hasAutomations,
     grblCode,
-    probeInput
+    probeInput,
+    moving: (c, r) => moves.moving(c, r)
   });
 
   // Real jogging and work origins (F1): experimental, disabled unless .cncrc

@@ -44,11 +44,12 @@ const fmt = (n) => String(Math.round(n * 1000) / 1000);
 //   hasAutomations(config)  CNCjs event automations are enabled
 //   grblCode(res)           the numeric code of an error:n / ALARM:n
 //   probeInput              probe pin observer (inspect(port))
+//   moving(c, r)            a jog of the service sent and not over (motion.js)
 // Returns { zeroZReady(c), plateParams(body), answers(c, r), zeroZ(c, ticket) }.
 export const createPlateProbe = (deps) => {
   const {
     config, clock, conflict, controllers, record, later, changed, available, spindleStill,
-    pauseKind, modalFresh, allSettings, settingNumber, hasAutomations, grblCode, probeInput
+    pauseKind, modalFresh, allSettings, settingNumber, hasAutomations, grblCode, probeInput, moving
   } = deps;
 
   // The plate probe runs at rest, or during a pause the program asked for
@@ -59,6 +60,10 @@ export const createPlateProbe = (deps) => {
     const r = record(c);
     if (r.probing) {
       throw conflict('Palpage en cours.');
+    }
+    // A jog of ours sent and not over, even before Grbl reports Jog (F1).
+    if (moving && moving(c, r)) {
+      throw conflict('Déplacement en cours : attendez le retour au repos (Idle).');
     }
     if (r.loading) {
       throw conflict('Chargement en cours.');

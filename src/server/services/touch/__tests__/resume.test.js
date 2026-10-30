@@ -1,5 +1,10 @@
 /* eslint-env jest */
+import gcodeParser from 'gcode-parser';
+import translateExpression from '../../../lib/translate-expression';
 import { buildResume, programLines, stateBefore } from '../resume';
+import { codeOf, analyzeProgram } from '../program-check';
+import { changesOffset } from '../job-service';
+import { expectCatalogMatch } from './touch-codes-catalog';
 
 const PROGRAM = [
   '(roughing)',
@@ -47,6 +52,7 @@ describe('resume refusals carry a stable code and the values of their message', 
     ['ETOUCH_RESUME_LINE', () => buildResume(P('G21 G90', 'G0 Z5'), 9), { min: 2, max: 2 }],
     ['ETOUCH_RESUME_ORIGIN_CHANGED', () => buildResume(P('G21 G90', 'G92 X0', 'G0 Z5'), 3), { from: 3, line: 2 }],
     ['ETOUCH_RESUME_INVERSE_TIME', () => buildResume(P('G21 G90', 'G93', 'G0 Z5'), 3), { from: 3 }],
+    ['ETOUCH_RESUME_EXPRESSION', () => buildResume(P('G21 G90', 'G0 Z[5+1]', 'G0 X1'), 3), { line: 2, from: 3 }],
     ['ETOUCH_RESUME_CUTTER_COMPENSATION', () => buildResume(P('G21 G90', 'G41 D1', 'G0 Z5'), 3), { line: 2 }],
     ['ETOUCH_RESUME_TOOL_LENGTH', () => buildResume(P('G21 G90', 'G43 H1', 'G0 Z5'), 3), { line: 2 }],
     ['ETOUCH_RESUME_UNITS_LATE', () => buildResume(P('G0 Z5', 'G21', 'G0 X1'), 3), { units: 'G21', line: 2 }],
@@ -630,5 +636,119 @@ describe('resume, cross-check 3', () => {
       // Z absolu redonné seulement par G1 Z-1 : safeZ = -1 et rapidZ null → refus (correct : aucun retrait rapide connu).
       expect(() => buildResume(unknownStart, 8)).toThrow(/aucun déplacement rapide G0 en Z/);
     });
+  });
+});
+
+// Final server cross-check (xvf) of 33b32db9: comments read like CNCjs's sender,
+// resume after nested comments, CNCjs expressions (D3) and changesOffset (D4), fixed.
+// What GrblController's sender writes for a program line (dataFilter, l. 271-278).
+const sent = (line, context = {}) => gcodeParser.parseLine(translateExpression(line.trim(), context), { flatten: true, lineMode: 'stripped' }).line;
+
+// Deterministic pseudo-random generator (reproducible fuzz).
+const rng = (seed) => () => {
+  seed = (seed * 1103515245 + 12345) % 2147483648;
+  return seed / 2147483648;
+};
+
+describe('final cross-check · codeOf lit les lignes comme gcode-parser (expéditeur CNCjs)', () => {
+  test('20 000 lignes aléatoires de ( ) ; G X 1 espace : même code que la ligne envoyée', () => {
+    const next = rng(42);
+    const alphabet = ['(', ')', ';', 'G', '0', 'X', '1', ' ', 'Y', '.', '-', 'a'];
+    const mismatches = [];
+    for (let n = 0; n < 20000; n++) {
+      const len = 1 + Math.floor(next() * 18);
+      let line = '';
+      for (let i = 0; i < len; i++) {
+        line += alphabet[Math.floor(next() * alphabet.length)];
+      }
+      const expected = gcodeParser.parseLine(line, { flatten: true, lineMode: 'stripped' }).line.toUpperCase();
+      if (codeOf(line) !== expected && mismatches.length < 5) {
+        mismatches.push([line, codeOf(line), expected]);
+      }
+    }
+    expect(mismatches).toEqual([]);
+  });
+
+  // D4 (corrigé) : changesOffset lisait les commentaires sans imbrication (faux négatif).
+  test('changesOffset (job-load.js) lit les commentaires comme l’expéditeur CNCjs : G55 après un commentaire imbriqué', () => {
+    const line = '(a (b) ; c) G55';
+    expect(sent(line)).toBe('G55');
+    expect(codeOf(line)).toBe('G55');
+    expect(changesOffset(line)).toBe(true);
+    expect(changesOffset('(G55 in a comment) G0 X1\n; G92 X0')).toBe(false);
+    expect(changesOffset('G[54+1]')).toBe(true);
+    // Le précontrôle F2, lui, le voit.
+    expect(analyzeProgram('G21 G90 G54\nG0 X1 Y1 Z5\n' + line + '\nG0 X2\n').wcsChanges).toEqual([3]);
+  });
+});
+
+describe('final cross-check · reprise après commentaires imbriqués', () => {
+  const PROGRAM = [
+    'G21 G90 G54',
+    'G0 Z5',
+    'G0 X0 Y0',
+    'G1 Z-1 F200',
+    'G1 X5 F600',
+    '(old (v1) G0 X50 Y50',
+    '(note (a) b) G1 Y7',
+    'G1 X8',
+    'G0 Z5',
+    'M30'
+  ].join('\n');
+
+  test('ligne 8 : la position avant la reprise est celle que Grbl a reçue (X5 Y7), pas X50 Y50', () => {
+    expect(sent('(old (v1) G0 X50 Y50')).toBe('');
+    expect(sent('(note (a) b) G1 Y7')).toBe('G1 Y7');
+    const plan = buildResume(PROGRAM, 8);
+    expect(plan.position).toEqual({ X: 5, Y: 7, Z: -1 });
+    expect(plan.preamble).toEqual([
+      '(CNCjs Touch : reprise a la ligne 8)',
+      'G21 G90 G17 G54 G94',
+      'G0 Z5',
+      'G0 X5 Y7',
+      'G1 Z-1 F200',
+      'F600'
+    ]);
+  });
+
+  test('première ligne reprise commentée par imbrication : pas de G1 ajouté devant une ligne sans code', () => {
+    const plan = buildResume(PROGRAM, 6);
+    expect(plan.program.split('\n')[plan.preamble.length]).toBe('(old (v1) G0 X50 Y50');
+  });
+
+  // D3 (corrigé) : la reprise acceptait et plaçait l'outil en X10 Y50 au lieu de X50 Y50.
+  test('expression CNCjs [..] avant la ligne : reprise refusée (ETOUCH_RESUME_EXPRESSION)', () => {
+    const program = [
+      'G21 G90 G54',
+      'G0 Z5',
+      'G0 X0 Y0',
+      'G1 Z-1 F200',
+      'G1 X10 F600',
+      'G0 Z5',
+      'G0 X[40+10] Y50',
+      'G1 Z-1 F200',
+      'G1 X60 F600',
+      'G0 Z5'
+    ].join('\n');
+    // L'expéditeur CNCjs évalue l'expression : Grbl reçoit X50.
+    expect(sent('G0 X[40+10] Y50')).toBe('G0 X50 Y50');
+    // F2 déclare l'axe imprévisible (ETOUCH_CHECK_MACRO)...
+    expect(analyzeProgram(program).unknownAxes.X).toMatch(/expression/);
+    // ...and the resume refuses: the value Grbl received cannot be known here.
+    let err = null;
+    try {
+      buildResume(program, 9);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toMatchObject({
+      status: 409,
+      code: 'ETOUCH_RESUME_EXPRESSION',
+      params: { line: 7, from: 9 },
+      message: 'Expression ou macro CNCjs à la ligne 7 avant la ligne 9 : reprise impossible.'
+    });
+    expectCatalogMatch(err);
+    // After the expression line, nothing before the resume line is unknown: accepted.
+    expect(buildResume(program.replace('G0 X[40+10] Y50', 'G0 X50 Y50'), 9).position).toEqual({ X: 50, Y: 50, Z: -1 });
   });
 });

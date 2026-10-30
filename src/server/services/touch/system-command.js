@@ -12,12 +12,13 @@ import { controllerStatus } from './motion-preflight.js';
 //   controllers()           CNCjs's registry of controllers, by port
 //   record(c)               the service's record of a controller (seen, probing, loading)
 //   homingActive(r)         a homing cycle sent and not over
+//   moving(c, r)            a jog of the service sent and not over (motion.js)
 //   changed()               notifies the stream listeners
 //   MAX_REPORT_AGE_MS       age beyond which a status report is not trusted
 // Returns { reserve({id, title, commands}) → {release()}, current() → the
 // reservation {id, title, since} or null, view() → {title, since} or null, clear() }.
 export const createSystemCommands = (deps) => {
-  const { isDisposed, clock, conflict, controllers, record, homingActive, changed, MAX_REPORT_AGE_MS } = deps;
+  const { isDisposed, clock, conflict, controllers, record, homingActive, moving, changed, MAX_REPORT_AGE_MS } = deps;
 
   // Host command (shutdown, restart…) reserved against the machine: see reserveSystemCommand.
   let systemCommand = null;
@@ -69,6 +70,10 @@ export const createSystemCommands = (deps) => {
         }
         if (homingActive(r)) {
           throw conflict('Prise d’origine en cours sur ' + port + ' : commande système refusée.');
+        }
+        // A jog of the touch service sent and not over, even before Grbl reports Jog (F1).
+        if (moving && moving(c, r)) {
+          throw conflict('Déplacement en cours sur ' + port + ' : commande système refusée.');
         }
       }
     });

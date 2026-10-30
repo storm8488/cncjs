@@ -107,6 +107,11 @@ toolOffset: null
     if (!code || code === '%') {
       continue;
     }
+    // CNCjs evaluates [expressions] (and % lines) when it sends them: the values
+    // Grbl receives cannot be known here (same rule as program-check.js).
+    if (/^%/.test(code) || /[[\]#]/.test(code)) {
+      throw refuse('ETOUCH_RESUME_EXPRESSION', 'Expression ou macro CNCjs à la ligne ' + (i + 1) + ' avant la ligne ' + from + ' : reprise impossible.', { line: i + 1, from });
+    }
     const w = words(code);
     const g = w.filter(([l]) => l === 'G').map(([, v]) => v);
     const m = w.filter(([l]) => l === 'M').map(([, v]) => v);
