@@ -16,6 +16,12 @@ Resolution order of the directory, from the compiled server (`dist/cncjs/server/
    run inside the repository before the copy existed);
 3. `examples/cncjs-touch/touch` three levels up (the source tree, used by Jest).
 
+`<route>` is `/`: CNCjs has no option or `.cncrc` key for a route prefix
+(`settings.production.js` fixes `route: '/'`). Editing that value in an
+installed copy makes Touch work under the prefix (tried with `/cnc/`), but the
+main CNCjs app does not load there (its webpack bundles are requested without the
+prefix), so a prefixed install is not supported.
+
 When none exists the server logs `assets: name=touch, path=... does not exist,
 skipping` and `/touch/` answers 404; the rest of CNCjs is unaffected.
 
@@ -127,7 +133,8 @@ performance comparisons in `TESTING.md` did).
 Do this only after the supervised protocol of `HANDOFF.md`, step 10 (step 0
 first, with the setting still off), and on the test bench before the production
 machine. The machine needs Grbl 1.1 or newer (Grbl_ESP32 counts), `$10=1` and
-`$13=0`.
+`$13=0`. The server reads `$13` from the settings CNCjs last read (`$$`): after
+changing `$13` from a console, read the settings again before any real move.
 
 ```json
 {
