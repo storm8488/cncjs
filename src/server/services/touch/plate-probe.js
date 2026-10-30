@@ -142,7 +142,7 @@ export const createPlateProbe = (deps) => {
   // own parser state query, sent every 500 ms, paused or not.
   const answers = (c, r) => {
     const runner = c.runner;
-    const t = { oks: 0, error: null, reportsAtOk: 0 };
+    const t = { oks: 0, error: null, reportsAtOk: 0, reportsAtError: 0 };
     // A $G reply already parsed whose ok is still on its way (CNCjs's own flag).
     let parserReply = !!(c.actionMask && c.actionMask.queryParserState && c.actionMask.queryParserState.reply);
     const onParser = () => {
@@ -159,6 +159,7 @@ export const createPlateProbe = (deps) => {
     const onError = (res) => {
       parserReply = false;
       t.error = grblCode(res) || -1;
+      t.reportsAtError = r.reports;
     };
     runner.on('parserstate', onParser);
     runner.on('ok', onOk);

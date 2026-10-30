@@ -297,12 +297,17 @@ export const createMotion = (deps) => {
     // No answer at all (link trouble) but reports at rest or in alarm long after: let go.
     const lost = age > p.limitMs && /^(Idle|Alarm)/.test(state) && r.reports >= p.mark + 3;
     // The board restarted after the line was sent: Grbl dropped it, no answer will come.
-    const restarted = r.startups !== p.startups && state !== 'Jog';
+    // Two reports after the banner, like an ok: bytes of the $J received after
+    // the restart would be run, and only a later report would show Jog.
+    const restarted = r.startups !== p.startups && state !== 'Jog' && r.reports >= (r.reportsAtStartup || 0) + 2;
     // Safety bound: no line of ours can still be running after the longest
     // planned duration plus a margin, whatever is reported; nothing stays
     // blocked for ever behind it.
     const expired = age > Math.max(p.limitMs, MAX_JOG_MS + 10000) + PENDING_MARGIN_MS;
-    if (p.t.error || answered || lost || restarted || expired) {
+    // An error may answer another client's line: like an ok, it settles only once
+    // two reports after it show no Jog.
+    const refused = !!p.t.error && r.reports >= p.t.reportsAtError + 2 && state !== 'Jog';
+    if (refused || answered || lost || restarted || expired) {
       p.t.done();
       s.pending = null;
       return true;

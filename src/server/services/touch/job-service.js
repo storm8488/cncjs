@@ -295,6 +295,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         // A Home state seen before the restart says nothing about the new session.
         r.sawHome = false;
         r.startups += 1;
+        // Reports counted from the banner on (a jog line lost to the restart, motion.js).
+        r.reportsAtStartup = r.reports;
         // A restart (E-stop wired to reset, an alarm abort, a reset from another
         // client) during a pause: Grbl is back to G54, G21, G0 and F0.
         if (r.job && r.job.started && c.workflow && c.workflow.state !== 'idle') {

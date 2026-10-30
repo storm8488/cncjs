@@ -4168,10 +4168,14 @@ describe('job service, re-check of c4c048c7 (xvg)', () => {
       await expect(ctx.req('prepare', { operation: 'home' })).resolves.toMatchObject({ operation: 'home' });
     });
 
-    test('error sur le $J (error:15, hors course) : fenêtre close aussitôt', async () => {
+    // O1 (re-check of 98941288): an error may answer another client's line, so like
+    // an ok it closes the window only after two reports without Jog.
+    test('error sur le $J (error:15, hors course) : fenêtre close après deux rapports sans Jog', async () => {
       const ctx = setup({ homed: true });
       await ctx.req('motion', { operation: 'jog', ...STEP });
       ctx.c.runner.emit('error', { message: '15' });
+      await expect(ctx.req('prepare', { operation: 'home' })).rejects.toThrow(BUSY);
+      ctx.tick(100);
       await expect(ctx.req('prepare', { operation: 'home' })).resolves.toMatchObject({ operation: 'home' });
     });
 
@@ -4197,11 +4201,14 @@ describe('job service, re-check of c4c048c7 (xvg)', () => {
     // carte (arrêt d'urgence câblé sur reset, ou reset depuis CNCjs) avec $22=1 :
     // la carte reste en Alarm, `lost` exige Idle, `moves.moving` ne retombe jamais
     // et $X / $H passent par noJob → refusés indéfiniment. Avant c4c048c7, $X passait.
-    test('D2-bis (corrigé) : $J sans réponse puis redémarrage en Alarm : $X et $H acceptés dès le premier rapport', async () => {
+    // O2 (re-check of 98941288): two reports after the banner, not one.
+    test('D2-bis (corrigé) : $J sans réponse puis redémarrage en Alarm : $X et $H acceptés au deuxième rapport', async () => {
       const ctx = setup({ homed: true });
       await ctx.req('motion', { operation: 'jog', ...STEP });
       ctx.c.runner.emit('startup', { firmware: 'Grbl', version: '1.1h' });
       ctx.c.state.status.activeState = 'Alarm';
+      ctx.tick(50);
+      await expect(ctx.req('prepare', { operation: 'unlock' })).rejects.toThrow(BUSY);
       ctx.tick(50);
       await expect(ctx.req('prepare', { operation: 'unlock' })).resolves.toMatchObject({ operation: 'unlock' });
       await expect(ctx.req('prepare', { operation: 'home' })).resolves.toMatchObject({ operation: 'home' });
@@ -4243,3 +4250,525 @@ describe('job service, re-check of c4c048c7 (xvg)', () => {
     });
   });
 });
+
+// Re-check (xvh) of 98941288, integrated with its own fixtures: several restarts,
+// restart after ok, the bound with Jog still reported, the slowest jogs, Stop all
+// through a cycle, no leak of `refused`; O1 and O2 fixed.
+/* eslint-disable no-await-in-loop */ // keepalives and polls are sequential on purpose
+describe('job service, re-check of 98941288 (xvh)', () => {
+  const fakeController = (port = 'TEST') => {
+    const c = {
+      type: 'Grbl',
+      options: { port },
+      ready: true,
+      isClose: () => false,
+      runner: new EventEmitter(),
+      sender: new EventEmitter(),
+      workflow: Object.assign(new EventEmitter(), { state: 'idle' }),
+      state: {
+        status: {
+          activeState: 'Idle',
+          spindle: 0,
+          mpos: { x: '-100.000', y: '-100.000', z: '-10.000' },
+          wpos: { x: '5.000', y: '5.000', z: '2.000' }
+        }
+      },
+      feeder: { toJSON: () => ({ queue: 0, pending: false }) },
+      settings: {
+        version: '1.1h',
+        settings: { $10: '1', $13: '0', $22: '1', $23: '0', $30: '24000', $110: '1000', $111: '1000', $112: '500', $130: '400', $131: '400', $132: '80' }
+      },
+      commands: [],
+      written: []
+    };
+    c.runner.state = c.state;
+    c.sender.state = { name: '', context: {}, total: 0 };
+    c.sender.toJSON = () => ({ ...c.sender.state });
+    c.command = (name, ...args) => {
+      c.commands.push([name, ...args]);
+      if (name === 'gcode') {
+        [].concat(args[0]).forEach((line) => c.written.push(line + '\n'));
+      }
+      if (name === 'jogCancel') {
+        c.written.push('\x85');
+      }
+    };
+    return c;
+  };
+
+  const A = { kind: 'touch', id: 'tablet-A', label: 'Tablette A', user: 'op' };
+  const B = { kind: 'touch', id: 'tablet-B', label: 'Tablette B', user: 'op' };
+
+  const services = [];
+  afterEach(() => {
+    services.splice(0).forEach((service) => service.dispose());
+    jest.useRealTimers();
+  });
+
+  const setup = ({ homed = false } = {}) => {
+    jest.useFakeTimers();
+    const ctx = { now: 10000, c: fakeController() };
+    ctx.controllers = { TEST: ctx.c };
+    ctx.control = createControl({ now: () => ctx.now, elapsed: () => ctx.now });
+    ctx.service = createService(
+      { get: () => ctx.controllers },
+      { get: (key) => ({ 'touch.motion.enabled': true, events: [], macros: [{ id: 'm1', name: 'M', content: 'G0 X0' }] }[key]) },
+      () => ctx.now,
+      { control: ctx.control, history: { record: () => {} } }
+    );
+    services.push(ctx.service);
+    ctx.generation = ctx.service.list()[0].generation;
+    ctx.service.openTransport('tA', A);
+    ctx.service.openTransport('tB', B);
+    ctx.report = () => ctx.c.runner.emit('status');
+    // Reports every `every` ms (CNCjs queries every 250 ms).
+    ctx.tick = (ms, every = 50) => {
+      for (let t = 0; t < ms; t += every) {
+        ctx.now += every;
+        ctx.report();
+        jest.advanceTimersByTime(every);
+      }
+    };
+    ctx.silent = (ms) => {
+      ctx.now += ms;
+      jest.advanceTimersByTime(ms);
+    };
+    ctx.set = (state) => {
+      ctx.c.state.status.activeState = state;
+    };
+    ctx.startup = () => ctx.c.runner.emit('startup', { firmware: 'Grbl', version: '1.1h' });
+    ctx.req = (action, extra = {}, actor = A, transportId = actor === B ? 'tB' : 'tA') => ctx.service.action({
+      port: 'TEST', generation: ctx.generation, transportId, action, ...extra
+    }, actor);
+    ctx.state = () => ctx.service.list()[0];
+    ctx.cmds = () => ctx.c.commands.map((x) => x[0]);
+    ctx.report();
+    if (homed) {
+      ctx.set('Home');
+      ctx.report();
+      ctx.set('Idle');
+      ctx.report();
+    }
+    return ctx;
+  };
+
+  const STEP = { axis: 'X', direction: 1, step: 1, feed: 500 };
+  const BUSY = /Déplacement en cours : attendez le retour au repos \(Idle\)\./;
+
+  const tryAll = async (ctx) => {
+    const out = {};
+    const tryIt = async (name, fn) => {
+      try {
+        await fn();
+        out[name] = 'ACCEPTÉ';
+      } catch (err) {
+        out[name] = err.message;
+      }
+    };
+    await tryIt('prepare home', () => ctx.req('prepare', { operation: 'home' }));
+    await tryIt('prepare unlock', () => ctx.req('prepare', { operation: 'unlock' }));
+    await tryIt('prepare spindle', () => ctx.req('prepare', { operation: 'spindle' }));
+    await tryIt('prepare zeroZ', () => ctx.req('prepare', { operation: 'zeroZ', thickness: 10, search: 20 }));
+    await tryIt('prepare macro', () => ctx.req('prepare', { operation: 'macro', macroId: 'm1' }));
+    await tryIt('prepare set-origin', () => ctx.req('prepare', { operation: 'set-origin', axes: ['X'] }));
+    await tryIt('load', () => ctx.req('load', { file: 'test.nc' }));
+    await tryIt('readSettings', () => ctx.req('readSettings'));
+    await tryIt('second jog', () => ctx.req('motion', { operation: 'jog', ...STEP }));
+    await tryIt('reserveSystemCommand', () => ctx.service.reserveSystemCommand({ id: 'x', title: 'R', commands: 'true' }).release());
+    return out;
+  };
+  const noneAccepted = (out) => Object.entries(out).forEach(([name, message]) => {
+    expect([name, message]).not.toEqual([name, 'ACCEPTÉ']);
+  });
+
+  describe('D2-bis : $J et redémarrage', () => {
+    test('redémarrage avant ok, carte revenue Idle ($22=0) : libéré au 2e rapport (O2), rien avant', async () => {
+      const ctx = setup({ homed: true });
+      ctx.c.settings.settings.$22 = '0';
+      await ctx.req('motion', { operation: 'jog', ...STEP });
+      ctx.startup();
+      // No report since the restart: refused (stale), whatever the line.
+      await expect(ctx.req('readSettings')).rejects.toThrow();
+      ctx.tick(50);
+      await expect(ctx.req('readSettings')).rejects.toThrow(/Déplacement en cours/);
+      ctx.tick(50);
+      await expect(ctx.req('readSettings')).resolves.toMatchObject({ message: expect.any(String) });
+      expect(ctx.state().canStop).toBe(false);
+    });
+
+    test('redémarrage avant ok, rapport Jog encore en cache au startup : bloqué tant que Jog', async () => {
+      const ctx = setup({ homed: true });
+      await ctx.req('motion', { operation: 'jog', ...STEP });
+      ctx.set('Jog');
+      ctx.tick(100);
+      ctx.startup();
+      ctx.tick(100); // stale Jog still reported (worst case)
+      expect(ctx.state().canStop).toBe(true);
+      noneAccepted(await tryAll(ctx));
+      ctx.set('Alarm');
+      ctx.tick(50);
+      await expect(ctx.req('prepare', { operation: 'unlock' })).resolves.toMatchObject({ operation: 'unlock' });
+    });
+
+    test('plusieurs redémarrages avant ok, puis Alarm : $X accepté ; un nouveau $J après $X n’est pas lâché par l’ancien compteur', async () => {
+      const ctx = setup({ homed: true });
+      await ctx.req('motion', { operation: 'jog', ...STEP });
+      ctx.startup();
+      ctx.set('Alarm');
+      ctx.tick(50);
+      ctx.startup();
+      ctx.tick(50);
+      ctx.startup();
+      ctx.tick(100);
+      await expect(ctx.req('prepare', { operation: 'unlock' })).resolves.toMatchObject({ operation: 'unlock' });
+      // Re-home so jogs > 0.1 are allowed again; then a new $J with no answer.
+      ctx.set('Home');
+      ctx.tick(50);
+      ctx.set('Idle');
+      ctx.tick(50);
+      expect(ctx.state().homed).toBe(true);
+      await ctx.req('motion', { operation: 'jog', ...STEP });
+      ctx.tick(5000);
+      await expect(ctx.req('prepare', { operation: 'home' })).rejects.toThrow(BUSY);
+      expect(ctx.state().canStop).toBe(true);
+    });
+
+    test('redémarrage APRÈS ok (Jog rapporté) : lâché une seule fois, aucun écouteur résiduel, ok tardif sans effet', async () => {
+      const ctx = setup({ homed: true });
+      const base = ctx.c.runner.listenerCount('ok');
+      await ctx.req('motion', { operation: 'jog', ...STEP });
+      expect(ctx.c.runner.listenerCount('ok')).toBe(base + 1);
+      ctx.c.runner.emit('ok');
+      ctx.set('Jog');
+      ctx.tick(100);
+      ctx.startup();
+      ctx.set('Alarm');
+      ctx.tick(50);
+      expect(ctx.c.runner.listenerCount('ok')).toBe(base);
+      ctx.c.runner.emit('ok');
+      ctx.tick(100);
+      await expect(ctx.req('prepare', { operation: 'unlock' })).resolves.toMatchObject({ operation: 'unlock' });
+      expect(ctx.state().canStop).toBe(false);
+      expect(ctx.cmds().filter((x) => x === 'jogCancel')).toHaveLength(0);
+    });
+
+    test('redémarrage pendant une annulation (jog-stop) : l’annulation se clôt, pas de 0x85 en boucle', async () => {
+      const ctx = setup({ homed: true });
+      await ctx.req('motion', { operation: 'jog', ...STEP });
+      ctx.c.runner.emit('ok');
+      ctx.set('Jog');
+      ctx.tick(100);
+      await ctx.req('motion', { operation: 'jog-stop' });
+      ctx.startup();
+      ctx.set('Alarm');
+      ctx.tick(2000);
+      const n = ctx.cmds().filter((x) => x === 'jogCancel').length;
+      ctx.tick(5000);
+      expect(ctx.cmds().filter((x) => x === 'jogCancel').length).toBe(n);
+      expect(ctx.state().canStop).toBe(false);
+      await expect(ctx.req('prepare', { operation: 'unlock' })).resolves.toMatchObject({ operation: 'unlock' });
+    });
+
+    test('borne : Jog encore rapporté à 131 s ($J sans ok) — la ligne est lâchée mais l’état Jog bloque tout ; Arrêter annule', async () => {
+      const ctx = setup({ homed: true });
+      await ctx.req('motion', { operation: 'jog', ...STEP });
+      ctx.set('Jog');
+      ctx.tick(125000, 250);
+      const before = await tryAll(ctx);
+      expect(before['prepare home']).toMatch(BUSY);
+      ctx.tick(6000, 250);
+      const after = await tryAll(ctx);
+      noneAccepted(after);
+      expect(after['prepare home']).not.toMatch(BUSY); // the state decides now
+      expect(ctx.state().canStop).toBe(true);
+      await expect(ctx.req('stop', {}, B)).resolves.toMatchObject({ message: expect.stringMatching(/0x85|annulé/) });
+      expect(ctx.cmds()).toContain('jogCancel');
+      expect(ctx.service.systemCommand()).toBe(null);
+    }, 30000);
+
+    test('borne : même cas avec ok reçu (Jog à 131 s) : idem, rien accepté', async () => {
+      const ctx = setup({ homed: true });
+      await ctx.req('motion', { operation: 'jog', ...STEP });
+      ctx.c.runner.emit('ok');
+      ctx.set('Jog');
+      ctx.tick(131000, 250);
+      noneAccepted(await tryAll(ctx));
+      expect(ctx.state().canStop).toBe(true);
+    }, 30000);
+
+    test('borne : Jog rapporté puis rapports interrompus 131 s : actions refusées (état trop ancien)', async () => {
+      const ctx = setup({ homed: true });
+      await ctx.req('motion', { operation: 'jog', ...STEP });
+      ctx.c.runner.emit('ok');
+      ctx.set('Jog');
+      ctx.tick(200);
+      ctx.silent(131000);
+      const out = await tryAll(ctx);
+      noneAccepted(out);
+    });
+
+    test('pas le plus lent permis (1 mm à 1 mm/min = 60 s) : Jog 60 s puis Idle, jamais lâché pendant le mouvement', async () => {
+      const ctx = setup({ homed: true });
+      const res = await ctx.req('motion', { operation: 'jog', axis: 'X', direction: 1, step: 1, feed: 1 });
+      expect(res).toBeTruthy();
+      ctx.c.runner.emit('ok');
+      ctx.set('Jog');
+      for (let s = 0; s < 60; s += 10) {
+        ctx.tick(10000, 250);
+        await expect(ctx.req('prepare', { operation: 'home' })).rejects.toThrow();
+      }
+      ctx.set('Idle');
+      ctx.tick(500, 250);
+      await expect(ctx.req('prepare', { operation: 'home' })).resolves.toMatchObject({ operation: 'home' });
+    }, 30000);
+
+    test('continu (60 s prévus) sans maintien : session close à 250 ms, Jog rapporté 131 s : rien accepté, Arrêter renvoie 0x85', async () => {
+      const ctx = setup({ homed: true });
+      await ctx.req('motion', { operation: 'jog-start', axis: 'X', direction: 1, feed: 50 });
+      ctx.c.runner.emit('ok');
+      ctx.set('Jog');
+      ctx.tick(131000, 250);
+      noneAccepted(await tryAll(ctx));
+      const n = ctx.cmds().filter((x) => x === 'jogCancel').length;
+      await ctx.req('stop', {}, B);
+      expect(ctx.cmds().filter((x) => x === 'jogCancel').length).toBe(n + 1);
+    }, 30000);
+
+    test('continu maintenu 60 s (keepalive toutes les 100 ms), Jog : jamais rien accepté pendant le mouvement', async () => {
+      const ctx = setup({ homed: true });
+      const res = await ctx.req('motion', { operation: 'jog-start', axis: 'X', direction: 1, feed: 50 });
+      ctx.c.runner.emit('ok');
+      ctx.set('Jog');
+      for (let t = 0; t < 59000; t += 100) {
+        ctx.tick(100, 50);
+        const k = await ctx.req('motion', { operation: 'jog-keepalive', jogId: res.jogId });
+        if (t % 10000 === 0) {
+          expect(k.active).toBe(true);
+          await expect(ctx.req('prepare', { operation: 'home' })).rejects.toThrow();
+        }
+      }
+      expect(ctx.state().canStop).toBe(true);
+    }, 60000);
+
+    // O1 (corrigé) : toute `error:` reçue pendant la fenêtre $J lâchait la ligne, même si
+    // elle répondait à une autre ligne (console d'un autre client), et une action passait.
+    test('O1 : erreur étrangère dans la fenêtre $J (avant le 1er Jog) : la ligne tient jusqu’à deux rapports sans Jog', async () => {
+      const ctx = setup({ homed: true });
+      await ctx.req('motion', { operation: 'jog', ...STEP });
+      ctx.c.runner.emit('error', { message: '20' });
+      await expect(ctx.req('prepare', { operation: 'home' })).rejects.toThrow(/Déplacement en cours/);
+      // The real $J then runs: Jog reported, still refused.
+      ctx.c.runner.emit('ok');
+      ctx.set('Jog');
+      ctx.tick(200);
+      await expect(ctx.req('prepare', { operation: 'home' })).rejects.toThrow();
+      ctx.set('Idle');
+      ctx.tick(150);
+      await expect(ctx.req('prepare', { operation: 'home' })).resolves.toMatchObject({ operation: 'home' });
+    });
+
+    test('O1 : une vraie erreur du $J (error:15) ferme la fenêtre après deux rapports sans Jog', async () => {
+      const ctx = setup({ homed: true });
+      await ctx.req('motion', { operation: 'jog', ...STEP });
+      ctx.c.runner.emit('error', { message: '15' });
+      ctx.tick(50);
+      await expect(ctx.req('prepare', { operation: 'home' })).rejects.toThrow(/Déplacement en cours/);
+      ctx.tick(50);
+      await expect(ctx.req('prepare', { operation: 'home' })).resolves.toMatchObject({ operation: 'home' });
+    });
+
+    // O2 (corrigé) : la ligne écrite juste avant le reset peut arriver à Grbl après la
+    // bannière ; le premier rapport Idle la lâchait avant le rapport Jog.
+    test('O2 : startup puis un rapport Idle : la ligne tient ; le $J reçu après la bannière est vu en Jog ; lâchée après deux rapports sans Jog', async () => {
+      const ctx = setup({ homed: true });
+      ctx.c.settings.settings.$22 = '0';
+      await ctx.req('motion', { operation: 'jog', ...STEP });
+      ctx.startup();
+      ctx.tick(50);
+      await expect(ctx.req('readSettings')).rejects.toThrow(/Déplacement en cours/);
+      ctx.c.runner.emit('ok');
+      ctx.set('Jog');
+      ctx.tick(50);
+      await expect(ctx.req('readSettings')).rejects.toThrow();
+      ctx.set('Idle');
+      ctx.tick(150);
+      await expect(ctx.req('readSettings')).resolves.toBeTruthy();
+    });
+  });
+
+  describe('D1-bis/ter : $H', () => {
+    const home = async (ctx) => {
+      const ticket = await ctx.req('prepare', { operation: 'home' });
+      await ctx.req('home', { nonce: ticket.nonce });
+      expect(ctx.cmds()).toContain('homing');
+    };
+    const stopResets = async (ctx) => {
+      const n = ctx.cmds().filter((x) => x === 'reset').length;
+      const res = await ctx.req('stop', {}, B);
+      expect(res.message).toMatch(/Prise d’origine interrompue/);
+      expect(ctx.cmds().filter((x) => x === 'reset').length).toBe(n + 1);
+    };
+
+    test('erreur tôt (50 ms) puis rapports Idle toutes les 250 ms : homing vrai < 1 s, faux ensuite, homed faux', async () => {
+      const ctx = setup();
+      await home(ctx);
+      ctx.silent(50);
+      ctx.c.runner.emit('error', { message: '5' });
+      ctx.tick(750, 250);
+      expect(ctx.state()).toMatchObject({ homing: true, canStop: true, homed: false });
+      ctx.tick(500, 250);
+      expect(ctx.state()).toMatchObject({ homing: false, canStop: false, homed: false });
+      ctx.tick(5000, 250);
+      expect(ctx.state().homed).toBe(false);
+    });
+
+    test('erreur étrangère à 300 ms d’un vrai cycle silencieux de 40 s : Arrêter disponible et effectif à 1 s, 20 s, 39 s', async () => {
+      for (const at of [1000, 20000, 39000]) {
+        const ctx = setup();
+        await home(ctx);
+        ctx.silent(300);
+        ctx.c.runner.emit('error', { message: '20' });
+        ctx.silent(at - 300);
+        expect([at, ctx.state().canStop, ctx.state().homing]).toEqual([at, true, true]);
+        await stopResets(ctx);
+        ctx.startup();
+        ctx.set('Alarm');
+        ctx.tick(100);
+        expect(ctx.state()).toMatchObject({ homing: false, homed: false });
+      }
+    });
+
+    test('erreur tardive (30 s) pendant un vrai cycle silencieux : Arrêter encore effectif, Idle final → homed faux', async () => {
+      const ctx = setup();
+      await home(ctx);
+      ctx.silent(30000);
+      ctx.c.runner.emit('error', { message: '1' });
+      expect(ctx.state()).toMatchObject({ homing: true, canStop: true });
+      ctx.silent(5000);
+      expect(ctx.state().canStop).toBe(true);
+      ctx.silent(5000);
+      ctx.tick(100);
+      expect(ctx.state()).toMatchObject({ homing: false, homed: false, canStop: false });
+    });
+
+    test('Home vu puis erreur puis Idle : homed vrai (sawHome) ; erreur puis Home puis Idle : homed vrai', async () => {
+      for (const order of ['home-error', 'error-home']) {
+        const ctx = setup();
+        await home(ctx);
+        ctx.silent(300);
+        if (order === 'error-home') {
+          ctx.c.runner.emit('error', { message: '20' });
+        }
+        ctx.set('Home');
+        ctx.tick(1500);
+        if (order === 'home-error') {
+          ctx.c.runner.emit('error', { message: '20' });
+        }
+        expect([order, ctx.state().canStop]).toEqual([order, true]);
+        ctx.set('Idle');
+        ctx.tick(100);
+        expect([order, ctx.state().homed, ctx.state().homing]).toEqual([order, true, false]);
+      }
+    });
+
+    test('Home vu, erreur, puis Alarm : homed faux', async () => {
+      const ctx = setup();
+      await home(ctx);
+      ctx.set('Home');
+      ctx.tick(1500);
+      ctx.c.runner.emit('error', { message: '20' });
+      ctx.set('Alarm');
+      ctx.tick(100);
+      ctx.set('Idle');
+      ctx.tick(100);
+      expect(ctx.state()).toMatchObject({ homing: false, homed: false });
+    });
+
+    test('erreur puis Alarm (sans ALARM:n) puis $X/Idle : homed faux', async () => {
+      const ctx = setup();
+      await home(ctx);
+      ctx.silent(200);
+      ctx.c.runner.emit('error', { message: '8' });
+      ctx.silent(1000);
+      ctx.set('Alarm');
+      ctx.tick(100);
+      ctx.set('Idle');
+      ctx.tick(500);
+      expect(ctx.state()).toMatchObject({ homing: false, homed: false });
+    });
+
+    test('erreur puis redémarrage, puis Idle : homing faux, homed faux', async () => {
+      const ctx = setup();
+      await home(ctx);
+      ctx.silent(200);
+      ctx.c.runner.emit('error', { message: '8' });
+      ctx.silent(500);
+      ctx.startup();
+      ctx.set('Idle');
+      ctx.tick(2000);
+      expect(ctx.state()).toMatchObject({ homing: false, homed: false });
+    });
+
+    test('$H refusé (error:8) pendant le jog d’un autre client, Jog rapporté 30 s : Arrêter annule le jog ; Idle → homed faux', async () => {
+      const ctx = setup();
+      await home(ctx);
+      ctx.c.runner.emit('error', { message: '8' });
+      ctx.set('Jog');
+      ctx.tick(30000, 250);
+      expect(ctx.state()).toMatchObject({ homing: true, canStop: true });
+      await expect(ctx.req('stop', {}, B)).resolves.toMatchObject({ message: expect.stringMatching(/0x85|annulé/) });
+      expect(ctx.cmds()).toContain('jogCancel');
+      ctx.set('Idle');
+      ctx.tick(300, 250);
+      expect(ctx.state()).toMatchObject({ homing: false, homed: false });
+    }, 30000);
+
+    test('le marquage « refusé » ne fuit pas sur le $H suivant : 2e $H réel → homed vrai', async () => {
+      const ctx = setup();
+      await home(ctx);
+      ctx.c.runner.emit('error', { message: '8' });
+      ctx.tick(1500, 250);
+      expect(ctx.state()).toMatchObject({ homing: false, homed: false });
+      await home(ctx);
+      ctx.silent(7000);
+      ctx.tick(100);
+      expect(ctx.state()).toMatchObject({ homing: false, homed: true });
+    });
+
+    test('vrai cycle réussi sans erreur : silencieux → homed vrai ; avec rapports Home → homed vrai', async () => {
+      const a = setup();
+      await home(a);
+      a.silent(9000);
+      a.c.runner.emit('ok');
+      a.tick(100);
+      expect(a.state()).toMatchObject({ homing: false, homed: true });
+      const b = setup();
+      await home(b);
+      b.set('Home');
+      b.tick(4000, 250);
+      b.set('Idle');
+      b.tick(250, 250);
+      expect(b.state()).toMatchObject({ homing: false, homed: true });
+    });
+
+    test('homed jamais vrai sans cycle : erreur à n’importe quel instant (0, 0,5, 1, 2, 10 s) puis Idle', async () => {
+      for (const at of [0, 500, 1000, 2000, 10000]) {
+        const ctx = setup();
+        await home(ctx);
+        ctx.silent(at);
+        ctx.c.runner.emit('error', { message: '8' });
+        ctx.tick(1500, 250);
+        expect([at, ctx.state().homed]).toEqual([at, false]);
+      }
+    });
+
+    test('borne HOMING_MAX_MS : cycle silencieux 181 s → canStop (pré-existant)', async () => {
+      const ctx = setup();
+      await home(ctx);
+      ctx.silent(181000);
+      expect(ctx.state().homing).toBe(false);
+    });
+  });
+});
+
+/* eslint-enable no-await-in-loop */
