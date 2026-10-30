@@ -893,3 +893,50 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
 .ks-ui .ks-history-source .t-seg button{min-width:140px}
 .ks-ui #screen-history .ks-history-scope{margin:0;flex:1 1 280px;font-size:var(--fs-16);color:var(--mute)}
 .ks-ui #screen-history li[data-kind=server]{border-left-color:var(--faint)}
+/* --- Real moves (F1, EXPERIMENTAL; real-motion.js): shown only when the server enables them. The
+ * panel starts below the status strip (Pause / Arrêter stay reachable); arrows 96 px, other targets
+ * 48 px (64 px for the origin confirmation), 12 px apart, at 1366 x 768 and 1024 x 600. --- */
+.ks-ui .real-motion-entry{display:inline-flex;align-items:center;gap:var(--sp-2);min-height:var(--tap)}
+.ks-ui .real-motion-tag{margin-left:0;font-size:var(--fs-16);line-height:1.2}
+.ks-ui #real-motion{top:var(--statusbar-h);padding:var(--sp-3);align-items:stretch}
+.ks-ui .real-motion-card{width:min(1180px,100%);max-height:calc(100vh - var(--statusbar-h) - 24px);overflow:auto;padding:var(--sp-4);gap:var(--sp-3);border:2px solid var(--warn)}
+.ks-ui .real-motion-head{display:flex;align-items:center;justify-content:space-between;gap:var(--tap-gap)}
+.ks-ui .real-motion-head h2{display:flex;align-items:center;gap:var(--sp-3);font-size:var(--fs-24)}
+.ks-ui .real-motion-head .t-btn{min-height:var(--tap)}
+.ks-ui .real-motion-warning{flex:1 1 auto;min-width:0;margin:0;padding:var(--sp-2) var(--sp-3);background:var(--warn-soft);border-left:6px solid var(--warn);color:var(--warn-text)!important;font:700 var(--fs-18)/var(--lh) var(--font)!important}
+.ks-ui .real-motion-cols{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--sp-4);align-items:start;min-height:0}
+.ks-ui .real-motion-left,.ks-ui .real-motion-right{display:flex;flex-direction:column;gap:var(--tap-gap);min-width:0}
+.ks-ui .real-motion-frame{margin:0;font:600 var(--fs-16)/var(--lh) var(--font)!important;color:var(--fg)!important}
+.ks-ui .real-motion-pos{border-collapse:collapse;font:var(--fs-18)/1.2 var(--font-num);font-variant-numeric:tabular-nums}
+.ks-ui .real-motion-pos th,.ks-ui .real-motion-pos td{padding:2px 0 2px var(--sp-3);text-align:right}
+.ks-ui .real-motion-pos tr>th:first-child{padding-left:0;text-align:left;font-size:var(--fs-16)}
+.ks-ui .real-motion-pos th{color:var(--mute);font-weight:600}
+.ks-ui .real-motion-seg{display:flex;align-items:center;gap:var(--sp-3)}
+.ks-ui .real-motion-label{flex:0 0 132px;font-size:var(--fs-16);color:var(--mute)}
+.ks-ui .real-motion-choices{display:flex;gap:var(--tap-gap);flex-wrap:wrap}
+.ks-ui .real-motion-choice{min-height:var(--tap);min-width:64px;padding:0 var(--sp-3);font:600 var(--fs-18)/1 var(--font-num);color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m);touch-action:manipulation}
+.ks-ui .real-motion-choice[aria-pressed="true"]{background:var(--info);color:var(--on-info);border-color:transparent}
+.ks-ui .real-motion-choice:disabled{color:var(--disabled-fg);background:var(--disabled-bg)}
+.ks-ui .real-motion-help,.ks-ui .real-motion-line{margin:0;font-size:var(--fs-16)!important;line-height:var(--lh)}
+.ks-ui .real-motion-reason{margin:0;font:600 var(--fs-16)/var(--lh) var(--font)!important;color:var(--warn-text)!important}
+.ks-ui .real-motion-pos .real-motion-origin td{padding-top:var(--tap-gap)}
+.ks-ui .real-motion-set{min-height:var(--tap);min-width:96px;font-size:var(--fs-18)}
+.ks-ui .real-motion-ticket{width:420px;max-width:100%;display:flex;flex-direction:column;gap:var(--sp-2);padding:var(--sp-3);border:2px solid var(--warn);border-radius:var(--r-m)}
+.ks-ui .real-motion-ticket p{color:var(--fg)}
+.ks-ui .real-motion-ticket-actions{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:var(--tap-gap)}
+.ks-ui .real-motion-ticket-actions .t-btn{min-height:var(--tap-primary)}
+.ks-ui .real-motion-pads{display:flex;gap:var(--sp-6);align-items:center}
+.ks-ui .real-motion-pad{display:grid;grid-template-columns:repeat(3,var(--tap-jog));grid-template-rows:repeat(3,var(--tap-jog));gap:var(--tap-gap)}
+.ks-ui .real-motion-zpad{display:flex;flex-direction:column;gap:var(--tap-gap)}
+.ks-ui .real-motion-jog{min-width:var(--tap-jog);min-height:var(--tap-jog);width:var(--tap-jog);height:var(--tap-jog);font:700 var(--fs-28)/1 var(--font);color:var(--fg);background:var(--surface-2);border:2px solid var(--warn);border-radius:var(--r-l);touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.ks-ui .real-motion-jog[data-held="true"]{background:var(--warn);color:var(--on-warn)}
+.ks-ui .real-motion-jog:disabled{color:var(--disabled-fg);background:var(--disabled-bg);border-color:var(--line)}
+.ks-ui .real-motion-mid{display:flex;align-items:center;justify-content:center;font:600 var(--fs-20)/1 var(--font-num);color:var(--mute);border:1px dashed var(--line-strong);border-radius:var(--r-l)}
+.ks-ui .real-motion-status{display:flex;flex-direction:column;gap:var(--sp-1);max-width:420px}
+.ks-ui .real-motion-note{margin-top:var(--sp-3)}
+/* 1024 x 600: the arrows keep 96 px; the choices' labels go above them. */
+.ks-ui.t-compact .real-motion-label{flex-basis:96px}
+.ks-ui.t-compact .real-motion-pads{gap:var(--tap-gap)}
+.ks-ui.t-compact .real-motion-card{padding:var(--sp-3);gap:var(--sp-2)}
+/* Who pilots stays in the strip (Pilote); the panel keeps its room for the request and answer lines. */
+.ks-ui.t-compact #real-motion-pilot{display:none}

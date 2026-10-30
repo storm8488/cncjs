@@ -151,13 +151,15 @@
     var running=!!(m&&m.workflow&&m.workflow!=='idle'),usable=!!(m&&connected),reachable=!!m;
     // Stop also covers a homing cycle or a jog (the server ends them); Pause only a running job.
     // In a pause, Resume takes the place of Pause (which is then inactive anyway).
-    var stopShown=reachable&&(running||!!m.canStop),pauseShown=reachable&&m.workflow==='running';
+    // A real jog of the server's (F1) is stoppable before Grbl reports Jog too.
+    var jogging=!!(m&&m.motion&&typeof m.motion==='object'&&(m.motion.jog||m.motion.cancelling));
+    var stopShown=reachable&&(running||!!m.canStop||jogging),pauseShown=reachable&&m.workflow==='running';
     var resumeShown=usable&&!screenLocked&&m.workflow==='paused'&&!!m.canResume;
     var unlockShown=usable&&!screenLocked&&!running&&/^alarm/i.test(String(m.activeState||''))&&!!m.canUnlock;
     prop(pause,'hidden',!pauseShown);prop(stop,'hidden',!stopShown);prop(resume,'hidden',!resumeShown);prop(unlock,'hidden',!unlockShown);
     // During a job the page switch link gives its room to the file name (and is not to be tapped then).
     attr(banner,'data-job',String(running||stopShown));
-    prop(pause,'disabled',!m||!m.canPause);prop(stop,'disabled',!m||!m.canStop);
+    prop(pause,'disabled',!m||!m.canPause);prop(stop,'disabled',!m||!(m.canStop||jogging));
     prop(resume,'disabled',!m||!m.canResume);prop(unlock,'disabled',!m||!m.canUnlock);
     // The pilot never changes what Pause and Stop accept: the server takes them from everyone.
     var p=!simulation&&detail.pilot&&typeof detail.pilot==='object'?detail.pilot:null,pilotState=p?p.state:'unknown';

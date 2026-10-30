@@ -78,7 +78,16 @@
     var ctl=machine.control&&typeof machine.control==='object'?machine.control:null;
     if(!ctl)return {state:'unknown',value:'—',sentence:uiLocale.t('Pilotage : non indiqué par ce serveur CNCjs.')};
     var owner=ctl.owner&&typeof ctl.owner==='object'?ctl.owner:null,change=ctl.lastChange&&typeof ctl.lastChange==='object'?ctl.lastChange:null,p;
-    if(!owner)p={state:'free',value:uiLocale.t('Libre'),sentence:uiLocale.t('Libre : aucun appareil ne pilote cette machine. La première action réussie d’un appareil le lui attribue.')};
+    if(!owner){
+      p={state:'free',value:uiLocale.t('Libre'),sentence:uiLocale.t('Libre : aucun appareil ne pilote cette machine. La première action réussie d’un appareil le lui attribue.')};
+      // The server ended the lease after a rest of idleMs (control.js 'idle'): said, with whose it was.
+      if(change&&change.type==='idle'){
+        var minutes=Math.max(1,Math.round((typeof change.idleMs==='number'&&change.idleMs>0?change.idleMs:300000)/60000));
+        p.released=uiLocale.t('Libéré après ')+minutes+uiLocale.t(' min d’inactivité')+(change.previous?' (« '+ownerName(change.previous)+' »)':'')+'.';
+        p.sentence=p.released+' '+p.sentence;
+        if(change.previous&&change.previous.kind==='touch'&&change.previous.id===clientId){p.idleNotice=uiLocale.t('Pilotage de cet appareil libéré après ')+minutes+uiLocale.t(' min d’inactivité.');p.changeAt=change.at;}
+      }
+    }
     else if(owner.kind==='touch'&&owner.id===clientId)p={state:'mine',value:uiLocale.t('Cet appareil'),sentence:uiLocale.t('Piloté par cet appareil (')+clientLabel+').'};
     else{
       var name=ownerName(owner),away=owner.present===false&&typeof owner.expires==='number';
@@ -97,9 +106,11 @@
     var e=new Error(data.owner?uiLocale.t('Refusé : pilotage attribué à « ')+ownerName(data.owner)+uiLocale.t(' ». Pause et Arrêter restent possibles. Pour agir ici, touchez Pilote dans le bandeau et prenez le pilotage avec un motif, ou attendez sa libération.'):String(data.message||uiLocale.t('Refusé : la machine est pilotée par un autre appareil.')));
     e.control=true;e.owner=data.owner||null;return e;
   }
+  function jogStop(body){return !!(body&&body.action==='motion'&&body.operation==='jog-stop');}
   function api(method,body) {
     if(simulation) return simulation.request(method,body);
-    if(networkOffline)return Promise.reject(new Error(uiLocale.t('Réseau indisponible. Suivi suspendu ; aucune commande ne sera relancée automatiquement.')));
+    // A jog stop (F1) is always attempted: the browser's offline flag may be wrong, and it costs nothing.
+    if(networkOffline&&!jogStop(body))return Promise.reject(new Error(uiLocale.t('Réseau indisponible. Suivi suspendu ; aucune commande ne sera relancée automatiquement.')));
     if(document.body && document.body.getAttribute('data-simulation')==='true') return Promise.reject(new Error(uiLocale.t('Simulateur indisponible. Rechargez la page.')));
     return new Promise(function(resolve,reject) {
       var credential=token();
@@ -250,6 +261,7 @@
     var command=online?systemCommand:null;
     pilot=pilotOf(online?current:null);
     if(pilot.takenOver&&pilot.changeAt!==takeoverSeen){takeoverSeen=pilot.changeAt;text('job-feedback',pilot.takenOver);setFeedbackState('failed');}
+    else if(pilot.idleNotice&&pilot.changeAt!==takeoverSeen){takeoverSeen=pilot.changeAt;text('job-feedback',pilot.idleNotice);setFeedbackState('');}
     renderPilotDialog();previewIdentity(online?current:null);
     var detail={machine:online?current:null,observedAt:lastSeen,transportConnected:transportConnected,simulation:!!simulation,busy:busy,feedback:$('job-feedback').textContent,feedbackState:feedbackState,systemCommand:command,pilot:pilot};
     if(store)store.set({machine:detail.machine,controllerId:detail.machine?detail.machine.port:null,transportConnected:transportConnected,transportReason:grace?'':streamReason,systemCommand:command});
@@ -279,7 +291,7 @@
     prop('job-resume','disabled',busy || !online || !current.canResume);
     // Pause and stop stay available while another request is pending.
     prop('job-pause','disabled',!online || !current.canPause);
-    prop('job-stop','disabled',!online || !current.canStop);
+    prop('job-stop','disabled',!online || !(current.canStop||jogging(current)));
     if(!online){text('job-state',uiLocale.t('Machine non connectée ou état indisponible.'));prop('job-progress','value',0);if(ticket)dismiss();return;}
     text('job-state',current.port+' · '+current.activeState+' · '+({idle:uiLocale.t('au repos'),running:uiLocale.t('travail en cours'),paused:uiLocale.t('en pause')}[current.workflow]||current.workflow));
     prop('job-progress','value',current.total?Math.min(100,Math.round(current.received/current.total*100)):0);
@@ -289,6 +301,8 @@
     prop('job-start','title',current.canStart?'':uiLocale.t(reason));prop('job-load','title',uiLocale.t(current.loadReason||''));
     if(ticket && (ticket.port!==current.port || !ticketAllowed(ticket,current))) dismiss();
   }
+  // A real jog of the server's (F1) can be stopped even before Grbl reports Jog.
+  function jogging(m){return !!(m&&m.motion&&typeof m.motion==='object'&&(m.motion.jog||m.motion.cancelling));}
   function apply(data,transit) {
       if(disposed||networkOffline)return;
       if(!data||!Array.isArray(data.controllers)||(!simulation&&compact&&
@@ -341,7 +355,7 @@
   }
   function run(action,extra) {
     if(!current || Date.now()-lastSeen>=3000)return Promise.reject(new Error('État indisponible.'));
-    if(!simulation&&['prepare','start','resume','macro','override','unlock','home','spindle','readSettings'].indexOf(action)>=0&&(!current.generation||!transportId||!stream||!stream.alive()))return Promise.reject(new Error(uiLocale.t('Suivi continu interrompu. Nouvelle confirmation requise.')));
+    if(!simulation&&(['prepare','start','resume','macro','override','unlock','home','spindle','readSettings','set-origin'].indexOf(action)>=0||(action==='motion'&&!(extra&&extra.operation==='jog-stop')))&&(!current.generation||!transportId||!stream||!stream.alive()))return Promise.reject(new Error(uiLocale.t('Suivi continu interrompu. Nouvelle confirmation requise.')));
     var body={action:action,port:current.port};
     if(current.generation)body.generation=current.generation;
     if(transportId)body.transportId=transportId;
@@ -506,7 +520,25 @@
     // Full $$ list and firmware banner, read-only.
     settings:function(){if(!current)return Promise.reject(new Error(uiLocale.t('État indisponible.')));return run('settings');},
     // Attribution of control (F5): this device's identity, who pilots now, the pilot dialog.
-    clientId:function(){return clientId;},pilot:function(){return pilot;},openPilot:openPilot,closePilot:closePilot};
+    clientId:function(){return clientId;},pilot:function(){return pilot;},openPilot:openPilot,closePilot:closePilot,
+    // Real moves (F1, experimental; real-motion.js): jog, jog-start and jog-keepalive need a fresh
+    // state, the open stream and the generation (run). jog-stop is never held back by the client:
+    // it goes out even with a lost stream or an old state, to the port given or the last one shown.
+    motion:function(extra){
+      if(simulation)return Promise.reject(new Error(uiLocale.t('Simulation : aucun déplacement réel.')));
+      var e=extra||{};
+      if(e.operation!=='jog-stop')return run('motion',e).then(answered);
+      var body={action:'motion',operation:'jog-stop',port:e.port||(current&&current.port)||(latestMachine&&latestMachine.port)||$('job-port').value};
+      if(e.jogId)body.jogId=e.jogId;if(transportId)body.transportId=transportId;
+      return api('POST',body).then(answered);
+    },
+    // Work origin (F1): {axes} asks the server for a ticket (prepare set-origin), {nonce} confirms it.
+    origin:function(extra){
+      if(simulation)return Promise.reject(new Error(uiLocale.t('Simulation : aucun déplacement réel.')));
+      return (extra&&extra.nonce?run('set-origin',{nonce:extra.nonce}):run('prepare',{operation:'set-origin',axes:extra&&extra.axes})).then(answered);
+    }};
+  // The snapshot joined to an answer is applied at once (the stream may bring it later).
+  function answered(data){if(data&&data.snapshot&&!disposed)apply(data.snapshot,0);return data;}
   // Deferred subscribers can load after the first resolved local snapshot.
   bind(document,'DOMContentLoaded',function(){stateSignature='';render();});
   poll(true);
