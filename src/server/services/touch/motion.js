@@ -64,6 +64,7 @@ const POSITION_TOLERANCE_MM = 0.001;
 const CANCEL_MAX_MS = 120000;
 // With the spindle turning: no continuous jog, steps of 0.1 mm at most.
 export const MAX_SPINDLE_STEP_MM = 0.1;
+const STEP_WATCH_MS = 50;
 const WCS_P = { G54: 1, G55: 2, G56: 3, G57: 4, G58: 5, G59: 6 };
 
 export const DISABLED_MESSAGE = 'Déplacements réels non activés : validation matérielle supervisée requise (voir HANDOFF.md).';
@@ -143,11 +144,16 @@ export const capabilitiesOf = ({ type, firmware, version, enabled }) => {
 // the convention of the firmware seen is certain, such an axis has both
 // candidates, and a move must be safe in every candidate that contains the
 // current position (see limitsAt).
-export const envelopeOf = (settings, homed) => {
+export const envelopeOf = (settings, homed, { wcoSeen = false } = {}) => {
   const s = settings || {};
   let global = '';
   const homing = number(s.$22);
   const mask = number(s.$23);
+  // $10 bit 0 set: Grbl reports MPos. Otherwise CNCjs derives MPos from WPos
+  // and the last WCO received, taken as 0 until one comes: wrong by the whole
+  // work offset until then.
+  const report = number(s.$10);
+  const reportsMpos = report !== null && report >= 0 && Math.floor(report) === report && report % 2 === 1;
   if (homing === null) {
     global = 'réglage $22 inconnu';
   } else if (homing !== 1) {
@@ -156,6 +162,10 @@ export const envelopeOf = (settings, homed) => {
     global = 'référencement ($H) non constaté depuis le dernier redémarrage de la carte';
   } else if (mask === null || mask < 0 || mask !== Math.floor(mask)) {
     global = 'réglage $23 (sens de prise d’origine) inconnu';
+  } else if (!reportsMpos && !wcoSeen) {
+    global = report === null
+      ? 'réglage $10 inconnu : position machine non vérifiable'
+      : 'position machine non rapportée ($10 sans MPos) et aucun décalage WCO reçu depuis le démarrage de la carte';
   }
   const axes = {};
   AXES.forEach((axis, i) => {
@@ -197,9 +207,20 @@ export const limitsAt = (env, pos, axis) => {
   return {
     limits: { low: Math.max(...plausible.map((e) => e.low)), high: Math.min(...plausible.map((e) => e.high)) },
     outside: false,
+    // Several conventions fit this position (an axis with its $23 bit set, at 0):
+    // only what is safe in all of them is allowed, which may be nothing.
+    ambiguous: plausible.length > 1
+      ? 'convention de course ambiguë à cette position (' + axis + ' ' + fmt(pos) + ', bit $23 à 1 : ' +
+        plausible.map((e) => fmt(e.low) + ' → ' + fmt(e.high)).join(' ou ') + ') : aucun déplacement n’y est sûr dans les deux ; ' +
+        'déplacez l’axe depuis l’interface classique et faites vérifier la convention (étape 0 de HANDOFF.md)'
+      : '',
     reason: ''
   };
 };
+
+// Longest planned duration of one `$J`: an unconfirmed cancel is repeated for
+// at least that long, and a jog never outlives its supervision by much.
+export const MAX_JOG_MS = 60000;
 
 // $110-$112 when known, else the documented fallback.
 export const maxFeedOf = (settings, axis) => {
@@ -352,7 +373,7 @@ export const createMotion = (deps) => {
       throw conflict('Broche en rotation : pas de ' + fmt(MAX_SPINDLE_STEP_MM) + ' mm au plus (maintien continu refusé). Arrêtez la broche (M5) pour de plus grands déplacements.');
     }
     const pos = positionOf(c, 'mpos', p.axis);
-    const at = limitsAt(envelopeOf(allSettings(c), r.homed)[p.axis], pos, p.axis);
+    const at = limitsAt(envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen })[p.axis], pos, p.axis);
     if (at.outside) {
       throw conflict('Pas refusé : ' + at.reason + '.');
     }
@@ -363,12 +384,42 @@ export const createMotion = (deps) => {
     if (at.limits) {
       const target = pos + distance;
       if (target < at.limits.low - 1e-6 || target > at.limits.high + 1e-6) {
+        if (at.ambiguous) {
+          throw conflict('Pas refusé : ' + at.ambiguous + '.');
+        }
         throw conflict('Pas refusé : ' + p.axis + ' sortirait de la course (' + fmt(target) + ' mm machine, course ' + fmt(at.limits.low) + ' → ' + fmt(at.limits.high) + ').');
       }
     }
+    const ms = 60000 * p.step / p.feed;
+    if (ms > MAX_JOG_MS) {
+      throw conflict('Pas trop lent : ' + fmt(p.step) + ' mm à ' + fmt(p.feed) + ' mm/min durerait ' + Math.ceil(ms / 1000) + ' s (' + (MAX_JOG_MS / 1000) +
+        ' s au plus). Augmentez l’avance ou réduisez le pas.');
+    }
     const line = jogLine(p.axis, distance, p.feed);
-    send(c, r, 'jog', line, 60000 * p.step / p.feed + 10000);
+    const pending = send(c, r, 'jog', line, ms + 10000);
+    watchStep(c, r, pending, body.transportId);
     return { message: 'Pas de ' + fmt(p.step) + ' mm en ' + p.axis + (p.direction > 0 ? '+' : '−') + ' envoyé (' + line + ').', command: line };
+  };
+
+  // A discrete step in progress is watched too: the function disabled or the
+  // stream of the device that sent it closing cancels it (0x85).
+  const watchStep = (c, r, pending, transportId) => {
+    const s = stateOf(r);
+    const check = () => {
+      if (s.pending !== pending || s.session || s.cancel || !connected(c) || settle(c, r)) {
+        return;
+      }
+      if (!motionEnabled(config)) {
+        cancel(c, r, 'disabled');
+        return;
+      }
+      if (!transports.has(transportId)) {
+        cancel(c, r, 'transport');
+        return;
+      }
+      later(c, r, check, STEP_WATCH_MS);
+    };
+    later(c, r, check, STEP_WATCH_MS);
   };
 
   // History (F4): one entry per continuous jog session, written when it ends.
@@ -526,7 +577,7 @@ export const createMotion = (deps) => {
     if (spindleOn(c)) {
       return 'Broche en rotation : maintien continu refusé ; pas de ' + fmt(MAX_SPINDLE_STEP_MM) + ' mm au plus.';
     }
-    const at = limitsAt(envelopeOf(allSettings(c), r.homed)[axis], positionOf(c, 'mpos', axis), axis);
+    const at = limitsAt(envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen })[axis], positionOf(c, 'mpos', axis), axis);
     if (!at.limits) {
       return 'Maintien continu impossible : ' + at.reason + '.' + (at.outside ? '' : ' Utilisez les pas (' + MAX_UNREFERENCED_STEP_MM + ' mm au plus).');
     }
@@ -541,12 +592,16 @@ export const createMotion = (deps) => {
     if (why) {
       throw conflict(why);
     }
-    const env = envelopeOf(allSettings(c), r.homed)[p.axis];
+    const env = envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen })[p.axis];
     const pos = positionOf(c, 'mpos', p.axis);
-    const { limits } = limitsAt(env, pos, p.axis);
-    // Safe in every plausible convention, and never more than the travel itself.
+    const { limits, ambiguous } = limitsAt(env, pos, p.axis);
+    // Safe in every plausible convention, never more than the travel itself,
+    // and never longer than MAX_JOG_MS at this feed (hold again to go on).
     const toEdge = p.direction > 0 ? limits.high - EDGE_MARGIN_MM - pos : pos - (limits.low + EDGE_MARGIN_MM);
-    const room = Math.floor(Math.min(toEdge, env.travel - EDGE_MARGIN_MM) * 1000) / 1000;
+    const room = Math.floor(Math.min(toEdge, env.travel - EDGE_MARGIN_MM, p.feed * MAX_JOG_MS / 60000) * 1000) / 1000;
+    if (!(room >= MIN_CONTINUOUS_MM) && ambiguous) {
+      throw conflict('Maintien continu impossible : ' + ambiguous + '.');
+    }
     if (!(room >= MIN_CONTINUOUS_MM)) {
       throw conflict('Fin de course proche : pas de maintien continu vers ' + p.axis + (p.direction > 0 ? '+' : '−') + ' (' + fmt(Math.max(0, room)) + ' mm disponibles).');
     }
@@ -809,7 +864,8 @@ export const createMotion = (deps) => {
         } : null,
         cancelling: !!s.cancel,
         // A jog cancel not confirmed after 5 s (still repeated while Jog is reported).
-        cancelUnconfirmed: !!(s.cancel && s.cancel.unconfirmed),
+        // Stays true while Grbl still reports Jog, even once the repeats stopped.
+        cancelUnconfirmed: !!((s.cancel && s.cancel.unconfirmed) || (!s.cancel && s.lastJog && s.lastJog.unconfirmed && activeOf(c) === 'Jog')),
         lastJog: s.lastJog ? { ...s.lastJog } : null,
         lastOrigin: s.lastOrigin ? { ...s.lastOrigin } : null
       }

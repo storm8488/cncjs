@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { createControl, safeCommand, safeWrite, actorOf, SAFE_ACTIONS, SAFE_WRITES, GRACE_MS } from '../control';
+import { createControl, safeCommand, safeWrite, actorOf, SAFE_ACTIONS, SAFE_WRITES, GRACE_MS, IDLE_MS } from '../control';
 
 const tablet = { kind: 'touch', id: 'tablet-abc', label: 'Tablette atelier', user: 'ana' };
 const phone = { kind: 'touch', id: 'phone-xyz', label: 'Téléphone', user: 'bob' };
@@ -378,5 +378,150 @@ describe('control (F5), idle release (decision of 2026-10-30)', () => {
     expect(control.tick()).toEqual([]);
     expect(control.inspect('COM3', tablet).owner).toMatchObject({ id: 'tablet-abc' });
     expect(control.tick({ busy: () => false })).toHaveLength(1);
+  });
+});
+
+// Cross-check 5 (xv5) of the idle release (0817e6ff), integrated; V1 was failing before the fix.
+describe('control (F5), cross-check 5 · idle release', () => {
+  const setupControl = () => {
+    const ctx = { now: 1700000000000, ms: 5000, events: [] };
+    ctx.control = createControl({ now: () => ctx.now, elapsed: () => ctx.ms, graceMs: 60000, onEvent: (e) => ctx.events.push(e) });
+    ctx.advance = (ms) => {
+ ctx.now += ms; ctx.ms += ms;
+};
+    return ctx;
+  };
+
+  describe('idle release, clock and activity', () => {
+    test('IDLE_MS is 5 minutes', () => {
+      expect(IDLE_MS).toBe(300000);
+    });
+
+    test('the idle delay follows the monotonic clock: wall clock jumps neither release nor keep a lease', () => {
+      const ctx = setupControl();
+      ctx.control.attach(tablet, 't1');
+      ctx.control.claim('COM3', tablet);
+      // Wall clock +1 h then -2 h, elapsed unchanged: nothing ends.
+      ctx.now += 3600000;
+      expect(ctx.control.tick({ busy: () => false })).toEqual([]);
+      ctx.now -= 7200000;
+      expect(ctx.control.tick({ busy: () => false })).toEqual([]);
+      expect(ctx.control.inspect('COM3', tablet).owner).toMatchObject({ id: 'tablet-abc' });
+      // Elapsed time alone ends it after 5 min.
+      ctx.ms += 299999;
+      expect(ctx.control.tick({ busy: () => false })).toEqual([]);
+      ctx.ms += 1;
+      expect(ctx.control.tick({ busy: () => false })).toEqual([expect.objectContaining({ type: 'idle', port: 'COM3', idleMs: 300000 })]);
+    });
+
+    test('a socket owner (classic interface): its guarded and safe commands count as activity, another client’s do not', () => {
+      const ctx = setupControl();
+      ctx.control.attach(pc, 'sock-1');
+      ctx.control.claim('COM3', pc);
+      // 20 min of jogs / status queries from the owner's socket, one every 4 min (index.refuseSocket path).
+      for (let i = 0; i < 5; i++) {
+        ctx.advance(240000);
+        expect(ctx.control.authorize('COM3', pc, i % 2 ? 'statusreport' : 'jog', { safe: i % 2 === 1 })).toMatchObject({ id: 'sock-1' });
+        expect(ctx.control.tick({ busy: () => false })).toEqual([]);
+      }
+      // Stops and holds from another device every minute never keep the owner's lease alive.
+      for (let i = 0; i < 4; i++) {
+        ctx.advance(60000);
+        ctx.control.authorize('COM3', phone, 'stop', { safe: true });
+        expect(ctx.control.tick({ busy: () => false })).toEqual([]);
+      }
+      ctx.advance(60000);
+      ctx.control.authorize('COM3', phone, 'pause', { safe: true });
+      expect(ctx.control.tick({ busy: () => false })).toEqual([expect.objectContaining({ type: 'idle', port: 'COM3' })]);
+      expect(ctx.events.map((e) => e.type)).toEqual(['claim', 'idle']);
+    });
+
+    test('nothing resumes: the former owner coming back (reload, new stream) is not given the port; nobody is', () => {
+      const ctx = setupControl();
+      ctx.control.attach(tablet, 't1');
+      ctx.control.claim('COM3', tablet);
+      ctx.advance(300000);
+      expect(ctx.control.tick({ busy: () => false })).toHaveLength(1);
+      ctx.control.detach(tablet, 't1');
+      ctx.control.attach(tablet, 't2');
+      expect(ctx.control.owners()).toEqual({});
+      expect(ctx.control.inspect('COM3', tablet)).toMatchObject({ owner: null, role: 'observer', lastChange: { type: 'idle', previous: { id: 'tablet-abc' } } });
+      // The PC acts on a free port without receiving it, or claims it explicitly (no reason needed).
+      expect(ctx.control.authorize('COM3', pc, 'jog')).toBeNull();
+      expect(ctx.control.inspect('COM3', pc).owner).toBeNull();
+      expect(ctx.control.claim('COM3', pc).owner).toMatchObject({ id: 'sock-1' });
+      expect(ctx.events.map((e) => e.type)).toEqual(['claim', 'idle', 'claim']);
+    });
+
+    test('several ports: each lease has its own activity and machine state', () => {
+      const ctx = setupControl();
+      ctx.control.attach(tablet, 't1');
+      ctx.control.claim('COM3', tablet);
+      ctx.control.claim('COM4', tablet);
+      ctx.advance(200000);
+      ctx.control.authorize('COM3', tablet, 'start');
+      ctx.advance(100000);
+      // COM4 at rest for 5 min: ends; COM3 acted on 100 s ago: kept.
+      expect(ctx.control.tick({ busy: () => false }).map((e) => e.port)).toEqual(['COM4']);
+      ctx.advance(250000);
+      // COM3 busy (a job): kept although its owner did nothing for 350 s.
+      expect(ctx.control.tick({ busy: (port) => port === 'COM3' })).toEqual([]);
+      expect(Object.keys(ctx.control.owners())).toEqual(['COM3']);
+    });
+
+    test('an absent owner still ends by the 60 s grace (expired), never later by the idle rule', () => {
+      const ctx = setupControl();
+      ctx.control.attach(tablet, 't1');
+      ctx.control.claim('COM3', tablet);
+      ctx.advance(280000);
+      ctx.control.detach(tablet, 't1');
+      ctx.advance(30000);
+      // 310 s since the last action, absent for 30 s: the idle rule applies first.
+      expect(ctx.control.tick({ busy: () => false })).toEqual([expect.objectContaining({ type: 'idle' })]);
+      // Absent and busy: the grace ends it all the same.
+      const other = setupControl();
+      other.control.attach(tablet, 't1');
+      other.control.claim('COM3', tablet);
+      other.control.detach(tablet, 't1');
+      other.advance(60000);
+      expect(other.control.tick({ busy: () => true })).toEqual([expect.objectContaining({ type: 'expired' })]);
+    });
+
+    test('dispose: no tick, no event afterwards', () => {
+      const ctx = setupControl();
+      ctx.control.attach(tablet, 't1');
+      ctx.control.claim('COM3', tablet);
+      ctx.control.dispose();
+      ctx.advance(600000);
+      expect(ctx.control.tick({ busy: () => false })).toEqual([]);
+      expect(ctx.control.owners()).toEqual({});
+      expect(ctx.events.map((e) => e.type)).toEqual(['claim']);
+    });
+  });
+
+  describe('V1 (corrigé) : le repos se compte depuis la fin de l’activité machine', () => {
+    test('control: busy for 299 s (1 s heartbeat) then at rest: kept 5 min after the end, released after', () => {
+      const ctx = { now: 1700000000000, ms: 5000 };
+      const control = createControl({ now: () => ctx.now, elapsed: () => ctx.ms, graceMs: 60000 });
+      control.attach(tablet, 't1');
+      control.claim('COM3', tablet);
+      const machine = { busy: true };
+      const isBusy = () => machine.busy;
+      const beat = (seconds) => {
+        const ended = [];
+        for (let i = 0; i < seconds; i++) {
+          ctx.ms += 1000;
+          ctx.now += 1000;
+          ended.push(...control.tick({ busy: isBusy }));
+        }
+        return ended;
+      };
+      expect(beat(299)).toEqual([]);
+      machine.busy = false; // the job ended by itself, nobody touched anything
+      expect(beat(2)).toEqual([]);
+      expect(control.inspect('COM3', tablet).owner).toMatchObject({ id: 'tablet-abc' });
+      expect(beat(297)).toEqual([]);
+      expect(beat(1)).toEqual([expect.objectContaining({ type: 'idle', port: 'COM3' })]);
+    });
   });
 });

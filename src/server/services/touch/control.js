@@ -123,11 +123,12 @@ export const createControl = ({ now = Date.now, elapsed = () => performance.now(
       if (lease.graceEnd !== null && elapsed() >= lease.graceEnd) {
         leases.delete(port);
         expired.push(emit('expired', port, null, { previous: publicOwner({ ...lease, graceEnd: lease.graceEnd }) }));
-      } else if (typeof busy === 'function' && elapsed() - lease.active >= idleMs) {
+      } else if (typeof busy === 'function') {
+        // Activity of the machine counts as activity of its owner, sampled at
+        // every heartbeat: the rest is counted from the end of that activity.
         if (busy(port)) {
-          // Activity of the machine counts as activity of its owner.
           lease.active = elapsed();
-        } else {
+        } else if (elapsed() - lease.active >= idleMs) {
           leases.delete(port);
           expired.push(emit('idle', port, null, { previous: publicOwner(lease), idleMs }));
         }

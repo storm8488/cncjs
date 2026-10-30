@@ -326,8 +326,14 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         reports: 0,
         generation: crypto.randomBytes(12).toString('hex')
       };
-      r.status = () => {
+      r.status = (payload) => {
         r.seen = clock();
+        // A work offset reported since the board started: what CNCjs needs to
+        // turn a WPos report ($10 bit 0 clear) into a machine position (F1).
+        const wco = payload && payload.wco;
+        if (wco && ['x', 'y', 'z'].every((axis) => Number.isFinite(Number(wco[axis])) && String(wco[axis]).trim() !== '')) {
+          r.wcoSeen = true;
+        }
         r.reports += 1;
         const active = controllerStatus(c).activeState || '';
         if (r.homing && clock() - r.homing.since >= HOMING_MIN_MS && /^(Idle|Alarm)/.test(active)) {
@@ -375,6 +381,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         r.stall = null;
         r.homing = null;
         r.homed = false;
+        r.wcoSeen = false;
         // A Home state seen before the restart says nothing about the new session.
         r.sawHome = false;
         r.startups += 1;
@@ -1116,7 +1123,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     controllerInfo,
     allSettings,
     modalWcs,
-    spindleOn: (c) => spindleOn(c)
+    // Turning, or maybe turning: no FS speed reported and no fresh $G to tell.
+    spindleOn: (c) => spindleOn(c) || (realtimeValue(controllerStatus(c).spindle) === null && !modalFresh(record(c)))
   });
 
   const findMacro = (id) => {
@@ -1922,6 +1930,10 @@ notes: plan.notes
     // loading, probing, homing, jogging, waiting in the feeder or waiting for
     // a confirmation keeps a kiosk's lease alive by itself.
     const busy = (port) => {
+      // A host command holds the machine (see reserveSystemCommand): its owner keeps it.
+      if (systemCommand) {
+        return true;
+      }
       const c = registry[port];
       if (!c || c.isClose()) {
         return false;

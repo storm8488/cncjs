@@ -3326,3 +3326,201 @@ describe('job service A5 and F2, cross-check 3', () => {
     });
   });
 });
+
+// Cross-check 5 (xv5) of the idle release (0817e6ff), integrated; V1 and V2
+// were failing before the fix. Own fixtures, scoped here.
+describe('job service F5, cross-check 5 · idle release at the heartbeat', () => {
+  // ---- Job service: the `busy` passed by observe() ----------------------------------
+
+  const fakeController = (port = 'TEST') => {
+    const c = {
+      type: 'Grbl',
+options: { port },
+ready: true,
+isClose: () => false,
+      runner: new EventEmitter(),
+sender: new EventEmitter(),
+workflow: Object.assign(new EventEmitter(), { state: 'idle' }),
+      state: { status: { activeState: 'Idle' } },
+feeder: { toJSON: () => ({ queue: c.queue || 0, pending: false }) },
+      settings: { settings: { $110: 1000, $111: 1000, $112: 200 } },
+commands: []
+    };
+    c.runner.state = c.state;
+    c.sender.state = { name: '', context: {}, total: 0 };
+    c.sender.toJSON = () => ({ ...c.sender.state });
+    c.command = (name, ...args) => {
+      c.commands.push([name, ...args]);
+      if (name === 'gcode:load') {
+        c.sender.state = { name: args[0], context: args[2], total: 3 };
+        c.sender.emit('load');
+        args[3](null);
+      }
+      if (name === 'gcode:start' || name === 'gcode:resume') {
+        c.workflow.state = 'running';
+        c.state.status.activeState = 'Run';
+        if (name === 'gcode:start') {
+          c.workflow.emit('start');
+        }
+      }
+      if (name === 'gcode:pause') {
+        c.workflow.state = 'paused';
+        c.state.status.activeState = 'Hold:0';
+      }
+      if (name === 'gcode:stop') {
+        c.workflow.state = 'idle';
+        c.state.status.activeState = 'Idle';
+      }
+    };
+    return c;
+  };
+
+  let root;
+  beforeAll(async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), 'cnc-xv5-'));
+    await fs.writeFile(path.join(root, 'test.nc'), 'G21 G90\nG1 X1 F100\nM2');
+  });
+  afterAll(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+  });
+  const services = [];
+  afterEach(() => {
+    services.splice(0).forEach((s) => s.dispose());
+  });
+
+  const A = { kind: 'touch', id: 'tablet-A', label: 'Tablette A', user: 'ana' };
+  const SOCK = { kind: 'socket', id: 'sock-1', label: 'CNCjs 10.0.0.5', user: 'carl' };
+
+  const setupService = () => {
+    const box = { now: 10000 };
+    const events = [];
+    const control = createControl({ now: () => box.now, elapsed: () => box.now, graceMs: 60000, onEvent: (e) => events.push(e) });
+    const ctx = { c: fakeController(), control, box, events };
+    ctx.controllers = { TEST: ctx.c };
+    const store = { get: () => ctx.controllers };
+    const config = { get: (key) => ({ watchDirectory: root, macros: [] }[key] || []) };
+    ctx.service = createService(store, config, () => box.now, { control });
+    services.push(ctx.service);
+    ctx.generation = ctx.service.list()[0].generation;
+    ctx.transportId = 'stream-A';
+    ctx.service.openTransport(ctx.transportId, A);
+    ctx.req = (action, extra = {}, actor) => ctx.service.action({ port: 'TEST', generation: ctx.generation, transportId: ctx.transportId, action, ...extra }, actor);
+    ctx.report = () => ctx.c.runner.emit('status');
+    // One heartbeat per `step` ms over `total` ms, with a fresh report each time.
+    ctx.beat = (total, step = 60000) => {
+      for (let t = 0; t < total; t += step) {
+        box.now += Math.min(step, total - t);
+        ctx.report();
+        ctx.service.observe();
+      }
+    };
+    ctx.owner = () => ctx.service.list()[0].control.owner;
+    ctx.claimed = async () => {
+      ctx.report();
+      await ctx.req('control', { operation: 'claim' }, A);
+      expect(ctx.owner()).toMatchObject({ id: 'tablet-A' });
+    };
+    return ctx;
+  };
+
+  describe('what keeps a lease alive at the heartbeat', () => {
+    test('a pause (M6 tool change or Pause) held for 10 min keeps the lease', async () => {
+      const ctx = setupService();
+      ctx.report();
+      await ctx.req('load', { file: 'test.nc' }, A);
+      const ticket = await ctx.req('prepare', { operation: 'start', revision: ctx.service.list()[0].revision }, A);
+      await ctx.req('start', { nonce: ticket.nonce }, A);
+      await ctx.req('pause', {}, A);
+      ctx.beat(600000);
+      expect(ctx.owner()).toMatchObject({ id: 'tablet-A' });
+    });
+
+    test.each([['Home'], ['Jog'], ['Door:1'], ['Hold:0'], ['Run']])('machine state %s at rest keeps the lease', async (state) => {
+      const ctx = setupService();
+      await ctx.claimed();
+      ctx.c.state.status.activeState = state;
+      ctx.beat(600000);
+      expect(ctx.owner()).toMatchObject({ id: 'tablet-A' });
+      // Back to Idle: released 5 min later.
+      ctx.c.state.status.activeState = 'Idle';
+      ctx.beat(300000);
+      expect(ctx.owner()).toBeNull();
+      expect(ctx.events.map((e) => e.type)).toEqual(['claim', 'idle']);
+    });
+
+    test('lines waiting in the feeder keep the lease', async () => {
+      const ctx = setupService();
+      await ctx.claimed();
+      ctx.c.queue = 3;
+      ctx.beat(600000);
+      expect(ctx.owner()).toMatchObject({ id: 'tablet-A' });
+    });
+
+    test('at rest in Alarm or Idle, 5 min without the owner: released (idle), no transfer to the socket client', async () => {
+      const ctx = setupService();
+      await ctx.claimed();
+      ctx.c.state.status.activeState = 'Alarm';
+      ctx.beat(300000);
+      expect(ctx.owner()).toBeNull();
+      expect(ctx.events.at(-1)).toMatchObject({ type: 'idle', previous: { id: 'tablet-A' } });
+      expect(ctx.control.authorize('TEST', SOCK, 'jog')).toBeNull();
+      expect(ctx.owner()).toBeNull();
+    });
+
+    test('a closed port ends its lease as a release by port-closed, never as idle', async () => {
+      const ctx = setupService();
+      await ctx.claimed();
+      ctx.beat(240000);
+      ctx.c.isClose = () => true;
+      ctx.box.now += 120000;
+      ctx.service.observe();
+      expect(ctx.events.map((e) => e.type)).toEqual(['claim', 'release']);
+      expect(ctx.events[1]).toMatchObject({ by: { kind: 'system', id: 'port-closed' } });
+    });
+
+    test('a disposed service observes nothing and ends nothing', async () => {
+      const ctx = setupService();
+      await ctx.claimed();
+      ctx.service.dispose();
+      ctx.box.now += 600000;
+      expect(ctx.service.observe()).toEqual([]);
+      expect(ctx.events.map((e) => e.type)).toEqual(['claim']);
+    });
+  });
+
+  describe('V1 (corrigé) at the heartbeat of the job service', () => {
+    test('a job started by the tablet ends by itself after 4 min 59 s: the lease stays 5 min after the end', async () => {
+      const ctx = setupService();
+      ctx.report();
+      await ctx.req('load', { file: 'test.nc' }, A);
+      const ticket = await ctx.req('prepare', { operation: 'start', revision: ctx.service.list()[0].revision }, A);
+      await ctx.req('start', { nonce: ticket.nonce }, A);
+      ctx.beat(299000, 1000);
+      expect(ctx.owner()).toMatchObject({ id: 'tablet-A' });
+      // Program end (M2): the workflow goes back to idle without any request.
+      ctx.c.workflow.state = 'idle';
+      ctx.c.state.status.activeState = 'Idle';
+      ctx.beat(2000, 1000);
+      expect(ctx.owner()).toMatchObject({ id: 'tablet-A' });
+      ctx.beat(300000, 1000);
+      expect(ctx.owner()).toBeNull();
+      // The tablet can tell why it lost control: the last change is in every snapshot.
+      expect(ctx.service.list()[0].control.lastChange).toMatchObject({ type: 'idle', port: 'TEST', previous: expect.objectContaining({ id: 'tablet-A' }), idleMs: 300000 });
+    });
+  });
+
+  describe('V2 (corrigé) : a reserved host command keeps the lease', () => {
+    test('owner at rest, host command running for 10 min: the lease stays, another socket stays refused', async () => {
+      const ctx = setupService();
+      ctx.report();
+      await ctx.req('control', { operation: 'claim' }, A);
+      const reservation = ctx.service.reserveSystemCommand({ id: 'update', title: 'Mise à jour' });
+      ctx.beat(600000, 60000);
+      expect(ctx.owner()).toMatchObject({ id: 'tablet-A' });
+      expect(() => ctx.control.authorize('TEST', SOCK, 'jog')).toThrow(expect.objectContaining({ code: 'ECONTROL' }));
+      reservation.release();
+      ctx.beat(300000, 60000);
+      expect(ctx.owner()).toBeNull();
+    });
+  });
+});
