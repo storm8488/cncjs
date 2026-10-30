@@ -16,6 +16,19 @@ node preview-server.cjs
 
 Open the localhost URL printed by the preview server. It serves a local visual fixture with synthetic files, a virtual controller and simulated progress. Stop it with Ctrl+C. The mock controller rejects physical commands. The fixture is for local evaluation only; do not deploy its fake authentication or mock responses to a real CNCjs server.
 
+## Audit 2026-10 (31 work items)
+
+An audit-and-fix pass on 2026-10-29/30 (branch `feat/audit-31`, from `b023616f`): one agent per group of items, a separate agent to refute each sensitive lot, a test that fails before and passes after for each fix. Nothing was run on a machine or on the Surface RT; the figures come from a development PC. The status of every item, the commits, the command results and the physical validations still to do are in [AUDIT-2026-10.md](AUDIT-2026-10.md).
+
+- **Server safety.** Resume from a line converts units and refuses a work offset change it cannot replay; its clearance is the highest Z reached by a rapid. Host commands (`api/commands`) are refused when disabled (403) and, for shutdown, reboot, restart or kill commands, while a job, a homing, a probe or a load is in progress (409); the touch service then refuses machine actions until the command ends. Deferred timers end with the service.
+- **Files.** Previews are bound to the SHA-256 of the program: a preview of another version is never shown as valid, and a start is refused when the file changed since its load. Library writes are atomic; links and paths outside the watch directory are refused. The pages follow the CNCjs route prefix.
+- **Package.** `yarn build-prod` ships the touch pages in `dist/cncjs/touch` with a `VERSION.json`; `/touch/` works from the npm package without a mount point. Installation, update, rollback and the compatibility matrix are in [INSTALL.md](INSTALL.md).
+- **Tablet.** Every screen was laid out to fit 1024 × 600 at scale 1 (since then, the project sheet block covers the preview view selector of Fichiers at that size: see TESTING.md, "Audit 2026-10"); "Texte agrandi" really enlarges the text; a guided job preparation; one numeric pad; each command shows sent, confirmed, refused or uncertain; Pause and Arrêter stay reachable over the confirmation dialog. Messages (what to do next, a running host command) are shown in the status strip, in place of the report age and the values; a tap shows the whole text.
+- **Several devices.** The device that pilots a port is shown in the strip; another device is refused (409, `ECONTROL`) except for Pause, Stop and M5, and can take over with a reason. A lease is released after 60 s without the owner's stream, or after 5 minutes on a machine at rest. A durable job history is kept by the server for all devices (Journal → Serveur). The start confirmation shows the server's XYZ travel check (validated, outside, unknown; unknown until a homing has been observed).
+- **Real jog and work origins, EXPERIMENTAL, disabled by default.** Steps and held jogs (`$J=` bounded in distance and to 60 s, cancelled with `0x85` when the keepalive stops) and `G10 L20` origins with a confirmation ticket, only when `.cncrc` sets `"touch": {"motion": {"enabled": true}}`. Without it, no button is shown. Supervised validation is required first: HANDOFF.md, step 10.
+- **Project sheets.** Fichiers keeps a sheet per program (material, tool, stock, notes, favourite, related files), bound to the program's fingerprint, stored in `.cnctouch-projects.json` in the watch directory. A sheet never changes feeds, speeds, settings or the program. An Autolevel-compensated file can record its original, the probe grid summary, the date, the tool and the probe profile; this provenance is declared by the operator, not observed.
+- **Performance and maintenance.** Library rows read a 192 × 108 thumbnail instead of the full image; uploads are sent as raw bytes; Suivi's live values are written only while Suivi is shown. An optional, content-hashed bundle of the pages (`build-bundle.cjs`) is not enabled in the package. A shared corpus of 28 G-code programs is read by the preview, the travel checks, the resume and the classic visualizer; `job-service.js` was split into load, plate probe, host command and halt modules without behaviour change.
+
 ## Full pass (2026-10-19/20)
 
 A complete bug hunt (six reviews, refuters, a second round on the fixes) and a fluidity pass measured on the Surface RT: Stop now reaches Grbl whatever CNCjs cached (also during homing and macro dwells), stream renewals and Wi-Fi gaps no longer hide Stop, and Suivi costs about 10 % less CPU during a job. Details, figures and what was not changed in `TESTING.md`, "Full pass".
@@ -64,6 +77,22 @@ On-device measurements (opening time of each screen, CPU at rest and during a si
 The backend now lives in the CNCjs source tree instead of being patched into a compiled build: `src/server/services/touch/` holds the job service, NDJSON event stream, motion preflight and probe-input observer; `src/server/api/api.touch.js` adds the session check and HTTP status mapping; `src/server/app.js` registers the routes next to the other API routes and `src/server/index.js` starts the service with the other services. The former `install-custom.cjs` patcher and the `CNC_TOUCH_MODULE` bootstrap are gone. The backend tests were ported to Jest (`yarn test`); the offline suite in this directory now covers the browser side only (50/50 checks).
 
 Route names (`api/custom/health`, `api/touch-job`, `api/touch-motion/preview`, `api/touch-events`), the French server-side messages (CNCjs uses i18next elsewhere) and the error payload shape (`{message}` rather than the `{msg}` of the existing API) were kept as the browser code expects them; all three still need maintainer agreement.
+
+Since the 2026-10 audit the touch routes are:
+
+| Route | Purpose |
+| --- | --- |
+| `GET api/custom/health` | protocol check (`{loaded, version, protocol, transport}`) |
+| `GET`, `POST api/touch-job` | state snapshot and job actions. A POST may carry `clientId` and `clientLabel` (the device identity used for control ownership). Actions added by the audit: `check` (`{file}` → `{file, fingerprint, programCheck}`), `control` (`operation`: `status`, `claim`, `release`, `takeover` with a `reason`), `jog`, `jog-start`, `jog-keepalive`, `jog-stop`, `prepare set-origin` then `set-origin` (refused unless `touch.motion.enabled`). |
+| `POST api/touch-motion/preview` | movement preflight, no motion |
+| `GET api/touch-events?clientId=` | NDJSON state stream; it also carries the device's presence |
+| `GET api/touch-history?limit=&before=` | durable job history, most recent first (`limit` 1–200, 50 by default; `before` is a `seq`), stored as JSON Lines in `cncjs-touch-history.jsonl` beside `.cncrc`, at most 500 entries and about 1 MB; no ticket or token is written |
+| `GET api/touch-projects`, `POST api/touch-projects/read`, `PUT api/touch-projects` | project sheets |
+| `GET api/touch-system`, `GET`/`POST api/touch-backlight` | system panel and brightness (unchanged) |
+
+The snapshot adds `fingerprint` (SHA-256 of the loaded program), `programCheck` (`validated`, `outside` or `unknown` per axis and overall, with French reasons), `homed`, `control` (`owner {kind, id, label, user, since, present, expires}`, `lastChange`), `capabilities` and `motion` per controller, and `systemCommand` at packet level.
+
+Refusals keep `{message}`, with three additions: a control refusal is `409 {message, code: 'ECONTROL', owner}`; a refusal with a stable touch code carries `{message, code, params}` (`ETOUCH_*`, so far only the resume refusals, `ETOUCH_RESUME_*`); the project routes answer `{message, code}` with the codes of `projects.js`. Other internal codes are not sent. A Socket.IO `command`, `write` or `writeln` from a client that does not pilot the port is refused the same way (a line in the CNCjs console and a `touch:control:refused` event), except Pause, Stop, M5, feed hold, reset and `?`.
 
 ## Job progress, overrides and macros (2026-10-16)
 
@@ -137,18 +166,20 @@ This update includes FR/EN/ES settings and exports; coordinate preparation, read
 ## What is included
 
 - Touch-oriented menu, job dashboard, shared file library, combined movement/origin screen, machine information, journal and settings.
-- XY G-code previews supporting linear moves and supported G2/G3 arcs, stored image previews, percentage progress and remaining-time display. The preview is indicative; it does not simulate machining, collisions, Z motion or laser power.
+- G-code previews supporting linear moves and supported G2/G3 arcs, with depth colours and four fixed 3D views, stored image previews bound to the program's fingerprint, percentage progress and remaining-time display. The preview is indicative; it does not simulate machining, collisions or laser power.
 - A separate simulation mode for job controls, movement, work origins and alarms. Its progress and estimated time are fictional.
-- Probe profiles, geometry/direction/search parameters, import/export and preparation diagrams. Physical probing is not implemented or validated.
+- Real jog (steps and held moves) and real work origins (`G10 L20`), EXPERIMENTAL and disabled by default: the server refuses them and the tablet shows no button unless `.cncrc` sets `touch.motion.enabled` to `true`. Not validated on a machine.
+- Probe profiles, geometry/direction/search parameters, import/export and preparation diagrams. Physical probing is not implemented or validated, except the Z zero with a touch plate (validated only on the Grbl simulator).
+- Project sheets per program, with an optional declared provenance for Autolevel-compensated files.
 - Configurable screen dimming/blanking overlay and display settings. This is a browser feature, not hardware power management.
-- A prototype Grbl job service with explicit controller selection, freshness checks and expiring start/resume/macro confirmations, plus feed and spindle overrides during a job.
+- A prototype Grbl job service with explicit controller selection, freshness checks and expiring start/resume/macro confirmations, plus feed and spindle overrides during a job; a server-side XYZ travel check of the loaded program, explicit control ownership between devices and a durable job history.
 - An authenticated, bounded NDJSON state stream, slower polling fallback, hidden-view rendering suppression and worker-based preview processing to reduce work on limited hardware.
 
 The original display target was a Surface RT-class device: 1366 × 768, Tegra 3 and 2 GB RAM. The current implementation still needs browser/device compatibility testing; it is not a promise of support for the original Windows RT browser.
 
 ## Important distinction: simulation versus real integration
 
-The local demo above has no physical machine connection. However, **the real backend contains CNCjs load/start/pause/resume/stop commands**. Connecting it to a real installation is a separate integration task. Real movement/origin/probing workflows remain blocked or limited to preparation; do not remove those restrictions just to make buttons active.
+The local demo above has no physical machine connection. However, **the real backend contains CNCjs load/start/pause/resume/stop commands**. Connecting it to a real installation is a separate integration task. Real jog and work origins exist on the server and the tablet since the 2026-10 audit, but stay disabled until `touch.motion.enabled` is set, which must wait for the supervised protocol of HANDOFF.md, step 10. Probing other than the plate Z zero remains limited to preparation; do not remove those restrictions just to make buttons active.
 
 An interface stop button is not a physical emergency stop. Offline checks and confirmation dialogs do not establish machine safety. Supervised hardware testing is still required before relying on this interface.
 
@@ -161,10 +192,16 @@ An interface stop button is not a physical emergency stop. Offline checks and co
 | `touch/job-controls.js`, `touch/job-dashboard.js`, `touch/job-stream.js` | Job interaction, dashboard and state transport |
 | `touch/shared-library.js`, `touch/library-preview*.js`, `touch/library-payload.js` | File library, worker preview and upload payload preparation |
 | `touch/probe-*.js`, `touch/dry-motion.js` | Probe preparation and movement preflight UI |
+| `touch/real-motion.js` | Real jog and origin panel, built only when the server enables it |
+| `touch/program-check-view.js`, `touch/real-history.js`, `touch/projects.js` | Server travel check display, Journal → Serveur, project sheets |
+| `touch/numeric-pad.js`, `touch/job-preparation.js` | Shared numeric pad, guided job preparation |
 | `touch/perf-harness.js` | Opt-in (`?perf=1`) on-device measurement badge and JSON report |
 | `test-*.cjs`, `dom-fixture.cjs`, `verify-project.cjs` | Offline browser-side regression suite |
+| `gcode-corpus/` | Shared G-code programs with their expected results, read by Jest (`corpus.test.js`) and `test-gcode-corpus.cjs` |
+| `browser-run.cjs`, `measure-*.cjs` | Headless Chrome harness and PC-only performance measurements (start-up, job replay, library and uploads, classic visualizer, message overlay); see TESTING.md |
+| `build-bundle.cjs` | Optional bundled copy of the pages (one script, one style sheet per page, content-hashed names, original files kept); `--check` for determinism |
 | `preview-server.cjs` | Local mock demo |
-| `../../src/server/services/touch/`, `../../src/server/api/api.touch.js` | Job service, event stream, motion preflight, probe input and their HTTP routes (Jest tests alongside) |
+| `../../src/server/services/touch/`, `../../src/server/api/api.touch.js` | Job service (with `job-load.js`, `plate-probe.js`, `system-command.js`, `halt.js`), event stream, motion preflight, real motion (`motion.js`), control ownership (`control.js`), history, program check, projects, probe input and their HTTP routes (Jest tests alongside) |
 
 ## Integration status
 
@@ -172,6 +209,6 @@ The browser assets stay under `examples/cncjs-touch`; the backend is part of `sr
 
 The service reads internal store/config/controller objects (`runner`, `sender`, `workflow`, `feeder`, `settings`) and was written against CNCjs 1.11.5 behaviour; those internal APIs should be reviewed against current master. **Compatibility with other controllers has not been established.** The backend filters for Grbl. Marlin, Smoothieware and TinyG support must not be inferred from CNCjs itself.
 
-The touch pages are served by CNCjs itself since 2026-10-16: `settings.assets.touch` in `src/server/config/settings.base.js` mounts this `touch/` directory at `<route>/touch/` (so `http://<host>:<port>/touch/index.html` and `/touch/simulation.html`), resolved from the compiled server tree (`output/cncjs/server` or `dist/cncjs/server`); when that directory is absent, as in a packaged install without `examples/`, the asset is skipped with a warning. Static assets are now registered before the session middleware in `src/server/app.js`, because loading and rewriting the session file for each of the ~60 page scripts made `session-file-store` fail with `EPERM` on rename under Windows and truncated the responses; the main app's assets benefit from the same ordering. No touch HTML or JavaScript was changed: the pages already derive their API base from the path before `/touch/`, load `/socket.io/socket.io.js` from the same origin and read the JWT the main CNCjs app stores in `localStorage` (`cnc` → `state.session.token`), so the operator must sign in to CNCjs at the server root once before opening the touch page. The shared library still needs a configured watch directory (`-w` or `watchDirectory`). The heartbeat timer of the event stream is `unref()`ed so a started service never keeps the process alive on its own; CNCjs installs no SIGINT handler, so Ctrl+C ends the process immediately, with open streams included. Test only against an isolated installation first, with physical controllers disconnected. Credentials, machine configuration, user G-code, local deployment scripts and operational logs are excluded from this contribution.
+The touch pages are served by CNCjs itself since 2026-10-16: `settings.assets.touch` in `src/server/config/settings.base.js` mounts this `touch/` directory at `<route>/touch/` (so `http://<host>:<port>/touch/index.html` and `/touch/simulation.html`). Since 2026-10-29 the build ships this directory with the server: `yarn build-prod` (and `build-latest`, `build-dev`) copies `touch/` to `dist/cncjs/touch` (`output/cncjs/touch`) and writes `dist/cncjs/touch/VERSION.json` there (`scripts/copy-touch-assets.sh`: commit, branch, repository, build date, package version). `settings.base.js` (`findTouchAssets`) serves that copy first and falls back to `examples/cncjs-touch/touch` of the checkout, so the npm package, the Docker image and the electron bundles serve `/touch/` without a mount point or a manual copy. Installation, update, rollback and the compatibility matrix are in [INSTALL.md](INSTALL.md). Static assets are now registered before the session middleware in `src/server/app.js`, because loading and rewriting the session file for each of the ~60 page scripts made `session-file-store` fail with `EPERM` on rename under Windows and truncated the responses; the main app's assets benefit from the same ordering. No touch HTML or JavaScript was changed: the pages already derive their API base from the path before `/touch/`, load `/socket.io/socket.io.js` from the same origin and read the JWT the main CNCjs app stores in `localStorage` (`cnc` → `state.session.token`), so the operator must sign in to CNCjs at the server root once before opening the touch page. The shared library still needs a configured watch directory (`-w` or `watchDirectory`). The heartbeat timer of the event stream is `unref()`ed so a started service never keeps the process alive on its own; CNCjs installs no SIGINT handler, so Ctrl+C ends the process immediately, with open streams included. Test only against an isolated installation first, with physical controllers disconnected. Credentials, machine configuration, user G-code, local deployment scripts and operational logs are excluded from this contribution.
 
 See [TESTING.md](TESTING.md) for the validation scope and [HANDOFF.md](HANDOFF.md) for the remaining work.

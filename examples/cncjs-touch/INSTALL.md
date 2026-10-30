@@ -112,6 +112,51 @@ A separate `touch/` directory served by a mount point remains a valid way to
 test an interface build against an unchanged server (that is what the
 performance comparisons in `TESTING.md` did).
 
+## Settings and files in `.cncrc` and beside it
+
+| Key or file | Default | Effect |
+| --- | --- | --- |
+| `touch.motion.enabled` | absent (off) | `true` enables the EXPERIMENTAL real jog and work origins. Any other value, or no key, keeps them refused by the server and hidden on the tablet. |
+| `touch.backlight.percent` | absent | last brightness level, written by the server (README, "Screen brightness") |
+| `cncjs-touch-history.jsonl` | created on first use | durable job history, in the directory of `.cncrc`; JSON Lines, at most 500 entries and about 1 MB, rewritten atomically when trimmed. Deleting it clears the history. |
+| `.cnctouch-projects.json` | created on first write | project sheets, in the watch directory (`-w` or `watchDirectory`); at most 500 sheets and 2 MB |
+| `commands` | CNCjs setting | host commands. A disabled command is refused (403). Shutdown, reboot, restart, `pm2`/`systemctl` stop or restart and kill commands are refused (409) while a job, a homing, a probe or a load is in progress; write the command itself, not a wrapper script, or it is not recognised. |
+
+### Enabling real jog and work origins (experimental)
+
+Do this only after the supervised protocol of `HANDOFF.md`, step 10 (step 0
+first, with the setting still off), and on the test bench before the production
+machine. The machine needs Grbl 1.1 or newer (Grbl_ESP32 counts), `$10=1` and
+`$13=0`.
+
+```json
+{
+  "touch": {
+    "motion": { "enabled": true }
+  }
+}
+```
+
+Stop CNCjs, add the key to `.cncrc` (keep the rest of the file), start CNCjs.
+Check with `GET /api/touch-job`: each Grbl controller shows
+`capabilities.jog.enabled: true` once its startup banner has been seen; the
+tablet then shows "Déplacement réel · EXPÉRIMENTAL" in Préparer.
+
+To turn it off, set the key to `false` or remove it. CNCjs polls `.cncrc` for
+changes (about every 5 s): a running jog is then cancelled (`0x85`) and new moves
+are refused, without a restart. This is not a safety mechanism: the emergency
+stop is.
+
+### Optional bundle of the pages
+
+`node examples/cncjs-touch/build-bundle.cjs --out <dir>` writes a copy of
+`touch/` where each page loads one script and one style sheet (content-hashed
+names; the original files are kept beside them for the workers). It is not part
+of the build: `copy-touch-assets.sh` copies the separate files. To try it on the
+tablet, build it into a directory and serve that directory with a `/touch` mount
+point, as the performance comparisons did; remove the mount point to go back.
+It has been measured on a PC only (TESTING.md, "Audit 2026-10").
+
 ## Updating
 
 - Repository or tablet: build (`yarn build-prod`), copy `dist/cncjs` to the
@@ -139,6 +184,11 @@ GitHub when `repo` is set.
 - Repository: `git checkout <previous commit>` then `yarn build-prod`;
   `dist/` is rebuilt from scratch each time (`rm -rf dist/*`), so no stale
   touch file survives a rebuild.
+- Before going back to a build older than the 2026-10 audit, remove
+  `touch.motion.enabled` from `.cncrc`: an older server ignores it, but a later
+  update would enable real moves again without the operator noticing.
+  `cncjs-touch-history.jsonl` and `.cnctouch-projects.json` are ignored by older
+  builds and read again by newer ones; they can stay.
 
 ## Checks after installation
 

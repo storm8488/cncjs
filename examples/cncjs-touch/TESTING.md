@@ -8,7 +8,7 @@ From this directory, run:
 node verify-project.cjs
 ```
 
-Node.js 18 or newer is required. No external packages, running CNCjs server or CNC controller are required. The suite consists of 69 browser-side test scripts plus script syntax and HTML resource checks, for 71 checks in this source package; each test must end with its PASS line. The runner uses an explicit list and does not launch the visual fixture or hardware checks.
+Node.js 18 or newer is required. No external packages, running CNCjs server or CNC controller are required. The suite runs an explicit list of browser-side test scripts plus script syntax and HTML resource checks, 93 checks since the 2026-10 audit; each test must end with its PASS line. The runner uses an explicit list and does not launch the visual fixture or hardware checks.
 
 The backend (job service, event stream, motion preflight, probe input and the `api.touch` handlers) is tested with the root Jest suite instead:
 
@@ -25,6 +25,81 @@ An optional report can be written outside the source tree:
 ```sh
 node verify-project.cjs --report /absolute/path/to/offline-report.json
 ```
+
+## Audit 2026-10 (2026-10-29/30)
+
+The 31-item audit (see [AUDIT-2026-10.md](AUDIT-2026-10.md)). Every figure in this section comes from the development PC: Windows 11, Node.js 24.20.0, Chrome 156 headless driven through the DevTools protocol. None is a Surface RT measurement: for Suivi during a job the tablet spends about 25 times more main-thread time than this PC, so even the 4× CPU throttling runs are far faster than the tablet. Pixel sizes are comparable; timings and memory are indications only.
+
+### Commands
+
+From the repository root:
+
+```sh
+node examples/cncjs-touch/verify-project.cjs            # offline browser-side suite (yarn test:touch)
+yarn test                                               # Jest: server, touch services, API (npx jest src/server --coverage=false for the server only)
+node examples/cncjs-touch/browser-run.cjs --out output/browser-run   # headless Chrome harness (yarn test:browser)
+bash scripts/test-installed-package.sh                  # build, npm pack, install outside the checkout, HTTP checks (yarn test:package)
+node examples/cncjs-touch/build-bundle.cjs --check      # the optional bundle is deterministic
+```
+
+- `browser-run.cjs` needs Chrome or Chromium (`--browser PATH` or `CNC_BROWSER`). Steps: `measure` (tap targets, text sizes, gaps and `viewport-fit` scale of every screen at 1366 × 768, 1024 × 600, large text, browser zoom 200 %), `sim` (simulation page with a job loaded, running, paused and in alarm, French and Spanish), `startup`, `e2e` (load, start, pause, resume, stop in French, English and Spanish). `--only sim`, `--repeat N`, `--root DIR` (another copy of the pages, for example the bundle), `--url http://host:port/touch/` (a running CNCjs, untested here).
+- `scripts/test-installed-package.sh` checks `/`, `/api/signin`, `/api/custom/health` (200 with a token, 403 without), `/touch/`, `/touch/app.js`, `/touch/touch-shell.js`, `/touch/simulation.html` and `/touch/VERSION.json` on the installed package. `SKIP_BUILD=1` reuses `dist/`. The `/touch/` checks are blocking (`TOUCH_REQUIRED=1`, the default and the CI setting).
+- Measurement scripts, PC only: `node examples/cncjs-touch/measure-startup.cjs [--root DIR] --gzip --repeat 7 --trace 3 --throttle 4`; `node examples/cncjs-touch/measure-job.cjs --window 20 --repeat 5 --throttle 4 [--root DIR]` (replays a deterministic job stream at the tablet's pace, 4.8 snapshots a second, through `measure-replay-fixture.cjs`); `node examples/cncjs-touch/measure-library.cjs --files 100 --upload [--thumbnails] [--root DIR]` (the real `monitor` and `api.watch` on a generated library); `node --expose-gc examples/cncjs-touch/measure-visualizer.cjs --no-lines` (classic visualizer geometry, in Node, not in the browser); `node examples/cncjs-touch/measure-overlay.cjs [--only compact]` (messages in the strip never cover a command; compact Suivi values fit their cells).
+- Jest suites added by the audit: `motion.test.js`, `motion-simulator.test.js`, `control.test.js`, `history.test.js`, `program-check.test.js`, `projects.test.js`, `corpus.test.js`, `program-identity.test.js`, `index.test.js` (touch); `fileAccess.test.js`, `previewIdentity.test.js` (monitor); `control-hook.test.js` (cncengine, Socket.IO refusals); `api.commands.test.js`, `api.touch-projects.test.js`; `touch-assets.test.js`. Offline scripts added: `test-real-motion`, `test-control-attribution`, `test-program-check-view`, `test-server-history`, `test-preview-identity`, `test-projects`, `test-gcode-corpus`, `test-bundle`, `test-library-identity`, `test-api-prefix`, `test-compact-layout`, `test-numeric-pad`, `test-numeric-rules`, `test-job-preparation`, `test-preparation-keys`, `test-action-feedback`, `test-feedback-states`, `test-strip-messages`, `test-library-context`, `test-job-dialog-strip`.
+
+### Results at `1dd66f87`
+
+Run from a clean export of the commit:
+
+| Command | Base `b023616f` | `1dd66f87` |
+| --- | --- | --- |
+| `verify-project.cjs` | 73/73, 31 s | 93/93, 37 s |
+| Jest | touch services and API: 9 suites, 163/163, "A worker process has failed to exit gracefully" | `src/server`: 40 suites, 1207 passed, 4 skipped, 15 s, exits on its own |
+| `browser-run.cjs` | — | every step passed (measure, sim, startup, e2e in FR/EN/ES) |
+| `build-bundle.cjs --check` | — | deterministic: `index.html` 55 scripts → 840 kB, 13 sheets → 160 kB; `simulation.html` 53 → 776 kB, 11 → 156 kB |
+| `test-installed-package.sh` | `/touch/` 404 (pages not in the package) | not run again; last run at `05a0b17e`: every check passed |
+
+The 4 skipped Jest tests are the file-symlink cases of `fileAccess.test.js` and `renameDelete.test.js`: Windows refuses to create the link without privilege (EPERM). They run on Linux and have not run in this audit.
+
+### Before and after
+
+Layout (harness `measure` step, same fixture; before = `930355f0`, after = the UI lot and its cross-check; scale · targets under the goal · rendered texts under 16 px):
+
+| Variant | Before | After the UI lot | At `1dd66f87` |
+| --- | --- | --- | --- |
+| 1366 × 768, all screens | scale 1; 9 targets, 22 texts | scale 1; 0, 0 | scale 1; 0, 0 |
+| 1024 × 600 Suivi / Préparer / Machine | 0.811 / 0.732 / 0.705; 52 targets, 86 texts in all | 1 / 1 / 1; 0, 0 | 1 / 0.998 / 1; 0, 0 |
+| 1366 × 768 large text, Machine | 0.868 | 1 | 1 |
+| 1024 × 600 large text, Suivi / Préparer / Machine | 0.731 / 0.732 / 0.569 | 1 / 0.958 / 0.939 | 0.99 / 0.885 / 0.939 |
+| Browser zoom 200 %, Suivi / Préparer / Machine | 0.425 / 0.334 / 0.321 | 0.628 / 0.543 / 0.571 | 0.628 / 0.524 / 0.571 |
+| Simulation in alarm, Machine at 1024 × 600 | — | 0.931 | 0.931 (4 targets under the goal) |
+
+Regressions seen at `1dd66f87` after the UI lot, not fixed: at 1024 × 600 the project sheet block of Fichiers covers the centre of the preview view selector (2D, Iso, Face, Côté, Dessus) and of "Agrandir", and the last library row lies under the pager (also at 1366 × 768); Préparer is at 0.998; with large text Suivi is at 0.99, which puts Démarrer, Pause and Arrêter at 63.4 px, and Préparer drops to 0.885; the loaded simulation Suivi at 1366 × 768 is at 0.998.
+
+Confirmation dialog (U5): before, a touch on the strip's Arrêter or Pause landed on the dialog overlay and the strip was inert, so a paused job could not be stopped while "Confirmer la reprise" was open; after, both stay reachable at 1366 × 768 and 1024 × 600, Tab cycles through them, and Arrêter cancels the ticket (`test-job-dialog-strip.cjs` fails on the previous `job-controls.js`).
+
+Start-up (`measure-startup.cjs`, medians of 7, ETag and gzip like CNCjs; the bundle is built from the same tree):
+
+| | Source ×1 | Bundle ×1 | Source ×4 | Bundle ×4 |
+| --- | ---: | ---: | ---: | ---: |
+| Shell ready, cold, ms | 114.1 | 96.0 | 273.3 | 249.5 |
+| Shell ready, warm, ms | 92.7 | 63.9 | 315.8 | 257.9 |
+| Requests | 70 | 7 | 70 | 7 |
+| Compilation, ms | 25.1 | 13.4 | 27.8 | 11.8 |
+
+The `startup` step of `browser-run.cjs` at `1dd66f87` (no cache headers, 5 runs): 73 resources (59 scripts, 13 style sheets), 1.00 MB, shell ready 98.4 ms cold and 89.5 ms warm (at the base: 68 resources, 830 kB, about 147 ms). The bundle is not enabled in the package.
+
+During a job (`measure-job.cjs`, ×4, 5 windows of 20 s, medians): DOM mutations per second on Menu 33.5 → 19.5, Fichiers 33.7 → 19.8, Machine 43.5 → 29.5 (deterministic: Suivi's live values are no longer written while Suivi is hidden); Suivi script time about 20 → 15 ms/s, within the PC's run-to-run noise (up to 30 %); no long task before or after. Pause and Stop states are still updated on every report.
+
+Library (`measure-library.cjs`): thumbnails of one page of five rows 1 030 → 35 kB; upload of a 17 MB program from the page 634 → 328 ms, main-thread script 217 → 45 ms; server peak memory for that upload +87 → +30 MB (raw bytes instead of JSON), at the cost of more server CPU (the SHA-256 is computed while writing). The file list of 1 000 programs is 392 kB in 11 ms; no server pagination was added.
+
+Classic visualizer (`measure-visualizer.cjs`, Node only): typed-array geometry for a 20 MB program, 1 774 → 1 689 ms and +466 → +90 MB, same bounding box. Not integrated (P2 dropped): WebGL rendering in the real bundle was not validated.
+
+### Not measured
+
+- Anything on the Surface RT: scales with its font, start-up with and without the bundle, Suivi CPU during a replayed job, Fichiers with 1 000 files, the SHA-256 cost of a 20 MB program on the Tegra 3, ten keepalive POSTs a second over Wi-Fi during a held jog.
+- Anything on a machine (see HANDOFF.md, steps 10 to 15).
+- The CI workflow on GitHub (nothing was pushed); the Docker image (no Docker on the PC); the bundle served by CNCjs under `/touch/` and under a route prefix; a browser run against a real CNCjs started with `route: '/cnc/'`; the file-symlink tests on Linux; the G-code corpus through `grbl-sim`.
 
 ## Full pass (2026-10-19/20)
 
@@ -86,9 +161,9 @@ Long run (deployed version): 43 200 status events, three hours at four a second,
 
 - Measuring versions during real simulator jobs: rejected as a comparison method (pace noise larger than the effects), replaced by the replay above. Two simulator degradations were met and handled by restarting it: input bytes lost (a feed hold, a cycle start) and a mode at 70 % CPU without answers.
 - Not changed, with the reason:
-  - "Texte agrandi" barely changes anything since UI 2027 (the tokens set explicit sizes): which sizes to enlarge is a design decision, left as a follow-up.
-  - Segmented buttons are 42 px inside a 48 px group (validated design); a few texts of Limites and Palpage stay under 16 px; the fifth Fichiers row is cut while the notice bar shows; about 40 rules of the mockup library match no element: low impact, left.
-  - A preview is matched to its G-code by name only (an outside overwrite under the same name keeps the old preview): needs a content check at upload.
+  - "Texte agrandi" barely changes anything since UI 2027 (the tokens set explicit sizes): which sizes to enlarge is a design decision, left as a follow-up. (Done in the 2026-10 audit, U2.)
+  - Segmented buttons are 42 px inside a 48 px group (validated design); a few texts of Limites and Palpage stay under 16 px; the fifth Fichiers row is cut while the notice bar shows; about 40 rules of the mockup library match no element: low impact, left. (2026-10 audit: segmented buttons render 48 px, no rendered text under 16 px in the measured screens, the notice moved into the status strip; the unused mockup rules were not reviewed.)
+  - A preview is matched to its G-code by name only (an outside overwrite under the same name keeps the old preview): needs a content check at upload. (Done in the 2026-10 audit, A5: previews carry the program's SHA-256 and the server checks it.)
   - A thumbnail download aborted by leaving Fichiers is cached empty; the refreshes after an upload download the selected preview again: no test harness for thumbnails yet.
   - The screen saver's touch listeners are not passive: the gain (scroll start in Réglages) could not be measured, and they guard the wake.
   - After the reset of a stop, CNCjs reads `$G` again only after about 10 s: a file that sets neither G21 nor G90 is refused for that time ("attendre un état modal récent").
