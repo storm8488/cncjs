@@ -30,6 +30,8 @@ function option(name, fallback) { const i = args.indexOf(name); return i >= 0 &&
 const OUT = path.resolve(option('--out', 'output/browser-run'));
 const BASELINE = args.includes('--baseline');
 const URL_BASE = option('--url', '');
+// --root DIR: serve another copy of the pages through the fixture (a bundled build, output/touch-bundle).
+const ROOT_DIR = option('--root', '');
 const REPEAT = Math.max(1, Number(option('--repeat', 5)) || 5);
 const ONLY = option('--only', 'measure,sim,startup,e2e').split(',');
 const KEEP = args.includes('--keep-browser');
@@ -167,10 +169,10 @@ async function launchBrowser(width, height) {
 }
 const pageErrors = [];
 
-function startFixture() {
+function startFixture(extraArgs) {
   return new Promise((resolve, reject) => {
     const script = path.join(__dirname, 'preview-server.cjs');
-    const child = spawn(process.execPath, [script], { cwd: __dirname, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    const child = spawn(process.execPath, [script].concat(extraArgs || []), { cwd: __dirname, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     let out = '';
     child.stdout.on('data', (d) => { out += d; const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)\//); if (m) resolve({ child, base: 'http://127.0.0.1:' + m[1] + '/' }); });
     child.stderr.on('data', (d) => { out += d; });
@@ -644,7 +646,7 @@ async function main() {
   let commit = null; try { commit = execSync('git rev-parse --short HEAD', { cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch (_) { /* not a checkout */ }
   const summary = { label: BASELINE ? 'baseline' : 'run', date: new Date().toISOString(), commit, node: process.version, measurements: [], e2e: [] };
   let fixture = null, base = URL_BASE;
-  if (!base) { fixture = await startFixture(); base = fixture.base; log('fixture ' + base); }
+  if (!base) { fixture = await startFixture(ROOT_DIR ? ['--root', path.resolve(ROOT_DIR)] : []); base = fixture.base; log('fixture ' + base + (ROOT_DIR ? ' (pages from ' + ROOT_DIR + ')' : '')); }
   if (!base.endsWith('/')) base += '/';
   const realUrl = URL_BASE ? base : base + 'index.html', simUrl = base + 'simulation.html';
   summary.realUrl = realUrl; summary.simUrl = simUrl;
@@ -686,4 +688,7 @@ async function main() {
   if (failures.length) { console.error('FAILED steps:\n- ' + failures.join('\n- ')); process.exit(1); }
   console.log('browser-run: every step passed.');
 }
-main().catch((e) => { console.error('browser-run: ' + (e.stack || e.message)); process.exit(1); });
+// The measurement scripts (measure-*.cjs) reuse the DevTools client, the browser
+// launcher and the fixture starter; run the harness only as a program.
+if (require.main === module) main().catch((e) => { console.error('browser-run: ' + (e.stack || e.message)); process.exit(1); });
+module.exports = { CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors };

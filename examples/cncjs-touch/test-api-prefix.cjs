@@ -45,7 +45,7 @@ function page(pathname) {
     p.reply(sidecar); p.node('home-job-image').onload();
     // Upload (program then sidecar) and regeneration (sidecar, program as a Blob, list, sidecar).
     p.node('library-input').files = [{ name: 'part.nc', size: 5 }]; p.node('library-send').handlers.click(); await flush(6);
-    const stored = JSON.parse(p.pending[0].body).file; p.reply({ file: stored, fingerprint: FP, size: 5 }); await flush();
+    const stored = decodeURIComponent(/[?&]file=([^&]*)/.exec(p.pending[0].url)[1]); p.reply({ file: stored, fingerprint: FP, size: 5 }); await flush();
     p.reply({ file: stored + '.cnctouch.json' }); await flush(6);
     while (p.pending.length) p.reply(p.pending[0].url.endsWith('/status') ? { configured: true } : { files: [] });
     p.handlers['cnc-screen-change']({ detail: 'files' }); await flush();
@@ -58,9 +58,11 @@ function page(pathname) {
     p.reply({ files: [{ type: 'f', name: 'a.nc', size: 5, mtime: '2026-10-20' }] }); await flush();
     assert(p.pending.length && p.pending[0].method === 'PUT', 'the regenerated sidecar is written');
     const expected = [base + '/watch/status', base + '/watch/files', base + '/watch/file'];
-    const wrong = p.opened.filter(line => !expected.some(url => line.endsWith(' ' + url)));
+    // A raw upload names its file in the query string.
+    const opened = p.opened.map(line => line.split('?')[0]);
+    const wrong = opened.filter(line => !expected.some(url => line.endsWith(' ' + url)));
     assert.deepEqual(wrong, [], pathname + ': every request under ' + base);
-    for (const method of ['GET ' + base + '/watch/status', 'POST ' + base + '/watch/files', 'POST ' + base + '/watch/file', 'PUT ' + base + '/watch/file']) assert(p.opened.includes(method), pathname + ': ' + method + ' opened');
+    for (const method of ['GET ' + base + '/watch/status', 'POST ' + base + '/watch/files', 'POST ' + base + '/watch/file', 'PUT ' + base + '/watch/file']) assert(opened.includes(method), pathname + ': ' + method + ' opened');
     assert(p.opened.length >= 12, pathname + ': list, detail, upload, regeneration and Suivi preview all went through (' + p.opened.length + ')');
   }
   // No page script carries an absolute "/api/" literal: all of them derive from cncState.apiBase.

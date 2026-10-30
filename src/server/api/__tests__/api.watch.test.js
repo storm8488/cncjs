@@ -121,6 +121,38 @@ describe('api.watch readFile', () => {
     expect(res.payload.preview).toMatchObject({ stale: true, reason: 'program-missing' });
     expect(JSON.parse(res.payload.data).preview.image).toBeUndefined();
   });
+
+  test('part "thumbnail" serves only the row fields of a current sidecar, still checked', async () => {
+    const fp = 'sha256:' + 'a'.repeat(64);
+    const thumbnail = 'data:image/png;base64,BB==';
+    const preview = { image: 'data:image/png;base64,AA==', thumbnail, bounds: [0, 0, 1, 1], zBounds: [-1, 0], segments: 3, lines: 3, trail: [0, 1, 2], path3d: 'xyz', projection: { version: 1 } };
+    const meta = { version: 1, file: 'program.nc', fingerprint: fp, size: 7, preview };
+    monitor.readFile.mockImplementationOnce((file, options, callback) => callback(null, JSON.stringify(meta)));
+    let res = makeRes();
+    readFile(makeReq({ contentType: 'application/json', body: { file: 'program.nc.cnctouch.json', part: 'thumbnail' } }), res);
+    await settled();
+    expect(monitor.fingerprintOf).toHaveBeenCalledWith('program.nc');
+    expect(res.payload.preview).toEqual({ stale: false, reason: '', fingerprint: fp, size: 7 });
+    const served = JSON.parse(res.payload.data);
+    expect(served).toEqual({ version: 1, file: 'program.nc', fingerprint: fp, size: 7, preview: { thumbnail, bounds: [0, 0, 1, 1], zBounds: [-1, 0], segments: 3, lines: 3 } });
+
+    // A sidecar from before thumbnails keeps its image, so the row still has something to show.
+    const { thumbnail: omitted, ...older } = preview;
+    expect(omitted).toEqual(thumbnail);
+    monitor.readFile.mockImplementationOnce((file, options, callback) => callback(null, JSON.stringify({ ...meta, preview: older })));
+    res = makeRes();
+    readFile(makeReq({ contentType: 'application/json', body: { file: 'program.nc.cnctouch.json', part: 'thumbnail' } }), res);
+    await settled();
+    expect(JSON.parse(res.payload.data).preview).toEqual({ image: preview.image, bounds: [0, 0, 1, 1], zBounds: [-1, 0], segments: 3, lines: 3 });
+
+    // A stale sidecar is answered exactly as without `part`: no image, no thumbnail.
+    monitor.readFile.mockImplementationOnce((file, options, callback) => callback(null, JSON.stringify({ ...meta, fingerprint: 'sha256:' + 'c'.repeat(64) })));
+    res = makeRes();
+    readFile(makeReq({ contentType: 'application/json', body: { file: 'program.nc.cnctouch.json', part: 'thumbnail' } }), res);
+    await settled();
+    expect(res.payload.preview).toMatchObject({ stale: true, reason: 'fingerprint-mismatch' });
+    expect(JSON.parse(res.payload.data).preview).toEqual({ stale: true, reason: 'fingerprint-mismatch' });
+  });
 });
 
 describe('api.watch writeFile', () => {

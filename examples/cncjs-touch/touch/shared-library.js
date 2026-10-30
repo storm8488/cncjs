@@ -98,7 +98,8 @@
       }
       xhr.setRequestHeader('Authorization', 'Bearer ' + token);
       xhr.timeout = 120000;
-      if (body) xhr.setRequestHeader('Content-Type', 'application/json');
+      // A Blob with a type (a raw upload, application/octet-stream) goes out as it is; everything else is JSON.
+      if (body) xhr.setRequestHeader('Content-Type', typeof Blob !== 'undefined' && body instanceof Blob && body.type ? body.type : 'application/json');
       xhr.onload = function () {
         done();
         // A completed obsolete read must not parse a potentially large G-code response.
@@ -189,10 +190,14 @@
     var file = row._file, key = thumbKey(file);
     if (Object.keys(thumbs).length > 40) thumbs = Object.create(null);
     thumbBusy = true;
-    request('POST', 'file', { file: file.name + suffix }, 'thumb').then(function (response) {
+    // Only the row's part of the sidecar: the stored 192 × 108 thumbnail and the extents
+    // (tens of kB) instead of the full image, trail and 3D path (about 1 MB). A sidecar
+    // from before thumbnails still answers with its full image, downscaled here.
+    request('POST', 'file', { file: file.name + suffix, part: 'thumbnail' }, 'thumb').then(function (response) {
       var meta = JSON.parse(response.data), p = meta && meta.file === file.name && verdict(response, meta).state !== 'stale' && meta.preview || {};
-      var image = typeof p.image === 'string' && p.image.length <= 2500000 && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(p.image) ? p.image : '';
       var bounds = Array.isArray(p.bounds) ? p.bounds : null;
+      if (typeof p.thumbnail === 'string' && p.thumbnail.length <= 120000 && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(p.thumbnail)) { thumbs[key] = { image: p.thumbnail, bounds: bounds }; return undefined; }
+      var image = typeof p.image === 'string' && p.image.length <= 2500000 && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(p.image) ? p.image : '';
       // The stored preview is 960 × 540: a 192 × 108 copy is kept for the row, so the
       // list never decodes five full previews when it is shown again.
       return downscale(image).then(function (small) { thumbs[key] = { image: small, bounds: bounds }; });
@@ -205,6 +210,14 @@
       im.onload = function () { try { var c = document.createElement('canvas'); c.width = 192; c.height = 108; c.getContext('2d').drawImage(im, 0, 0, 192, 108); resolve(c.toDataURL('image/png')); } catch (_) { resolve(''); } };
       im.onerror = function () { resolve(''); };
       im.src = image;
+    });
+  }
+  // A new sidecar carries its row thumbnail (192 × 108, about 10-30 kB): the list then
+  // reads only that part (`part: 'thumbnail'`) and decodes no full preview. Without
+  // Image/canvas (tests) the sidecar simply has none and rows fall back to the image.
+  function withThumbnail(preview) {
+    return downscale(preview && preview.image).then(function (small) {
+      if (small && small.length <= 120000) preview.thumbnail = small;
     });
   }
   function applyThumbs() {
@@ -460,24 +473,27 @@
       text = data.text; legacy = data.legacy;
       if (/\x00/.test(text)) throw new Error(uiLocale.t('Ce fichier semble binaire. Un G-code texte est attendu.'));
       return window.CNCLibraryPreview.render(text, document.createElement('canvas'), cancelled, status).then(function (preview) {
-        if (preview.image.length > 2500000) meta.previewError = uiLocale.t('image trop volumineuse'); else meta.preview = preview;
+        if (preview.image.length > 2500000) { meta.previewError = uiLocale.t('image trop volumineuse'); return undefined; }
+        meta.preview = preview;
+        return withThumbnail(preview);
       }).catch(function (error) { if (cancelled()) throw error; meta.previewError = error.message; });
     }).then(function () {
       if (cancelled()) throw new Error(uiLocale.t('Annulé'));
-      var payload = window.CNCLibraryPayload;
-      return payload ? payload.encodeFile(stored, text, cancelled, status) : { file: stored, data: text };
-    }).then(function (payload) {
-      if (cancelled()) throw new Error(uiLocale.t('Annulé'));
       $('library-cancel').hidden = true; // Once the server write starts, report its actual outcome.
       status(uiLocale.t('Envoi du G-code au serveur…'));
+      // The bytes themselves (application/octet-stream, the name in the query): the server
+      // streams them to disk instead of parsing a JSON body holding the whole program (which
+      // the tablet's CPU did for up to 20 MB). A Windows-1252 file was decoded above and goes
+      // out as UTF-8, as before.
+      var payload = new Blob([text], { type: 'application/octet-stream' });
       text = '';
-      return request('PUT', 'file', payload);
+      return request('PUT', 'file?file=' + encodeURIComponent(stored), payload);
     }).then(function (written) {
       wrote = true; text = ''; status(uiLocale.t('Enregistrement de l’image 2D…'));
       // The sidecar names the exact bytes the server wrote (fingerprint and size): once the
       // program is replaced under this name, the server serves this preview as stale.
       if (written && typeof written.fingerprint === 'string' && written.fingerprint) { meta.fingerprint = written.fingerprint; meta.size = written.size; }
-      return request('PUT', 'file', { file: stored + suffix, data: JSON.stringify(meta) });
+      return request('PUT', 'file?file=' + encodeURIComponent(stored + suffix), new Blob([JSON.stringify(meta)], { type: 'application/octet-stream' }));
     }).then(function () {
       if (selected !== stored) { cancelRegeneration(); setText('library-regenerate-status', ''); }
       selected = stored; pendingUpload = stored; pendingUntil = Date.now() + 15000; detailVersion = ''; $('library-input').value = ''; lock(false);
@@ -538,13 +554,16 @@
       check();
       if (preview.image.length > 2500000) throw new Error(uiLocale.t('Image trop volumineuse.'));
       meta.preview = preview; delete meta.previewError; meta.previewVersion = 2;
+      return withThumbnail(preview);
+    }).then(function () {
+      check();
       return request('POST', 'files', {path:''}, 'regenerate', cancelled);
     }).then(function (result) {
       check();
       var current = result.files.filter(function (f) {return f.name === name;})[0];
       if (!current || current.mtime !== file.mtime || current.size !== file.size || cancelled()) throw new Error(uiLocale.t('Fichier ou sélection modifiés : relancez la régénération.'));
       // Once transmitted, this write is allowed to finish even if selection changes.
-      return request('PUT', 'file', {file:name+suffix, data:JSON.stringify(meta)});
+      return request('PUT', 'file?file=' + encodeURIComponent(name + suffix), new Blob([JSON.stringify(meta)], { type: 'application/octet-stream' }));
     }).then(function () {
       if (selected === name) detailVersion = '';
       status(uiLocale.t('✓ Aperçu mis à jour sur le serveur, visible aussi sur la Surface.'));

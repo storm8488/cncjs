@@ -65,7 +65,30 @@ const markStale = (meta, reason) => JSON.stringify({ ...meta, preview: { stale: 
 //   program-missing       no program beside the sidecar
 //   program-unreadable    the program cannot be checked (link, too large…)
 //   unreadable            the sidecar is not JSON
-const serveSidecar = (res, file, data) => {
+// The sidecar reduced to what a file row needs (`part: 'thumbnail'`): the
+// 192 × 108 thumbnail and the extents, without the full image, the progress
+// trail and the 3D path (about 1 MB of text for a typical preview, tens of kB
+// here). A sidecar written before thumbnails existed keeps its full image, so
+// one request still gives the row something to show.
+const THUMBNAIL_FIELDS = ['thumbnail', 'bounds', 'zBounds', 'segments', 'lines'];
+const thumbnailPart = (meta) => {
+  const preview = meta.preview && typeof meta.preview === 'object' ? meta.preview : null;
+  if (!preview) {
+    return JSON.stringify(meta);
+  }
+  const reduced = {};
+  THUMBNAIL_FIELDS.forEach((key) => {
+    if (preview[key] !== undefined) {
+      reduced[key] = preview[key];
+    }
+  });
+  if (typeof preview.thumbnail !== 'string' && preview.image !== undefined) {
+    reduced.image = preview.image;
+  }
+  return JSON.stringify({ ...meta, preview: reduced });
+};
+
+const serveSidecar = (res, file, data, part) => {
   let meta = null;
   try {
     meta = JSON.parse(data);
@@ -87,9 +110,15 @@ const serveSidecar = (res, file, data) => {
     } else if (meta.size !== undefined && meta.size !== actual.size) {
       reason = 'size-mismatch';
     }
+    let served = data;
+    if (reason) {
+      served = markStale(meta, reason);
+    } else if (part === 'thumbnail') {
+      served = thumbnailPart(meta);
+    }
     res.send({
       file,
-      data: reason ? markStale(meta, reason) : data,
+      data: served,
       preview: { stale: !!reason, reason, fingerprint: actual.fingerprint, size: actual.size }
     });
   }, (err) => {
@@ -101,6 +130,7 @@ const serveSidecar = (res, file, data) => {
 export const readFile = (req, res) => {
   const file = req.body.file || req.query.file || '';
   const sidecar = isSidecar(file);
+  const part = req.body.part || req.query.part || '';
   const { maxFileSize } = settings.middleware.upload;
 
   // A program read also reports the fingerprint of the bytes served, in the
@@ -119,7 +149,7 @@ export const readFile = (req, res) => {
     }
 
     if (sidecar) {
-      serveSidecar(res, file, data);
+      serveSidecar(res, file, data, part);
       return;
     }
 

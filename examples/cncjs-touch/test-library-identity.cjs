@@ -8,6 +8,10 @@ const fs = require('fs'), vm = require('vm'), assert = require('assert');
 const FP1 = 'sha256:' + '1'.repeat(64), FP2 = 'sha256:' + '2'.repeat(64);
 const IMAGE = 'data:image/png;base64,AA==';
 const flush = async (n = 3) => { for (let i = 0; i < n; i++) await new Promise(setImmediate); };
+// The file a request names: a raw upload carries it in the query, a JSON request in its body.
+const fileOf = x => { const q = /[?&]file=([^&]*)/.exec(x.url); if (q) return decodeURIComponent(q[1]); try { return JSON.parse(x.body).file; } catch (_) { return undefined; } };
+// Uploads go out as raw bytes (a Blob, application/octet-stream), never as a JSON body holding the program.
+const rawText = async x => { assert(x.body instanceof Blob, 'raw upload body'); assert.equal(x.headers['Content-Type'], 'application/octet-stream'); return x.body.text(); };
 
 function XHR(pending) {
   return function () {
@@ -48,7 +52,7 @@ async function library(options = {}) {
   if (options.idle) ctx.requestIdleCallback = fn => { setImmediate(() => fn({ timeRemaining: () => 50 })); return 1; };
   vm.runInNewContext(fs.readFileSync(__dirname + '/touch/shared-library.js', 'utf8'), ctx);
   function take(method, endpoint, file) {
-    const i = pending.findIndex(x => x.method === method && x.url.endsWith('/' + endpoint) && (file === undefined || (x.body && JSON.parse(x.body).file === file)));
+    const i = pending.findIndex(x => x.method === method && x.url.split('?')[0].endsWith('/' + endpoint) && (file === undefined || fileOf(x) === file));
     assert(i >= 0, 'expected ' + method + ' ' + endpoint + ' ' + (file || '') + ' among ' + pending.map(x => x.method + ' ' + x.url).join(', '));
     return pending.splice(i, 1)[0];
   }
@@ -104,10 +108,11 @@ async function library(options = {}) {
   f = await library();
   reply(take(f, 'a.nc.cnctouch.json'), current('a.nc', FP1)); await flush(); f.image().onload();
   f.node('library-input').files = [{ name: 'part.nc', size: 5 }]; f.node('library-send').handlers.click(); await flush(6);
-  const program = f.take('PUT', 'file'); const stored = JSON.parse(program.body).file; assert.match(stored, /^part--touch-\d{14}-[a-f0-9]{16}\.nc$/);
+  const program = f.take('PUT', 'file'); const stored = fileOf(program); assert.match(stored, /^part--touch-\d{14}-[a-f0-9]{16}\.nc$/);
+  assert.equal(await rawText(program), 'G0 X0', 'the program bytes, not a JSON body');
   reply(program, { file: stored, fingerprint: FP2, size: 5 }); await flush();
-  const sidecar = f.take('PUT', 'file'); const written = JSON.parse(JSON.parse(sidecar.body).data);
-  assert.equal(JSON.parse(sidecar.body).file, stored + '.cnctouch.json');
+  const sidecar = f.take('PUT', 'file'); const written = JSON.parse(await rawText(sidecar));
+  assert.equal(fileOf(sidecar), stored + '.cnctouch.json');
   assert.equal(written.fingerprint, FP2); assert.equal(written.size, 5); assert.equal(written.preview.image, IMAGE);
   reply(sidecar, { file: stored + '.cnctouch.json' }); await flush();
   assert.equal(f.image().cncPreview.fingerprint, FP2, 'the card shows the upload with its fingerprint');
@@ -116,7 +121,7 @@ async function library(options = {}) {
   f = await library(); reply(take(f, 'a.nc.cnctouch.json'), current('a.nc', FP1)); await flush(); f.image().onload();
   f.node('library-input').files = [{ name: 'old.nc', size: 5 }]; f.node('library-send').handlers.click(); await flush(6);
   reply(f.take('PUT', 'file'), {}); await flush();
-  const sidecarWrite = f.take('PUT', 'file'), unverified = JSON.parse(JSON.parse(sidecarWrite.body).data);
+  const sidecarWrite = f.take('PUT', 'file'), unverified = JSON.parse(await rawText(sidecarWrite));
   assert.equal(unverified.fingerprint, undefined);
   reply(sidecarWrite, {}); await flush();
   assert.match(f.node('library-upload-status').textContent, /sans empreinte/);
@@ -130,7 +135,7 @@ async function library(options = {}) {
   reply(read, { file: 'a.nc', data: 'G0 X0\nG1 X1', fingerprint: FP2, size: 100 }, { 'X-Program-Fingerprint': FP2, 'X-Program-Size': '100' }); await flush(6);
   assert.equal(f.renders.length, 1);
   reply(f.take('POST', 'files'), { files: f.files }); await flush();
-  const regenerated = JSON.parse(JSON.parse(f.take('PUT', 'file', 'a.nc.cnctouch.json').body).data);
+  const regenerated = JSON.parse(await rawText(f.take('PUT', 'file', 'a.nc.cnctouch.json')));
   assert.equal(regenerated.fingerprint, FP2); assert.equal(regenerated.size, 100); assert.deepEqual(regenerated.preview.bounds, [0, 0, 2, 2]);
   assert.equal(regenerated.originalName, 'A.NC', 'the sidecar keeps its name');
   // Without a fingerprint from the server, nothing is written: the sidecar could not be verified later.

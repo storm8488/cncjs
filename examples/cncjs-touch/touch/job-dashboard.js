@@ -38,7 +38,10 @@
     if(!button||button.disabled||!window.cncJobControls||typeof window.cncJobControls.override!=='function')return;
     window.cncJobControls.override(button.getAttribute('data-kind'),Number(button.getAttribute('data-value'))).catch(function(){});
   });
-  function number(v){try{return Math.round(v).toLocaleString(uiLocale.locale||'fr-FR');}catch(_){return String(Math.round(v));}}
+  // One formatter per locale: Number.prototype.toLocaleString builds a new one at every call,
+  // which was the first script cost of Suivi during a job (two live values, 5 reports a second).
+  var formats={};
+  function number(v){var r=Math.round(v),loc=uiLocale.locale||'fr-FR';try{var f=formats[loc]||(formats[loc]=typeof Intl!=='undefined'&&Intl.NumberFormat?new Intl.NumberFormat(loc):null);return f?f.format(r):r.toLocaleString(loc);}catch(_){return String(r);}}
   function overrideButtons(){return overridesBox.querySelectorAll?overridesBox.querySelectorAll('button'):[];}
   execution.insertAdjacentHTML('beforeend',uiLocale.html('<p id="job-progress-summary" role="status"></p>'));
   var selection=window.cncLibrarySelection||null,machine=null,simulation=false,imageKey='',request=0,track=null,busy=false,feedback='';
@@ -140,11 +143,14 @@
     set('home-rapid-note','textContent',rapidOn?(rapid!==null&&rapid<100?uiLocale.t('Rapides ralentis : Grbl revient à 100 % à la fin du programme (M2/M30) ou après un arrêt.'):uiLocale.t('Rapides à 25 % conseillés pour le premier essai d’un programme.')):'');
     // Real values from Grbl's FS: field. A feed hold stops the axes, not the spindle.
     var liveOk=!!(c&&c.fresh),feed=liveOk&&finiteNumber(c.feedrate)?c.feedrate:null,rpm=liveOk&&finiteNumber(c.spindleSpeed)?c.spindleSpeed:null;
-    set('home-live','textContent',feed===null&&rpm===null?'':uiLocale.t('Avance réelle ')+(feed===null?'—':number(feed)+' mm/min')+uiLocale.t(' · Broche ')+(rpm===null?'—':number(rpm)+uiLocale.t(' tr/min')));
+    // The live values are written only while Suivi is shown (mount() renders again on opening):
+    // hidden, they were rewritten at every report for nothing.
+    var homeShown=visible('home');
+    if(homeShown)set('home-live','textContent',feed===null&&rpm===null?'':uiLocale.t('Avance réelle ')+(feed===null?'—':number(feed)+' mm/min')+uiLocale.t(' · Broche ')+(rpm===null?'—':number(rpm)+uiLocale.t(' tr/min')));
     // Work frame (G54…) next to the work coordinates, as reported by the controller; blank when unknown.
-    var frameNode=$('home-work-frame');if(frameNode){var frame=c&&c.fresh&&c.operator&&/^G5[4-9]$/.test(String(c.operator.wcs||''))?' · '+c.operator.wcs:'';set('home-work-frame','textContent',frame);}
-    set('home-live-feed','textContent',feed===null?'—':number(feed)+' mm/min');
-    set('home-live-spindle','textContent',rpm===null?'—':number(rpm)+uiLocale.t(' tr/min'));
+    var frameNode=$('home-work-frame');if(frameNode&&homeShown){var frame=c&&c.fresh&&c.operator&&/^G5[4-9]$/.test(String(c.operator.wcs||''))?' · '+c.operator.wcs:'';set('home-work-frame','textContent',frame);}
+    if(homeShown){set('home-live-feed','textContent',feed===null?'—':number(feed)+' mm/min');
+    set('home-live-spindle','textContent',rpm===null?'—':number(rpm)+uiLocale.t(' tr/min'));}
     // Reprendre takes the primary place while the job is held; Démarrer otherwise.
     var held=!!(c&&c.workflow==='paused');
     set('home-job-resume-row','hidden',!held);set('home-job-primary-row','hidden',held);
@@ -154,7 +160,7 @@
     // During a job nothing else distracts: no selection notice, the override help only as a reason.
     set('home-job-selection','hidden',busyJob);
     var box=$('home-overrides');if(box&&typeof box.setAttribute==='function'&&(!box.getAttribute||box.getAttribute('data-on')!==String(overrideOn)))box.setAttribute('data-on',String(overrideOn));
-    if(simulationPage&&c&&c.workPosition)['x','y','z'].forEach(function(a){set('home-sim-'+a,'textContent',finiteNumber(c.workPosition[a])?c.workPosition[a].toFixed(3):'—');});
+    if(homeShown&&simulationPage&&c&&c.workPosition)['x','y','z'].forEach(function(a){set('home-sim-'+a,'textContent',finiteNumber(c.workPosition[a])?c.workPosition[a].toFixed(3):'—');});
     var spinning=!!(c&&c.workflow==='paused'&&rpm!==null&&rpm>0);
     set('home-spindle-warning','hidden',!spinning);
     set('home-spindle-warning','textContent',spinning?uiLocale.t('Pause : les axes sont arrêtés mais la broche tourne toujours (Grbl ne l’arrête pas en pause). Ne mettez pas les mains près de l’outil.'):'');
