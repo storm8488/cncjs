@@ -69,7 +69,8 @@ function legacy(gcode) {
       if (startAngle === endAngle) endAngle += (2 * Math.PI);
       const points = new THREE.ArcCurve(v0.x, v0.y, radius, startAngle, endAngle, isClockwise).getPoints(30), color = motionColor[motion] || defaultColor;
       for (let i = 0; i < points.length; ++i) {
-        const point = points[i], z = ((v2.z - v1.z) / points.length) * i + v1.z;
+        // Same Z as toolpath-trace.js (the last vertex reaches the end of the helix).
+        const point = points[i], z = i === points.length - 1 ? v2.z : v1.z + (v2.z - v1.z) * (i / (points.length - 1));
         if (plane === 'G17') geometry.vertices.push(new THREE.Vector3(point.x, point.y, z));
         else if (plane === 'G18') geometry.vertices.push(new THREE.Vector3(point.y, z, point.x));
         else if (plane === 'G19') geometry.vertices.push(new THREE.Vector3(z, point.x, point.y));

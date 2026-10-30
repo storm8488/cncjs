@@ -19,16 +19,14 @@
 //   D-REFUSE   the analyser refuses the program (conservative: no wrong box).
 //   D-UNKNOWN  the analyser reports the axis / position as unknown
 //              (conservative: never validated, never a wrong position).
-//   D-CLASSIC-* defects of the classic CNCjs visualizer, outside Touch:
-//     HELIX-Z         the last vertex of an arc gets 30/31 of its Z travel;
-//     MACHINE         G53 moves drawn in work coordinates, G28/G30 not drawn;
-//     NESTED-COMMENT  gcode-interpreter bundles gcode-parser 2.0, which does
-//                     not nest parentheses, while the sender uses 2.2.
+//   D-CLASSIC-* defects of the classic CNCjs visualizer, outside Touch (none
+//     declared since audit 31: the helix Z, G53/G28/G30 and nested comments
+//     are fixed in src/app/widgets/Visualizer/toolpath-trace.js; G53, G28 and
+//     G30 now cut the drawn path, the axes they move stay unknown).
 // A resume or program-check position that differs from the truth is never a
 // documented difference: it is a defect (16-nested-comment proved one).
 import fs from 'fs';
 import path from 'path';
-import Toolpath from 'gcode-toolpath';
 import * as gcodeParser from 'gcode-parser';
 import { analyzeProgram, checkProgram, codeOf } from '../program-check';
 import { stateBefore, modalsBeforeFirstMove, programLines } from '../resume';
@@ -230,17 +228,19 @@ describe('shared G-code corpus', () => {
 
     test('classic visualizer (gcode-toolpath)', () => {
       const e = expected.toolpath;
-      const box = toolpathBox(buildToolpathBuffers(text).bounds);
+      const built = buildToolpathBuffers(text);
+      const box = toolpathBox(built.bounds);
       const ref = e.bounds && { X: [e.bounds.min[0], e.bounds.max[0]], Y: [e.bounds.min[1], e.bounds.max[1]], Z: [e.bounds.min[2], e.bounds.max[2]] };
       sameBox(box, ref, FLOAT32, 'toolpath');
       if (!e.difference && truth.bbox) {
         withinOrigin(box, truth.bbox, truth.arcs ? 25.4 * CLASSIC_ARC : FLOAT32, 'toolpath vs truth');
       }
       if (!e.difference && truth.final) {
-        const tp = new Toolpath();
-        tp.loadFromStringSync(text);
-        const pos = tp.getPosition();
-        AXES.forEach((axis, i) => close(pos[axis.toLowerCase()], truth.final[i], FLOAT32, 'toolpath final ' + axis));
+        AXES.forEach((axis, i) => close(built.position[axis.toLowerCase()], truth.final[i], FLOAT32, 'toolpath final ' + axis));
+      }
+      // A position the visualizer cannot know (after G53, G28, G30) is never a wrong one.
+      if (!truth.final && truth.bbox && /G(53|28|30)(?![0-9.])/i.test(text)) {
+        expect(AXES.some((axis) => built.position[axis.toLowerCase()] === null)).toBe(true);
       }
     });
   });

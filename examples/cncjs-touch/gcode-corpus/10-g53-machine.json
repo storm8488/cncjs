@@ -43,9 +43,8 @@
   },
   "toolpath": {
     "bounds": {
-      "min": [-5, -5, -1],
+      "min": [10, 10, -1],
       "max": [20, 10, 5]
-    },
-    "difference": "D-CLASSIC-MACHINE"
+    }
   }
 }
