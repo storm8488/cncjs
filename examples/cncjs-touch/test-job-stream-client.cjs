@@ -10,6 +10,8 @@ const document={hidden:false,body:{appendChild(){},getAttribute(){return null;}}
 const context={window,document,XMLHttpRequest:XHR,localStorage:{getItem:()=>JSON.stringify({state:{session:{token:'offline-fixture'}}})},CustomEvent:function(type,o){this.type=type;this.detail=o.detail;},Date:Clock,Promise,setInterval:window.setInterval,clearInterval:window.clearInterval};
 vm.createContext(context);for(const file of ['cnc-state.js','job-stream.js','job-controls.js'])vm.runInContext(fs.readFileSync(__dirname+'/touch/'+file,'utf8'),context);
 const flush=()=>new Promise(setImmediate);
+// The stream URL carries this device's persistent id (F5): /touch-events?clientId=…
+const isStream=url=>/\/touch-events(\?clientId=[^&]+)?$/.test(url);
 function answer(xhr,body,status=200){xhr.status=status;xhr.responseText=JSON.stringify(body);xhr.onload();}
 function packet(seq,controllers,transportId='stream-one'){return {version:1,epoch:'server-one',sequence:seq,sentAt:now,transportId,controllers};}
 function push(xhr,data){xhr.status=200;xhr.responseText+=JSON.stringify(data)+'\n';xhr.onprogress();}
@@ -17,7 +19,8 @@ function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port
 (async()=>{
   const health=requests.find(r=>r.url.endsWith('/custom/health')), initial=requests.find(r=>r.url.endsWith('/touch-job'));
   assert(health.url.startsWith('/cnc/api/'));assert.equal(health.headers.Authorization,'Bearer offline-fixture');
-  answer(health,{loaded:true,protocol:1});const stream=requests.find(r=>r.url.endsWith('/touch-events'));
+  answer(health,{loaded:true,protocol:1});const stream=requests.find(r=>isStream(r.url));
+  assert.match(stream.url,/\/cnc\/api\/touch-events\?clientId=t-[a-z0-9]+-[a-z0-9]+$/,'the stream names this device');
   push(stream,packet(9,[]));assert.equal(window.cncState.get().transportConnected,true,'a recent empty stream is a connected server');assert.equal(window.cncState.get().machine,null);
   for(const action of ['load','start','resume','pause','stop'])assert.equal(el('job-'+action).disabled,true,'no controller must keep '+action+' disabled');
   push(stream,packet(10,[machine()]));assert.equal(el('job-start').disabled,false);
@@ -61,9 +64,9 @@ function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port
   answer(pause,{message:'Pause older',snapshot:packet(43,[active])});await flush();assert.equal(el('job-feedback').textContent,'STOP newer');assert.equal(window.cncState.get().machine.workflow,'idle');assert.equal(el('job-port').disabled,false);
   // No data for 3 s: abort proxy-buffered response; retry bounded to 30 s.
   now+=3001;Array.from(intervals.values()).forEach(fn=>fn());await flush();assert(stream.aborted);assert.equal(el('job-start').disabled,true);
-  const streamsBefore=requests.filter(r=>r.url.endsWith('/touch-events')).length;
+  const streamsBefore=requests.filter(r=>isStream(r.url)).length;
   for(let i=0;i<20;i++){now+=1000;Array.from(intervals.values()).forEach(fn=>fn());await flush();}
-  assert.equal(requests.filter(r=>r.url.endsWith('/touch-events')).length,streamsBefore);
+  assert.equal(requests.filter(r=>isStream(r.url)).length,streamsBefore);
   const pendingGet=requests.filter(r=>r.url.endsWith('/touch-job')&&r.method==='GET'&&!r.aborted).at(-1);
   if(pendingGet&&pendingGet!==initial){answer(pendingGet,packet(45,[machine('B')]));await flush();}
   assert.equal(el('job-start').disabled,true,'fallback GET must not restore start without a live stream');assert.equal(el('job-resume').disabled,true);assert.equal(window.cncState.get().transportConnected,false);
@@ -80,7 +83,7 @@ function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port
     if(!el('job-stop').disabled)stopUsable++;
   }
   assert.equal(stopUsable,20,'Stop stays usable during a job read by HTTP');
-  window.cncJobControls.dispose();assert.equal(intervals.size,0);assert(requests.filter(r=>r.url.endsWith('/touch-events')).every(r=>r.aborted));
+  window.cncJobControls.dispose();assert.equal(intervals.size,0);assert(requests.filter(r=>isStream(r.url)).every(r=>r.aborted));
   // Legacy backend: diagnose it, retain read-only fallback, never enable activation
   // from a boolean freshness flag with no timestamp/identity protocol.
   Object.keys(nodes).forEach(key=>delete nodes[key]);requests.length=0;
@@ -95,30 +98,30 @@ function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port
     await flush();
   }
   assert(requests.length<10,'legacy fallback and health must stay below 10 requests per minute');
-  assert.equal(requests.filter(r=>r.url.endsWith('/touch-events')).length,0);assert.equal(el('job-start').disabled,true);
+  assert.equal(requests.filter(r=>isStream(r.url)).length,0);assert.equal(el('job-start').disabled,true);
   window.cncJobControls.dispose();assert.equal(intervals.size,0);
   // Normal bounded rotation reconnects once, without carrying confirmation/session state.
   Object.keys(nodes).forEach(key=>delete nodes[key]);requests.length=0;
   for(const file of ['cnc-state.js','job-stream.js','job-controls.js'])vm.runInContext(fs.readFileSync(__dirname+'/touch/'+file,'utf8'),context);
   answer(requests.find(r=>r.url.endsWith('/custom/health')),{loaded:true,protocol:1});
-  const rotating=requests.find(r=>r.url.endsWith('/touch-events'));
+  const rotating=requests.find(r=>isStream(r.url));
   push(rotating,packet(1,[machine()]));push(rotating,{rotate:true});rotating.onload();
-  assert(rotating.aborted);assert.equal(requests.filter(r=>r.url.endsWith('/touch-events')).length,2);assert.equal(el('job-start').disabled,true);
+  assert(rotating.aborted);assert.equal(requests.filter(r=>isStream(r.url)).length,2);assert.equal(el('job-start').disabled,true);
   // Until the new stream's first packet, the renewal is not published as a disconnection
   // (the strip would hide Stop, the journal log a loss, the notice push the screen down).
   const renewal=events.filter(e=>e.type==='cnc-job-status').at(-1).detail;
   assert.equal(renewal.transportConnected,true,'a planned renewal is not a disconnection');assert(renewal.machine);
   assert.equal(window.cncState.get().transportReason,'','no notice for a planned renewal');
-  push(requests.filter(r=>r.url.endsWith('/touch-events')).at(-1),packet(2,[machine()],'stream-two'));assert.equal(el('job-start').disabled,false);
+  push(requests.filter(r=>isStream(r.url)).at(-1),packet(2,[machine()],'stream-two'));assert.equal(el('job-start').disabled,false);
   // A renewal that does not come back within 3 s is a loss after all.
-  const second=requests.filter(r=>r.url.endsWith('/touch-events')).at(-1);push(second,{rotate:true});second.onload();
+  const second=requests.filter(r=>isStream(r.url)).at(-1);push(second,{rotate:true});second.onload();
   assert.equal(window.cncState.get().transportConnected,true);
   now+=3001;Array.from(intervals.values()).forEach(fn=>fn());
   assert.equal(window.cncState.get().transportConnected,false,'no packet within the grace: disconnected');assert.notEqual(window.cncState.get().transportReason,'');
-  const beforePageHide=requests.filter(r=>r.url.endsWith('/touch-events')).at(-1);
+  const beforePageHide=requests.filter(r=>isStream(r.url)).at(-1);
   window.dispatchEvent({type:'pagehide',persisted:true});assert(intervals.size>0,'BFcache must keep lifecycle timers');assert.equal(el('job-start').disabled,true);
   window.dispatchEvent({type:'pageshow',persisted:true});
-  const restored=requests.filter(r=>r.url.endsWith('/touch-events')).at(-1);
+  const restored=requests.filter(r=>isStream(r.url)).at(-1);
   assert.notEqual(restored,beforePageHide,'BFcache return must reopen immediately without the 30-second failure backoff');
   const resumeRequests=requests.length;window.dispatchEvent({type:'visibilitychange'});
   assert.equal(requests.length,resumeRequests,'paired pageshow/visibility events must not reopen twice');
@@ -134,7 +137,7 @@ function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port
     for(const file of ['cnc-state.js','job-stream.js','job-controls.js'])vm.runInContext(fs.readFileSync(__dirname+'/touch/'+file,'utf8'),context);
     answer(requests.find(r=>r.url.endsWith('/custom/health')),{loaded:true,protocol:1});
     answer(requests.find(r=>r.url.endsWith('/touch-job')),packet(1,[machine()]));await flush();
-    const tested=requests.find(r=>r.url.endsWith('/touch-events'));
+    const tested=requests.find(r=>isStream(r.url));
     push(tested,packet(2,[machine()]));el('job-start').click();
     const invalid=packet(Infinity,[machine()]); // serialized as null, never a valid sequence
     if(source==='POST')answer(requests.at(-1),{nonce:'invalid-snapshot',name:'Test',expiresIn:15,snapshot:invalid});
@@ -149,7 +152,7 @@ function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port
     assert.equal(window.cncState.get().machine,null);assert.equal(window.cncState.get().transportConnected,false);
     assert.match(window.cncState.get().transportReason,/invalide/);
     now+=31000;Array.from(intervals.values()).forEach(fn=>fn());await flush();
-    const recovery=requests.filter(r=>r.url.endsWith('/touch-events')).at(-1);
+    const recovery=requests.filter(r=>isStream(r.url)).at(-1);
     assert.notEqual(recovery,tested);push(recovery,packet(4,[machine()],'after-invalid'));
     assert.equal(el('job-start').disabled,false,'Valid state must recover without a poisoned sequence');
     assert.equal(el('job-dialog').hidden,true,'Recovery must require a new confirmation');
@@ -163,13 +166,13 @@ function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port
     for(const file of ['cnc-state.js','job-stream.js','job-controls.js'])vm.runInContext(fs.readFileSync(__dirname+'/touch/'+file,'utf8'),context);
     answer(requests.find(r=>r.url.endsWith('/custom/health')),{loaded:true,protocol:1});
     const pendingRead=requests.find(r=>r.url.endsWith('/touch-job'));
-    const beforeHide=requests.find(r=>r.url.endsWith('/touch-events')),lateProgress=beforeHide.onprogress;
+    const beforeHide=requests.find(r=>isStream(r.url)),lateProgress=beforeHide.onprogress;
     push(beforeHide,packet(1,[machine()]));el('job-start').click();const pendingPrepare=requests.at(-1);
     document.hidden=true;window.dispatchEvent({type:'visibilitychange'});now+=hiddenTime;
     document.hidden=false;window.dispatchEvent({type:'visibilitychange'});
     assert(beforeHide.aborted);assert.equal(window.cncState.get().machine,null);
     assert.equal(window.cncState.get().transportConnected,false);assert(el('job-start').disabled);
-    const afterShow=requests.filter(r=>r.url.endsWith('/touch-events')).at(-1);
+    const afterShow=requests.filter(r=>isStream(r.url)).at(-1);
     assert.notEqual(afterShow,beforeHide,'return reopens immediately');
     beforeHide.responseText+=JSON.stringify(packet(100,[machine()]))+'\n';lateProgress();
     answer(pendingRead,packet(101,[machine()]));
@@ -185,7 +188,7 @@ function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port
   Object.keys(nodes).forEach(key=>delete nodes[key]);requests.length=0;
   for(const file of ['cnc-state.js','job-stream.js','job-controls.js'])vm.runInContext(fs.readFileSync(__dirname+'/touch/'+file,'utf8'),context);
   answer(requests.find(r=>r.url.endsWith('/custom/health')),{loaded:true,protocol:1});
-  const beforeOffline=requests.find(r=>r.url.endsWith('/touch-events'));
+  const beforeOffline=requests.find(r=>isStream(r.url));
   const staleProgress=beforeOffline.onprogress;
   push(beforeOffline,packet(1,[machine()]));
   el('job-start').click();const prepareOffline=requests.at(-1);
@@ -206,10 +209,10 @@ function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port
   const obsoleteHealthCallback=reconnectHealth.onload;
   window.dispatchEvent({type:'offline'});assert(reconnectHealth.aborted);
   reconnectHealth.status=200;reconnectHealth.responseText='{"loaded":true,"protocol":1}';obsoleteHealthCallback();
-  assert.equal(requests.filter(r=>r.url.endsWith('/touch-events')).length,1,'obsolete health cannot open a stream');
+  assert.equal(requests.filter(r=>isStream(r.url)).length,1,'obsolete health cannot open a stream');
   window.dispatchEvent({type:'online'});
   answer(requests.filter(r=>r.url.endsWith('/custom/health')).at(-1),{loaded:true,protocol:1});
-  const recovered=requests.filter(r=>r.url.endsWith('/touch-events')).at(-1);
+  const recovered=requests.filter(r=>isStream(r.url)).at(-1);
   assert.notEqual(recovered,beforeOffline);assert(el('job-start').disabled);
   push(recovered,packet(2,[machine()],'after-offline'));assert.equal(el('job-start').disabled,false);
   assert.equal(el('job-dialog').hidden,true);assert.equal(requests.filter(r=>r.method==='POST').length,posts,'reconnect must not replay commands');

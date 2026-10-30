@@ -11,6 +11,8 @@
   var uiLocale = (typeof window !== 'undefined' && window.cncI18n) || { t: function (s) { return s; }, message: function (s) { return s; } };
   var t = function (s) { return uiLocale.t(s); }, msg = uiLocale.message || t;
   function num(v) { return typeof v === 'number' && isFinite(v) ? v : null; }
+  // Formatter of the server's travel pre-check (program-check-view.js), page or Node.
+  function checkView() { return root.CNCProgramCheckView || (typeof module === 'object' && module.exports && typeof require === 'function' ? require('./program-check-view.js') : null); }
   // Key of the program the ticks belong to: name, server revision and preview fingerprint.
   function programKey(c, preview) { return c && c.name ? [c.name, c.revision, preview && preview.fingerprint || ''].join(':') : ''; }
   // Key of the work offset (machine − work, rounded to 0.01 mm): a new zero forgets the origin tick.
@@ -54,12 +56,20 @@
     if (!fresh) { checks.state = 'blocking'; notes.push(t('État machine indisponible.')); }
     else {
       if (alarm) { checks.state = 'blocking'; notes.push(t('Alarme active : déverrouillez et refaites la prise d’origine.')); }
-      var s = c.settings || {}, homingOn = num(Number(s.$22)) === 1;
-      if (!alarm && !homingOn) { if (checks.state !== 'blocking') checks.state = 'warn'; notes.push(t('Prise d’origine désactivée ($22) : la course machine n’est pas vérifiable.')); }
-      var tr = input.travel;
-      if (tr && tr.state === 'outside') { if (checks.state !== 'blocking') checks.state = 'warn'; notes.push(tr.message); }
-      else if (tr && tr.state === 'ok') notes.push(tr.message);
-      else if (tr && tr.state === 'unknown') notes.push(tr.message);
+      // The server's travel pre-check of the loaded program (F2) replaces the client's XY estimate:
+      // anything but validated keeps this step out of green.
+      var view = checkView(), pc = loaded && view ? view.describe(c.programCheck) : null;
+      if (pc) {
+        if (pc.verdict !== 'validated' && checks.state !== 'blocking') checks.state = 'warn';
+        notes.push(pc.summary);
+      } else {
+        var s = c.settings || {}, homingOn = num(Number(s.$22)) === 1;
+        if (!alarm && !homingOn) { if (checks.state !== 'blocking') checks.state = 'warn'; notes.push(t('Prise d’origine désactivée ($22) : la course machine n’est pas vérifiable.')); }
+        var tr = input.travel;
+        if (tr && tr.state === 'outside') { if (checks.state !== 'blocking') checks.state = 'warn'; notes.push(tr.message); }
+        else if (tr && tr.state === 'ok') notes.push(tr.message);
+        else if (tr && tr.state === 'unknown') notes.push(tr.message);
+      }
       if (loaded && input.previewVerdict === 'unverified') notes.push(t('Aperçu non vérifié par le serveur.'));
     }
     checks.detail = notes.join(' ') || t('Rien à signaler.');
@@ -90,8 +100,10 @@
   var tools = document.querySelector('.ks-file-tools');
   if (tools) tools.insertBefore(open, tools.firstChild); else shell.preparationActions.appendChild(open);
   var machine = null, selection = window.cncLibrarySelection || null, ticks = { tool: false, origin: false }, keys = { program: '', offset: '' }, rows = {};
-  function preview() { var img = document.getElementById('home-job-image'); return img && img.cncPreview && machine && img.cncPreview.file === machine.name ? img.cncPreview : null; }
-  function verdict() { var img = document.getElementById('home-job-image'); return img && img.cncPreviewVerdict ? img.cncPreviewVerdict : ''; }
+  // The preview of this program version only: same file and, when both are known, same fingerprint.
+  function preview() { var img = document.getElementById('home-job-image'), pv = img && img.cncPreview; return pv && machine && pv.file === machine.name && !(machine.fingerprint && pv.fingerprint && pv.fingerprint !== machine.fingerprint) ? pv : null; }
+  // A preview drawn from another version of the loaded program counts as stale.
+  function verdict() { var img = document.getElementById('home-job-image'), pv = img && img.cncPreview; if (pv && machine && pv.file === machine.name && !preview()) return 'stale'; return img && img.cncPreviewVerdict ? img.cncPreviewVerdict : ''; }
   function row(step) {
     var li = rows[step.id];
     if (!li) {

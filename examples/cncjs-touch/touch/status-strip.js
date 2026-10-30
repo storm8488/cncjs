@@ -33,6 +33,14 @@
   var stopText=el('span');stopText.textContent=uiLocale.t('Arrêter');stop.appendChild(stopText);stop.hidden=true;
   var resume=el('button','t-btn t-btn--primary','t-resume');resume.type='button';resume.textContent=uiLocale.t('Reprendre…');resume.hidden=true;
   var unlock=el('button','t-btn t-btn--primary','t-unlock');unlock.type='button';unlock.textContent=uiLocale.t('Déverrouiller…');unlock.hidden=true;
+  // Who pilots the machine (F5), always shown, never hidden to make room: this device, another
+  // one (named), free, or unknown. A tap opens the pilot dialog (details, explicit takeover).
+  // It sits in the actions cell, which a message never covers; Pause and Stop stay on its right.
+  var pilot=el('button','t-pilot','t-pilot');pilot.type='button';pilot.setAttribute('data-state','unknown');
+  var pilotLabel=el('span');pilotLabel.textContent=uiLocale.t('Pilote');var pilotValue=el('b','','t-pilot-value');pilotValue.textContent='—';
+  pilot.appendChild(pilotLabel);pilot.appendChild(pilotValue);
+  pilot.addEventListener('click',function(){var c=window.cncJobControls;if(c&&typeof c.openPilot==='function')c.openPilot();});
+  actions.appendChild(pilot);
   actions.appendChild(unlock);actions.appendChild(resume);actions.appendChild(pause);actions.appendChild(stop);
   // Messages (what to do next, a system command running): one cell of the strip laid over the
   // report age and the live values, never over the state, the actions or the right-hand group.
@@ -151,6 +159,11 @@
     attr(banner,'data-job',String(running||stopShown));
     prop(pause,'disabled',!m||!m.canPause);prop(stop,'disabled',!m||!m.canStop);
     prop(resume,'disabled',!m||!m.canResume);prop(unlock,'disabled',!m||!m.canUnlock);
+    // The pilot never changes what Pause and Stop accept: the server takes them from everyone.
+    var p=!simulation&&detail.pilot&&typeof detail.pilot==='object'?detail.pilot:null,pilotState=p?p.state:'unknown';
+    text(pilotValue,p&&p.value?p.value:'—');attr(pilot,'data-state',pilotState);
+    var pilotTitle=p&&p.sentence?p.sentence:uiLocale.t('Pilotage : état machine indisponible.');attr(pilot,'title',pilotTitle);attr(pilot,'aria-label',uiLocale.t('Pilote : ')+pilotTitle);
+    prop(pilot,'hidden',simulation);
   }
   var disposed=false;
   function onStatus(e){if(disposed||!e.detail||!!e.detail.simulation!==simulation)return;render(e.detail);}

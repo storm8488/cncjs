@@ -850,3 +850,46 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
 #ks-preparation-open[data-tone="danger"]{border-color:var(--danger);color:var(--danger-text)}
 /* Journal: shorter rows. */
 .ks-ui.t-compact #screen-history li{min-height:48px;padding:var(--sp-1) var(--sp-3) var(--sp-1) var(--sp-4)}
+/* --- Attribution of control (F5): the pilot chip of the strip, always shown, in the actions
+ * cell (never under a message), Pause / Arrêter on its right; and the pilot dialog. --- */
+.t-pilot{display:inline-flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:2px;min-height:var(--tap);max-width:190px;min-width:96px;padding:var(--sp-1) var(--sp-3);border:1px solid var(--line);border-left:6px solid var(--faint);border-radius:var(--r-m);background:var(--surface-2);color:var(--fg);cursor:pointer;touch-action:manipulation;text-align:left;align-self:center}
+.t-pilot span{font:var(--fs-16)/1 var(--font);color:var(--mute);letter-spacing:.06em;text-transform:uppercase}
+.t-pilot b{font:600 var(--fs-18)/1.1 var(--font);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.t-pilot[data-state="mine"]{border-left-color:var(--ok)}
+.t-pilot[data-state="other"]{border-left-color:var(--warn);background:var(--warn-soft)}
+.t-pilot[data-state="other"] b{color:var(--warn-text)}
+.t-pilot:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
+.ks-ui.t-compact .t-pilot{max-width:150px;min-width:84px}
+.ks-ui #pilot-dialog{top:var(--statusbar-h)}
+.ks-ui .pilot-form{display:flex;flex-direction:column;gap:var(--sp-2)}
+.ks-ui .pilot-form label{font:600 var(--fs-18)/var(--lh) var(--font);color:var(--fg)}
+.ks-ui #pilot-reason{min-height:var(--tap);font:var(--fs-20)/1.2 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m);padding:var(--sp-2) var(--sp-3);width:100%}
+.ks-ui .pilot-reasons{display:flex;flex-wrap:wrap;gap:var(--tap-gap)}
+.ks-ui #pilot-dialog-text{color:var(--fg)}
+.ks-ui #pilot-feedback:empty{display:none}
+/* --- Server travel pre-check (F2) in the start confirmation: validated green, outside red,
+ * unknown neutral grey (never green). --- */
+.ks-ui .t-pcheck{display:flex;flex-direction:column;gap:var(--sp-1);padding:var(--sp-2) var(--sp-3);border-radius:var(--r-m);background:var(--surface-2);border-left:6px solid var(--faint)}
+.ks-ui .t-pcheck[data-verdict="validated"]{border-left-color:var(--ok)}
+.ks-ui .t-pcheck[data-verdict="outside"]{border-left-color:var(--danger);background:var(--danger-soft)}
+.ks-ui .job-dialog-card .t-pcheck p{margin:0;font-size:var(--fs-16);color:var(--fg)}
+.ks-ui .job-dialog-card .t-pcheck .t-pcheck-title{font:700 var(--fs-18)/1.25 var(--font)}
+.ks-ui .t-pcheck[data-verdict="outside"] .t-pcheck-title{color:var(--danger-text)}
+.ks-ui .t-pcheck-axes{display:flex;flex-wrap:wrap;gap:var(--sp-2)}
+.ks-ui .t-pcheck-axis{padding:2px var(--sp-2);border-radius:var(--r-s);border:1px solid var(--line);font:600 var(--fs-16)/1.2 var(--font);color:var(--mute)}
+.ks-ui .t-pcheck-axis[data-verdict="validated"]{color:var(--ok-text);border-color:var(--ok)}
+.ks-ui .t-pcheck-axis[data-verdict="outside"]{color:var(--danger-text);border-color:var(--danger)}
+.ks-ui .job-dialog-card .t-pcheck .t-pcheck-reasons{color:var(--mute);max-height:4.8em;overflow:auto}
+.ks-ui .job-dialog-card{overflow:auto}
+/* --- Program identity (A5): a preview of another version of the loaded file is neither shown
+ * nor traced over (job-controls.js sets data-identity on the preview box). --- */
+.ks-ui .job-art[data-identity="other"]>#home-job-image,.ks-ui .job-art[data-identity="other"]>.tool-position-marker,
+.ks-ui .job-art[data-identity="other"]>.toolpath-progress,.ks-ui .job-art[data-identity="other"]>.preview-open,
+.ks-ui .job-art[data-identity="other"]>#home-image-status,.ks-ui .job-art[data-identity="other"]+.tool-position-note{display:none!important}
+.ks-ui .t-preview-identity{margin:0;padding:var(--sp-4);color:var(--warn-text);font:600 var(--fs-18)/var(--lh) var(--font);text-align:center}
+/* --- Journal sources (F4): this session (local) or the server's durable history. --- */
+.ks-ui #screen-history .ks-history-card{grid-template-rows:auto minmax(0,1fr) auto}
+.ks-ui .ks-history-source{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap}
+.ks-ui .ks-history-source .t-seg button{min-width:140px}
+.ks-ui #screen-history .ks-history-scope{margin:0;flex:1 1 280px;font-size:var(--fs-16);color:var(--mute)}
+.ks-ui #screen-history li[data-kind=server]{border-left-color:var(--faint)}
