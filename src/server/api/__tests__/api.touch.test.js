@@ -254,3 +254,65 @@ describe('api.touch: actor identity (F5) and the durable history (F4)', () => {
     expect(res.payload.message).not.toMatch(/private/);
   });
 });
+
+describe('api.touch, cross-check 3: control refusals on the wire', () => {
+  beforeEach(() => {
+    Object.values(touch).forEach((fn) => fn.mockClear && fn.mockClear());
+    touch.isStarted.mockReturnValue(true);
+  });
+
+  // D2 (corrigé) : le corps HTTP d'un refus de pilotage porte le code et le
+  // propriétaire annoncés, pas seulement le texte.
+  test('un refus ECONTROL du service part en 409 avec le message, code: ECONTROL et le propriétaire', async () => {
+    const owner = { kind: 'touch', id: 'tablet-A', label: 'Tablette A' };
+    const err = Object.assign(new Error('Pilotage de COM3 attribué à « Tablette A » (tablette, ana) : Pause et Arrêt restent possibles ; prenez le pilotage avec un motif ou attendez la fin de son bail.'), {
+      status: 409, code: 'ECONTROL', owner
+    });
+    touch.action.mockReturnValueOnce(Promise.reject(err));
+    const res = makeRes();
+    postJob({ user: { name: 'bob' }, body: { port: 'COM3', action: 'start', clientId: 'tablet-B' } }, res);
+    await settled();
+    expect(res.statusCode).toBe(409);
+    expect(res.payload).toEqual({ message: err.message, code: 'ECONTROL', owner });
+    expect(touch.publish).not.toHaveBeenCalled();
+    // Any other refusal keeps the plain {message} body.
+    touch.action.mockReturnValueOnce(Promise.reject(Object.assign(new Error('Machine pas au repos.'), { status: 409, code: 'EOTHER', owner })));
+    const other = makeRes();
+    postJob({ user: { name: 'bob' }, body: { port: 'COM3', action: 'start' } }, other);
+    await settled();
+    expect(other.payload).toEqual({ message: 'Machine pas au repos.' });
+  });
+
+  test('l’acteur transmis au service vient de la session et du clientId ; un `kind`/`user` du corps est ignoré ; sans clientId → http', async () => {
+    let res = makeRes();
+    postJob({ user: { id: 'u7', name: 'ana' }, body: { port: 'COM3', action: 'pause', clientId: 'tab-1', clientLabel: 'Atelier', kind: 'system', user: 'root' } }, res);
+    await settled();
+    expect(touch.action).toHaveBeenLastCalledWith(expect.anything(), { kind: 'touch', id: 'tab-1', label: 'Atelier', user: 'ana' });
+    res = makeRes();
+    postJob({ user: { id: 'u7' }, body: { port: 'COM3', action: 'pause', clientId: '   ' } }, res);
+    await settled();
+    expect(touch.action).toHaveBeenLastCalledWith(expect.anything(), { kind: 'http', id: 'http:u7', label: '', user: 'u7' });
+    // Le flux : clientId en query, donc présence ; sans query → acteur http (aucune présence Touch).
+    getEvents({ user: { name: 'ana' }, query: { clientId: 'tab-1' } }, makeRes());
+    expect(touch.openEvents).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), { kind: 'touch', id: 'tab-1', label: '', user: 'ana' });
+  });
+
+  test('GET api/touch-history : 401 sans session, 503 service arrêté, sinon pagination transmise et no-store', async () => {
+    let res = makeRes();
+    getHistory({ user: null, query: { limit: '5' } }, res);
+    await settled();
+    expect(res.statusCode).toBe(401);
+    expect(touch.readHistory).not.toHaveBeenCalled();
+    touch.isStarted.mockReturnValueOnce(false);
+    res = makeRes();
+    getHistory({ user: { id: 'u' }, query: {} }, res);
+    await settled();
+    expect(res.statusCode).toBe(503);
+    res = makeRes();
+    getHistory({ user: { id: 'u' }, query: { limit: '5', before: '42' } }, res);
+    await settled();
+    expect(touch.readHistory).toHaveBeenCalledWith({ limit: '5', before: '42' });
+    expect(res.headers['Cache-Control']).toBe('no-store');
+    expect(Object.keys(res.payload).sort()).toEqual(['entries', 'more', 'skipped', 'total']);
+  });
+});

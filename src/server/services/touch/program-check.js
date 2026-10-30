@@ -12,6 +12,7 @@
 const MM_PER_INCH = 25.4;
 const TOLERANCE_MM = 0.001;
 const AXES = ['X', 'Y', 'Z'];
+const TWO_PI = 2 * Math.PI;
 
 // Words Grbl 1.1 accepts; everything else is listed as not interpreted.
 const KNOWN_G = [0, 1, 2, 3, 4, 10, 17, 18, 19, 20, 21, 28, 28.1, 30, 30.1, 38.2, 38.3, 38.4, 38.5, 40, 43.1, 49, 53,
@@ -69,6 +70,8 @@ export const analyzeProgram = (gcode) => {
     machineMoves: [],
     uninterpreted: [],
     extent: { X: null, Y: null, Z: null },
+    // G53 targets, in machine coordinates (program units when rawUnits).
+    machineExtent: { X: null, Y: null, Z: null },
     unknownAxes: { X: null, Y: null, Z: null },
     zMin: null,
     zMax: null
@@ -203,13 +206,47 @@ export const analyzeProgram = (gcode) => {
       continue;
     }
     if (machineMove) {
-      a.machineMoves.push({ line: lineNo, code: 'G' + g.find((v) => [53, 28, 30, 28.1, 30.1].includes(v)) });
-      (g.includes(53) ? axes : AXES).forEach((axis) => {
+      const machineCode = 'G' + g.find((v) => [53, 28, 30, 28.1, 30.1].includes(v));
+      a.machineMoves.push({ line: lineNo, code: machineCode });
+      if (g.includes(53)) {
+        // Explicit machine coordinates (absolute even under G91): compared
+        // with the travel directly, without any work offset.
+        if (axes.length && !st.moved) {
+          st.moved = true;
+          if (!st.unitsKnown) {
+            a.rawUnits = true;
+          }
+        }
+        axes.forEach((axis) => {
+          extend(a.machineExtent, axis, at(axis) * st.scale);
+          pos[axis] = null;
+        });
+        continue;
+      }
+      // G28/G30 first go through the intermediate point given by the axis
+      // words (work coordinates), then to the stored position. A relative
+      // zero (G28 G91 Z0) is no intermediate motion; any other point is not
+      // followed. The stored position itself is not compared (see report).
+      if ((g.includes(28) || g.includes(30)) && !(st.distance === 'G91' && axes.every((axis) => at(axis) === 0))) {
+        axes.forEach((axis) => unknown(axis, 'Retour ' + machineCode + ' par un point intermédiaire ' + axis + ' (ligne ' + lineNo + ') : non suivi.'));
+      }
+      AXES.forEach((axis) => {
         pos[axis] = null;
       });
       continue;
     }
-    if (!axes.length || !(st.motion || g.some((v) => [0, 1, 2, 3].includes(v)))) {
+    if (!axes.length) {
+      continue;
+    }
+    if (!(st.motion || g.some((v) => [0, 1, 2, 3].includes(v)))) {
+      // Axis words with no motion mode yet: Grbl moves in its own modal
+      // motion (G0 after a reset), which the program does not state.
+      if (!g.some((v) => [10, 92, 92.1].includes(v))) {
+        axes.forEach((axis) => {
+          pos[axis] = null;
+          unknown(axis, 'Mot d’axe ' + axis + ' sans mode de déplacement (ligne ' + lineNo + ') : exécuté dans le mode modal de la carte, non suivi.');
+        });
+      }
       continue;
     }
 
@@ -279,11 +316,22 @@ export const analyzeProgram = (gcode) => {
           radius = Math.hypot(ci, cj);
         }
         if (cx !== undefined) {
-          // Conservative envelope: the whole circle the arc lies on.
-          extend(a.extent, 'X', cx - radius);
-          extend(a.extent, 'X', cx + radius);
-          extend(a.extent, 'Y', cy - radius);
-          extend(a.extent, 'Y', cy + radius);
+          // Exact envelope: the end points (extended below) plus every
+          // cardinal point of the circle the arc sweeps through; same start
+          // and end is a full circle.
+          const a0 = Math.atan2(start.Y - cy, start.X - cx);
+          const a1 = Math.atan2(pos.Y - cy, pos.X - cx);
+          const turn = (x) => ((x % TWO_PI) + TWO_PI) % TWO_PI;
+          const cw = st.motion === 'G2';
+          const closed = Math.abs(pos.X - start.X) < TOLERANCE_MM && Math.abs(pos.Y - start.Y) < TOLERANCE_MM;
+          const sweep = closed ? TWO_PI : turn(cw ? a0 - a1 : a1 - a0);
+          [0, 0.5, 1, 1.5].forEach((k) => {
+            const angle = k * Math.PI;
+            if (turn(cw ? a0 - angle : angle - a0) <= sweep + 1e-9) {
+              extend(a.extent, 'X', cx + radius * Math.round(Math.cos(angle)));
+              extend(a.extent, 'Y', cy + radius * Math.round(Math.sin(angle)));
+            }
+          });
         }
       }
     }
@@ -395,7 +443,8 @@ export const checkProgram = (analysis, machine = {}) => {
     const reasons = global.slice();
     const travel = number(s['$' + (130 + i)]);
     const extent = analysis.extent[axis];
-    if (!extent && !analysis.unknownAxes[axis]) {
+    const machineExtent = (analysis.machineExtent && analysis.machineExtent[axis]) || null;
+    if (!extent && !machineExtent && !analysis.unknownAxes[axis]) {
       // The program never moves this axis: it stays where the operator left it.
       axesOut[axis] = { axis, verdict: 'validated', min: null, max: null, low: null, high: null, reasons: ['Axe ' + axis + ' non sollicité par le programme.'] };
       return;
@@ -406,7 +455,8 @@ export const checkProgram = (analysis, machine = {}) => {
     if (travel === null || travel <= 0) {
       reasons.push('Course $' + (130 + i) + ' inconnue.');
     }
-    if (offset[axis] === null) {
+    // G53 targets need no work offset; everything else does.
+    if (offset[axis] === null && (extent || analysis.unknownAxes[axis])) {
       reasons.push('Position machine ou de travail ' + axis + ' inconnue.');
     }
     const entry = { axis, verdict: 'unknown', min: null, max: null, low: null, high: null, reasons };
@@ -418,27 +468,30 @@ export const checkProgram = (analysis, machine = {}) => {
       entry.low = Math.floor(mask / (2 ** i)) % 2 === 1 ? 0 : -travel;
       entry.high = entry.low + travel;
     }
-    if (!reasons.length && extent) {
-      const min = entry.min + offset[axis];
-      const max = entry.max + offset[axis];
-      entry.machineMin = min;
-      entry.machineMax = max;
+    // With a doubtful reference (global), machine coordinates mean nothing:
+    // no comparison at all, no false alarm. Otherwise what was followed is
+    // compared, even when another part of the program could not be.
+    const outside = [];
+    const compare = (min, max, label, unit) => {
+      entry.machineMin = entry.machineMin === undefined ? min : Math.min(entry.machineMin, min);
+      entry.machineMax = entry.machineMax === undefined ? max : Math.max(entry.machineMax, max);
       if (min < entry.low - TOLERANCE_MM || max > entry.high + TOLERANCE_MM) {
-        entry.verdict = 'outside';
-        entry.reasons = ['Hors course ' + axis + ' : ' + fmt(min) + ' → ' + fmt(max) + ' mm machine (course ' + fmt(entry.low) + ' → ' + fmt(entry.high) + ').'];
-      } else {
-        entry.verdict = 'validated';
+        outside.push(label + fmt(min) + ' → ' + fmt(max) + unit + ' (course ' + fmt(entry.low) + ' → ' + fmt(entry.high) + ').');
       }
-    } else if (extent && entry.low !== null && offset[axis] !== null && !global.length) {
-      // The position reference is sound but part of the program could not be
-      // followed: what was followed already leaves the travel, say so. (With
-      // a doubtful reference, mpos means nothing: no false alarm from it.)
-      const min = entry.min + offset[axis];
-      const max = entry.max + offset[axis];
-      if (min < entry.low - TOLERANCE_MM || max > entry.high + TOLERANCE_MM) {
-        entry.verdict = 'outside';
-        entry.reasons = ['Hors course ' + axis + ' : ' + fmt(min) + ' → ' + fmt(max) + ' mm machine (course ' + fmt(entry.low) + ' → ' + fmt(entry.high) + ').'].concat(reasons);
+    };
+    if (entry.low !== null && !global.length) {
+      if (extent && offset[axis] !== null) {
+        compare(entry.min + offset[axis], entry.max + offset[axis], 'Hors course ' + axis + ' : ', ' mm machine');
       }
+      if (machineExtent) {
+        compare(machineExtent.min * scale, machineExtent.max * scale, 'Hors course ' + axis + ' en coordonnées machine (G53) : ', ' mm');
+      }
+    }
+    if (outside.length) {
+      entry.verdict = 'outside';
+      entry.reasons = outside.concat(reasons);
+    } else if (!reasons.length) {
+      entry.verdict = 'validated';
     }
     axesOut[axis] = entry;
   });

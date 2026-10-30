@@ -19,6 +19,8 @@ export const MAX_BYTES = 1048576;
 const SECRET_KEYS = /^(nonce|ticket|token|authorization|password|secret|jwt|cookie)$/i;
 // A long hexadecimal string is a credential-shaped value (nonce, transport id).
 const SECRET_SHAPE = /^[0-9a-f]{32,}$/i;
+// A bearer credential or a JSON Web Token anywhere in a string, whatever its key.
+const TOKEN_SHAPE = /\bBearer\s+\S|\beyJ[\w-]+\.[\w-]+\./;
 
 const MAX_STRING = 300;
 const MAX_DEPTH = 4;
@@ -35,7 +37,7 @@ export const sanitize = (value, depth = 0) => {
     return value;
   }
   if (typeof value === 'string') {
-    return SECRET_SHAPE.test(value) ? '[masqué]' : value.slice(0, MAX_STRING);
+    return SECRET_SHAPE.test(value) || TOKEN_SHAPE.test(value) ? '[masqué]' : value.slice(0, MAX_STRING);
   }
   if (depth >= MAX_DEPTH) {
     return null;
@@ -146,21 +148,37 @@ export const createHistory = ({ rcfile, file, now = Date.now, maxEntries = MAX_E
     damagedTail = false;
   };
 
+  // On a disk failure the memory goes back to what the file holds, so a read
+  // never lists an entry that was not written.
   const append = async (entry) => {
     await load();
+    const previous = entries;
+    const previousBytes = bytes;
     const line = JSON.stringify(entry) + '\n';
-    entries.push(entry);
+    entries = previous.concat([entry]);
     bytes += Buffer.byteLength(line);
-    if (damagedTail || entries.length > maxEntries || bytes > maxBytes) {
-      entries = entries.slice(-maxEntries);
-      while (entries.length > 1 && bytes > maxBytes) {
-        bytes -= Buffer.byteLength(JSON.stringify(entries[0]) + '\n');
-        entries.shift();
+    try {
+      if (damagedTail || entries.length > maxEntries || bytes > maxBytes) {
+        entries = entries.slice(-maxEntries);
+        while (entries.length > 1 && bytes > maxBytes) {
+          bytes -= Buffer.byteLength(JSON.stringify(entries[0]) + '\n');
+          entries.shift();
+        }
+        await rewrite();
+        return;
       }
-      await rewrite();
-      return;
+      try {
+        await fs.appendFile(target, line);
+      } catch (err) {
+        // Part of the line may have reached the disk: the next record rewrites the file.
+        damagedTail = true;
+        throw err;
+      }
+    } catch (err) {
+      entries = previous;
+      bytes = previousBytes;
+      throw err;
     }
-    await fs.appendFile(target, line);
   };
 
   // Records an event; returns the entry as it will be written. Never throws

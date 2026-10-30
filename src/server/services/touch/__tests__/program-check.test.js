@@ -76,17 +76,32 @@ describe('program check (F2): analysis', () => {
     expect(checkProgram(b, machine()).reasons.join(' ')).toMatch(/G91/);
   });
 
-  test('arcs get a conservative envelope (the whole circle), in I/J and R forms, helical Z included', () => {
+  test('arcs get their exact envelope (end points and swept cardinal points), in I/J and R forms, helical Z included', () => {
+    // Half circle clockwise from (10,0) to (-10,0) around the origin: passes through (0,-10), never (0,10).
     const ij = analyzeProgram('G21 G90\nG0 X10 Y0 Z0\nG2 X-10 Y0 I-10 J0 Z-4 F200');
     expect(ij.extent.X).toEqual({ min: -10, max: 10 });
-    expect(ij.extent.Y).toEqual({ min: -10, max: 10 });
+    expect(ij.extent.Y).toEqual({ min: -10, max: 0 });
     expect(ij.extent.Z).toEqual({ min: -4, max: 0 });
-    // Quarter circle from (10,0) to (0,10), radius 10, centre at the origin.
+    // Quarter circle counter-clockwise from (10,0) to (0,10), radius 10, centre at the origin.
     const r = analyzeProgram('G21 G90\nG0 X10 Y0\nG3 X0 Y10 R10 F200');
-    expect(r.extent.X.min).toBeCloseTo(-10, 6);
+    expect(r.extent.X.min).toBeCloseTo(0, 6);
     expect(r.extent.X.max).toBeCloseTo(10, 6);
-    expect(r.extent.Y.min).toBeCloseTo(-10, 6);
+    expect(r.extent.Y.min).toBeCloseTo(0, 6);
     expect(r.extent.Y.max).toBeCloseTo(10, 6);
+    // Same end points clockwise: R10 is the short arc around (10,10), R-10 the long one around the origin.
+    const short = analyzeProgram('G21 G90\nG0 X10 Y0\nG2 X0 Y10 R10 F200');
+    expect(short.extent.X.min).toBeCloseTo(0, 6);
+    expect(short.extent.Y.min).toBeCloseTo(0, 6);
+    expect(short.extent.Y.max).toBeCloseTo(10, 6);
+    const long = analyzeProgram('G21 G90\nG0 X10 Y0\nG2 X0 Y10 R-10 F200');
+    expect(long.extent.X.min).toBeCloseTo(-10, 6);
+    expect(long.extent.Y.min).toBeCloseTo(-10, 6);
+    expect(long.extent.X.max).toBeCloseTo(10, 6);
+    expect(long.extent.Y.max).toBeCloseTo(10, 6);
+    // Same start and end in I/J form: the full circle.
+    const full = analyzeProgram('G21 G90\nG0 X0 Y0\nG3 X0 Y0 I5 J0 F200');
+    expect(full.extent.X).toEqual({ min: 0, max: 10 });
+    expect(full.extent.Y).toEqual({ min: -5, max: 5 });
     const impossible = analyzeProgram('G21 G90\nG0 X0 Y0\nG2 X100 Y0 R10 F200');
     expect(impossible.unknownAxes.X).toMatch(/rayon trop court/);
     const plane = analyzeProgram('G21 G90 G18\nG0 X0 Y0\nG2 X10 Z-5 I5 K0 F200');
@@ -213,5 +228,216 @@ describe('program check (F2): comparison with the machine', () => {
     const r = programCheck(prog, machine({ modal: { units: 'G21', distance: 'G91', wcs: 'G54' } }));
     expect(r.verdict).toBe('unknown');
     expect(r.reasons.join(' ')).toMatch(/ne fixe pas son mode/);
+  });
+});
+
+describe('program check (F2), cross-check 3: dépassements détectés', () => {
+  test('Z trop haut (+) et Z trop profond (−) → outside avec les chiffres machine', () => {
+    const up = programCheck('G21 G90\nG0 Z41\nM30', machine());
+    expect(up.axes.Z).toMatchObject({ verdict: 'outside', machineMax: 1 });
+    expect(up.verdict).toBe('outside');
+    const down = programCheck('G21 G90\nG0 Z5\nG1 Z-41 F100\nM30', machine());
+    expect(down.axes.Z).toMatchObject({ verdict: 'outside', machineMin: -81 });
+    expect(down.axes.Z.reasons[0]).toMatch(/Hors course Z : -81 → -35 mm machine \(course -80 → 0\)/);
+    // À la limite exacte : accepté (tolérance 1 µm).
+    expect(programCheck('G21 G90\nG0 Z40\nG1 Z-40 F100', machine()).axes.Z.verdict).toBe('validated');
+  });
+
+  test('X avec repère G55 décalé lu dans $# : dépassement détecté là où G54 l’aurait validé', () => {
+    const program = 'G21 G90 G55\nG0 X0 Y0\nG1 X40 F500\nM30';
+    const unknown = programCheck(program, machine());
+    expect(unknown.verdict).toBe('unknown');
+    expect(unknown.reasons.join(' ')).toMatch(/G55.*G54.*\$#.*inconnus/);
+    // G55 X = -10 : X40 travail → X30 machine, au-delà de 0.
+    const withParams = programCheck(program, machine({ parameters: { G55: { x: '-10', y: '-150', z: '-40' }, G92: { x: '0', y: '0', z: '0' }, TLO: '0' } }));
+    expect(withParams.axes.X).toMatchObject({ verdict: 'outside', machineMin: -10, machineMax: 30 });
+    expect(withParams.info.join(' ')).toMatch(/Repère G55 du programme lu/);
+    // Le même programme sous G54 serait validé.
+    expect(programCheck(program.replace('G55', 'G54'), machine()).verdict).toBe('validated');
+  });
+
+  test('G20 : pouces convertis avant comparaison ; X2 in = 50,8 mm → X12 in = 304,8 mm dépasse', () => {
+    const ok = programCheck('G20 G90\nG0 X2 Y1\nG1 Z-0.1 F10', machine());
+    expect(ok.axes.X.max).toBeCloseTo(50.8);
+    expect(ok.verdict).toBe('validated');
+    const out = programCheck('G20 G90\nG0 X12', machine());
+    expect(out.axes.X).toMatchObject({ verdict: 'outside' });
+  });
+
+  test('direction de homing $23 : bit X (1) → espace X [0, +300] ; un programme à X machine négatif devient hors course', () => {
+    const m = machine({ settings: { $23: '1' }, mpos: { x: 50, y: -150, z: -40 } }); // X travail 0 = X machine +50
+    const r = programCheck('G21 G90\nG0 X-60 Y-10\nG0 X200', m);
+    expect(r.axes.X).toMatchObject({ low: 0, high: 300, machineMin: -10, machineMax: 250, verdict: 'outside' });
+    expect(r.axes.Y).toMatchObject({ low: -200, high: 0 });
+    const z = programCheck('G21 G90\nG0 Z1', machine({ settings: { $23: '4' }, mpos: { x: -250, y: -150, z: 40 } }));
+    expect(z.axes.Z).toMatchObject({ low: 0, high: 80, verdict: 'validated' });
+  });
+});
+
+describe('program check (F2), cross-check 3: inconnu jamais validé', () => {
+  test('$130 absent → X inconnu même si Y et Z sont validés ; $22=1 (chaîne) sans homing constaté → inconnu, même très hors course', () => {
+    const r = programCheck('G21 G90\nG0 X10 Y10 Z1', machine({ settings: { $130: undefined } }));
+    expect(r.axes.X.verdict).toBe('unknown');
+    expect(r.axes.X.reasons).toContain('Course $130 inconnue.');
+    expect(r.axes.Y.verdict).toBe('validated');
+    expect(r.verdict).toBe('unknown');
+    const far = programCheck('G21 G90\nG0 X5000 Y5000 Z500', machine({ homed: false }));
+    expect(far.verdict).toBe('unknown');
+    expect(far.axes.X.verdict).toBe('unknown'); // jamais `outside` sur des coordonnées sans référence
+    expect(far.reasons.join(' ')).toMatch(/Référencement non constaté/);
+    // homed: 'true' (chaîne) ou 1 ne vaut pas true.
+    expect(programCheck('G21 G90\nG0 X1', machine({ homed: 'true' })).verdict).toBe('unknown');
+    expect(programCheck('G21 G90\nG0 X1', machine({ homed: 1 })).verdict).toBe('unknown');
+  });
+
+  test('G91 initial → inconnu ; G91 après une position absolue connue → suivi et validé/outside', () => {
+    const rel = programCheck('G21 G91\nG0 X10 Y10\nG1 Z-1 F100', machine());
+    expect(rel.verdict).toBe('unknown');
+    expect(rel.reasons.join(' ')).toMatch(/commence en déplacements relatifs/);
+    const later = analyzeProgram('G21 G90\nG0 X10 Y10 Z0\nG91\nG0 X35\nG1 Z-5 F100\nG90');
+    expect(later.extent.X).toEqual({ min: 10, max: 45 });
+    expect(later.distanceChanges).toEqual([3, 6]);
+    expect(checkProgram(later, machine()).verdict).toBe('validated');
+    // X10 puis +260 relatif = X270 travail = +20 mm machine.
+    expect(checkProgram(analyzeProgram('G21 G90\nG0 X10\nG91\nG0 X260'), machine()).axes.X).toMatchObject({ verdict: 'outside', machineMax: 20 });
+  });
+
+  test('$20=0 est mentionné dans `info` (pas une raison) ; $20 absent : rien', () => {
+    const off = programCheck('G21 G90\nG0 X1', machine({ settings: { $20: '0' } }));
+    expect(off.info.join(' ')).toMatch(/Limites logicielles Grbl inactives \(\$20=0\)/);
+    expect(off.verdict).toBe('validated');
+    expect(programCheck('G21 G90\nG0 X1', machine({ settings: { $20: undefined } })).info.join(' ')).not.toMatch(/Limites logicielles/);
+  });
+
+  test('macros/expressions, codes G inconnus, G38, G43.1 : inconnu ; un programme vide : tout « non sollicité » → validated', () => {
+    expect(programCheck('G21 G90\nG0 X[#1+2]', machine()).verdict).toBe('unknown');
+    expect(programCheck('G21 G90\nG0 X1\n%wait', machine()).verdict).toBe('unknown');
+    expect(programCheck('G21 G90\nG5 X1 Y1 I0 J1 P2 Q3', machine()).verdict).toBe('unknown');
+    expect(programCheck('G21 G90\nG38.2 Z-10 F50\nG0 X1', machine()).axes.Z.verdict).toBe('unknown');
+    const empty = programCheck('', machine());
+    expect(empty.verdict).toBe('validated');
+    expect(empty.reasons).toEqual(['Axe X non sollicité par le programme.', 'Axe Y non sollicité par le programme.', 'Axe Z non sollicité par le programme.']);
+  });
+});
+
+describe('program check (F2), cross-check 3: « axe non sollicité = validé »', () => {
+  test('un programme XY sans Z : Z validé avec la raison, même si la position Z est inconnue et $132 absent', () => {
+    const r = programCheck('G21 G90\nG0 X10 Y10\nG1 X20 F100', machine({ mpos: { x: -250, y: -150 }, wpos: { x: 0, y: 0 }, settings: { $132: undefined } }));
+    expect(r.axes.Z).toMatchObject({ verdict: 'validated', reasons: ['Axe Z non sollicité par le programme.'] });
+    expect(r.verdict).toBe('validated');
+    // Et même sans référencement : l'axe non sollicité court-circuite les doutes de référence.
+    const noHome = programCheck('G21 G90\nG0 X10 Y10', machine({ homed: false }));
+    expect(noHome.axes.Z.verdict).toBe('validated');
+    expect(noHome.verdict).toBe('unknown');
+  });
+
+  // D4 (corrigé) : G53 porte des coordonnées MACHINE explicites, comparées
+  // directement à la course ; jamais « non sollicité ».
+  test('G53 G0 X-400 (hors course en coordonnées machine) → outside ; G53 G0 Z0 des posts Fusion reste validé', () => {
+    const r = programCheck('G21 G90\nG53 G0 X-400 Y-10\nM30', machine());
+    expect(r.machineMoves).toEqual([{ line: 2, code: 'G53' }]);
+    expect(r.axes.X).toMatchObject({ verdict: 'outside', machineMin: -400, machineMax: -400 });
+    expect(r.axes.X.reasons[0]).toBe('Hors course X en coordonnées machine (G53) : -400 → -400 mm (course -300 → 0).');
+    expect(r.axes.Y).toMatchObject({ verdict: 'validated', machineMin: -10, machineMax: -10 });
+    expect(r.verdict).toBe('outside');
+    // Post Fusion 360 : retraits G53 G0 Z0 autour du travail.
+    const fusion = programCheck('G90 G94 G17\nG21\nG53 G0 Z0\nG0 X10 Y10\nG0 Z5\nG1 Z-1 F100\nG53 G0 Z0\nM30', machine());
+    expect(fusion.axes.Z).toMatchObject({ verdict: 'validated', machineMin: -41, machineMax: 0 });
+    expect(fusion.verdict).toBe('validated');
+    expect(programCheck('G21 G90\nG53 G0 Z0', machine({ settings: { $23: '4' }, mpos: { x: -250, y: -150, z: 40 } })).axes.Z.verdict).toBe('validated');
+    // Pouces : G20 G53 X-12 = -304,8 mm machine.
+    const inch = programCheck('G20 G90\nG53 G0 X-12', machine()).axes.X;
+    expect(inch.verdict).toBe('outside');
+    expect(inch.machineMin).toBeCloseTo(-304.8, 6);
+    // Absolu même sous G91 (Grbl ignore le mode de distance en G53).
+    expect(programCheck('G21 G90\nG0 X0\nG91\nG53 G0 X-301', machine()).axes.X.verdict).toBe('outside');
+    // Un axe déjà non suivi (G43.1) garde l'alarme d'une cible G53 hors course.
+    const tlo = programCheck('G21 G90\nG43.1 Z2\nG53 G0 Z10', machine());
+    expect(tlo.axes.Z.verdict).toBe('outside');
+    expect(tlo.axes.Z.reasons.join(' ')).toMatch(/G53.*G43\.1/);
+  });
+
+  test('G53 sans référencement constaté ou sans course connue : inconnu, jamais validé ni hors course', () => {
+    const noHome = programCheck('G21 G90\nG53 G0 X-400', machine({ homed: false }));
+    expect(noHome.axes.X.verdict).toBe('unknown');
+    expect(noHome.axes.X.reasons.join(' ')).toMatch(/Référencement non constaté/);
+    expect(programCheck('G21 G90\nG53 G0 Z0', machine({ homed: false })).axes.Z.verdict).toBe('unknown');
+    const noTravel = programCheck('G21 G90\nG53 G0 X-10', machine({ settings: { $130: undefined } }));
+    expect(noTravel.axes.X).toMatchObject({ verdict: 'unknown', reasons: ['Course $130 inconnue.'] });
+    // Coordonnées machine sans position de travail : la comparaison G53 n'en a pas besoin.
+    expect(programCheck('G21 G90\nG53 G0 Z-5', machine({ mpos: {}, wpos: {} })).axes.Z.verdict).toBe('validated');
+    // Unités laissées à la machine : converties comme le reste.
+    expect(programCheck('G90\nG53 G0 X-12', machine({ modal: { units: 'G20', distance: 'G90', wcs: 'G54' } })).axes.X.verdict).toBe('outside');
+    expect(programCheck('G90\nG53 G0 X-12', machine({ modal: null })).axes.X.verdict).toBe('unknown');
+  });
+
+  // D5 (corrigé) : le point intermédiaire de G28/G30 et les mots d'axe sans
+  // mode de déplacement ne sont plus ignorés.
+  test('G28 X-500 Y0 : point intermédiaire non suivi → X et Y inconnus ; G28 G91 Z0 (aucun point intermédiaire) reste accepté', () => {
+    const r = programCheck('G21 G90\nG28 X-500 Y0\nG28\nM30', machine());
+    expect(r.machineMoves.map((m) => m.code)).toEqual(['G28', 'G28']);
+    expect(r.axes.X.verdict).toBe('unknown');
+    expect(r.axes.X.reasons).toContain('Retour G28 par un point intermédiaire X (ligne 2) : non suivi.');
+    expect(r.axes.Y.verdict).toBe('unknown');
+    expect(r.verdict).toBe('unknown');
+    expect(programCheck('G21 G90\nG0 X10 Y10\nG30 Z5', machine()).axes.Z.reasons.join(' ')).toMatch(/Retour G30 par un point intermédiaire Z \(ligne 3\)/);
+    const old = programCheck('G21 G90\nG0 X10 Y10 Z5\nG1 Z-1 F100\nG28 G91 Z0\nG90\nG28 G91 X0 Y0\nM30', machine());
+    expect(old.verdict).toBe('validated');
+  });
+
+  test('« X500 Y500 » sans G0/G1 préalable : inconnu pour X et Y, avec la ligne ; G92/G10 ne sont pas des déplacements', () => {
+    const r = programCheck('G21 G90\nX500 Y500\nM30', machine());
+    expect(r.moves).toBe(0);
+    expect(r.axes.X).toMatchObject({ verdict: 'unknown' });
+    expect(r.axes.X.reasons).toContain('Mot d’axe X sans mode de déplacement (ligne 2) : exécuté dans le mode modal de la carte, non suivi.');
+    expect(r.axes.Y.verdict).toBe('unknown');
+    expect(r.axes.Z.verdict).toBe('validated');
+    expect(analyzeProgram('G21 G90\nG92 X0\nG0 X10').unknownAxes.X).toMatch(/G92 ligne 2/);
+  });
+});
+
+describe('program check (F2), cross-check 3: arcs', () => {
+  test('un arc qui sort est détecté (I/J et R) ; un cercle complet dedans est validé', () => {
+    // Centre (20, 0) rayon 20 : le cercle complet va de X0 à X40, Y-20 à Y20 ; Y-20 travail → Y machine -170 : dedans.
+    const full = programCheck('G21 G90\nG0 X0 Y0\nG2 X0 Y0 I20 J0 F300', machine());
+    expect(full.axes.X).toMatchObject({ min: 0, max: 40, verdict: 'validated' });
+    expect(full.verdict).toBe('validated');
+    // Arc G2 de (0,0) à (0,-20) de centre (0,-10) rayon 10... poussé vers X machine > 0 : centre à X travail 245.
+    const out = programCheck('G21 G90\nG0 X245 Y0\nG2 X245 Y-20 I0 J-10 F300', machine());
+    expect(out.axes.X).toMatchObject({ verdict: 'outside', machineMax: 5 });
+    const outR = programCheck('G21 G90\nG0 X245 Y0\nG2 X245 Y-20 R10 F300', machine());
+    expect(outR.axes.X.verdict).toBe('outside');
+  });
+
+  // L1 (corrigé) : enveloppe exacte de l'arc ; un quart d'arc dans la course
+  // près du bord n'est plus un faux « outside ».
+  test('quart d’arc entièrement dans la course près du bord → validé (enveloppe exacte) ; le cercle complet au même endroit sort', () => {
+    const m = machine({ mpos: { x: -250, y: -200, z: -40 } });
+    // Quart d'arc G2 de (0,0) à (10,10), centre (10,0) : y ∈ [0,10] réellement.
+    const r = programCheck('G21 G90\nG0 X0 Y0\nG2 X10 Y10 I10 J0 F300', m);
+    expect(r.axes.Y).toMatchObject({ verdict: 'validated', machineMin: -200, machineMax: -190 });
+    expect(r.verdict).toBe('validated');
+    expect(programCheck('G21 G90\nG0 X0 Y0\nG1 X2.93 Y7.07 F300\nG1 X10 Y10', m).verdict).toBe('validated');
+    // Le même cercle parcouru en entier descend à y = -10 → Y machine -210.
+    expect(programCheck('G21 G90\nG0 X0 Y0\nG2 X0 Y0 I10 J0 F300', m).axes.Y).toMatchObject({ verdict: 'outside', machineMin: -210 });
+  });
+
+  test('arc en G18/G19 ou en G90.1 : inconnu, jamais validé', () => {
+    expect(programCheck('G21 G90 G18\nG0 X0 Z0\nG2 X10 Z0 I5 K0 F100', machine()).verdict).toBe('unknown');
+    expect(programCheck('G21 G90 G90.1\nG0 X0 Y0\nG2 X10 Y0 I5 J0 F100', machine()).verdict).toBe('unknown');
+  });
+});
+
+describe('program check (F2), cross-check 3: unités laissées à la machine', () => {
+  test('rawUnits + $G frais en G20 : extent × 25,4 ; $G absent → inconnu ; mode absent et machine en G91 → inconnu', () => {
+    const a = analyzeProgram('G90\nG0 X10');
+    expect(a.rawUnits).toBe(true);
+    expect(checkProgram(a, machine({ modal: { units: 'G20', distance: 'G90', wcs: 'G54' } })).axes.X.max).toBeCloseTo(254);
+    expect(checkProgram(a, machine({ modal: null })).verdict).toBe('unknown');
+    const noMode = analyzeProgram('G21\nG0 X10');
+    expect(checkProgram(noMode, machine({ modal: { units: 'G21', distance: 'G91', wcs: 'G54' } })).verdict).toBe('unknown');
+    expect(checkProgram(noMode, machine()).verdict).toBe('validated');
+    // $13=1 : comparaison non faite.
+    expect(programCheck('G21 G90\nG0 X10', machine({ reportUnits: 'in' })).verdict).toBe('unknown');
   });
 });

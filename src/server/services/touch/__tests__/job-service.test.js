@@ -2769,3 +2769,530 @@ describe('observe cross-check: host command reservation without a client', () =>
     ctx.stream.dispose();
   });
 });
+
+describe('job service F5, cross-check 3', () => {
+  const fakeController = (port = 'TEST') => {
+    const c = {
+      type: 'Grbl',
+      options: { port },
+      ready: true,
+      isClose: () => false,
+      runner: new EventEmitter(),
+      sender: new EventEmitter(),
+      workflow: Object.assign(new EventEmitter(), { state: 'idle' }),
+      state: { status: { activeState: 'Idle' } },
+      feeder: { toJSON: () => ({ queue: 0, pending: false }) },
+      settings: { settings: { $110: 1000, $111: 1000, $112: 200 } },
+      commands: []
+    };
+    c.runner.state = c.state;
+    c.sender.state = { name: '', context: {}, total: 0 };
+    c.sender.toJSON = () => ({ ...c.sender.state });
+    c.command = (name, ...args) => {
+      c.commands.push([name, ...args]);
+      if (name === 'gcode:load') {
+        c.sender.state = { name: args[0], context: args[2], total: 3 };
+        c.sender.emit('load');
+        args[3](null);
+      }
+      if (name === 'gcode:start' || name === 'gcode:resume') {
+        c.workflow.state = 'running';
+        c.state.status.activeState = 'Run';
+        if (name === 'gcode:start') {
+          c.workflow.emit('start');
+        }
+      }
+      if (name === 'gcode:pause') {
+        c.workflow.state = 'paused';
+        c.state.status.activeState = 'Hold';
+      }
+      if (name === 'gcode:stop') {
+        c.workflow.state = 'idle';
+        c.state.status.activeState = 'Idle';
+      }
+    };
+    return c;
+  };
+
+  let root;
+  beforeAll(async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), 'cnc-xv3-f5-'));
+    await fs.writeFile(path.join(root, 'test.nc'), 'G21 G90\nG1 X1 F100\nM2');
+  });
+  afterAll(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  const services = [];
+  afterEach(() => {
+    services.splice(0).forEach((s) => s.dispose());
+  });
+
+  const A = { kind: 'touch', id: 'tablet-A', label: 'Tablette A', user: 'ana' };
+  const B = { kind: 'touch', id: 'tablet-B', label: 'Tablette B', user: 'bob' };
+  const HTTP = { kind: 'http', id: 'http:carl', user: 'carl' };
+  const SOCK = { kind: 'socket', id: 'sock-1', label: 'CNCjs 10.0.0.5', user: 'ana' };
+
+  const setup = (options = {}) => {
+    const box = { now: 10000 };
+    const control = createControl({ now: () => box.now, elapsed: () => box.now, graceMs: 60000, onEvent: options.onEvent });
+    const ctx = { events: [], c: fakeController(), control, box };
+    ctx.controllers = { TEST: ctx.c };
+    ctx.service = createService(
+      { get: () => ctx.controllers },
+      { get: (key) => ({ watchDirectory: root, macros: [] }[key] || ctx.events) },
+      () => box.now,
+      { control, history: options.history }
+    );
+    services.push(ctx.service);
+    ctx.generation = ctx.service.list()[0].generation;
+    ctx.transportId = 'offline-transport';
+    ctx.service.openTransport(ctx.transportId);
+    ctx.req = (action, extra = {}, actor) => ctx.service.action({ port: 'TEST', generation: ctx.generation, transportId: ctx.transportId, action, ...extra }, actor);
+    ctx.report = () => ctx.c.runner.emit('status');
+    ctx.state = () => ctx.service.list()[0];
+    ctx.advance = (ms) => {
+      box.now += ms;
+    };
+    return ctx;
+  };
+
+  const started = async (ctx, actor) => {
+    ctx.report();
+    await ctx.req('load', { file: 'test.nc' }, actor);
+    const ticket = await ctx.req('prepare', { operation: 'start', revision: ctx.state().revision }, actor);
+    await ctx.req('start', { nonce: ticket.nonce }, actor);
+    return ctx.state();
+  };
+
+  describe('Pause / Arrêt / M5 pour un non-propriétaire', () => {
+    test('pendant le travail de A, B met en pause et arrête avec un rapport périmé (aucune garde available()) ; B ne peut pas reprendre', async () => {
+      const ctx = setup();
+      ctx.service.openTransport('stream-A', A);
+      await started(ctx, A);
+      expect(ctx.state().control.owner).toMatchObject({ id: 'tablet-A', present: true });
+      // Rapport périmé : 10 s sans rapport.
+      ctx.advance(10000);
+      expect(ctx.state().fresh).toBe(false);
+      await expect(ctx.req('pause', {}, B)).resolves.toMatchObject({ message: expect.stringMatching(/Pause/) });
+      expect(ctx.c.commands.at(-1)).toEqual(['gcode:pause']);
+      // Reprise par B : refusée en nommant A (code ECONTROL, statut 409).
+      await expect(ctx.req('prepare', { operation: 'resume', revision: ctx.state().revision }, B)).rejects.toMatchObject({
+        status: 409, code: 'ECONTROL', owner: { id: 'tablet-A' }, message: expect.stringMatching(/« Tablette A »/)
+      });
+      // Arrêt par un client HTTP anonyme (interface classique) : accepté.
+      await expect(ctx.req('stop', {}, HTTP)).resolves.toBeTruthy();
+      expect(ctx.c.commands.slice(-2)).toEqual([['gcode:stop'], ['reset']]);
+      // M5 par B au repos : accepté sans bail.
+      ctx.c.state.status.activeState = 'Idle';
+      await expect(ctx.req('spindleStop', {}, B)).resolves.toBeTruthy();
+      expect(ctx.c.commands.at(-1)).toEqual(['gcode', 'M5']);
+      // Les lectures restent libres pour B.
+      await expect(ctx.req('settings', {}, B)).resolves.toMatchObject({ settings: expect.any(Object) });
+      await expect(ctx.req('control', { operation: 'status' }, B)).resolves.toMatchObject({ role: 'observer', owner: { id: 'tablet-A' } });
+    });
+  });
+
+  describe('revendication implicite', () => {
+    // D1 (corrigé) : une action refusée ne change jamais le propriétaire ; la
+    // tablette ne revendique un port libre qu'après le succès de son action.
+    test('une action gardée REFUSÉE par l’état machine ne revendique pas le port ; la même action réussie, si', async () => {
+      const ctx = setup();
+      // Le PC (socket, pas d'acteur Touch) a démarré un travail : le port est libre.
+      ctx.report();
+      await ctx.req('load', { file: 'test.nc' });
+      ctx.c.command('gcode:start');
+      ctx.report();
+      expect(ctx.state().workflow).toBe('running');
+      expect(ctx.state().control.owner).toBeNull();
+      ctx.service.openTransport('stream-A', A);
+      await expect(ctx.req('load', { file: 'test.nc' }, A)).rejects.toThrow(/au repos/);
+      await expect(ctx.req('prepare', { operation: 'resume', revision: ctx.state().revision }, A)).rejects.toThrow();
+      expect(ctx.state().control.owner).toBeNull();
+      expect(ctx.state().control.lastChange).toBeNull();
+      // Le PC garde la main sur son travail : pause puis reprise.
+      ctx.c.command('gcode:pause');
+      expect(ctx.control.authorize('TEST', SOCK, 'gcode:resume')).toBeNull();
+      // Travail du PC terminé : le chargement de la tablette réussit et revendique.
+      ctx.c.command('gcode:stop');
+      ctx.report();
+      await ctx.req('load', { file: 'test.nc' }, A);
+      expect(ctx.state().control.owner).toMatchObject({ id: 'tablet-A' });
+      expect(ctx.state().control.lastChange).toMatchObject({ type: 'claim' });
+    });
+
+    test('une tablette prend implicitement le pilotage par un override pendant que le PC envoie son G-code ; visible dans le snapshot et l’historique, le PC ne peut plus reprendre', async () => {
+      const recorded = [];
+      const history = { record: (e) => recorded.push(e), read: () => Promise.resolve({}) };
+      const ctx = setup({ history, onEvent: (e) => history.record({ event: 'control', change: e.type, owner: e.owner, previous: e.previous || null }) });
+      ctx.report();
+      await ctx.req('load', { file: 'test.nc' }); // chargé sans acteur (PC)
+      ctx.c.command('gcode:start');
+      ctx.report();
+      ctx.service.openTransport('stream-A', A);
+      await expect(ctx.req('override', { kind: 'feed', value: 10 }, A)).resolves.toBeTruthy();
+      expect(ctx.state().control).toMatchObject({ owner: { id: 'tablet-A', present: true }, lastChange: { type: 'claim' } });
+      expect(recorded.filter((e) => e.event === 'control').map((e) => e.change)).toEqual(['claim']);
+      // Le PC : pause autorisée, reprise refusée, et aucune voie Socket.IO de prise de contrôle.
+      expect(ctx.control.authorize('TEST', SOCK, 'gcode:pause', { safe: true })).toBeTruthy();
+      expect(() => ctx.control.authorize('TEST', SOCK, 'gcode:resume')).toThrow(/ECONTROL|attribué/);
+      // Le travail démarré par le PC a bien été enregistré comme venant de l'interface CNCjs.
+      expect(recorded.find((e) => e.event === 'start').actor).toEqual({ kind: 'socket', id: 'cncjs', label: 'interface CNCjs' });
+    });
+
+    test('un acteur HTTP (sans clientId) et un appel anonyme n’acquièrent jamais le bail, même par une action gardée réussie', async () => {
+      const ctx = setup();
+      await started(ctx, HTTP);
+      expect(ctx.state().control.owner).toBeNull();
+      ctx.c.command('gcode:stop');
+      ctx.report();
+      await ctx.req('readSettings', {});
+      expect(ctx.state().control.owner).toBeNull();
+    });
+  });
+
+  describe('prise de contrôle pendant un travail et expiration pendant M6', () => {
+    test('B prend le pilotage pendant le travail de A : le travail continue, aucune commande émise ; B peut mettre en pause puis reprendre le travail de A ; A ne peut plus reprendre', async () => {
+      const recorded = [];
+      const ctx = setup({ onEvent: (e) => recorded.push(e) });
+      ctx.service.openTransport('stream-A', A);
+      ctx.service.openTransport('stream-B', B);
+      await started(ctx, A);
+      const before = ctx.c.commands.length;
+      const taken = await ctx.req('control', { operation: 'takeover', reason: 'A est parti' }, B);
+      expect(taken).toMatchObject({ owner: { id: 'tablet-B' }, previous: { id: 'tablet-A' } });
+      expect(ctx.c.commands.length).toBe(before); // rien envoyé à la machine
+      expect(ctx.state().workflow).toBe('running');
+      expect(recorded.at(-1)).toMatchObject({ type: 'takeover', reason: 'A est parti', previous: { id: 'tablet-A' }, owner: { id: 'tablet-B' } });
+      // B met en pause et reprend : la révision est publique dans le snapshot partagé.
+      await ctx.req('pause', {}, B);
+      const ticket = await ctx.req('prepare', { operation: 'resume', revision: ctx.state().revision }, B);
+      await ctx.req('resume', { nonce: ticket.nonce }, B);
+      expect(ctx.c.commands.at(-1)).toEqual(['gcode:resume']);
+      // A, ancien propriétaire : pause oui, reprise non.
+      await ctx.req('pause', {}, A);
+      await expect(ctx.req('prepare', { operation: 'resume', revision: ctx.state().revision }, A)).rejects.toThrow(/« Tablette B »/);
+      // A ne peut pas « reprendre » son bail par claim ; il lui faut un takeover avec motif.
+      await expect(ctx.req('control', { operation: 'claim' }, A)).rejects.toThrow(/Tablette B/);
+      // La prise de contrôle ne demande ni generation ni transportId (hors liste) : vérifié.
+      const taken2 = await ctx.service.action({ port: 'TEST', action: 'control', operation: 'takeover', reason: 'retour de A' }, A);
+      expect(taken2.owner.id).toBe('tablet-A');
+    });
+
+    test('le bail de A expire pendant une pause M6 : le port est libre, B revendique par sa reprise ; aucune reprise automatique au retour de A', async () => {
+      const ctx = setup();
+      ctx.service.openTransport('stream-A', A);
+      await started(ctx, A);
+      // Pause demandée par le programme (M6), machine à l'arrêt.
+      ctx.c.workflow.state = 'paused';
+      ctx.c.sender.state = { ...ctx.c.sender.state, holdReason: { data: 'M6', msg: 'T2' } };
+      ctx.c.state.status.activeState = 'Idle';
+      ctx.report();
+      expect(ctx.state().programPause).toMatchObject({ kind: 'M6' });
+      // La tablette A disparaît (flux fermé) et sa grâce s'écoule.
+      ctx.service.closeTransport('stream-A');
+      ctx.advance(60001);
+      ctx.report();
+      ctx.service.observe();
+      expect(ctx.state().control.owner).toBeNull();
+      expect(ctx.state().workflow).toBe('paused'); // le travail est resté en pause : rien d'automatique
+      const commandsBefore = ctx.c.commands.length;
+      // A revient : son flux est rattaché, aucun bail restauré, aucune commande.
+      ctx.service.openTransport('stream-A2', A);
+      expect(ctx.state().control.owner).toBeNull();
+      expect(ctx.c.commands.length).toBe(commandsBefore);
+      // B reprend (M6 sans relance broche connue) et devient propriétaire.
+      ctx.service.openTransport('stream-B', B);
+      const ticket = await ctx.req('prepare', { operation: 'resume', revision: ctx.state().revision }, B);
+      expect(ctx.state().control.owner).toMatchObject({ id: 'tablet-B' });
+      await ctx.req('resume', { nonce: ticket.nonce }, B);
+      expect(ctx.c.commands.at(-1)).toEqual(['gcode:resume']);
+      // A est maintenant observateur : sa prochaine action gardée est refusée.
+      await expect(ctx.req('prepare', { operation: 'resume', revision: ctx.state().revision }, A)).rejects.toThrow(/Tablette B/);
+    });
+
+    test('reconnexion de A dans la grâce pendant une pause : bail restauré, travail toujours en pause, aucune commande envoyée', async () => {
+      const ctx = setup();
+      ctx.service.openTransport('stream-A', A);
+      await started(ctx, A);
+      await ctx.req('pause', {}, A);
+      ctx.service.closeTransport('stream-A');
+      ctx.advance(45000);
+      const commandsBefore = ctx.c.commands.length;
+      ctx.service.openTransport('stream-A2', A);
+      expect(ctx.state().control).toMatchObject({ owner: { id: 'tablet-A', present: true }, lastChange: { type: 'restored' } });
+      expect(ctx.state().workflow).toBe('paused');
+      expect(ctx.c.commands.length).toBe(commandsBefore);
+      // Le ticket de A (s'il en avait un) a été révoqué par la fermeture du flux : une reprise exige une nouvelle confirmation.
+      await expect(ctx.req('resume', { nonce: 'ancien' }, A)).rejects.toThrow(/Confirmation expirée/);
+    });
+  });
+
+  describe('historique et dispose', () => {
+    test('la prise de contrôle est enregistrée dans l’historique durable avec motif, propriétaire et précédent ; dispose() du service laisse le module control intact (index.js le dispose)', async () => {
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cnc-xv3-f5-hist-'));
+      const history = createHistory({ file: path.join(dir, 'h.jsonl'), now: () => 1700000000000 });
+      const ctx = setup({
+        history,
+        onEvent: (e) => history.record({ event: 'control', change: e.type, port: e.port, owner: e.owner, previous: e.previous || null, reason: e.reason || '', by: e.by || null, admin: !!e.admin })
+      });
+      ctx.service.openTransport('stream-A', A);
+      await started(ctx, A);
+      await ctx.req('control', { operation: 'takeover', reason: 'Tablette A hors de portée' }, B);
+      await history.flush();
+      const page = await history.read({ limit: 20 });
+      const control = page.entries.filter((e) => e.event === 'control');
+      expect(control.map((e) => e.change)).toEqual(['takeover', 'claim']);
+      expect(control[0]).toMatchObject({ port: 'TEST', reason: 'Tablette A hors de portée', owner: { id: 'tablet-B', label: 'Tablette B', user: 'bob' }, previous: { id: 'tablet-A' }, admin: false });
+      const text = await fs.readFile(history.file, 'utf8');
+      expect(text).not.toMatch(/offline-transport|stream-A|"nonce"/);
+      ctx.service.dispose();
+      expect(ctx.control.inspect('TEST').owner).toMatchObject({ id: 'tablet-B' });
+      await history.dispose();
+      await fs.rm(dir, { recursive: true, force: true });
+    });
+  });
+});
+
+describe('job service A5 and F2, cross-check 3', () => {
+  const fakeController = (port = 'TEST') => {
+    const c = {
+      type: 'Grbl',
+      options: { port },
+      ready: true,
+      isClose: () => false,
+      runner: new EventEmitter(),
+      sender: new EventEmitter(),
+      workflow: Object.assign(new EventEmitter(), { state: 'idle' }),
+      state: { status: { activeState: 'Idle' } },
+      feeder: { toJSON: () => ({ queue: 0, pending: false }) },
+      settings: { settings: { $110: 1000, $111: 1000, $112: 200 } },
+      commands: []
+    };
+    c.runner.state = c.state;
+    c.sender.state = { name: '', context: {}, total: 0 };
+    c.sender.toJSON = () => ({ ...c.sender.state });
+    c.command = (name, ...args) => {
+      c.commands.push([name, ...args]);
+      if (name === 'gcode:load') {
+        c.sender.state = { name: args[0], context: args[2], total: 3 };
+        c.sender.emit('load');
+        args[3](null);
+      }
+      if (name === 'gcode:start' || name === 'gcode:resume') {
+        c.workflow.state = 'running';
+        c.state.status.activeState = 'Run';
+        if (name === 'gcode:start') {
+          c.workflow.emit('start');
+        }
+      }
+      if (name === 'gcode:pause') {
+        c.workflow.state = 'paused';
+        c.state.status.activeState = 'Hold';
+      }
+      if (name === 'gcode:stop') {
+        c.workflow.state = 'idle';
+        c.state.status.activeState = 'Idle';
+      }
+    };
+    return c;
+  };
+
+  let root;
+  beforeAll(async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), 'cnc-xv3-a5-'));
+    await fs.writeFile(path.join(root, 'resume.nc'), ['G21 G90', 'M3 S9000', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200',
+      'G1 X10 F800', 'G1 Y10', 'G1 X0', 'G0 Z5', 'M5', 'M30'].join('\n'));
+  });
+  afterAll(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  const services = [];
+  afterEach(() => {
+    services.splice(0).forEach((s) => s.dispose());
+  });
+
+  const setup = (options = {}) => {
+    const ctx = { now: 10000, events: [], c: fakeController() };
+    ctx.controllers = { TEST: ctx.c };
+    const config = { get: (key) => ({ watchDirectory: root, macros: [] }[key] || ctx.events) };
+    ctx.service = createService({ get: () => ctx.controllers }, config, () => ctx.now, options);
+    services.push(ctx.service);
+    ctx.generation = ctx.service.list()[0].generation;
+    ctx.transportId = 't';
+    ctx.service.openTransport(ctx.transportId);
+    ctx.req = (action, extra = {}) => ctx.service.action({ port: 'TEST', generation: ctx.generation, transportId: ctx.transportId, action, ...extra });
+    ctx.report = () => ctx.c.runner.emit('status');
+    ctx.state = () => ctx.service.list()[0];
+    return ctx;
+  };
+
+  describe('A5: liaison du démarrage à l’empreinte', () => {
+    test('fichier modifié entre load et prepare → 409 au ticket ; entre prepare et start → 409 au start ; aucun gcode:start envoyé', async () => {
+      const ctx = setup();
+      const file = path.join(root, 'bind.nc');
+      await fs.writeFile(file, 'G21 G90\nG1 X1 F100\nM2');
+      ctx.report();
+      await ctx.req('load', { file: 'bind.nc' });
+      const rev = ctx.state().revision;
+      await fs.writeFile(file, 'G21 G90\nG1 X2 F100\nM2');
+      await expect(ctx.req('prepare', { operation: 'start', revision: rev })).rejects.toMatchObject({ status: 409, message: 'Fichier modifié depuis le chargement : rechargez-le.' });
+      // Rétabli : le ticket passe ; puis remodifié avant le start.
+      await fs.writeFile(file, 'G21 G90\nG1 X1 F100\nM2');
+      const ticket = await ctx.req('prepare', { operation: 'start', revision: rev });
+      expect(ticket.programCheck).toBeTruthy();
+      await fs.writeFile(file, 'G21 G90\nG1 X3 F100\nM2');
+      await expect(ctx.req('start', { nonce: ticket.nonce })).rejects.toThrow(/Fichier modifié depuis le chargement/);
+      expect(ctx.c.commands.map(([n]) => n)).not.toContain('gcode:start');
+      // Le ticket est consommé : rejouer le même nonce échoue sur l'expiration, pas sur le fichier.
+      await fs.writeFile(file, 'G21 G90\nG1 X1 F100\nM2');
+      await expect(ctx.req('start', { nonce: ticket.nonce })).rejects.toThrow(/Confirmation expirée/);
+    });
+
+    test('fichier supprimé puis même contenu sous un autre nom : le start du nom chargé → 409 « introuvable » (pas accepté par le contenu)', async () => {
+      const ctx = setup();
+      const file = path.join(root, 'moved.nc');
+      await fs.writeFile(file, 'G21 G90\nG1 X1 F100\nM2');
+      ctx.report();
+      await ctx.req('load', { file: 'moved.nc' });
+      const ticket = await ctx.req('prepare', { operation: 'start', revision: ctx.state().revision });
+      await fs.rename(file, path.join(root, 'moved-copy.nc'));
+      await expect(ctx.req('start', { nonce: ticket.nonce })).rejects.toThrow(/introuvable/);
+    });
+
+    test('reprise après pause : non revérifiée par empreinte, acceptée même si le fichier a changé (le programme est déjà dans le sender) ; un gcode:load externe invalide le travail', async () => {
+      const ctx = setup();
+      const file = path.join(root, 'paused.nc');
+      await fs.writeFile(file, 'G21 G90\nG1 X1 F100\nM2');
+      ctx.report();
+      await ctx.req('load', { file: 'paused.nc' });
+      const t = await ctx.req('prepare', { operation: 'start', revision: ctx.state().revision });
+      await ctx.req('start', { nonce: t.nonce });
+      await ctx.req('pause');
+      await fs.writeFile(file, 'G21 G90\nG1 X999 F100\nM2');
+      const t2 = await ctx.req('prepare', { operation: 'resume', revision: ctx.state().revision });
+      await ctx.req('resume', { nonce: t2.nonce });
+      expect(ctx.c.commands.at(-1)).toEqual(['gcode:resume']);
+      // Le sender porte toujours la révision chargée : c'est ce programme-là qui tourne.
+      expect(ctx.c.sender.state.context.touchJob).toBe(ctx.state().revision);
+      expect(ctx.state().fingerprint).toBe(sha256('G21 G90\nG1 X1 F100\nM2'));
+      // Si le PC recharge un autre programme dans CNCjs, la reprise Touch est refusée (validJob).
+      await ctx.req('pause');
+      ctx.c.sender.state = { name: 'other.nc', context: {}, total: 5 };
+      await expect(ctx.req('prepare', { operation: 'resume', revision: t2.nonce && ctx.state().revision })).rejects.toThrow(/Le fichier chargé a changé/);
+    });
+
+    test('reprise depuis une ligne : l’empreinte mémorisée est celle du fichier original ; programCheck porte sur le programme reconstruit ; fichier modifié → 409 au ticket', async () => {
+      const ctx = setup();
+      const file = path.join(root, 'fromline.nc');
+      const text = (await fs.readFile(path.join(root, 'resume.nc'), 'utf8'));
+      await fs.writeFile(file, text);
+      ctx.report();
+      await ctx.req('load', { file: 'fromline.nc', fromLine: 7 });
+      const s = ctx.state();
+      expect(s.fingerprint).toBe(sha256(text));
+      expect(s.resume).toMatchObject({ from: 7 });
+      // Le programme reconstruit commence par le préambule : son analyse voit Z5 (dégagement) et Z-1.
+      expect(s.programCheck).toMatchObject({ zMax: 5, zMin: -1 });
+      await fs.writeFile(file, text + '\n(modifié)');
+      await expect(ctx.req('prepare', { operation: 'start', revision: s.revision })).rejects.toThrow(/Fichier modifié depuis le chargement/);
+      // resumePlan est sans état : il relit le fichier à chaque appel (pas d'empreinte à mémoriser).
+      const plan = await ctx.req('resumePlan', { file: 'fromline.nc', line: 7 });
+      expect(plan.program).toBeUndefined();
+      expect(plan.notes.join(' ')).toMatch(/Retrait en rapide constaté à Z5/);
+    });
+
+    test('fichier > 20 Mo (localFiles) → 409 « supérieur à 20 Mo » ; fichier vide → 409 ; macro % → 409 explicite', async () => {
+      const ctx = setup();
+      ctx.report();
+      const big = path.join(root, 'big.nc');
+      const fh = await fs.open(big, 'w');
+      await fh.truncate(20 * 1048576 + 1);
+      await fh.close();
+      await expect(ctx.req('load', { file: 'big.nc' })).rejects.toMatchObject({ status: 409, message: 'Fichier supérieur à 20 Mo.' });
+      await fs.unlink(big);
+      await fs.writeFile(path.join(root, 'empty.nc'), '');
+      await expect(ctx.req('load', { file: 'empty.nc' })).rejects.toMatchObject({ status: 409, message: 'Fichier vide.' });
+      await fs.writeFile(path.join(root, 'macro.nc'), 'G21 G90\n%wait\nG0 X1');
+      await expect(ctx.req('load', { file: 'macro.nc' })).rejects.toThrow(/directives CNCjs %/);
+      // Un `%` seul (marqueur de programme) est accepté.
+      await fs.writeFile(path.join(root, 'percent.nc'), '%\nG21 G90\nG0 X1\n%');
+      await expect(ctx.req('load', { file: 'percent.nc' })).resolves.toBeTruthy();
+      expect(ctx.state().programCheck.uninterpreted).toEqual([]);
+    }, 30000);
+  });
+
+  describe('F2: référencement observé', () => {
+    const ready = (ctx) => {
+      ctx.c.settings.settings = { ...ctx.c.settings.settings, $13: 0, $20: 1, $22: 1, $23: 0, $130: 300, $131: 200, $132: 80 };
+      ctx.c.state.status = { ...ctx.c.state.status, activeState: 'Idle', mpos: { x: -250, y: -150, z: -40 }, wpos: { x: 0, y: 0, z: 0 } };
+      ctx.c.state.parserstate = { modal: { wcs: 'G54', units: 'G21', distance: 'G90' } };
+      ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
+      ctx.report();
+    };
+
+    test('Home → Run (pas Idle) : non référencé ; Home → Alarm : non référencé ; Home → Idle : référencé', () => {
+      const ctx = setup();
+      ready(ctx);
+      ctx.c.state.status.activeState = 'Home';
+      ctx.report();
+      ctx.c.state.status.activeState = 'Run';
+      ctx.report();
+      expect(ctx.state().homed).toBe(false);
+      ctx.c.state.status.activeState = 'Home';
+      ctx.report();
+      ctx.c.state.status.activeState = 'Alarm';
+      ctx.report();
+      expect(ctx.state().homed).toBe(false);
+      ctx.c.state.status.activeState = 'Home';
+      ctx.report();
+      ctx.c.state.status.activeState = 'Idle';
+      ctx.report();
+      expect(ctx.state().homed).toBe(true);
+    });
+
+    // D6 (corrigé) : un état Home vu avant un redémarrage de carte ne compte
+    // plus ; seul un cycle observé après le redémarrage référence la machine.
+    test('Home → redémarrage de carte → Idle : non référencé ; Home → alarme → Idle : non référencé', () => {
+      const ctx = setup();
+      ready(ctx);
+      ctx.c.state.status.activeState = 'Home';
+      ctx.report();
+      ctx.c.runner.emit('startup', {});
+      expect(ctx.state().homed).toBe(false);
+      ctx.c.state.status.activeState = 'Idle';
+      ctx.report();
+      expect(ctx.state().homed).toBe(false);
+      ctx.c.state.status.activeState = 'Home';
+      ctx.report();
+      ctx.c.runner.emit('alarm', 'ALARM:9');
+      ctx.c.state.status.activeState = 'Idle';
+      ctx.report();
+      expect(ctx.state().homed).toBe(false);
+      // Un cycle complet après coup référence.
+      ctx.c.state.status.activeState = 'Home';
+      ctx.report();
+      ctx.c.state.status.activeState = 'Idle';
+      ctx.report();
+      expect(ctx.state().homed).toBe(true);
+    });
+
+    test('notre $H interrompu par un Arrêt (reset) : non référencé ; le snapshot d’un programme très hors course reste inconnu tant que non référencé', async () => {
+      const ctx = setup();
+      ready(ctx);
+      await fs.writeFile(path.join(root, 'far.nc'), 'G21 G90\nG0 X5000');
+      await ctx.req('load', { file: 'far.nc' });
+      expect(ctx.state().programCheck.verdict).toBe('unknown');
+      const home = await ctx.req('prepare', { operation: 'home' });
+      await ctx.req('home', { nonce: home.nonce });
+      expect(ctx.state().homing).toBe(true);
+      await ctx.req('stop');
+      expect(ctx.c.commands.at(-1)).toEqual(['reset']);
+      ctx.now += 1500;
+      ctx.report();
+      expect(ctx.state().homed).toBe(false);
+      expect(ctx.state().programCheck.verdict).toBe('unknown');
+    });
+  });
+});

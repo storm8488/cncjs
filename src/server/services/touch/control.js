@@ -224,6 +224,8 @@ export const createControl = ({ now = Date.now, elapsed = () => performance.now(
   };
 
   const attach = (who, handle) => {
+    // A lease whose grace is over ends first: coming back late restores nothing.
+    tick();
     const actor = actorOf(who);
     const key = keyOf(actor);
     if (!present.has(key)) {

@@ -61,7 +61,9 @@ export const postJob = authorized((req, res) => {
       touch.publish();
     })
     .catch((err) => {
-      res.status(err.status || ERR_BAD_REQUEST).send({ message: err.message });
+      // A control refusal (F5) names its code and the current owner, as documented.
+      const control = err.code === 'ECONTROL' ? { code: err.code, owner: err.owner || null } : {};
+      res.status(err.status || ERR_BAD_REQUEST).send({ message: err.message, ...control });
     });
 });
 

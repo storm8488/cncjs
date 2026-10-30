@@ -354,6 +354,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         r.homing = null;
         // An alarm may have lost the position (hard/soft limit, abort during a cycle).
         r.homed = false;
+        r.sawHome = false;
         if (r.job && r.job.started && !r.job.stopped && !r.job.finishedAt) {
           log({ event: 'alarm', ...jobInfo(r.job), controller: controllerInfo(c, r), code: r.alarm, actor: SYSTEM });
         }
@@ -368,6 +369,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         r.stall = null;
         r.homing = null;
         r.homed = false;
+        // A Home state seen before the restart says nothing about the new session.
+        r.sawHome = false;
         r.startups += 1;
         // A restart (E-stop wired to reset, an alarm abort, a reset from another
         // client) during a pause: Grbl is back to G54, G21, G0 and F0.
@@ -1523,7 +1526,8 @@ notes: plan.notes
     // Attribution of control (F5): a port owned by someone else refuses every
     // operation that moves or prepares the machine; Pause, Stop and M5 never
     // need the lease. A touch client (persistent clientId) claims a free port
-    // by its first guarded operation; other callers leave it free.
+    // by its first guarded operation that succeeded (see action()); other
+    // callers leave it free.
     if (a === 'control') {
       const op = body.operation;
       if (op === 'status') {
@@ -1541,7 +1545,7 @@ notes: plan.notes
       throw conflict('Opération de pilotage inconnue.');
     }
     if (GUARDED_ACTIONS.includes(a)) {
-      control.authorize(c.options.port, actor, a, { claim: !!(actor && actor.kind === 'touch') });
+      control.authorize(c.options.port, actor, a);
     } else if (SAFE_ACTIONS.includes(a)) {
       control.authorize(c.options.port, actor, a, { safe: true });
     }
@@ -1816,7 +1820,19 @@ notes: plan.notes
   // next snapshot; every refusal still reaches the caller as a rejection.
   const action = (body, actor) => {
     try {
-      return Promise.resolve(perform(body, actor));
+      return Promise.resolve(perform(body, actor)).then((result) => {
+        // A refused or failed operation never changes the owner: a touch
+        // client claims a free port only once its guarded operation succeeded.
+        if (actor && actor.kind === 'touch' && GUARDED_ACTIONS.includes(body.action)) {
+          try {
+            control.authorize(body.port, actor, body.action, { claim: true });
+          } catch (_) {
+            // Claimed by someone else meanwhile: the operation ran, the lease
+            // is theirs, and the snapshot says so.
+          }
+        }
+        return result;
+      });
     } catch (err) {
       return Promise.reject(err);
     }

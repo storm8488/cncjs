@@ -536,3 +536,54 @@ describe('resume cross-check 2: a highest Z reached by cutting only, above the c
     expect(xvOutcome(prog, 9)).toMatch(/dégagement.*aucun déplacement rapide/);
   });
 });
+
+describe('resume, cross-check 3', () => {
+  const P = (...lines) => lines.join('\n');
+
+  describe('variante B: dégagement atteint en rapide', () => {
+    test('post G1-seul (Easel) : refus explicite nommant l’absence de G0 en Z, à chaque ligne de reprise possible', () => {
+      const easel = P('G21 G90', 'M3 S12000', 'G1 Z5 F500', 'G1 X0 Y0 F1000', 'G1 Z-1 F200', 'G1 X10', 'G1 Y10', 'G1 Z5 F500', 'G1 X20 Y20', 'G1 Z-1 F200', 'M5', 'M30');
+      [6, 7, 9, 10].forEach((line) => {
+        expect(() => buildResume(easel, line)).toThrow(/Hauteur de dégagement inconnue avant la ligne \d+ \(aucun déplacement rapide G0 en Z\) : choisissez une ligne après un retrait en rapide\./);
+      });
+      // Même après un `G1 Z5` (retrait en coupe à la ligne 8), la ligne 9 reste refusée : c'est le compromis assumé.
+      expect(() => buildResume(easel, 9)).toThrow(/aucun déplacement rapide G0 en Z/);
+    });
+
+    test('G0 Z5 puis G1 Z-1 / G1 Z-0.5 : dégagement Z5, note nommant le rapide', () => {
+      const prog = P('G21 G90', 'M3 S9000', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200', 'G1 X10 F800', 'G1 Z-0.5', 'G1 X0', 'M5', 'M30');
+      const plan = buildResume(prog, 8);
+      expect(plan.safeZ).toBe(5);
+      expect(plan.preamble).toContain('G0 Z5');
+      expect(plan.position).toEqual({ X: 10, Y: 0, Z: -0.5 });
+      expect(plan.notes[1]).toBe('Retrait en rapide constaté à Z5 : sans déplacement rapide G0 en Z, aucune reprise ne serait proposée.');
+      // Un retrait en G1 plus haut que le rapide : dégagement = Z max (G1 Z8), justifié par le rapide Z5 au-dessous.
+      const higherG1 = P('G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200', 'G1 Z8 F500', 'G1 X10 F800', 'G1 Z-1 F200', 'G1 X0');
+      const p2 = buildResume(higherG1, 8);
+      expect(p2.safeZ).toBe(8);
+      expect(p2.notes[1]).toMatch(/Retrait en rapide constaté à Z5/);
+    });
+
+    test('changement de repère sans nouveau G0 Z : refus « sous G55 » ; avec un G0 Z sous G55 : accepté', () => {
+      const noRapid = P('G21 G90 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200', 'G1 X10', 'G55', 'G0 X0 Y0', 'G1 Z-1 F200', 'G1 X10', 'G1 Y10');
+      expect(() => buildResume(noRapid, 10)).toThrow(/aucun déplacement rapide G0 en Z sous G55/);
+      const withRapid = P('G21 G90 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200', 'G1 X10', 'G55', 'G0 Z3', 'G0 X0 Y0', 'G1 Z-1 F200', 'G1 X10', 'G1 Y10');
+      const plan = buildResume(withRapid, 11);
+      expect(plan).toMatchObject({ safeZ: 3, wcs: 'G55' });
+      expect(plan.notes[1]).toMatch(/Retrait en rapide constaté à Z3 sous G55/);
+      expect(plan.preamble[1]).toBe('G21 G90 G17 G55 G94');
+    });
+
+    test('G91 G0 Z5 relatif puis G90 : le rapide relatif compte comme retrait (position absolue connue avant)', () => {
+      const prog = P('G21 G90', 'G0 X0 Y0 Z0', 'G91', 'G0 Z5', 'G90', 'G1 Z-1 F100', 'G1 X10', 'G1 Y10');
+      const plan = buildResume(prog, 8);
+      expect(plan.safeZ).toBe(5);
+      expect(plan.position).toEqual({ X: 10, Y: 0, Z: -1 });
+      expect(plan.preamble).toContain('G0 Z5');
+      // Le même rapide relatif depuis une position Z inconnue : pas de dégagement connu.
+      const unknownStart = P('G21 G90', 'G0 X0 Y0', 'G91', 'G0 Z5', 'G90', 'G1 Z-1 F100', 'G1 X10', 'G1 Y10');
+      // Z absolu redonné seulement par G1 Z-1 : safeZ = -1 et rapidZ null → refus (correct : aucun retrait rapide connu).
+      expect(() => buildResume(unknownStart, 8)).toThrow(/aucun déplacement rapide G0 en Z/);
+    });
+  });
+});
