@@ -519,7 +519,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
 
   const remove = (c, r) => {
     records.delete(c);
-    moves.forget(r);
+    moves.forget(c, r);
     Array.from(r.timers).forEach((entry) => {
       clearTimeout(entry.handle);
       r.timers.delete(entry);
@@ -1115,7 +1115,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     log,
     controllerInfo,
     allSettings,
-    modalWcs
+    modalWcs,
+    spindleOn: (c) => spindleOn(c)
   });
 
   const findMacro = (id) => {
@@ -1578,6 +1579,9 @@ notes: plan.notes
       }
       throw conflict('Opération de pilotage inconnue.');
     }
+    // A real move that is disabled (or not supported) says so before any
+    // control refusal (F1).
+    moves.precheck(c, r, body);
     if (guarded(body)) {
       control.authorize(c.options.port, actor, a);
     } else if (SAFE_ACTIONS.includes(a) || a === 'motion') {
@@ -1770,6 +1774,11 @@ notes: plan.notes
     }
 
     if (a === 'pause') {
+      // Grbl cannot hold a jog: a Pause during one of ours cancels it (0x85) and says so.
+      if (c.workflow.state === 'idle' && moves.moving(c, r)) {
+        r.ticket = null;
+        return moves.stop(c, r, 'pause');
+      }
       if (c.workflow.state !== 'running') {
         throw conflict('Aucun travail en cours.');
       }
@@ -1869,7 +1878,8 @@ notes: plan.notes
       return Promise.resolve(perform(body, actor)).then((result) => {
         // A refused or failed operation never changes the owner: a touch
         // client claims a free port only once its guarded operation succeeded.
-        if (actor && actor.kind === 'touch' && guarded(body)) {
+        // A keepalive only extends a jog its start already claimed for: it never claims.
+        if (actor && actor.kind === 'touch' && guarded(body) && !(body.action === 'motion' && body.operation === 'jog-keepalive')) {
           try {
             control.authorize(body.port, actor, body.action, { claim: true });
           } catch (_) {

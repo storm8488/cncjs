@@ -57,6 +57,13 @@ const ORIGIN_TOLERANCE = 0.005;
 // The machine must not have moved more than this between confirmation and execution.
 const ORIGIN_MOVED_MM = 0.01;
 const MAX_REPORT_AGE_MS = 2500;
+// A machine position this far outside an envelope is outside it.
+const POSITION_TOLERANCE_MM = 0.001;
+// An unconfirmed jog cancel goes on being repeated while Jog is reported, at
+// most this long (the bounded `$J` ends by itself anyway).
+const CANCEL_MAX_MS = 120000;
+// With the spindle turning: no continuous jog, steps of 0.1 mm at most.
+export const MAX_SPINDLE_STEP_MM = 0.1;
 const WCS_P = { G54: 1, G55: 2, G56: 3, G57: 4, G58: 5, G59: 6 };
 
 export const DISABLED_MESSAGE = 'Déplacements réels non activés : validation matérielle supervisée requise (voir HANDOFF.md).';
@@ -68,7 +75,11 @@ const STOP_REASONS = {
   transport: 'flux de suivi du client fermé',
   control: 'pilotage pris par un autre client',
   stale: 'rapport machine trop ancien',
-  alarm: 'alarme machine'
+  alarm: 'alarme machine',
+  disabled: 'déplacements réels désactivés',
+  late: 'maintien reçu après l’échéance',
+  pause: 'bouton Pause',
+  dispose: 'service arrêté'
 };
 
 const number = (v) => {
@@ -125,34 +136,69 @@ export const capabilitiesOf = ({ type, firmware, version, enabled }) => {
   };
 };
 
-// Machine travel per axis, with the convention of the travel check (F2):
-// homing towards the positive end ($23 bit clear) gives [-travel, 0], towards
-// the negative end [0, travel]. Known only on a referenced machine.
+// Machine travel per axis, known only on a referenced machine. Standard
+// Grbl 1.1 keeps machine positions in [-travel, 0] whatever $23 says;
+// Grbl_ESP32 (home_mpos 0) and builds with HOMING_FORCE_SET_ORIGIN give
+// [0, travel] to an axis homed towards its negative end ($23 bit set). Until
+// the convention of the firmware seen is certain, such an axis has both
+// candidates, and a move must be safe in every candidate that contains the
+// current position (see limitsAt).
 export const envelopeOf = (settings, homed) => {
   const s = settings || {};
   let global = '';
   const homing = number(s.$22);
+  const mask = number(s.$23);
   if (homing === null) {
     global = 'réglage $22 inconnu';
   } else if (homing !== 1) {
     global = 'prise d’origine désactivée ($22=0)';
   } else if (homed !== true) {
     global = 'référencement ($H) non constaté depuis le dernier redémarrage de la carte';
+  } else if (mask === null || mask < 0 || mask !== Math.floor(mask)) {
+    global = 'réglage $23 (sens de prise d’origine) inconnu';
   }
-  const mask = number(s.$23) || 0;
   const axes = {};
   AXES.forEach((axis, i) => {
     const travel = number(s['$' + (130 + i)]);
     if (global) {
-      axes[axis] = { limits: null, reason: global };
+      axes[axis] = { candidates: null, travel: null, reason: global };
     } else if (travel === null || travel <= 0) {
-      axes[axis] = { limits: null, reason: 'course $' + (130 + i) + ' inconnue' };
+      axes[axis] = { candidates: null, travel: null, reason: 'course $' + (130 + i) + ' inconnue' };
     } else {
-      const low = Math.floor(mask / (2 ** i)) % 2 === 1 ? 0 : -travel;
-      axes[axis] = { limits: { low, high: low + travel }, reason: '' };
+      const candidates = [{ low: -travel, high: 0 }];
+      if (Math.floor(mask / (2 ** i)) % 2 === 1) {
+        candidates.push({ low: 0, high: travel });
+      }
+      axes[axis] = { candidates, travel, reason: '' };
     }
   });
   return axes;
+};
+
+// Travel usable from `pos` on one axis: the intersection of the candidate
+// envelopes that contain the position. A position in none of them means the
+// assumed convention is wrong for this firmware: nothing may move then.
+export const limitsAt = (env, pos, axis) => {
+  if (!env.candidates) {
+    return { limits: null, outside: false, reason: env.reason };
+  }
+  if (pos === null) {
+    return { limits: null, outside: false, reason: 'position machine ' + axis + ' inconnue' };
+  }
+  const plausible = env.candidates.filter((e) => pos >= e.low - POSITION_TOLERANCE_MM && pos <= e.high + POSITION_TOLERANCE_MM);
+  if (!plausible.length) {
+    return {
+      limits: null,
+      outside: true,
+      reason: 'position machine ' + axis + ' ' + fmt(pos) + ' hors de la course supposée (' +
+        env.candidates.map((e) => fmt(e.low) + ' → ' + fmt(e.high)).join(' ou ') + ') : vérifiez $23 et l’origine machine'
+    };
+  }
+  return {
+    limits: { low: Math.max(...plausible.map((e) => e.low)), high: Math.min(...plausible.map((e) => e.high)) },
+    outside: false,
+    reason: ''
+  };
 };
 
 // $110-$112 when known, else the documented fallback.
@@ -170,7 +216,7 @@ export const originLine = (p, axes) => 'G10 L20 P' + p + ' ' + axes.map((axis) =
 export const createMotion = (deps) => {
   const {
     config, clock, conflict, controllers, record, later, answers, changed, available,
-    hasAutomations, control, transports, transportActors, log, controllerInfo, allSettings, modalWcs
+    hasAutomations, control, transports, transportActors, log, controllerInfo, allSettings, modalWcs, spindleOn
   } = deps;
 
   const stateOf = (r) => {
@@ -302,17 +348,22 @@ export const createMotion = (deps) => {
   const step = (c, r, body) => {
     jogReady(c, r);
     const p = jogParams(c, body, false);
-    const axis = envelopeOf(allSettings(c), r.homed)[p.axis];
+    if (p.step > MAX_SPINDLE_STEP_MM && spindleOn(c)) {
+      throw conflict('Broche en rotation : pas de ' + fmt(MAX_SPINDLE_STEP_MM) + ' mm au plus (maintien continu refusé). Arrêtez la broche (M5) pour de plus grands déplacements.');
+    }
     const pos = positionOf(c, 'mpos', p.axis);
-    if (p.step > MAX_UNREFERENCED_STEP_MM && (!axis.limits || pos === null)) {
-      throw conflict('Pas de ' + fmt(p.step) + ' mm refusé : au-delà de ' + MAX_UNREFERENCED_STEP_MM + ' mm, il faut une machine référencée et une course connue (' +
-        (axis.reason || 'position machine ' + p.axis + ' inconnue') + ').');
+    const at = limitsAt(envelopeOf(allSettings(c), r.homed)[p.axis], pos, p.axis);
+    if (at.outside) {
+      throw conflict('Pas refusé : ' + at.reason + '.');
+    }
+    if (p.step > MAX_UNREFERENCED_STEP_MM && !at.limits) {
+      throw conflict('Pas de ' + fmt(p.step) + ' mm refusé : au-delà de ' + MAX_UNREFERENCED_STEP_MM + ' mm, il faut une machine référencée et une course connue (' + at.reason + ').');
     }
     const distance = p.direction * p.step;
-    if (axis.limits && pos !== null) {
+    if (at.limits) {
       const target = pos + distance;
-      if (target < axis.limits.low - 1e-6 || target > axis.limits.high + 1e-6) {
-        throw conflict('Pas refusé : ' + p.axis + ' sortirait de la course (' + fmt(target) + ' mm machine, course ' + fmt(axis.limits.low) + ' → ' + fmt(axis.limits.high) + ').');
+      if (target < at.limits.low - 1e-6 || target > at.limits.high + 1e-6) {
+        throw conflict('Pas refusé : ' + p.axis + ' sortirait de la course (' + fmt(target) + ' mm machine, course ' + fmt(at.limits.low) + ' → ' + fmt(at.limits.high) + ').');
       }
     }
     const line = jogLine(p.axis, distance, p.feed);
@@ -320,21 +371,55 @@ export const createMotion = (deps) => {
     return { message: 'Pas de ' + fmt(p.step) + ' mm en ' + p.axis + (p.direction > 0 ? '+' : '−') + ' envoyé (' + line + ').', command: line };
   };
 
+  // History (F4): one entry per continuous jog session, written when it ends.
+  const endSession = (c, r, session, result, reason, message) => {
+    const s = stateOf(r);
+    s.session = null;
+    s.lastJog = { result, reason, message, at: Date.now(), axis: session ? session.axis : null };
+    if (session) {
+      log({
+        event: 'jog',
+        result,
+        reason: reason || '',
+        controller: controllerInfo(c, r),
+        axis: session.axis,
+        direction: session.direction,
+        feed: session.feed,
+        distanceMm: session.distanceMm,
+        command: session.command,
+        startedAt: new Date(session.since).toISOString(),
+        durationMs: Date.now() - session.since,
+        actor: session.actor
+      });
+    }
+  };
+
   // Ends a continuous jog (if any) and cancels whatever jog Grbl runs: 0x85,
   // sent again when the `$J` is acknowledged after it (a 0x85 that reached
   // Grbl before the `$J` was parsed is ignored outside the Jog state) and
-  // while a report newer than the last 0x85 still shows Jog.
+  // while a report newer than the last 0x85 still shows Jog. Not confirmed
+  // after CANCEL_LIMIT_MS: the operator is told and it is recorded, and the
+  // 0x85 keeps being repeated while Jog is reported, for at most the planned
+  // duration of the `$J` (CANCEL_MAX_MS at most).
   const cancel = (c, r, why) => {
     const s = stateOf(r);
-    const session = s.session;
-    s.session = null;
-    s.lastJog = { result: 'cancelled', reason: why, message: STOP_REASONS[why] || why, at: Date.now(), axis: session ? session.axis : null };
+    endSession(c, r, s.session, 'cancelled', why, STOP_REASONS[why] || why);
     if (!connected(c)) {
       changed();
       return;
     }
     c.command('jogCancel');
-    const job = { since: clock(), sentAt: clock(), mark: r.reports, oks: s.pending ? s.pending.t.oks : 0 };
+    const p0 = s.pending;
+    const planned = p0 && p0.kind === 'jog' ? p0.sentAt + p0.limitMs - clock() : 0;
+    const job = {
+      since: clock(),
+      sentAt: clock(),
+      mark: r.reports,
+      oks: p0 ? p0.t.oks : 0,
+      until: clock() + Math.min(CANCEL_MAX_MS, Math.max(CANCEL_LIMIT_MS, planned)),
+      unconfirmed: false,
+      reason: why
+    };
     s.cancel = job;
     changed();
     const check = () => {
@@ -362,10 +447,17 @@ export const createMotion = (deps) => {
         changed();
         return;
       }
-      if (clock() - job.since > CANCEL_LIMIT_MS) {
-        // Not confirmed: the `$J` ends at its bound anyway; the operator is told.
+      if (!job.unconfirmed && clock() - job.since > CANCEL_LIMIT_MS) {
+        job.unconfirmed = true;
+        if (s.lastJog) {
+          s.lastJog.unconfirmed = true;
+        }
+        log({ event: 'jog-cancel-unconfirmed', reason: why, controller: controllerInfo(c, r), state, actor: null });
+        changed();
+      }
+      if (clock() > job.until) {
+        // The bounded `$J` is over by now, or nothing more can be done from here.
         s.cancel = null;
-        s.lastJog.unconfirmed = true;
         changed();
         return;
       }
@@ -375,6 +467,9 @@ export const createMotion = (deps) => {
   };
 
   const stopReason = (c, r, session) => {
+    if (!motionEnabled(config)) {
+      return 'disabled';
+    }
     if (clock() > session.deadline) {
       return 'keepalive';
     }
@@ -401,8 +496,7 @@ export const createMotion = (deps) => {
         return;
       }
       if (!connected(c)) {
-        s.session = null;
-        s.lastJog = { result: 'lost', message: 'connexion au contrôleur perdue', at: Date.now(), axis: session.axis };
+        endSession(c, r, session, 'lost', 'connection', 'connexion au contrôleur perdue');
         return;
       }
       const why = stopReason(c, r, session);
@@ -414,10 +508,11 @@ export const createMotion = (deps) => {
       const p = s.pending;
       const error = p && p.t.error;
       if (settle(c, r)) {
-        s.session = null;
-        s.lastJog = error
-          ? { result: 'refused', message: 'Grbl a refusé le jog (error:' + error + ')', at: Date.now(), axis: session.axis }
-          : { result: 'ended', message: 'fin de la course autorisée atteinte', at: Date.now(), axis: session.axis };
+        if (error) {
+          endSession(c, r, session, 'refused', 'error:' + error, 'Grbl a refusé le jog (error:' + error + ')');
+        } else {
+          endSession(c, r, session, 'ended', 'bound', 'fin de la course autorisée atteinte');
+        }
         changed();
         return;
       }
@@ -426,13 +521,14 @@ export const createMotion = (deps) => {
     later(c, r, check, WATCH_MS);
   };
 
+  // Why no continuous jog may start on this axis now ('' when it may).
   const continuousReason = (c, r, axis) => {
-    const env = envelopeOf(allSettings(c), r.homed)[axis];
-    if (!env.limits) {
-      return 'Maintien continu impossible : ' + env.reason + '. Utilisez les pas (' + MAX_UNREFERENCED_STEP_MM + ' mm au plus).';
+    if (spindleOn(c)) {
+      return 'Broche en rotation : maintien continu refusé ; pas de ' + fmt(MAX_SPINDLE_STEP_MM) + ' mm au plus.';
     }
-    if (positionOf(c, 'mpos', axis) === null) {
-      return 'Maintien continu impossible : position machine ' + axis + ' inconnue.';
+    const at = limitsAt(envelopeOf(allSettings(c), r.homed)[axis], positionOf(c, 'mpos', axis), axis);
+    if (!at.limits) {
+      return 'Maintien continu impossible : ' + at.reason + '.' + (at.outside ? '' : ' Utilisez les pas (' + MAX_UNREFERENCED_STEP_MM + ' mm au plus).');
     }
     return '';
   };
@@ -445,10 +541,12 @@ export const createMotion = (deps) => {
     if (why) {
       throw conflict(why);
     }
-    const { limits } = envelopeOf(allSettings(c), r.homed)[p.axis];
+    const env = envelopeOf(allSettings(c), r.homed)[p.axis];
     const pos = positionOf(c, 'mpos', p.axis);
-    const edge = p.direction > 0 ? limits.high - EDGE_MARGIN_MM : limits.low + EDGE_MARGIN_MM;
-    const room = Math.floor((p.direction > 0 ? edge - pos : pos - edge) * 1000) / 1000;
+    const { limits } = limitsAt(env, pos, p.axis);
+    // Safe in every plausible convention, and never more than the travel itself.
+    const toEdge = p.direction > 0 ? limits.high - EDGE_MARGIN_MM - pos : pos - (limits.low + EDGE_MARGIN_MM);
+    const room = Math.floor(Math.min(toEdge, env.travel - EDGE_MARGIN_MM) * 1000) / 1000;
     if (!(room >= MIN_CONTINUOUS_MM)) {
       throw conflict('Fin de course proche : pas de maintien continu vers ' + p.axis + (p.direction > 0 ? '+' : '−') + ' (' + fmt(Math.max(0, room)) + ' mm disponibles).');
     }
@@ -456,12 +554,14 @@ export const createMotion = (deps) => {
     const session = {
       id: crypto.randomBytes(12).toString('hex'),
       actorKey: keyOf(actor),
+      actor: { kind: actor.kind, id: actor.id, label: actor.label || '', user: actor.user || '' },
       owner: { kind: actor.kind, id: actor.id, label: actor.label || '' },
       transportId: body.transportId,
       axis: p.axis,
       direction: p.direction,
       feed: p.feed,
       distanceMm: room,
+      command: line,
       since: Date.now(),
       deadline: clock() + KEEPALIVE_TIMEOUT_MS
     };
@@ -489,6 +589,12 @@ export const createMotion = (deps) => {
     if (keyOf(actor) !== session.actorKey || body.transportId !== session.transportId) {
       throw conflict('Ce déplacement appartient à un autre client.');
     }
+    // Past the deadline the watchdog cancels at its next tick: a late
+    // keepalive never extends the jog.
+    if (clock() > session.deadline) {
+      cancel(c, r, 'late');
+      throw conflict('Maintien reçu trop tard : déplacement annulé (0x85).');
+    }
     session.deadline = clock() + KEEPALIVE_TIMEOUT_MS;
     return { active: true, jogId: session.id };
   };
@@ -499,13 +605,40 @@ export const createMotion = (deps) => {
     return !!(s.session || (s.pending && s.pending.kind === 'jog' && !settle(c, r)));
   };
 
-  // Release, pointercancel, blur, Stop: free for everyone, enabled or not.
+  const STOP_MESSAGES = {
+    pause: 'Pause pendant un déplacement : Grbl ne suspend pas un jog, annulation de jog (0x85) envoyée.'
+  };
+
+  // Release, pointercancel, blur, Stop, Pause: free for everyone, enabled or not.
   const stop = (c, r, why = 'operator') => {
     if (moving(c, r) || activeOf(c) === 'Jog') {
       cancel(c, r, why);
-      return { message: 'Déplacement arrêté : annulation de jog (0x85) envoyée.' };
+      return { message: STOP_MESSAGES[why] || 'Déplacement arrêté : annulation de jog (0x85) envoyée.' };
     }
     return { message: 'Aucun déplacement en cours.' };
+  };
+
+  // Called before the control lease is checked: a disabled or unsupported
+  // function says so first, and a keepalive of a jog that was running when
+  // the function was disabled cancels it. jog-stop never comes here.
+  const precheck = (c, r, body) => {
+    let name = null;
+    if (body.action === 'motion') {
+      name = { jog: 'jog', 'jog-start': 'jogContinuous', 'jog-keepalive': 'jog' }[body.operation] || null;
+    } else if (body.action === 'set-origin' || (body.action === 'prepare' && body.operation === 'set-origin')) {
+      name = 'setOrigin';
+    }
+    if (!name) {
+      return;
+    }
+    try {
+      gate(c, r, name);
+    } catch (err) {
+      if (body.operation === 'jog-keepalive' && stateOf(r).session) {
+        cancel(c, r, 'disabled');
+      }
+      throw err;
+    }
   };
 
   // POST {action: 'motion', operation: 'jog' | 'jog-start' | 'jog-keepalive' | 'jog-stop'}
@@ -517,10 +650,10 @@ export const createMotion = (deps) => {
     if (!['jog', 'jog-start', 'jog-keepalive'].includes(op)) {
       throw conflict('Opération de déplacement inconnue.');
     }
+    precheck(c, r, body);
     if (op === 'jog-keepalive') {
       return keepalive(c, r, body, actor);
     }
-    gate(c, r, 'jog');
     bound(body, actor);
     return op === 'jog' ? step(c, r, body) : start(c, r, body, actor);
   };
@@ -675,6 +808,8 @@ export const createMotion = (deps) => {
           owner: s.session.owner
         } : null,
         cancelling: !!s.cancel,
+        // A jog cancel not confirmed after 5 s (still repeated while Jog is reported).
+        cancelUnconfirmed: !!(s.cancel && s.cancel.unconfirmed),
         lastJog: s.lastJog ? { ...s.lastJog } : null,
         lastOrigin: s.lastOrigin ? { ...s.lastOrigin } : null
       }
@@ -684,7 +819,7 @@ export const createMotion = (deps) => {
   // Change detection for the stream (see job-service fingerprint()).
   const signature = (r) => {
     const s = r.motion;
-    return s ? [s.session && s.session.id, s.pending && s.pending.sentAt, s.cancel && s.cancel.since, s.lastJog && s.lastJog.at, s.lastOrigin && s.lastOrigin.at].join('/') : '';
+    return s ? [s.session && s.session.id, s.pending && s.pending.sentAt, s.cancel && s.cancel.since, s.cancel && s.cancel.unconfirmed, s.lastJog && s.lastJog.at, s.lastOrigin && s.lastOrigin.at].join('/') : '';
   };
 
   // The owner's event stream closed: its continuous jog stops at once.
@@ -698,20 +833,28 @@ export const createMotion = (deps) => {
   // A continuous jog keeps its stream from being rotated (see touch-stream).
   const holds = (id) => (r) => !!(r.motion && r.motion.session && r.motion.session.transportId === id);
 
-  // The controller record is dropped: its answer listeners go with it.
-  const forget = (r) => {
+  // The controller record is dropped (port closed, or the service disposed):
+  // its answer listeners go with it. A jog of ours on a controller still
+  // open gets one 0x85 (no timer is left behind to repeat it).
+  const forget = (c, r) => {
     const s = r.motion;
-    if (s && s.pending) {
+    if (!s) {
+      return;
+    }
+    if ((s.session || s.cancel || (s.pending && s.pending.kind === 'jog')) && connected(c)) {
+      c.command('jogCancel');
+    }
+    if (s.session) {
+      endSession(c, r, s.session, 'cancelled', 'dispose', STOP_REASONS.dispose);
+    }
+    if (s.pending) {
       s.pending.t.done();
       s.pending = null;
     }
-    if (s) {
-      s.session = null;
-      s.cancel = null;
-    }
+    s.cancel = null;
   };
 
-  return { perform, stop, moving, originOperation, snapshot, signature, transportClosed, holds, forget };
+  return { perform, precheck, stop, moving, originOperation, snapshot, signature, transportClosed, holds, forget };
 };
 
-export default { createMotion, capabilitiesOf, envelopeOf, maxFeedOf, grblVersion, jogLine, originLine, motionEnabled };
+export default { createMotion, capabilitiesOf, envelopeOf, limitsAt, maxFeedOf, grblVersion, jogLine, originLine, motionEnabled };
