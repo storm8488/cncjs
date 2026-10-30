@@ -1039,3 +1039,19 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
 .t-override .t-btn{padding-left:var(--sp-1);padding-right:var(--sp-1);white-space:nowrap}
 .ks-ui.t-compact .t-ov-row{gap:var(--sp-2)}
 .ks-ui.t-compact .t-ov-row .t-btn{font-size:var(--fs-18)}
+.ks-ui.t-compact.display-large .t-ov-row .t-btn{font-size:var(--fs-16)}
+/* Suivi's ready line holds the alarm's help, long for an ALARM:3 deduced after a stop (N1): at
+ * most three lines, the rest scrolls inside its box (visible bar), so the screen is never
+ * scaled down to make room; the full help is also on Machine. */
+.ks-ui #home-job-ready{max-height:calc(3 * 1.3em + 10px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.ks-ui.t-compact #home-job-ready{max-height:calc(2 * 1.2em + 8px)}
+/* The end-of-job summary keeps two lines in the compact window (name and figures). */
+.ks-ui.t-compact .home-job-summary-text{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+/* State word with its note under it (« Alarme 3 » / « déduite », V6), within the 52 px box. */
+.t-state-words{display:flex;flex-direction:column;justify-content:center;min-width:0;line-height:1}
+#t-state-text{white-space:nowrap}
+.t-state-note{margin-top:2px;font:600 var(--fs-16)/1.1 var(--font);letter-spacing:0}
+.t-state-note[hidden]{display:none}
+/* 1024 x 600: with « Déverrouiller… » or « Reprendre… » beside « PILOTE / Cet appareil », the
+ * page switch link gives its room as during a job (the strip overflowed by 28 px, N2). */
+.ks-ui.t-compact [data-confirm=true] .ks-exit{display:none}

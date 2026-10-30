@@ -249,6 +249,7 @@
   }
   function openPanel(){
     if(!ui||!ui.panel.hidden||!allowed())return;
+    if(window.cncScreenLock&&typeof window.cncScreenLock.locked==='function'&&window.cncScreenLock.locked())return;
     returnTo=document.activeElement;
     // Everything but the panel and the status strip (Pause / Arrêter) becomes inert.
     background=Array.prototype.filter.call(document.body.children||[],function(n){return n!==ui.panel&&n.id!=='real-banner'&&!/^(SCRIPT|LINK|STYLE)$/.test(n.tagName);}).map(function(n){var e={node:n,inert:n.inert};n.inert=true;return e;});
@@ -343,6 +344,8 @@
   document.addEventListener('click',function(e){var n=e&&e.target;if(hold&&n&&typeof n.closest==='function'&&n.closest('#t-stop,#job-stop,#home-job-stop,#preview-job-stop'))stopHold(t('arrêt demandé'));},true);
   document.addEventListener('visibilitychange',function(){if(document.hidden){stopHold(t('page masquée'));closePanel(false);}});
   window.addEventListener('cnc-screen-change',function(){stopHold(t('écran changé'));closePanel(false);});
+  // Locking the screen closes the panel (V3): a held jog stops at once.
+  window.addEventListener('cnc-screen-lock',function(e){if(e&&e.detail){stopHold(t('écran verrouillé'));closePanel(false);}});
   document.addEventListener('keydown',function(e){if(ui&&!ui.panel.hidden&&e.key==='Escape'){if(e.preventDefault)e.preventDefault();closePanel();}});
   // The page leaving: the request may not get out, the stream closing stops the jog on the server.
   window.addEventListener('pagehide',function(e){stopHold(t('page quittée'));if(e&&e.persisted)return;disposed=true;if(clock!==null){clearInterval(clock);clock=null;}});

@@ -54,17 +54,28 @@ function create(options) {
     };
   }
 
-  // options.alarm: the controller at rest in ALARM (a hard limit), program loaded, unlock
-  // offered: the strip shows « Déverrouiller… » (layout check of browser-run.cjs --strict).
-  function alarmed(now) {
+  // options.alarm: the controller at rest in ALARM, program loaded, unlock offered: the strip
+  // shows « Déverrouiller… » (layout check of browser-run.cjs --strict). 1: a hard limit
+  // (ALARM:1). 'stopped': the job stopped in motion, the board restarted and its banner wiped
+  // the code (as the touch service reports it): every stream first shows the job running for
+  // about a second, then the alarm without code, so the page deduces ALARM:3 and shows the end
+  // summary; the longest alarm help Suivi has to hold (validation N1).
+  // owner: the stream's clientId, so the page pilots the machine (« PILOTE / Cet appareil »,
+  // the longest strip of validation N2).
+  function alarmed(now, moving, owner) {
     const c = controller(now);
-    return Object.assign(c, { activeState: 'Alarm', workflow: 'idle', alarmCode: 1, feedrate: 0, spindleSpeed: 0, homed: false, sent: 0, received: 0,
+    if (owner) c.control = { owner: { kind: 'touch', id: owner, label: 'Tablette atelier' }, lastChange: null };
+    // Spindle reported off: leaving the commissioning screen would otherwise send M5 (never answered here).
+    if (moving) return Object.assign(c, { spindleSpeed: 0 });
+    const stopped = options.alarm === 'stopped';
+    return Object.assign(c, { activeState: 'Alarm', workflow: 'idle', alarmCode: stopped ? null : 1, feedrate: 0, spindleSpeed: 0, homed: false,
+      sent: stopped ? 9600 : 0, received: stopped ? 9584 : 0, jobStopped: stopped, stoppedAtLine: stopped ? 9584 : null, stoppedFile: stopped ? file : null,
       canPause: false, canStop: false, canOverride: false, canRapidOverride: false, canUnlock: true, unlockReason: '', canHome: true, homeReason: '',
       startReason: 'Machine en alarme.', loadReason: 'Machine en alarme.', resumeReason: 'Machine en alarme.' });
   }
-  function packet() {
+  function packet(moving, owner) {
     const now = Date.now();
-    return { version: 1, epoch, sequence: ++sequence, sentAt: now, controllers: [options && options.alarm ? alarmed(now) : controller(now)] };
+    return { version: 1, epoch, sequence: ++sequence, sentAt: now, controllers: [options && options.alarm ? alarmed(now, moving, owner) : controller(now)] };
   }
 
   // NDJSON like src/server/services/touch/touch-stream.js: a packet at once, then
@@ -72,12 +83,12 @@ function create(options) {
   function stream(req, res) {
     res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store, no-transform', 'X-Accel-Buffering': 'no' });
     const transportId = 'replay-' + sequence.toString(36) + '-' + Math.random().toString(36).slice(2, 8);
-    const opened = Date.now();
+    const opened = Date.now(), owner = new URL(req.url, 'http://fixture').searchParams.get('clientId');
     let timer = null, closed = false;
     const tick = () => {
       if (closed) return;
       if (Date.now() - opened >= STREAM_LIFETIME_MS) { res.write(JSON.stringify({ rotate: true }) + '\n'); res.end(); stop(); return; }
-      res.write(JSON.stringify({ ...packet(), transportId }) + '\n');
+      res.write(JSON.stringify({ ...packet(Date.now() - opened < 1200 && options && options.alarm === 'stopped', owner), transportId }) + '\n');
       // Drift-corrected: the n-th packet goes out at opened + n * PERIOD_MS.
       const n = Math.floor((Date.now() - opened) / PERIOD_MS) + 1;
       timer = setTimeout(tick, Math.max(1, opened + n * PERIOD_MS - Date.now()));

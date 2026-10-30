@@ -9,7 +9,9 @@
 //     (the relay is intercepted on its target: nothing is sent, the job keeps running);
 //   - the overlay starts below the strip and its card fits in the window (own scroll);
 //   - Tab from the overlay reaches Pause and Arrêter and never leaves overlay + strip stops;
-// then, on the real page: a module failing at load leaves « Chargement incomplet » shown
+// then, on the real page: stacked layers (pad over the project sheet: Escape, Tab, Enter on
+// Pause / Arrêter), the screen lock (real move panel closed, Pilote and the content out of
+// reach); a module failing at load leaves « Chargement incomplet » shown
 // below a usable strip (D-B1), and the browser's offline flag keeps Pause / Arrêter shown
 // and sent (R-S2). Used by browser-run.cjs (step « strip »), or on its own:
 //   node examples/cncjs-touch/browser-strip.cjs [--out DIR] [--quick]
@@ -230,6 +232,90 @@ async function offline(cdp, H, base, w, h, fail, log) {
   }
 }
 
+// ---- Stacked layers, keys and the screen lock (audit 31, last fixes V1-V6), real page with a job.
+const HIT = `(function(sel){var b=document.querySelector(sel);if(!b)return {missing:true};var r=b.getBoundingClientRect();if(!r.width)return {hidden:true};var cx=r.left+r.width/2,cy=r.top+r.height/2,h=document.elementFromPoint(cx,cy);
+  return {cx:cx,cy:cy,ok:!!h&&(h===b||b.contains(h)),inert:!!b.closest('[inert]')};})`;
+async function openReal(cdp, H, base, w, h, lang, large) {
+  await H.setViewport(cdp, w, h, 1);
+  await H.navigate(cdp, base + 'README.md');
+  await cdp.evaluate('localStorage.setItem("cncjs-touch-language-v1",' + JSON.stringify(lang) + ');localStorage.setItem("cncjs-touch-display-v1",' + JSON.stringify(JSON.stringify({ size: large ? 'large' : 'standard' })) + ');true').catch(() => {});
+  await H.navigate(cdp, base + 'index.html?stack=' + Date.now()); await H.waitReady(cdp);
+  await startJob(cdp, H, 'index');
+  await H.sleep(500);
+}
+async function clickSel(cdp, sel) { const r = await cdp.evaluate(HIT + '(' + JSON.stringify(sel) + ')'); if (r && r.cx) await click(cdp, r.cx, r.cy); return r; }
+async function pressKey(cdp, k, code, vk, text) {
+  await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: k, code, windowsVirtualKeyCode: vk, text });
+  await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: k, code, windowsVirtualKeyCode: vk });
+}
+const LIVE = '(function(){return {main:document.querySelector("main").inert,tabbar:document.getElementById("tabbar").inert,lock:!!document.getElementById("t-lock").closest("[inert]")};})()';
+async function stackAndLock(cdp, H, base, w, h, lang, large, fail, log) {
+  const ctx = 'layers ' + w + 'x' + h + ' ' + lang + (large ? ' large' : '');
+  // V1 / V1b: the pad over the project sheet (stock field of the sheet's editor).
+  await openReal(cdp, H, base, w, h, lang, large);
+  await H.goScreen(cdp, 'files');
+  await cdp.waitFor('(function(){var b=document.getElementById("project-edit");return !!b&&!b.disabled;})()', 10000, 'project sheet editor');
+  await cdp.evaluate('document.getElementById("project-edit").click();true'); await H.sleep(400);
+  await clickSel(cdp, '#project-stock-x'); await H.sleep(300);
+  if (!(await cdp.evaluate('!document.getElementById("t-numpad").hidden&&!document.getElementById("project-dialog").hidden'))) { fail(ctx + ': pad over the project sheet not opened'); return; }
+  const tabs = [];
+  for (let i = 0; i < 24; i++) { await key(cdp, 'Tab'); tabs.push(await cdp.evaluate('(function(){var a=document.activeElement;return a?(a.id||(a.closest("#t-numpad")?"pad:"+a.textContent.trim().slice(0,8):a.tagName)):"";})()')); }
+  if (!tabs.some((t) => /^(pad:|t-numpad)/.test(t)) || !tabs.includes('t-stop')) fail(ctx + ': Tab in the pad over the sheet does not cycle (V1b): ' + tabs.join(','));
+  await key(cdp, 'Escape'); await H.sleep(300);
+  let st = await cdp.evaluate('({pad:!document.getElementById("t-numpad").hidden,sheet:!document.getElementById("project-dialog").hidden})');
+  if (st.pad || !st.sheet) fail(ctx + ': one Escape must close the pad only (V1): pad ' + st.pad + ', sheet ' + st.sheet);
+  await key(cdp, 'Escape'); await H.sleep(300);
+  st = await cdp.evaluate('({sheet:!document.getElementById("project-dialog").hidden,live:' + LIVE + '})');
+  if (st.sheet || st.live.main || st.live.tabbar || st.live.lock) fail(ctx + ': after closing both layers the page stays inert (V1): ' + JSON.stringify(st));
+  log(ctx + ' · pad over project sheet: Tab reaches ' + Array.from(new Set(tabs)).filter((t) => !/^pad:/.test(t)).join(',') + ' and the pad keys' + ' ; Escape closes the pad, then the sheet ; page live again ' + JSON.stringify(st.live));
+  // V2: Enter (and Space) on the strip's Pause / Arrêter under the pad.
+  await H.goScreen(cdp, 'home');
+  await cdp.evaluate(RELAY);
+  const pad = '(function(){var i=document.getElementById("strip-run-input");if(!i){i=document.createElement("input");i.id="strip-run-input";document.getElementById("screen-home").appendChild(i);}window.CNCNumeric.open(i,{label:"T",unit:"mm",min:0,max:50});return true;})()';
+  const keys = [];
+  for (const id of ['t-stop', 't-pause']) {
+    for (const k of ['Enter', 'Space']) {
+      await cdp.evaluate(pad); await H.sleep(300);
+      await cdp.evaluate('window.__strip.relay=[];document.getElementById(' + JSON.stringify(id) + ').focus();true');
+      if (k === 'Space') await pressKey(cdp, ' ', 'Space', 32, ' '); else await pressKey(cdp, 'Enter', 'Enter', 13, String.fromCharCode(13));
+      await H.sleep(250);
+      const got = await cdp.evaluate('window.__strip.relay.map(function(r){return r.id;}).join("+")');
+      const want = id === 't-stop' ? 'job-stop' : 'job-pause';
+      keys.push(id + ' ' + k + '→' + (got || 'nothing'));
+      if (got !== want) fail(ctx + ': ' + k + ' on ' + id + ' under the pad reached ' + (got || 'nothing') + ' (V2)');
+      await H.sleep(650); await key(cdp, 'Escape'); await H.sleep(150);
+    }
+  }
+  log(ctx + ' · keys under the pad: ' + keys.join(' ; '));
+  // V3: lock with the real move panel open: the panel closes.
+  await openReal(cdp, H, base, w, h, lang, large);
+  await H.goScreen(cdp, 'jog');
+  await clickSel(cdp, '#real-motion-open'); await H.sleep(400);
+  if (!(await cdp.evaluate('!document.getElementById("real-motion").hidden'))) fail(ctx + ': real move panel not opened');
+  await clickSel(cdp, '#t-lock'); await H.sleep(300);
+  st = await cdp.evaluate('({locked:window.cncScreenLock.locked(),panel:!document.getElementById("real-motion").hidden})');
+  if (!st.locked || st.panel) fail(ctx + ': locking with the real move panel open (V3): ' + JSON.stringify(st));
+  // V4: the Pilote chip does nothing under the lock; V5: Tab reaches only Pause, Arrêter, padlock.
+  const chip = await clickSel(cdp, '#t-pilot'); await H.sleep(300);
+  const pilotOpen = await cdp.evaluate('!document.getElementById("pilot-dialog").hidden');
+  if (pilotOpen) fail(ctx + ': Pilote dialog opened under the lock (V4)');
+  await cdp.evaluate('document.activeElement&&document.activeElement.blur();true');
+  const reached = new Set();
+  for (let i = 0; i < 12; i++) { await key(cdp, 'Tab'); reached.add(await cdp.evaluate('(function(){var a=document.activeElement;return a&&a!==document.body?(a.id||a.textContent.trim().slice(0,12)):"body";})()')); }
+  const others = Array.from(reached).filter((x) => !/^(t-pause|t-stop|t-lock|body)$/.test(x));
+  if (others.length) fail(ctx + ': under the lock Tab reaches ' + others.join(', ') + ' (V5)');
+  const stop = await cdp.evaluate(HIT + '("#t-stop")');
+  if (!stop.ok || stop.inert) fail(ctx + ': Arrêter not usable under the lock');
+  // Unlock (two taps): everything live again.
+  await clickSel(cdp, '#t-lock'); await H.sleep(150); await clickSel(cdp, '#t-lock'); await H.sleep(300);
+  const after = await cdp.evaluate('({locked:window.cncScreenLock.locked(),live:' + LIVE + '})');
+  if (after.locked || after.live.main || after.live.tabbar) fail(ctx + ': unlocking leaves the page inert: ' + JSON.stringify(after));
+  log(ctx + ' · lock: panel closed ' + !st.panel + ', Pilote chip ' + (chip.inert ? 'inert' : 'live') + ' (dialog ' + pilotOpen + '), Tab reaches ' + Array.from(reached).join(',') + ' ; unlocked live ' + JSON.stringify(after.live));
+  // V6: a deduced code is never shown as received.
+  const d6 = await cdp.evaluate('window.cncStatusStrip.describe({activeState:"Alarm",alarmCode:3,alarmCodeInferred:true,fresh:true},true)');
+  if (!d6.note) fail(ctx + ': deduced alarm without its note (V6): ' + JSON.stringify(d6));
+}
+
 const VARIANTS = [[1366, 768, 'fr', false], [1024, 600, 'fr', false], [1024, 600, 'es', true], [1024, 600, 'en', false]];
 
 // cdp: an open DevTools client; H: browser-run.cjs exports; simBase: fixture base URL.
@@ -246,6 +332,9 @@ async function run(cdp, H, options) {
     for (const [w, h] of [[1366, 768], [1024, 600]]) {
       try { await degraded(cdp, H, replay.base, w, h, fail, log); } catch (e) { fail('degraded ' + w + 'x' + h + ': ' + e.message); }
       try { await offline(cdp, H, replay.base, w, h, fail, log); } catch (e) { fail('offline ' + w + 'x' + h + ': ' + e.message); }
+    }
+    for (const [w, h, lang, large] of options.quick ? [[1024, 600, 'fr', false]] : [[1366, 768, 'fr', false], [1024, 600, 'es', true]]) {
+      try { await stackAndLock(cdp, H, replay.base, w, h, lang, large, fail, log); } catch (e) { fail('layers ' + w + 'x' + h + ': ' + e.message); }
     }
     await cdp.evaluate('localStorage.removeItem("cncjs-touch-language-v1");localStorage.removeItem("cncjs-touch-display-v1");true').catch(() => {});
   } finally { replay.child.kill(); }

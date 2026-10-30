@@ -89,6 +89,8 @@
     document.addEventListener('keydown', function (e) {
       if (!bound || modal.hidden) return;
       if (e.key === 'Escape') { e.preventDefault(); hide(); return; }
+      // Enter on the strip's Pause / Arrêter activates them (native button), never Valider (V2).
+      if (e.key === 'Enter' && root.CNCStripGuard && root.CNCStripGuard.stops().indexOf(document.activeElement) >= 0) return;
       if (e.key === 'Enter') { e.preventDefault(); apply(); return; }
       if (e.key === 'Tab') {
         var focusable = Array.prototype.filter.call(modal.querySelectorAll('button'), function (el) { return !el.disabled; });

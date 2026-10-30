@@ -632,13 +632,19 @@ async function simMeasure(cdp, simUrl, summary) {
 
 // Real page with the controller at rest in ALARM (preview-server.cjs --replay-alarm): the
 // strip offers « Déverrouiller… » beside Pilote (validation D3), FR and ES, standard and large.
+// Two alarms: ALARM:1 (short help) and a job stopped in motion whose ALARM:3 is deduced after
+// the restart, with the end summary: the longest help Suivi holds (validation N1). The strip,
+// the rail (Menu) and Suivi are enforced; Machine is reported.
 async function alarmMeasure(cdp, summary) {
-  const fixture = await startFixture(['--replay-alarm']);
+  for (const [arg, kind] of [['--replay-alarm', 'ALARM:1'], ['--replay-alarm-stopped', 'ALARM:3 deduced']]) await alarmVariant(cdp, summary, arg, kind);
+}
+async function alarmVariant(cdp, summary, arg, kind) {
+  const fixture = await startFixture([arg]);
   try {
     for (const [w, h] of RESOLUTIONS) {
       for (const lang of ['fr', 'es']) {
         for (const size of ['standard', 'large']) {
-          const tag = 'alarm at rest ' + w + 'x' + h + ' ' + lang + (size === 'large' ? ' texte agrandi' : ''), dirName = 'alarm-' + w + 'x' + h + '-' + lang + '-' + size;
+          const tag = 'alarm at rest (' + kind + ') ' + w + 'x' + h + ' ' + lang + (size === 'large' ? ' texte agrandi' : ''), dirName = 'alarm-' + (arg === '--replay-alarm' ? '1' : '3') + '-' + w + 'x' + h + '-' + lang + '-' + size;
           const dir = path.join(OUT, dirName); fs.mkdirSync(dir, { recursive: true });
           const results = [], reportOnly = [];
           try {
@@ -647,6 +653,7 @@ async function alarmMeasure(cdp, summary) {
             await cdp.evaluate('localStorage.setItem("cncjs-touch-language-v1",' + JSON.stringify(lang) + ');localStorage.setItem("cncjs-touch-display-v1",' + JSON.stringify(JSON.stringify({ size })) + ');true');
             await navigate(cdp, fixture.base + 'index.html?alarm=' + lang + size); await waitReady(cdp);
             await cdp.waitFor('(function(){var b=document.getElementById("t-unlock");return !!b&&!b.hidden;})()', 20000, 'Déverrouiller offered');
+            if (arg !== '--replay-alarm') await cdp.waitFor('(function(){var m=window.cncState.get().machine,s=document.getElementById("home-job-summary");return !!(m&&m.alarmCodeInferred&&s&&!s.hidden);})()', 20000, 'ALARM:3 deduced and end summary');
             for (const [name, label] of [['home', 'Suivi'], ['menu', 'Menu'], ['machine', 'Machine']]) {
               await goScreen(cdp, name);
               const data = await cdp.evaluate('(' + MEASURE + ')(' + JSON.stringify(GOALS) + ')');
@@ -654,12 +661,10 @@ async function alarmMeasure(cdp, summary) {
               await screenshot(cdp, path.join(dir, name + '.png'));
               const fit = textFitOf(data);
               log(tag + ' ' + label + ': ' + data.targets.length + ' targets, ' + fit.length + ' text overflow / cut words' + (fit.length ? ' (' + fit.map((t) => t.label + (t.broken && t.broken.length ? ' cut ' + t.broken.join('/') : '') + (t.out > 1 ? ' +' + t.out + ' px' : '')).join('; ') + ')' : ''));
-              (name === 'menu' ? results : reportOnly).push({ screen: name, label: label + ' · alarm at rest', targets: data.targets.length, below: data.targets.filter((t) => t.belowGoal), small: data.smallText, textTargets: data.targets.filter((t) => t.textBelowGoal), gaps: [], unreachable: data.targets.filter((t) => !t.reachable), truncated: data.truncated, overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, scrolls: data.scrolls, fontStats: {}, textFit: fit, railScroll: data.railScroll });
+              (name === 'machine' ? reportOnly : results).push({ screen: name, label: label + ' · alarm at rest', targets: data.targets.length, below: data.targets.filter((t) => t.belowGoal), small: data.smallText, textTargets: data.targets.filter((t) => t.textBelowGoal), gaps: [], unreachable: data.targets.filter((t) => !t.reachable), truncated: data.truncated, overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, scrolls: data.scrolls, fontStats: {}, textFit: fit, railScroll: data.railScroll });
             }
           } catch (e) { failures.push(tag + ': ' + e.message); log('FAIL ' + tag + ': ' + e.message); }
-          // Enforced on the menu (the strip and the rail, D3); Suivi and Machine in this state are
-          // reported (a real alarm's help card and the replayed program: not the layout variants
-          // the screens are made for so far, see the fix report).
+          // Enforced on Suivi and the menu (strip, rail: D3, N1, N2); Machine is reported.
           summary.measurements.push({ variant: tag, dir: dirName, dpr: 1, results, strict: true });
           summary.measurements.push({ variant: tag + ' (report only)', dir: dirName, dpr: 1, results: reportOnly, strict: false });
         }

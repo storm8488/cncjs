@@ -21,7 +21,9 @@
   var icons={ok:'M4 12l5 5L20 6',run:'M7 5l12 7-12 7z',warn:'M8 5h3v14H8z M13 5h3v14h-3z',danger:'M12 3L2 21h20z M12 9v5 M12 17v1',off:'M5 5l14 14M19 5L5 19',info:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M12 11v5 M12 8v.5'};
   var state=el('div','t-state','t-state');state.setAttribute('data-tone','off');state.setAttribute('role','status');state.setAttribute('aria-live','polite');
   state.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="'+icons.off+'"/></svg>';
-  var stateText=el('span','','t-state-text');state.appendChild(stateText);
+  // The word, and under it a short note (« déduite » for a deduced alarm code, V6).
+  var stateWords=el('span','t-state-words');var stateText=el('span','','t-state-text');var stateNote=el('span','t-state-note','t-state-note');stateNote.hidden=true;
+  stateWords.appendChild(stateText);stateWords.appendChild(stateNote);state.appendChild(stateWords);
   var fresh=el('span','t-fresh','t-fresh');fresh.setAttribute('data-stale','true');fresh.appendChild(el('i'));
   var freshText=el('span','','t-fresh-text');fresh.appendChild(freshText);fresh.title=uiLocale.t('Âge du dernier rapport machine');
   var vitals=el('div','t-vitals');
@@ -115,7 +117,9 @@
   function describe(m,connected){
     if(!m||!connected)return {word:uiLocale.t('Hors ligne'),tone:'off'};
     var a=String(m.activeState||'');
-    if(/^alarm/i.test(a))return {word:uiLocale.t('Alarme')+(finite(m.alarmCode)?' '+m.alarmCode:''),tone:'danger'};
+    // A code deduced after the board's restart banner (job-controls.js recall) is never shown as
+    // received: « Alarme 3 déduite » (V6), on the strip, the Machine screen and the menu tile.
+    if(/^alarm/i.test(a))return {word:uiLocale.t('Alarme')+(finite(m.alarmCode)?' '+m.alarmCode:''),note:finite(m.alarmCode)&&m.alarmCodeInferred?uiLocale.t('déduite'):'',tone:'danger'};
     // Grbl sends no report during a homing cycle: the server knows it from the $H sent.
     if(m.homing)return {word:uiLocale.t('Prise d’origine'),tone:'run'};
     if(!m.fresh)return {word:uiLocale.t('Rapport ancien'),tone:'warn'};
@@ -136,8 +140,11 @@
     // State lost (stream muted, HTTP read failing): the last busy controller stays the target
     // of Pause and Arrêter (job-controls.js, detail.halt); the word says the state is lost.
     var h=!m&&!simulation&&detail.halt&&typeof detail.halt==='object'?detail.halt:null;
-    var d=h?{word:uiLocale.t('État perdu'),tone:'warn'}:describe(m,connected);
-    text(stateText,d.word);
+    // A machine state is only published while recent (job-controls.js): read by HTTP while the
+    // stream is down, it is shown at once rather than « Hors ligne » until the stream returns
+    // (N3); only Resume and Unlock still wait for the stream (usable, below).
+    var d=h?{word:uiLocale.t('État perdu'),tone:'warn'}:describe(m,!!m);
+    text(stateText,d.word);text(stateNote,d.note||'');prop(stateNote,'hidden',!d.note);
     if(d.tone!==tone){tone=d.tone;attr(state,'data-tone',tone);state.querySelector('path').setAttribute('d',icons[tone]);}
     var age=m&&m.statusAgeMs,known=finite(age)&&age>=0;
     // Whole seconds only: a text that changed at every report (4 per second) would repaint the
@@ -161,7 +168,7 @@
     var unlockShown=usable&&!screenLocked&&!running&&/^alarm/i.test(String(m.activeState||''))&&!!m.canUnlock;
     prop(pause,'hidden',!pauseShown);prop(stop,'hidden',!stopShown);prop(resume,'hidden',!resumeShown);prop(unlock,'hidden',!unlockShown);
     // During a job the page switch link gives its room to the file name (and is not to be tapped then).
-    attr(banner,'data-job',String(running||stopShown));attr(banner,'data-lost',String(!!h));
+    attr(banner,'data-job',String(running||stopShown));attr(banner,'data-confirm',String(unlockShown||resumeShown));attr(banner,'data-lost',String(!!h));
     prop(pause,'disabled',m?!m.canPause:!(h&&h.canPause));prop(stop,'disabled',m?!(m.canStop||jogging):!(h&&h.canStop));
     var lostTitle=h?uiLocale.t('État machine perdu : Pause et Arrêter sont envoyés quand même (sans confirmation) ; les autres commandes attendent le retour du suivi.'):'';
     attr(pause,'title',lostTitle);attr(stop,'title',lostTitle);attr(state,'title',lostTitle);

@@ -132,6 +132,18 @@ describe('job service', () => {
     expect(state.generation).not.toBe(ctx.generation);
   });
 
+  test('before any load, start and resume say that nothing is loaded (not that the file changed)', async () => {
+    const ctx = setup();
+    ctx.report();
+    const state = ctx.state();
+    expect(state.name).toBeFalsy();
+    expect(state.canStart).toBe(false);
+    expect(state.startReason).toBe('Aucun fichier chargé.');
+    expect(state.resumeReason).not.toMatch(/a changé/);
+    await ctx.req('load', { file: 'test.nc' });
+    expect(ctx.state().startReason).not.toBe('Aucun fichier chargé.');
+  });
+
   test('load needs a fresh idle controller and a plain file name', async () => {
     const ctx = setup();
     await expect(ctx.req('load', { file: 'test.nc' })).rejects.toThrow(/trop ancien/);

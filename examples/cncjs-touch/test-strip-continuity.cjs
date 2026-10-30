@@ -226,5 +226,65 @@ async function dropAndReconnect(f, epoch) {
     f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: null })]); await f.flush();
     assert.equal(f.lastStatus().machine.alarmCode, 6, 'reset during homing: ALARM:6 inferred');
   }
+  // ---- V7: deduce ALARM:3 only from a move really reported in the last 5 s (former xvz-d6).
+  {
+    // A program pause at rest (M0, tool change: Grbl Idle): a reset there raises no ALARM:3.
+    const f = await connected({ workflow: 'paused', activeState: 'Idle', canStop: true, canResume: true });
+    f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: null })]); await f.flush();
+    assert.equal(f.lastStatus().machine.alarmCode, null, 'program pause at rest: no code deduced');
+  }
+  {
+    // Run seen 10 min before (no report since): too old to explain the alarm.
+    const f = await connected(RUNNING);
+    f.advance(10 * 60 * 1000);
+    f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: null })]); await f.flush();
+    assert.equal(f.lastStatus().machine.alarmCode, null, 'a move seen 10 min ago deduces nothing');
+  }
+  {
+    // A completed hold (Hold:0) after the move, 6 s later: no longer a reset during a move.
+    const f = await connected(RUNNING);
+    f.advance(1000); f.push([f.machine({ activeState: 'Hold:0', workflow: 'paused', canStop: true })]); await f.flush();
+    f.advance(6000); f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: null })]); await f.flush();
+    assert.equal(f.lastStatus().machine.alarmCode, null, 'Hold:0 for 6 s then a restart: nothing deduced');
+  }
+  {
+    // The stop of the touch service (hold, then reset) 2 s after the last Run report: deduced.
+    const f = await connected(RUNNING);
+    f.advance(1500); f.push([f.machine({ activeState: 'Hold:0', workflow: 'running', canStop: true })]); await f.flush();
+    f.advance(500); f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: null })]); await f.flush();
+    const m = f.lastStatus().machine;
+    assert.equal(m.alarmCode, 3); assert.equal(m.alarmCodeInferred, true);
+  }
+  {
+    // A received code replaces a deduction.
+    const f = await connected(RUNNING);
+    f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: null })]); await f.flush();
+    f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: 1 })]); await f.flush();
+    const m = f.lastStatus().machine;
+    assert.equal(m.alarmCode, 1); assert.notEqual(m.alarmCodeInferred, true);
+  }
+  {
+    // Idle → Alarm without code: no code invented.
+    const f = await connected();
+    f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: null })]); await f.flush();
+    assert.equal(f.lastStatus().machine.alarmCode, null);
+  }
+  // ---- N4: the unlock confirmation says what an unlock does (no move, no file).
+  {
+    const f = await connected({ activeState: 'Alarm', workflow: 'idle', canUnlock: true, canStart: false });
+    f.controls().prepareCommand('unlock'); await f.flush();
+    const prep = f.posts().at(-1); assert.equal(prep.body.action, 'prepare'); assert.equal(prep.body.operation, 'unlock');
+    f.answer(prep, { nonce: 'n-unlock', name: '', expiresIn: 15 }); await f.flush();
+    assert.equal(f.el('job-dialog').hidden, false);
+    assert.match(f.el('job-warning').textContent, /\$X\) lève l’alarme sans aucun mouvement/);
+    assert.equal(f.el('job-check-text').textContent, 'Je suis devant la machine et la cause de l’alarme est réglée.');
+    assert.doesNotMatch(f.el('job-warning').textContent + f.el('job-check-text').textContent, /met la machine en mouvement|lancer ce fichier/);
+    f.el('job-dismiss').click(); await f.flush();
+    // The start confirmation keeps its own texts.
+    f.push([f.machine()]); await f.flush();
+    await ticketOpen(f, 'start');
+    assert.match(f.el('job-warning').textContent, /met la machine en mouvement/);
+    assert.equal(f.el('job-check-text').textContent, 'Je suis devant la machine et prêt à lancer ce fichier.');
+  }
   console.log('PASS strip continuity: Pause / Arrêter offered and sent during a loss of the state and with the offline flag, HTTP read at once, no command replayed, action line follows the workflow, alarm code kept after the restart banner.');
 })().catch((e) => { console.error(e); process.exit(1); });

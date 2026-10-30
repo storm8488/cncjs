@@ -20,10 +20,21 @@
   function usable(n) { return !!n && !n.hidden && !n.disabled && (typeof n.getClientRects !== 'function' || n.getClientRects().length > 0); }
   function stops() { return kept().filter(usable); }
   function contains(a, b) { return !!(a && b && typeof a.contains === 'function' && a.contains(b)); }
-  // Everything outside the overlay becomes inert except the kept strip commands: their
-  // ancestors (and the overlay's) stay active, every other branch under them is made inert.
-  function isolate(overlay) {
-    var keep = kept(), entries = [];
+  // Open layers, bottom first. A layer closed while another is still open above it (the
+  // project sheet under the pad) gives its values back only once every layer above it has
+  // closed: the inert values are always restored in the reverse order of their setting.
+  var layers = [];
+  function unwind() {
+    while (layers.length && layers[layers.length - 1].done) {
+      var entries = layers.pop().entries;
+      for (var i = entries.length - 1; i >= 0; i--) entries[i].node.inert = entries[i].inert;
+    }
+  }
+  // Everything outside the overlay becomes inert except the kept strip commands (and `extra`,
+  // e.g. the padlock under the screen lock): their ancestors (and the overlay's) stay active,
+  // every other branch under them is made inert.
+  function isolate(overlay, extra) {
+    var keep = kept().concat(extra || []), entries = [];
     (function walk(children) {
       Array.prototype.forEach.call(children || [], function (node) {
         if (node === overlay || keep.indexOf(node) >= 0 || /^(SCRIPT|LINK|STYLE)$/.test(node.tagName)) return;
@@ -36,10 +47,11 @@
     for (var n = overlay; n && n !== doc().body; n = n.parentNode) if (n.inert) { entries.push({ node: n, inert: n.inert }); n.inert = false; }
     // Below the strip only when the strip offers its commands (built by status-strip.js).
     if (overlay && overlay.classList) overlay.classList.toggle('t-below-strip', keep.length > 0);
-    var done = false;
+    var layer = { entries: entries, done: false };
+    layers.push(layer);
     return function restore() {
-      if (done) return; done = true;
-      for (var i = entries.length - 1; i >= 0; i--) entries[i].node.inert = entries[i].inert;
+      if (layer.done) return; layer.done = true;
+      unwind();
     };
   }
   function focusables(container) {
@@ -57,5 +69,7 @@
     e.preventDefault(); next.focus();
     return true;
   }
-  root.CNCStripGuard = { isolate: isolate, tab: tab, stops: stops, kept: kept, focusables: focusables };
+  // An overlay made inert by another one opened above it leaves the keys to that one.
+  function covered(overlay) { for (var n = overlay; n && n !== doc().body; n = n.parentNode) if (n.inert) return true; return false; }
+  root.CNCStripGuard = { covered: covered, isolate: isolate, tab: tab, stops: stops, kept: kept, focusables: focusables };
 })(typeof window === 'object' ? window : this);

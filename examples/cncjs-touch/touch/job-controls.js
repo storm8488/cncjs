@@ -16,8 +16,8 @@
     uiLocale.html('<p class="mute">L’arrêt logiciel ne remplace pas l’arrêt physique de la machine.</p>') +
     uiLocale.html('<div id="job-dialog" class="job-dialog" role="dialog" aria-modal="true" aria-labelledby="job-dialog-title" hidden>') +
     uiLocale.html('<div class="job-dialog-card"><h2 id="job-dialog-title">Confirmer le démarrage</h2><p id="job-dialog-file"></p><p id="job-travel" class="job-travel" hidden></p><div id="job-program-check" class="t-pcheck" hidden></div><p id="job-note" class="job-note" hidden></p>') +
-    uiLocale.html('<p>')+(simulation?uiLocale.t('Test des boutons uniquement. Aucun mouvement ni activation du laser.'):uiLocale.t('Cette action met la machine en mouvement et peut activer l’outil. Vérifiez la machine, l’origine et la zone de travail.'))+uiLocale.html('</p>') +
-    uiLocale.html('<label class="job-confirm-label t-check"><input id="job-check" type="checkbox">')+(simulation?uiLocale.t('Je souhaite lancer cette simulation.'):uiLocale.t('Je suis devant la machine et prêt à lancer ce fichier.'))+uiLocale.html('</label>') +
+    uiLocale.html('<p id="job-warning">')+(simulation?uiLocale.t('Test des boutons uniquement. Aucun mouvement ni activation du laser.'):uiLocale.t('Cette action met la machine en mouvement et peut activer l’outil. Vérifiez la machine, l’origine et la zone de travail.'))+uiLocale.html('</p>') +
+    uiLocale.html('<label class="job-confirm-label t-check"><input id="job-check" type="checkbox"><span id="job-check-text">')+(simulation?uiLocale.t('Je souhaite lancer cette simulation.'):uiLocale.t('Je suis devant la machine et prêt à lancer ce fichier.'))+uiLocale.html('</span></label>') +
     // The confirmation window is visible: a countdown in words and a bar that empties.
     uiLocale.html('<div class="t-countdown"><p id="job-countdown"></p><div class="t-bar"><i id="job-countdown-bar"></i></div></div><div class="job-dialog-actions"><button id="job-dismiss" class="t-btn t-btn--ghost t-btn--lg">Annuler</button><button id="job-confirm" class="t-btn t-btn--primary" disabled>Confirmer</button></div></div></div>') +
     // Who pilots the machine (F5), opened from the strip: details, and an explicit takeover with a reason.
@@ -68,7 +68,7 @@
   var feedbackExpect=null,feedbackReached=false;
   // Last alarm code per port (D6): Grbl's restart banner after ALARM:3 makes the server forget
   // the code; the alarm's help stays shown while the controller remains in Alarm.
-  var alarmMemory=null,previousMachine=null;
+  var alarmMemory=null;
   // Action feedback state (ui-2027.css .t-sent): sent → confirmed | failed | uncertain (no answer).
   function setFeedbackState(state){feedbackState=state;if(state!=='confirmed'){feedbackExpect=null;feedbackReached=false;}var node=$('job-feedback');if(node&&typeof node.setAttribute==='function'&&typeof node.getAttribute==='function'&&node.getAttribute('data-state')!==state)node.setAttribute('data-state',state);}
   // A planned stream renewal (every minute) is not a disconnection: for up to 3 s
@@ -157,7 +157,7 @@
   }
   function dismiss(restore) {
     confirmation++;ticket=null;prop('job-dialog','hidden',true);prop('job-check','checked',false);prop('job-confirm','disabled',true);
-    dialogBackground.forEach(function(entry){entry.node.inert=entry.inert;});dialogBackground=[];
+    dialogBackground.forEach(function(entry){if(entry.restore)entry.restore();else entry.node.inert=entry.inert;});dialogBackground=[];
     var target=dialogReturn;dialogReturn=null;
     if(restore!==false&&!document.hidden&&target&&target.isConnected&&!target.disabled&&target.getClientRects().length)target.focus({preventScroll:true});
   }
@@ -165,6 +165,16 @@
   // starts below the strip, they are never made inert and they belong to its Tab cycle. Both
   // close the dialog before sending (#job-pause / #job-stop), so no ticket outlives them.
   var STRIP_STOPS=['t-pause','t-stop'];
+  // Dialog texts of the real page per operation: [warning, what the box confirms].
+  var DIALOG_TEXT={
+    start:[uiLocale.t('Cette action met la machine en mouvement et peut activer l’outil. Vérifiez la machine, l’origine et la zone de travail.'),uiLocale.t('Je suis devant la machine et prêt à lancer ce fichier.')],
+    resume:[uiLocale.t('Cette action met la machine en mouvement et peut activer l’outil. Vérifiez la machine, l’origine et la zone de travail.'),uiLocale.t('Je suis devant la machine et prêt à reprendre ce fichier.')],
+    macro:[uiLocale.t('Cette macro peut mettre la machine en mouvement et activer l’outil. Vérifiez la machine et la zone de travail.'),uiLocale.t('Je suis devant la machine et prêt à lancer cette macro.')],
+    unlock:[uiLocale.t('Le déverrouillage ($X) lève l’alarme sans aucun mouvement. La position peut être fausse : refaites la prise d’origine avant de travailler.'),uiLocale.t('Je suis devant la machine et la cause de l’alarme est réglée.')],
+    home:[uiLocale.t('La prise d’origine ($H) déplace chaque axe jusqu’à ses capteurs. Dégagez la zone de travail.'),uiLocale.t('Je suis devant la machine et la zone est dégagée.')],
+    spindle:[uiLocale.t('Le test fait tourner la broche. Tenez mains et objets à distance de l’outil.'),uiLocale.t('Je suis devant la machine et l’outil peut tourner.')],
+    zeroZ:[uiLocale.t('Le palpage descend Z jusqu’au contact avec la plaque. Vérifiez la plaque et la pince.'),uiLocale.t('Je suis devant la machine, la plaque et la pince sont en place.')]
+  };
   function inStrip(node){return !!(node&&typeof node.closest==='function'&&node.closest('#real-banner,#simulation-banner'));}
   function stripKept(){return STRIP_STOPS.map($).filter(inStrip);}
   function stripStops(){return stripKept().filter(function(n){return !n.hidden&&!n.disabled&&n.getClientRects().length;});}
@@ -192,6 +202,8 @@
   }
   function openPilot(){
     if(simulation||disposed||!$('pilot-dialog').hidden||otherDialog('pilot-dialog'))return false;
+    // Locked screen: only Pause, Arrêter and the padlock answer (V4).
+    if(window.cncScreenLock&&typeof window.cncScreenLock.locked==='function'&&window.cncScreenLock.locked())return false;
     pilotReturn=document.activeElement;
     // The status strip stays usable under this dialog (ui-2027.css starts it below the strip):
     // Pause and Arrêter must never wait for the operator to close a dialog about who pilots.
@@ -339,19 +351,24 @@
     return m.workflow!=='idle'||stoppable?{port:m.port,generation:m.generation||null,workflow:m.workflow,canPause:!!m.canPause,canStop:stoppable}:null;
   }
   // D6: an Alarm without code just after a code was seen on the same port keeps that code
-  // (marked alarmCodeKept); after a motion reset (Run/Jog then Alarm with the code wiped by the
-  // restart banner) Grbl 1.1 raised ALARM:3 (6 during homing): shown as such, marked inferred.
-  function recall(m,before){
-    if(!m||!/^alarm/i.test(String(m.activeState||''))){alarmMemory=null;return m;}
+  // (marked alarmCodeKept). A reset during a move (Grbl 1.1 raises ALARM:3; 6 during homing)
+  // whose code the restart banner wiped is deduced, marked inferred, and only from a move
+  // really reported (Run, Jog, Hold:1 decelerating; Home) on that port in the last 5 s (V7):
+  // never from an old report, a completed hold or a program pause at rest.
+  var INFER_MS=5000,motionSeen=null;
+  function recall(m){
+    if(!m)return m;
+    var a=String(m.activeState||'');
+    if(/^home/i.test(a)||m.homing)motionSeen={port:m.port,code:6,at:Date.now()};
+    else if(/^(run|jog|hold:1)/i.test(a))motionSeen={port:m.port,code:3,at:Date.now()};
+    else if(/^idle/i.test(a))motionSeen=null; // at rest since: a later alarm is not a reset in motion
+    if(!/^alarm/i.test(a)){alarmMemory=null;return m;}
     var code=typeof m.alarmCode==='number'&&isFinite(m.alarmCode)?m.alarmCode:null;
     if(code!==null){alarmMemory={port:m.port,code:code};return m;}
-    var known=alarmMemory&&alarmMemory.port===m.port?alarmMemory.code:null,inferred=false;
-    if(known===null&&before&&before.port===m.port){
-      var a=String(before.activeState||'');
-      if(/^home/i.test(a)||before.homing){known=6;inferred=true;}
-      else if(/^(run|jog|hold)/i.test(a)||(before.workflow&&before.workflow!=='idle')||jogging(before)){known=3;inferred=true;}
-      if(known!==null)alarmMemory={port:m.port,code:known,inferred:true};
-    }else if(alarmMemory&&alarmMemory.port===m.port)inferred=!!alarmMemory.inferred;
+    var known=alarmMemory&&alarmMemory.port===m.port?alarmMemory.code:null,inferred=!!(known!==null&&alarmMemory.inferred);
+    if(known===null&&motionSeen&&motionSeen.port===m.port&&Date.now()-motionSeen.at>=0&&Date.now()-motionSeen.at<=INFER_MS){
+      known=motionSeen.code;inferred=true;alarmMemory={port:m.port,code:known,inferred:true};
+    }
     if(known===null)return m;
     var copy={};Object.keys(m).forEach(function(k){copy[k]=m[k];});
     copy.alarmCode=known;copy.alarmCodeKept=true;if(inferred)copy.alarmCodeInferred=true;
@@ -395,7 +412,7 @@
       }
       var next=machines.filter(function(m){return m.port===$('job-port').value;})[0]||null;
       if(latestMachine&&(!next||latestMachine.port!==next.port||latestMachine.generation!==next.generation)){generation++;dismiss();}
-      next=recall(next,previousMachine);previousMachine=next;
+      next=recall(next);
       latestMachine=next;followFeedback(next);
       render();
   }
@@ -405,7 +422,9 @@
     // Without the stream, a job (or anything Stop can end) is read every 2 s, so Stop and
     // Pause, which need a state younger than 3 s, stay usable between two reads.
     var active=!!(latestMachine&&(latestMachine.workflow!=='idle'||latestMachine.canStop));
-    polling=true;nextPoll=Date.now()+(active?2000:10000);
+    // With a server that has the event stream (protocol seen), these reads are the fallback while
+    // it is down: every 2 s too (a legacy server stays at 10 s at rest), so the state stays shown (younger than 3 s) until the stream returns (N3).
+    polling=true;nextPoll=Date.now()+(active||(compact&&!simulation&&protocolReady)?2000:10000);
     var id=++requestSequence, ownGeneration=generation, ownMutation=mutation, started=Date.now();
     api('GET').then(function(data){
       if(disposed||ownGeneration!==generation||ownMutation!==mutation||id<appliedRequest)return;
@@ -461,10 +480,16 @@
       ticket={nonce:data.nonce,operation:operation,port:port,revision:revision,generation:generation,started:started};
       if(!confirmable()||otherDialog()){dismiss(false);return;}
       dialogReturn=origin;
-      var keep=stripKept();dialogBackground=inertOutside($('job-dialog'),keep);
+      // One stack of layers with the other overlays (strip-guard.js): a confirmation opened from a
+      // sheet (macros) and closed in any order gives back exactly the values it found.
+      var keep=stripKept();
+      if(window.CNCStripGuard&&typeof window.CNCStripGuard.isolate==='function')dialogBackground=[{restore:window.CNCStripGuard.isolate($('job-dialog'))}];
+      else dialogBackground=inertOutside($('job-dialog'),keep);
       // Below the strip, as #pilot-dialog (ui-2027.css): the overlay never covers Pause / Arrêter.
       // The card keeps its own scroll within the shorter overlay (its buttons are never clipped).
       if(keep.length&&$('job-dialog').style){$('job-dialog').style.top='var(--statusbar-h,0px)';var card=$('job-dialog').querySelector&&$('job-dialog').querySelector('.job-dialog-card');if(card&&card.style)card.style.maxHeight='calc(100vh - var(--statusbar-h,0px) - 48px)';}
+      // What this operation does, and what the operator confirms (N4: an unlock moves nothing).
+      if(!simulation){var words=DIALOG_TEXT[operation]||DIALOG_TEXT.start;if($('job-warning'))$('job-warning').textContent=words[0];if($('job-check-text'))$('job-check-text').textContent=words[1];}
       $('job-dialog-title').textContent=({start:uiLocale.t('Confirmer le démarrage'),macro:uiLocale.t('Exécuter la macro'),unlock:uiLocale.t('Déverrouiller la machine'),home:uiLocale.t('Lancer la prise d’origine'),spindle:uiLocale.t('Démarrer la broche'),zeroZ:uiLocale.t('Régler le zéro Z avec la plaque')})[operation]||uiLocale.t('Confirmer la reprise');
       $('job-dialog-file').textContent=data.name+' · '+port;
       // Start of a real job: the server's travel pre-check of this exact program (F2), joined to the
@@ -521,6 +546,7 @@
   bind(document,'keydown',function(e){
     // The confirmation, when open, owns the keys (its handler comes first).
     if($('pilot-dialog').hidden||!$('job-dialog').hidden)return;
+    if(window.CNCStripGuard&&typeof window.CNCStripGuard.covered==='function'&&window.CNCStripGuard.covered($('pilot-dialog')))return;
     if(e.key==='Escape'){closePilot();e.preventDefault();e.stopImmediatePropagation();return;}
     if(e.key!=='Tab')return;
     var order=['pilot-reason','pilot-reason-a','pilot-reason-b','pilot-dismiss','pilot-takeover'].map($).filter(function(n){return n&&!n.hidden&&!n.disabled&&!(pilot.state!=='other'&&/^pilot-reason/.test(n.id));});
@@ -536,6 +562,7 @@
   function previewLoaded(e){if(e&&e.target&&e.target.id==='home-job-image')previewIdentity(current&&Date.now()-lastSeen<3000?current:null);}
   if(document.addEventListener){document.addEventListener('load',previewLoaded,true);bindings.push(function(){if(document.removeEventListener)document.removeEventListener('load',previewLoaded,true);});}
   bind(window,'cnc-screen-change',function(){dismiss(false);closePilot(false);});
+  bind(window,'cnc-screen-lock',function(e){if(e&&e.detail){dismiss(false);closePilot(false);}});
   function resumeObservation(){
     if(disposed)return;
     if(observationSuspended&&!simulation){

@@ -71,7 +71,8 @@
   function endDrag(e){if(drag&&drag.id===e.pointerId)drag=null;}
   stage.addEventListener('pointerup',endDrag);stage.addEventListener('pointercancel',endDrag);stage.addEventListener('lostpointercapture',endDrag);
   document.addEventListener('keydown',function(e){
-    if(overlay.hidden)return;
+    // An overlay opened above (the pad) made this one inert: the keys are its own (V1).
+    if(overlay.hidden||(window.CNCStripGuard&&window.CNCStripGuard.covered(overlay)))return;
     if(e.key==='Escape'){e.preventDefault();close();return;}
     if(document.activeElement===stage&&/^Arrow/.test(e.key)){e.preventDefault();if(e.key==='ArrowLeft')x-=40;if(e.key==='ArrowRight')x+=40;if(e.key==='ArrowUp')y-=40;if(e.key==='ArrowDown')y+=40;schedule();}
     if(e.key==='Tab'){
@@ -101,4 +102,6 @@
   $('preview-machine-state').textContent=uiLocale.t('État en cours de lecture');
   window.addEventListener('resize',fit);
   window.addEventListener('cnc-screen-change',close);
+  // Locking the screen closes the viewer (nothing above the shield but the strip).
+  window.addEventListener('cnc-screen-lock',function(e){if(e&&e.detail)close();});
 })();

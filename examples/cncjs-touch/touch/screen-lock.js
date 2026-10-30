@@ -2,8 +2,10 @@
  * A transparent shield over the content (below the header) swallows every tap,
  * so nothing can be started, loaded or moved by a brush of the hand, while
  * the status strip's Pause and Stop stay reachable above it. Unlocking takes
- * two taps on the padlock within 3 s. No inert attribute is used: the screen
- * saver and the confirmation dialogs already manage it and restore it.
+ * two taps on the padlock within 3 s. The shield alone left the content reachable
+ * by keyboard (Tab, Enter) and the strip's other commands (Pilote) by touch: the
+ * lock now makes everything inert but Pause, Arrêter and the padlock, through
+ * strip-guard.js, whose stack restores the values in order with the other layers.
  * Other modules: window.cncScreenLock.lock()/unlock()/locked(), and the
  * `cnc-screen-lock` event (detail: true when locked). */
 (function () {
@@ -43,10 +45,19 @@
   }
   function announce(){window.dispatchEvent(new CustomEvent('cnc-screen-lock',{detail:locked}));}
   function disarm(){clearTimeout(armTimer);armTimer=null;armedUntil=0;}
-  // A sheet sits above the shield (and makes the strip inert): locking closes it, so the
-  // locked screen keeps nothing usable but Pause and Stop.
-  function lock(){if(locked)return;locked=true;disarm();if(window.cncShell&&typeof window.cncShell.closeSheet==='function')window.cncShell.closeSheet();paint();announce();}
-  function unlock(){if(!locked)return;locked=false;disarm();paint();announce();}
+  // A sheet or a panel above the shield would stay usable: locking closes them first (the
+  // event closes the real move panel, which sends its jog-stop, and the pilot dialog), then
+  // only Pause, Arrêter and the padlock answer (V3, V4, V5).
+  var restoreLock=null;
+  function lock(){
+    if(locked)return;locked=true;disarm();
+    if(window.cncShell&&typeof window.cncShell.closeSheet==='function')window.cncShell.closeSheet();
+    if(window.CNCNumeric&&typeof window.CNCNumeric.close==='function')window.CNCNumeric.close();
+    announce();
+    if(window.CNCStripGuard&&typeof window.CNCStripGuard.isolate==='function')restoreLock=window.CNCStripGuard.isolate(shield,[button]);
+    paint();
+  }
+  function unlock(){if(!locked)return;locked=false;disarm();var restore=restoreLock;restoreLock=null;if(restore)restore();paint();announce();}
   button.addEventListener('click',function(){
     if(!locked){lock();return;}
     if(armedUntil&&Date.now()<=armedUntil){unlock();return;}

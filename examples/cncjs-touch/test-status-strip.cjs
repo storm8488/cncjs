@@ -66,7 +66,16 @@ assert.equal(f.byId('t-state-text').textContent,'Alarme 1');assert.equal(f.byId(
 f.send({machine:m({activeState:'Door:1'}),transportConnected:true});assert.equal(f.byId('t-state-text').textContent,'Porte ouverte');
 f.send({machine:m({statusAgeMs:4000,fresh:false}),transportConnected:true});
 assert.equal(f.byId('t-state-text').textContent,'Rapport ancien');assert.equal(f.byId('t-fresh').getAttribute('data-stale'),'true');assert.equal(f.byId('t-fresh-text').textContent,'4 s');assert.equal(f.byId('t-spindle').textContent,'—');
-f.send({machine:m(),transportConnected:false});assert.equal(f.byId('t-state-text').textContent,'Hors ligne');
+// N3: a recent state read by HTTP while the stream is down is shown at once (not « Hors ligne »).
+f.send({machine:m(),transportConnected:false});assert.equal(f.byId('t-state-text').textContent,'Repos');assert.equal(f.byId('t-state').getAttribute('data-tone'),'ok');
+f.send({machine:null,transportConnected:false});assert.equal(f.byId('t-state-text').textContent,'Hors ligne');
+// V6: a deduced code is never shown as received: « Alarme 3 » with the note « déduite ».
+f.send({machine:m({activeState:'Alarm',alarmCode:3,alarmCodeKept:true,alarmCodeInferred:true}),transportConnected:true});
+assert.equal(f.byId('t-state-text').textContent,'Alarme 3');assert.equal(f.byId('t-state-note').textContent,'déduite');assert.equal(f.byId('t-state-note').hidden,false);
+f.send({machine:m({activeState:'Alarm',alarmCode:1}),transportConnected:true});assert.equal(f.byId('t-state-note').hidden,true);
+// N2: with Déverrouiller… on the strip the page switch link gives its room (data-confirm, ui-2027.css).
+f.send({machine:m({activeState:'Alarm',alarmCode:1,canUnlock:true}),transportConnected:true});assert.equal(f.banner.getAttribute('data-confirm'),'true');
+f.send({machine:m(),transportConnected:true});assert.equal(f.banner.getAttribute('data-confirm'),'false');
 // Stream down, state read by HTTP during a job: Stop and Pause stay offered (the server
 // accepts them without the stream); Resume, which needs a stream-bound confirmation, does not.
 f.send({machine:m({activeState:'Run',workflow:'running',canPause:true,canStop:true}),transportConnected:false});

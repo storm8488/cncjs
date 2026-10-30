@@ -539,6 +539,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
 
   const validJob = (c, revision) => {
     const j = record(c).job;
+    // Nothing loaded at all (no touch job, no program in CNCjs): say so, not « changed » (N5).
+    if (!j && !(c.sender && c.sender.state && c.sender.state.name)) {
+      throw conflict('Aucun fichier chargé.');
+    }
     if (!j || j.revision !== revision ||
         c.sender.state.context.touchJob !== j.revision || c.sender.state.name !== j.name) {
       throw conflict('Le fichier chargé a changé. Rechargez-le et confirmez à nouveau.');

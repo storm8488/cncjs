@@ -59,6 +59,27 @@ function page() {
   r2(); assert.equal(p.sheet.inert, false); assert.equal(p.main.inert, true);
   r1(); assert.equal(p.main.inert, false); assert.equal(pad.inert, false);
 }
+// V1: closed out of order (the sheet first, the pad still open): nothing is given back until the
+// pad closes, then everything is (a stack); covered() tells a layer under another one.
+{
+  const p = page();
+  const pad = node('pad', 'DIV', [node('pad-ok', 'BUTTON')]); pad.parentNode = p.all.body; p.all.body.children.push(pad);
+  const r1 = p.guard.isolate(p.sheet), r2 = p.guard.isolate(pad);
+  assert.equal(p.guard.covered(p.sheet), true, 'the sheet is covered by the pad'); assert.equal(p.guard.covered(pad), false);
+  r1();
+  assert.equal(p.main.inert, true, 'the pad still open: the page stays inert');
+  r2();
+  assert.equal(p.main.inert, false, 'both closed: the page is live'); assert.equal(p.nav.inert, false); assert.equal(p.sheet.inert, false);
+  assert.equal(p.pilot.inert, false); assert.equal(p.right.inert, false); assert.equal(pad.inert, false);
+}
+// Extra kept nodes (the padlock under the screen lock).
+{
+  const p = page();
+  const restore = p.guard.isolate(p.sheet, [p.lock]);
+  assert.equal(p.lock.inert, false); assert.equal(p.right.inert, false, 'the parent of the padlock stays live');
+  assert.equal(p.pilot.inert, true); assert.equal(p.main.inert, true);
+  restore(); assert.equal(p.pilot.inert, false);
+}
 // No strip commands built (status-strip.js failed): the overlay covers the page, nothing kept.
 {
   const p = page();
@@ -89,6 +110,20 @@ const wired = {
   'job-controls.js': /CNCStripGuard\.isolate\(\$\('pilot-dialog'\)\)[\s\S]*order=stripStops\(\)\.concat\(order\)/,
 };
 for (const [file, re] of Object.entries(wired)) assert.match(read(file), re, file + ' uses strip-guard.js');
+// V1 / V1b: a layer covered by another one leaves the keys to it.
+for (const [file, re] of Object.entries({
+  'touch-shell.js': /if\(!openedSheet\|\|\(window\.CNCStripGuard&&window\.CNCStripGuard\.covered\(openedSheet\)\)\)return;/,
+  'projects.js': /root\.CNCStripGuard\.covered\(\$\('project-dialog'\)\)/,
+  'coordinate-editor.js': /CNCStripGuard\.covered\(modal\)/,
+  'preview-viewer.js': /CNCStripGuard\.covered\(overlay\)/,
+  'job-controls.js': /CNCStripGuard\.covered\(\$\('pilot-dialog'\)\)/,
+})) assert.match(read(file), re, file + ' ignores keys when covered');
+// V2: Enter on the strip's Pause / Arrêter under the pad is theirs.
+assert.match(read('numeric-pad.js'), /if \(e\.key === 'Enter' && root\.CNCStripGuard && root\.CNCStripGuard\.stops\(\)\.indexOf\(document\.activeElement\) >= 0\) return;/);
+// V3-V5: the lock isolates (Pause, Arrêter, padlock), closes the real move panel and refuses the pilot dialog.
+assert.match(read('screen-lock.js'), /restoreLock=window\.CNCStripGuard\.isolate\(shield,\[button\]\)/);
+assert.match(read('real-motion.js'), /addEventListener\('cnc-screen-lock',function\(e\)\{if\(e&&e\.detail\)\{stopHold\(t\('écran verrouillé'\)\);closePanel\(false\);\}\}\)/);
+assert.match(read('job-controls.js'), /window\.cncScreenLock\.locked\(\)\)return false;/);
 assert.doesNotMatch(read('touch-shell.js'), /open:function\(\)\{[^}]*banner\.inert=true/, 'a sheet no longer makes the strip inert');
 assert.doesNotMatch(read('preview-viewer.js'), /background=Array\.prototype\.map\.call\(document\.querySelectorAll\('main,#tabbar,#real-banner/, 'the viewer does not make the strip inert when the guard is there');
 // Below the strip: the class of the guard, the project sheet and the cards' heights.

@@ -156,7 +156,10 @@
     set('home-live-spindle','textContent',rpm===null?'—':number(rpm)+uiLocale.t(' tr/min'));}
     // Reprendre takes the primary place while the job is held; Démarrer otherwise.
     var held=!!(c&&c.workflow==='paused');
-    set('home-job-resume-row','hidden',!held);set('home-job-primary-row','hidden',held);
+    // In an alarm at rest nothing here can start (the ready line says why, Déverrouiller is on
+    // the strip): the inactive Démarrer / Pause row gives its room to the alarm's help (N1).
+    var alarmRest=!!(c&&c.workflow==='idle'&&/^alarm/i.test(String(c.activeState||'')));
+    set('home-job-resume-row','hidden',!held);set('home-job-primary-row','hidden',held||alarmRest);
     // Charger only shows while the machine is idle and something is selected: one primary action per screen.
     var busyJob=!!(c&&c.workflow&&c.workflow!=='idle');
     set('home-job-load','hidden',!selection||busyJob);

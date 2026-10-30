@@ -1009,6 +1009,20 @@ window.CNCTouchMessages.push(['Pause et Arrêter restent disponibles ; les autre
 window.CNCTouchMessages.push(['segments.','segments.','segmentos.']);
 window.CNCTouchMessages.push(['État perdu','State lost','Estado perdido']);
 window.CNCTouchMessages.push(['État machine perdu : Pause et Arrêter sont envoyés quand même (sans confirmation) ; les autres commandes attendent le retour du suivi.','Machine state lost: Pause and Stop are still sent (without confirmation); other commands wait for monitoring to return.','Estado de la máquina perdido: Pausa y Detener se envían igualmente (sin confirmación); los demás comandos esperan el regreso del seguimiento.']);
+// Audit 31 (last fixes): per-operation confirmation texts (N4), inferred alarm (V6), lock (V3).
+window.CNCTouchMessages.push(['Je suis devant la machine et prêt à reprendre ce fichier.','I am at the machine and ready to resume this file.','Estoy frente a la máquina y listo para reanudar este archivo.']);
+window.CNCTouchMessages.push(['Cette macro peut mettre la machine en mouvement et activer l’outil. Vérifiez la machine et la zone de travail.','This macro may move the machine and switch the tool on. Check the machine and the work area.','Esta macro puede mover la máquina y activar la herramienta. Revise la máquina y la zona de trabajo.']);
+window.CNCTouchMessages.push(['Je suis devant la machine et prêt à lancer cette macro.','I am at the machine and ready to run this macro.','Estoy frente a la máquina y listo para ejecutar esta macro.']);
+window.CNCTouchMessages.push(['Le déverrouillage ($X) lève l’alarme sans aucun mouvement. La position peut être fausse : refaites la prise d’origine avant de travailler.','Unlocking ($X) clears the alarm without any movement. The position may be wrong: home again before working.','El desbloqueo ($X) elimina la alarma sin ningún movimiento. La posición puede ser incorrecta: vuelva a buscar el origen antes de trabajar.']);
+window.CNCTouchMessages.push(['Je suis devant la machine et la cause de l’alarme est réglée.','I am at the machine and the cause of the alarm is solved.','Estoy frente a la máquina y la causa de la alarma está resuelta.']);
+window.CNCTouchMessages.push(['La prise d’origine ($H) déplace chaque axe jusqu’à ses capteurs. Dégagez la zone de travail.','Homing ($H) moves each axis to its switches. Clear the work area.','La búsqueda de origen ($H) mueve cada eje hasta sus sensores. Despeje la zona de trabajo.']);
+window.CNCTouchMessages.push(['Je suis devant la machine et la zone est dégagée.','I am at the machine and the area is clear.','Estoy frente a la máquina y la zona está despejada.']);
+window.CNCTouchMessages.push(['Le test fait tourner la broche. Tenez mains et objets à distance de l’outil.','The test turns the spindle. Keep hands and objects away from the tool.','La prueba hace girar el husillo. Mantenga manos y objetos lejos de la herramienta.']);
+window.CNCTouchMessages.push(['Je suis devant la machine et l’outil peut tourner.','I am at the machine and the tool may turn.','Estoy frente a la máquina y la herramienta puede girar.']);
+window.CNCTouchMessages.push(['Le palpage descend Z jusqu’au contact avec la plaque. Vérifiez la plaque et la pince.','Probing lowers Z until it touches the plate. Check the plate and the clip.','El sondeo baja Z hasta el contacto con la placa. Revise la placa y la pinza.']);
+window.CNCTouchMessages.push(['Je suis devant la machine, la plaque et la pince sont en place.','I am at the machine, the plate and the clip are in place.','Estoy frente a la máquina, la placa y la pinza están en su sitio.']);
+window.CNCTouchMessages.push(['déduite','inferred','deducida']);
+window.CNCTouchMessages.push(['écran verrouillé','screen locked','pantalla bloqueada']);
 // Server refusals by stable code (cncI18n.format): code, French, English, Spanish.
 // {name}: a value of the refusal's params; [ … ]: dropped when one of its values is null.
 // The French template is the server's message, written exactly as it builds it.

@@ -3,12 +3,13 @@ const http=require('http'),fs=require('fs'),path=require('path');
 // --root DIR serves another copy of the pages (a bundled build); --gzip compresses
 // text like CNCjs's compression middleware; --replay streams a deterministic job
 // (see measure-replay-fixture.cjs) for the performance measurements.
-// --replay-alarm: the same stream with the controller at rest in ALARM (unlock offered).
+// --replay-alarm: the same stream with the controller at rest in ALARM:1 (unlock offered);
+// --replay-alarm-stopped: a job stopped in motion, ALARM:3 deduced after the restart (longest help).
 const argValue=(name)=>{const i=process.argv.indexOf(name);return i>=0&&process.argv[i+1]!==undefined?process.argv[i+1]:'';};
 const root=path.resolve(argValue('--root')||path.join(__dirname,'touch'));
-const gzipEnabled=process.argv.includes('--gzip'),replayEnabled=process.argv.includes('--replay')||process.argv.includes('--replay-alarm');
+const gzipEnabled=process.argv.includes('--gzip'),replayEnabled=process.argv.includes('--replay')||process.argv.includes('--replay-alarm')||process.argv.includes('--replay-alarm-stopped');
 const zlib=require('zlib');
-const replay=replayEnabled?require('./measure-replay-fixture.cjs').create({file:'Parcours_de_test_1.gcode',alarm:process.argv.includes('--replay-alarm')}):null;
+const replay=replayEnabled?require('./measure-replay-fixture.cjs').create({file:'Parcours_de_test_1.gcode',alarm:process.argv.includes('--replay-alarm-stopped')?'stopped':process.argv.includes('--replay-alarm')?1:0}):null;
 // --watch DIR: api/watch/* answered by the real monitor service over that directory (measure-library.cjs).
 const watchDir=argValue('--watch'),library=watchDir?require('./measure-library.cjs'):null;
 const idleFixture=process.argv.includes('--idle-fixture');

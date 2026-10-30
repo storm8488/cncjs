@@ -84,9 +84,11 @@
   });
   window.addEventListener('cnc-job-status',function(e){if(!!e.detail.simulation!==simulation)return;machine=e.detail.machine;received=Date.now();render();});
   window.addEventListener('cnc-screen-change',function(){if(!modal.hidden)close();});
+  window.addEventListener('cnc-screen-lock',function(e){if(e&&e.detail&&!modal.hidden)close();});
   document.addEventListener('visibilitychange',function(){invalidate();if(document.hidden&&!modal.hidden)close();});
   document.addEventListener('keydown',function(e){
-    if(modal.hidden)return;if(e.key==='Escape'){e.preventDefault();close();}
+    // An overlay opened above (the pad) made this one inert: the keys are its own (V1).
+    if(modal.hidden||(window.CNCStripGuard&&window.CNCStripGuard.covered(modal)))return;if(e.key==='Escape'){e.preventDefault();close();}
     if(e.key==='Tab'){var controls=Array.prototype.filter.call(modal.querySelectorAll('button,input,select'),function(n){return !n.disabled;});if(window.CNCStripGuard){window.CNCStripGuard.tab(e,modal,controls);return;}var first=controls[0],last=controls[controls.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}
   });
 })();

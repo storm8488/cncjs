@@ -204,7 +204,8 @@
   }
   // Escape closes the sheet; Tab cycles through the strip's Pause / Arrêter and the sheet.
   document.addEventListener('keydown', function (e) {
-    if ($('project-dialog').hidden) return;
+    // An overlay opened above (the pad) made this one inert: the keys are its own (V1).
+    if ($('project-dialog').hidden || (root.CNCStripGuard && root.CNCStripGuard.covered($('project-dialog')))) return;
     if (e.key === 'Escape') { e.preventDefault(); closeDialog(); return; }
     if (e.key === 'Tab' && root.CNCStripGuard) root.CNCStripGuard.tab(e, $('project-dialog'));
   });
@@ -409,6 +410,7 @@
   // so a sheet for the previous bytes shows as written for another version.
   root.addEventListener('cnc-library-preview-updated', function (e) { if (e && e.detail && e.detail.file === selected) { load(selected); refreshIndex(); } });
   root.addEventListener('cnc-screen-change', function (e) { closeDialog(); if (e && e.detail === 'files') refreshIndex(); });
+  root.addEventListener('cnc-screen-lock', function (e) { if (e && e.detail) closeDialog(); });
   var refreshButton = $('library-refresh');
   if (refreshButton) refreshButton.addEventListener('click', function () { refreshIndex(); if (selected) load(selected); });
   try { if (root.cncState && typeof root.cncState.subscribe === 'function') root.cncState.subscribe(function () { if (current) { renderWarnings(); renderCapture(); } }); } catch (_) {}

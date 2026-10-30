@@ -77,7 +77,8 @@
     return {content:overlay.querySelector('.ks-sheet-content'),open:function(){if(openedSheet===overlay)return;if(openedSheet)closeSheet();sheetReturn=document.activeElement;openedSheet=overlay;sheetRestore=isolate(overlay);overlay.hidden=false;overlay.querySelector('button').focus();}};
   }
   document.addEventListener('keydown',function(e){
-    if(!openedSheet)return;
+    // An overlay opened above (the pad) made this one inert: the keys are its own (V1).
+    if(!openedSheet||(window.CNCStripGuard&&window.CNCStripGuard.covered(openedSheet)))return;
     if(e.key==='Escape'){e.preventDefault();closeSheet();}
     if(e.key==='Tab'){
       var focusable=Array.prototype.filter.call(openedSheet.querySelectorAll('button,input,select,a[href]'),function(el){return !el.disabled&&!el.hidden&&el.getClientRects().length;});
@@ -181,6 +182,8 @@
     var pct=m&&typeof m.total==='number'&&m.total>0&&typeof m.received==='number'?Math.min(100,Math.floor(m.received/m.total*100)):null;
     var file=m&&m.name?(m.originalName||m.name):'';
     var word=window.cncStatusStrip?window.cncStatusStrip.describe(m,connected):{word:connected&&m?m.activeState:uiLocale.t('Hors ligne'),tone:connected&&m?'info':'off'};
+    // A deduced alarm code is never shown as received (V6): « Alarme 3 déduite ».
+    if(word.note)word={word:word.word+' '+word.note,tone:word.tone};
     live('home',!m||!connected?'off':alarm?'danger':running?'info':paused?'warn':m.canStart?'ok':'',
       !m||!connected?uiLocale.t('Hors ligne'):alarm?uiLocale.t('Alarme'):running?uiLocale.t('En cours')+(pct!==null?' · '+pct+' %':''):paused?uiLocale.t('En pause'):m.canStart?uiLocale.t('Prêt à démarrer'):file||uiLocale.t('Aucun fichier chargé'));
     live('files',file?'ok':'',file?uiLocale.t('Chargé : ')+file:uiLocale.t('Choisir un parcours'));
@@ -199,7 +202,8 @@
   window.addEventListener('cnc-job-status',function(e){
     if(!!e.detail.simulation!==simulation)return;
     lastMachine=e.detail.machine;
-    updateTiles(e.detail.machine,simulation?!!e.detail.machine:!!e.detail.transportConnected);
+    // A published machine state is recent (read by the stream or by HTTP): shown as such (N3).
+    updateTiles(e.detail.machine,!!e.detail.machine);
     if(active==='menu')resumeBar();
   });
   window.addEventListener('cnc-navigate',function(e){if(Object.prototype.hasOwnProperty.call(names,e.detail))go(e.detail);});
