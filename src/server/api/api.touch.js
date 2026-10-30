@@ -55,8 +55,15 @@ export const actorOf = (req) => {
 };
 
 export const postJob = authorized((req, res) => {
+  // A continuous jog's keepalive (F1) comes every 100 ms: it answers alone,
+  // without a snapshot or a stream publication.
+  const keepalive = !!req.body && req.body.action === 'motion' && req.body.operation === 'jog-keepalive';
   touch.action(req.body, actorOf(req))
     .then((result) => {
+      if (keepalive) {
+        res.send(result);
+        return;
+      }
       res.send({ ...result, snapshot: touch.snapshot() });
       touch.publish();
     })

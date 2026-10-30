@@ -219,6 +219,29 @@ describe('api.touch', () => {
   });
 });
 
+describe('api.touch: continuous jog keepalive (F1)', () => {
+  beforeEach(() => {
+    Object.values(touch).forEach((fn) => fn.mockClear && fn.mockClear());
+    touch.isStarted.mockReturnValue(true);
+  });
+
+  test('a keepalive answers alone: no snapshot, no stream publication; other motion operations keep both', async () => {
+    touch.action.mockReturnValueOnce(Promise.resolve({ active: true, jogId: 'j1' }));
+    let res = makeRes();
+    postJob(makeReq({ body: { action: 'motion', operation: 'jog-keepalive', jogId: 'j1', clientId: 'tab' } }), res);
+    await settled();
+    expect(res.payload).toEqual({ active: true, jogId: 'j1' });
+    expect(touch.snapshot).not.toHaveBeenCalled();
+    expect(touch.publish).not.toHaveBeenCalled();
+
+    res = makeRes();
+    postJob(makeReq({ body: { action: 'motion', operation: 'jog-stop', clientId: 'tab' } }), res);
+    await settled();
+    expect(res.payload).toMatchObject({ message: 'ok', snapshot: { version: 1 } });
+    expect(touch.publish).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('api.touch: actor identity (F5) and the durable history (F4)', () => {
   beforeEach(() => {
     Object.values(touch).forEach((fn) => fn.mockClear && fn.mockClear());

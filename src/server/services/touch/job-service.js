@@ -21,6 +21,8 @@ import { analyzeProgram, checkProgram } from './program-check.js';
 import { createControl, SAFE_ACTIONS } from './control.js';
 // eslint-disable-next-line import/extensions
 import { fingerprint as fingerprintOfText, sameProgram } from './program-identity.js';
+// eslint-disable-next-line import/extensions
+import { createMotion } from './motion.js';
 
 // A status report older than this is not trusted to describe the machine.
 const MAX_REPORT_AGE_MS = 2500;
@@ -165,7 +167,11 @@ const monotonic = () => performance.now();
 
 // Actions that need the control lease when the port is owned by someone
 // else; a touch client that identifies itself claims a free port with them.
-const GUARDED_ACTIONS = ['load', 'prepare', 'start', 'resume', 'macro', 'override', 'unlock', 'home', 'spindle', 'zeroZ', 'readSettings'];
+const GUARDED_ACTIONS = ['load', 'prepare', 'start', 'resume', 'macro', 'override', 'unlock', 'home', 'spindle', 'zeroZ', 'readSettings', 'set-origin'];
+
+// Real moves (F1, motion.js): every `motion` operation is guarded like the
+// actions above, except `jog-stop`, which is free for everyone like Stop.
+const guarded = (body) => GUARDED_ACTIONS.includes(body.action) || (body.action === 'motion' && body.operation !== 'jog-stop');
 
 // Reads a program from the watch directory without the monitor service (the
 // offline preview server loads this module natively, outside of Babel): the
@@ -513,6 +519,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
 
   const remove = (c, r) => {
     records.delete(c);
+    moves.forget(r);
     Array.from(r.timers).forEach((entry) => {
       clearTimeout(entry.handle);
       r.timers.delete(entry);
@@ -1089,6 +1096,28 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       });
   };
 
+  // Real jogging and work origins (F1): experimental, disabled unless .cncrc
+  // has touch.motion.enabled: true (see motion.js).
+  const moves = createMotion({
+    config,
+    clock,
+    conflict,
+    controllers,
+    record,
+    later,
+    answers,
+    changed,
+    available,
+    hasAutomations,
+    control,
+    transports,
+    transportActors,
+    log,
+    controllerInfo,
+    allSettings,
+    modalWcs
+  });
+
   const findMacro = (id) => {
     const macro = macrosOf(config).find((m) => m.id === id);
     if (!macro) {
@@ -1137,7 +1166,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       params: plateParams,
       name: (c, params) => 'Zéro Z avec plaque de ' + params.thickness + ' mm (recherche ' + params.search + ' mm)',
       run: zeroZ
-    }
+    },
+    // Work origin at the current position (F1, motion.js).
+    'set-origin': moves.originOperation
   };
 
   // Runs a guard and returns its failure message, or '' when it passes.
@@ -1314,7 +1345,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       canZeroZ: !zeroZReason,
       zeroZReason,
       probing: !!r.probing,
-      zeroZ: r.zeroZ ? { ...r.zeroZ } : null
+      zeroZ: r.zeroZ ? { ...r.zeroZ } : null,
+      // Real moves (F1): `capabilities` (jog, jogContinuous, jogCancel, setOrigin)
+      // and `motion` (what is possible now, the continuous jog, the last results).
+      ...moves.snapshot(c, r)
     };
   };
 
@@ -1544,13 +1578,14 @@ notes: plan.notes
       }
       throw conflict('Opération de pilotage inconnue.');
     }
-    if (GUARDED_ACTIONS.includes(a)) {
+    if (guarded(body)) {
       control.authorize(c.options.port, actor, a);
-    } else if (SAFE_ACTIONS.includes(a)) {
+    } else if (SAFE_ACTIONS.includes(a) || a === 'motion') {
       control.authorize(c.options.port, actor, a, { safe: true });
     }
 
-    if (['prepare', 'start', 'resume', 'macro', 'override', 'unlock', 'home', 'spindle', 'zeroZ', 'readSettings'].includes(a)) {
+    if (['prepare', 'start', 'resume', 'macro', 'override', 'unlock', 'home', 'spindle', 'zeroZ', 'readSettings', 'set-origin'].includes(a) ||
+        (guarded(body) && a === 'motion')) {
       if (typeof body.generation !== 'string' || body.generation !== r.generation) {
         throw conflict('Le contrôleur a changé ou son identité manque. Choisissez-le à nouveau.');
       }
@@ -1558,7 +1593,7 @@ notes: plan.notes
         throw conflict('Connexion de suivi interrompue. Confirmez à nouveau.');
       }
     }
-    const stopping = ['pause', 'stop', 'spindleStop'].includes(a);
+    const stopping = ['pause', 'stop', 'spindleStop'].includes(a) || (a === 'motion' && body.operation === 'jog-stop');
     if (body.generation !== undefined && body.generation !== r.generation && !stopping) {
       throw conflict('Le contrôleur a changé. Choisissez-le à nouveau.');
     }
@@ -1568,6 +1603,10 @@ notes: plan.notes
 
     if (a === 'load') {
       return load(c, r, body, actor);
+    }
+
+    if (a === 'motion') {
+      return moves.perform(c, r, body, actor);
     }
 
     if (a === 'resumePlan') {
@@ -1590,15 +1629,17 @@ notes: plan.notes
     }
 
     if (a === 'prepare') {
-      if (!['start', 'resume', 'macro', 'unlock', 'home', 'spindle', 'zeroZ'].includes(body.operation)) {
+      if (!['start', 'resume', 'macro', 'unlock', 'home', 'spindle', 'zeroZ', 'set-origin'].includes(body.operation)) {
         throw conflict('Action invalide.');
       }
       const nonce = crypto.randomBytes(24).toString('hex');
       let name;
       if (COMMISSIONING[body.operation]) {
         const op = COMMISSIONING[body.operation];
-        const params = op.params ? op.params(body) : undefined;
+        let params = op.params ? op.params(body) : undefined;
         op.guard(c);
+        // What the confirmation is bound to, read once the guard passed.
+        params = op.bind ? op.bind(c, params) : params;
         name = op.name(c, params);
         r.ticket = {
           nonce,
@@ -1666,7 +1707,7 @@ notes: plan.notes
       if (!t || t.nonce !== body.nonce || t.operation !== a || clock() > t.expires || t.transportId !== body.transportId) {
         throw conflict('Confirmation expirée ou déjà utilisée.');
       }
-      return COMMISSIONING[a].run(c, t);
+      return COMMISSIONING[a].run(c, t, actor);
     }
 
     if (a === 'spindleStop') {
@@ -1740,6 +1781,11 @@ notes: plan.notes
 
     if (a === 'stop') {
       const activeState = controllerStatus(c).activeState;
+      // A jog of ours, even one Grbl has not reported yet (report still Idle).
+      if (c.workflow.state === 'idle' && moves.moving(c, r)) {
+        r.ticket = null;
+        return moves.stop(c, r, 'stop');
+      }
       if (c.workflow.state === 'idle' && activeState === 'Jog') {
         r.ticket = null;
         c.command('jogCancel');
@@ -1823,7 +1869,7 @@ notes: plan.notes
       return Promise.resolve(perform(body, actor)).then((result) => {
         // A refused or failed operation never changes the owner: a touch
         // client claims a free port only once its guarded operation succeeded.
-        if (actor && actor.kind === 'touch' && GUARDED_ACTIONS.includes(body.action)) {
+        if (actor && actor.kind === 'touch' && guarded(body)) {
           try {
             control.authorize(body.port, actor, body.action, { claim: true });
           } catch (_) {
@@ -1915,7 +1961,7 @@ notes: plan.notes
         s.name, s.total, s.sent, s.received, s.hold, idOf(s.holdReason), idOf(s.context),
         feeder.queue, feeder.pending,
         r ? [r.loading, r.seen === null, r.modalSeen === null, r.wcs, r.ticket && r.ticket.nonce, r.firmware, r.startups, r.alarm, r.stall && r.stall.since,
-          idOf(r.toolChange), r.lastStop && r.lastStop.line, idOf(r.probing), idOf(r.zeroZ), r.homing && r.homing.since].join(',') : '',
+          idOf(r.toolChange), r.lastStop && r.lastStop.line, idOf(r.probing), idOf(r.zeroZ), r.homing && r.homing.since, moves.signature(r)].join(',') : '',
         j ? [idOf(j), j.started, j.stopped, j.finishedAt, j.errors].join(',') : ''
       ].join(';');
     }).join('|');
@@ -1941,8 +1987,13 @@ notes: plan.notes
   };
 
   const ticketPending = (id) => {
+    const jogging = moves.holds(id);
     for (const r of records.values()) {
       if (r.ticket && r.ticket.transportId === id && clock() <= r.ticket.expires) {
+        return true;
+      }
+      // A continuous jog in progress: rotating its stream would stop it.
+      if (jogging(r)) {
         return true;
       }
     }
@@ -1957,10 +2008,12 @@ notes: plan.notes
       transportActors.delete(id);
       control.detach(actor, id);
     }
-    records.forEach((r) => {
+    records.forEach((r, c) => {
       if (r.ticket && r.ticket.transportId === id) {
         r.ticket = null;
       }
+      // The owner's stream closing stops its continuous jog (0x85).
+      moves.transportClosed(c, r, id);
     });
     changed();
   };
