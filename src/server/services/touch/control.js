@@ -17,6 +17,12 @@ import { performance } from 'perf_hooks';
 // After its last presence vanished, a lease survives this long.
 export const GRACE_MS = 60000;
 
+// A lease whose owner did nothing for this long, while the machine is at
+// rest (no job, load, probe, homing, jog or pending confirmation), is
+// released: an idle kiosk must not lock the PC out indefinitely. The port
+// becomes free; nobody gets it without asking (decision of 2026-10-30).
+export const IDLE_MS = 5 * 60 * 1000;
+
 export const KINDS = ['touch', 'socket', 'http', 'system'];
 
 // Job-service actions that stop or hold the machine: allowed to every
@@ -68,7 +74,7 @@ export const describeOwner = (owner) => {
   return '« ' + name + ' » (' + (KIND_LABELS[owner.kind] || owner.kind) + (owner.user && owner.user !== name ? ', ' + owner.user : '') + ')';
 };
 
-export const createControl = ({ now = Date.now, elapsed = () => performance.now(), graceMs = GRACE_MS, isAdmin = () => false, onEvent } = {}) => {
+export const createControl = ({ now = Date.now, elapsed = () => performance.now(), graceMs = GRACE_MS, idleMs = IDLE_MS, isAdmin = () => false, onEvent } = {}) => {
   // port → { who, key, since, graceEnd (elapsed() when the lease ends, null while present) }
   const leases = new Map();
   // key → Set of presence handles (transport ids, socket ids)
@@ -104,8 +110,11 @@ export const createControl = ({ now = Date.now, elapsed = () => performance.now(
 
   const isPresent = (key) => present.has(key) && present.get(key).size > 0;
 
-  // Ends the leases whose grace delay is over.
-  const tick = () => {
+  // Ends the leases whose grace delay is over. With `busy` (a function of the
+  // port telling whether the machine is doing or about to do something), the
+  // leases idle for idleMs on a machine at rest end too ('idle'); without it
+  // (the internal checks before an operation) only the grace delay applies.
+  const tick = ({ busy } = {}) => {
     if (disposed) {
       return [];
     }
@@ -114,6 +123,14 @@ export const createControl = ({ now = Date.now, elapsed = () => performance.now(
       if (lease.graceEnd !== null && elapsed() >= lease.graceEnd) {
         leases.delete(port);
         expired.push(emit('expired', port, null, { previous: publicOwner({ ...lease, graceEnd: lease.graceEnd }) }));
+      } else if (typeof busy === 'function' && elapsed() - lease.active >= idleMs) {
+        if (busy(port)) {
+          // Activity of the machine counts as activity of its owner.
+          lease.active = elapsed();
+        } else {
+          leases.delete(port);
+          expired.push(emit('idle', port, null, { previous: publicOwner(lease), idleMs }));
+        }
       }
     }
     return expired;
@@ -154,13 +171,14 @@ export const createControl = ({ now = Date.now, elapsed = () => performance.now(
       throw refusal(port, lease);
     }
     if (!lease) {
-      lease = { who: actor, key, since: now(), graceEnd: null };
+      lease = { who: actor, key, since: now(), graceEnd: null, active: elapsed() };
       leases.set(port, lease);
       renew(lease);
       emit('claim', port, lease);
     } else {
       lease.who = { ...lease.who, label: actor.label || lease.who.label, user: actor.user || lease.who.user };
       lease.graceEnd = isPresent(key) ? null : elapsed() + graceMs;
+      lease.active = elapsed();
     }
     return { owner: publicOwner(lease), role: roleOf(lease, actor) };
   };
@@ -193,7 +211,7 @@ export const createControl = ({ now = Date.now, elapsed = () => performance.now(
       throw conflict('Prise de pilotage refusée : indiquez un motif (3 caractères au moins). Pilotage actuel : ' + describeOwner(publicOwner(lease)) + '.', publicOwner(lease));
     }
     const previous = publicOwner(lease);
-    const next = { who: actor, key: keyOf(actor), since: now(), graceEnd: null };
+    const next = { who: actor, key: keyOf(actor), since: now(), graceEnd: null, active: elapsed() };
     leases.set(port, next);
     renew(next);
     emit('takeover', port, next, { previous, reason: why, admin: isAdmin(actor) });
@@ -215,6 +233,7 @@ export const createControl = ({ now = Date.now, elapsed = () => performance.now(
     const actor = who ? actorOf(who) : null;
     if (actor && lease.key === keyOf(actor)) {
       renew(lease);
+      lease.active = elapsed();
       return publicOwner(lease);
     }
     if (safe) {
@@ -310,4 +329,4 @@ export const safeWrite = (data) => {
   return line.length > 0 && Array.from(line).every((ch) => SAFE_WRITES.includes(ch));
 };
 
-export default { createControl, actorOf, describeOwner, safeCommand, safeWrite, GRACE_MS, SAFE_ACTIONS, SAFE_COMMANDS, SAFE_WRITES, KINDS };
+export default { createControl, actorOf, describeOwner, safeCommand, safeWrite, GRACE_MS, IDLE_MS, SAFE_ACTIONS, SAFE_COMMANDS, SAFE_WRITES, KINDS };

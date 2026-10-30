@@ -2893,6 +2893,36 @@ describe('job service F5, cross-check 3', () => {
     });
   });
 
+  describe('libération d’un pilotage inactif (décision du 2026-10-30)', () => {
+    test('au repos, 5 min sans action du propriétaire : le port devient libre, sans transfert ; pendant un travail le bail reste', async () => {
+      const ctx = setup();
+      ctx.service.openTransport('stream-A', A);
+      await started(ctx, A);
+      expect(ctx.state().control.owner).toMatchObject({ id: 'tablet-A' });
+      // Travail en cours pendant 6 min : le heartbeat (observe) ne libère rien.
+      for (let i = 0; i < 6; i++) {
+        ctx.advance(60000);
+        ctx.report();
+        ctx.service.observe();
+      }
+      expect(ctx.state().control.owner).toMatchObject({ id: 'tablet-A' });
+      // Fin du travail, machine au repos, A ne fait plus rien.
+      await ctx.req('stop', {}, A);
+      ctx.c.workflow.state = 'idle';
+      ctx.c.state.status.activeState = 'Idle';
+      ctx.advance(4 * 60000);
+      ctx.report();
+      ctx.service.observe();
+      expect(ctx.state().control.owner).toMatchObject({ id: 'tablet-A' });
+      ctx.advance(61000);
+      ctx.report();
+      ctx.service.observe();
+      expect(ctx.state().control.owner).toBeNull();
+      // B n'a rien reçu : il agit sur un port libre, ou le revendique lui-même.
+      await expect(ctx.req('control', { operation: 'status' }, B)).resolves.toMatchObject({ owner: null });
+    });
+  });
+
   describe('revendication implicite', () => {
     // D1 (corrigé) : une action refusée ne change jamais le propriétaire ; la
     // tablette ne revendique un port libre qu'après le succès de son action.

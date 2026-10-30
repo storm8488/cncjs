@@ -1907,8 +1907,23 @@ notes: plan.notes
     open.forEach(record);
     // The probe-input observer forgets closed controllers here too (counter-review 2).
     probeInput.sync();
-    // Leases whose grace delay is over end here, every heartbeat (F5).
-    if (control.tick().length) {
+    // Leases whose grace delay is over end here, every heartbeat (F5), and so
+    // do leases idle for 5 minutes on a machine at rest: nothing running,
+    // loading, probing, homing, jogging, waiting in the feeder or waiting for
+    // a confirmation keeps a kiosk's lease alive by itself.
+    const busy = (port) => {
+      const c = registry[port];
+      if (!c || c.isClose()) {
+        return false;
+      }
+      const r = records.get(c);
+      const feeder = c.feeder && typeof c.feeder.toJSON === 'function' ? c.feeder.toJSON() : {};
+      const state = controllerStatus(c).activeState || '';
+      return !!((c.workflow && c.workflow.state !== 'idle') || feeder.queue || feeder.pending ||
+        /^(Run|Hold|Home|Jog|Door)/.test(state) ||
+        (r && (r.loading || r.probing || homingActive(r) || (r.ticket && clock() <= r.ticket.expires) || moves.moving(c, r))));
+    };
+    if (control.tick({ busy }).length) {
       changed();
     }
     return open;

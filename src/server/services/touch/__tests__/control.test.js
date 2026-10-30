@@ -338,3 +338,45 @@ describe('control (F5), cross-check 3', () => {
     });
   });
 });
+
+describe('control (F5), idle release (decision of 2026-10-30)', () => {
+  test('a present owner idle for 5 minutes on a machine at rest loses the lease; the port is free, nobody receives it', () => {
+    const ctx = setup({ idleMs: 300000 });
+    const { control, events } = ctx;
+    control.attach(tablet, 't1');
+    control.claim('COM3', tablet);
+    ctx.advance(299000);
+    expect(control.tick({ busy: () => false })).toEqual([]);
+    expect(control.inspect('COM3', tablet).owner).toMatchObject({ id: 'tablet-abc', present: true });
+    ctx.advance(2000);
+    const ended = control.tick({ busy: () => false });
+    expect(ended).toHaveLength(1);
+    expect(ended[0]).toMatchObject({ type: 'idle', port: 'COM3' });
+    expect(control.inspect('COM3', pc).owner).toBeNull();
+    expect(events.map((e) => e.type)).toEqual(['claim', 'idle']);
+    // The PC is not given the port: it may act on a free port or claim it explicitly.
+    expect(control.authorize('COM3', pc, 'start')).toBeNull();
+    expect(control.inspect('COM3', pc).owner).toBeNull();
+  });
+
+  test('the owner acting, or the machine being busy, keeps the lease; internal checks never apply the idle rule', () => {
+    const ctx = setup({ idleMs: 300000 });
+    const { control } = ctx;
+    control.attach(tablet, 't1');
+    control.claim('COM3', tablet);
+    ctx.advance(200000);
+    control.authorize('COM3', tablet, 'start');
+    ctx.advance(200000);
+    expect(control.tick({ busy: () => false })).toEqual([]);
+    ctx.advance(200000);
+    // A job running for a long time: busy, the lease stays.
+    expect(control.tick({ busy: () => true })).toEqual([]);
+    ctx.advance(200000);
+    expect(control.tick({ busy: () => true })).toEqual([]);
+    // Without `busy` (the checks made before an operation), only the grace delay counts.
+    ctx.advance(600000);
+    expect(control.tick()).toEqual([]);
+    expect(control.inspect('COM3', tablet).owner).toMatchObject({ id: 'tablet-abc' });
+    expect(control.tick({ busy: () => false })).toHaveLength(1);
+  });
+});
