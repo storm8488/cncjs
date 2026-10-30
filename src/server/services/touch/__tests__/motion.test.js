@@ -1534,3 +1534,463 @@ describe('cross-check 6 · 4. O3 broche et historique', () => {
     expect(dump).not.toMatch(/"tA"|transportId|generation/);
   });
 });
+
+// Cross-check 7 (xv7) of eb2ae0b5, integrated with its own fixtures (scoped):
+// D1 with the real GrblRunner, the 60 s rule, step watch, D3 and R1 (fixed).
+describe('motion, cross-check 7', () => {
+  const A = { kind: 'touch', id: 'tablet-A', label: 'Tablette A', user: 'op' };
+  const B = { kind: 'touch', id: 'tablet-B', label: 'Tablette B', user: 'op' };
+
+  const services = [];
+  afterEach(() => {
+    services.splice(0).forEach((s) => s.dispose());
+    jest.useRealTimers();
+  });
+
+  const BASE = { $10: '1', $13: '0', $22: '1', $23: '0', $110: '1000', $111: '1000', $112: '500', $130: '400', $131: '400', $132: '80' };
+
+  // Fake controller (same shape as motion.test.js).
+  const fakeController = () => {
+    const c = {
+      type: 'Grbl',
+      options: { port: 'TEST' },
+      ready: true,
+      isClose: () => false,
+      runner: new EventEmitter(),
+      sender: new EventEmitter(),
+      workflow: Object.assign(new EventEmitter(), { state: 'idle' }),
+      state: { status: { activeState: 'Idle', spindle: 0, mpos: { x: '-100.000', y: '-100.000', z: '-10.000' }, wpos: { x: '5.000', y: '5.000', z: '2.000' } } },
+      feeder: { toJSON: () => ({ queue: 0, pending: false }) },
+      settings: { version: '1.1h', settings: { ...BASE } },
+      written: []
+    };
+    c.runner.state = c.state;
+    c.sender.state = { name: '', context: {}, total: 0 };
+    c.sender.toJSON = () => ({ ...c.sender.state });
+    c.command = (name, ...args) => {
+      if (name === 'gcode') {
+        [].concat(args[0]).forEach((line) => c.written.push(line + '\n'));
+      }
+      if (name === 'jogCancel') {
+        c.written.push('\x85');
+      }
+    };
+    return c;
+  };
+
+  const setup = ({ settings = {}, mpos = {}, homed = true } = {}) => {
+    jest.useFakeTimers();
+    const ctx = { now: 10000, enabled: true, c: fakeController(), history: [] };
+    Object.keys(settings).forEach((k) => {
+      if (settings[k] === undefined) {
+        delete ctx.c.settings.settings[k];
+      } else {
+        ctx.c.settings.settings[k] = settings[k];
+      }
+    });
+    Object.assign(ctx.c.state.status.mpos, mpos);
+    ctx.control = createControl({ now: () => ctx.now, elapsed: () => ctx.now });
+    ctx.service = createService(
+      { get: () => ({ TEST: ctx.c }) },
+      { get: (key) => ({ 'touch.motion.enabled': ctx.enabled, events: [], macros: [] }[key]) },
+      () => ctx.now,
+      { control: ctx.control, history: { record: (e) => ctx.history.push(e) } }
+    );
+    services.push(ctx.service);
+    ctx.generation = ctx.service.list()[0].generation;
+    ctx.service.openTransport('tA', A);
+    ctx.service.openTransport('tA2', A);
+    ctx.service.openTransport('tB', B);
+    ctx.report = (payload) => ctx.c.runner.emit('status', payload);
+    ctx.ok = () => ctx.c.runner.emit('ok');
+    ctx.tick = (ms) => {
+      for (let t = 0; t < ms; t += 50) {
+        ctx.now += 50;
+        ctx.report();
+        jest.advanceTimersByTime(50);
+      }
+    };
+    ctx.motion = (operation, extra = {}, actor = A, transportId = actor === B ? 'tB' : 'tA') => ctx.service.action({
+      port: 'TEST', generation: ctx.generation, transportId, action: 'motion', operation, ...extra
+    }, actor);
+    ctx.state = () => ctx.service.list()[0];
+    ctx.cancels = () => ctx.c.written.filter((b) => b === '\x85').length;
+    ctx.jogs = () => ctx.c.written.filter((b) => b.startsWith('$J'));
+    ctx.report();
+    if (homed) {
+      ctx.c.state.status.activeState = 'Home';
+      ctx.report();
+      ctx.c.state.status.activeState = 'Idle';
+      ctx.report();
+    }
+    return ctx;
+  };
+
+  const outcome = async (p) => {
+    try {
+      const res = await p;
+      return res.command || 'OK';
+    } catch (e) {
+      return 'REFUS: ' + e.message;
+    }
+  };
+
+  // The real GrblRunner, its settings coming from `$N=V` lines like a `$$` reply.
+  const runnerSetup = (settingLines) => {
+    jest.useFakeTimers();
+    const box = { now: 10000 };
+    const runner = new GrblRunner();
+    const c = {
+      type: 'Grbl',
+      options: { port: 'TEST' },
+      ready: true,
+      isClose: () => false,
+      runner,
+      sender: Object.assign(new EventEmitter(), { state: { name: '', context: {}, total: 0 } }),
+      workflow: Object.assign(new EventEmitter(), { state: 'idle' }),
+      feeder: { toJSON: () => ({ queue: 0, pending: false }) },
+      get settings() {
+        return runner.settings;
+      },
+      written: []
+    };
+    c.command = (name, line) => c.written.push(name === 'gcode' ? line : '\x85');
+    c.sender.toJSON = () => ({ ...c.sender.state });
+    const service = createService(
+      { get: () => ({ TEST: c }) },
+      { get: (key) => ({ 'touch.motion.enabled': true, events: [], macros: [] }[key]) },
+      () => box.now,
+      { control: createControl({ now: () => box.now, elapsed: () => box.now }), history: { record: () => {} } }
+    );
+    services.push(service);
+    service.openTransport('tA', A);
+    const generation = service.list()[0].generation;
+    const t = { c, runner, service, box };
+    t.motion = (operation, extra) => service.action({ port: 'TEST', generation, transportId: 'tA', action: 'motion', operation, ...extra }, A);
+    t.parse = (line) => {
+      box.now += 50;
+      runner.parse(line);
+    };
+    t.settings = (lines) => lines.forEach((l) => runner.parse(l));
+    runner.parse('Grbl 1.1h [\'$\' for help]');
+    t.settings(['$13=0', '$22=1', '$23=0', '$110=1000', '$111=1000', '$112=500', '$130=400', '$131=400', '$132=80'].concat(settingLines));
+    // Settle a step that Grbl answered.
+    t.settle = (wposLine) => {
+      runner.parse('ok');
+      t.parse(wposLine);
+      t.parse(wposLine);
+      t.parse(wposLine);
+      jest.advanceTimersByTime(200);
+    };
+    return t;
+  };
+  const DIST = (line) => Number(/X(-?[\d.]+) F/.exec(line)[1]);
+
+  describe('cross-check 7 · 1. D1 : $10 et WCO avec le vrai GrblRunner', () => {
+    test('WCO reçu puis carte redémarrée avec un autre WCO : l’ancien WCO (gardé par GrblRunner) n’est pas cru', async () => {
+      const t = runnerSetup(['$10=0']);
+      // Real X -250 with G54+G92 = -200.
+      t.parse('<Home|WPos:-50.000,0.000,0.000|FS:0,0|WCO:-200.000,0.000,0.000>');
+      t.parse('<Idle|WPos:-50.000,0.000,0.000|FS:0,0>');
+      expect(await outcome(t.motion('jog-start', { axis: 'X', direction: -1, feed: 500 }))).toBe('$J=G91 G21 X-149 F500');
+      t.settle('<Idle|WPos:-50.000,0.000,0.000|FS:0,0>');
+      // The jog was not really run here (fake); restart: G92 cleared, real WCO now -10,
+      // real X still -250 → WPos -240. GrblRunner keeps WCO -200 → MPos -440 (wrong).
+      t.runner.parse('Grbl 1.1h [\'$\' for help]');
+      t.parse('<Home|WPos:-240.000,0.000,0.000|FS:0,0>');
+      t.parse('<Idle|WPos:-240.000,0.000,0.000|FS:0,0>');
+      expect(t.runner.state.status.mpos.x).toBe('-440.000');
+      const after = await outcome(t.motion('jog-start', { axis: 'X', direction: 1, feed: 500 }));
+      const step = await outcome(t.motion('jog', { axis: 'X', direction: 1, step: 10, feed: 500 }));
+      expect(after).toMatch(/REFUS: .*aucun décalage WCO/);
+      expect(step).toMatch(/REFUS/);
+      // New WCO: right again.
+      t.parse('<Idle|WPos:-240.000,0.000,0.000|FS:0,0|WCO:-10.000,0.000,0.000>');
+      expect(t.runner.state.status.mpos.x).toBe('-250.000');
+      expect(await outcome(t.motion('jog-start', { axis: 'X', direction: 1, feed: 500 }))).toBe('$J=G91 G21 X249 F500');
+    });
+
+    test('WCO reçu puis $10 changé (relu par $$) : la course reste juste dans les deux sens', async () => {
+      const t = runnerSetup(['$10=1']);
+      t.parse('<Home|MPos:-250.000,0.000,0.000|FS:0,0|WCO:-200.000,0.000,0.000>');
+      t.parse('<Idle|MPos:-250.000,0.000,0.000|FS:0,0>');
+      t.settings(['$10=0']);
+      t.parse('<Idle|WPos:-50.000,0.000,0.000|FS:0,0>');
+      expect(t.runner.state.status.mpos.x).toBe('-250.000');
+      expect(await outcome(t.motion('jog-start', { axis: 'X', direction: -1, feed: 500 }))).toBe('$J=G91 G21 X-149 F500');
+    });
+
+    // R1 (corrigé) : CNCjs's $10 copy changes only with a $$ reply. Before the fix
+    // a `$10=0` typed before any WCO gave `$J=G91 G21 X-349 F500` (real target -599).
+    test('R1 (corrigé) : $10 changé en 0 SANS relecture $$ (cache CNCjs à 1) et aucun WCO : la ligne WPos reçue décide, refus', async () => {
+      const t = runnerSetup(['$10=1']);
+      t.runner.parse('Grbl 1.1h [\'$\' for help]');
+      t.parse('<Home|WPos:-50.000,0.000,0.000|FS:0,0>');
+      t.parse('<Idle|WPos:-50.000,0.000,0.000|FS:0,0>');
+      const out = await outcome(t.motion('jog-start', { axis: 'X', direction: -1, feed: 500 }));
+      expect(out).toMatch(/REFUS: .*rapports Grbl en WPos.*aucun décalage WCO/);
+      expect(await outcome(t.motion('jog', { axis: 'X', direction: -1, step: 10, feed: 500 }))).toMatch(/REFUS/);
+      // A WCO arrives: the real position is known again.
+      t.parse('<Idle|WPos:-50.000,0.000,0.000|FS:0,0|WCO:-200.000,0.000,0.000>');
+      expect(await outcome(t.motion('jog-start', { axis: 'X', direction: -1, feed: 500 }))).toBe('$J=G91 G21 X-149 F500');
+    });
+
+    test('R1 : une ligne MPos rétablit la confiance dans MPos', async () => {
+      const t = runnerSetup(['$10=1']);
+      t.parse('<Home|WPos:-50.000,0.000,0.000|FS:0,0>');
+      t.parse('<Idle|WPos:-50.000,0.000,0.000|FS:0,0>');
+      expect(await outcome(t.motion('jog-start', { axis: 'X', direction: -1, feed: 500 }))).toMatch(/REFUS/);
+      t.parse('<Idle|MPos:-250.000,0.000,0.000|FS:0,0>');
+      expect(await outcome(t.motion('jog-start', { axis: 'X', direction: -1, feed: 500 }))).toBe('$J=G91 G21 X-149 F500');
+    });
+
+    test.each([
+      [undefined, /réglage \$10 inconnu/],
+      ['abc', /réglage \$10 inconnu/],
+      ['', /réglage \$10 inconnu/],
+      ['-1', /\$10 sans MPos/],
+      ['1.5', /\$10 sans MPos/],
+      ['2', /\$10 sans MPos/],
+      ['0', /\$10 sans MPos/]
+    ])('$10=%p sans WCO : continu refusé', async (v, re) => {
+      const ctx = setup({ settings: { $10: v } });
+      await expect(ctx.motion('jog-start', { axis: 'X', direction: -1, feed: 500 })).rejects.toThrow(re);
+      expect(ctx.jogs()).toEqual([]);
+    });
+
+    test.each([['1'], ['3'], ['1.0'], [' 3 ']])('$10=%p (bit 0) : MPos crue sans WCO', async (v) => {
+      const ctx = setup({ settings: { $10: v } });
+      expect(await outcome(ctx.motion('jog-start', { axis: 'X', direction: -1, feed: 500 }))).toBe('$J=G91 G21 X-299 F500');
+    });
+
+    test('WCO incomplet ou vide (x,y seulement, champ vide) : non compté', async () => {
+      const ctx = setup({ settings: { $10: '0' } });
+      ctx.report({ wco: { x: '-1', y: '0' } });
+      ctx.report({ wco: { x: '', y: '0', z: '0' } });
+      ctx.report({ wco: { x: 'NaN', y: '0', z: '0' } });
+      await expect(ctx.motion('jog-start', { axis: 'X', direction: -1, feed: 500 })).rejects.toThrow(/aucun décalage WCO/);
+      ctx.report({ wco: { x: '-1', y: '0', z: '0' } });
+      expect(await outcome(ctx.motion('jog-start', { axis: 'X', direction: -1, feed: 500 }))).toBe('$J=G91 G21 X-299 F500');
+    });
+
+    test('fuzz vrai GrblRunner $10=0 : aucun $J de plus de 1 mm hors de la vraie course, WCO reçu ou non, redémarrages compris', async () => {
+      const T = 400;
+      const violations = [];
+      let written = 0;
+      let refused = 0;
+      let seed = 7;
+      const rnd = () => {
+        seed = (seed * 1103515245 + 12345) % 2147483648;
+        return seed / 2147483648;
+      };
+      for (let i = 0; i < 300; i++) {
+        const t = runnerSetup(['$10=0']);
+        const real = -Math.round(rnd() * T * 1000) / 1000;
+        let wco = -Math.round(rnd() * 300 * 1000) / 1000;
+        const wpos = () => (real - wco).toFixed(3);
+        const sendWco = rnd() < 0.5;
+        t.parse('<Home|WPos:' + wpos() + ',0.000,0.000|FS:0,0' + (sendWco ? '|WCO:' + wco.toFixed(3) + ',0.000,0.000' : '') + '>');
+        t.parse('<Idle|WPos:' + wpos() + ',0.000,0.000|FS:0,0>');
+        if (rnd() < 0.3) {
+          // Restart with a different offset, then maybe a WCO.
+          t.runner.parse('Grbl 1.1h [\'$\' for help]');
+          wco = -Math.round(rnd() * 300 * 1000) / 1000;
+          t.parse('<Home|WPos:' + wpos() + ',0.000,0.000|FS:0,0>');
+          t.parse('<Idle|WPos:' + wpos() + ',0.000,0.000|FS:0,0' + (rnd() < 0.5 ? '|WCO:' + wco.toFixed(3) + ',0.000,0.000' : '') + '>');
+        }
+        const dir = rnd() < 0.5 ? -1 : 1;
+        const op = rnd() < 0.5 ? ['jog-start', {}] : ['jog', { step: [0.01, 0.1, 1, 10][Math.floor(rnd() * 4)] }];
+        try {
+          const res = await t.motion(op[0], { axis: 'X', direction: dir, feed: 500, ...op[1] });
+          written += 1;
+          const d = DIST(res.command);
+          const target = real + d;
+          if (Math.abs(d) > 1 + 1e-9 && (target < -T - 1e-6 || target > 1e-6)) {
+            violations.push({ real, wco, d, op: op[0] });
+          }
+          if (op[0] === 'jog-start' && (target < -T + 1 - 1e-6 || target > -1 + 1e-6)) {
+            violations.push({ real, wco, d, op: op[0], margin: true });
+          }
+        } catch (_) {
+          refused += 1;
+        }
+        t.service.dispose();
+        services.splice(services.indexOf(t.service), 1);
+      }
+      expect(violations).toEqual([]);
+      expect(written).toBeGreaterThan(50);
+      expect(refused).toBeGreaterThan(0);
+    }, 60000);
+  });
+
+  describe('cross-check 7 · 2. règle des 60 s', () => {
+    test.each([
+      [10, 10, '$J=G91 G21 X-10 F10'],
+      [10, 9.9996, '$J=G91 G21 X-10 F10'],
+      [10, 9.9994, 'REFUS: Pas trop lent'],
+      [10, 9.999, 'REFUS: Pas trop lent'],
+      [1, 1, '$J=G91 G21 X-1 F1'],
+      [0.1, 1, '$J=G91 G21 X-0.1 F1'],
+      [0.01, 1, '$J=G91 G21 X-0.01 F1'],
+      [1, 0.9999, 'REFUS: Avance hors limites'],
+      [1, 1.0004, '$J=G91 G21 X-1 F1']
+    ])('pas de %p mm à F%p → %s', async (step, feed, expected) => {
+      const ctx = setup();
+      const out = await outcome(ctx.motion('jog', { axis: 'X', direction: -1, step, feed }));
+      expect(out.startsWith(expected)).toBe(true);
+    });
+
+    test('avance bornée par $110 (5 mm/min) : 10 mm jamais possible ; avance absente, texte, NaN, Infinity refusées', async () => {
+      const res = {};
+      for (const feed of [5, 6, undefined, '10', NaN, Infinity, -10, 0]) {
+        const ctx = setup({ settings: { $110: '5' } });
+        res[String(feed) + (typeof feed === 'string' ? 's' : '')] = await outcome(ctx.motion('jog', { axis: 'X', direction: -1, step: 10, ...(feed === undefined ? {} : { feed }) }));
+      }
+      expect(res['5']).toMatch(/Pas trop lent : 10 mm à 5 mm\/min durerait 120 s/);
+      Object.keys(res).filter((k) => k !== '5').forEach((k) => expect(res[k]).toMatch(/Avance hors limites/));
+      const ctx = setup({ settings: { $110: undefined } });
+      expect(await outcome(ctx.motion('jog', { axis: 'X', direction: -1, step: 1, feed: 600 }))).toMatch(/Avance hors limites .*500.*\$110 inconnu/);
+    });
+
+    test('continu : distance = la plus petite de avance × 60 s, de la course et de la marge ; jamais plus de 60 s prévus', async () => {
+      const res = {};
+      const bad = [];
+      for (const [pos, dir, feed] of [['-100.000', -1, 100], ['-100.000', -1, 300], ['-350.000', -1, 100], ['-100.000', 1, 1000], ['-100.000', -1, 1],
+        ['-100.000', -1, 1.0004], ['-399.000', 1, 1000], ['-1.000', -1, 1000]]) {
+        const ctx = setup({ mpos: { x: pos } });
+        const out = await outcome(ctx.motion('jog-start', { axis: 'X', direction: dir, feed }));
+        res[pos + (dir > 0 ? '+' : '-') + 'F' + feed] = out;
+      }
+      for (let feed = 1; feed <= 1000; feed += 7.3) {
+        for (const pos of ['-0.4', '-1.6', '-50', '-200', '-398.4', '-399.6']) {
+          for (const dir of [1, -1]) {
+            const ctx = setup({ mpos: { x: pos } });
+            try {
+              const r = await ctx.motion('jog-start', { axis: 'X', direction: dir, feed });
+              const f = Number(/F([\d.]+)$/.exec(r.command)[1]);
+              const ms = 60000 * Math.abs(DIST(r.command)) / f;
+              if (ms > 60000 + 1e-6) {
+                bad.push({ feed, pos, dir, cmd: r.command, ms });
+              }
+            } catch (_) {
+              // refused
+            }
+            ctx.service.dispose();
+            services.splice(services.indexOf(ctx.service), 1);
+          }
+        }
+      }
+      expect(res['-100.000-F100']).toBe('$J=G91 G21 X-100 F100');
+      expect(res['-100.000-F300']).toBe('$J=G91 G21 X-299 F300');
+      expect(res['-350.000-F100']).toBe('$J=G91 G21 X-49 F100');
+      expect(res['-100.000+F1000']).toBe('$J=G91 G21 X99 F1000');
+      expect(res['-100.000-F1']).toBe('$J=G91 G21 X-1 F1');
+      expect(res['-100.000-F1.0004']).toBe('$J=G91 G21 X-1 F1');
+      expect(bad).toEqual([]);
+    }, 60000);
+
+    test('continu lent : s’arrête seul à la fin de sa distance (fin bornée, aucun 0x85), keepalive suivant inactif', async () => {
+      const ctx = setup();
+      const res = await ctx.motion('jog-start', { axis: 'X', direction: -1, feed: 100 });
+      expect(res.command).toBe('$J=G91 G21 X-100 F100');
+      ctx.ok();
+      ctx.c.state.status.activeState = 'Jog';
+      for (let i = 0; i < 600; i++) {
+        ctx.tick(100);
+        await ctx.motion('jog-keepalive', { jogId: res.jogId });
+      }
+      ctx.c.state.status.activeState = 'Idle';
+      ctx.tick(200);
+      const after = await ctx.motion('jog-keepalive', { jogId: res.jogId });
+      expect(after.active).toBe(false);
+      expect(ctx.cancels()).toBe(0);
+      expect(ctx.state().motion.lastJog).toMatchObject({ result: 'ended', reason: 'bound' });
+      expect(ctx.history.filter((e) => e.event === 'jog')).toEqual([expect.objectContaining({ result: 'ended', reason: 'bound', distanceMm: 100 })]);
+    }, 60000);
+
+    test('surveillance d’un pas : désactivation, fermeture du flux d’envoi (tA2) ; un autre flux du même appareil, un pas terminé : rien', async () => {
+      const out = {};
+      // Sent from tA2: closing tA (same device, other stream) does nothing; tA2 cancels.
+      const ctx = setup();
+      await ctx.motion('jog', { axis: 'X', direction: -1, step: 1, feed: 2 }, A, 'tA2');
+      ctx.ok();
+      ctx.c.state.status.activeState = 'Jog';
+      ctx.service.closeTransport('tA');
+      ctx.tick(200);
+      out.otherStream = ctx.cancels();
+      ctx.service.closeTransport('tA2');
+      ctx.tick(100);
+      out.ownStream = ctx.cancels();
+      out.reason = ctx.state().motion.lastJog && ctx.state().motion.lastJog.reason;
+      // A settled step: disabling later sends nothing.
+      const done = setup();
+      await done.motion('jog', { axis: 'X', direction: -1, step: 0.1, feed: 500 });
+      done.ok();
+      done.tick(300);
+      done.enabled = false;
+      done.service.closeTransport('tA');
+      done.tick(300);
+      out.settled = done.cancels();
+      // Hot disable with the stream still open.
+      const dis = setup();
+      await dis.motion('jog', { axis: 'X', direction: 1, step: 10, feed: 1000 });
+      dis.ok();
+      dis.c.state.status.activeState = 'Jog';
+      dis.tick(100);
+      out.beforeDisable = dis.cancels();
+      dis.enabled = false;
+      dis.tick(100);
+      out.disabled = dis.cancels();
+      out.disabledReason = dis.state().motion.lastJog && dis.state().motion.lastJog.reason;
+      expect(out).toMatchObject({ otherStream: 0, reason: 'transport', settled: 0, beforeDisable: 0, disabledReason: 'disabled' });
+      expect(out.ownStream).toBeGreaterThanOrEqual(1);
+      expect(out.disabled).toBeGreaterThanOrEqual(1);
+    });
+
+    test('pas : la surveillance tient pendant toute la durée (60 s), sans 0x85 tant que tout va bien', async () => {
+      const ctx = setup();
+      await ctx.motion('jog', { axis: 'X', direction: -1, step: 1, feed: 1 });
+      ctx.ok();
+      ctx.c.state.status.activeState = 'Jog';
+      ctx.tick(59000);
+      expect(ctx.cancels()).toBe(0);
+      ctx.service.closeTransport('tA');
+      ctx.tick(100);
+      expect(ctx.cancels()).toBeGreaterThanOrEqual(1);
+    }, 60000);
+
+    // D3 (corrigé) : échouait sur eb2ae0b5 (faux « annulation non confirmée » au jog normal suivant).
+    test('D3 · cancelUnconfirmed vrai tant que Jog après la fin des renvois ; puis faux pendant un pas ou un maintien NORMAL suivant', async () => {
+      const ctx = setup();
+      await ctx.motion('jog', { axis: 'X', direction: -1, step: 1, feed: 1 });
+      ctx.ok();
+      ctx.c.state.status.activeState = 'Jog';
+      await ctx.motion('jog-stop');
+      ctx.tick(80000);
+      const during = ctx.state().motion.cancelUnconfirmed;
+      ctx.c.state.status.activeState = 'Idle';
+      ctx.tick(200);
+      const atRest = ctx.state().motion.cancelUnconfirmed;
+      // A new, normal step, never cancelled.
+      const step = await outcome(ctx.motion('jog', { axis: 'X', direction: -1, step: 0.1, feed: 500 }));
+      ctx.ok();
+      ctx.c.state.status.activeState = 'Jog';
+      ctx.tick(50);
+      const normal = ctx.state().motion;
+      expect(step).toBe('$J=G91 G21 X-0.1 F500');
+      // A new continuous jog too.
+      ctx.c.state.status.activeState = 'Idle';
+      ctx.tick(200);
+      const hold = await ctx.motion('jog-start', { axis: 'X', direction: -1, feed: 500 });
+      ctx.ok();
+      ctx.c.state.status.activeState = 'Jog';
+      ctx.tick(50);
+      await ctx.motion('jog-keepalive', { jogId: hold.jogId });
+      const normalHold = ctx.state().motion;
+      expect(during).toBe(true);
+      expect(atRest).toBe(false);
+      // Expected: false (nothing was cancelled). Observed value is reported in the log.
+      expect({ step: normal.cancelUnconfirmed, hold: normalHold.cancelUnconfirmed }).toEqual({ step: false, hold: false });
+    }, 60000);
+  });
+});

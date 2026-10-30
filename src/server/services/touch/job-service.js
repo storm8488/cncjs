@@ -401,6 +401,13 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       };
       // [VER:1.1h.20190825:] from $I, which CNCjs does not keep.
       r.raw = (payload) => {
+        // The report itself says whether Grbl sends WPos (CNCjs's $10 copy may be stale, F1).
+        const line = payload && typeof payload.raw === 'string' ? payload.raw.trim() : '';
+        if (/^<[^>]*\|WPos:/.test(line)) {
+          r.wposReported = true;
+        } else if (/^<[^>]*\|MPos:/.test(line)) {
+          r.wposReported = false;
+        }
         const m = payload && typeof payload.raw === 'string' && /^\[VER:([^\]:]{1,40})[^\]]*\]$/.exec(payload.raw.trim());
         if (m && r.firmware.indexOf(m[1]) < 0) {
           r.firmware = 'Grbl ' + m[1];

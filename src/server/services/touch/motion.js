@@ -144,7 +144,7 @@ export const capabilitiesOf = ({ type, firmware, version, enabled }) => {
 // the convention of the firmware seen is certain, such an axis has both
 // candidates, and a move must be safe in every candidate that contains the
 // current position (see limitsAt).
-export const envelopeOf = (settings, homed, { wcoSeen = false } = {}) => {
+export const envelopeOf = (settings, homed, { wcoSeen = false, wposReported = false } = {}) => {
   const s = settings || {};
   let global = '';
   const homing = number(s.$22);
@@ -153,7 +153,9 @@ export const envelopeOf = (settings, homed, { wcoSeen = false } = {}) => {
   // and the last WCO received, taken as 0 until one comes: wrong by the whole
   // work offset until then.
   const report = number(s.$10);
-  const reportsMpos = report !== null && report >= 0 && Math.floor(report) === report && report % 2 === 1;
+  // The last status line received decides when it says WPos: CNCjs's copy of
+  // $10 is refreshed only by a $$ reply and may be stale.
+  const reportsMpos = !wposReported && report !== null && report >= 0 && Math.floor(report) === report && report % 2 === 1;
   if (homing === null) {
     global = 'réglage $22 inconnu';
   } else if (homing !== 1) {
@@ -163,9 +165,13 @@ export const envelopeOf = (settings, homed, { wcoSeen = false } = {}) => {
   } else if (mask === null || mask < 0 || mask !== Math.floor(mask)) {
     global = 'réglage $23 (sens de prise d’origine) inconnu';
   } else if (!reportsMpos && !wcoSeen) {
-    global = report === null
-      ? 'réglage $10 inconnu : position machine non vérifiable'
-      : 'position machine non rapportée ($10 sans MPos) et aucun décalage WCO reçu depuis le démarrage de la carte';
+    if (wposReported) {
+      global = 'position machine non rapportée ($10 sans MPos : rapports Grbl en WPos) et aucun décalage WCO reçu depuis le démarrage de la carte';
+    } else if (report === null) {
+      global = 'réglage $10 inconnu : position machine non vérifiable';
+    } else {
+      global = 'position machine non rapportée ($10 sans MPos) et aucun décalage WCO reçu depuis le démarrage de la carte';
+    }
   }
   const axes = {};
   AXES.forEach((axis, i) => {
@@ -373,7 +379,7 @@ export const createMotion = (deps) => {
       throw conflict('Broche en rotation : pas de ' + fmt(MAX_SPINDLE_STEP_MM) + ' mm au plus (maintien continu refusé). Arrêtez la broche (M5) pour de plus grands déplacements.');
     }
     const pos = positionOf(c, 'mpos', p.axis);
-    const at = limitsAt(envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen })[p.axis], pos, p.axis);
+    const at = limitsAt(envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen, wposReported: r.wposReported })[p.axis], pos, p.axis);
     if (at.outside) {
       throw conflict('Pas refusé : ' + at.reason + '.');
     }
@@ -500,6 +506,10 @@ export const createMotion = (deps) => {
       }
       if (!job.unconfirmed && clock() - job.since > CANCEL_LIMIT_MS) {
         job.unconfirmed = true;
+        // The cancelled $J itself: it stays pending while Jog is reported.
+        if (p0) {
+          p0.unconfirmed = true;
+        }
         if (s.lastJog) {
           s.lastJog.unconfirmed = true;
         }
@@ -577,7 +587,7 @@ export const createMotion = (deps) => {
     if (spindleOn(c)) {
       return 'Broche en rotation : maintien continu refusé ; pas de ' + fmt(MAX_SPINDLE_STEP_MM) + ' mm au plus.';
     }
-    const at = limitsAt(envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen })[axis], positionOf(c, 'mpos', axis), axis);
+    const at = limitsAt(envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen, wposReported: r.wposReported })[axis], positionOf(c, 'mpos', axis), axis);
     if (!at.limits) {
       return 'Maintien continu impossible : ' + at.reason + '.' + (at.outside ? '' : ' Utilisez les pas (' + MAX_UNREFERENCED_STEP_MM + ' mm au plus).');
     }
@@ -592,7 +602,7 @@ export const createMotion = (deps) => {
     if (why) {
       throw conflict(why);
     }
-    const env = envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen })[p.axis];
+    const env = envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen, wposReported: r.wposReported })[p.axis];
     const pos = positionOf(c, 'mpos', p.axis);
     const { limits, ambiguous } = limitsAt(env, pos, p.axis);
     // Safe in every plausible convention, never more than the travel itself,
@@ -865,7 +875,7 @@ export const createMotion = (deps) => {
         cancelling: !!s.cancel,
         // A jog cancel not confirmed after 5 s (still repeated while Jog is reported).
         // Stays true while Grbl still reports Jog, even once the repeats stopped.
-        cancelUnconfirmed: !!((s.cancel && s.cancel.unconfirmed) || (!s.cancel && s.lastJog && s.lastJog.unconfirmed && activeOf(c) === 'Jog')),
+        cancelUnconfirmed: !!((s.cancel && s.cancel.unconfirmed) || (!s.cancel && s.pending && s.pending.unconfirmed && activeOf(c) === 'Jog')),
         lastJog: s.lastJog ? { ...s.lastJog } : null,
         lastOrigin: s.lastOrigin ? { ...s.lastOrigin } : null
       }

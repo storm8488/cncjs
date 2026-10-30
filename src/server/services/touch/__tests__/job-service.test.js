@@ -3524,3 +3524,151 @@ commands: []
     });
   });
 });
+
+// Cross-check 7 (xv7) of eb2ae0b5: idle release exactly 5 min after the end of the
+// machine activity (V1, V2), busy sampled at every heartbeat. Own fixtures, scoped.
+describe('job service F5, cross-check 7', () => {
+  const A = { kind: 'touch', id: 'tablet-A', label: 'Tablette A', user: 'ana' };
+  const B = { kind: 'touch', id: 'tablet-B', label: 'Tablette B', user: 'bob' };
+  const SOCK = { kind: 'socket', id: 'sock-1', label: 'CNCjs', user: 'carl' };
+
+  const fakeController = () => {
+    const c = {
+      type: 'Grbl',
+      options: { port: 'TEST' },
+      ready: true,
+      isClose: () => false,
+      runner: new EventEmitter(),
+      sender: new EventEmitter(),
+      workflow: Object.assign(new EventEmitter(), { state: 'idle' }),
+      state: { status: { activeState: 'Idle' } },
+      feeder: { toJSON: () => ({ queue: 0, pending: false }) },
+      settings: { settings: { $110: 1000, $111: 1000, $112: 200 } },
+      commands: []
+    };
+    c.runner.state = c.state;
+    c.sender.state = { name: '', context: {}, total: 0 };
+    c.sender.toJSON = () => ({ ...c.sender.state });
+    c.command = (name, ...args) => {
+      c.commands.push([name, ...args]);
+      if (name === 'gcode:load') {
+        c.sender.state = { name: args[0], context: args[2], total: 3 };
+        c.sender.emit('load');
+        args[3](null);
+      }
+      if (name === 'gcode:start') {
+        c.workflow.state = 'running';
+        c.state.status.activeState = 'Run';
+        c.workflow.emit('start');
+      }
+    };
+    return c;
+  };
+
+  let root;
+  beforeAll(async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), 'cnc-xv7-'));
+    await fs.writeFile(path.join(root, 'test.nc'), 'G21 G90\nG1 X1 F100\nM2');
+  });
+  afterAll(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+  });
+  const services = [];
+  afterEach(() => services.splice(0).forEach((s) => s.dispose()));
+
+  const setupService = () => {
+    const box = { now: 10000 };
+    const events = [];
+    const control = createControl({ now: () => box.now, elapsed: () => box.now, graceMs: 60000, onEvent: (e) => events.push(e) });
+    const ctx = { c: fakeController(), control, box, events };
+    ctx.service = createService({ get: () => ({ TEST: ctx.c }) }, { get: (key) => ({ watchDirectory: root, macros: [] }[key] || []) }, () => box.now, { control });
+    services.push(ctx.service);
+    ctx.generation = ctx.service.list()[0].generation;
+    ctx.service.openTransport('stream-A', A);
+    ctx.service.openTransport('stream-B', B);
+    ctx.req = (action, extra = {}, actor = A) => ctx.service.action({ port: 'TEST', generation: ctx.generation, transportId: actor === B ? 'stream-B' : 'stream-A', action, ...extra }, actor);
+    ctx.report = () => ctx.c.runner.emit('status');
+    // Heartbeat every second (observe only: no list(), which would observe too).
+    ctx.beat = (total, step = 1000) => {
+      for (let t = 0; t < total; t += step) {
+        box.now += step;
+        ctx.report();
+        ctx.service.observe();
+      }
+    };
+    ctx.owner = () => ctx.control.inspect('TEST').owner;
+    return ctx;
+  };
+
+  const startJob = async (ctx) => {
+    ctx.report();
+    await ctx.req('load', { file: 'test.nc' });
+    const ticket = await ctx.req('prepare', { operation: 'start', revision: ctx.service.list()[0].revision });
+    await ctx.req('start', { nonce: ticket.nonce });
+  };
+
+  describe('cross-check 7 · 4. bail inactif (V1, V2)', () => {
+    test('control : busy est consulté à CHAQUE battement, même juste après une activité du propriétaire', () => {
+      let t = 0;
+      const control = createControl({ now: () => t, elapsed: () => t });
+      control.attach(A, 'h');
+      control.claim('P', A);
+      const busy = jest.fn(() => false);
+      for (let i = 0; i < 10; i++) {
+        t += 1000;
+        control.tick({ busy });
+      }
+      expect(busy).toHaveBeenCalledTimes(10);
+      // Without busy (inspect, authorize…), nothing idle ends.
+      t += 600000;
+      expect(control.tick()).toEqual([]);
+      expect(control.inspect('P').owner).toMatchObject({ id: 'tablet-A' });
+      expect(control.tick({ busy })).toEqual([expect.objectContaining({ type: 'idle' })]);
+    });
+
+    test('V1 : travail fini seul à 4 min 59 s → bail gardé jusqu’à fin + 5 min (à 1 s près), puis idle, sans transfert', async () => {
+      const ctx = setupService();
+      await startJob(ctx);
+      ctx.beat(299000);
+      ctx.c.workflow.state = 'idle';
+      ctx.c.state.status.activeState = 'Idle';
+      const end = ctx.box.now;
+      ctx.beat(298000);
+      const at458 = ctx.owner();
+      ctx.beat(1000);
+      const at459 = ctx.owner();
+      ctx.beat(2000);
+      const at501 = ctx.owner();
+      const idle = ctx.events.find((e) => e.type === 'idle');
+      expect(at458).toMatchObject({ id: 'tablet-A' });
+      expect(at459).toMatchObject({ id: 'tablet-A' });
+      expect(at501).toBeNull();
+      expect(idle.at - end).toBeGreaterThanOrEqual(299000);
+      expect(idle.at - end).toBeLessThanOrEqual(301000);
+      // No transfer: B, present all along, did not get it; a socket neither.
+      expect(ctx.control.authorize('TEST', SOCK, 'jog')).toBeNull();
+      expect(ctx.owner()).toBeNull();
+      expect(ctx.events.map((e) => e.type)).toEqual(['claim', 'idle']);
+    });
+
+    test('V2 : commande système de 12 min sur machine au repos → bail gardé, B et socket refusés ; libéré 5 min après la fin', async () => {
+      const ctx = setupService();
+      ctx.report();
+      await ctx.req('control', { operation: 'claim' });
+      const reservation = ctx.service.reserveSystemCommand({ id: 'update', title: 'Mise à jour' });
+      ctx.beat(720000, 2000);
+      expect(ctx.owner()).toMatchObject({ id: 'tablet-A' });
+      expect(() => ctx.control.authorize('TEST', SOCK, 'jog')).toThrow(expect.objectContaining({ code: 'ECONTROL' }));
+      await expect(ctx.req('control', { operation: 'claim' }, B)).rejects.toThrow();
+      reservation.release();
+      const end = ctx.box.now;
+      ctx.beat(296000, 2000);
+      expect(ctx.owner()).toMatchObject({ id: 'tablet-A' });
+      ctx.beat(6000, 2000);
+      expect(ctx.owner()).toBeNull();
+      const idle = ctx.events.find((e) => e.type === 'idle');
+      expect(idle.at - end).toBeGreaterThanOrEqual(300000);
+      expect(idle.at - end).toBeLessThanOrEqual(302000);
+    });
+  });
+});
