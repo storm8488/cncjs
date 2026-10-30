@@ -112,7 +112,7 @@
     '.library-project-head,.library-project-actions,#project-version-actions,#project-related-links{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center}' +
     '#library-project .project-line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:0;min-width:100%}#library-project [data-tone="danger"],#project-version-full{color:var(--danger-text);font-weight:600}#library-project [data-tone="warn"]{color:var(--warn-text,var(--fg))}' +
     '#project-warnings{margin:0;padding-left:var(--sp-4)}#project-warnings li[data-tone="danger"]{color:var(--danger-text)}#project-details-summary{white-space:pre-line;color:var(--fg)}' +
-    '#project-dialog[hidden],#project-dialog section[hidden]{display:none}#project-dialog .t-dialog{max-height:calc(100vh - 48px);overflow:auto}#project-dialog.t-below-strip .t-dialog{max-height:calc(100vh - var(--statusbar-h,72px) - 48px)}' +
+    '#project-dialog[hidden],#project-dialog section[hidden]{display:none}#project-dialog .t-dialog{max-height:calc(100vh - 48px);overflow:auto}#project-dialog.t-below-strip .t-dialog{max-height:calc(100vh - var(--statusbar-h,72px) - 48px)}#project-dialog .project-dialog-close{position:sticky;top:calc(-1 * var(--sp-6,24px));align-self:flex-end;z-index:1;flex:none;box-shadow:0 0 0 var(--sp-2,8px) var(--surface)}' +
     '#project-dialog label{display:block;margin-top:var(--sp-2);color:var(--fg);font-size:var(--fs-18,18px)}#project-dialog input[type=text],#project-dialog select,#project-dialog textarea{width:100%;box-sizing:border-box}' +
     '#project-dialog .project-stock{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--sp-2)}#project-dialog .t-check input{min-height:0;width:28px;height:28px}';
   document.head && document.head.appendChild && document.head.appendChild(style);
@@ -126,7 +126,9 @@
   dialog.id = 'project-dialog'; dialog.className = 't-scrim'; dialog.hidden = true;
   dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
   dialog.innerHTML =
-    uiLocale.html('<div class="t-dialog"><section id="project-details" hidden><h2>Fiche projet</h2>') +
+    // « Fermer » first, kept at the top of the card while it scrolls (X2: it lay below the
+    // visible part of the card at 1024 x 600 and in large text).
+    uiLocale.html('<div class="t-dialog"><button id="project-dialog-close" class="project-dialog-close" type="button">Fermer</button><section id="project-details" hidden><h2>Fiche projet</h2>') +
     uiLocale.html('<p id="project-version-full" hidden></p>') +
     uiLocale.html('<div id="project-version-actions" hidden><button id="project-adopt" type="button">Garder pour cette version</button> <button id="project-clear" type="button">Effacer la fiche</button></div>') +
     uiLocale.html('<p id="project-details-summary"></p><div id="project-related-links"></div>') +
@@ -150,7 +152,7 @@
     uiLocale.html('<label for="project-profile">Profil de palpage Touch</label><select id="project-profile"></select>') +
     uiLocale.html('<label class="t-check"><input id="project-capture" type="checkbox"> Enregistrer le repère et l’origine actuels (juste après le palpage, sans avoir changé d’origine)</label><p id="project-capture-now"></p>') +
     uiLocale.html('<button id="project-compensation-save" class="t-btn t-btn--primary" type="button">Enregistrer la provenance</button> <button id="project-compensation-remove" type="button">Retirer la provenance</button></section>') +
-    uiLocale.html('<p id="project-dialog-status" role="status"></p><button id="project-dialog-close" type="button">Fermer</button></div>');
+    uiLocale.html('<p id="project-dialog-status" role="status"></p></div>');
   document.body.appendChild(dialog);
   var $ = function (id) { return document.getElementById(id); };
   var index = Object.create(null), indexRevision = 0, available = true, current = null, selected = null, readId = 0, busy = false, related = [];

@@ -248,10 +248,20 @@ async function dropAndReconnect(f, epoch) {
     assert.equal(f.lastStatus().machine.alarmCode, null, 'Hold:0 for 6 s then a restart: nothing deduced');
   }
   {
-    // The stop of the touch service (hold, then reset) 2 s after the last Run report: deduced.
+    // X3: a completed hold reported (Hold:0: an M0 or tool-change pause, or a feed hold come to
+    // rest) means the machine stood still: Grbl 1.1 raises no ALARM:3 for a reset there, so even
+    // 1 s after a Run report the alarm that follows is not deduced as 3.
     const f = await connected(RUNNING);
-    f.advance(1500); f.push([f.machine({ activeState: 'Hold:0', workflow: 'running', canStop: true })]); await f.flush();
-    f.advance(500); f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: null })]); await f.flush();
+    f.advance(1000); f.push([f.machine({ activeState: 'Hold:0', workflow: 'paused', canStop: true })]); await f.flush();
+    f.advance(1000); f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: null })]); await f.flush();
+    assert.equal(f.lastStatus().machine.alarmCode, null, 'Hold:0 then a restart: nothing deduced');
+  }
+  {
+    // A reset while still decelerating (Hold:1, the stop's feed hold not finished) is a reset
+    // during a move: deduced as ALARM:3, marked so.
+    const f = await connected(RUNNING);
+    f.advance(500); f.push([f.machine({ activeState: 'Hold:1', workflow: 'running', canStop: true })]); await f.flush();
+    f.advance(300); f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: null })]); await f.flush();
     const m = f.lastStatus().machine;
     assert.equal(m.alarmCode, 3); assert.equal(m.alarmCodeInferred, true);
   }
@@ -268,6 +278,34 @@ async function dropAndReconnect(f, epoch) {
     const f = await connected();
     f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: null })]); await f.flush();
     assert.equal(f.lastStatus().machine.alarmCode, null);
+  }
+  // ---- Deduction matrix (former xvy-d6): [label, first state, steps [ms, patch], expected code, inferred].
+  {
+    const ALARM = { activeState: 'Alarm', workflow: 'idle', alarmCode: null, canStop: false };
+    const PAUSE_IDLE = { workflow: 'paused', activeState: 'Idle', canStop: true, canResume: true };
+    const HOLD0 = { workflow: 'paused', activeState: 'Hold:0', canStop: true, canResume: true };
+    const cases = [
+      ['Run → program pause reported Idle (1 s) → Alarm', RUNNING, [[1000, PAUSE_IDLE], [1000, ALARM]], null, false],
+      ['page opened in a program pause (Idle) → Alarm', PAUSE_IDLE, [[500, ALARM]], null, false],
+      ['Run → M0 reported Hold:0 (1 s) → Alarm (X3: at rest, no ALARM:3)', RUNNING, [[1000, HOLD0], [1000, ALARM]], null, false],
+      ['Run seen 4.9 s before → Alarm', RUNNING, [[4900, ALARM]], 3, true],
+      ['Run seen 5.1 s before → Alarm', RUNNING, [[5100, ALARM]], null, false],
+      ['Run seen 10 min before → Alarm', RUNNING, [[600000, ALARM]], null, false],
+      ['Run → ALARM:3 received', RUNNING, [[500, Object.assign({}, ALARM, { alarmCode: 3 })]], 3, false],
+      ['… then the restart banner (no code): the received code stays, not deduced', RUNNING, [[500, Object.assign({}, ALARM, { alarmCode: 3 })], [500, ALARM]], 3, false],
+      ['deduced, then ALARM:3 received, then no code', RUNNING, [[500, ALARM], [500, Object.assign({}, ALARM, { alarmCode: 3 })], [500, ALARM]], 3, false],
+      ['Jog (1 s) → Alarm', { workflow: 'idle', activeState: 'Jog', canStop: true }, [[1000, ALARM]], 3, true],
+      ['Run → Idle → Alarm (1 s)', RUNNING, [[1000, { workflow: 'idle', activeState: 'Idle' }], [1000, ALARM]], null, false],
+      ['Run → Hold:0 lasting 4.5 s → Alarm', RUNNING, [[1000, HOLD0], [4500, ALARM]], null, false],
+      ['deduced, alarm lasting 10 min: kept', RUNNING, [[500, ALARM], [600000, ALARM], [1000, ALARM]], 3, true],
+    ];
+    for (const [label, first, steps, code, inferred] of cases) {
+      const f = await connected(first);
+      for (const [ms, patch] of steps) { f.advance(ms); f.push([f.machine(patch)]); await f.flush(); }
+      const m = f.lastStatus().machine;
+      assert.equal(m.alarmCode === undefined ? null : m.alarmCode, code, label);
+      assert.equal(!!m.alarmCodeInferred, inferred, label + ' (inferred)');
+    }
   }
   // ---- N4: the unlock confirmation says what an unlock does (no move, no file).
   {

@@ -635,6 +635,13 @@ async function simMeasure(cdp, simUrl, summary) {
 // Two alarms: ALARM:1 (short help) and a job stopped in motion whose ALARM:3 is deduced after
 // the restart, with the end summary: the longest help Suivi holds (validation N1). The strip,
 // the rail (Menu) and Suivi are enforced; Machine is reported.
+const DEDUCED_SCAN = `(function(){var code=/(Alarme|Alarma|Alarm)\\s*3\\b/,mark=/déduit|deducid|deduced/i,out=[],seen={};
+  var note=document.getElementById('t-state-note'),noted=!!(note&&!note.hidden&&mark.test(note.textContent));
+  var w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT),n;
+  while((n=w.nextNode())){if(!code.test(n.nodeValue))continue;var el=n.parentElement;if(!el||!el.getClientRects().length||getComputedStyle(el).visibility==='hidden')continue;
+    var block=el.closest('#t-state,.ks-tile,[id]')||el,text=(block.innerText||block.textContent).replace(/\\s+/g,' ').trim();
+    if(mark.test(text)||(el.closest('#t-state')&&noted)||seen[block.id+text])continue;seen[block.id+text]=1;out.push({id:block.id||block.className,text:text.slice(0,120)});}
+  return out;})()`;
 async function alarmMeasure(cdp, summary) {
   for (const [arg, kind] of [['--replay-alarm', 'ALARM:1'], ['--replay-alarm-stopped', 'ALARM:3 deduced']]) await alarmVariant(cdp, summary, arg, kind);
 }
@@ -660,6 +667,12 @@ async function alarmVariant(cdp, summary, arg, kind) {
               fs.writeFileSync(path.join(dir, name + '.json'), JSON.stringify(data, null, 1));
               await screenshot(cdp, path.join(dir, name + '.png'));
               const fit = textFitOf(data);
+              // A deduced ALARM:3 is never shown as received (V6): every visible « Alarme 3 » block
+              // says « déduite » (the strip by its note), on Suivi, Menu and Machine.
+              if (arg !== '--replay-alarm') {
+                const unmarked = await cdp.evaluate(DEDUCED_SCAN);
+                unmarked.forEach((x) => failures.push(tag + ' ' + label + ': « Alarme 3 » not marked deduced in ' + x.id + ' — ' + x.text));
+              }
               log(tag + ' ' + label + ': ' + data.targets.length + ' targets, ' + fit.length + ' text overflow / cut words' + (fit.length ? ' (' + fit.map((t) => t.label + (t.broken && t.broken.length ? ' cut ' + t.broken.join('/') : '') + (t.out > 1 ? ' +' + t.out + ' px' : '')).join('; ') + ')' : ''));
               (name === 'machine' ? reportOnly : results).push({ screen: name, label: label + ' · alarm at rest', targets: data.targets.length, below: data.targets.filter((t) => t.belowGoal), small: data.smallText, textTargets: data.targets.filter((t) => t.textBelowGoal), gaps: [], unreachable: data.targets.filter((t) => !t.reachable), truncated: data.truncated, overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, scrolls: data.scrolls, fontStats: {}, textFit: fit, railScroll: data.railScroll });
             }

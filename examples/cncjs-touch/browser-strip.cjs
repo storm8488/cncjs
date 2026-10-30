@@ -256,6 +256,14 @@ async function stackAndLock(cdp, H, base, w, h, lang, large, fail, log) {
   await H.goScreen(cdp, 'files');
   await cdp.waitFor('(function(){var b=document.getElementById("project-edit");return !!b&&!b.disabled;})()', 10000, 'project sheet editor');
   await cdp.evaluate('document.getElementById("project-edit").click();true'); await H.sleep(400);
+  // X2: « Fermer » of the project sheet visible and touchable, also once the card has scrolled.
+  for (const where of ['top', 'scrolled']) {
+    if (where === 'scrolled') await cdp.evaluate('(function(){var c=document.querySelector("#project-dialog .t-dialog");c.scrollTop=c.scrollHeight;return true;})()');
+    await H.sleep(150);
+    const close = await cdp.evaluate(HIT + '("#project-dialog-close")');
+    if (!close.ok) fail(ctx + ': « Fermer » of the project sheet out of view or covered (' + where + ', X2): ' + JSON.stringify(close));
+  }
+  await cdp.evaluate('(function(){var c=document.querySelector("#project-dialog .t-dialog");c.scrollTop=0;return true;})()');
   await clickSel(cdp, '#project-stock-x'); await H.sleep(300);
   if (!(await cdp.evaluate('!document.getElementById("t-numpad").hidden&&!document.getElementById("project-dialog").hidden'))) { fail(ctx + ': pad over the project sheet not opened'); return; }
   const tabs = [];
@@ -316,6 +324,43 @@ async function stackAndLock(cdp, H, base, w, h, lang, large, fail, log) {
   if (!d6.note) fail(ctx + ': deduced alarm without its note (V6): ' + JSON.stringify(d6));
 }
 
+// ---- X1: screen saver asleep, then a job starts elsewhere with « Verrouiller l'écran » at start
+// (job-follow.js locks): locked = nothing but Pause, Arrêter and the padlock answer, keyboard
+// included; unlocked = the whole page live again. Simulation page, the start sent to the
+// simulated service directly (no tap on this page).
+const SAVER_STATE = '({locked:window.cncScreenLock.locked(),saver:!document.getElementById("touch-screen-saver").hidden,main:document.querySelector("main").inert,tabbar:document.getElementById("tabbar").inert,lock:!!document.getElementById("t-lock").closest("[inert]")})';
+async function saverLock(cdp, H, simBase, w, h, lang, large, fail, log) {
+  const ctx = 'saver ' + w + 'x' + h + ' ' + lang + (large ? ' large' : '');
+  await H.setViewport(cdp, w, h, 1);
+  await H.navigate(cdp, simBase + 'README.md');
+  await cdp.evaluate('localStorage.clear();localStorage.setItem("cncjs-touch-language-v1",' + JSON.stringify(lang) + ');localStorage.setItem("cncjs-touch-display-v1",' + JSON.stringify(JSON.stringify({ size: large ? 'large' : 'standard' })) + ');localStorage.setItem("cncjs-touch-job-follow-v1",JSON.stringify({open:true,lock:true}));true');
+  await H.navigate(cdp, simBase + 'simulation.html?saver=' + Date.now()); await H.waitReady(cdp);
+  await H.goScreen(cdp, 'files');
+  await cdp.evaluate('document.querySelector(".library-file").click();true');
+  await cdp.waitFor('(function(){var b=document.getElementById("job-load");return !!b&&!b.disabled;})()', 15000, 'load enabled');
+  await cdp.evaluate('document.getElementById("job-load").click();true');
+  await cdp.waitFor('(function(){var m=window.cncState.get().machine;return !!(m&&m.name);})()', 15000, 'loaded');
+  await H.goScreen(cdp, 'home'); await H.sleep(500);
+  if (!(await cdp.evaluate('window.cncScreenSaver.preview()'))) { fail(ctx + ': the screen saver did not start'); return; }
+  await cdp.evaluate(`(function(){var S=window.cncJobSimulation,m=window.cncState.get().machine;return S.request('POST',{port:'SIMULATION',action:'prepare',operation:'start',revision:m.revision}).then(function(p){return S.request('POST',{port:'SIMULATION',action:'start',nonce:p.nonce});}).then(function(){if(window.cncJobControls)window.cncJobControls.refresh();return true;});})()`);
+  await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 15000, 'running');
+  await H.sleep(1500);
+  const s = await cdp.evaluate(SAVER_STATE);
+  if (!s.locked) fail(ctx + ': no lock at the start from elsewhere (job-follow preference)');
+  if (s.locked && (!s.main || !s.tabbar)) fail(ctx + ': locked but the content is reachable (X1): ' + JSON.stringify(s));
+  if (s.lock) fail(ctx + ': padlock inert under the lock');
+  await cdp.evaluate('document.activeElement&&document.activeElement.blur();true');
+  const reached = new Set();
+  for (let i = 0; i < 10; i++) { await key(cdp, 'Tab'); reached.add(await cdp.evaluate('(function(){var a=document.activeElement;return a&&a!==document.body?(a.id||a.textContent.trim().slice(0,12)):"body";})()')); }
+  const others = Array.from(reached).filter((x) => !/^(t-pause|t-stop|t-lock|body)$/.test(x));
+  if (others.length) fail(ctx + ': under the lock Tab reaches ' + others.join(', ') + ' (X1)');
+  await clickSel(cdp, '#t-lock'); await H.sleep(150); await clickSel(cdp, '#t-lock'); await H.sleep(400);
+  const u = await cdp.evaluate(SAVER_STATE);
+  if (u.locked || u.main || u.tabbar) fail(ctx + ': after unlocking the page stays inert (X1): ' + JSON.stringify(u));
+  log(ctx + ' · asleep, job started elsewhere: ' + JSON.stringify(s) + ', Tab reaches ' + Array.from(reached).join(',') + ' ; unlocked ' + JSON.stringify(u));
+  await cdp.evaluate('(function(){var b=document.getElementById("home-job-stop");if(b&&!b.disabled)b.click();localStorage.removeItem("cncjs-touch-job-follow-v1");return true;})()').catch(() => {});
+}
+
 const VARIANTS = [[1366, 768, 'fr', false], [1024, 600, 'fr', false], [1024, 600, 'es', true], [1024, 600, 'en', false]];
 
 // cdp: an open DevTools client; H: browser-run.cjs exports; simBase: fixture base URL.
@@ -335,6 +380,7 @@ async function run(cdp, H, options) {
     }
     for (const [w, h, lang, large] of options.quick ? [[1024, 600, 'fr', false]] : [[1366, 768, 'fr', false], [1024, 600, 'es', true]]) {
       try { await stackAndLock(cdp, H, replay.base, w, h, lang, large, fail, log); } catch (e) { fail('layers ' + w + 'x' + h + ': ' + e.message); }
+      try { await saverLock(cdp, H, options.simBase, w, h, lang, large, fail, log); } catch (e) { fail('saver ' + w + 'x' + h + ': ' + e.message); }
     }
     await cdp.evaluate('localStorage.removeItem("cncjs-touch-language-v1");localStorage.removeItem("cncjs-touch-display-v1");true').catch(() => {});
   } finally { replay.child.kill(); }

@@ -33,7 +33,8 @@
   // Everything outside the overlay becomes inert except the kept strip commands (and `extra`,
   // e.g. the padlock under the screen lock): their ancestors (and the overlay's) stay active,
   // every other branch under them is made inert.
-  function isolate(overlay, extra) {
+  // options.cover: the overlay covers the whole window, strip included (the screen saver).
+  function isolate(overlay, extra, options) {
     var keep = kept().concat(extra || []), entries = [];
     (function walk(children) {
       Array.prototype.forEach.call(children || [], function (node) {
@@ -42,11 +43,14 @@
         entries.push({ node: node, inert: node.inert }); node.inert = true;
       });
     })(doc().body.children);
-    // An overlay opened over another one (the pad over a sheet) was made inert by the first:
-    // it and its ancestors are made usable again until it closes.
-    for (var n = overlay; n && n !== doc().body; n = n.parentNode) if (n.inert) { entries.push({ node: n, inert: n.inert }); n.inert = false; }
+    // An overlay opened over another one (the pad over a sheet) was made inert by the first, as
+    // may be a kept node (the padlock under a lock taken while the screen saver sleeps): they and
+    // their ancestors are made usable again until this layer closes.
+    [overlay].concat(keep).forEach(function (k) {
+      for (var n = k; n && n !== doc().body; n = n.parentNode) if (n.inert) { entries.push({ node: n, inert: n.inert }); n.inert = false; }
+    });
     // Below the strip only when the strip offers its commands (built by status-strip.js).
-    if (overlay && overlay.classList) overlay.classList.toggle('t-below-strip', keep.length > 0);
+    if (overlay && overlay.classList) overlay.classList.toggle('t-below-strip', keep.length > 0 && !(options && options.cover));
     var layer = { entries: entries, done: false };
     layers.push(layer);
     return function restore() {

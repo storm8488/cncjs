@@ -72,6 +72,24 @@ function page() {
   assert.equal(p.main.inert, false, 'both closed: the page is live'); assert.equal(p.nav.inert, false); assert.equal(p.sheet.inert, false);
   assert.equal(p.pilot.inert, false); assert.equal(p.right.inert, false); assert.equal(pad.inert, false);
 }
+// X1: the screen saver is a layer of the stack (cover: no « below the strip » class); a lock taken
+// while it sleeps sits above it: waking first gives nothing back, unlocking gives back all.
+{
+  const p = page();
+  const saver = node('saver', 'BUTTON'); saver.parentNode = p.all.body; p.all.body.children.push(saver);
+  const shield = node('shield', 'DIV'); shield.parentNode = p.all.body; p.all.body.children.push(shield);
+  const rSaver = p.guard.isolate(saver, [], { cover: true });
+  assert.equal(p.right.inert, true, 'the padlock (its group) is inert under the sleeping saver');
+  assert.equal(saver.classList.contains('t-below-strip'), false, 'the saver covers the whole window');
+  const rLock = p.guard.isolate(shield, [p.lock, saver]);
+  assert.equal(p.lock.inert, false, 'the lock taken meanwhile makes its padlock usable again'); assert.equal(p.right.inert, false);
+  assert.equal(saver.inert, false, 'the sleeping saver stays usable to wake the screen');
+  rSaver();
+  assert.equal(p.main.inert, true, 'woken while locked: the content stays out of reach');
+  assert.equal(p.lock.inert, false); assert.equal(p.stop.inert, false);
+  rLock();
+  assert.equal(p.main.inert, false, 'unlocked: the page is live'); assert.equal(p.nav.inert, false); assert.equal(p.pilot.inert, false);
+}
 // Extra kept nodes (the padlock under the screen lock).
 {
   const p = page();
@@ -121,7 +139,8 @@ for (const [file, re] of Object.entries({
 // V2: Enter on the strip's Pause / Arrêter under the pad is theirs.
 assert.match(read('numeric-pad.js'), /if \(e\.key === 'Enter' && root\.CNCStripGuard && root\.CNCStripGuard\.stops\(\)\.indexOf\(document\.activeElement\) >= 0\) return;/);
 // V3-V5: the lock isolates (Pause, Arrêter, padlock), closes the real move panel and refuses the pilot dialog.
-assert.match(read('screen-lock.js'), /restoreLock=window\.CNCStripGuard\.isolate\(shield,\[button\]\)/);
+assert.match(read('screen-lock.js'), /restoreLock=window\.CNCStripGuard\.isolate\(shield,keep\)/);
+assert.match(read('screen-saver.js'), /background = window\.CNCStripGuard\.isolate\(overlay, \[\], \{ cover: true \}\)/, 'the screen saver is a layer of the stack (X1)');
 assert.match(read('real-motion.js'), /addEventListener\('cnc-screen-lock',function\(e\)\{if\(e&&e\.detail\)\{stopHold\(t\('écran verrouillé'\)\);closePanel\(false\);\}\}\)/);
 assert.match(read('job-controls.js'), /window\.cncScreenLock\.locked\(\)\)return false;/);
 assert.doesNotMatch(read('touch-shell.js'), /open:function\(\)\{[^}]*banner\.inert=true/, 'a sheet no longer makes the strip inert');

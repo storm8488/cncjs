@@ -27,7 +27,12 @@
   function sleep() {
     if (document.hidden || asleep || waking || activeController || modalVisible()) return false;
     clearTimeout(timer); timer = null; previousFocus = document.activeElement;
-    background = Array.prototype.filter.call(document.body.children, function (el) { return el !== overlay && !/^(SCRIPT|STYLE|LINK)$/.test(el.tagName); })
+    // One stack with the other layers (strip-guard.js): a screen lock taken while asleep (a job
+    // started elsewhere, job-follow.js) sits above this layer; waking gives this layer back only
+    // when the lock is lifted, so the locked page never becomes reachable by keyboard and the
+    // page is never left inert after unlocking (X1).
+    if (window.CNCStripGuard && typeof window.CNCStripGuard.isolate === 'function') background = window.CNCStripGuard.isolate(overlay, [], { cover: true });
+    else background = Array.prototype.filter.call(document.body.children, function (el) { return el !== overlay && !/^(SCRIPT|STYLE|LINK)$/.test(el.tagName); })
       .map(function (el) { var entry = { el: el, inert: el.inert }; el.inert = true; return entry; });
     held = {}; asleep = true; overlay.hidden = false; overlay.focus({ preventScroll: true }); announce(true); return true;
   }
@@ -40,7 +45,8 @@
     clearTimeout(wakeTimer); wakeTimer = null;
     if (!asleep && !waking) return;
     asleep = false; waking = false; held = {}; overlay.hidden = true; announce(false);
-    background.forEach(function (entry) { entry.el.inert = entry.inert; }); background = [];
+    if (typeof background === 'function') background(); else background.forEach(function (entry) { entry.el.inert = entry.inert; });
+    background = [];
     if (previousFocus && previousFocus.isConnected) previousFocus.focus({ preventScroll: true });
     lastActivity = elapsedClock(); arm();
   }

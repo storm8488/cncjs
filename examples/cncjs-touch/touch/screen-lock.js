@@ -54,7 +54,9 @@
     if(window.cncShell&&typeof window.cncShell.closeSheet==='function')window.cncShell.closeSheet();
     if(window.CNCNumeric&&typeof window.CNCNumeric.close==='function')window.CNCNumeric.close();
     announce();
-    if(window.CNCStripGuard&&typeof window.CNCStripGuard.isolate==='function')restoreLock=window.CNCStripGuard.isolate(shield,[button]);
+    // The screen saver, if asleep, stays usable to wake the screen (its own layer lies below).
+    var saver=document.getElementById('touch-screen-saver'),keep=[button].concat(saver&&!saver.hidden?[saver]:[]);
+    if(window.CNCStripGuard&&typeof window.CNCStripGuard.isolate==='function')restoreLock=window.CNCStripGuard.isolate(shield,keep);
     paint();
   }
   function unlock(){if(!locked)return;locked=false;disarm();var restore=restoreLock;restoreLock=null;if(restore)restore();paint();announce();}

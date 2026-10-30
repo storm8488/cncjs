@@ -353,15 +353,17 @@
   // D6: an Alarm without code just after a code was seen on the same port keeps that code
   // (marked alarmCodeKept). A reset during a move (Grbl 1.1 raises ALARM:3; 6 during homing)
   // whose code the restart banner wiped is deduced, marked inferred, and only from a move
-  // really reported (Run, Jog, Hold:1 decelerating; Home) on that port in the last 5 s (V7):
-  // never from an old report, a completed hold or a program pause at rest.
+  // really reported (Run, Jog, Hold:1 decelerating; Home) on that port in the last 5 s (V7),
+  // with no rest reported since (Idle, Hold:0): never from an old report or a pause at rest.
   var INFER_MS=5000,motionSeen=null;
   function recall(m){
     if(!m)return m;
     var a=String(m.activeState||'');
     if(/^home/i.test(a)||m.homing)motionSeen={port:m.port,code:6,at:Date.now()};
     else if(/^(run|jog|hold:1)/i.test(a))motionSeen={port:m.port,code:3,at:Date.now()};
-    else if(/^idle/i.test(a))motionSeen=null; // at rest since: a later alarm is not a reset in motion
+    // At rest since (Idle, or a completed hold Hold:0: an M0 / tool-change pause, or the end of a
+    // feed hold): Grbl 1.1 raises no ALARM:3 for a reset there, so a later alarm is not deduced (X3).
+    else if(/^(idle|hold:0)/i.test(a))motionSeen=null;
     if(!/^alarm/i.test(a)){alarmMemory=null;return m;}
     var code=typeof m.alarmCode==='number'&&isFinite(m.alarmCode)?m.alarmCode:null;
     if(code!==null){alarmMemory={port:m.port,code:code};return m;}
