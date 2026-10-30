@@ -44,7 +44,9 @@ function load(options = {}) {
   const context = { window, document: doc, XMLHttpRequest: XHR, localStorage, CustomEvent: function (type, o) { this.type = type; this.detail = o.detail; },
     Date: class extends Date { static now() { return now; } }, Math, Promise, JSON, setInterval: window.setInterval, clearInterval: window.clearInterval };
   vm.createContext(context);
-  for (const file of ['cnc-state.js', 'job-stream.js', 'program-check-view.js', 'job-controls.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, 'touch', file), 'utf8'), context);
+  // options.language ('en' / 'es'): the page's catalog and cncI18n are loaded first, as in index.html.
+  if (options.language) { storage.set('cncjs-touch-language-v1', options.language); doc.documentElement = {}; doc.title = ''; }
+  for (const file of (options.language ? ['i18n-messages.js', 'i18n.js'] : []).concat(['cnc-state.js', 'job-stream.js', 'program-check-view.js', 'job-controls.js'])) vm.runInContext(fs.readFileSync(path.join(__dirname, 'touch', file), 'utf8'), context);
   const isStream = (url) => /\/touch-events(\?clientId=[^&]+)?$/.test(url);
   const flush = () => new Promise(setImmediate);
   function answer(xhr, data, status = 200) { xhr.status = status; xhr.responseText = JSON.stringify(data); xhr.onload(); }

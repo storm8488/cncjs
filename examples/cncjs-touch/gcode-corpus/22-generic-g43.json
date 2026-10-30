@@ -15,8 +15,8 @@
   },
   "preview": {
     "accept": false,
-    "error": "mot O non pris en charge",
-    "line": 2,
+    "error": "G43 non pris en charge par cet aperçu",
+    "line": 6,
     "difference": "D-REFUSE"
   },
   "programCheck": {

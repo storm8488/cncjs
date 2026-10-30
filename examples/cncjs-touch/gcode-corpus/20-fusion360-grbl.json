@@ -13,11 +13,15 @@
     "arcs": true
   },
   "preview": {
-    "accept": false,
-    "error": "G28 non pris en charge par cet aperçu",
-    "line": 24,
-    "difference": "D-REFUSE"
+    "accept": true,
+    "count": 22,
+    "bounds": [0, -2, 47.5, 40],
+    "zBounds": [-1.5, 15],
+    "relativeStart": false,
+    "wcs": "G54",
+    "returns": true
   },
+  "travel": "ok",
   "programCheck": {
     "verdict": "validated",
     "unknownAxes": [],

@@ -58,7 +58,16 @@ function towardsOrigin(box, truth, tol, label) {
     }
     const projection = {version: 1, units: 'mm', wcs: 'G54', bounds: result.bounds, relativeStart: result.relativeStart};
     assert.equal(travel.check({projection}, machine).state, e.travel, name + ' travel check');
+    // The work offset the program selects and its G28/G30 returns (stored with the preview).
+    assert.equal(result.wcs, e.preview.wcs === undefined ? null : e.preview.wcs, name + ' work offset');
+    assert.equal(result.returns, !!e.preview.returns, name + ' returns');
+    // As stored by the library: placed only at the active offset (G54 on the reference machine).
+    const stored = {version: 1, units: 'mm', wcs: result.wcs || 'G54', programWcs: result.wcs || null, returns: result.returns, bounds: result.bounds, relativeStart: result.relativeStart};
+    const inFrame = travel.check({projection: stored}, {...machine, operator: {reportUnits: 'mm', wcs: 'G54'}});
+    assert.equal(inFrame.state, e.travelInFrame || e.travel, name + ' travel check in the program work offset');
+    if (result.returns && inFrame.state === 'ok') assert(inFrame.message.includes('G28/G30'), name + ' returns not checked');
+    if (result.wcs) assert.equal(travel.check({projection: stored}, machine).state, 'unknown', name + ' active offset unknown');
   }
-  assert(accepted >= 15 && refused >= 8, accepted + ' accepted, ' + refused + ' refused');
+  assert(accepted >= 20 && refused >= 5, accepted + ' accepted, ' + refused + ' refused');
   console.log('PASS gcode corpus: ' + names.length + ' programs, ' + accepted + ' previewed as the truth (origin and arc rules), ' + refused + ' refused as documented, travel checks as stored.');
 })().catch(error => { console.error(error); process.exit(1); });

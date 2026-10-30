@@ -13,6 +13,13 @@
   function strings(list, max) {
     return (Array.isArray(list) ? list : []).filter(function (s) { return typeof s === 'string' && s; }).slice(0, max).map(function (s) { return msg(s.slice(0, 300)); });
   }
+  // Coded reasons ({code, params, message}, ETOUCH_CHECK_*) in the interface language when the
+  // server sends them; otherwise its French reasons, translated only when they are catalog phrases.
+  function reasonsOf(check) {
+    var coded = Array.isArray(check.codedReasons) ? check.codedReasons.filter(function (r) { return r && typeof r === 'object' && typeof r.message === 'string' && r.message; }) : [];
+    if (!coded.length || !uiLocale.format) return strings(check.reasons, 8);
+    return coded.slice(0, 8).map(function (r) { return uiLocale.format(r.code, r.params, r.message.slice(0, 300)); });
+  }
   // check → {verdict, title, axes: [{axis, verdict, word}], reasons, scope, summary} or null.
   function describe(check) {
     if (!check || typeof check !== 'object') return null;
@@ -25,7 +32,7 @@
       : check.verdict === 'validated' && axes.every(function (a) { return a.verdict === 'validated'; }) ? 'validated' : 'unknown';
     var title = t('Contrôle des courses (pas une simulation de collisions)') + ' : ' +
       (verdict === 'validated' ? t('dans la course') : verdict === 'outside' ? t('HORS COURSE') : t('non vérifié'));
-    var reasons = strings(check.reasons, 8), scope = typeof check.scope === 'string' ? msg(check.scope.slice(0, 300)) : '';
+    var reasons = reasonsOf(check), scope = typeof check.scope === 'string' ? msg(check.scope.slice(0, 300)) : '';
     var line = axes.map(function (a) { return a.axis + ' ' + a.word; }).join(' · ');
     return { verdict: verdict, title: title, axes: axes, reasons: reasons, scope: scope,
       summary: title + ' — ' + line + '.' + (reasons.length ? ' ' + reasons.join(' ') : '') };

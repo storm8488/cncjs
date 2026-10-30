@@ -13,11 +13,16 @@
     "arcs": false
   },
   "preview": {
-    "accept": false,
-    "error": "G55 non pris en charge par cet aperçu",
-    "line": 1,
-    "difference": "D-REFUSE"
+    "accept": true,
+    "count": 2,
+    "bounds": [0, 0, 20, 10],
+    "zBounds": [-1, 5],
+    "relativeStart": false,
+    "wcs": "G55",
+    "returns": false
   },
+  "travel": "ok",
+  "travelInFrame": "unknown",
   "programCheck": {
     "verdict": "unknown",
     "unknownAxes": [],

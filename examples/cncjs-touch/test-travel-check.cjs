@@ -41,4 +41,17 @@ for(const name of ['index.html','simulation.html']){
   const html=require('fs').readFileSync(__dirname+'/touch/'+name,'utf8'),at=f=>html.indexOf(f+'?v=');
   for(const f of ['grbl-help.js','travel-check.js'])assert(at(f)>0&&at(f)<at('job-controls.js')&&at(f)<at('job-dashboard.js'),f+' loaded early in '+name);
 }
+// A program that selects its work offset (audit 31) is placed only at that offset, when it is the active one.
+{
+ const own=(wcs,extra={})=>({projection:{version:1,units:'mm',wcs:wcs,programWcs:wcs,bounds:[0,0,60,70],...extra}});
+ const at=(wcs)=>({...machine(-350,-250),operator:{reportUnits:'mm',wcs}});
+ assert.equal(check(own('G55'),at('G55')).state,'ok');
+ r=check(own('G55'),at('G54'));assert.equal(r.state,'unknown');assert.match(r.message,/repère/);
+ assert.equal(check(own('G54'),machine(-350,-250)).state,'unknown','active offset unknown');
+ assert.equal(check(own('G54'),at('G54')).state,'ok');
+ // Older previews (no programWcs) keep their behaviour; G28/G30 returns are named as not checked.
+ assert.equal(check(preview([0,0,60,70]),machine(-350,-250)).state,'ok');
+ r=check(own(null,{wcs:'G54',returns:true}),machine(-350,-250));assert.equal(r.state,'ok');assert.match(r.message,/Retours G28\/G30 non vérifiés/);
+ assert.equal(check(own('G56',{bounds:[0,0,500,70]}),at('G54')).state,'unknown','never outside in a wrong frame');
+}
 console.log('PASS travel check: XY extent at the work offset against both homing directions, outside detection, and every untrusted case reported unknown.');

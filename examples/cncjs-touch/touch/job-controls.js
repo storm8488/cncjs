@@ -106,6 +106,14 @@
     var e=new Error(data.owner?uiLocale.t('Refusé : pilotage attribué à « ')+ownerName(data.owner)+uiLocale.t(' ». Pause et Arrêter restent possibles. Pour agir ici, touchez Pilote dans le bandeau et prenez le pilotage avec un motif, ou attendez sa libération.'):String(data.message||uiLocale.t('Refusé : la machine est pilotée par un autre appareil.')));
     e.control=true;e.owner=data.owner||null;return e;
   }
+  // Any other refusal: a stable code (ETOUCH_*) is shown in the interface language with its
+  // values; otherwise the server's French message (translated when it is a catalog phrase).
+  function serverRefusal(data,status){
+    var fallback=data&&typeof data.message==='string'&&data.message?data.message:uiLocale.t('Commandes indisponibles (HTTP ')+status+').';
+    var e=new Error(data&&data.code&&uiLocale.format?uiLocale.format(data.code,data.params,fallback):fallback);
+    if(data&&typeof data.code==='string'){e.code=data.code;e.params=data.params||null;}
+    return e;
+  }
   function jogStop(body){return !!(body&&body.action==='motion'&&body.operation==='jog-stop');}
   function api(method,body) {
     if(simulation) return simulation.request(method,body);
@@ -123,7 +131,7 @@
       xhr.onload=function(){done();var data;try{data=JSON.parse(xhr.responseText);}catch(_){data={};}
         if(xhr.status>=200&&xhr.status<300) resolve(data);
         else if(data&&data.code==='ECONTROL')reject(controlRefusal(data));
-        else reject(new Error(data.message || uiLocale.t('Commandes indisponibles (HTTP ')+xhr.status+').'));};
+        else reject(serverRefusal(data,xhr.status));};
       // No answer is not a refusal: the command may have been applied (the next state says).
       xhr.onerror=xhr.ontimeout=function(){done();var e=new Error(uiLocale.t('Connexion perdue ou réponse incertaine. Vérifiez l’état avant toute nouvelle action.'));e.uncertain=true;reject(e);};
       // Every request names this device (F5): the server makes it the actor of the operation.

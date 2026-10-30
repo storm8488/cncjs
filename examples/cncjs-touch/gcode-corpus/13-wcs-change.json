@@ -10,7 +10,7 @@
   },
   "preview": {
     "accept": false,
-    "error": "G56 non pris en charge par cet aperçu",
+    "error": "changement de repère (G56) après des déplacements",
     "line": 5,
     "difference": "D-REFUSE"
   },
