@@ -345,6 +345,9 @@ const appMain = () => {
     app.get(urljoin(settings.route, 'api/touch-events'), api.touch.getEvents);
     app.get(urljoin(settings.route, 'api/touch-history'), api.touch.getHistory);
     app.get(urljoin(settings.route, 'api/touch-system'), api.touch.getSystem);
+    app.get(urljoin(settings.route, 'api/touch-projects'), api.touch.getProjects);
+    app.post(urljoin(settings.route, 'api/touch-projects/read'), api.touch.readProject);
+    app.put(urljoin(settings.route, 'api/touch-projects'), api.touch.writeProject);
     app.get(urljoin(settings.route, 'api/touch-backlight'), api.touch.getBacklight);
     app.post(urljoin(settings.route, 'api/touch-backlight'), api.touch.postBacklight);
   }

@@ -1,9 +1,12 @@
 import logger from '../lib/logger';
 import touch from '../services/touch';
+import { list as listProjects, read as readProjectSheet, write as writeProjectSheet } from '../services/touch/projects';
 import {
   ERR_BAD_REQUEST,
   ERR_UNAUTHORIZED,
+  ERR_NOT_FOUND,
   ERR_CONFLICT,
+  ERR_PAYLOAD_TOO_LARGE,
   ERR_INTERNAL_SERVER_ERROR,
   ERR_SERVICE_UNAVAILABLE
 } from '../constants';
@@ -151,4 +154,66 @@ export const postBacklight = authorized((req, res) => {
       res.status(ERR_INTERNAL_SERVER_ERROR).send({ message: 'Luminosité non modifiée.' });
     }
   }
+});
+
+// Project sheets of the shared library (F3) and the provenance of compensated
+// files (F6). They describe programs only: nothing here reaches a controller,
+// so they need a session but not the touch service.
+const projectStatus = (err) => {
+  switch (err && err.code) {
+  case 'EINVALIDNAME':
+  case 'EINVALID':
+    return ERR_BAD_REQUEST;
+  case 'ENOENT':
+    return ERR_NOT_FOUND;
+  case 'ECHANGED':
+  case 'EOTHERVERSION':
+  case 'ENOORIGINAL':
+    return ERR_CONFLICT;
+  case 'ETOOLARGE':
+  case 'ETOOMANY':
+    return ERR_PAYLOAD_TOO_LARGE;
+  case 'ENOTCONFIGURED':
+    return ERR_SERVICE_UNAVAILABLE;
+  default:
+    return ERR_INTERNAL_SERVER_ERROR;
+  }
+};
+const sessionOnly = (handler) => (req, res) => {
+  if (!req.user || typeof req.user !== 'object') {
+    res.status(ERR_UNAUTHORIZED).send({ message: 'Session CNCjs requise.' });
+    return;
+  }
+  handler(req, res);
+};
+const answerProjects = (res, promise, what) => {
+  promise
+    .then((result) => {
+      res.set('Cache-Control', 'no-store');
+      res.send(result);
+    })
+    .catch((err) => {
+      const status = projectStatus(err);
+      // Coded refusals name what to do; anything else stays generic (details in the log),
+      // except an unreadable store, which the operator must hear about.
+      if (status === ERR_INTERNAL_SERVER_ERROR && err.code !== 'ECORRUPT') {
+        log.error(`${what} failed: ${err && err.stack}`);
+        res.status(status).send({ message: 'Fiches projets indisponibles.' });
+        return;
+      }
+      res.status(status).send({ message: err.message, code: err.code });
+    });
+};
+
+export const getProjects = sessionOnly((req, res) => {
+  answerProjects(res, listProjects(), 'project list');
+});
+
+export const readProject = sessionOnly((req, res) => {
+  answerProjects(res, readProjectSheet((req.body || {}).file), 'project read');
+});
+
+export const writeProject = sessionOnly((req, res) => {
+  const body = req.body || {};
+  answerProjects(res, writeProjectSheet({ file: body.file, fingerprint: body.fingerprint, meta: body.meta, adopt: body.adopt === true }), 'project write');
 });

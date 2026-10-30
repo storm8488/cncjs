@@ -9,7 +9,8 @@
     uiLocale.html('<button id="library-refresh" type="button">↻ Actualiser</button></div>') +
     uiLocale.html('<div class="card library-list-panel"><div class="library-list-title"><h2>Fichiers sur le serveur</h2><span id="library-count" class="tag">0</span></div>') +
     uiLocale.html('<label class="library-label" for="library-search">Rechercher un fichier</label>') +
-    uiLocale.html('<input id="library-search" type="search" placeholder="Nom du fichier…">') +
+    uiLocale.html('<input id="library-search" type="search" placeholder="Nom, matière, outil, notes…">') +
+    uiLocale.html('<button id="library-favorites" type="button" aria-pressed="false">★ Favoris seulement</button>') +
     uiLocale.html('<p id="library-status" role="status">Connexion à la bibliothèque…</p>') +
     uiLocale.html('<div id="library-list" aria-label="Fichiers disponibles"></div>') +
     uiLocale.html('<div class="library-pages"><button id="library-prev" type="button" hidden>← Précédent</button><span id="library-page"></span><button id="library-more" type="button" hidden>Suivant →</button></div>') +
@@ -34,6 +35,7 @@
     uiLocale.html('<tr><th scope="row">Y</th><td id="library-dimensions-ymin"></td><td id="library-dimensions-ymax"></td><td id="library-dimensions-height"></td></tr>') +
     uiLocale.html('<tr id="library-dimensions-zrow" hidden><th scope="row">Z</th><td id="library-dimensions-zmin"></td><td id="library-dimensions-zmax"></td><td id="library-dimensions-depth"></td></tr></tbody></table>') +
     uiLocale.html('<p>Trajets rapides G0 inclus. Départ supposé X0 Y0 Z0. Projection approximative : ce ne sont pas les dimensions de la pièce. Z minimum = passe la plus profonde, sous Z0 si négatif.</p></div>') +
+    uiLocale.html('<div id="library-project" class="library-project"></div>') +
     uiLocale.html('<button id="library-regenerate" type="button" disabled>Régénérer l’aperçu depuis ce PC</button>') +
     uiLocale.html('<p id="library-regenerate-status" role="status"></p>') +
     uiLocale.html('<div class="library-execution"><strong>Stocké pour plus tard</strong>') +
@@ -47,6 +49,9 @@
   var regenerating = false, regenerationId = 0;
   var machine = null, fileStateKey = '', listState = 'loading', listSignature = '';
   var suffix = '.cnctouch.json';
+  // Project sheets (projects.js, loaded after this file): extended search, favourites, row labels.
+  var favoritesOnly = false;
+  function projects() { return window.CNCProjects || null; }
   function visible() { return !document.hidden && screen.classList.contains('active'); }
   function setText(id, value) {
     value = String(value);
@@ -247,15 +252,21 @@
         machine.workflow === 'paused' || /^Hold/.test(machine.activeState || '') ? uiLocale.t('Ⅱ En pause') :
         machine.workflow === 'running' || /^Run/.test(machine.activeState || '') ? uiLocale.t('▶ En cours') : uiLocale.t('● Chargé'));
     }
+    var P = projects(), project = P ? P.label(name) : '';
+    if (project) labels.push(project);
     return labels.join(' · ');
   }
   function renderList() {
     if (!visible()) return;
-    var query = $('library-search').value.toLowerCase();
-    var matches = files.filter(function (f) { return displayName(f.name).toLowerCase().indexOf(query) >= 0; });
+    var query = $('library-search').value.toLowerCase(), P = projects();
+    // The name search is unchanged; a file whose project sheet matches is found too.
+    var matches = files.filter(function (f) {
+      if (favoritesOnly && !(P && P.isFavorite(f.name))) return false;
+      return displayName(f.name).toLowerCase().indexOf(query) >= 0 || !!(P && query && P.matches(f.name, query));
+    });
     page=Math.min(page,Math.max(0,Math.ceil(matches.length/pageSize)-1));
     var shown = matches.slice(page*pageSize, (page+1)*pageSize);
-    var key = JSON.stringify([shown, files.length, matches.length, query, page, pageSize, selected, listState]);
+    var key = JSON.stringify([shown, files.length, matches.length, query, page, pageSize, selected, listState, favoritesOnly, P ? P.revision() : 0]);
     if (key === listKey) { selectedRow(); return; } listKey = key;
     var list = $('library-list'), desired = [], keep = Object.create(null), focused = document.activeElement;
     setText('library-count', files.length);
@@ -602,6 +613,17 @@
   }
   window.addEventListener('cnc-screen-change', function (e) { if (e.detail === 'files') mount(); else unmount(); });
   document.addEventListener('visibilitychange', function () { if (visible()) mount(); else unmount(); });
-  window.cncLibraryView = { mount: mount, unmount: unmount };
+  $('library-favorites').addEventListener('click', function () {
+    favoritesOnly = !favoritesOnly; page = 0;
+    $('library-favorites').setAttribute('aria-pressed', favoritesOnly ? 'true' : 'false');
+    renderList();
+  });
+  window.addEventListener('cnc-projects-updated', function () { renderList(); });
+  window.cncLibraryView = {
+    mount: mount, unmount: unmount,
+    // For projects.js: the programs listed, and the selection of an associated file.
+    files: function () { return files.map(function (f) { return { name: f.name, display: displayName(f.name) }; }); },
+    selectName: function (name) { var f = files.filter(function (x) { return x.name === name; })[0]; if (f) select(f, false); return !!f; }
+  };
   mount();
 })();

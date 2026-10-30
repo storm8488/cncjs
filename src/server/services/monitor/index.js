@@ -307,6 +307,24 @@ const fingerprintOf = async (name) => {
   return { fingerprint, size: after.size, mtimeMs: after.mtimeMs };
 };
 
+// The identity on disk (size, mtimeMs, ino) of a program directly inside the
+// watch directory, without reading it, with the same checks as
+// `fingerprintOf()` (plain file, no link, really inside). The project sheets
+// (touch/projects.js) compare it with the identity recorded with their
+// fingerprint, the rule the fingerprint cache above follows.
+const statProgram = async (name) => {
+  const root = monitor.root;
+  if (!root) {
+    throw failure('ENOTCONFIGURED', 'Watch directory is not configured');
+  }
+  const target = resolveInRoot(root, name);
+  if (!target) {
+    throw failure('EINVALIDNAME', 'Invalid file name');
+  }
+  const { stats } = await locateFile(target, { direct: true });
+  return { size: stats.size, mtimeMs: stats.mtimeMs, ino: stats.ino };
+};
+
 // Stat a name inside the watch directory, rejecting anything that is not a
 // plain file. Shared by rename and delete so both refuse directories the same
 // way.
@@ -603,6 +621,7 @@ export default {
   readFile,
   readProgram,
   fingerprintOf,
+  statProgram,
   writeFile,
   writeStream,
   renameFile,
