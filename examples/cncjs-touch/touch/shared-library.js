@@ -256,8 +256,32 @@
     if (project) labels.push(project);
     return labels.join(' · ');
   }
+  // Only the rows that fit are listed: a row half hidden at the bottom of the list (under the
+  // pages) can be neither read nor tapped reliably. The shell gives the upper bound (5 or 3 rows);
+  // the tallest row seen in this window and text size decides, read once in the next frame.
+  // The selected row may be taller (its state chip narrows the text), so it is counted apart.
+  var pageLimit = pageSize, rowHeight = 0, selectedHeight = 0, rowLarge = null, fitFrame = 0;
+  function fitPage() {
+    fitFrame = 0;
+    if (!visible()) return;
+    var list = $('library-list'), large = document.body.classList.contains('display-large');
+    if (large !== rowLarge) { rowLarge = large; rowHeight = 0; selectedHeight = 0; }
+    var cs = window.getComputedStyle(list), gap = parseFloat(cs.rowGap) || 0;
+    var height = list.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+    Array.prototype.forEach.call(list.children, function (row) {
+      if (!/(^|\s)library-file(\s|$)/.test(row.className || '')) return;
+      if (row.getAttribute('aria-pressed') === 'true') selectedHeight = Math.max(selectedHeight, row.offsetHeight); else rowHeight = Math.max(rowHeight, row.offsetHeight);
+    });
+    var tallest = Math.max(rowHeight, selectedHeight), usual = rowHeight || selectedHeight;
+    if (!usual || height <= 0) return;
+    var size = Math.max(2, Math.min(pageLimit, 1 + Math.floor((height - tallest) / (usual + gap))));
+    if (size !== pageSize) { page = Math.floor(page * pageSize / size); pageSize = size; renderList(); }
+  }
+  // Without a rendering frame (no layout to read) the shell's size is kept.
+  function schedulePageFit() { if (!fitFrame && typeof window.requestAnimationFrame === 'function' && typeof window.getComputedStyle === 'function') fitFrame = window.requestAnimationFrame(fitPage); }
   function renderList() {
     if (!visible()) return;
+    schedulePageFit();
     var query = $('library-search').value.toLowerCase(), P = projects();
     // The name search is unchanged; a file whose project sheet matches is found too.
     var matches = files.filter(function (f) {
@@ -593,7 +617,8 @@
   window.addEventListener('cnc-library-page-size',function(e){
     var size=Number(e.detail);
     if(size!==2&&size!==3&&size!==4&&size!==5)return;
-    if(size!==pageSize){page=Math.floor(page*pageSize/size);pageSize=size;renderList();}
+    pageLimit=size;rowHeight=0;selectedHeight=0;
+    if(size!==pageSize){page=Math.floor(page*pageSize/size);pageSize=size;renderList();}else schedulePageFit();
   });
   function mount() {
     if (mounted || !visible()) return;

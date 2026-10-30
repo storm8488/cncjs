@@ -17,8 +17,17 @@
 //   --only LIST      comma list among measure,sim,startup,e2e (default all; sim = the
 //                    simulation page with a job running, paused and in alarm, FR and ES)
 //   --keep-browser   do not kill the browser at the end (debugging)
-// Exit code 1 when a harness step fails; measurements under the project goals
-// are reported, not failed (they are the input of the UI work).
+//   --strict         also fail (exit 1) on a layout regression in the variants the
+//                    interface is made for (1366 x 768 and 1024 x 600, standard and
+//                    large text, simulation FR/ES): a command whose centre is covered
+//                    by another element, a screen that does not scroll shrunk below
+//                    scale 1, a primary target under 64 px, a secondary under 48 px, a
+//                    jog arrow under 96 px, or text under 16 px, except the entries of
+//                    layout-exceptions.json (each with its reason). Browser zoom 200 %
+//                    and the default-font variant stay reported only.
+//   --exceptions F   another exceptions file (default layout-exceptions.json here)
+// Exit code 1 when a harness step fails (and, with --strict, on a layout regression);
+// without --strict the measurements under the project goals are only reported.
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -35,6 +44,8 @@ const ROOT_DIR = option('--root', '');
 const REPEAT = Math.max(1, Number(option('--repeat', 5)) || 5);
 const ONLY = option('--only', 'measure,sim,startup,e2e').split(',');
 const KEEP = args.includes('--keep-browser');
+const STRICT = args.includes('--strict');
+const EXCEPTIONS_FILE = path.resolve(option('--exceptions', path.join(__dirname, 'layout-exceptions.json')));
 
 // Project goals (design-tokens.css): not a WCAG requirement.
 const GOALS = { primary: 64, secondary: 48, jog: 96, gap: 12, text: 16 };
@@ -263,6 +274,13 @@ const MEASURE = String(function measure(goals) {
     // its container, which explains why the control is disabled. That is by design.
     var disabled = !!(el.disabled || el.getAttribute('aria-disabled') === 'true');
     var reachable = !!hit && (hit === el || el.contains(hit) || (hit.contains(el) && (hit.tagName === 'LABEL' || disabled)));
+    // Centre outside the window or outside a clipping ancestor (a list scrolled, a screen that
+    // scrolls): not hidden by another element, but not on screen either.
+    var offscreen = cx < 0 || cy < 0 || cx > vw || cy > vh;
+    for (var n = el.parentElement; n && !offscreen && n !== document.body; n = n.parentElement) {
+      var ov = getComputedStyle(n); if (ov.overflowX === 'visible' && ov.overflowY === 'visible') continue;
+      var cr = n.getBoundingClientRect(); if (cx < cr.left || cx > cr.right || cy < cr.top || cy > cr.bottom) offscreen = true;
+    }
     var gap = Infinity, neighbour = null, overlaps = [];
     rects.forEach(function (o, j) {
       if (j === i || nodes[j].contains(el) || el.contains(nodes[j])) return;
@@ -273,7 +291,7 @@ const MEASURE = String(function measure(goals) {
     var font = renderedFont(el, textFont(el));
     return { label: label(el), id: el.id || null, tag: el.tagName.toLowerCase(), kind: k, goal: goal, x: Math.round(r.left * 10) / 10, y: Math.round(r.top * 10) / 10, w: Math.round(r.width * 10) / 10, h: Math.round(r.height * 10) / 10,
       minSide: Math.round(Math.min(r.width, r.height) * 10) / 10, belowGoal: Math.min(r.width, r.height) * dpr < goal - 0.5, fontPx: Math.round(font * 10) / 10, textBelowGoal: font * dpr < goals.text - 0.5,
-      gap: isFinite(gap) ? Math.round(gap * 10) / 10 : null, neighbour: neighbour, gapBelowGoal: isFinite(gap) && gap * dpr < goals.gap - 0.5, overlaps: overlaps, disabled: disabled, reachable: reachable, hit: reachable ? null : (hit ? label(hit) : 'nothing') };
+      gap: isFinite(gap) ? Math.round(gap * 10) / 10 : null, neighbour: neighbour, gapBelowGoal: isFinite(gap) && gap * dpr < goals.gap - 0.5, overlaps: overlaps, disabled: disabled, reachable: reachable, offscreen: offscreen, hit: reachable ? null : (hit ? label(hit) : 'nothing') };
   });
   // Small text: visible text nodes under 16 px, anywhere on the active screen, header or rail.
   var small = [], truncated = [], seen = new Set();
@@ -290,13 +308,13 @@ const MEASURE = String(function measure(goals) {
     if (el.scrollWidth > el.clientWidth + 1 && cs.overflowX !== 'visible' && el.clientWidth > 2 && !el.classList.contains('ks-sr-only')) truncated.push({ text: own.slice(0, 60), tag: el.tagName.toLowerCase(), id: el.id || null, scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, textOverflow: cs.textOverflow });
   });
   var de = document.documentElement, main = document.querySelector('main');
-  return { viewport: { width: vw, height: vh, dpr: dpr }, activeScreen: active ? active.id : null, screenScale: screenScale,
+  return { viewport: { width: vw, height: vh, dpr: dpr }, activeScreen: active ? active.id : null, screenScale: screenScale, scrolls: !!active && active.getAttribute('data-fit') === 'scroll',
     horizontalOverflow: { document: de.scrollWidth > de.clientWidth + 1, documentScrollWidth: de.scrollWidth, clientWidth: de.clientWidth, main: !!main && main.scrollWidth > main.clientWidth + 1, active: !!active && active.scrollWidth > active.clientWidth + 1 },
     verticalOverflow: { document: de.scrollHeight > de.clientHeight + 1, active: !!active && active.scrollHeight > active.clientHeight + 1 && active.getAttribute('data-fit') !== 'scroll' },
     targets: targets, smallText: small, truncated: truncated, bodyClass: document.body.className, theme: de.getAttribute('data-theme') || 'dark' };
 });
 
-async function measureScreens(cdp, baseUrl, variant, dirName, dpr, summary) {
+async function measureScreens(cdp, baseUrl, variant, dirName, dpr, summary, strict) {
   const dir = path.join(OUT, dirName);
   fs.mkdirSync(dir, { recursive: true });
   const results = [];
@@ -310,13 +328,13 @@ async function measureScreens(cdp, baseUrl, variant, dirName, dpr, summary) {
       const below = data.targets.filter((t) => t.belowGoal), small = data.targets.filter((t) => t.textBelowGoal), gaps = data.targets.filter((t) => t.gapBelowGoal), unreachable = data.targets.filter((t) => !t.reachable);
       const fonts = data.targets.map((t) => t.fontPx), fontStats = { min: fonts.length ? Math.min(...fonts) : null, median: median(fonts), max: fonts.length ? Math.max(...fonts) : null };
       log(variant + ' ' + label + ': ' + data.targets.length + ' targets, ' + below.length + ' under size goal, ' + small.length + ' with text < 16 px, ' + gaps.length + ' gaps < 12 px, ' + unreachable.length + ' unreachable, scale ' + data.screenScale + ', target font ' + fontStats.min + '–' + fontStats.max + ' px' + (data.horizontalOverflow.document ? ', HORIZONTAL OVERFLOW' : ''));
-      results.push({ screen: name, label, targets: data.targets.length, below, small: data.smallText, textTargets: small, gaps, unreachable, truncated: data.truncated, overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, fontStats });
+      results.push({ screen: name, label, targets: data.targets.length, below, small: data.smallText, textTargets: small, gaps, unreachable, truncated: data.truncated, overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, scrolls: data.scrolls, fontStats });
     } catch (e) {
       failures.push(variant + ' ' + label + ': ' + e.message); log('FAIL ' + variant + ' ' + label + ': ' + e.message);
       results.push({ screen: name, label, error: e.message });
     }
   }
-  summary.measurements.push({ variant, dir: dirName, dpr, results });
+  summary.measurements.push({ variant, dir: dirName, dpr, results, strict: !!strict });
 }
 
 async function setDisplaySize(cdp, size) {
@@ -507,7 +525,7 @@ async function simMeasure(cdp, simUrl, summary) {
           const below = data.targets.filter((t) => t.belowGoal), small = data.targets.filter((t) => t.textBelowGoal), gaps = data.targets.filter((t) => t.gapBelowGoal), unreachable = data.targets.filter((t) => !t.reachable);
           const fonts = data.targets.map((t) => t.fontPx), fontStats = { min: fonts.length ? Math.min(...fonts) : null, median: median(fonts), max: fonts.length ? Math.max(...fonts) : null };
           log(tag + ' ' + variant + ' ' + label + ': ' + data.targets.length + ' targets, ' + below.length + ' under size goal, ' + small.length + ' with text < 16 px, scale ' + data.screenScale + (data.verticalOverflow.active ? ', VERTICAL OVERFLOW' : ''));
-          results.push({ screen: name, label: label + ' · ' + variant, targets: data.targets.length, below, small: data.smallText, textTargets: small, gaps, unreachable, truncated: data.truncated, overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, fontStats });
+          results.push({ screen: name, label: label + ' · ' + variant, targets: data.targets.length, below, small: data.smallText, textTargets: small, gaps, unreachable, truncated: data.truncated, overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, scrolls: data.scrolls, fontStats });
         } catch (e) { failures.push(tag + ' ' + variant + ' ' + label + ': ' + e.message); log('FAIL ' + tag + ' ' + variant + ': ' + e.message); results.push({ screen: name, label: label + ' · ' + variant, error: e.message }); }
       };
       try {
@@ -529,7 +547,7 @@ async function simMeasure(cdp, simUrl, summary) {
         await sleep(300);
         const dialog = await cdp.evaluate('(' + MEASURE + ')(' + JSON.stringify(GOALS) + ')');
         const dialogTargets = dialog.targets.filter((t) => /^(job-check|job-confirm|job-dismiss)$/.test(t.id || '') || t.tag === 'label');
-        results.push({ screen: 'dialog', label: 'Confirmation · dialog', targets: dialogTargets.length, below: dialogTargets.filter((t) => t.belowGoal), small: dialog.smallText, textTargets: dialogTargets.filter((t) => t.textBelowGoal), gaps: dialogTargets.filter((t) => t.gapBelowGoal), unreachable: [], truncated: dialog.truncated, overflow: dialog.horizontalOverflow, vertical: dialog.verticalOverflow, scale: dialog.screenScale, fontStats: { min: null, median: null, max: null } });
+        results.push({ screen: 'dialog', label: 'Confirmation · dialog', targets: dialogTargets.length, below: dialogTargets.filter((t) => t.belowGoal), small: dialog.smallText, textTargets: dialogTargets.filter((t) => t.textBelowGoal), gaps: dialogTargets.filter((t) => t.gapBelowGoal), unreachable: dialogTargets.filter((t) => !t.reachable), truncated: dialog.truncated, overflow: dialog.horizontalOverflow, vertical: dialog.verticalOverflow, scale: 1, scrolls: false, fontStats: { min: null, median: null, max: null } });
         await screenshot(cdp, path.join(dir, 'dialog.png'));
         await cdp.evaluate('(function(){var c=document.getElementById("job-check");c.checked=true;c.dispatchEvent(new Event("change",{bubbles:true}));document.getElementById("job-confirm").click();return true;})()');
         await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 15000, 'running');
@@ -553,10 +571,43 @@ async function simMeasure(cdp, simUrl, summary) {
         await cdp.evaluate('document.getElementById("home-job-stop").click();true');
         await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="idle"', 15000, 'idle');
       } catch (e) { failures.push(tag + ': ' + e.message); log('FAIL ' + tag + ': ' + e.message); }
-      summary.measurements.push({ variant: tag + ' (job running, paused, alarm)', dir: dirName, dpr: 1, results });
+      summary.measurements.push({ variant: tag + ' (job running, paused, alarm)', dir: dirName, dpr: 1, results, strict: true });
     }
   }
   await cdp.evaluate('localStorage.removeItem("cncjs-touch-language-v1");true').catch(() => {});
+}
+
+// --- Strict layout check (--strict): the regressions the layout must never show, minus the
+// documented exceptions (layout-exceptions.json: check, variant / screen / label patterns, reason).
+function loadExceptions() {
+  if (!fs.existsSync(EXCEPTIONS_FILE)) return [];
+  const data = JSON.parse(fs.readFileSync(EXCEPTIONS_FILE, 'utf8'));
+  const list = Array.isArray(data) ? data : data.exceptions || [];
+  list.forEach((e, i) => { if (!e.check || !e.reason) throw new Error(EXCEPTIONS_FILE + ': exception ' + i + ' needs "check" and "reason"'); });
+  return list;
+}
+function strictCheck(summary, exceptionList) {
+  const exceptions = (exceptionList || loadExceptions()).map((e) => ({ e, used: 0, re: { variant: e.variant ? new RegExp(e.variant) : null, screen: e.screen ? new RegExp(e.screen) : null, label: e.label ? new RegExp(e.label) : null } }));
+  const violations = [], excepted = [];
+  const add = (v) => {
+    const hit = exceptions.find((x) => x.e.check === v.check && (!x.re.variant || x.re.variant.test(v.variant)) && (!x.re.screen || x.re.screen.test(v.screen) || x.re.screen.test(v.screenLabel)) && (!x.re.label || x.re.label.test(v.label)));
+    if (hit) { hit.used++; excepted.push(Object.assign({ reason: hit.e.reason }, v)); } else violations.push(v);
+  };
+  for (const m of summary.measurements) {
+    if (!m.strict) continue;
+    for (const r of m.results) {
+      if (r.error) continue;
+      const base = { variant: m.variant, screen: r.screen, screenLabel: r.label };
+      if (!r.scrolls && typeof r.scale === 'number' && r.scale < 0.999) add(Object.assign({ check: 'scale', label: r.label, detail: 'scale ' + r.scale + ' on a screen that does not scroll' }, base));
+      for (const t of r.unreachable || []) if (!(r.scrolls && t.offscreen)) add(Object.assign({ check: 'covered', label: t.label, detail: 'centre ' + (t.offscreen ? 'clipped' : 'covered') + ' by ' + t.hit }, base));
+      for (const t of r.below || []) add(Object.assign({ check: 'size', label: t.label, detail: t.kind + ' ' + t.w + ' x ' + t.h + ' px, goal ' + t.goal }, base));
+      const seen = new Set();
+      for (const t of (r.textTargets || []).concat(r.small || [])) { const label = t.label || t.text; if (seen.has(label)) continue; seen.add(label); add(Object.assign({ check: 'text', label, detail: t.fontPx + ' px, goal ' + GOALS.text }, base)); }
+    }
+  }
+  const stale = exceptions.filter((x) => !x.used).map((x) => x.e);
+  summary.strict = { enabled: STRICT, exceptionsFile: EXCEPTIONS_FILE, violations, excepted, staleExceptions: stale };
+  return summary.strict;
 }
 
 // --- Synthesis.
@@ -632,6 +683,16 @@ function writeSummary(summary) {
       L.push('');
     }
   }
+  if (summary.strict) {
+    const st = summary.strict, row = (v) => '| ' + [v.check, v.variant, v.screenLabel, v.label, v.detail].map((x) => String(x).replace(/\|/g, '\\|')).join(' | ') + ' |';
+    L.push('## Strict layout check' + (st.enabled ? '' : ' (report only: run with --strict to fail on it)'));
+    L.push('');
+    L.push('Variants: 1366x768 and 1024x600, standard and large text, simulation FR/ES. Exceptions: `' + path.basename(st.exceptionsFile) + '`. Violations: ' + st.violations.length + ', excepted: ' + st.excepted.length + (st.staleExceptions.length ? ', unused exceptions: ' + st.staleExceptions.length : '') + '.');
+    L.push('');
+    if (st.violations.length) { L.push('| Check | Variant | Screen | Target | Detail |'); L.push('| --- | --- | --- | --- | --- |'); st.violations.forEach((v) => L.push(row(v))); L.push(''); }
+    if (st.excepted.length) { L.push('Excepted (reason in the exceptions file):'); L.push(''); L.push('| Check | Variant | Screen | Target | Detail |'); L.push('| --- | --- | --- | --- | --- |'); st.excepted.forEach((v) => L.push(row(v))); L.push(''); }
+    if (st.staleExceptions.length) { L.push('Unused exceptions (no longer needed?): ' + st.staleExceptions.map((e) => '`' + [e.check, e.variant, e.screen, e.label].filter(Boolean).join(' / ') + '`').join(', ')); L.push(''); }
+  }
   L.push('## Limits');
   L.push('');
   L.push('- Headless Chrome on a PC: no touch digitiser, no Tegra 3 timings, GPU disabled like the kiosk but a different compositor; the Surface RT resolves the font stack to Bitstream Vera Sans, wider than Segoe UI.');
@@ -659,8 +720,8 @@ async function main() {
       for (const [w, h] of RESOLUTIONS) {
         await setViewport(cdp, w, h, 1);
         await navigate(cdp, realUrl); await waitSettled(cdp);
-        await measureScreens(cdp, realUrl, w + 'x' + h, w + 'x' + h, 1, summary);
-        try { await setDisplaySize(cdp, 'large'); await measureScreens(cdp, realUrl, w + 'x' + h + ' texte agrandi', w + 'x' + h + '-large', 1, summary); await setDisplaySize(cdp, 'standard'); }
+        await measureScreens(cdp, realUrl, w + 'x' + h, w + 'x' + h, 1, summary, true);
+        try { await setDisplaySize(cdp, 'large'); await measureScreens(cdp, realUrl, w + 'x' + h + ' texte agrandi', w + 'x' + h + '-large', 1, summary, true); await setDisplaySize(cdp, 'standard'); }
         catch (e) { failures.push('large text ' + w + 'x' + h + ': ' + e.message); log('FAIL large text: ' + e.message); }
       }
       await setViewport(cdp, 683, 384, 2);
@@ -678,6 +739,12 @@ async function main() {
     if (ONLY.includes('startup')) { await setViewport(cdp, 1366, 768, 1); await measureStartup(cdp, realUrl, summary); }
     if (ONLY.includes('e2e')) { await setViewport(cdp, 1366, 768, 1); for (const lang of ['fr', 'en', 'es']) await e2e(cdp, simUrl, lang, summary); await cdp.evaluate('localStorage.removeItem("cncjs-touch-language-v1");true').catch(() => {}); }
   } catch (e) { failures.push('harness: ' + (e.stack || e.message)); log('FAIL harness: ' + e.message); }
+  let strictResult = null;
+  try { strictResult = strictCheck(summary); } catch (e) { failures.push('strict check: ' + e.message); }
+  if (strictResult) {
+    log('strict layout check: ' + strictResult.violations.length + ' violation(s), ' + strictResult.excepted.length + ' excepted' + (STRICT ? '' : ' (report only)'));
+    if (STRICT) strictResult.violations.forEach((v) => failures.push('layout ' + v.check + ': ' + v.variant + ' · ' + v.screenLabel + ' · ' + v.label + ' — ' + v.detail));
+  }
   writeSummary(summary);
   cdp.close();
   if (!KEEP) { try { await cdp.send('Browser.close', {}, 3000); } catch (_) { /* closed */ } try { browser.child.kill(); } catch (_) { /* gone */ } }
@@ -691,4 +758,4 @@ async function main() {
 // The measurement scripts (measure-*.cjs) reuse the DevTools client, the browser
 // launcher and the fixture starter; run the harness only as a program.
 if (require.main === module) main().catch((e) => { console.error('browser-run: ' + (e.stack || e.message)); process.exit(1); });
-module.exports = { CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors };
+module.exports = { strictCheck, loadExceptions, GOALS, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors };

@@ -53,6 +53,20 @@ assert(has('.ks-ui.t-compact #screen-jog.active','grid-template-columns:minmax(0
 assert(has('.ks-ui.t-compact .ks-coordinate-table tbody tr','height:48px'),'48 px table rows in compact');
 assert(has('.ks-ui.t-compact #screen-machine .ks-machine-commands','grid-template-columns:repeat(3,minmax(0,1fr))'),'Machine commands on one row');
 assert(has('.ks-ui.t-compact #screen-files.active','grid-template-columns:minmax(0,1fr) 400px'),'Fichiers detail column 400 px');
+// Layout audit 31: no command lies under another at 1024 x 600. Préparer and Machine give the
+// full height to their main card (the intro moves to the right column); the Fichiers detail never
+// shrinks a part under its content (only the preview, down to 64 px, and the load reason); the
+// project sheet is one row; the favourites filter sits beside the search field; the legacy 23 px
+// card heading of app.css does not inflate the coordinate labels in large text.
+assert(css.includes('grid-template-areas:"coords title" "coords actions" "coords arrows"')&&has('.ks-ui.t-compact #screen-jog .ks-panel-intro','display:contents'),'Préparer compact: coordinates full height, title and actions over the cross');
+assert(has('.ks-ui.t-compact #screen-jog .ks-preparation-actions','min-width:100%')&&has('.ks-ui.t-compact #screen-jog .ks-panel-intro>div:first-child','min-width:100%'),'Préparer compact: the long texts wrap inside the cross column');
+assert(has('.ks-ui.t-compact #screen-machine .ks-machine-overview','grid-row:1/span 2'),'Machine compact: state, alarm and commands full height');
+assert(has('.ks-ui #screen-files .library-detail>*','min-height:auto')&&has('.ks-ui #screen-files .library-detail','overflow-y:auto'),'Fichiers detail: no part shrinks under its content (overlap)');
+assert(has('.ks-ui.t-compact #screen-files .library-detail','grid-template-rows:auto auto minmax(64px,1fr) auto auto minmax(0,auto)'),'Fichiers compact detail rows: the preview and the reason give room');
+assert(has('.ks-ui.t-compact #library-project .library-project-head','display:contents')&&has('.ks-ui.t-compact #library-project #project-summary','grid-row:1'),'project sheet on one row in compact');
+assert(css.includes('"search fav"')&&has('.ks-ui #screen-files #library-favorites','grid-area:fav'),'favourites filter beside the search field in compact');
+assert(has('.ks-ui.display-large .t-coords-card>h2','font-size:var(--fs-16)'),'coordinate labels keep their token in large text');
+assert(/requestAnimationFrame\(fitPage\)/.test(read('shared-library.js')),'library pages hold only the rows that fit');
 // Targets keep their rendered size in compact: no rule sets a target under the goals.
 for(const r of rules.filter(r=>r.sel.includes('.t-compact'))){
  for(const m of r.body.matchAll(/min-height:(\d+)px/g))assert(Number(m[1])>=48,r.sel+' sets a target under 48 px');

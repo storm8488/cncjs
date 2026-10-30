@@ -940,3 +940,71 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
 .ks-ui.t-compact .real-motion-card{padding:var(--sp-3);gap:var(--sp-2)}
 /* Who pilots stays in the strip (Pilote); the panel keeps its room for the request and answer lines. */
 .ks-ui.t-compact #real-motion-pilot{display:none}
+/* --- Layout audit 31: every command keeps its own room at scale 1 (1366 x 768 and 1024 x 600,
+ * standard and large text). Measured by browser-run.cjs --strict. --- */
+/* app.css sets every card heading to 23 px in large text (body.display-large main .card h2); the
+ * coordinate labels and card headings keep their own tokens instead (16 -> 18, 18 -> 20 px). */
+.ks-ui.display-large .t-coords-card>h2{font-size:var(--fs-16)}
+.ks-ui.display-large .t-card h2{font-size:var(--fs-18)}
+/* Suivi 1024 x 600: the ready line takes one 1.2 line, so Démarrer / Pause / Arrêter keep 64 px in
+ * large text; the preview note leaves Agrandir (bottom right) uncovered. */
+.ks-ui.t-compact #home-job-ready{line-height:1.2}
+/* 1366 x 768, a file loaded with a two-line feedback (Spanish): 1 px over, scale 0.998. Tighter
+ * lines on the ready and feedback texts give the column 6 px of margin. */
+.ks-ui #home-job-ready{line-height:1.3}
+.ks-ui #home-job-feedback{line-height:1.25}
+.ks-ui.t-compact .job-art #home-image-status:not(:only-child){right:140px}
+/* Fichiers: no part of the detail shrinks under its content (overlap); only the preview gives
+ * room, down to the 64 px of Agrandir, and the card scrolls rather than overlapping. */
+.ks-ui #screen-files .library-detail{overflow-y:auto}
+.ks-ui #screen-files .library-detail>*{min-height:auto}
+.ks-ui #screen-files .library-detail>.library-image-wrap{min-height:64px}
+/* 1024 x 600: the label and the size/date line (also on the file's row) give their room to the
+ * preview; the name keeps one line; the view choice stays on Suivi (one choice for both). */
+.ks-ui.t-compact #screen-files .library-eyebrow,.ks-ui.t-compact #screen-files #library-meta,.ks-ui.t-compact #screen-files .library-image-wrap .pv3d-views{display:none}
+.ks-ui.t-compact #screen-files #library-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.15;min-height:1.15em}
+/* The reason under a blocked load (an alarm explained) shrinks before the preview, down to two
+ * lines, and scrolls inside its box: the load button never leaves the card. */
+.ks-ui.t-compact #screen-files .library-detail{grid-template-rows:auto auto minmax(64px,1fr) auto auto minmax(0,auto)}
+.ks-ui.t-compact #screen-files .library-detail>.library-execution{min-height:0}
+.ks-ui.t-compact #screen-files .library-execution>*{flex:none}
+.ks-ui.t-compact #screen-files .library-execution>#job-reason{flex:0 1 auto;min-height:64px}
+/* Project sheet at 1024 x 600: one 48 px row, the summary (two lines at most) beside Favori and
+ * Ouvrir la fiche, without its label (the buttons name it); the whole sheet is in its dialog. */
+.ks-ui.t-compact #library-project{display:grid;grid-template-columns:minmax(0,1fr) auto auto;column-gap:var(--tap-gap);row-gap:0;align-items:center}
+.ks-ui.t-compact #library-project .library-project-head{display:contents}
+.ks-ui.t-compact #library-project .library-project-head>strong{display:none}
+.ks-ui.t-compact #library-project #project-favorite{grid-row:1;grid-column:2}
+.ks-ui.t-compact #library-project #project-open{grid-row:1;grid-column:3}
+.ks-ui.t-compact #library-project>p{grid-column:1/-1}
+.ks-ui.t-compact #library-project>p:not(:empty){margin-top:var(--sp-1)}
+.ks-ui.t-compact #library-project #project-summary{grid-row:1;grid-column:1;margin-top:0;white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-height:1.3}
+.ks-ui.t-compact #library-project #project-summary[hidden]{display:none}
+/* 1024 x 600 list: the favourites filter sits beside the search field (its own row pushed the
+ * third file under the pages); shared-library.js shows only the rows that fit. */
+.ks-ui.t-compact #screen-files .library-list-panel{grid-template-areas:"title add" "search fav" "status status" "list list" "pages pages"}
+.ks-ui #screen-files #library-favorites{grid-area:fav}
+/* The field and the two buttons of the head keep the 48 px of secondary targets: with the 16 px
+ * saved, three rows fit (the selected one is taller), in large text too. */
+.ks-ui.t-compact #screen-files #library-search,.ks-ui.t-compact #screen-files #library-refresh,.ks-ui.t-compact #screen-files .ks-upload-button{min-height:var(--tap)}
+.ks-ui:not(.t-compact) #screen-files .library-list-panel{grid-template-areas:"search title add" "status status status" "list list list" "pages pages pages" "fav fav fav";grid-template-rows:auto auto minmax(0,1fr) auto auto}
+.ks-ui:not(.t-compact) #screen-files #library-favorites{justify-self:start}
+/* Préparer 1024 x 600: the coordinates take the full height on the left; the title, the
+ * probe / reference / macro buttons and the cross share the right column (the intro row cost
+ * the coordinates card 64 px in large text). */
+@media(min-width:1000px){
+/* The right column takes the cross card's width: the title, its message (a running job's is long)
+ * and the three buttons wrap inside it instead of widening it (width 0, min-width 100 %). */
+.ks-ui.t-compact #screen-jog.active,.ks-ui.t-compact #screen-jog.kept{grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto minmax(0,1fr);grid-template-areas:"coords title" "coords actions" "coords arrows";row-gap:var(--sp-2)!important}
+.ks-ui.t-compact #screen-jog .ks-panel-intro{display:contents}
+.ks-ui.t-compact #screen-jog .ks-panel-intro>div:first-child{grid-area:title;width:0;min-width:100%}
+.ks-ui.t-compact #screen-jog .ks-preparation-actions{grid-area:actions;width:0;min-width:100%}
+.ks-ui.t-compact #screen-jog .ks-preparation-actions>*{flex:1 1 auto}
+.ks-ui.t-compact #screen-jog .ks-motion-coordinates{grid-area:coords}
+.ks-ui.t-compact #screen-jog .ks-motion-arrows{grid-area:arrows}
+/* Machine 1024 x 600, same idea: the state, the alarm card and the commands take the full height
+ * on the left; the title with Fonctions disponibles heads the coordinates column. */
+.ks-ui.t-compact #screen-machine .ks-panel-intro{grid-column:2;grid-row:1}
+.ks-ui.t-compact #screen-machine .ks-machine-overview{grid-column:1;grid-row:1/span 2}
+.ks-ui.t-compact #screen-machine .ks-machine-coordinates{grid-column:2;grid-row:2}
+}
