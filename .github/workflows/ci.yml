@@ -123,7 +123,9 @@ jobs:
 
   build-linux:
     # https://github.com/actions/runner-images?tab=readme-ov-file#available-images
-    runs-on: ubuntu-latest
+    # ubuntu-24.04, not ubuntu-latest: on Ubuntu 26.04 rpmbuild rejects the spec
+    # written by electron-builder's fpm 1.9.3, so the .rpm targets fail.
+    runs-on: ubuntu-24.04
     needs: [check, touch-browser]
     strategy:
       matrix:
