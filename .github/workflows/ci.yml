@@ -1,5 +1,9 @@
 name: ci
 
+# Validation of a commit: the dependencies come from yarn.lock as committed
+# (`yarn install --immutable`), never refreshed here. Refreshing them is a
+# deliberate act: see update-dependencies.yml (manual).
+
 on:
   # https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#example-including-branches-and-tags
   push:
@@ -14,10 +18,87 @@ on:
       - master
   workflow_dispatch:
 
+env:
+  # Yarn 3.3.1 (.yarnrc.yml yarnPath) through corepack: no `npm install -g yarn`,
+  # which installs Yarn classic 1.22 and only works because it delegates to yarnPath.
+  YARN_VERSION: 3.3.1
+
 jobs:
+  check:
+    # Lint, unit tests, the offline touch suite and the browser harness on the
+    # runner's Chrome. The platform builds below wait for this job.
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [24.x]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: yarn
+    - name: Enable the repository's Yarn
+      shell: bash
+      run: |
+        corepack enable
+        corepack prepare "yarn@${YARN_VERSION}" --activate
+        test "$(yarn --version)" = "${YARN_VERSION}"
+    - name: Install dependencies from the lockfile
+      run: yarn install --immutable
+    - name: Lint
+      run: yarn lint
+    - name: Unit tests (Jest)
+      run: yarn test
+    - name: Touch offline suite
+      run: node examples/cncjs-touch/verify-project.cjs --report "$RUNNER_TEMP/touch-offline-report.json"
+    - name: Touch browser harness (google-chrome of the runner image, headless)
+      run: node examples/cncjs-touch/browser-run.cjs --strict --out output/browser-run
+    - name: Upload browser harness report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: touch-browser-run
+        path: output/browser-run
+        if-no-files-found: ignore
+        retention-days: 14
+
+  package:
+    # Builds the npm package, installs it outside the checkout and checks the
+    # HTTP routes of the installed server, the touch interface included: the
+    # build ships examples/cncjs-touch/touch as dist/cncjs/touch
+    # (scripts/copy-touch-assets.sh), so /touch/, /touch/app.js and
+    # /touch/VERSION.json must answer 200 (TOUCH_REQUIRED=1, blocking).
+    runs-on: ubuntu-latest
+    env:
+      TOUCH_REQUIRED: '1'
+    strategy:
+      matrix:
+        node-version: [24.x]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: yarn
+    - name: Enable the repository's Yarn
+      shell: bash
+      run: |
+        corepack enable
+        corepack prepare "yarn@${YARN_VERSION}" --activate
+        test "$(yarn --version)" = "${YARN_VERSION}"
+    - name: Install dependencies from the lockfile
+      run: yarn install --immutable
+    - name: Build, pack, install and start the package
+      run: bash scripts/test-installed-package.sh
+
   build-linux:
     # https://github.com/actions/runner-images?tab=readme-ov-file#available-images
     runs-on: ubuntu-latest
+    needs: check
     strategy:
       matrix:
         node-version: [24.x]
@@ -30,6 +111,7 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
+        cache: yarn
     - name: Environment variables
       run: |
         # https://docs.github.com/en/actions/learn-github-actions/variables#default-environment-variables
@@ -42,13 +124,15 @@ jobs:
         echo "• RUNNER_OS=$RUNNER_OS"
         echo "• RUNNER_TEMP=$RUNNER_TEMP"
         echo "• RUNNER_TOOL_CACHE=$RUNNER_TOOL_CACHE"
-    - name: Install Yarn package manager
-      run: npm install -g yarn
-    - name: Install necessary dependencies and perform initial checks
+    - name: Enable the repository's Yarn
+      shell: bash
       run: |
-        yarn up
-        yarn install
-        yarn lint
+        corepack enable
+        corepack prepare "yarn@${YARN_VERSION}" --activate
+        test "$(yarn --version)" = "${YARN_VERSION}"
+    - name: Install dependencies from the lockfile and run the tests on this platform
+      run: |
+        yarn install --immutable
         yarn test
     - name: Run "build" script
       if: github.ref_type == 'tag'
@@ -120,6 +204,7 @@ jobs:
   build-macos-x64:
     # https://github.com/actions/runner-images?tab=readme-ov-file#available-images
     runs-on: macos-15-intel
+    needs: check
     strategy:
       matrix:
         node-version: [24.x]
@@ -132,6 +217,7 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
+        cache: yarn
     - name: Environment variables
       run: |
         # https://docs.github.com/en/actions/learn-github-actions/variables#default-environment-variables
@@ -144,13 +230,15 @@ jobs:
         echo "• RUNNER_OS=$RUNNER_OS"
         echo "• RUNNER_TEMP=$RUNNER_TEMP"
         echo "• RUNNER_TOOL_CACHE=$RUNNER_TOOL_CACHE"
-    - name: Install Yarn package manager
-      run: npm install -g yarn
-    - name: Install necessary dependencies and perform initial checks
+    - name: Enable the repository's Yarn
+      shell: bash
       run: |
-        yarn up
-        yarn install
-        yarn lint
+        corepack enable
+        corepack prepare "yarn@${YARN_VERSION}" --activate
+        test "$(yarn --version)" = "${YARN_VERSION}"
+    - name: Install dependencies from the lockfile and run the tests on this platform
+      run: |
+        yarn install --immutable
         yarn test
     - name: Run "build" script
       if: github.ref_type == 'tag'
@@ -202,6 +290,7 @@ jobs:
   build-macos-arm64:
     # https://github.com/actions/runner-images?tab=readme-ov-file#available-images
     runs-on: macos-latest
+    needs: check
     strategy:
       matrix:
         node-version: [24.x]
@@ -214,6 +303,7 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
+        cache: yarn
     - name: Environment variables
       run: |
         # https://docs.github.com/en/actions/learn-github-actions/variables#default-environment-variables
@@ -226,13 +316,15 @@ jobs:
         echo "• RUNNER_OS=$RUNNER_OS"
         echo "• RUNNER_TEMP=$RUNNER_TEMP"
         echo "• RUNNER_TOOL_CACHE=$RUNNER_TOOL_CACHE"
-    - name: Install Yarn package manager
-      run: npm install -g yarn
-    - name: Install necessary dependencies and perform initial checks
+    - name: Enable the repository's Yarn
+      shell: bash
       run: |
-        yarn up
-        yarn install
-        yarn lint
+        corepack enable
+        corepack prepare "yarn@${YARN_VERSION}" --activate
+        test "$(yarn --version)" = "${YARN_VERSION}"
+    - name: Install dependencies from the lockfile and run the tests on this platform
+      run: |
+        yarn install --immutable
         yarn test
     - name: Run "build" script
       if: github.ref_type == 'tag'
@@ -284,6 +376,7 @@ jobs:
   build-windows:
     # https://github.com/actions/runner-images?tab=readme-ov-file#available-images
     runs-on: windows-latest
+    needs: check
     strategy:
       matrix:
         node-version: [24.x]
@@ -298,6 +391,7 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
+        cache: yarn
     - name: Environment variables
       run: |
         # https://docs.github.com/en/actions/learn-github-actions/variables#default-environment-variables
@@ -310,13 +404,16 @@ jobs:
         echo "• RUNNER_OS=$RUNNER_OS"
         echo "• RUNNER_TEMP=$RUNNER_TEMP"
         echo "• RUNNER_TOOL_CACHE=$RUNNER_TOOL_CACHE"
-    - name: Install Yarn package manager
-      run: npm install -g yarn
-    - name: Install necessary dependencies and perform initial checks
+    - name: Enable the repository's Yarn
+      shell: bash
       run: |
-        yarn up
-        yarn install
-        yarn lint
+        corepack enable
+        corepack prepare "yarn@${YARN_VERSION}" --activate
+        test "$(yarn --version)" = "${YARN_VERSION}"
+    - name: Install dependencies from the lockfile and run the tests on this platform
+      shell: bash
+      run: |
+        yarn install --immutable
         yarn test
     - name: Run "build" script
       if: github.ref_type == 'tag'

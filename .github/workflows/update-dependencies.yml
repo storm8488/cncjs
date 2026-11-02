@@ -1,0 +1,73 @@
+name: update-dependencies
+
+# Deliberate refresh of the dependencies, apart from the validation of a
+# commit (ci.yml installs from yarn.lock with --immutable). Run by hand; the
+# result is pushed to a branch for review, never to master.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: >-
+          lockfile: resolve every range of package.json again (yarn up -R "*",
+          manifests untouched). manifests: also raise the ranges to the latest
+          versions (yarn up "*"), majors included.
+        type: choice
+        default: lockfile
+        options:
+          - lockfile
+          - manifests
+
+permissions:
+  contents: write
+
+env:
+  YARN_VERSION: 3.3.1
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 24.x
+        cache: yarn
+    - name: Enable the repository's Yarn
+      shell: bash
+      run: |
+        corepack enable
+        corepack prepare "yarn@${YARN_VERSION}" --activate
+        test "$(yarn --version)" = "${YARN_VERSION}"
+    - name: Refresh the dependencies
+      shell: bash
+      run: |
+        if [ "${{ inputs.mode }}" = "manifests" ]; then
+          yarn up "*"
+        fi
+        yarn up -R "*"
+        git status --short
+        git diff --stat
+    - name: Validate the refreshed tree
+      run: |
+        yarn install --immutable
+        yarn lint
+        yarn test
+        node examples/cncjs-touch/verify-project.cjs
+    - name: Push a branch for review
+      shell: bash
+      run: |
+        if git diff --quiet -- package.json yarn.lock; then
+          echo "Nothing changed: the lockfile already resolves every range to its latest version."
+          exit 0
+        fi
+        BRANCH="deps/refresh-${{ inputs.mode }}-$(date -u +%Y%m%d)-${GITHUB_RUN_NUMBER}"
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git checkout -b "$BRANCH"
+        git add package.json yarn.lock
+        git commit -m "chore(deps): refresh dependencies (${{ inputs.mode }})"
+        git push origin "$BRANCH"
+        echo "Open a pull request from $BRANCH: https://github.com/${GITHUB_REPOSITORY}/compare/${BRANCH}?expand=1"
