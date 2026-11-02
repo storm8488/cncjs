@@ -1,0 +1,4 @@
+{
+  "description": "Documented exceptions to the strict layout check of browser-run.cjs --strict. Each entry names a check (covered, scale, size, text), optional regular expressions on the variant, the screen (id or label) and the target label, and the reason it is accepted. An exception that no longer matches anything is listed as unused in the report.",
+  "exceptions": []
+}

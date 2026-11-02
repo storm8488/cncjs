@@ -56,6 +56,9 @@
     "i18nlint": "bash -c 'find src/{app,server}/i18n -type f -name \"*.json\" | xargs -L1 -I{} -- bash -c \"echo Linting {}; jsonlint -q {}\"'",
     "stylint": "stylint src/app",
     "test": "jest",
+    "test:touch": "node examples/cncjs-touch/verify-project.cjs",
+    "test:browser": "node examples/cncjs-touch/browser-run.cjs --out output/browser-run",
+    "test:package": "bash scripts/test-installed-package.sh",
     "postinstall": "opencollective postinstall",
     "ci-dispatch": "gh workflow run ci.yml --repo cncjs/cncjs --ref",
     "ci-version": "changeset version && node scripts/package-sync.js && yarn install --mode=update-lockfile",
@@ -384,6 +387,7 @@
     "testEnvironment": "node",
     "testMatch": [
       "<rootDir>/src/server/**/__tests__/**/*.test.js",
+      "<rootDir>/src/app/widgets/Visualizer/__tests__/**/*.test.js",
       "<rootDir>/grbl-simulator/__tests__/**/*.test.js"
     ],
     "testPathIgnorePatterns": [

@@ -50,16 +50,23 @@
       // answering during the cycle, so leaving that state (Home, or no report)
       // counts as the cycle; an alarm afterwards is a failure.
       if(st.sent&&(!m||!m.fresh||m.activeState!==st.from))st.left=true;
+      // The server knows the cycle from the $H it sent: reports that stop meanwhile (Grbl
+      // answers nothing during the cycle) show it running. A fresh Idle report still saying
+      // homing is the one taken before the cycle, not its end.
+      if(m&&m.homing&&!m.fresh){st.homing=true;st.failed=false;}
       if(m&&m.fresh){
         if(m.activeState==='Home'){st.homing=true;st.failed=false;}
         else if(alarm(m)&&(st.homing||st.sent&&st.left)){st.failed=true;st.homing=false;st.sent=false;}
-        else if(m.activeState==='Idle'&&(st.homing||st.sent&&st.left&&alarm({activeState:st.from}))){st.homed=true;st.homing=false;st.sent=false;}
+        else if(m.activeState==='Idle'&&!m.homing&&(st.homing||st.sent&&st.left&&alarm({activeState:st.from}))){st.homed=true;st.homing=false;st.sent=false;}
       }
     }else if(id==='spindle'){
       var rpm=m&&m.fresh&&typeof m.spindleSpeed==='number'?m.spindleSpeed:null;
       if(rpm!==null){st.rpm=rpm;if(rpm>0)st.ran=true;else if(st.ran)st.stopped=true;}
     }else if(id==='aircut'){
-      if(m&&m.finished&&String(m.originalName||m.name||'').indexOf('essai-en-l-air')===0)st.finished=true;
+      // Only a run seen during this step counts: the server keeps `finished` until the next load.
+      var aircut=m&&String(m.originalName||m.name||'').indexOf('essai-en-l-air')===0;
+      if(aircut&&m.workflow==='running')st.ran=true;
+      if(aircut&&st.ran&&m.finished)st.finished=true;
     }
     return st;
   }
@@ -87,7 +94,15 @@
     var keys=Object.keys(s).filter(function(k){return /^\$\d+$/.test(k);}).sort(function(a,b){return Number(a.slice(1))-Number(b.slice(1));});
     return ['; Réglages Grbl ($$) — '+port+' — '+date,'; '+(data&&data.firmware||'firmware inconnu')].concat(keys.map(function(k){return k+'='+s[k];})).join('\n')+'\n';
   }
-  window.CNCCommissioning={STEPS:STEPS,observe:observe,result:result,program:program,settingsText:settingsText};
+  // A command the server accepted during a step. $X leaves an alarm for Idle without any
+  // homing: after a $H that failed, it must not complete the homing step.
+  function commandSent(id,st,detail,m){
+    if(id!=='homing')return st;
+    if(detail==='home'){st.sent=true;st.left=false;st.failed=false;st.from=m&&m.activeState||'';}
+    else if(detail==='unlock'){st.sent=false;st.left=false;st.homing=false;}
+    return st;
+  }
+  window.CNCCommissioning={STEPS:STEPS,observe:observe,result:result,program:program,settingsText:settingsText,commandSent:commandSent};
 
   if(typeof document==='undefined')return;
   var shell=window.cncShell,main=document.querySelector('main');
@@ -243,7 +258,7 @@
       unlockButton=unlockControl();box.appendChild(unlockButton);
       return function(m){
         prop(start,'disabled',!checked(st,['hand'])||!m||!m.canHome);
-        set(why,m&&!m.canHome?m.homeReason||'':'');
+        set(why,m&&!m.canHome?t(m.homeReason||''):'');
         set(state,st.homed?t('Prise d’origine terminée ✓'):st.homing||st.sent?t('Prise d’origine en cours…'):st.failed?t('Échec : alarme pendant la prise d’origine (contact non trouvé ?). Déverrouillez, vérifiez la fin de course puis relancez.'):'');
         prop(unlockButton,'disabled',!m||!m.canUnlock);unlockButton.hidden=!alarm(m);
       };
@@ -270,7 +285,7 @@
         prop(stop,'disabled',!m||!m.canSpindleStop);
         set(live,st.rpm>0?t('Broche : ')+st.rpm+t(' tr/min demandés'):st.ran?t('Broche arrêtée ✓'):t('Broche à l’arrêt'));
         after.hidden=!st.ran;
-        set(why,m&&!m.canSpindleTest&&!(st.rpm>0)?m.spindleReason||'':'');
+        set(why,m&&!m.canSpindleTest&&!(st.rpm>0)?t(m.spindleReason||''):'');
       };
     },
     aircut:function(box){
@@ -359,8 +374,8 @@
   }
 
   window.addEventListener('cnc-command-sent',function(e){
-    if(!view||STEPS[index]!=='homing'||!e||e.detail!=='home')return;
-    st.sent=true;st.left=false;st.failed=false;st.from=machine&&machine.activeState||'';refresh();
+    if(!view||!e)return;
+    commandSent(STEPS[index],st,e.detail,machine);refresh();
   });
   window.addEventListener('cnc-screen-change',function(e){
     var was=current;current=e&&e.detail;
@@ -370,8 +385,8 @@
     var d=e&&e.detail||{};if(d.simulation)return;
     machine=d.machine||null;
     if(machine&&machine.port!==port){port=machine.port;settingsCard();}
-    if(machineUnlock){prop(machineUnlock,'disabled',!machine||!machine.canUnlock);machineUnlock.title=machine&&machine.unlockReason||'';}
-    if(machineHome){prop(machineHome,'disabled',!machine||!machine.canHome);machineHome.title=machine&&machine.homeReason||'';}
+    if(machineUnlock){prop(machineUnlock,'disabled',!machine||!machine.canUnlock);prop(machineUnlock,'title',t(machine&&machine.unlockReason||''));}
+    if(machineHome){prop(machineHome,'disabled',!machine||!machine.canHome);prop(machineHome,'title',t(machine&&machine.homeReason||''));}
     if(view){observe(STEPS[index],st,machine);refresh();}
     // First real controller seen on this port: open the assistant once, from the menu.
     if(!autoDone&&machine&&machine.fresh&&machine.workflow==='idle'&&!/sim/i.test(machine.port)&&!entry(machine.port)&&(current==='menu'||current==='home')){

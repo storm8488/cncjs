@@ -10,6 +10,7 @@ import store from '../../store';
 import config from '../configstore';
 import taskRunner from '../taskrunner';
 import monitor from '../monitor';
+import touch from '../touch';
 import {
   GrblController,
   MarlinController,
@@ -175,6 +176,23 @@ class CNCEngine {
         // Add to the socket pool
         this.sockets.push(socket);
 
+        // Attribution of machine control (touch service, F5): the socket's
+        // presence keeps a lease it may hold; a command that moves the machine
+        // on a port someone else pilots is refused with a visible message.
+        touch.attachSocket(socket);
+        const refused = (port, kind, cmdOrData) => {
+          const refusal = touch.refuseSocket(socket, port, kind, cmdOrData);
+          if (!refusal) {
+            return false;
+          }
+          log.warn(`socket.${kind}("${port}") refused: id=${socket.id}, ${refusal.message}`);
+          // Shown in the Console widget of the classic interface; the dedicated
+          // event lets a newer client show the owner.
+          socket.emit('serialport:read', 'error: ' + refusal.message);
+          socket.emit('touch:control:refused', { port, kind, message: refusal.message, owner: refusal.owner });
+          return true;
+        };
+
         socket.emit('startup', {
           loadedControllers: Object.keys(this.controllerClass),
 
@@ -197,6 +215,7 @@ class CNCEngine {
 
           // Remove from socket pool
           this.sockets.splice(this.sockets.indexOf(socket), 1);
+          touch.detachSocket(socket);
         });
 
         // List the available serial ports
@@ -336,6 +355,10 @@ class CNCEngine {
             return;
           }
 
+          if (refused(port, 'command', cmd)) {
+            return;
+          }
+
           controller.command.apply(controller, [cmd].concat(args));
         });
 
@@ -348,6 +371,10 @@ class CNCEngine {
             return;
           }
 
+          if (refused(port, 'write', data)) {
+            return;
+          }
+
           controller.write(data, context);
         });
 
@@ -357,6 +384,10 @@ class CNCEngine {
           const controller = store.get(`controllers["${port}"]`);
           if (!controller || controller.isClose()) {
             log.error(`Serial port "${port}" not accessible`);
+            return;
+          }
+
+          if (refused(port, 'writeln', data)) {
             return;
           }
 

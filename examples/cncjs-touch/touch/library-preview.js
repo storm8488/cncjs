@@ -2,28 +2,52 @@
 (function (root) {
   'use strict';
   var source = typeof document !== 'undefined' && document.currentScript && document.currentScript.src;
-  var workerURL = source ? source.split(/[?#]/)[0].replace(/[^/]*$/, 'library-preview-worker.js?v=worker7') : 'library-preview-worker.js?v=worker7';
+  var workerURL = source ? source.split(/[?#]/)[0].replace(/[^/]*$/, 'library-preview-worker.js?v=worker31f') : 'library-preview-worker.js?v=worker31f';
   var generation = 0;
-  function scan(text, segment, cancelled, progress, yieldAfterLine) {
+  // Floats per drawn segment: x, y, xx, yy, mode, deepest Z of the segment.
+  var STRIDE = 6;
+  // The 3D path from the worker is kept only if it has the expected shape and a bounded size.
+  function validPath(p) {
+    return p && typeof p === 'object' && p.version === 1 && typeof p.data === 'string' && p.data.length <= 4 * 1048576 &&
+      typeof p.count === 'number' && p.count >= 1 && Array.isArray(p.bounds) && p.bounds.length === 6 ? p : null;
+  }
+  // segment(x, y, xx, yy, mode, z, zz): each XY segment (the 2D drawing).
+  // move(x, y, z, xx, yy, zz, mode, sentLine): each move, Z-only plunges included (the 3D path).
+  function scan(text, segment, cancelled, progress, yieldAfterLine, move) {
     return new Promise(function (resolve, reject) {
-      var offset = 0, line = 0, x = 0, y = 0, absolute = true;
+      var offset = 0, line = 0, x = 0, y = 0, z = 0, absolute = true;
+      // A relative (G91) move on an axis whose absolute position was never given starts
+      // from wherever the tool is: the drawing still starts at 0, but its placement is unknown.
+      var knownX = false, knownY = false, knownZ = false, relativeStart = false, relativeZ = false;
       var unit = 1, motion = null, comment = false, ended = false, count = 0, arcAbsolute = false;
-      var bounds = [Infinity, Infinity, -Infinity, -Infinity];
+      var bounds = [Infinity, Infinity, -Infinity, -Infinity], zmin = Infinity, zmax = -Infinity;
+      // After a G28/G30 return, the position of the axes it moves is unknown to the
+      // preview (lost): nothing is drawn until X, Y
+      // and Z are all given again in absolute; a relative move on a lost axis is refused.
+      // (cutX, cutY, cutZ): the last known point, where the 3D path rejoins the program.
+      var lostX = false, lostY = false, lostZ = false, cutX = 0, cutY = 0, cutZ = 0, moved = false;
+      // wcs: the work offset the program selects before moving (null: the active one).
+      var wcs = null, notes = [], returnNoted = false, wordONoted = false;
       // Progress trail: about a thousand samples of [sent line count, x, y],
-      // taken every text.length/1000 characters. The line count follows the
-      // CNCjs sender (non-empty lines), so a job's acknowledged line count maps
-      // onto the trail at run time.
-      var trail = [], sentLines = 0, nextSample = 0, sampleStep = Math.max(1, Math.floor(text.length / 1000));
-      function sample() { trail.push(sentLines, Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000); }
+      // taken every text.length/1000 characters, with the Z of each sample in
+      // trailZ. The line count follows the CNCjs sender (non-empty lines), so a
+      // job's acknowledged line count maps onto the trail at run time.
+      var trail = [], trailZ = [], sentLines = 0, nextSample = 0, sampleStep = Math.max(1, Math.floor(text.length / 1000));
+      function sample() { trail.push(sentLines, Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000); trailZ.push(Math.round(z * 1000) / 1000); }
       sample(); // the trail starts at the assumed origin, before any line
-      function add(ax, ay, bx, by, mode) {
-        if (ax === bx && ay === by) return;
-        count++;
-        bounds[0] = Math.min(bounds[0], ax, bx); bounds[1] = Math.min(bounds[1], ay, by);
-        bounds[2] = Math.max(bounds[2], ax, bx); bounds[3] = Math.max(bounds[3], ay, by);
-        if (segment) segment(ax, ay, bx, by, mode);
+      function add(ax, ay, az, bx, by, bz, mode) {
+        if (ax === bx && ay === by) {
+          if (az === bz) return;
+        } else {
+          count++;
+          bounds[0] = Math.min(bounds[0], ax, bx); bounds[1] = Math.min(bounds[1], ay, by);
+          bounds[2] = Math.max(bounds[2], ax, bx); bounds[3] = Math.max(bounds[3], ay, by);
+          if (segment) segment(ax, ay, bx, by, mode, az, bz);
+        }
+        zmin = Math.min(zmin, az, bz); zmax = Math.max(zmax, az, bz);
+        if (move) move(ax, ay, az, bx, by, bz, mode, sentLines + 1);
       }
-      function arc(xx, yy, hasI, iWord, hasJ, jWord, radiusWord) {
+      function arc(xx, yy, zz, hasI, iWord, hasJ, jWord, radiusWord) {
         var clockwise = motion === 2, cx, cy, radius;
         if (radiusWord !== null) {
           if (hasI || hasJ) throw new Error('arc avec R et I/J simultanés');
@@ -54,23 +78,30 @@
         var step = Math.min(Math.PI / 36, 2 * Math.acos(Math.max(-1, Math.min(1, 1 - 0.02 / radius))));
         var parts = Math.ceil(Math.abs(angle) / step);
         if (!isFinite(parts) || parts > 8192) throw new Error('arc trop étendu pour cet aperçu');
-        var px = x, py = y;
+        // A helix: Z moves linearly with the angle, as in Grbl's mc_arc.
+        var px = x, py = y, pz = z;
         for (var n = 1; n <= parts; n++) {
           var a = start + angle * n / parts;
           var qx = n === parts ? xx : cx + radius * Math.cos(a);
           var qy = n === parts ? yy : cy + radius * Math.sin(a);
-          add(px, py, qx, qy, motion); px = qx; py = qy;
+          var qz = n === parts ? zz : z + (zz - z) * n / parts;
+          add(px, py, pz, qx, qy, qz, motion); px = qx; py = qy; pz = qz;
         }
       }
       // Per-line word state, reset by resetLine(). Kept outside read() so the
       // fast tokenizer and the regex fallback share one word() implementation.
-      var nx, ny, axis, seenX, seenY, seenZ, seenI, seenJ, seenR, hasI, hasJ, iWord, jWord, radiusWord, finish, dwell, seenP;
-      var groupMotion, groupDistance, groupArc, groupUnits;
+      var nx, ny, nz, axis, seenX, seenY, seenZ, seenI, seenJ, seenR, hasI, hasJ, iWord, jWord, radiusWord, finish, dwell, seenP;
+      var groupMotion, groupDistance, groupArc, groupUnits, groupWcs, nextWcs, home, seenO;
       function resetLine() {
-        nx = null; ny = null; axis = false; finish = false; radiusWord = null; dwell = false; seenP = false;
+        nx = null; ny = null; nz = null; axis = false; finish = false; radiusWord = null; dwell = false; seenP = false;
         seenX = seenY = seenZ = seenI = seenJ = seenR = hasI = hasJ = false; iWord = jWord = 0;
-        groupMotion = groupDistance = groupArc = groupUnits = false;
+        groupMotion = groupDistance = groupArc = groupUnits = groupWcs = false; nextWcs = null; home = null; seenO = false;
       }
+      function lose(onX, onY, onZ) {
+        if (!lostX && !lostY && !lostZ) { cutX = x; cutY = y; cutZ = z; }
+        lostX = lostX || onX; lostY = lostY || onY; lostZ = lostZ || onZ;
+      }
+      function note(text) { if (notes.length < 6) notes.push(text); }
       function word(letter, v) {
         if (!isFinite(v)) throw new Error('valeur non finie');
         if (letter === 'G') {
@@ -80,11 +111,16 @@
           else if (v === 91.1) { if (groupArc) throw new Error('modes G contradictoires'); groupArc = true; arcAbsolute = false; }
           else if (v === 20 || v === 21) { if (groupUnits) throw new Error('modes G contradictoires'); groupUnits = true; unit = v === 20 ? 25.4 : 1; }
           // G4 P… dwell (e.g. spindle spin-up after M3): no motion, the modal state is unchanged.
-          else if (v === 4) dwell = true;
-          else if (v !== 17 && v !== 40 && v !== 49 && v !== 54 && v !== 94) throw new Error('G' + v + ' non pris en charge par cet aperçu');
+          else if (v === 4) { if (home !== null) throw new Error('modes G contradictoires'); dwell = true; }
+          // G80 cancels the motion mode (no canned cycle in Grbl): axis words then need G0/G1 again.
+          else if (v === 80) { if (groupMotion) throw new Error('modes G contradictoires'); groupMotion = true; motion = null; }
+          // G28/G30: through the intermediate point of the axis words, then to a stored machine position.
+          else if (v === 28 || v === 30) { if (home !== null || dwell) throw new Error('modes G contradictoires'); home = v; }
+          else if (v === 54 || v === 55 || v === 56 || v === 57 || v === 58 || v === 59) { if (groupWcs) throw new Error('modes G contradictoires'); groupWcs = true; nextWcs = 'G' + v; }
+          else if (v !== 17 && v !== 40 && v !== 49 && v !== 94) throw new Error('G' + v + ' non pris en charge par cet aperçu');
         } else if (letter === 'X') { if (seenX) throw new Error('axe répété'); seenX = true; axis = true; nx = v; }
         else if (letter === 'Y') { if (seenY) throw new Error('axe répété'); seenY = true; axis = true; ny = v; }
-        else if (letter === 'Z') { if (seenZ) throw new Error('axe répété'); seenZ = true; axis = true; }
+        else if (letter === 'Z') { if (seenZ) throw new Error('axe répété'); seenZ = true; axis = true; nz = v; }
         else if (letter === 'I') { if (seenI) throw new Error('paramètre d’arc répété'); seenI = true; hasI = true; iWord = v; }
         else if (letter === 'J') { if (seenJ) throw new Error('paramètre d’arc répété'); seenJ = true; hasJ = true; jWord = v; }
         else if (letter === 'R') { if (seenR) throw new Error('paramètre d’arc répété'); seenR = true; radiusWord = v; }
@@ -92,6 +128,8 @@
           if (v !== 0 && v !== 1 && v !== 2 && v !== 3 && v !== 4 && v !== 5 && v !== 6 && v !== 7 && v !== 8 && v !== 9 && v !== 30) throw new Error('M' + v + ' non pris en charge par cet aperçu');
           if (v === 2 || v === 30) finish = true;
         } else if (letter === 'P') { if (seenP) throw new Error('paramètre P répété'); seenP = true; }
+        // A program number (O1000, generic posts): no motion; noted, since Grbl 1.1 has no O word.
+        else if (letter === 'O') seenO = true;
         else if (letter !== 'N' && letter !== 'F' && letter !== 'S' && letter !== 'T') throw new Error('mot ' + letter + ' non pris en charge');
       }
       // Hand-written tokenizer for the common case: ASCII letters, each followed
@@ -130,7 +168,7 @@
           clean = '';
           for (var i = 0; i < raw.length; i++) {
             var c = raw.charAt(i);
-            if (comment) { if (c === ')') comment = false; }
+            if (comment) { if (c === ')') comment = false; else if (c === '(') throw new Error('commentaire imbriqué : CNCjs et l’aperçu ne liraient pas la même ligne'); }
             else if (c === ';') break;
             else if (c === '(') comment = true;
             else clean += c;
@@ -156,17 +194,47 @@
         if (seenP && !dwell) throw new Error('mot P hors G4 non pris en charge');
         if (dwell && (!seenP || axis || hasArc)) throw new Error('G4 attend seulement P');
         if (hasArc && motion !== 2 && motion !== 3) throw new Error('paramètre d’arc hors mode G2/G3');
-        if ((motion === 2 || motion === 3) && (axis || hasArc) && !seenX && !seenY) throw new Error('arc sans X ni Y (refusé par Grbl, erreur 26)');
-        if (axis || hasArc) {
+        if ((motion === 2 || motion === 3) && home === null && (axis || hasArc) && !seenX && !seenY) throw new Error('arc sans X ni Y (refusé par Grbl, erreur 26)');
+        if (seenO && !wordONoted) { wordONoted = true; note('Mot O (ligne ' + line + ') ignoré par l’aperçu ; Grbl 1.1 ne le prend pas en charge (erreur 20 attendue).'); }
+        // The work offset first, as Grbl orders a block: this line's move is already in the new one.
+        if (nextWcs) {
+          if (wcs === null && !moved) wcs = nextWcs;
+          // One drawing, one work offset: a change after moving would mix two frames.
+          else if (nextWcs !== wcs) throw new Error('changement de repère (' + nextWcs + ') après des déplacements : l’aperçu trace un seul repère');
+        }
+        if (home !== null) {
+          if (hasArc) throw new Error('paramètre d’arc avec G' + home);
+          // The intermediate point is a rapid in the current mode (G28 G91 Z0: none), then the named
+          // axes (all of them without axis words) go to a machine position the preview does not know.
+          if (axis) go(0);
+          lose(!axis || nx !== null, !axis || ny !== null, !axis || nz !== null); moved = true;
+          if (!returnNoted) { returnNoted = true; note('Retour G' + home + ' (ligne ' + line + ') : position inconnue de l’aperçu, tracé coupé jusqu’à ce que X, Y et Z soient redonnés en absolu.'); }
+        } else if (axis || hasArc) {
           if (motion === null) throw new Error('mode G0/G1 non défini');
-          var xx = nx === null ? x : nx * unit + (absolute ? 0 : x);
-          var yy = ny === null ? y : ny * unit + (absolute ? 0 : y);
-          if (!isFinite(xx) || !isFinite(yy) || Math.abs(xx) > 1e9 || Math.abs(yy) > 1e9) throw new Error('coordonnées hors plage');
-          if (motion === 2 || motion === 3) arc(xx, yy, hasI, iWord, hasJ, jWord, radiusWord);
-          else add(x, y, xx, yy, motion);
-          x = xx; y = yy;
+          go(motion);
         }
         if (finish) ended = true;
+      }
+      function go(mode) {
+        var xx = nx === null ? x : nx * unit + (absolute ? 0 : x);
+        var yy = ny === null ? y : ny * unit + (absolute ? 0 : y);
+        var zz = nz === null ? z : nz * unit + (absolute ? 0 : z);
+        if (nx !== null) { if (absolute) knownX = true; else if (!knownX) relativeStart = true; }
+        if (ny !== null) { if (absolute) knownY = true; else if (!knownY) relativeStart = true; }
+        // Depths of a program that moves Z relatively before any absolute Z are relative to its start.
+        if (nz !== null) { if (absolute) knownZ = true; else if (!knownZ) relativeZ = true; }
+        if (!isFinite(xx) || !isFinite(yy) || !isFinite(zz) || Math.abs(xx) > 1e9 || Math.abs(yy) > 1e9 || Math.abs(zz) > 1e9) throw new Error('coordonnées hors plage');
+        var lost = lostX || lostY || lostZ;
+        if (lost) {
+          if (!absolute && (lostX && nx || lostY && ny || lostZ && nz)) throw new Error('déplacement relatif depuis une position inconnue après G28/G30');
+          if (mode === 2 || mode === 3) throw new Error('arc depuis une position inconnue après G28/G30');
+          if (absolute) { if (nx !== null) lostX = false; if (ny !== null) lostY = false; if (nz !== null) lostZ = false; }
+          // Known again: the 3D path rejoins from the last known point with a rapid (the real
+          // path through the stored position is unknown); the XY drawing stays cut.
+          if (!lostX && !lostY && !lostZ && move && zmin <= zmax) move(cutX, cutY, cutZ, xx, yy, zz, 0, sentLines + 1);
+        } else if (mode === 2 || mode === 3) arc(xx, yy, zz, hasI, iWord, hasJ, jWord, radiusWord);
+        else add(x, y, z, xx, yy, zz, mode);
+        x = xx; y = yy; z = zz; moved = true;
       }
       // Line ends are located with indexOf; each separator position is cached
       // so a file without one of them is not rescanned on every line.
@@ -201,37 +269,50 @@
           if (offset < text.length) { setTimeout(batch, 0); return; }
           if (comment) throw new Error('commentaire non fermé');
           sample();
-          resolve({ count: count, bounds: bounds, trail: trail, lines: sentLines });
+          resolve({ count: count, bounds: bounds, trail: trail, trailZ: trailZ, lines: sentLines, relativeStart: relativeStart,
+            zBounds: zmin <= zmax ? [zmin, zmax] : null, relativeZ: relativeZ, wcs: wcs, returns: returnNoted, notes: notes });
         } catch (error) { reject(new Error('Ligne ' + line + ' : ' + error.message)); }
       }
       setTimeout(batch, 0);
     });
   }
+  function toolpath3d() { return root.CNCToolpath3D || null; }
   function painter(canvas) {
     var ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Canvas indisponible');
     canvas.width = 960; canvas.height = 540;
-    var b, scale, ox, oy;
+    var b, scale, ox, oy, zb = null, zmin = 0, depth = null;
     return {
       setup: function (result) {
         if (!result.count) throw new Error('Aucun déplacement XY');
         b = result.bounds; var sx = b[2] - b[0], sy = b[3] - b[1];
         scale = Math.min(880 / (sx || 1), 440 / (sy || 1));
         ox = (960 - sx * scale) / 2; oy = (540 - sy * scale) / 2;
+        // Work below Z0 takes the colour of its depth (the deepest end of the segment).
+        zb = Array.isArray(result.zBounds) ? result.zBounds : null; zmin = zb ? zb[0] : 0;
+        depth = zmin < 0 && toolpath3d() ? toolpath3d().depthColor : null;
         ctx.fillStyle = '#101820'; ctx.fillRect(0, 0, 960, 540); ctx.lineWidth = 1;
       },
-      segment: function (x, y, xx, yy, motion) {
-        ctx.strokeStyle = motion === 0 ? '#657c8f' : '#55d6ed';
+      segment: function (x, y, xx, yy, motion, z) {
+        ctx.strokeStyle = motion === 0 ? '#657c8f' : depth ? depth(z, zmin) : '#55d6ed';
         ctx.beginPath(); ctx.moveTo(ox + (x - b[0]) * scale, 540 - oy - (y - b[1]) * scale);
         ctx.lineTo(ox + (xx - b[0]) * scale, 540 - oy - (yy - b[1]) * scale); ctx.stroke();
+      },
+      // Depth legend in the bottom margin (only for a program that goes under Z0).
+      finish: function () {
+        if (depth && zb) toolpath3d().legend(ctx, 16, 504, zb[0], zb[1], root.cncI18n && root.cncI18n.locale);
       }
     };
+  }
+  function pathBounds(result) {
+    var z = result.zBounds || [0, 0], b = result.bounds;
+    return [b[0], b[1], z[0], b[2], b[3], z[1]];
   }
   function render(text, canvas, cancelled, progress, responseBlob) {
     progress = progress || function () {};
     return new Promise(function (resolve, reject) {
       var id = ++generation, worker = null, timer = null, startup = null, drawing = null, reader = null;
-      var finished = false, ready = false, fallback = false, output, result, input = 0, sequence = 0, drawn = 0, queue = [], localResume = null;
+      var finished = false, ready = false, fallback = false, output, result, input = 0, sequence = 0, drawn = 0, queue = [], localResume = null, path3d = null;
       var lastProgress = '';
       function report(message) { if (!finished && message !== lastProgress) { lastProgress = message; progress(message); } }
       function stopped() { return finished || !!(cancelled && cancelled()); }
@@ -249,17 +330,32 @@
       function check() { if (stopped()) { finish(new Error('Annulé')); return false; } return true; }
       function encoded(image, synchronous) {
         if (!check()) return;
-        finish(null, { image: image, segments: result.count, bounds: result.bounds,
-          projection: {version:1,width:960,height:540,bounds:result.bounds,units:'mm',wcs:'G54'},
-          trail: result.trail, lines: result.lines,
-          note: 'Projection XY indicative — G1/G2/G3 bleu, G0 gris. Arcs XY interpolés à 0,02 mm. Départ supposé X0 Y0, mm, absolu et centres I/J relatifs. Z et puissance laser non simulés.' +
+        var value = { image: image, segments: result.count, bounds: result.bounds,
+          // wcs: the work offset of the drawing ('G54' when the program selects none, as before);
+          // programWcs: the one the program selects (null: the active one), for the travel check.
+          projection: {version:1,width:960,height:540,bounds:result.bounds,units:'mm',wcs:result.wcs||'G54',
+            programWcs:result.wcs||null,returns:!!result.returns,relativeStart:!!result.relativeStart},
+          trail: result.trail, lines: result.lines };
+        // The 3D views place the tool in G54 (toolpath-3d.js): none for another work offset.
+        var frameG54 = !result.wcs || result.wcs === 'G54', notes = Array.isArray(result.notes) ? result.notes.slice() : [];
+        if (!frameG54) notes.unshift('Tracé en coordonnées de travail ' + result.wcs + ', le repère choisi par le programme.');
+        if (path3d && !frameG54) { path3d = null; notes.push('Vues 3D non produites hors du repère G54.'); }
+        // Depth (version 2 of the preview): Z extent, the Z of each trail sample and the
+        // simplified 3D path. Older readers ignore these fields.
+        if (Array.isArray(result.zBounds)) value.zBounds = result.zBounds;
+        if (Array.isArray(result.trailZ) && result.trailZ.length * 3 === result.trail.length) value.trailZ = result.trailZ;
+        if (path3d) value.path3d = path3d;
+        var deep = !!(value.zBounds && value.zBounds[0] < 0);
+        value.note = 'Projection XY indicative — G1/G2/G3 ' + (deep ? 'cyan au-dessus de Z0, du violet (peu profond) au rouge (le plus profond) sous Z0' : 'bleu') + ', G0 gris. Arcs interpolés à 0,02 mm. Départ supposé X0 Y0' + (result.relativeZ ? ', Z relatif au point de départ' : ' Z0') + ', mm, absolu et centres I/J relatifs. Puissance laser non simulée.' + (notes.length ? ' ' + notes.join(' ') : '') +
             (fallback ? ' Calcul local de secours : réactivité à vérifier sur cet appareil.' : '') +
-            (synchronous ? ' Encodage PNG synchrone de secours.' : '') });
+            (synchronous ? ' Encodage PNG synchrone de secours.' : '');
+        finish(null, value);
       }
       function encode() {
         if (!check()) return;
         report('Encodage de l’image PNG…');
         try {
+          output.finish();
           if (typeof canvas.toBlob === 'function' && typeof root.FileReader === 'function') {
             canvas.toBlob(function (blob) {
               if (!check()) return;
@@ -312,18 +408,21 @@
         scan(text, null, stopped, function (p) { report('Analyse locale du parcours : ' + Math.floor(p * 100) + ' %'); }).then(function (value) {
           if (!check()) return;
           result = value; output.setup(result);
-          var data = new Float64Array(2048 * 5), used = 0;
+          var data = new Float64Array(2048 * STRIDE), used = 0, T3 = toolpath3d(), builder = T3 ? T3.createBuilder({ bounds: pathBounds(result) }) : null;
           function flush() {
             if (!used) return;
             queue.push({ data: data.subarray(0, used), offset: 0 });
-            data = new Float64Array(2048 * 5); used = 0;
+            data = new Float64Array(2048 * STRIDE); used = 0;
             if (drawing === null) drawing = setTimeout(draw, 0);
           }
           function pressure() { return queue.length ? new Promise(function (resolve) { localResume = resolve; }) : null; }
-          return scan(text, function (x, y, xx, yy, mode) {
-            data[used++] = x; data[used++] = y; data[used++] = xx; data[used++] = yy; data[used++] = mode;
+          return scan(text, function (x, y, xx, yy, mode, z, zz) {
+            data[used++] = x; data[used++] = y; data[used++] = xx; data[used++] = yy; data[used++] = mode; data[used++] = Math.min(z, zz);
             if (used === data.length) flush();
-          }, stopped, null, pressure).then(function () { flush(); return pressure(); }).then(encode);
+          }, stopped, null, pressure, builder && builder.move).then(function () {
+            if (builder) path3d = builder.finish(result.lines);
+            flush(); return pressure();
+          }).then(encode);
         }).catch(function (error) { finish(error); });
       }
       function sendInput() {
@@ -340,8 +439,8 @@
           var start = Date.now(), count = 0;
           while (queue.length && count < 1024 && Date.now() - start < 4) {
             var block = queue[0], a = block.data, j = block.offset;
-            output.segment(a[j], a[j + 1], a[j + 2], a[j + 3], a[j + 4]);
-            block.offset += 5; count++; drawn++;
+            output.segment(a[j], a[j + 1], a[j + 2], a[j + 3], a[j + 4], a[j + 5]);
+            block.offset += STRIDE; count++; drawn++;
             if (block.offset === a.length) {
               queue.shift();
               if (worker) worker.postMessage({ type: 'ack', id: id, sequence: block.sequence });
@@ -372,7 +471,7 @@
           var message = event.data || {};
           try {
             if (message.type === 'ready' && !ready) {
-              if (message.version !== 1) { local('Version du Worker incompatible'); return; }
+              if (message.version !== 2) { local('Version du Worker incompatible'); return; }
               if (responseBlob && !message.response) { local('Lecture du serveur indisponible dans le Worker'); return; }
               ready = true; clearTimeout(startup);
               report('Préparation du parcours hors interface…');
@@ -388,11 +487,12 @@
             else if (message.type === 'progress') report('Analyse du parcours : ' + Math.floor(message.value * 100) + ' %');
             else if (message.type === 'bounds') { result = message.result; output.setup(result); }
             else if (message.type === 'segments') {
-              if (!result || message.sequence !== sequence + 1 || !message.data || message.data.byteLength > 2048 * 5 * 8 || !message.data.byteLength || message.data.byteLength % 40 || queue.length >= 4) throw new Error('Bloc de parcours invalide');
+              if (!result || message.sequence !== sequence + 1 || !message.data || message.data.byteLength > 2048 * STRIDE * 8 || !message.data.byteLength || message.data.byteLength % (STRIDE * 8) || queue.length >= 4) throw new Error('Bloc de parcours invalide');
               sequence = message.sequence; queue.push({ sequence: sequence, data: new Float64Array(message.data), offset: 0 });
               if (drawing === null) drawing = setTimeout(draw, 0);
             } else if (message.type === 'done') {
               if (!result || queue.length || drawn !== result.count) throw new Error('Parcours incomplet');
+              path3d = validPath(message.path3d);
               worker.terminate(); worker = null; encode();
             } else if (message.type === 'error') finish(new Error(message.message || 'Aperçu indisponible'));
           } catch (error) { finish(error); }
@@ -400,7 +500,60 @@
       } catch (error) { finish(error); }
     });
   }
-  var api = { scan: scan, render: render,
+  // The note and the refusals are composed in French and kept in the sidecar (written once,
+  // read on every device): they are translated where they are shown, sentence by sentence,
+  // by the patterns below (anything not matched stays as written). Plain text, for textContent.
+  var NOTE_TEXT = [
+    [/Projection XY indicative — G1\/G2\/G3 cyan au-dessus de Z0, du violet \(peu profond\) au rouge \(le plus profond\) sous Z0, G0 gris\./g,
+      'Indicative XY projection — G1/G2/G3 cyan above Z0, from purple (shallow) to red (deepest) below Z0, G0 grey.',
+      'Proyección XY indicativa — G1/G2/G3 cian por encima de Z0, del violeta (poco profundo) al rojo (más profundo) bajo Z0, G0 gris.'],
+    [/Projection XY indicative — G1\/G2\/G3 bleu, G0 gris\./g, 'Indicative XY projection — G1/G2/G3 blue, G0 grey.', 'Proyección XY indicativa — G1/G2/G3 azul, G0 gris.'],
+    [/Arcs interpolés à 0,02 mm\./g, 'Arcs interpolated at 0.02 mm.', 'Arcos interpolados a 0,02 mm.'],
+    [/Départ supposé X0 Y0, Z relatif au point de départ, mm, absolu et centres I\/J relatifs\./g,
+      'Start assumed at X0 Y0, Z relative to the starting point, mm, absolute, relative I/J centres.',
+      'Inicio supuesto en X0 Y0, Z relativo al punto de partida, mm, absoluto y centros I/J relativos.'],
+    [/Départ supposé X0 Y0 Z0, mm, absolu et centres I\/J relatifs\./g,
+      'Start assumed at X0 Y0 Z0, mm, absolute, relative I/J centres.', 'Inicio supuesto en X0 Y0 Z0, mm, absoluto y centros I/J relativos.'],
+    [/Puissance laser non simulée\./g, 'Laser power not simulated.', 'Potencia láser no simulada.'],
+    [/Mot O \(ligne (\d+)\) ignoré par l’aperçu ; Grbl 1\.1 ne le prend pas en charge \(erreur 20 attendue\)\./g,
+      'O word (line $1) ignored by the preview; Grbl 1.1 does not support it (error 20 expected).',
+      'Palabra O (línea $1) ignorada por la vista previa; Grbl 1.1 no la admite (error 20 esperado).'],
+    [/Retour G(\d+) \(ligne (\d+)\) : position inconnue de l’aperçu, tracé coupé jusqu’à ce que X, Y et Z soient redonnés en absolu\./g,
+      'G$1 return (line $2): position unknown to the preview, drawing cut until X, Y and Z are given again in absolute.',
+      'Retorno G$1 (línea $2): posición desconocida para la vista previa, trazado cortado hasta que X, Y y Z se vuelvan a dar en absoluto.'],
+    [/Tracé en coordonnées de travail (G5[4-9](?:\.\d)?), le repère choisi par le programme\./g,
+      'Drawn in work coordinates $1, the offset chosen by the program.', 'Trazado en coordenadas de trabajo $1, el sistema elegido por el programa.'],
+    [/Vues 3D non produites hors du repère G54\./g, '3D views not produced outside the G54 offset.', 'Vistas 3D no generadas fuera del sistema G54.'],
+    [/Calcul local de secours : réactivité à vérifier sur cet appareil\./g, 'Local fallback computation: check responsiveness on this device.', 'Cálculo local de respaldo: compruebe la fluidez en este dispositivo.'],
+    [/Encodage PNG synchrone de secours\./g, 'Fallback synchronous PNG encoding.', 'Codificación PNG síncrona de respaldo.'],
+    [/(\d[\d\s  .,]*) segments\./g, '$1 segments.', '$1 segmentos.'],
+    // Refusals (« Ligne n : reason »), among them those added with the G28/G30 and work offset support.
+    [/^Ligne (\d+) : /, 'Line $1: ', 'Línea $1: '],
+    [/changement de repère \((G5[4-9](?:\.\d)?)\) après des déplacements : l’aperçu trace un seul repère/g,
+      'work offset change ($1) after moves: the preview draws a single offset', 'cambio de sistema de coordenadas ($1) tras desplazamientos: la vista previa traza un solo sistema'],
+    [/déplacement relatif depuis une position inconnue après G28\/G30/g, 'relative move from an unknown position after G28/G30', 'desplazamiento relativo desde una posición desconocida tras G28/G30'],
+    [/arc depuis une position inconnue après G28\/G30/g, 'arc from an unknown position after G28/G30', 'arco desde una posición desconocida tras G28/G30'],
+    [/paramètre d’arc avec G(\d+)/g, 'arc parameter with G$1', 'parámetro de arco con G$1'],
+    [/arc sans X ni Y \(refusé par Grbl, erreur 26\)/g, 'arc without X or Y (refused by Grbl, error 26)', 'arco sin X ni Y (rechazado por Grbl, error 26)'],
+    [/^G(\d+(?:\.\d+)?) non pris en charge par cet aperçu/, 'G$1 not supported by this preview', 'G$1 no admitido por esta vista previa'],
+    [/^M(\d+(?:\.\d+)?) non pris en charge par cet aperçu/, 'M$1 not supported by this preview', 'M$1 no admitido por esta vista previa'],
+    [/^mot ([A-Z]) non pris en charge/, 'word $1 not supported', 'palabra $1 no admitida'],
+    [/^modes G contradictoires$/, 'contradictory G modes', 'modos G contradictorios'],
+    [/^axe répété$/, 'repeated axis', 'eje repetido'],
+    [/^coordonnées hors plage$/, 'coordinates out of range', 'coordenadas fuera de rango'],
+    [/^mode G0\/G1 non défini$/, 'G0/G1 mode not set', 'modo G0/G1 no definido'],
+    [/^Aucun déplacement XY$/, 'No XY move', 'Ningún desplazamiento XY']
+  ];
+  function localize(text, language) {
+    var s = String(text == null ? '' : text), col = language === 'en' ? 1 : language === 'es' ? 2 : 0;
+    if (!col) return s;
+    // A refusal: « Ligne n : » then its reason, matched on its own (patterns anchored on it).
+    var line = /^(Ligne \d+ : )([\s\S]*)$/.exec(s);
+    if (line) return apply(line[1], col) + apply(line[2], col);
+    return apply(s, col);
+  }
+  function apply(s, col) { NOTE_TEXT.forEach(function (row) { s = s.replace(row[0], row[col]); }); return s; }
+  var api = { scan: scan, render: render, localize: localize,
     renderResponse: function (blob, canvas, cancelled, progress) { return render(null, canvas, cancelled, progress, blob); } };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CNCLibraryPreview = api;

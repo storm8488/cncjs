@@ -1,0 +1,40 @@
+{
+  "title": "Nested ( inside a comment: the CNCjs sender sends nothing of the unclosed line",
+  "covers": ["nested ("],
+  "truth": {
+    "bbox": {
+      "X": [0, 10],
+      "Y": [0, 0],
+      "Z": [-1, 5]
+    },
+    "units": "G21",
+    "relativeStart": false,
+    "final": [5, 0, 5],
+    "arcs": false
+  },
+  "preview": {
+    "accept": false,
+    "error": "commentaire imbriqué : CNCjs et l’aperçu",
+    "line": 4,
+    "difference": "D-REFUSE"
+  },
+  "programCheck": {
+    "verdict": "validated",
+    "unknownAxes": [],
+    "extent": {
+      "X": [0, 10],
+      "Y": [0, 0],
+      "Z": [-1, 5]
+    },
+    "rawUnits": false
+  },
+  "resume": {
+    "final": [5, 0, 5]
+  },
+  "toolpath": {
+    "bounds": {
+      "min": [0, 0, -1],
+      "max": [10, 0, 5]
+    }
+  }
+}

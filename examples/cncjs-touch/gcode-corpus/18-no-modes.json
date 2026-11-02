@@ -1,0 +1,42 @@
+{
+  "title": "No G20/G21 nor G90/G91: the controller modes apply",
+  "covers": ["no modes"],
+  "truth": {
+    "bbox": {
+      "X": [10, 20],
+      "Y": [10, 10],
+      "Z": [-1, 5]
+    },
+    "units": null,
+    "relativeStart": false,
+    "final": [20, 10, 5],
+    "arcs": false
+  },
+  "preview": {
+    "accept": true,
+    "count": 2,
+    "bounds": [0, 0, 20, 10],
+    "zBounds": [-1, 5],
+    "relativeStart": false
+  },
+  "travel": "ok",
+  "programCheck": {
+    "verdict": "validated",
+    "unknownAxes": [],
+    "extent": {
+      "X": [10, 20],
+      "Y": [10, 10],
+      "Z": [-1, 5]
+    },
+    "rawUnits": true
+  },
+  "resume": {
+    "final": [20, 10, 5]
+  },
+  "toolpath": {
+    "bounds": {
+      "min": [0, 0, -1],
+      "max": [20, 10, 5]
+    }
+  }
+}

@@ -13,10 +13,11 @@ function fixture(simulation){
  const window={cncI18n:{t:s=>s,html:s=>s,locale:'fr-FR'},addEventListener(n,f){listeners[n]=f;},removeEventListener(n){delete listeners[n];}};
  const realCreate=document.createElement;
  document.createElement=tag=>{const e=element(tag);Object.defineProperty(e,'innerHTML',{set(){e._path={attributes:{},setAttribute(k,v){this.attributes[k]=v;}};},get(){return '';}});e.querySelector=()=>e._path;return e;};
- vm.runInNewContext(fs.readFileSync(__dirname+'/touch/status-strip.js','utf8'),{document,window});
+ const clock={now:1e12};
+ vm.runInNewContext(fs.readFileSync(__dirname+'/touch/status-strip.js','utf8'),{document,window,Date:{now:()=>clock.now}});
  // Elements built by the module are found in the banner tree (the fixture's getElementById only knows ids it created).
  const byId=id=>banner.querySelectorAll('*').find(e=>e.id===id);
- return {document,node,stats,window,listeners,clicks,banner,byId,send:detail=>listeners['cnc-job-status']({detail:Object.assign({simulation},detail)})};
+ return {clock,document,node,stats,window,listeners,clicks,banner,byId,send:detail=>listeners['cnc-job-status']({detail:Object.assign({simulation},detail)})};
 }
 let f=fixture(false);
 assert.equal(f.banner.children[0].id,'t-state');assert.equal(f.banner.children[1].id,'t-fresh');
@@ -28,6 +29,11 @@ assert.equal(f.byId('t-state-text').textContent,'Repos');assert.equal(f.byId('t-
 assert.equal(f.byId('t-fresh-text').textContent,'< 1 s');assert.equal(f.byId('t-fresh').getAttribute('data-stale'),'false');
 assert.equal(f.byId('t-spindle').textContent,'0 tr/min');assert.equal(f.byId('t-file').textContent,'—');
 let writes=f.stats.writes;f.send({machine:m(),transportConnected:true});assert.equal(f.stats.writes,writes,'no unchanged writes');
+// A value held in a single text node is written into that node (replacing the node restyles it).
+{const feedNode=f.byId('t-feed'),textNode={nodeType:3,data:'—',nextSibling:null};Object.defineProperty(feedNode,'firstChild',{get:()=>textNode,configurable:true});
+ const before=f.stats.writes;f.send({machine:m({feedrate:1234}),transportConnected:true});
+ assert.match(textNode.data,/1.234 mm\/min/);assert.equal(f.byId('t-feed').textContent,'0 mm/min','the node was not replaced');
+ delete feedNode.firstChild;f.send({machine:m(),transportConnected:true});writes=f.stats.writes;}
 f.send({machine:m({activeState:'Run',workflow:'running',feedrate:1800,spindleSpeed:12000,name:'a.nc',originalName:'Support moteur.nc',canPause:true,canStop:true}),transportConnected:true});
 assert.equal(f.byId('t-state-text').textContent,'En cours');assert.equal(f.byId('t-state').getAttribute('data-tone'),'run');
 assert.match(f.byId('t-spindle').textContent,/12.000 tr\/min/);assert.match(f.byId('t-feed').textContent,/1.800 mm\/min/);
@@ -38,12 +44,45 @@ f.byId('t-pause').click();f.byId('t-stop').click();assert.equal(f.clicks.pause,1
 f.node('job-stop').disabled=true;f.byId('t-stop').click();assert.equal(f.clicks.stop,1);f.node('job-stop').disabled=false;
 f.send({machine:m({activeState:'Hold:0',workflow:'paused',canPause:false,canStop:true,canResume:true}),transportConnected:true});
 assert.equal(f.byId('t-state-text').textContent,'Pause');assert.equal(f.byId('t-state').getAttribute('data-tone'),'warn');assert(f.byId('t-pause').disabled);
+// In a pause the strip offers Resume (relayed to the job button, so its confirmation opens).
+f.clock.now+=1000;assert(!f.byId('t-resume').hidden&&!f.byId('t-resume').disabled);assert(f.byId('t-pause').hidden,'in a pause, Resume takes the place of Pause');f.node('job-resume').addEventListener('click',()=>{f.clicks.resume=(f.clicks.resume||0)+1;});
+f.byId('t-resume').click();assert.equal(f.clicks.resume,1);
+f.byId('t-resume').click();assert.equal(f.clicks.resume,1,'a double tap is absorbed for 600 ms');
+f.byId('t-stop').click();assert.equal(f.clicks.stop,2,'Stop is never delayed');
+// Locked screen: Resume and Unlock are hidden, Pause and Stop stay.
+f.listeners['cnc-screen-lock']({detail:true});assert(f.byId('t-resume').hidden);assert(!f.byId('t-stop').hidden);
+f.listeners['cnc-screen-lock']({detail:false});assert(!f.byId('t-resume').hidden);
+// Homing or a jog with the workflow idle: Stop is offered (the server ends them), Pause is not.
+f.send({machine:m({activeState:'Home',canStop:true}),transportConnected:true});assert(!f.byId('t-stop').hidden&&f.byId('t-pause').hidden);
+// Grbl sends no report during homing: the stale report still says Idle, the server says homing.
+f.send({machine:m({activeState:'Idle',fresh:false,statusAgeMs:4000,homing:true,canStop:true}),transportConnected:true});assert.equal(f.byId('t-state-text').textContent,'Prise d’origine');assert(!f.byId('t-stop').hidden&&!f.byId('t-stop').disabled);
+// Alarm: Unlock opens the $X confirmation through cncJobControls.
+const prepared=[];f.window.cncJobControls={prepareCommand:op=>prepared.push(op)};
+f.send({machine:m({activeState:'Alarm',alarmCode:1,canUnlock:true}),transportConnected:true});
+f.clock.now+=1000;assert(!f.byId('t-unlock').hidden);f.byId('t-unlock').click();assert.deepEqual(prepared,['unlock']);
+f.send({machine:m({activeState:'Alarm',alarmCode:1,canUnlock:false}),transportConnected:true});assert(f.byId('t-unlock').hidden,'not offered when the server refuses it');
 f.send({machine:m({activeState:'Alarm',alarmCode:1}),transportConnected:true});
 assert.equal(f.byId('t-state-text').textContent,'Alarme 1');assert.equal(f.byId('t-state').getAttribute('data-tone'),'danger');
 f.send({machine:m({activeState:'Door:1'}),transportConnected:true});assert.equal(f.byId('t-state-text').textContent,'Porte ouverte');
 f.send({machine:m({statusAgeMs:4000,fresh:false}),transportConnected:true});
 assert.equal(f.byId('t-state-text').textContent,'Rapport ancien');assert.equal(f.byId('t-fresh').getAttribute('data-stale'),'true');assert.equal(f.byId('t-fresh-text').textContent,'4 s');assert.equal(f.byId('t-spindle').textContent,'—');
-f.send({machine:m(),transportConnected:false});assert.equal(f.byId('t-state-text').textContent,'Hors ligne');
+// N3: a recent state read by HTTP while the stream is down is shown at once (not « Hors ligne »).
+f.send({machine:m(),transportConnected:false});assert.equal(f.byId('t-state-text').textContent,'Repos');assert.equal(f.byId('t-state').getAttribute('data-tone'),'ok');
+f.send({machine:null,transportConnected:false});assert.equal(f.byId('t-state-text').textContent,'Hors ligne');
+// V6: a deduced code is never shown as received: « Alarme 3 » with the note « déduite ».
+f.send({machine:m({activeState:'Alarm',alarmCode:3,alarmCodeKept:true,alarmCodeInferred:true}),transportConnected:true});
+assert.equal(f.byId('t-state-text').textContent,'Alarme 3');assert.equal(f.byId('t-state-note').textContent,'déduite');assert.equal(f.byId('t-state-note').hidden,false);
+f.send({machine:m({activeState:'Alarm',alarmCode:1}),transportConnected:true});assert.equal(f.byId('t-state-note').hidden,true);
+// N2: with Déverrouiller… on the strip the page switch link gives its room (data-confirm, ui-2027.css).
+f.send({machine:m({activeState:'Alarm',alarmCode:1,canUnlock:true}),transportConnected:true});assert.equal(f.banner.getAttribute('data-confirm'),'true');
+f.send({machine:m(),transportConnected:true});assert.equal(f.banner.getAttribute('data-confirm'),'false');
+// Stream down, state read by HTTP during a job: Stop and Pause stay offered (the server
+// accepts them without the stream); Resume, which needs a stream-bound confirmation, does not.
+f.send({machine:m({activeState:'Run',workflow:'running',canPause:true,canStop:true}),transportConnected:false});
+assert(!f.byId('t-stop').hidden&&!f.byId('t-stop').disabled&&!f.byId('t-pause').hidden);
+f.send({machine:m({activeState:'Hold:0',workflow:'paused',canStop:true,canResume:true}),transportConnected:false});
+assert(!f.byId('t-stop').hidden&&f.byId('t-resume').hidden);
+f.send({machine:null,transportConnected:false});assert(f.byId('t-stop').hidden);
 // Events of the other page kind are ignored.
 f.listeners['cnc-job-status']({detail:{simulation:true,machine:m({activeState:'Run'})}});assert.equal(f.byId('t-state-text').textContent,'Hors ligne');
 f.listeners.pagehide({persisted:true});assert(f.listeners['cnc-job-status']);f.listeners.pagehide({persisted:false});assert(!f.listeners['cnc-job-status']);

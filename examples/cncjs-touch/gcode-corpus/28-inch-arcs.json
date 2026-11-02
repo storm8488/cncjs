@@ -1,0 +1,42 @@
+{
+  "title": "Arcs with R and I/J in inches",
+  "covers": ["G20", "G2", "G3", "R"],
+  "truth": {
+    "bbox": {
+      "X": [-25.4, 25.4],
+      "Y": [-25.4, 25.4],
+      "Z": [-1.016, 2.54]
+    },
+    "units": "G20",
+    "relativeStart": false,
+    "final": [-25.4, 0, 2.54],
+    "arcs": true
+  },
+  "preview": {
+    "accept": true,
+    "count": 81,
+    "bounds": [-25.4, -25.4, 25.4, 25.4],
+    "zBounds": [-1.016, 2.54],
+    "relativeStart": false
+  },
+  "travel": "ok",
+  "programCheck": {
+    "verdict": "validated",
+    "unknownAxes": [],
+    "extent": {
+      "X": [-25.4, 25.4],
+      "Y": [-25.4, 25.4],
+      "Z": [-1.016, 2.54]
+    },
+    "rawUnits": false
+  },
+  "resume": {
+    "final": [-25.4, 0, 2.54]
+  },
+  "toolpath": {
+    "bounds": {
+      "min": [-25.4, -25.4, -1.016],
+      "max": [25.4, 25.4, 2.54]
+    }
+  }
+}

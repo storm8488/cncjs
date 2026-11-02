@@ -1,0 +1,44 @@
+{
+  "title": "Starts in G91: placement depends on the tool position",
+  "covers": ["G91 start"],
+  "truth": {
+    "bbox": {
+      "X": [0, 10],
+      "Y": [0, 10],
+      "Z": null
+    },
+    "units": "G21",
+    "relativeStart": true,
+    "final": null,
+    "arcs": false
+  },
+  "preview": {
+    "accept": true,
+    "count": 4,
+    "bounds": [0, 0, 10, 10],
+    "zBounds": [0, 0],
+    "relativeStart": true
+  },
+  "travel": "unknown",
+  "programCheck": {
+    "verdict": "unknown",
+    "unknownAxes": ["X", "Y"],
+    "extent": {
+      "X": null,
+      "Y": null,
+      "Z": null
+    },
+    "rawUnits": false,
+    "difference": "D-UNKNOWN"
+  },
+  "resume": {
+    "final": null,
+    "difference": "D-UNKNOWN"
+  },
+  "toolpath": {
+    "bounds": {
+      "min": [0, 0, 0],
+      "max": [10, 10, 0]
+    }
+  }
+}

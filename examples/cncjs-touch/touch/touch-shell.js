@@ -47,13 +47,26 @@
     var b=document.createElement('button');b.className='ks-nav';b.setAttribute('aria-label',label);b.innerHTML=icon(name)+uiLocale.html('<span>')+label+uiLocale.html('</span>');b.setAttribute('data-ks-screen',name);b.addEventListener('click',function(){go(name==='back'?trail.pop()||'menu':name,name==='back');});nav.appendChild(b);
   });
   var active='menu',trail=[];
-  function fitLibrary(){window.dispatchEvent(new CustomEvent('cnc-library-page-size',{detail:window.innerHeight<650?2:5}));window.dispatchEvent(new CustomEvent('cnc-history-page-size',{detail:window.innerHeight<650?3:8}));}
+  // Compact layout (ui-2027.css, body.t-compact) under 1100 x 650: screens are laid out
+  // shorter rather than shrunk by viewport-fit.js, which stays a safety net. Decided
+  // from the window only (a visual preference, never a permission).
+  function fitLibrary(){
+    var compact=window.innerHeight<650||window.innerWidth<1100;
+    if(document.body.classList.contains('t-compact')!==compact)document.body.classList.toggle('t-compact',compact);
+    window.dispatchEvent(new CustomEvent('cnc-library-page-size',{detail:compact?3:5}));window.dispatchEvent(new CustomEvent('cnc-history-page-size',{detail:compact?4:8}));}
   window.addEventListener('resize',fitLibrary);fitLibrary();
-  var openedSheet=null,sheetReturn=null;
+  var openedSheet=null,sheetReturn=null,sheetRestore=null;
+  // Pause / Arrêter of the strip stay usable over a sheet (strip-guard.js, U5): the sheet
+  // starts below the strip and makes the rest inert; without the guard, everything else.
+  function isolate(overlay){
+    if(window.CNCStripGuard)return window.CNCStripGuard.isolate(overlay);
+    main.inert=true;nav.inert=true;banner.inert=true;
+    return function(){main.inert=false;nav.inert=false;banner.inert=false;};
+  }
   function closeSheet(){
     if(!openedSheet)return;
     openedSheet.hidden=true;openedSheet=null;
-    main.inert=false;nav.inert=false;banner.inert=false;
+    if(sheetRestore){sheetRestore();sheetRestore=null;}
     if(sheetReturn)sheetReturn.focus({preventScroll:true});
   }
   function sheet(id,title){
@@ -61,13 +74,16 @@
     overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-labelledby',id+'-title');
     overlay.innerHTML=uiLocale.html('<div class="ks-sheet-card"><header><h2 id="')+id+uiLocale.html('-title"></h2><button type="button" aria-label="Fermer">Fermer ×</button></header><div class="ks-sheet-content"></div></div>');
     overlay.querySelector('h2').textContent=title;overlay.querySelector('button').addEventListener('click',closeSheet);document.body.appendChild(overlay);
-    return {content:overlay.querySelector('.ks-sheet-content'),open:function(){sheetReturn=document.activeElement;openedSheet=overlay;overlay.hidden=false;main.inert=true;nav.inert=true;banner.inert=true;overlay.querySelector('button').focus();}};
+    return {content:overlay.querySelector('.ks-sheet-content'),open:function(){if(openedSheet===overlay)return;if(openedSheet)closeSheet();sheetReturn=document.activeElement;openedSheet=overlay;sheetRestore=isolate(overlay);overlay.hidden=false;overlay.querySelector('button').focus();}};
   }
   document.addEventListener('keydown',function(e){
-    if(!openedSheet)return;
+    // An overlay opened above (the pad) made this one inert: the keys are its own (V1).
+    if(!openedSheet||(window.CNCStripGuard&&window.CNCStripGuard.covered(openedSheet)))return;
     if(e.key==='Escape'){e.preventDefault();closeSheet();}
     if(e.key==='Tab'){
       var focusable=Array.prototype.filter.call(openedSheet.querySelectorAll('button,input,select,a[href]'),function(el){return !el.disabled&&!el.hidden&&el.getClientRects().length;});
+      // The strip's Pause / Arrêter belong to the cycle (strip-guard.js).
+      if(window.CNCStripGuard){window.CNCStripGuard.tab(e,openedSheet,focusable);return;}
       var first=focusable[0],last=focusable[focusable.length-1];
       if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
       else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
@@ -166,6 +182,8 @@
     var pct=m&&typeof m.total==='number'&&m.total>0&&typeof m.received==='number'?Math.min(100,Math.floor(m.received/m.total*100)):null;
     var file=m&&m.name?(m.originalName||m.name):'';
     var word=window.cncStatusStrip?window.cncStatusStrip.describe(m,connected):{word:connected&&m?m.activeState:uiLocale.t('Hors ligne'),tone:connected&&m?'info':'off'};
+    // A deduced alarm code is never shown as received (V6): « Alarme 3 déduite ».
+    if(word.note)word={word:word.word+' '+word.note,tone:word.tone};
     live('home',!m||!connected?'off':alarm?'danger':running?'info':paused?'warn':m.canStart?'ok':'',
       !m||!connected?uiLocale.t('Hors ligne'):alarm?uiLocale.t('Alarme'):running?uiLocale.t('En cours')+(pct!==null?' · '+pct+' %':''):paused?uiLocale.t('En pause'):m.canStart?uiLocale.t('Prêt à démarrer'):file||uiLocale.t('Aucun fichier chargé'));
     live('files',file?'ok':'',file?uiLocale.t('Chargé : ')+file:uiLocale.t('Choisir un parcours'));
@@ -177,14 +195,15 @@
     live('settings','',uiLocale.t('Affichage · veille · système'));
     // Machine screen: the state word and the alarm explained.
     setText(machineWord,word.word);if(machineWord.getAttribute('data-tone')!==word.tone)machineWord.setAttribute('data-tone',word.tone);
-    var help=alarm?(simulation?{title:uiLocale.t('Alarme fictive'),action:uiLocale.t('Effacez l’alarme ci-contre, puis confirmez la reprise dans Suivi.')}:window.CNCGrblHelp?window.CNCGrblHelp.alarm(m.alarmCode):{title:word.word,action:''}):null;
+    var help=alarm?(simulation?{title:uiLocale.t('Alarme fictive'),action:uiLocale.t('Effacez l’alarme ci-contre, puis confirmez la reprise dans Suivi.')}:window.CNCGrblHelp?window.CNCGrblHelp.alarm(m.alarmCode,m.alarmCodeInferred):{title:word.word,action:''}):null;
     if(machineAlarm.hidden!==!help)machineAlarm.hidden=!help;
     if(help){setText(document.getElementById('ks-machine-alarm-title'),help.title);setText(document.getElementById('ks-machine-alarm-action'),help.action);}
   }
   window.addEventListener('cnc-job-status',function(e){
     if(!!e.detail.simulation!==simulation)return;
     lastMachine=e.detail.machine;
-    updateTiles(e.detail.machine,simulation?!!e.detail.machine:!!e.detail.transportConnected);
+    // A published machine state is recent (read by the stream or by HTTP): shown as such (N3).
+    updateTiles(e.detail.machine,!!e.detail.machine);
     if(active==='menu')resumeBar();
   });
   window.addEventListener('cnc-navigate',function(e){if(Object.prototype.hasOwnProperty.call(names,e.detail))go(e.detail);});

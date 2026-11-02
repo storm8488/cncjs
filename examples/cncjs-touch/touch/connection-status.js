@@ -1,7 +1,8 @@
 (function () {
   'use strict';
   var uiLocale=window.cncI18n||{t:function(s){return s;},html:function(s){return s;}};
-  var store = window.cncState, host = document.querySelector('.ks-machine-overview');
+  // The report freshness sits with the coordinates it qualifies (real page); the overview keeps the commands.
+  var store = window.cncState, host = document.querySelector('#screen-machine .ks-machine-coordinates') || document.querySelector('.ks-machine-overview');
   if (!store || !host) return;
   var simulation = document.body.getAttribute('data-simulation') === 'true';
   var panel = document.createElement('div'); panel.className = 'connection-details';

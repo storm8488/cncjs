@@ -97,7 +97,7 @@ let dir;
 
 beforeAll(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cnc-touch-stream-'));
-  fs.writeFileSync(path.join(dir, 'test.nc'), 'G1 X1');
+  fs.writeFileSync(path.join(dir, 'test.nc'), 'G21 G90\nG1 X1');
 });
 
 afterAll(() => {
@@ -386,6 +386,59 @@ describe('touch stream', () => {
     stream.dispose();
   });
 
+  test('a host command reservation is published to every client, and its release too', () => {
+    const ctx = setup();
+    const { res } = ctx.connect();
+    ctx.registry.A.runner.emit('status');
+    ctx.timers.flush();
+    expect(res.lines.at(-1).systemCommand).toBe(null);
+    const before = res.lines.length;
+    const reservation = ctx.service.reserveSystemCommand({ id: 'c1', title: 'Redémarrer', commands: 'sudo reboot' });
+    ctx.timers.flush();
+    expect(res.lines.length).toBe(before + 1);
+    expect(res.lines.at(-1).systemCommand).toEqual({ title: 'Redémarrer', since: expect.any(Number) });
+    expect(res.lines.at(-1).controllers[0].canLoad).toBe(false);
+    reservation.release();
+    ctx.timers.flush();
+    expect(res.lines.at(-1).systemCommand).toBe(null);
+    expect(res.lines.at(-1).controllers[0].canLoad).toBe(true);
+    ctx.stream.dispose();
+  });
+
+  test('a reservation taken before a client connects is in its first packet; a release and a new reservation are both published', () => {
+    const ctx = setup();
+    ctx.service.observe(); // what the heartbeat does before any client
+    ctx.registry.A.runner.emit('status');
+    const reservation = ctx.service.reserveSystemCommand({ id: 'c1', title: 'Redémarrer', commands: 'sudo reboot' });
+    const { res } = ctx.connect();
+    expect(res.lines.at(-1).systemCommand).toMatchObject({ title: 'Redémarrer' });
+    reservation.release();
+    const r2 = ctx.service.reserveSystemCommand({ id: 'c2', title: 'Éteindre', commands: 'sudo poweroff' });
+    ctx.timers.flush();
+    expect(res.lines.at(-1).systemCommand).toMatchObject({ title: 'Éteindre' });
+    r2.release();
+    ctx.timers.flush();
+    expect(res.lines.at(-1).systemCommand).toBe(null);
+    ctx.stream.dispose();
+  });
+
+  test('without any client, the heartbeat keeps the service listening: a host command is judged on fresh reports at once', () => {
+    const ctx = setup();
+    const c = ctx.registry.A;
+    expect(c.runner.listenerCount('status')).toBe(0);
+    const [heartbeat] = ctx.timers.intervals.values();
+    heartbeat();
+    expect(c.runner.listenerCount('status')).toBe(1);
+    c.runner.emit('status');
+    expect(() => ctx.service.reserveSystemCommand({ id: 'c1', title: 'Redémarrer', commands: 'sudo reboot' }).release()).not.toThrow();
+    // A closed controller is forgotten by the heartbeat too, client or not.
+    c.isClose = () => true;
+    heartbeat();
+    expect(c.runner.listenerCount('status')).toBe(0);
+    ctx.stream.dispose();
+    expect(() => heartbeat()).not.toThrow();
+  });
+
   test('dispose clears timers, listeners and the service', () => {
     const ctx = setup();
     const { res } = ctx.connect();
@@ -419,6 +472,42 @@ describe('touch stream', () => {
       expect(validSnapshot(p, true)).toBe(true);
     });
     expect(validSnapshot(JSON.parse(JSON.stringify(ctx.stream.snapshot())), false)).toBe(true);
+    ctx.stream.dispose();
+  });
+});
+
+describe('touch stream: presence for the attribution of control (F5) and a guarded heartbeat', () => {
+  test('a stream opened for an identified client carries its presence: its lease is present while the stream lives, absent (grace) once it closes', () => {
+    const ctx = setup();
+    const tablet = { kind: 'touch', id: 'tablet-abc', label: 'Tablette', user: 'ana' };
+    const req = new EventEmitter();
+    const res = fakeResponse();
+    expect(ctx.stream.open(req, res, tablet)).toBe(true);
+    ctx.service.control.claim('A', tablet);
+    ctx.registry.A.runner.emit('status');
+    ctx.timers.flush();
+    expect(res.lines.at(-1).controllers[0].control.owner).toMatchObject({ id: 'tablet-abc', present: true, expires: null });
+    res.emit('close');
+    const owner = ctx.service.list()[0].control.owner;
+    expect(owner).toMatchObject({ id: 'tablet-abc', present: false });
+    expect(owner.expires).toBeGreaterThan(Date.now());
+    // The same client back on a new stream: present again, nothing transferred.
+    expect(ctx.stream.open(new EventEmitter(), fakeResponse(), tablet)).toBe(true);
+    expect(ctx.service.list()[0].control.owner).toMatchObject({ id: 'tablet-abc', present: true });
+    // A stream without an actor (older client) carries no presence and breaks nothing.
+    expect(ctx.stream.open(new EventEmitter(), fakeResponse())).toBe(true);
+    ctx.stream.dispose();
+  });
+
+  test('a heartbeat tick survives an observe() failure (the heartbeat runs in a real setInterval)', () => {
+    const ctx = setup();
+    const [tick] = ctx.timers.intervals.values();
+    ctx.registry.A.runner = null; // never happens with GrblController; the heartbeat must not die on it
+    expect(() => ctx.service.observe()).toThrow(TypeError);
+    expect(() => tick()).not.toThrow();
+    ctx.registry.A = fakeController();
+    expect(() => tick()).not.toThrow();
+    expect(ctx.registry.A.runner.listenerCount('status')).toBe(1);
     ctx.stream.dispose();
   });
 });

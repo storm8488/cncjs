@@ -29,6 +29,8 @@
   function token(){try{return JSON.parse(localStorage.getItem('cnc')).state.session.token||'';}catch(_){return '';}}
   function apiBase(){try{return window.cncState.get().apiBase;}catch(_){return '/api';}}
   function machine(){try{return window.cncState.get().machine;}catch(_){return null;}}
+  // A host command already running on the server ({title, since} in the snapshot, relayed by job-controls.js).
+  function systemCommand(){try{return window.cncState.get().systemCommand||null;}catch(_){return null;}}
   function jobActive(){var m=machine();return !!(m&&(m.workflow==='running'||m.workflow==='paused'));}
   function shown(){return !disposed&&!document.hidden&&panel.classList.contains('active')&&panel.getAttribute('data-settings-tab')==='system';}
   function request(method,url,body,auth,done){
@@ -42,18 +44,19 @@
 
   function disarm(){clearTimeout(armTimer);armTimer=null;armed=null;paint();}
   function paint(){
-    var blocked=jobActive();
+    var blocked=jobActive(),running=systemCommand();
     buttons.forEach(function(b){
       var label=armed===b.id?t('Confirmer : ')+b.title:b.title;
       set(b.node,label);
-      var disabled=busy||blocked;if(b.node.disabled!==disabled)b.node.disabled=disabled;
+      var disabled=busy||blocked||!!running;if(b.node.disabled!==disabled)b.node.disabled=disabled;
       var state=armed===b.id?'armed':'idle';if(b.node.getAttribute('data-state')!==state)b.node.setAttribute('data-state',state);
     });
     if(blocked&&buttons.length)set(status,t('Indisponible pendant un travail en cours ou en pause.'));
+    else if(running&&buttons.length)set(status,t('Commande système en cours : ')+running.title);
     else if(armed)set(status,t('Touchez à nouveau pour confirmer (8 s).'));
   }
   function run(command){
-    if(busy||jobActive())return;
+    if(busy||jobActive()||systemCommand())return;
     if(armed!==command.id){armed=command.id;clearTimeout(armTimer);armTimer=setTimeout(disarm,CONFIRM_MS);paint();return;}
     clearTimeout(armTimer);armTimer=null;armed=null;busy=true;set(status,t('Vérification de l’état de la machine…'));paint();
     // Asked to the server at the last moment, whatever this page shows: the
@@ -70,6 +73,9 @@
       var c=controllers[i]||{};
       if(!c.fresh)return t('État de la machine trop ancien : commande non lancée.');
       if(c.workflow!=='idle'||['Idle','Alarm','Sleep'].indexOf(c.activeState)<0)return t('Machine en mouvement ou occupée : commande non lancée.');
+      // Grbl stays Idle with the spindle on (M3 from the PC, the commissioning test): a restart
+      // would take the touch screen, its Stop and its M5 away while it turns.
+      if(typeof c.spindleSpeed==='number'&&c.spindleSpeed>0)return t('La broche tourne encore : arrêtez-la (M5) avant cette commande.');
     }
     return '';
   }
@@ -78,7 +84,10 @@
     request('POST',apiBase()+'/commands/run/'+encodeURIComponent(command.id),{},true,function(code,data){
       busy=false;
       if(code===200&&data&&data.taskId)set(status,t('« ')+command.title+t(' » lancée sur l’ordinateur du serveur.'));
-      else if(code===401||code===403)set(status,t('Session CNCjs requise : ouvrez CNCjs et connectez-vous.'));
+      else if(code===401)set(status,t('Session CNCjs requise : ouvrez CNCjs et connectez-vous.'));
+      // 403: disabled in CNCjs; 409: refused by the server's own machine check (its message says why).
+      else if((code===403||code===409)&&data&&typeof data.message==='string'&&data.message)set(status,data.message);
+      else if(code===403)set(status,t('Commande désactivée dans CNCjs.'));
       else if(code===404)set(status,t('Commande introuvable. Actualisez la liste.'));
       else set(status,t('Commande non lancée : serveur injoignable ou refus.'));
       paint();

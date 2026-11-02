@@ -38,7 +38,8 @@
       if (disposed || offline || xhr || !available || clock() < retryAt) return;
       var id = ++generation, cursor = 0, rotate = false, clockOffset = null, sequence = 0, epoch = '', transport = '';
       xhr = new XHR(); var request = xhr; openedAt = clock();
-      request.open('GET', base+'/touch-events', true); request.timeout = 90000; // > server lifetime + confirmation grace (80 s)
+      // The stream carries this device's presence (F5): its control lease lives while it is open.
+      request.open('GET', base+'/touch-events'+(options.clientId?'?clientId='+encodeURIComponent(options.clientId):''), true); request.timeout = 90000; // > server lifetime + confirmation grace (80 s)
       request.setRequestHeader('Authorization','Bearer '+token());
       request.onprogress = function () {
         if (id !== generation || request.status !== 200) return;

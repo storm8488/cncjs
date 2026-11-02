@@ -27,14 +27,21 @@
       var label=kind==='feed'?uiLocale.t('Avance'):uiLocale.t('Broche');
       return '<div class="t-override" data-kind="'+kind+'"><div class="t-ov-name">'+label+'<b id="home-override-'+kind+'">—</b></div><div class="t-ov-row">'+
         [[-10,'−10 %',''],[0,'100 %',' t-btn--ghost'],[10,'+10 %',''],[-1,'−1 %',' t-btn--ghost t-fine'],[1,'+1 %',' t-btn--ghost t-fine']].map(function(step){return '<button type="button" class="t-btn'+step[2]+'" data-kind="'+kind+'" data-value="'+step[0]+'" disabled>'+step[1]+'</button>';}).join('')+'</div></div>';
-    }).join('')+uiLocale.html('<p id="home-override-note" class="t-help"></p></div>'));
+    }).join('')+
+    // Rapids (G0 only): 25 / 50 / 100 %, also at rest so a first run can start slowed.
+    '<div class="t-override t-override--rapid" data-kind="rapid"><div class="t-ov-name">'+uiLocale.t('Rapides')+'<b id="home-override-rapid">—</b></div><div class="t-ov-row">'+
+      [[25,'25 %'],[50,'50 %'],[100,'100 %']].map(function(step){return '<button type="button" class="t-btn t-btn--ghost" data-kind="rapid" data-value="'+step[0]+'" aria-pressed="false" disabled>'+step[1]+'</button>';}).join('')+'</div></div>'+
+    uiLocale.html('<p id="home-override-note" class="t-help"></p><p id="home-rapid-note" class="t-help"></p></div>'));
   var overridesBox=$('home-overrides');
   overridesBox.addEventListener('click',function(e){
     var button=e.target&&e.target.closest?e.target.closest('button[data-kind]'):null;
     if(!button||button.disabled||!window.cncJobControls||typeof window.cncJobControls.override!=='function')return;
     window.cncJobControls.override(button.getAttribute('data-kind'),Number(button.getAttribute('data-value'))).catch(function(){});
   });
-  function number(v){try{return Math.round(v).toLocaleString(uiLocale.locale||'fr-FR');}catch(_){return String(Math.round(v));}}
+  // One formatter per locale: Number.prototype.toLocaleString builds a new one at every call,
+  // which was the first script cost of Suivi during a job (two live values, 5 reports a second).
+  var formats={};
+  function number(v){var r=Math.round(v),loc=uiLocale.locale||'fr-FR';try{var f=formats[loc]||(formats[loc]=typeof Intl!=='undefined'&&Intl.NumberFormat?new Intl.NumberFormat(loc):null);return f?f.format(r):r.toLocaleString(loc);}catch(_){return String(r);}}
   function overrideButtons(){return overridesBox.querySelectorAll?overridesBox.querySelectorAll('button'):[];}
   execution.insertAdjacentHTML('beforeend',uiLocale.html('<p id="job-progress-summary" role="status"></p>'));
   var selection=window.cncLibrarySelection||null,machine=null,simulation=false,imageKey='',request=0,track=null,busy=false,feedback='';
@@ -42,7 +49,9 @@
   function finiteNumber(value){return typeof value==='number'&&isFinite(value);}
   function elapsedClock(){return window.performance&&typeof window.performance.now==='function'?window.performance.now():Date.now();}
   function visible(name){var screen=$('screen-'+name);return !document.hidden&&!!screen&&screen.classList.contains('active');}
-  function set(id,key,value){var el=$(id);if(el[key]!==value)el[key]=value;}
+  // A text is written into its single text node: replacing the node (textContent) also
+  // restyles it, at every report for the live values.
+  function set(id,key,value){var el=$(id);if(el[key]===value)return;var n=key==='textContent'&&el.firstChild;if(n&&n.nodeType===3&&!n.nextSibling)n.data=value;else el[key]=value;}
   function cancelPreview(){
     request++;var xhr=previewRequest;previewRequest=null;
     if(xhr&&typeof xhr.abort==='function')xhr.abort();
@@ -52,6 +61,29 @@
   function duration(s) {
     s=Math.max(0,Math.ceil(s));var h=Math.floor(s/3600),m=Math.floor(s%3600/60),sec=s%60;
     return (h?h+' h ':'')+(m?m+' min ':'')+sec+' s';
+  }
+  // API base of this CNCjs installation (cnc-state.js derives it from the page's path).
+  function apiBase(){try{return window.cncState.get().apiBase;}catch(_){return '/api';}}
+  // The server's verdict on a stored preview (same rule as shared-library.js): the sidecar's
+  // fingerprint is compared with the program on disk; stale is never shown, unchecked is flagged.
+  function verdict(response,meta){
+    var p=response&&response.preview;
+    if(p&&typeof p==='object')return p.stale?{state:'stale',reason:String(p.reason||'')}:{state:'ok',reason:''};
+    if(meta&&meta.preview&&meta.preview.stale)return {state:'stale',reason:String(meta.preview.reason||'')};
+    return {state:'unverified',reason:'unverified'};
+  }
+  function previewNotice(v){
+    if(v.reason==='no-fingerprint')return uiLocale.t('Aperçu sans empreinte (ancienne version) : régénérez-le depuis le PC.');
+    if(v.reason==='program-missing')return uiLocale.t('Fichier G-code introuvable sur le serveur : actualisez la liste.');
+    if(v.state==='unverified')return uiLocale.t('Aperçu non vérifié par le serveur : régénérez-le depuis le PC.');
+    return uiLocale.t('Aperçu périmé : régénérez-le depuis le PC.');
+  }
+  // Remaining time: to the second under 2 minutes, then to the (next) minute. Shown at every
+  // report, a seconds count rewrote the text 4 times a second, and each rewrite lays Suivi out.
+  function remainingText(s) {
+    if(!(s>=120))return duration(s);
+    var m=Math.ceil(s/60),h=Math.floor(m/60);m%=60;
+    return (h?h+' h ':'')+(h&&!m?'':m+' min');
   }
   function preview(file) {
     if(file===imageKey)return;
@@ -63,55 +95,82 @@
     if(!file)return;
     var token='';try{token=JSON.parse(localStorage.getItem('cnc')).state.session.token;}catch(_){}
     if(!token){$('home-image-status').textContent=uiLocale.t('Session CNCjs requise pour lire l’aperçu.');return;}
-    var xhr=new XMLHttpRequest();previewRequest=xhr;xhr.open('POST','/api/watch/file',true);xhr.timeout=20000;
+    var xhr=new XMLHttpRequest();previewRequest=xhr;xhr.open('POST',apiBase()+'/watch/file',true);xhr.timeout=20000;
     xhr.setRequestHeader('Authorization','Bearer '+token);xhr.setRequestHeader('Content-Type','application/json');
-    function fail(){if(id===request){previewRequest=null;imageLoading=false;previewFailed=true;img.hidden=true;$('home-image-status').hidden=false;set('home-image-status','textContent',uiLocale.t('Aperçu indisponible. Régénérez-le dans Fichiers.'));}}
+    function fail(notice){if(id===request){previewRequest=null;imageLoading=false;previewFailed=true;img.hidden=true;$('home-image-status').hidden=false;set('home-image-status','textContent',typeof notice==='string'&&notice?notice:uiLocale.t('Aperçu indisponible. Régénérez-le dans Fichiers.'));}}
     xhr.onload=function(){
       if(id!==request)return;
       previewRequest=null;
       try{
         if(xhr.status!==200)throw new Error();
-        var meta=JSON.parse(JSON.parse(xhr.responseText).data),src=meta.preview&&meta.preview.image;
-        if(meta.file!==file||typeof src!=='string'||src.length>2500000||!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(src))throw new Error();
-        img.cncPreview={file:file,projection:meta.preview.projection,trail:Array.isArray(meta.preview.trail)?meta.preview.trail:null,lines:meta.preview.lines};
+        var envelope=JSON.parse(xhr.responseText),meta=JSON.parse(envelope.data);
+        if(meta.file!==file)throw new Error();
+        // A preview of another version of the program (replaced under the same name, older
+        // sidecar) is never shown: the server's verdict says so.
+        var v=verdict(envelope,meta);
+        if(v.state==='stale'){fail(previewNotice(v));return;}
+        var src=meta.preview&&meta.preview.image,note=v.state==='unverified'?previewNotice(v):'';
+        if(typeof src!=='string'||src.length>2500000||!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(src))throw new Error();
+        // Depth and the 3D path (newer previews) feed the 3D views and their trail (preview-3d.js).
+        img.cncPreview={file:file,fingerprint:typeof meta.fingerprint==='string'?meta.fingerprint:'',projection:meta.preview.projection,trail:Array.isArray(meta.preview.trail)?meta.preview.trail:null,lines:meta.preview.lines,
+          trailZ:Array.isArray(meta.preview.trailZ)?meta.preview.trailZ:null,zBounds:meta.preview.zBounds,path3d:meta.preview.path3d||null};
         imageLoading=true;
-        img.onload=function(){if(id===request){imageLoading=false;img.hidden=false;$('home-image-status').hidden=true;}};
+        img.onload=function(){if(id===request){imageLoading=false;img.hidden=false;if(note)set('home-image-status','textContent',note);$('home-image-status').hidden=!note;}};
         img.onerror=fail;img.src=src;
       }catch(_){fail();}
     };xhr.onerror=xhr.ontimeout=fail;xhr.send(JSON.stringify({file:file+'.cnctouch.json'}));
   }
+  var halt=null;
+  function jogging(m){return !!(m&&m.motion&&typeof m.motion==='object'&&(m.motion.jog||m.motion.cancelling));}
   function render() {
     var c=machine,now=elapsedClock(),file=c&&c.name?c.name:selection&&selection.file||'';
     set('home-job-load','disabled',busy||!c||!c.fresh||!selection||!c.canLoad);
     set('home-job-start','disabled',busy||!c||!c.fresh||!c.canStart);
     // These states also guard the enlarged preview's command relay while Home is hidden.
-    set('home-job-pause','disabled',!c||!c.canPause);
+    // During a loss of the state, Pause and Arrêter follow the last busy controller (detail.halt).
+    set('home-job-pause','disabled',c?!c.canPause:!(halt&&halt.canPause));
     set('home-job-resume','disabled',busy||!c||!c.canResume);
-    set('home-job-stop','disabled',!c||!c.canStop);
+    set('home-job-stop','disabled',c?!(c.canStop||jogging(c)):!(halt&&halt.canStop));
     var overrides=c&&c.overrides&&typeof c.overrides==='object'?c.overrides:null,overrideOn=!!(c&&c.fresh&&c.canOverride&&!busy);
     set('home-overrides','hidden',!c||!('canOverride' in c));
     set('home-override-feed','textContent',overrides&&finiteNumber(overrides.feed)?overrides.feed+' %':'—');
     set('home-override-spindle','textContent',overrides&&finiteNumber(overrides.spindle)?overrides.spindle+' %':'—');
-    Array.prototype.forEach.call(overrideButtons(),function(button){if(button.disabled!==!overrideOn)button.disabled=!overrideOn;});
+    // The rapid override has its own guard (also allowed at rest); an older server only sends canOverride.
+    var rapidOn=!!(c&&c.fresh&&!busy&&('canRapidOverride' in c?c.canRapidOverride:c.canOverride)),rapid=overrides&&finiteNumber(overrides.rapid)?overrides.rapid:null;
+    set('home-override-rapid','textContent',rapid===null?'—':rapid+' %');
+    Array.prototype.forEach.call(overrideButtons(),function(button){
+      var isRapid=button.getAttribute('data-kind')==='rapid',on=isRapid?rapidOn:overrideOn;
+      if(button.disabled!==!on)button.disabled=!on;
+      if(isRapid){var pressed=String(rapid!==null&&Number(button.getAttribute('data-value'))===rapid);if(button.getAttribute('aria-pressed')!==pressed)button.setAttribute('aria-pressed',pressed);}
+    });
+    set('home-rapid-note','textContent',rapidOn?(rapid!==null&&rapid<100?uiLocale.t('Rapides ralentis : Grbl revient à 100 % à la fin du programme (M2/M30) ou après un arrêt.'):uiLocale.t('Rapides à 25 % conseillés pour le premier essai d’un programme.')):'');
     // Real values from Grbl's FS: field. A feed hold stops the axes, not the spindle.
     var liveOk=!!(c&&c.fresh),feed=liveOk&&finiteNumber(c.feedrate)?c.feedrate:null,rpm=liveOk&&finiteNumber(c.spindleSpeed)?c.spindleSpeed:null;
-    set('home-live','textContent',feed===null&&rpm===null?'':uiLocale.t('Avance réelle ')+(feed===null?'—':number(feed)+' mm/min')+uiLocale.t(' · Broche ')+(rpm===null?'—':number(rpm)+uiLocale.t(' tr/min')));
-    set('home-live-feed','textContent',feed===null?'—':number(feed)+' mm/min');
-    set('home-live-spindle','textContent',rpm===null?'—':number(rpm)+uiLocale.t(' tr/min'));
+    // The live values are written only while Suivi is shown (mount() renders again on opening):
+    // hidden, they were rewritten at every report for nothing.
+    var homeShown=visible('home');
+    if(homeShown)set('home-live','textContent',feed===null&&rpm===null?'':uiLocale.t('Avance réelle ')+(feed===null?'—':number(feed)+' mm/min')+uiLocale.t(' · Broche ')+(rpm===null?'—':number(rpm)+uiLocale.t(' tr/min')));
+    // Work frame (G54…) next to the work coordinates, as reported by the controller; blank when unknown.
+    var frameNode=$('home-work-frame');if(frameNode&&homeShown){var frame=c&&c.fresh&&c.operator&&/^G5[4-9]$/.test(String(c.operator.wcs||''))?' · '+c.operator.wcs:'';set('home-work-frame','textContent',frame);}
+    if(homeShown){set('home-live-feed','textContent',feed===null?'—':number(feed)+' mm/min');
+    set('home-live-spindle','textContent',rpm===null?'—':number(rpm)+uiLocale.t(' tr/min'));}
     // Reprendre takes the primary place while the job is held; Démarrer otherwise.
     var held=!!(c&&c.workflow==='paused');
-    set('home-job-resume-row','hidden',!held);set('home-job-primary-row','hidden',held);
+    // In an alarm at rest nothing here can start (the ready line says why, Déverrouiller is on
+    // the strip): the inactive Démarrer / Pause row gives its room to the alarm's help (N1).
+    var alarmRest=!!(c&&c.workflow==='idle'&&/^alarm/i.test(String(c.activeState||'')));
+    set('home-job-resume-row','hidden',!held);set('home-job-primary-row','hidden',held||alarmRest);
     // Charger only shows while the machine is idle and something is selected: one primary action per screen.
     var busyJob=!!(c&&c.workflow&&c.workflow!=='idle');
     set('home-job-load','hidden',!selection||busyJob);
     // During a job nothing else distracts: no selection notice, the override help only as a reason.
     set('home-job-selection','hidden',busyJob);
     var box=$('home-overrides');if(box&&typeof box.setAttribute==='function'&&(!box.getAttribute||box.getAttribute('data-on')!==String(overrideOn)))box.setAttribute('data-on',String(overrideOn));
-    if(simulationPage&&c&&c.workPosition)['x','y','z'].forEach(function(a){set('home-sim-'+a,'textContent',finiteNumber(c.workPosition[a])?c.workPosition[a].toFixed(3):'—');});
+    if(homeShown&&simulationPage&&c&&c.workPosition)['x','y','z'].forEach(function(a){set('home-sim-'+a,'textContent',finiteNumber(c.workPosition[a])?c.workPosition[a].toFixed(3):'—');});
     var spinning=!!(c&&c.workflow==='paused'&&rpm!==null&&rpm>0);
     set('home-spindle-warning','hidden',!spinning);
     set('home-spindle-warning','textContent',spinning?uiLocale.t('Pause : les axes sont arrêtés mais la broche tourne toujours (Grbl ne l’arrête pas en pause). Ne mettez pas les mains près de l’outil.'):'');
-    set('home-override-note','textContent',overrideOn?uiLocale.t('Pas de ±1 % / ±10 % envoyés au contrôleur en temps réel ; 100 % rétablit la valeur programmée.'):(c&&c.overrideReason)||'');
+    set('home-override-note','textContent',overrideOn?uiLocale.t('Pas de ±1 % / ±10 % envoyés au contrôleur en temps réel ; 100 % rétablit la valeur programmée.'):(c&&c.overrideReason?uiLocale.message?uiLocale.message(c.overrideReason):uiLocale.t(c.overrideReason):''));
     var valid=c&&c.fresh&&c.name&&finiteNumber(c.total)&&c.total>0&&finiteNumber(c.received)&&c.received>=0&&c.received<=c.total,p=valid?c.received/c.total*100:0;
     // CNCjs rewinds the line counters when a program ends: the server says whether it finished.
     // A program that reached its end with lines refused by Grbl (error:N) is not "finished".
@@ -135,16 +194,16 @@
       else if(p>=100)eta=uiLocale.t('Toutes les lignes acquittées — attendre la fin des mouvements');
       else if(c.workflow==='idle'&&!c.canStart)eta=uiLocale.t('Travail arrêté — temps restant indisponible');
       else if(c.canStart)eta=simulation?(remaining!==null?uiLocale.t('Durée simulée : ')+duration(remaining):uiLocale.t('Temps restant : état indisponible')):uiLocale.t('Temps restant : estimation après démarrage');
-      else if(c.workflow==='paused')eta=uiLocale.t('En pause — ')+(remaining!==null?duration(remaining)+uiLocale.t(' restantes'):uiLocale.t('estimation suspendue'));
-      else eta=remaining!==null?uiLocale.t('Temps restant ')+(simulation?uiLocale.t('simulé'):uiLocale.t('estimé'))+' : '+duration(remaining):uiLocale.t('Temps restant : calcul en cours…');
+      else if(c.workflow==='paused')eta=uiLocale.t('En pause — ')+(remaining!==null?remainingText(remaining)+uiLocale.t(' restantes'):uiLocale.t('estimation suspendue'));
+      else eta=remaining!==null?uiLocale.t('Temps restant ')+(simulation?uiLocale.t('simulé'):uiLocale.t('estimé'))+' : '+remainingText(remaining):uiLocale.t('Temps restant : calcul en cours…');
     }
     if(visible('home')){
       var same=!!(c&&selection&&c.name===selection.file),different=!!(c&&c.name&&selection&&!same);
-      var readiness=!c||!c.fresh?uiLocale.t('État indisponible : attendre la connexion.'):busy?uiLocale.t('Opération en cours…'):/^alarm/i.test(c.activeState||'')?(!simulation&&window.CNCGrblHelp?window.CNCGrblHelp.text(window.CNCGrblHelp.alarm(c.alarmCode)):(c.loadReason||uiLocale.t('Alarme active : commandes bloquées.'))):
+      var readiness=!c||!c.fresh?uiLocale.t('État indisponible : attendre la connexion.'):busy?uiLocale.t('Opération en cours…'):/^alarm/i.test(c.activeState||'')?(!simulation&&window.CNCGrblHelp?window.CNCGrblHelp.text(window.CNCGrblHelp.alarm(c.alarmCode,c.alarmCodeInferred)):(c.loadReason?(uiLocale.message||uiLocale.t)(c.loadReason):uiLocale.t('Alarme active : commandes bloquées.'))):
         // CNCjs still waits for Grbl's reply while Grbl stays idle: a lost line or acknowledgement.
         c.workflow==='running'&&finiteNumber(c.stalledMs)?uiLocale.t('Travail bloqué ? Grbl est au repos depuis ')+Math.round(c.stalledMs/1000)+uiLocale.t(' s alors que CNCjs attend encore sa réponse (ligne ou acquittement perdu). Si rien ne bouge, arrêtez le travail.'):
         c.workflow==='running'?uiLocale.t('Travail en cours.'):
-        failed&&window.CNCGrblHelp&&finiteNumber(c.jobLastError)?uiLocale.t('Dernière erreur : ')+window.CNCGrblHelp.text(window.CNCGrblHelp.error(c.jobLastError)):c.workflow==='paused'?uiLocale.t('Travail en pause.'):c.canStart?uiLocale.t('Fichier chargé, prêt à démarrer.'):!c.canLoad?(c.loadReason||c.startReason||uiLocale.t('Commande indisponible.')):
+        failed&&window.CNCGrblHelp&&finiteNumber(c.jobLastError)?uiLocale.t('Dernière erreur : ')+window.CNCGrblHelp.text(window.CNCGrblHelp.error(c.jobLastError)):c.workflow==='paused'?uiLocale.t('Travail en pause.'):c.canStart?uiLocale.t('Fichier chargé, prêt à démarrer.'):!c.canLoad?((c.loadReason||c.startReason)?(uiLocale.message||uiLocale.t)(c.loadReason||c.startReason):uiLocale.t('Commande indisponible.')):
         c.name?(same?uiLocale.t('Rechargez le fichier pour un nouveau départ.'):uiLocale.t('Choisissez et chargez le fichier du prochain travail.')):
         selection?uiLocale.t('Chargez la sélection avant de démarrer.'):uiLocale.t('Choisissez un fichier dans Fichiers.');
       set('home-job-ready','textContent',readiness);
@@ -164,7 +223,10 @@
     if(visible('files'))set('job-progress-summary','textContent',percent+' · '+eta);
   }
   window.addEventListener('cnc-library-select',function(e){selection=e.detail;render();});
-  window.addEventListener('cnc-job-status',function(e){machine=e.detail.machine;simulation=e.detail.simulation;busy=!!e.detail.busy;feedback=e.detail.feedback||'';render();});
+  window.addEventListener('cnc-job-status',function(e){machine=e.detail.machine;halt=!machine&&e.detail.halt&&typeof e.detail.halt==='object'?e.detail.halt:null;simulation=e.detail.simulation;busy=!!e.detail.busy;feedback=e.detail.feedback||'';
+    // Sent / confirmed / failed / uncertain, mirrored from job-controls.js (ui-2027.css .t-sent).
+    var fb=$('home-job-feedback'),state=e.detail.feedbackState||'';if(fb&&typeof fb.setAttribute==='function'&&(!fb.getAttribute||fb.getAttribute('data-state')!==state))fb.setAttribute('data-state',state);
+    render();});
   window.addEventListener('cnc-library-preview-updated',function(e){
     var file=machine&&machine.name?machine.name:selection&&selection.file||'';
     if(e.detail&&e.detail.file&&e.detail.file!==file)return;

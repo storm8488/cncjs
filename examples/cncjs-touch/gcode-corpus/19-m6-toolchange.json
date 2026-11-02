@@ -1,0 +1,42 @@
+{
+  "title": "T/M6 tool changes, M3 S, G4 P dwell",
+  "covers": ["M6", "T", "M3", "G4"],
+  "truth": {
+    "bbox": {
+      "X": [0, 30],
+      "Y": [0, 5],
+      "Z": [-2, 5]
+    },
+    "units": "G21",
+    "relativeStart": false,
+    "final": [30, 5, 5],
+    "arcs": false
+  },
+  "preview": {
+    "accept": true,
+    "count": 3,
+    "bounds": [0, 0, 30, 5],
+    "zBounds": [-2, 5],
+    "relativeStart": false
+  },
+  "travel": "ok",
+  "programCheck": {
+    "verdict": "validated",
+    "unknownAxes": [],
+    "extent": {
+      "X": [0, 30],
+      "Y": [0, 5],
+      "Z": [-2, 5]
+    },
+    "rawUnits": false
+  },
+  "resume": {
+    "final": [30, 5, 5]
+  },
+  "toolpath": {
+    "bounds": {
+      "min": [0, 0, -2],
+      "max": [30, 5, 5]
+    }
+  }
+}

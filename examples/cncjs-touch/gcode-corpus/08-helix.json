@@ -1,0 +1,42 @@
+{
+  "title": "Two full-turn helices (G2 with Z)",
+  "covers": ["helix"],
+  "truth": {
+    "bbox": {
+      "X": [-10, 10],
+      "Y": [-10, 10],
+      "Z": [-4, 5]
+    },
+    "units": "G21",
+    "relativeStart": false,
+    "final": [10, 0, 5],
+    "arcs": true
+  },
+  "preview": {
+    "accept": true,
+    "count": 145,
+    "bounds": [-10, -10, 10, 10],
+    "zBounds": [-4, 5],
+    "relativeStart": false
+  },
+  "travel": "ok",
+  "programCheck": {
+    "verdict": "validated",
+    "unknownAxes": [],
+    "extent": {
+      "X": [-10, 10],
+      "Y": [-10, 10],
+      "Z": [-4, 5]
+    },
+    "rawUnits": false
+  },
+  "resume": {
+    "final": [10, 0, 5]
+  },
+  "toolpath": {
+    "bounds": {
+      "min": [-10, -9.945219, -4],
+      "max": [10, 9.945219, 5]
+    }
+  }
+}

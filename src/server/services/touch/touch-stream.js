@@ -45,7 +45,9 @@ export const createStream = (service, options = {}) => {
     epoch,
     sequence: ++sequence,
     sentAt: clock(),
-    controllers: service.list()
+    controllers: service.list(),
+    // Host command (shutdown, restart…) holding the machine: {title, since} or null.
+    systemCommand: typeof service.systemCommand === 'function' ? service.systemCommand() : null
   });
 
   const send = (client, packet) => {
@@ -92,7 +94,7 @@ export const createStream = (service, options = {}) => {
       }
       lastKey = key;
       const packet = snapshot();
-      const signature = JSON.stringify(packet.controllers, (key, value) => {
+      const signature = JSON.stringify([packet.controllers, packet.systemCommand], (key, value) => {
         return VOLATILE_KEYS.includes(key) ? undefined : value;
       });
       if (signature === lastSignature && elapsed() - lastPublished < HEARTBEAT_MS) {
@@ -117,7 +119,19 @@ export const createStream = (service, options = {}) => {
       }, COALESCE_MS);
     }
   });
-  const heartbeat = timers.setInterval(publish, HEARTBEAT_MS);
+  // Even without a client, the heartbeat keeps the service listening to every
+  // open controller (a host command must be judged on fresh reports).
+  const tick = () => {
+    if (!disposed && typeof service.observe === 'function') {
+      try {
+        service.observe();
+      } catch (err) {
+        // A registry oddity must never take the heartbeat (and the process) down.
+      }
+    }
+    publish();
+  };
+  const heartbeat = timers.setInterval(tick, HEARTBEAT_MS);
   // Connected clients keep the process alive on their own; an idle heartbeat
   // must not hold the event loop open once the server has been closed.
   if (heartbeat && typeof heartbeat.unref === 'function') {
@@ -125,8 +139,10 @@ export const createStream = (service, options = {}) => {
   }
 
   // Turns `res` into an NDJSON event stream for `req`. Returns false, without
-  // touching the response, when another client cannot be accepted.
-  const open = (req, res) => {
+  // touching the response, when another client cannot be accepted. `actor`
+  // ({kind, id, label, user}, optional) is the client whose presence this
+  // stream carries for the attribution of control (F5).
+  const open = (req, res, actor) => {
     if (disposed || clients.size >= MAX_CLIENTS) {
       return false;
     }
@@ -163,7 +179,7 @@ export const createStream = (service, options = {}) => {
     res.on('close', onClose);
     req.on('aborted', onClose);
 
-    service.openTransport(client.id);
+    service.openTransport(client.id, actor);
     clients.add(client);
     try {
       send(client, snapshot());

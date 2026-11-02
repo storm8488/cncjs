@@ -1,0 +1,41 @@
+{
+  "title": "Arcs in the XZ (G18) and YZ (G19) planes",
+  "covers": ["G18", "G19", "K"],
+  "truth": {
+    "bbox": {
+      "X": [0, 10],
+      "Y": [0, 10],
+      "Z": [-5, 5]
+    },
+    "units": "G21",
+    "relativeStart": false,
+    "final": [10, 10, 5],
+    "arcs": true
+  },
+  "preview": {
+    "accept": false,
+    "error": "G18 non pris en charge par cet aperçu",
+    "line": 5,
+    "difference": "D-REFUSE"
+  },
+  "programCheck": {
+    "verdict": "unknown",
+    "unknownAxes": ["X", "Y", "Z"],
+    "extent": {
+      "X": null,
+      "Y": null,
+      "Z": null
+    },
+    "rawUnits": false,
+    "difference": "D-UNKNOWN"
+  },
+  "resume": {
+    "final": [10, 10, 5]
+  },
+  "toolpath": {
+    "bounds": {
+      "min": [0, 0, -5],
+      "max": [10, 10, 5]
+    }
+  }
+}

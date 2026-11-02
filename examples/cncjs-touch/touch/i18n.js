@@ -20,6 +20,35 @@
     return value.indexOf(prefix)===0?text(prefix)+text(value.slice(prefix.length)):text(value);
   }
   function escape(value){return value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  // Server refusals with a stable code (ETOUCH_*): [code, fr, en, es] templates with {name}
+  // values and [optional parts] dropped when one of their values is null. A string value is
+  // trimmed, stripped of control characters and capped; it is never re-read as a template.
+  // The result is plain text: callers write it with textContent, never with innerHTML (it
+  // is not HTML-escaped, so « A&B » is shown as written, not as « A&amp;B »). Unknown code, missing value or no row: the server's French message, through
+  // message(); never an empty text.
+  var templates=Object.create(null);
+  (window.CNCTouchCodes||[]).forEach(function(row){templates[row[0]]=row;});
+  function value(params,name){
+    var v=params&&typeof params==='object'&&Object.prototype.hasOwnProperty.call(params,name)?params[name]:undefined;
+    if(typeof v==='number')return isFinite(v)?String(v):undefined;
+    if(typeof v==='string'){v=v.replace(/[\u0000-\u001f\u007f]/g,'').trim().slice(0,64);return v?v:undefined;}
+    return v===null?null:undefined;
+  }
+  function format(code,params,fallback){
+    var server=typeof fallback==='string'&&fallback.trim()?fallback:'';
+    var row=typeof code==='string'?templates[code]:null,missing=false;
+    if(row&&!(language==='fr'&&server)){
+      var fill=function(part){return part.replace(/\{([A-Za-z]+)\}/g,function(all,name){var v=value(params,name);if(v===undefined||v===null){missing=true;return all;}return v;});};
+      // One pass over the template: an inserted value is never read again.
+      var out=row[language==='en'?2:language==='es'?3:1].replace(/\[([^\]]*)\]|\{[A-Za-z]+\}/g,function(all,part){
+        if(part===undefined)return fill(all);
+        var names=part.match(/\{[A-Za-z]+\}/g)||[];
+        return names.some(function(n){return value(params,n.slice(1,-1))===null;})?'':fill(part);
+      });
+      if(!missing)return out;
+    }
+    return server?message(server):text('Refus du serveur sans détail.');
+  }
   // Called only for developer-authored markup literals, never for uploaded files or profile names.
   function html(value) {
     if(language==='fr')return value;
@@ -36,7 +65,7 @@
     for(var child=node.firstChild;child;child=child.nextSibling)staticText(child);
   }
   function save(value){if(['fr','en','es'].indexOf(value)<0)return false;try{localStorage.setItem(key,value);return localStorage.getItem(key)===value;}catch(_){return false;}}
-  window.cncI18n={t:text,message:message,html:html,language:language,locale:{fr:'fr-FR',en:'en-GB',es:'es-ES'}[language],save:save};
+  window.cncI18n={t:text,message:message,format:format,html:html,language:language,locale:{fr:'fr-FR',en:'en-GB',es:'es-ES'}[language],save:save};
   document.documentElement.lang=language;
   document.title=text(document.title);
   if(document.body)staticText(document.body);

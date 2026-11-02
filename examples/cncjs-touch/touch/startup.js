@@ -9,6 +9,11 @@
     if(finished)return;
     failed=true;clearTimeout(timer);
     message('Chargement incomplet. Vérifiez la connexion puis réessayez.');
+    // A module failed, but the status strip may be built and wired (each module runs on its
+    // own, also in the bundle): it stays shown and usable above the message, so Pause and
+    // Arrêter of a job in progress remain at hand (index.html, html.cnc-degraded).
+    var root=document.documentElement;
+    if(root&&root.classList&&typeof root.classList.add==='function')root.classList.add('cnc-degraded');
   }
   function error(event) {
     var target=event.target;
@@ -21,7 +26,8 @@
     // A fit may need several frames; reveal only once its measurements settle.
     function reveal(){
       if(failed||finished)return;
-      if(!document.body.classList.contains('ks-ui')||!document.querySelector('#screen-menu.active')){fail();return;}
+      // Any active screen: the job follow-up may already have opened Suivi (a job started from the PC).
+      if(!document.body.classList.contains('ks-ui')||!document.querySelector('main .screen.active')){fail();return;}
       finished=true;clearTimeout(timer);window.removeEventListener('error',error,true);
       document.documentElement.classList.remove('cnc-loading');
       var boot=document.getElementById('cnc-boot');if(boot)boot.hidden=true;

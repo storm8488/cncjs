@@ -18,6 +18,10 @@ assert.equal(R.suggestedLine({stoppedAtLine:10,stoppedFile:'a.nc'},'a.nc'),2);
 assert.equal(R.suggestedLine({stoppedAtLine:200,stoppedFile:'b.nc'},'a.nc'),null);
 const plan={from:12,total:16,line:'G2 X50 Y40 I10 J0',safeZ:5,position:{X:40,Y:30,Z:-1.5},spindle:{mode:'M3',speed:12000},coolant:'M8',tool:2};
 assert.equal(R.planText(plan),'Ligne 12 / 16 : G2 X50 Y40 I10 J0. Départ : Z 5, puis X 40 Y 30, plongée à Z -1.5. Broche M3 S12000 relancée 3 s avant la plongée. Arrosage M8. Outil attendu : T2 (vérifiez qu’il est en place et que le zéro Z lui correspond).');
+// Server notes (A1: units, work frame, clearance) are appended to the plan and to the start note, as written.
+assert.match(R.planText(Object.assign({},plan,{notes:['Note A.','Note B.']})),/correspond\)\. Note A\. Note B\.$/);
+assert.match(R.dialogNote('start',{resume:{from:1,total:2,line:'G0',tool:null,notes:['Unités converties.']}}),/plonge\. Unités converties\.$/);
+assert.equal(R.planText(plan),R.planText(Object.assign({},plan,{notes:[]})),'no notes, no change');
 // Every phrase used by the module is in the FR/EN/ES catalog.
 const source=fs.readFileSync(__dirname+'/touch/job-resume.js','utf8');
 const phrases=[...source.matchAll(/\bt\('((?:[^'\\]|\\.)*)'\)/g)].map(m=>m[1]).concat([...source.matchAll(/el\('[a-z]+','[^']*','[^']*','((?:[^'\\]|\\.)*)'\)/g)].map(m=>m[1]));
@@ -39,7 +43,7 @@ const window={cncLibrarySelection:{file:'a.nc',name:'a.nc'},addEventListener:(n,
   cncJobControls:{resumePlan:(f,l)=>{calls.push(['plan',f,l]);return planResult;},loadFrom:(f,l)=>{calls.push(['load',f,l]);return Promise.resolve({});},spindleStop:()=>{calls.push(['m5']);return Promise.resolve({});},prepareCommand:(op,extra)=>{calls.push(['prepare',op,extra]);}}};
 vm.runInNewContext(source,{window,document,localStorage:{getItem:k=>stored.has(k)?stored.get(k):null,setItem:(k,v)=>stored.set(k,v)}});
 const ids=parent.children.map(c=>c.id);assert.deepEqual(ids,['home-job-ready','home-program-pause','home-resume-line','home-resume-panel','home-plate']);
-const byId=id=>parent.children.find(c=>c.id===id)||parent.children.flatMap(c=>c.children).find(c=>c.id===id);
+const byId=id=>parent.querySelectorAll('*').find(c=>c.id===id);
 const status=machine=>listeners['cnc-job-status'].forEach(f=>f({detail:{machine,simulation:false}}));
 const idle={fresh:true,workflow:'idle',canLoad:true,stoppedAtLine:200,stoppedFile:'a.nc',programPause:null};
 status(idle);assert.equal(byId('home-resume-line').hidden,false);assert.equal(byId('home-program-pause').hidden,true);
@@ -73,9 +77,12 @@ byId('home-resume-check').click();
   assert.equal(byId('home-plate').hidden,true);
   status({...idle,canZeroZ:true,zeroZ:null});assert.equal(byId('home-plate').hidden,false);assert.equal(byId('home-plate-search').value,'10');
   byId('home-plate-probe').click();assert.match(byId('home-plate-status').textContent,/épaisseur/);assert.notEqual(calls.at(-1)[0],'prepare');
+  status({...idle,canZeroZ:true,zeroZ:null});assert.match(byId('home-plate-status').textContent,/épaisseur/,'the refusal stays shown after the next report');
   byId('home-plate-thickness').value='10,5';byId('home-plate-search').value='15';byId('home-plate-probe').click();
   assert.equal(JSON.stringify(calls.at(-1)),JSON.stringify(['prepare','zeroZ',{thickness:10.5,search:15}]));assert.deepEqual(JSON.parse(stored.get('cncjs-touch-plate-v1')),{thickness:10.5,search:15});
   assert.match(window.CNCJobResume.dialogNote('zeroZ',idle),/^Plaque de 10\.5 mm/);
+  // The note follows the prepared request, not a later tap.
+  assert.match(window.CNCJobResume.dialogNote('zeroZ',idle,{operation:'zeroZ',thickness:7,search:15}),/^Plaque de 7 mm/);
   byId('home-plate-search').value='500';byId('home-plate-probe').click();assert.match(byId('home-plate-status').textContent,/Descente maximale invalide/);
   status({...idle,canZeroZ:false,probing:true,canLoad:false});assert.equal(byId('home-plate').hidden,false);assert.equal(byId('home-plate-probe').disabled,true);assert.match(byId('home-plate-status').textContent,/Palpage en cours/);
   status({...idle,canZeroZ:true,zeroZ:{thickness:10.5,wcs:'G54',machineZ:-35.3}});assert.match(byId('home-plate-last').textContent,/^Dernier zéro Z : plaque 10\.5 mm/);

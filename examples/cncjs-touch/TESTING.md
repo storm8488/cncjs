@@ -8,7 +8,7 @@ From this directory, run:
 node verify-project.cjs
 ```
 
-Node.js 18 or newer is required. No external packages, running CNCjs server or CNC controller are required. The suite consists of 56 browser-side test scripts plus script syntax and HTML resource checks, for 58 checks in this source package. The runner uses an explicit list and does not launch the visual fixture or hardware checks.
+Node.js 18 or newer is required. No external packages, running CNCjs server or CNC controller are required. The suite runs an explicit list of browser-side test scripts plus script syntax and HTML resource checks, 99 checks since the 2026-10 audit; each test must end with its PASS line. The runner uses an explicit list and does not launch the visual fixture or hardware checks.
 
 The backend (job service, event stream, motion preflight, probe input and the `api.touch` handlers) is tested with the root Jest suite instead:
 
@@ -25,6 +25,223 @@ An optional report can be written outside the source tree:
 ```sh
 node verify-project.cjs --report /absolute/path/to/offline-report.json
 ```
+
+## Audit 2026-10 (2026-10-29/30)
+
+The 31-item audit (see [AUDIT-2026-10.md](AUDIT-2026-10.md)). Every figure in this section comes from the development PC: Windows 11, Node.js 24.20.0, Chrome 156 headless driven through the DevTools protocol. None is a Surface RT measurement: for Suivi during a job the tablet spends about 25 times more main-thread time than this PC, so even the 4× CPU throttling runs are far faster than the tablet. Pixel sizes are comparable; timings and memory are indications only.
+
+### Commands
+
+From the repository root:
+
+```sh
+node examples/cncjs-touch/verify-project.cjs            # offline browser-side suite (yarn test:touch)
+yarn test                                               # Jest: server, touch services, API (npx jest src/server --coverage=false for the server only)
+node examples/cncjs-touch/browser-run.cjs --strict --out output/browser-run   # headless Chrome harness, as in the CI (yarn test:browser runs it without --strict)
+bash scripts/test-installed-package.sh                  # build, npm pack, install outside the checkout, HTTP checks (yarn test:package)
+node examples/cncjs-touch/build-bundle.cjs --check      # the optional bundle is deterministic
+```
+
+- `browser-run.cjs` needs Chrome or Chromium (`--browser PATH` or `CNC_BROWSER`). Steps: `measure` (tap targets, text sizes, gaps and `viewport-fit` scale of every screen at 1366 × 768, 1024 × 600, large text, browser zoom 200 %), `sim` (simulation page with a job loaded, running, paused and in alarm, French and Spanish), `startup`, `strip` (`browser-strip.cjs`: Pause and Arrêter under 72 overlays, stacked overlays and the screen lock, by touch and keyboard, "Chargement incomplet", the offline flag), `e2e` (load, start, pause, resume, stop in French, English and Spanish); alarm-at-rest variants use the `--replay-alarm` and `--replay-alarm-stopped` fixtures (ALARM:1 received, ALARM:3 deduced). With `--strict` it exits non-zero on a covered command, a scale below 1 on a non-scrolling screen, an undersized target or text, a text overflowing its button, a cut word or a scrolling rail; accepted exceptions live in `layout-exceptions.json` (empty, each entry needs a reason). The CI runs it with `--strict`. `--only sim`, `--repeat N`, `--root DIR` (another copy of the pages, for example the bundle), `--url http://host:port/touch/` (a running CNCjs, untested here).
+- `scripts/test-installed-package.sh` checks `/`, `/api/signin`, `/api/custom/health` (200 with a token, 403 without), `/touch/`, `/touch/app.js`, `/touch/touch-shell.js`, `/touch/simulation.html` and `/touch/VERSION.json` on the installed package. `SKIP_BUILD=1` reuses `dist/`. The `/touch/` checks are blocking (`TOUCH_REQUIRED=1`, the default and the CI setting).
+- Measurement scripts, PC only: `node examples/cncjs-touch/measure-startup.cjs [--root DIR] --gzip --repeat 7 --trace 3 --throttle 4`; `node examples/cncjs-touch/measure-job.cjs --window 20 --repeat 5 --throttle 4 [--root DIR]` (replays a deterministic job stream at the tablet's pace, 4.8 snapshots a second, through `measure-replay-fixture.cjs`); `node examples/cncjs-touch/measure-library.cjs --files 100 --upload [--thumbnails] [--root DIR]` (the real `monitor` and `api.watch` on a generated library); `node --expose-gc examples/cncjs-touch/measure-visualizer.cjs --no-lines` (classic visualizer geometry, in Node, not in the browser); `node examples/cncjs-touch/measure-overlay.cjs [--only compact]` (messages in the strip never cover a command; compact Suivi values fit their cells).
+- Jest suites added by the audit: `motion.test.js`, `motion-release.test.js`, `motion-simulator.test.js`, `control.test.js`, `history.test.js`, `program-check.test.js`, `projects.test.js`, `corpus.test.js`, `program-identity.test.js`, `index.test.js` (touch); `fileAccess.test.js`, `previewIdentity.test.js` (monitor); `control-hook.test.js` (cncengine, Socket.IO refusals); `api.commands.test.js`, `api.touch-projects.test.js`, `api.touch-e2e.test.js` (the real service behind HTTP with two clients); `touch-assets.test.js`; `toolpath-trace.test.js` (classic visualizer, now in the default `testMatch`). `touch-codes-catalog.js` checks that each French template of the tablet catalogue, filled with the emitted params, equals the server message. Offline scripts added: `test-real-motion`, `test-control-attribution`, `test-program-check-view`, `test-server-history`, `test-preview-identity`, `test-projects`, `test-gcode-corpus`, `test-bundle`, `test-library-identity`, `test-api-prefix`, `test-compact-layout`, `test-numeric-pad`, `test-numeric-rules`, `test-job-preparation`, `test-preparation-keys`, `test-action-feedback`, `test-feedback-states`, `test-strip-messages`, `test-library-context`, `test-job-dialog-strip`, `test-library-page-fit`, `test-layout-exceptions`, `test-server-messages`, `test-strip-guard`, `test-strip-continuity`, `test-preview-notes`.
+
+### Results at `9c7d01d2`
+
+| Command | Base `b023616f` | `1dd66f87` | `9c7d01d2` |
+| --- | --- | --- | --- |
+| `verify-project.cjs` | 73/73, 31 s | 93/93, 37 s | 99/99 |
+| Jest | touch services and API: 9 suites, 163/163, "A worker process has failed to exit gracefully" | `src/server`: 40 suites, 1207 passed, 4 skipped | whole suite: 44 suites, 1495 passed, 4 skipped, 15 s, exits on its own |
+| `browser-run.cjs` | — | every step passed, layout regressions reported only | `--strict`: 0 violation, every step passed, exit 0 (93 violations and exit 1 on `307a603f`) |
+| `build-bundle.cjs --check` | — | deterministic: 55 scripts → 840 kB, 13 sheets → 160 kB; simulation 53 → 776 kB, 11 → 156 kB | deterministic: 56 scripts → 910 kB, 13 sheets → 170 kB; simulation 54 → 845 kB, 11 → 166 kB |
+| `TOUCH_REQUIRED=1 test-installed-package.sh` | `/touch/` 404 (pages not in the package) | not run again | exit 0 at `396c9f21` (82 files under `dist/cncjs/touch/`, `VERSION.json` = `396c9f21`); not re-run at `9c7d01d2` |
+| `yarn lint` | — | — | "La ligne de commande est trop longue." on Windows; `yarn i18nlint`, the `eslint` globs and `yarn stylint` separately: 0 errors at `396c9f21` |
+
+The 4 skipped Jest tests are the file-symlink cases of `fileAccess.test.js` and `renameDelete.test.js`: Windows refuses to create the link without privilege (EPERM). They run on Linux and have not run in this audit.
+
+### Before and after
+
+Layout (harness `measure` step, same fixture; before = `930355f0`, after = the UI lot and its cross-check; scale · targets under the goal · rendered texts under 16 px):
+
+| Variant | Before | After the UI lot | At `1dd66f87` |
+| --- | --- | --- | --- |
+| 1366 × 768, all screens | scale 1; 9 targets, 22 texts | scale 1; 0, 0 | scale 1; 0, 0 |
+| 1024 × 600 Suivi / Préparer / Machine | 0.811 / 0.732 / 0.705; 52 targets, 86 texts in all | 1 / 1 / 1; 0, 0 | 1 / 0.998 / 1; 0, 0 |
+| 1366 × 768 large text, Machine | 0.868 | 1 | 1 |
+| 1024 × 600 large text, Suivi / Préparer / Machine | 0.731 / 0.732 / 0.569 | 1 / 0.958 / 0.939 | 0.99 / 0.885 / 0.939 |
+| Browser zoom 200 %, Suivi / Préparer / Machine | 0.425 / 0.334 / 0.321 | 0.628 / 0.543 / 0.571 | 0.628 / 0.524 / 0.571 |
+| Simulation in alarm, Machine at 1024 × 600 | — | 0.931 | 0.931 (4 targets under the goal) |
+
+At `1dd66f87`, after F3, the layout had regressed: at 1024 × 600 the project sheet block of Fichiers covered the preview view selector and "Agrandir", the last library row lay under the pager, Préparer was at 0.998, and with large text Suivi was at 0.99 (Démarrer, Pause and Arrêter at 63.4 px) and Préparer at 0.885. `33b32db9` fixed this by layout, not scale; since then every screen is at scale 1 at both sizes, normal and large text, in the real page and the FR/ES simulation; browser zoom 200 % stays reported only. On the installed server with the simulator, Suivi in alarm after a Stop was scaled to 0.69–0.79 at 1024 × 600 and 0.88 at 1366 × 768 (the fixture's alarm text was short); `9c7d01d2` limits the alarm help to a scrolling box (3 lines, 2 in compact; the full text is on Machine) and hides the inactive Start/Pause row in alarm at rest: Suivi at scale 1 in the 16 alarm variants of the harness. Machine in alarm with large text stays at 0.96, reported only.
+
+Confirmation dialog (U5): before, a touch on the strip's Arrêter or Pause landed on the dialog overlay and the strip was inert, so a paused job could not be stopped while "Confirmer la reprise" was open; after, both stay reachable at 1366 × 768 and 1024 × 600, Tab cycles through them, and Arrêter cancels the ticket (`test-job-dialog-strip.cjs` fails on the previous `job-controls.js`).
+
+Other overlays (U5, U10): the final tablet counter-review of `33b32db9` found Pause and Arrêter inert or covered under eight overlays (sheets, project sheet, numeric pad, coordinate editor, viewer), under "Chargement incomplet", and hidden for 2.0 s after a stream loss. Since `396c9f21` (`strip-guard.js`) and `9c7d01d2` (overlay stack, screen lock): 72 overlays measured, Pause relayed in 17 ms (median, max 29) and Arrêter in 2 ms (max 18); Tab, Enter and Space reach both; one Escape closes one layer and the page comes back only when every layer is closed; under the lock only Pause, Arrêter and the lock answer. During a stream loss, Arrêter was visible in every 100 ms sample.
+
+Start-up (`measure-startup.cjs`, medians of 7, ETag and gzip like CNCjs; the bundle is built from the same tree):
+
+| | Source ×1 | Bundle ×1 | Source ×4 | Bundle ×4 |
+| --- | ---: | ---: | ---: | ---: |
+| Shell ready, cold, ms | 114.1 | 96.0 | 273.3 | 249.5 |
+| Shell ready, warm, ms | 92.7 | 63.9 | 315.8 | 257.9 |
+| Requests | 70 | 7 | 70 | 7 |
+| Compilation, ms | 25.1 | 13.4 | 27.8 | 11.8 |
+
+The `startup` step of `browser-run.cjs` at `1dd66f87` (no cache headers, 5 runs): 73 resources (59 scripts, 13 style sheets), 1.00 MB, shell ready 98.4 ms cold and 89.5 ms warm (at the base: 68 resources, 830 kB, about 147 ms). The bundle is not enabled in the package.
+
+During a job (`measure-job.cjs`, ×4, 5 windows of 20 s, medians): DOM mutations per second on Menu 33.5 → 19.5, Fichiers 33.7 → 19.8, Machine 43.5 → 29.5 (deterministic: Suivi's live values are no longer written while Suivi is hidden); Suivi script time about 20 → 15 ms/s, within the PC's run-to-run noise (up to 30 %); no long task before or after. Pause and Stop states are still updated on every report.
+
+Library (`measure-library.cjs`): thumbnails of one page of five rows 1 030 → 35 kB; upload of a 17 MB program from the page 634 → 328 ms, main-thread script 217 → 45 ms; server peak memory for that upload +87 → +30 MB (raw bytes instead of JSON), at the cost of more server CPU (the SHA-256 is computed while writing). The file list of 1 000 programs is 392 kB in 11 ms; no server pagination was added.
+
+Classic visualizer (`measure-visualizer.cjs`, Node only): typed-array geometry for a 20 MB program, 1 774 → 1 689 ms and +466 → +90 MB, same bounding box. Not integrated (P2 dropped): WebGL rendering in the real bundle was not validated.
+
+### Installed package with the Grbl simulator
+
+`npm pack` of the commit installed outside the checkout (`33b32db9`, then `396c9f21`), started with a serial preload that connects the Grbl JavaScript simulator of this repository, with the tablet page and a PC page in two clean Chrome profiles. Seen: load, start, pause (touch to server event in 11 ms), resume, stop; Pause and Arrêter with a sheet or the project sheet open (11–21 ms); a cut stream with HTTP still answering: Pause and Arrêter shown without a gap and Pause accepted over HTTP; a blocked network: the failed Pause is announced and not replayed after the reconnection (about 30 s); program lines sent once each, in order; a CNCjs socket and a Touch page that do not pilot are refused by name, their Pause accepted. The simulator is not Grbl_ESP32 and runs non-motion commands ahead; this is not a machine test.
+
+Route prefix: CNCjs has no `--route` option nor `.cncrc` key; `settings.production.js` fixes `route: '/'`. With that value set to `/cnc/` in an installed copy, Touch worked under `/cnc/touch/` (list, preview, raw upload, preview regeneration, simulation page; 196 requests, none to `/api/` without the prefix; Socket.IO stays at `/socket.io/`), but the main CNCjs app stayed on "Chargement…": its webpack bundles are requested without the prefix (upstream).
+
+### Not measured
+
+- Anything on the Surface RT: scales with its font, start-up with and without the bundle, Suivi CPU during a replayed job, Fichiers with 1 000 files, the SHA-256 cost of a 20 MB program on the Tegra 3, ten keepalive POSTs a second over Wi-Fi during a held jog.
+- Anything on a machine (see HANDOFF.md, steps 10 to 15).
+- The CI workflow on GitHub (nothing was pushed); the Docker image (no Docker on the PC); the bundle served by CNCjs under `/touch/`; a route prefix without editing the installed `settings.production.js`; the file-symlink tests on Linux; the G-code corpus through `grbl-sim`; the classic visualizer fixes of `b884644f` in a webpack build and a browser.
+
+## Full pass (2026-10-19/20)
+
+A complete bug hunt and fluidity pass over the touch page, the server touch services, `api.touch`, the monitor and the simulator tools, starting from `a387301b` (the deployed tablet version). Method: six independent read-only reviews (server, job control page, shell and long-running page, library/preview/probing, translations/CSS/HTML, simulation and tools), every finding re-read in the code, then each group handed to a second reviewer whose job was to refute it (3 refuters: 37 findings confirmed, 3 partial, 1 refuted). After the fixes, a second-round review of the fixes themselves found 5 more defects, fixed too. Each fix has a test that fails before and passes after (Jest for the server, `test-*.cjs` for the page); one commit per subject.
+
+### Found and fixed: machine safety (server)
+
+- **Stop did nothing when Grbl reported Idle** while lines were still buffered (a G4 dwell of a resume preamble, the first instants of a start, a tool change pause with the spindle on): CNCjs's forced stop decides from its own 250 ms copy of the state and only acts in Run or Hold. The touch service now decides from the latest report: moving axes and buffered lines get a feed hold, then a soft reset once a newer report shows them at rest (Hold:0) or after 5 s; a hold or a lone spindle is reset at once; the hold is sent again every 400 ms while Grbl still says Run (a lost byte). Seen on the simulator with the old server: after a stop the spindle kept turning at 12 000 rpm, or Grbl stayed in Hold so the next load was refused.
+- **Stop during homing** was neither offered nor accepted: Grbl sends no report during `$H`. The `$H` sent marks the cycle (`homing` in the snapshot, "Prise d'origine" in the strip) until a later Idle/Alarm report, an alarm or a restart.
+- **A macro waiting in a dwell** (CNCjs queue not empty) could not be stopped.
+- **Tool change spin-up and plate probe** took CNCjs's feeder "not pending" (last line sent) for "done": the resume went out during the G4, whose `ok` then counted as a program line (one line off in the RX buffer count for the rest of the job); a stale report could end a probe step (false "Palpage sans contact net"). Both now count Grbl's answers (skipping the `ok` of CNCjs's own `$G`). A USB cable pulled during the spin-up threw in a timer and ended the CNCjs process; a Stop during it no longer resumes.
+- **Plate probe with `$13=1`**: positions in inches were sent back as millimetres (back-off = rapid into the plate): refused unless `$13=0`. In a program pause the probe left G0 and F25 modal: the program's G0/G1 and feed are sent back (G2/G3 refused); a probe failed in a pause forbids resuming it. Stop while probing in a pause records the stopped line.
+- **Resume from a line** forced G54 and G21 when the program chose neither (a G55 job resumed at the G54 origin); compact first lines (`G90G1X10`) got a second motion word.
+- **Start** of a file that sets neither G20/G21 nor G90/G91 before its first move now needs a fresh `$G` showing G21 and G90 (Grbl keeps G20 after M30, a macro can leave G91; the preview assumes mm/absolute). **A board restart during a program pause** (E-stop wired to reset, alarm abort) forbids resuming it.
+- Counter-review: the stop no longer resets on a report taken before the request; the line-answer tracker starts from CNCjs's "reply pending" flag; the stop/restart/probe flags of a run are cleared when the loaded file runs again (also from the PC).
+
+### Found and fixed: page
+
+- **Stop and Pause unreachable without the event stream** (Wi-Fi gap, stream silent 3 s): the strip hid them for the whole fallback and Suivi's Stop was disabled 7 s out of 10 (HTTP read every 10 s, state needed < 3 s). The strip now offers them from a recent state alone and the fallback reads every 2 s during a job.
+- **Every planned stream renewal (once a minute)** looked like a disconnection: "Hors ligne" with Stop hidden for a moment, a lost/back pair in the session journal each minute (after ~50 min the journal held nothing else), and the notice bar flash made viewport-fit measure the screen hidden twice. A 3 s grace now covers the renewal.
+- A second Grbl controller appearing during a job cleared the implicit selection (Stop/Pause gone); the job summary said "Travail terminé" after a Stop once all lines were acknowledged (`jobStopped` in the snapshot), and switching controllers gave false summaries and starts.
+- The two job follow-up switches in Réglages shared one grid cell: "Ouvrir le Suivi" could not be tapped (a tap turned the auto lock on).
+- Tablet restarts and the screen saver ignored a spindle turning at rest; start-up failed ("Chargement incomplet") when the job follow-up opened Suivi before the reveal; locking left an open sheet above the shield.
+- Commissioning: a `$X` after a failed `$H` completed the homing step, and so did the snapshot answering the `$H` (counter-review); the air-cut step took a `finished` flag from an earlier run.
+- Travel check said OK for a program starting in relative moves; previews drew moves after a `(` inside a comment that CNCjs drops; a selected file that disappeared was replaced by the newest one; after an upload the card showed the previous file while Charger loaded the new one; the trail of a resume from a line started at the program start; the plate card lost its refusal message at the next report, could show the wrong thickness in its note, and its request timed out at 30 s.
+- Translations: Préparer, the tool marker notes, server reasons and this pass's messages (56 rows); `test-i18n` now checks that every literal passed to `t()` has a row. Simulator: overrides back to 100 % after a stop or the end, journal "Errors" filter in EN/ES.
+- Tools: the offline runner counted a test that stopped before its end as passed (now requires its PASS line); the simulator bridge ignored SIGHUP (port link left on a freed pty) and removed a link that was no longer its own (`test-bridge.sh`, run on the tablet).
+
+### Fluidity, measured on the Surface RT
+
+Protocol. Second Chromium with the kiosk flags on the tablet (kiosk frozen meanwhile), driven over DevTools, Grbl simulator connected through CNCjs. CPU from `/proc/<pid>/stat` (all Chromium processes of the test instance, and `cncjs-next`), main-thread, style and layout time from `Performance.getMetrics`. Two traps found on the way: the `?perf=1` harness (a requestAnimationFrame loop) inflates Chromium's CPU from about 16 % to 75 % at rest, so CPU is measured without it; and during a real job the simulator's pace varies from run to run (the same version measured 80 % then 134 %), so versions are compared by **replaying the same recorded minute of a job** (288 status events, the live stream stopped) on Suivi.
+
+Where the time went (profile and trace of a real job on Suivi): `viewport-fit.js` re-fitting the screen at every report and `getBoundingClientRect` (forced layouts), then the layout of the live values. Diagnostic CSS variants (each element hidden in turn) put the coordinates (layout 97 → 66 ms/s, style 31 → 5 ms/s without them) and the remaining time (97 → 74 ms/s) first; the trail, the marker and the preview image weighed little.
+
+Kept, each measured with the replay, 4 windows of 60 s per version, passes alternating:
+
+| | before this pass (`a387301b`) | + fewer forced layouts (`e20e6b1c`) | + fewer rewrites (`f5af5f66`) |
+| --- | ---: | ---: | ---: |
+| Chromium CPU | 70.5 % | 70.4 % | 64.2 % |
+| Main thread | 334 ms/s | 324 ms/s | 298 ms/s |
+| Layout | 96 ms/s | 87 ms/s | 78 ms/s |
+| Layouts per second | 7.8 | 4.7 | 4.0 |
+
+- `e20e6b1c`: viewport-fit re-fits on content changes at most once a second, the tool marker reads the image box at most once a second and moves with a transform. CPU unchanged; kept for the layout time (every window below the lowest "before" one) and the forced layouts per second (−40 %).
+- `f5af5f66`: the remaining time is shown to the minute above 2 minutes (it changed at every report), live values are written into their text node instead of replacing it. CPU −9 %.
+- Also `5da91577`: attributes no longer rewritten when unchanged (a mutation census during a job counted 104 + 52 + 52 + 52 such writes per 10 s on hidden screens; 0 after).
+
+Final check, deployed version (`318a8084`) against `a387301b`, same replay, passes alternating: **Chromium CPU 71.3 → 64.4 % (−10 %), main thread 341 → 296 ms/s (−13 %), layout 97.5 → 77.7 ms/s (−20 %), layouts 7.8 → 4.1 per second, script 107 → 93 ms/s.**
+
+Real job on the simulator (one run each, pace 301 and 293 reports a minute), Suivi shown, with the frame recorder: frames over 50 ms 159 → 110 per minute, p95 frame gap 66.7 → 50 ms, worst gap 917 → 333 ms, long tasks 156 / 14.1 s → 117 / 9.8 s per minute. Without the recorder: Suivi 79 → 69 % CPU, Menu 23 → 23 %, Fichiers 17 → 22 % (within the pace noise).
+
+At rest (simulator connected, without the recorder): Menu 15.9 → 16.0 %, Suivi 20.4 → 19.0 %, Fichiers 16.3 → 17.4 %: unchanged. `cncjs-next` 9 % at rest in both.
+
+Screen openings and taps (perf harness on, simulator connected, 5 rounds, medians): within the ±50 % run-to-run noise of this tablet, no change claimed. Before → after, re-openings: Préparer 460 → 179 ms, Fichiers 233 → 453, Suivi 222 → 234, Machine 91 → 153, Journal 183 → 85, Réglages 428 → 515, Menu 187 → 139. Tap to next paint (Event Timing) on the rail: 280–656 ms before, 272–688 ms after; a step selector 136–168 → 120–152 ms. A screen opening still costs 100–500 ms here; the remaining cost is the style and layout of a whole screen on this CPU (see "On-device measurements").
+
+Long run (deployed version): 43 200 status events, three hours at four a second, dispatched fast-forward on the real page with job starts, pauses, ends and alarms every 2 400 events and a screen change every 1 000, then 10 minutes at rest; memory read after a forced garbage collection. JS heap 1.61 MB at the start, 2.17 MB after the first quarter (every screen visited once, the session journal filled to its 100-entry cap), then 2.22, 2.24, 2.26 MB, and 2.31 MB after the rest; DOM nodes 2 448 and event listeners 374 from the first quarter to the end. No growth beyond the first warm-up.
+
+### Tried and not kept, or not changed
+
+- Measuring versions during real simulator jobs: rejected as a comparison method (pace noise larger than the effects), replaced by the replay above. Two simulator degradations were met and handled by restarting it: input bytes lost (a feed hold, a cycle start) and a mode at 70 % CPU without answers.
+- Not changed, with the reason:
+  - "Texte agrandi" barely changes anything since UI 2027 (the tokens set explicit sizes): which sizes to enlarge is a design decision, left as a follow-up. (Done in the 2026-10 audit, U2.)
+  - Segmented buttons are 42 px inside a 48 px group (validated design); a few texts of Limites and Palpage stay under 16 px; the fifth Fichiers row is cut while the notice bar shows; about 40 rules of the mockup library match no element: low impact, left. (2026-10 audit: segmented buttons render 48 px, no rendered text under 16 px in the measured screens, the notice moved into the status strip; the unused mockup rules were not reviewed.)
+  - A preview is matched to its G-code by name only (an outside overwrite under the same name keeps the old preview): needs a content check at upload. (Done in the 2026-10 audit, A5: previews carry the program's SHA-256 and the server checks it.)
+  - A thumbnail download aborted by leaving Fichiers is cached empty; the refreshes after an upload download the selected preview again: no test harness for thumbnails yet.
+  - The screen saver's touch listeners are not passive: the gain (scroll start in Réglages) could not be measured, and they guard the wake.
+  - After the reset of a stop, CNCjs reads `$G` again only after about 10 s: a file that sets neither G21 nor G90 is refused for that time ("attendre un état modal récent").
+  - Server messages with values inside, and preview errors, stay French (as in the second pass).
+
+### Run on the tablet against the Grbl 1.1h simulator
+
+Deployed (`318a8084` interface, server touch files from `d345a5e4`, `pm2 restart cncjs-next`), then a scripted run on the real page against the simulator, 20/20 checks: rapids 25 % at rest (Grbl `Ov:…,25,…`); load and start through the confirmation; feed +10 % and rapids 50 % during the job (`Ov:110,50,100`); Pause from the strip; Resume offered and confirmed; **Stop: the serial writes show `!`, then the soft reset 0.8–1.7 s later once Grbl reported Hold:0, then Idle with the spindle at 0, no alarm**, stopped line recorded; resume from line 8 (plan "Z 5, puis X 40 Y 0, plongée à Z -1, broche M3 S1000 relancée 3 s avant la plongée"), run then stopped; a job started from the PC opened Suivi and locked the screen by itself, Pause worked while locked, two taps unlocked, summary "Travail terminé · essai-sim-apercu.nc · durée 44 s · 19 lignes"; the commissioning assistant opened. The first scripted run had shown the spindle still turning 4 s after a Stop: the feed hold byte had been lost by the simulator; the hold is now sent again while Grbl still reports Run (`d345a5e4`).
+
+Not tested on the real machine (LUNYEE 4040 Nova, Grbl_ESP32 1.3a, not delivered yet): every stop sequence above (feed hold, reset at Hold:0) against real inertia, homing and its stop, the plate probe, the tool change spin-up, a board restart during a pause, and the new start guard on G20/G91 left by another program.
+
+## Depth and fixed 3D views (2026-10-20)
+
+What changed is in README.md, "Depth and fixed 3D views". Tests:
+
+- `test-preview-depth.cjs`: Z through G90/G91 and G20, a relative Z before any absolute Z (`relativeZ`), helices (Z linear with the angle, exact at the end), plunges reaching the 3D path but not the 2D drawing, sent lines on every move; the 3D path codec (exact to 0.001 mm, move types, monotonic lines), simplification (small holes on a large part), the 30 000-point bound on a 200 000-move raster (decimated, still spanning the part), malformed paths refused; depth colours, Z exaggeration, the four projections (box and Z0 plane inside the image, +X right, +Z up) and the sliced renderer (title, depth legend, triad, scale bar).
+- `test-preview-3d.cjs`: the selector and the remembered choice, nothing computed while 2D is shown, the asked view at once and the three others from an idle callback (4 ms idle periods, 3 s timeout, never a detached `requestIdleCallback`), cache shared by Fichiers and Suivi, a background view set aside for an asked one, an old sidecar (hint, 2D kept), a broken path, a hidden page, eviction with URL release, the real `preview-3d-worker.js` with a fake OffscreenCanvas, the page fallback without OffscreenCanvas or without Worker, and the tool marker projection (version 2 needs Z except for the top view).
+- `test-preview-worker.cjs`: Z bounds, trail Z, depth colours and the 3D path cross the worker boundary; the page fallback builds the same path.
+
+### Measured on the Surface RT
+
+Method: `pv3d-bench.js` (DevTools on a second Chromium 106 with the kiosk flags, kiosk frozen meanwhile), touch/ swapped between before (318a8084) and after, alternated before, after, before, after; deterministic programs of 20 002 and 120 002 lines (four passes at Z −0.75 to −3, a 120 × 200 mm raster and a circle per pass). Opening times are the median of 5 openings per pass.
+
+| | before | after |
+| --- | --- | --- |
+| Preview (render) 20 002 lines | 9.6 – 9.9 s | 10.7 – 11.9 s |
+| Preview (render) 120 002 lines | 38.3 – 39.1 s | 41.9 – 43.4 s |
+| Whole upload 20 002 / 120 002 lines | 10.7 – 10.9 / 41.0 – 42.0 s | 11.6 / 45.1 – 45.5 s |
+| Worst frame during a render | 52 – 122 ms | 62 – 149 ms |
+| Fichiers opening, 20 002 / 120 002 selected | 172 – 182 / 177 – 190 ms | 181 – 193 / 212 – 222 ms |
+| Suivi opening, 20 002 / 120 002 selected | 154 – 204 / 84 – 89 ms | 95 – 157 / 85 – 91 ms |
+| Sidecar | 52 KB | 214 KB (20 002) / 165 KB (120 002, path decimated to 12 108 points) |
+
+- Renders stay as fluid as before (no long task over 150 ms, as before); they take about 1.2 s (20 002 lines) and 3.5 s (120 002 lines) longer: Z tracking (about 5 % of the parse) and the 3D path, built in the worker's second pass. A first version cost twice that (measured per phase in the page: the path took a third of the second pass with JS arrays); it now streams into preallocated typed arrays.
+- Screen openings: within the run-to-run noise of this tablet (about ±50 %, see "UI 2027").
+- 3D views (after the fixes below, on a page drawing frames continuously): the asked isometric view in 1.3 s for the 20 002-line file (20 282 points) and 0.7 s for the 120 002-line one (12 108 points), all four views in 3.4 s and 2.6 s, worst frame 90 to 113 ms meanwhile; a view already drawn is shown in 5 to 30 ms.
+
+Found on the tablet and fixed (both now covered by `test-preview-3d.cjs`): the background views were never drawn, first because `requestIdleCallback` was called detached from `window` ("Illegal invocation" in Chromium, accepted by the test page then), then because a view waited for 20 ms of idle time, which a page drawing frames never has.
+
+### Simulator run (2026-10-20, Grbl simulator through CNCjs, deployed f6bc5f4e)
+
+`pv3d-run.js` sent a three-pass program (Z -0.5, -1, -1.5 around a 40 x 30 mm pocket, then a helical circle down to Z -1.5) with `cncLibraryImport`, then:
+- Fichiers: Dimensions read Z min -1.50 / Z max 5.00, path of 241 points; the isometric view in 1.2 s, the other three from the cache in 5 to 8 ms (drawn in the background meanwhile).
+- Loaded and started from Suivi: during the job, in each view, the marker sat on the reported work position (for instance X 9.29 Y 35 Z -1 on the back left corner of the pocket in the isometric view, X 29.58 Z -1.5 on the deepest pass in the front view) and the orange trail followed the acknowledged passes; the note read the usual marker and trail sentences. The program ran to its end; the port was closed and the simulator stopped (`$22` untouched).
+- Found: the depth legend ran under the view selector in Fichiers; it is now 300 px wide in the top right corner of the image.
+
+Nothing was run on the real machine, which is not there yet.
+
+## Pendant features (2026-10-19)
+
+Four functions taken from what hand pendants offer (PiBot CNC Pendant V4.2, XHC, Masso), chosen because they need no new motion:
+
+- **Rapid override 25 / 50 / 100 %** in Suivi. The server accepts it at rest too (`canRapidOverride`), so a first run can start with slowed rapids; feed and spindle overrides keep their job-only guard.
+- **State actions in the status strip**: Resume in a pause and Unlock in an alarm, both through their usual confirmation; Stop also during homing or a jog; in a pause, Resume takes the place of Pause. Pause, Resume and Unlock ignore a second tap for 600 ms; Stop is never delayed.
+- **Screen lock**: a padlock in the header. Locked, a transparent shield covers the content (taps do nothing, a notice says why) and only Pause and Stop stay reachable; Resume and Unlock are hidden. Unlocking takes two taps within 3 s. No `inert` is used, since the screen saver and the dialogs already own it.
+- **Job follow-up**: Suivi opens when a job starts, including a job started from the PC (not when the page loads during a job, not over a dialog or the commissioning assistant); the screen can lock itself at that moment; a summary shows the result, the duration without pauses, the lines and the Grbl errors. Two switches in Réglages, kept in this browser.
+
+Tests: `job-service.test.js` (rapid override at rest, refused in alarm or with a stale report, feed still refused), `test-status-strip.cjs`, `test-screen-lock.cjs`, `test-job-follow.cjs`, `test-dashboard.cjs`.
+
+Run on the tablet against the Grbl simulator through CNCjs:
+- 25 % at rest: Grbl reported `Ov:…,25,…`, the 25 % button marked active, feed and spindle buttons still disabled. The value held through the start and Grbl returned to 100 % at the program end (M2), as the advice says.
+- A job started from the PC while Fichiers was shown: Suivi opened by itself. Paused: the strip did not offer Resume, because the server only resumes jobs it started (the PC resumes them); summary at the end.
+- A job started from the tablet with "Verrouiller l’écran" on: locked at once, a tap on the menu hit the shield, Pause from the strip worked while locked, Resume stayed hidden until two taps unlocked, then Resume opened "Confirmer la reprise" and the job ended with "Travail terminé · essai-en-l-air.nc · durée 16 s · 17 lignes".
+- Alarm (homing without switches, ALARM:9): "Déverrouiller…" in the strip opened "Déverrouiller la machine", then back to Repos.
+
+Found and fixed during the run:
+- The summary said "arrêté avant la fin" for a job started from the PC that ran all 17 lines: the server does not mark such a job finished. Every line acknowledged during the run now counts as finished.
+- The padlock label ran over the clock in the header: the padlock is now an icon-sized button (its text stays for screen readers and in the shield notice).
+- In a pause (Resume, Pause and Stop together) and in an alarm with large text, buttons covered the file name. The information zone is now clipped to its grid column and the file name gives way first; checked in 5 states × 2 text sizes with no overlap.
+
+The "Chargement incomplet" screen seen twice during the run came from the test itself: the browser pane was hidden, so the start-up reveal waited for a frame while the test had already left the Menu. With the pane shown, the page appeared normally.
 
 ## Z zero with a touch plate (2026-10-18)
 
@@ -419,7 +636,7 @@ First attempt, before the asset ordering change: the ~60 scripts of the page, lo
 - Physical CNC movement, cutting/laser behavior, offsets and homing.
 - Real start/pause/resume/stop timing, controller errors, reconnects and emergencies during an actual job.
 - Real probing cycles, calibration, contact bounce and tool/fixture geometry.
-- The integrated server with a controller attached, a non-root `settings.route`, other browsers than Chromium and other controller families. The production build (`dist/cncjs`) has since been run on the Surface RT (Raspbian 11 armhf, Node 18, PM2 `cncjs-next`, kiosk connected to the integrated event stream) — still without a controller.
+- The integrated server with a physical controller attached (the Grbl JavaScript simulator has been used, see "Audit 2026-10"), a non-root `settings.route` (not configurable in CNCjs), other browsers than Chromium and other controller families. The production build (`dist/cncjs`) has since been run on the Surface RT (Raspbian 11 armhf, Node 18, PM2 `cncjs-next`, kiosk connected to the integrated event stream) — still without a controller.
 - Long-running operation, Wi-Fi interruptions, memory pressure and screen wake behavior on the target touchscreen.
 - Feed/spindle overrides and `macro:run` against a real Grbl controller, and the accuracy of the acknowledged-line progress trail against the actual tool position.
 

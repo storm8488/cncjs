@@ -5,11 +5,12 @@
   if (!screen) return;
   screen.innerHTML =
     uiLocale.html('<div class="card wide library-header"><div><h2>Bibliothèque partagée</h2>') +
-    uiLocale.html('<p class="mute">Envoyez depuis le PC, retrouvez vos fichiers sur la Surface.</p></div>') +
+    uiLocale.html('<p class="mute">Envoyez depuis le PC, retrouvez vos fichiers sur la tablette.</p></div>') +
     uiLocale.html('<button id="library-refresh" type="button">↻ Actualiser</button></div>') +
     uiLocale.html('<div class="card library-list-panel"><div class="library-list-title"><h2>Fichiers sur le serveur</h2><span id="library-count" class="tag">0</span></div>') +
     uiLocale.html('<label class="library-label" for="library-search">Rechercher un fichier</label>') +
-    uiLocale.html('<input id="library-search" type="search" placeholder="Nom du fichier…">') +
+    uiLocale.html('<input id="library-search" type="search" placeholder="Nom, matière, outil, notes…">') +
+    uiLocale.html('<button id="library-favorites" type="button" aria-pressed="false">★ Favoris seulement</button>') +
     uiLocale.html('<p id="library-status" role="status">Connexion à la bibliothèque…</p>') +
     uiLocale.html('<div id="library-list" aria-label="Fichiers disponibles"></div>') +
     uiLocale.html('<div class="library-pages"><button id="library-prev" type="button" hidden>← Précédent</button><span id="library-page"></span><button id="library-more" type="button" hidden>Suivant →</button></div>') +
@@ -31,8 +32,10 @@
     uiLocale.html('<p id="library-dimensions-status" role="status">Sélectionnez un fichier dans la bibliothèque.</p>') +
     uiLocale.html('<table id="library-dimensions-table" class="ks-dimensions-table" hidden><thead><tr><th scope="col">Axe</th><th scope="col">Minimum</th><th scope="col">Maximum</th><th scope="col">Étendue</th></tr></thead>') +
     uiLocale.html('<tbody><tr><th scope="row">X</th><td id="library-dimensions-xmin"></td><td id="library-dimensions-xmax"></td><td id="library-dimensions-width"></td></tr>') +
-    uiLocale.html('<tr><th scope="row">Y</th><td id="library-dimensions-ymin"></td><td id="library-dimensions-ymax"></td><td id="library-dimensions-height"></td></tr></tbody></table>') +
-    uiLocale.html('<p>Trajets rapides G0 inclus. Départ supposé X0 Y0. Projection XY approximative : ce ne sont pas les dimensions de la pièce. Z non représenté.</p></div>') +
+    uiLocale.html('<tr><th scope="row">Y</th><td id="library-dimensions-ymin"></td><td id="library-dimensions-ymax"></td><td id="library-dimensions-height"></td></tr>') +
+    uiLocale.html('<tr id="library-dimensions-zrow" hidden><th scope="row">Z</th><td id="library-dimensions-zmin"></td><td id="library-dimensions-zmax"></td><td id="library-dimensions-depth"></td></tr></tbody></table>') +
+    uiLocale.html('<p>Trajets rapides G0 inclus. Départ supposé X0 Y0 Z0. Projection approximative : ce ne sont pas les dimensions de la pièce. Z minimum = passe la plus profonde, sous Z0 si négatif.</p></div>') +
+    uiLocale.html('<div id="library-project" class="library-project"></div>') +
     uiLocale.html('<button id="library-regenerate" type="button" disabled>Régénérer l’aperçu depuis ce PC</button>') +
     uiLocale.html('<p id="library-regenerate-status" role="status"></p>') +
     uiLocale.html('<div class="library-execution"><strong>Stocké pour plus tard</strong>') +
@@ -40,12 +43,17 @@
     uiLocale.html('<button type="button" disabled>Exécution — prochaine étape</button></div></div>');
 
   var $ = function (id) { return document.getElementById(id); };
+  // The preview's note and refusals are stored in French (sidecar): shown in the interface language.
+  function previewText(text) { var p = window.CNCLibraryPreview; return p && typeof p.localize === 'function' ? p.localize(text, window.cncI18n ? window.cncI18n.language : 'fr') : text; }
   var files = [], selected = '', detailVersion = '', requestId = 0;
   var refreshing = false, busy = false, generation = 0, reader = null, pageSize = 4, page = 0;
   var mounted = false, refreshId = 0, refreshAgain = 0, refreshPromise = null, requests = {}, rows = Object.create(null), listKey = '', deferredText = {}, detailLoading = false;
   var regenerating = false, regenerationId = 0;
   var machine = null, fileStateKey = '', listState = 'loading', listSignature = '';
   var suffix = '.cnctouch.json';
+  // Project sheets (projects.js, loaded after this file): extended search, favourites, row labels.
+  var favoritesOnly = false;
+  function projects() { return window.CNCProjects || null; }
   function visible() { return !document.hidden && screen.classList.contains('active'); }
   function setText(id, value) {
     value = String(value);
@@ -73,7 +81,12 @@
     try { var d = JSON.parse(localStorage.getItem('cnc') || '{}'); return d.state.session.token || ''; }
     catch (_) { return ''; }
   }
+  // API base of this CNCjs installation, derived from the page's path by cnc-state.js
+  // (CNCjs may be served under a route prefix such as /cnc/).
+  function apiBase() { try { return window.cncState.get().apiBase; } catch (_) { return '/api'; } }
   var pendingUpload = '', pendingUntil = 0;
+  // Resolves with the parsed JSON, or for a Blob response with { blob, fingerprint, size }:
+  // the server names the exact bytes it served in headers the Blob cannot carry.
   function request(method, path, body, kind, cancelled, responseBlob) {
     return new Promise(function (resolve, reject) {
       if (cancelled && cancelled()) { reject(new Error(uiLocale.t('Lecture annulée.'))); return; }
@@ -82,7 +95,8 @@
       var xhr = new XMLHttpRequest();
       if (kind) requests[kind] = xhr;
       function done() { if (kind && requests[kind] === xhr) delete requests[kind]; }
-      xhr.open(method, '/api/watch/' + path, true);
+      function header(name) { try { return xhr.getResponseHeader(name) || ''; } catch (_) { return ''; } }
+      xhr.open(method, apiBase() + '/watch/' + path, true);
       if (responseBlob) {
         try {
           xhr.responseType = 'blob';
@@ -91,7 +105,8 @@
       }
       xhr.setRequestHeader('Authorization', 'Bearer ' + token);
       xhr.timeout = 120000;
-      if (body) xhr.setRequestHeader('Content-Type', 'application/json');
+      // A Blob with a type (a raw upload, application/octet-stream) goes out as it is; everything else is JSON.
+      if (body) xhr.setRequestHeader('Content-Type', typeof Blob !== 'undefined' && body instanceof Blob && body.type ? body.type : 'application/json');
       xhr.onload = function () {
         done();
         // A completed obsolete read must not parse a potentially large G-code response.
@@ -99,7 +114,7 @@
         if (xhr.status < 200 || xhr.status >= 300) {
           reject(new Error(xhr.status === 401 || xhr.status === 403 ? uiLocale.t('Session expirée : ouvrez CNCjs et reconnectez-vous.') : uiLocale.t('Le serveur a refusé la demande (HTTP ') + xhr.status + ').')); return;
         }
-        if (responseBlob) { resolve(xhr.response); return; }
+        if (responseBlob) { resolve({ blob: xhr.response, fingerprint: header('X-Program-Fingerprint'), size: Number(header('X-Program-Size')) || 0 }); return; }
         try { resolve(JSON.parse(xhr.responseText)); } catch (_) { reject(new Error(uiLocale.t('Réponse du serveur illisible.'))); }
       };
       xhr.onerror = function () { done(); reject(new Error(uiLocale.t('Serveur inaccessible. Vérifiez la connexion réseau.'))); };
@@ -110,17 +125,43 @@
   }
   function size(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + uiLocale.t(' Mo') : Math.max(1, Math.ceil(n / 1024)) + uiLocale.t(' Ko'); }
   function displayName(name) { return name.replace(/--touch-\d{14}-[a-f0-9]{16}(?=\.[^.]+$)/, ''); }
-  function dimensions(bounds, message) {
+  // Whether a stored preview describes the program on the server. The server compares the
+  // sidecar's fingerprint with the file and answers `preview: {stale, reason}` beside the data;
+  // a stale preview is never shown, and one the server did not check (older server) is shown
+  // only as unverified. Returns { state: 'ok' | 'stale' | 'unverified', reason }.
+  function verdict(response, meta) {
+    var p = response && response.preview;
+    if (p && typeof p === 'object') return p.stale ? { state: 'stale', reason: String(p.reason || '') } : { state: 'ok', reason: '' };
+    if (meta && meta.preview && meta.preview.stale) return { state: 'stale', reason: String(meta.preview.reason || '') };
+    return { state: 'unverified', reason: 'unverified' };
+  }
+  function previewNotice(v) {
+    if (v.reason === 'no-fingerprint') return uiLocale.t('Aperçu sans empreinte (ancienne version) : régénérez-le depuis le PC.');
+    if (v.reason === 'program-missing') return uiLocale.t('Fichier G-code introuvable sur le serveur : actualisez la liste.');
+    if (v.state === 'unverified') return uiLocale.t('Aperçu non vérifié par le serveur : régénérez-le depuis le PC.');
+    return uiLocale.t('Aperçu périmé : régénérez-le depuis le PC.');
+  }
+  function dimensions(bounds, message, zBounds, note) {
     var fields = ['xmin', 'ymin', 'xmax', 'ymax', 'width', 'height'];
     var valid = Array.isArray(bounds) && bounds.length === 4 && bounds.every(function (n) { return typeof n === 'number' && isFinite(n); }) &&
       bounds[2] >= bounds[0] && bounds[3] >= bounds[1] && isFinite(bounds[2] - bounds[0]) && isFinite(bounds[3] - bounds[1]);
+    // Depth (previews made since the 3D path): the deepest and highest Z of the program.
+    var depth = valid && Array.isArray(zBounds) && zBounds.length === 2 && zBounds.every(function (n) { return typeof n === 'number' && isFinite(n); }) && zBounds[1] >= zBounds[0];
     property($('library-dimensions-table'), 'hidden', !valid);
-    setText('library-dimensions-status', valid ? uiLocale.t('D’après l’aperçu enregistré · en millimètres') : message || uiLocale.t('Dimensions indisponibles. Régénérez l’aperçu depuis le PC via « Détails de l’aperçu ».'));
+    property($('library-dimensions-zrow'), 'hidden', !depth);
+    setText('library-dimensions-status', valid ? note || uiLocale.t('D’après l’aperçu enregistré · en millimètres') : message || uiLocale.t('Dimensions indisponibles. Régénérez l’aperçu depuis le PC via « Détails de l’aperçu ».'));
     var values = valid ? bounds.concat([bounds[2] - bounds[0], bounds[3] - bounds[1]]) : [];
-    fields.forEach(function (field, i) {
-      var value = values[i];
-      setText('library-dimensions-' + field, valid ? (Math.abs(value) < 0.005 ? 0 : value).toLocaleString(window.cncI18n?window.cncI18n.locale:'fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—');
-    });
+    function mm(value) { return (Math.abs(value) < 0.005 ? 0 : value).toLocaleString(window.cncI18n?window.cncI18n.locale:'fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+    fields.forEach(function (field, i) { setText('library-dimensions-' + field, valid ? mm(values[i]) : '—'); });
+    setText('library-dimensions-zmin', depth ? mm(zBounds[0]) : '—');
+    setText('library-dimensions-zmax', depth ? mm(zBounds[1]) : '—');
+    setText('library-dimensions-depth', depth ? mm(zBounds[1] - zBounds[0]) : '—');
+  }
+  // What the 3D views and the tool marker read: the stored preview of the file whose image is
+  // shown, with the fingerprint of the program it was drawn from (the 3D views are kept per
+  // fingerprint; without one they are not drawn).
+  function describe(file, preview, fingerprint) {
+    $('library-image').cncPreview = preview ? { file: file, fingerprint: typeof fingerprint === 'string' ? fingerprint : '', projection: preview.projection, zBounds: preview.zBounds, path3d: preview.path3d || null } : null;
   }
   // Row thumbnails and XY extents come from each file's stored preview, read one
   // at a time in idle time after the list is drawn (never before the selected
@@ -156,10 +197,14 @@
     var file = row._file, key = thumbKey(file);
     if (Object.keys(thumbs).length > 40) thumbs = Object.create(null);
     thumbBusy = true;
-    request('POST', 'file', { file: file.name + suffix }, 'thumb').then(function (response) {
-      var meta = JSON.parse(response.data), p = meta && meta.file === file.name && meta.preview || {};
-      var image = typeof p.image === 'string' && p.image.length <= 2500000 && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(p.image) ? p.image : '';
+    // Only the row's part of the sidecar: the stored 192 × 108 thumbnail and the extents
+    // (tens of kB) instead of the full image, trail and 3D path (about 1 MB). A sidecar
+    // from before thumbnails still answers with its full image, downscaled here.
+    request('POST', 'file', { file: file.name + suffix, part: 'thumbnail' }, 'thumb').then(function (response) {
+      var meta = JSON.parse(response.data), p = meta && meta.file === file.name && verdict(response, meta).state !== 'stale' && meta.preview || {};
       var bounds = Array.isArray(p.bounds) ? p.bounds : null;
+      if (typeof p.thumbnail === 'string' && p.thumbnail.length <= 120000 && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(p.thumbnail)) { thumbs[key] = { image: p.thumbnail, bounds: bounds }; return undefined; }
+      var image = typeof p.image === 'string' && p.image.length <= 2500000 && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(p.image) ? p.image : '';
       // The stored preview is 960 × 540: a 192 × 108 copy is kept for the row, so the
       // list never decodes five full previews when it is shown again.
       return downscale(image).then(function (small) { thumbs[key] = { image: small, bounds: bounds }; });
@@ -172,6 +217,14 @@
       im.onload = function () { try { var c = document.createElement('canvas'); c.width = 192; c.height = 108; c.getContext('2d').drawImage(im, 0, 0, 192, 108); resolve(c.toDataURL('image/png')); } catch (_) { resolve(''); } };
       im.onerror = function () { resolve(''); };
       im.src = image;
+    });
+  }
+  // A new sidecar carries its row thumbnail (192 × 108, about 10-30 kB): the list then
+  // reads only that part (`part: 'thumbnail'`) and decodes no full preview. Without
+  // Image/canvas (tests) the sidecar simply has none and rows fall back to the image.
+  function withThumbnail(preview) {
+    return downscale(preview && preview.image).then(function (small) {
+      if (small && small.length <= 120000) preview.thumbnail = small;
     });
   }
   function applyThumbs() {
@@ -201,15 +254,45 @@
         machine.workflow === 'paused' || /^Hold/.test(machine.activeState || '') ? uiLocale.t('Ⅱ En pause') :
         machine.workflow === 'running' || /^Run/.test(machine.activeState || '') ? uiLocale.t('▶ En cours') : uiLocale.t('● Chargé'));
     }
+    var P = projects(), project = P ? P.label(name) : '';
+    if (project) labels.push(project);
     return labels.join(' · ');
   }
+  // Only the rows that fit are listed: a row half hidden at the bottom of the list (under the
+  // pages) can be neither read nor tapped reliably. The shell gives the upper bound (5 or 3 rows);
+  // the tallest row seen in this window and text size decides, read once in the next frame.
+  // The selected row may be taller (its state chip narrows the text), so it is counted apart.
+  var pageLimit = pageSize, rowHeight = 0, selectedHeight = 0, rowLarge = null, fitFrame = 0;
+  function fitPage() {
+    fitFrame = 0;
+    if (!visible()) return;
+    var list = $('library-list'), large = document.body.classList.contains('display-large');
+    if (large !== rowLarge) { rowLarge = large; rowHeight = 0; selectedHeight = 0; }
+    var cs = window.getComputedStyle(list), gap = parseFloat(cs.rowGap) || 0;
+    var height = list.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+    Array.prototype.forEach.call(list.children, function (row) {
+      if (!/(^|\s)library-file(\s|$)/.test(row.className || '')) return;
+      if (row.getAttribute('aria-pressed') === 'true') selectedHeight = Math.max(selectedHeight, row.offsetHeight); else rowHeight = Math.max(rowHeight, row.offsetHeight);
+    });
+    var tallest = Math.max(rowHeight, selectedHeight), usual = rowHeight || selectedHeight;
+    if (!usual || height <= 0) return;
+    var size = Math.max(2, Math.min(pageLimit, 1 + Math.floor((height - tallest) / (usual + gap))));
+    if (size !== pageSize) { page = Math.floor(page * pageSize / size); pageSize = size; renderList(); }
+  }
+  // Without a rendering frame (no layout to read) the shell's size is kept.
+  function schedulePageFit() { if (!fitFrame && typeof window.requestAnimationFrame === 'function' && typeof window.getComputedStyle === 'function') fitFrame = window.requestAnimationFrame(fitPage); }
   function renderList() {
     if (!visible()) return;
-    var query = $('library-search').value.toLowerCase();
-    var matches = files.filter(function (f) { return displayName(f.name).toLowerCase().indexOf(query) >= 0; });
+    schedulePageFit();
+    var query = $('library-search').value.toLowerCase(), P = projects();
+    // The name search is unchanged; a file whose project sheet matches is found too.
+    var matches = files.filter(function (f) {
+      if (favoritesOnly && !(P && P.isFavorite(f.name))) return false;
+      return displayName(f.name).toLowerCase().indexOf(query) >= 0 || !!(P && query && P.matches(f.name, query));
+    });
     page=Math.min(page,Math.max(0,Math.ceil(matches.length/pageSize)-1));
     var shown = matches.slice(page*pageSize, (page+1)*pageSize);
-    var key = JSON.stringify([shown, files.length, matches.length, query, page, pageSize, selected, listState]);
+    var key = JSON.stringify([shown, files.length, matches.length, query, page, pageSize, selected, listState, favoritesOnly, P ? P.revision() : 0]);
     if (key === listKey) { selectedRow(); return; } listKey = key;
     var list = $('library-list'), desired = [], keep = Object.create(null), focused = document.activeElement;
     setText('library-count', files.length);
@@ -266,7 +349,7 @@
     $('library-dimensions-file').textContent = displayName(f.name);
     dimensions(null, uiLocale.t('Chargement des dimensions enregistrées…'));
     $('library-meta').textContent = size(f.size) + ' · ' + new Date(f.mtime).toLocaleString(window.cncI18n?window.cncI18n.locale:'fr-FR');
-    $('library-image').hidden = true; $('library-image').removeAttribute('src');
+    $('library-image').hidden = true; $('library-image').removeAttribute('src'); describe(f.name, null);
     $('library-image-status').hidden = false; $('library-image-status').textContent = uiLocale.t('Chargement de l’image…');
     $('library-preview-note').textContent = '';
     request('POST', 'file', { file: f.name + suffix }, 'detail').then(function (response) {
@@ -276,13 +359,19 @@
       publishSelection(f.name, meta.originalName);
       $('library-name').textContent = meta.originalName;
       $('library-dimensions-file').textContent = meta.originalName;
-      dimensions(meta.preview && meta.preview.bounds);
-      var image = meta.preview && meta.preview.image;
-      if (typeof image === 'string' && image.length <= 2500000 && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(image)) {
+      // The server's verdict on the sidecar: a stale preview (program replaced under the same
+      // name, older sidecar without fingerprint) shows a notice instead of the old image.
+      var v = verdict(response, meta), usable = v.state !== 'stale', note = v.state === 'unverified' ? previewNotice(v) : '';
+      dimensions(usable && meta.preview && meta.preview.bounds, usable ? null : previewNotice(v), usable && meta.preview && meta.preview.zBounds, note);
+      var image = usable && meta.preview && meta.preview.image;
+      if (!usable) { detailLoading = false; $('library-image-status').textContent = previewNotice(v); }
+      else if (typeof image === 'string' && image.length <= 2500000 && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(image)) {
+        describe(f.name, meta.preview, meta.fingerprint);
         $('library-image').onload = function () {
           if (id !== requestId) return;
           detailLoading = false;
-          $('library-image').hidden = false; $('library-image-status').hidden = true;
+          $('library-image').hidden = false; $('library-image-status').hidden = !note;
+          if (note) $('library-image-status').textContent = note;
         };
         $('library-image').onerror = function () {
           if (id !== requestId) return;
@@ -291,8 +380,8 @@
           $('library-image-status').textContent = uiLocale.t('Image illisible. Le G-code reste enregistré.');
         };
         $('library-image').src = image;
-        $('library-preview-note').textContent = String(meta.preview.note || '') + ' · ' + Number(meta.preview.segments || 0).toLocaleString(window.cncI18n?window.cncI18n.locale:'fr-FR') + ' segments.';
-      } else { detailLoading = false; $('library-image-status').textContent = uiLocale.t('Aperçu indisponible : ') + String(meta.previewError || uiLocale.t('aucune image enregistrée')) + uiLocale.t('. Le G-code reste disponible.'); }
+        $('library-preview-note').textContent = previewText(String(meta.preview.note || '')) + ' · ' + Number(meta.preview.segments || 0).toLocaleString(window.cncI18n?window.cncI18n.locale:'fr-FR') + uiLocale.t(' segments.');
+      } else { detailLoading = false; $('library-image-status').textContent = uiLocale.t('Aperçu indisponible : ') + (meta.previewError ? previewText(String(meta.previewError)) : uiLocale.t('aucune image enregistrée')) + uiLocale.t('. Le G-code reste disponible.'); }
     }).catch(function () {
       if (id !== requestId) return;
       detailLoading = false;
@@ -335,7 +424,9 @@
       // Still not listed after that: clear the selection rather than silently
       // selecting another file, which could then be loaded by mistake.
       if (waited) pendingUpload = '';
-      f = f || (waited ? null : files[0]);
+      // Only an empty selection defaults to the newest file: a selected file that disappeared
+      // (deleted, renamed) clears the selection too.
+      f = f || (waited || selected ? null : files[0]);
       if (f) select(f, !!manual);
       else {
         if (selected) { cancelRegeneration(); setText('library-regenerate-status', ''); }
@@ -419,26 +510,43 @@
       text = data.text; legacy = data.legacy;
       if (/\x00/.test(text)) throw new Error(uiLocale.t('Ce fichier semble binaire. Un G-code texte est attendu.'));
       return window.CNCLibraryPreview.render(text, document.createElement('canvas'), cancelled, status).then(function (preview) {
-        if (preview.image.length > 2500000) meta.previewError = uiLocale.t('image trop volumineuse'); else meta.preview = preview;
+        if (preview.image.length > 2500000) { meta.previewError = uiLocale.t('image trop volumineuse'); return undefined; }
+        meta.preview = preview;
+        return withThumbnail(preview);
       }).catch(function (error) { if (cancelled()) throw error; meta.previewError = error.message; });
     }).then(function () {
       if (cancelled()) throw new Error(uiLocale.t('Annulé'));
-      var payload = window.CNCLibraryPayload;
-      return payload ? payload.encodeFile(stored, text, cancelled, status) : { file: stored, data: text };
-    }).then(function (payload) {
-      if (cancelled()) throw new Error(uiLocale.t('Annulé'));
       $('library-cancel').hidden = true; // Once the server write starts, report its actual outcome.
       status(uiLocale.t('Envoi du G-code au serveur…'));
+      // The bytes themselves (application/octet-stream, the name in the query): the server
+      // streams them to disk instead of parsing a JSON body holding the whole program (which
+      // the tablet's CPU did for up to 20 MB). A Windows-1252 file was decoded above and goes
+      // out as UTF-8, as before.
+      var payload = new Blob([text], { type: 'application/octet-stream' });
       text = '';
-      return request('PUT', 'file', payload);
-    }).then(function () {
+      return request('PUT', 'file?file=' + encodeURIComponent(stored), payload);
+    }).then(function (written) {
       wrote = true; text = ''; status(uiLocale.t('Enregistrement de l’image 2D…'));
-      return request('PUT', 'file', { file: stored + suffix, data: JSON.stringify(meta) });
+      // The sidecar names the exact bytes the server wrote (fingerprint and size): once the
+      // program is replaced under this name, the server serves this preview as stale.
+      if (written && typeof written.fingerprint === 'string' && written.fingerprint) { meta.fingerprint = written.fingerprint; meta.size = written.size; }
+      return request('PUT', 'file?file=' + encodeURIComponent(stored + suffix), new Blob([JSON.stringify(meta)], { type: 'application/octet-stream' }));
     }).then(function () {
       if (selected !== stored) { cancelRegeneration(); setText('library-regenerate-status', ''); }
       selected = stored; pendingUpload = stored; pendingUntil = Date.now() + 15000; detailVersion = ''; $('library-input').value = ''; lock(false);
       publishSelection(stored, file.name);
-      status('✓ ' + file.name + uiLocale.t(' enregistré. Disponible sur la Surface.') + (legacy ? uiLocale.t(' Fichier non UTF-8 : lu en Windows-1252 (accents convertis).') : '') + (meta.previewError ? uiLocale.t(' Aperçu indisponible : ') + meta.previewError : ''));
+      // Until CNCjs lists the new file (about 4 s), the card shows it from what was just
+      // written: the file named here is the one that "Charger" loads.
+      cancelRequest('detail'); requestId++; detailLoading = false; selectedRow();
+      $('library-name').textContent = file.name; $('library-dimensions-file').textContent = file.name;
+      $('library-meta').textContent = size(file.size) + ' · ' + new Date().toLocaleString(window.cncI18n?window.cncI18n.locale:'fr-FR');
+      dimensions(meta.preview && meta.preview.bounds, null, meta.preview && meta.preview.zBounds);
+      var uploadedImage = meta.preview && meta.preview.image;
+      $('library-image').onload = $('library-image').onerror = null;
+      if (typeof uploadedImage === 'string' && uploadedImage) { describe(stored, meta.preview, meta.fingerprint); $('library-image').src = uploadedImage; $('library-image').hidden = false; $('library-image-status').hidden = true; }
+      else { $('library-image').hidden = true; $('library-image').removeAttribute('src'); $('library-image-status').hidden = false;
+        $('library-image-status').textContent = uiLocale.t('Aperçu indisponible : ') + (meta.previewError ? previewText(String(meta.previewError)) : uiLocale.t('aucune image enregistrée')) + uiLocale.t('. Le G-code reste disponible.'); }
+      status('✓ ' + file.name + uiLocale.t(' enregistré. Disponible sur la tablette.') + (legacy ? uiLocale.t(' Fichier non UTF-8 : lu en Windows-1252 (accents convertis).') : '') + (meta.previewError ? uiLocale.t(' Aperçu indisponible : ') + previewText(String(meta.previewError)) : '') + (meta.fingerprint ? '' : uiLocale.t(' Serveur sans empreinte : l’aperçu sera signalé « à vérifier ».')));
       previewChanged(stored);
       // CNCjs's watch list sees a new file a few seconds after it is written
       // (measured: about 4 s on the tablet): look again a few times.
@@ -475,21 +583,27 @@
       return request('POST', 'file', {file:name}, 'regenerate', cancelled, true);
     }).then(function (response) {
       check();
-      return window.CNCLibraryPreview.renderResponse(response, document.createElement('canvas'), cancelled, status);
+      // The server names the bytes it served; the new sidecar describes exactly those.
+      if (!response.fingerprint) throw new Error(uiLocale.t('Empreinte du fichier absente : mettez le serveur CNCjs à jour.'));
+      meta.fingerprint = response.fingerprint; meta.size = response.size;
+      return window.CNCLibraryPreview.renderResponse(response.blob, document.createElement('canvas'), cancelled, status);
     }).then(function (preview) {
       check();
       if (preview.image.length > 2500000) throw new Error(uiLocale.t('Image trop volumineuse.'));
       meta.preview = preview; delete meta.previewError; meta.previewVersion = 2;
+      return withThumbnail(preview);
+    }).then(function () {
+      check();
       return request('POST', 'files', {path:''}, 'regenerate', cancelled);
     }).then(function (result) {
       check();
       var current = result.files.filter(function (f) {return f.name === name;})[0];
       if (!current || current.mtime !== file.mtime || current.size !== file.size || cancelled()) throw new Error(uiLocale.t('Fichier ou sélection modifiés : relancez la régénération.'));
       // Once transmitted, this write is allowed to finish even if selection changes.
-      return request('PUT', 'file', {file:name+suffix, data:JSON.stringify(meta)});
+      return request('PUT', 'file?file=' + encodeURIComponent(name + suffix), new Blob([JSON.stringify(meta)], { type: 'application/octet-stream' }));
     }).then(function () {
       if (selected === name) detailVersion = '';
-      status(uiLocale.t('✓ Aperçu mis à jour sur le serveur, visible aussi sur la Surface.'));
+      status(uiLocale.t('✓ Aperçu mis à jour sur le serveur, visible aussi sur la tablette.'));
       previewChanged(name);
       return refresh(false);
     }).catch(function (error) { status(uiLocale.t('Aperçu non modifié : ') + error.message); }).then(function () { if (current === regenerationId) regenerating = false; });
@@ -504,8 +618,9 @@
   });
   window.addEventListener('cnc-library-page-size',function(e){
     var size=Number(e.detail);
-    if(size!==2&&size!==4&&size!==5)return;
-    if(size!==pageSize){page=Math.floor(page*pageSize/size);pageSize=size;renderList();}
+    if(size!==2&&size!==3&&size!==4&&size!==5)return;
+    pageLimit=size;rowHeight=0;selectedHeight=0;
+    if(size!==pageSize){page=Math.floor(page*pageSize/size);pageSize=size;renderList();}else schedulePageFit();
   });
   function mount() {
     if (mounted || !visible()) return;
@@ -525,6 +640,17 @@
   }
   window.addEventListener('cnc-screen-change', function (e) { if (e.detail === 'files') mount(); else unmount(); });
   document.addEventListener('visibilitychange', function () { if (visible()) mount(); else unmount(); });
-  window.cncLibraryView = { mount: mount, unmount: unmount };
+  $('library-favorites').addEventListener('click', function () {
+    favoritesOnly = !favoritesOnly; page = 0;
+    $('library-favorites').setAttribute('aria-pressed', favoritesOnly ? 'true' : 'false');
+    renderList();
+  });
+  window.addEventListener('cnc-projects-updated', function () { renderList(); });
+  window.cncLibraryView = {
+    mount: mount, unmount: unmount,
+    // For projects.js: the programs listed, and the selection of an associated file.
+    files: function () { return files.map(function (f) { return { name: f.name, display: displayName(f.name) }; }); },
+    selectName: function (name) { var f = files.filter(function (x) { return x.name === name; })[0]; if (f) select(f, false); return !!f; }
+  };
   mount();
 })();

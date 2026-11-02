@@ -343,9 +343,24 @@ class GrblSimulator {
      * This runs continuously to execute queued commands
      */
     startPlannerExecutor() {
-        setInterval(() => {
+        this.plannerTimer = setInterval(() => {
             this.executePlannerQueue();
         }, 10); // Check every 10ms
+        // The loop must not keep a process alive by itself (a server socket or
+        // a serial port does): tests that build simulators then exit naturally.
+        if (this.plannerTimer && typeof this.plannerTimer.unref === 'function') {
+            this.plannerTimer.unref();
+        }
+    }
+
+    /**
+     * Stop the planner executor loop
+     */
+    stopPlannerExecutor() {
+        if (this.plannerTimer) {
+            clearInterval(this.plannerTimer);
+            this.plannerTimer = null;
+        }
     }
 
     /**

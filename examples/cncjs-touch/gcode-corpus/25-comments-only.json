@@ -1,0 +1,35 @@
+{
+  "title": "Comments and M30 only",
+  "covers": ["no motion"],
+  "truth": {
+    "bbox": null,
+    "units": null,
+    "relativeStart": false,
+    "final": null,
+    "arcs": false
+  },
+  "preview": {
+    "accept": true,
+    "count": 0,
+    "bounds": null,
+    "zBounds": null,
+    "relativeStart": false
+  },
+  "travel": "unknown",
+  "programCheck": {
+    "verdict": "validated",
+    "unknownAxes": [],
+    "extent": {
+      "X": null,
+      "Y": null,
+      "Z": null
+    },
+    "rawUnits": false
+  },
+  "resume": {
+    "final": null
+  },
+  "toolpath": {
+    "bounds": null
+  }
+}

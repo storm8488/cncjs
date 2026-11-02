@@ -11,7 +11,7 @@ async function fixture() {
   const { document, node } = createDOM(['files']), pending = [], requests = [], renders = [], events = [];
   let obsoleteParses = 0;
   const context = {
-    document, CustomEvent: function (type, options) { this.type = type; this.detail = options.detail; },
+    document, Blob, CustomEvent: function (type, options) { this.type = type; this.detail = options.detail; },
     window: { addEventListener() {}, dispatchEvent(event) { events.push(event); },
       CNCLibraryPreview: { renderResponse(blob, canvas, cancelled, progress) {
         assert(blob instanceof Blob, 'Opaque watch response goes straight to the preview Worker');
@@ -24,21 +24,26 @@ async function fixture() {
     localStorage: { getItem: () => '{"state":{"session":{"token":"fake"}}}' },
     XMLHttpRequest: function () {
       this.open = (method, url) => { this.method = method; this.url = url; };
-      this.headers = {};
+      this.headers = {}; this.responseHeaders = {};
       this.setRequestHeader = (key, value) => { this.headers[key] = value; };
-      this.send = body => { this.body = body && JSON.parse(body); pending.push(this); requests.push(this); };
+      this.getResponseHeader = key => (key in this.responseHeaders ? this.responseHeaders[key] : null);
+      // A raw upload (a Blob, the name in the query) is kept as { blob }; JSON requests are parsed.
+      this.send = body => { this.body = typeof Blob !== 'undefined' && body instanceof Blob ? { blob: body } : body && JSON.parse(body); pending.push(this); requests.push(this); };
       this.abort = () => { this.aborted = true; this.onabort(); };
     }
   };
   vm.runInNewContext(source, context);
   function take(method, endpoint, file) {
-    const index = pending.findIndex(xhr => xhr.method === method && xhr.url.endsWith('/' + endpoint) && (file === undefined || xhr.body.file === file));
+    const fileOf = xhr => { const q = /[?&]file=([^&]*)/.exec(xhr.url); return q ? decodeURIComponent(q[1]) : xhr.body && xhr.body.file; };
+    const index = pending.findIndex(xhr => xhr.method === method && xhr.url.split('?')[0].endsWith('/' + endpoint) && (file === undefined || fileOf(xhr) === file));
     assert(index >= 0, 'expected ' + method + ' ' + endpoint + ' ' + (file || ''));
     return pending.splice(index, 1)[0];
   }
   function reply(xhr, value) {
     xhr.status = 200;
     if (xhr.responseType === 'blob') {
+      // The server names the served program's bytes in headers (the sidecar records them).
+      xhr.responseHeaders = { 'X-Program-Fingerprint': 'sha256:' + 'f'.repeat(64), 'X-Program-Size': '10' };
       xhr.response = new Blob([JSON.stringify(value)], { type: 'application/json' });
       Object.defineProperty(xhr, 'responseText', { get() { throw Error('Large JSON responseText must never be read on the UI thread'); } });
     } else xhr.responseText = JSON.stringify(value);
@@ -113,6 +118,8 @@ async function fixture() {
   f = await fixture(); (await f.drawing('a.nc')).resolve(preview); await flush();
   f.reply(f.take('POST', 'files'), { files }); await flush();
   const write = f.take('PUT', 'file', 'a.nc.cnctouch.json');
+  assert(write.body.blob, 'the sidecar goes out as raw bytes');
+  assert.equal(JSON.parse(await write.body.blob.text()).fingerprint, 'sha256:' + 'f'.repeat(64), 'the sidecar records the served program');
   await f.select('b.nc'); f.start('b.nc'); assert(!write.aborted);
   f.reply(write, {}); await flush();
   assert.equal(f.node('library-regenerate-status').textContent, 'Lecture du fichier enregistré…');

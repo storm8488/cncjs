@@ -15,7 +15,11 @@ const tests = [
  'transition-performance','viewport-fit','startup','display-settings','download-file',
  'viewport-phases','hidden-views','preview-worker','library-payload',
  'library-lifecycle','library-upload-payload','library-regeneration-cancel','history-view',
- 'job-stream-client','stream-protocol','controller-state','connection-status','operator-tools','i18n','journal-languages','profile-storage','perf-harness','viewport-recall','viewport-warmup','macros','system-monitor','tablet-actions','header-clock','backlight','viewport-scroll','commissioning','kept-screens','viewport-mutation','dom-fixture','interface-guide','grbl-help','travel-check','job-resume','status-strip'
+ 'job-stream-client','stream-protocol','library-identity','api-prefix','controller-state','connection-status','operator-tools','i18n','journal-languages','profile-storage','perf-harness','viewport-recall','viewport-warmup','macros','system-monitor','tablet-actions','header-clock','backlight','viewport-scroll','commissioning','kept-screens','viewport-mutation','dom-fixture','interface-guide','grbl-help','travel-check','job-resume','status-strip','screen-lock','job-follow','viewport-throttle','tool-position','preview-depth','preview-3d',
+ 'numeric-pad','job-preparation','compact-layout','action-feedback','library-context','bundle',
+ 'feedback-states','numeric-rules','preparation-keys','strip-messages','job-dialog-strip','real-motion','gcode-corpus','library-page-fit','layout-exceptions',
+ 'control-attribution','program-check-view','preview-identity','server-history','projects','server-messages',
+ 'strip-guard','strip-continuity','preview-notes'
 ].map(name=>'test-'+name+'.cjs');
 // The backend (job service, event stream, motion preflight, probe input) lives in
 // src/server/services/touch and is covered by the root Jest suite (`yarn test`).
@@ -38,6 +42,9 @@ function run(file, syntax) {
  const child=spawnSync(process.execPath,syntax?['--check',path.join(root,file)]:[path.join(root,file)],
   {cwd:root,encoding:'utf8',timeout:30000,maxBuffer:1024*1024,windowsHide:true});
  if(child.error || child.status!==0) throw Error(child.error?child.error.message:(child.stderr||child.stdout||'Processus interrompu'));
+ // A test whose awaited promise never settles exits 0 without running its last checks:
+ // every test ends by printing its PASS line, so a missing one is a failure.
+ if(!syntax){const last=String(child.stdout||'').trim().split('\n').pop()||'';if(!/\bPASS\b|\bpass(ed)?\b/i.test(last))throw Error('Test interrompu avant sa fin (pas de ligne PASS) : '+file);}
 }
 const manifestPath=path.join(root,'release-manifest.json');
 if(fs.existsSync(manifestPath)) check('Intégrité de la sauvegarde',()=>{
@@ -54,7 +61,7 @@ if(fs.existsSync(manifestPath)) check('Intégrité de la sauvegarde',()=>{
 if(!results.some(result=>!result.ok)) {
  check('Syntaxe des scripts',()=>{
   const scripts=fs.readdirSync(path.join(root,'touch')).filter(name=>name.endsWith('.js')).map(name=>'touch/'+name);
-  scripts.push('preview-server.cjs','dom-fixture.cjs','verify-project.cjs');
+  scripts.push('preview-server.cjs','dom-fixture.cjs','verify-project.cjs','browser-strip.cjs','build-bundle.cjs');
   scripts.concat(tests).forEach(file=>run(file,true));
  });
  check('Ressources locales des deux pages',()=>{

@@ -1,0 +1,16 @@
+%
+O1000
+(generic post with tool length offset)
+N10 G17 G21 G40 G49 G80 G90
+N20 T1 M6
+N30 G43 H1 Z25.
+N40 S8000 M3
+N50 G0 X5. Y5.
+N60 Z2.
+N70 G1 Z-1. F150.
+N80 X25.
+N90 G0 Z25.
+N100 M5
+N110 G49
+N120 M30
+%

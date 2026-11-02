@@ -27,3 +27,7 @@ mkdir -p output/cncjs/server
 
 cp -af src/app/{favicon.ico,i18n,images,assets} output/cncjs/app/
 cp -af src/server/{i18n,views} output/cncjs/server/
+
+# Touch interface (examples/cncjs-touch/touch) next to the server as
+# output/cncjs/touch, with its VERSION.json (see scripts/copy-touch-assets.sh).
+bash scripts/copy-touch-assets.sh output/cncjs

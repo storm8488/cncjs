@@ -1,0 +1,44 @@
+{
+  "title": "Fusion 360 grbl post (header, G28 G91 retracts)",
+  "covers": ["post Fusion 360", "G28", "G94", "G54", "trailing dot"],
+  "truth": {
+    "bbox": {
+      "X": [12.5, 47.5],
+      "Y": [-2, 40],
+      "Z": [-1.5, 15]
+    },
+    "units": "G21",
+    "relativeStart": false,
+    "final": null,
+    "arcs": true
+  },
+  "preview": {
+    "accept": true,
+    "count": 22,
+    "bounds": [0, -2, 47.5, 40],
+    "zBounds": [-1.5, 15],
+    "relativeStart": false,
+    "wcs": "G54",
+    "returns": true
+  },
+  "travel": "ok",
+  "programCheck": {
+    "verdict": "validated",
+    "unknownAxes": [],
+    "extent": {
+      "X": [12.5, 47.5],
+      "Y": [-2, 40],
+      "Z": [-1.5, 15]
+    },
+    "rawUnits": false
+  },
+  "resume": {
+    "final": null
+  },
+  "toolpath": {
+    "bounds": {
+      "min": [12.5, -2, -1.5],
+      "max": [47.5, 40, 15]
+    }
+  }
+}

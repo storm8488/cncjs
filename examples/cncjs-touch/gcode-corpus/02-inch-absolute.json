@@ -1,0 +1,42 @@
+{
+  "title": "Inches, absolute",
+  "covers": ["G20", "G90"],
+  "truth": {
+    "bbox": {
+      "X": [25.4, 50.8],
+      "Y": [25.4, 38.1],
+      "Z": [-1.27, 5.08]
+    },
+    "units": "G20",
+    "relativeStart": false,
+    "final": [50.8, 38.1, 5.08],
+    "arcs": false
+  },
+  "preview": {
+    "accept": true,
+    "count": 2,
+    "bounds": [0, 0, 50.8, 38.1],
+    "zBounds": [-1.27, 5.08],
+    "relativeStart": false
+  },
+  "travel": "ok",
+  "programCheck": {
+    "verdict": "validated",
+    "unknownAxes": [],
+    "extent": {
+      "X": [25.4, 50.8],
+      "Y": [25.4, 38.1],
+      "Z": [-1.27, 5.08]
+    },
+    "rawUnits": false
+  },
+  "resume": {
+    "final": [50.8, 38.1, 5.08]
+  },
+  "toolpath": {
+    "bounds": {
+      "min": [0, 0, -1.27],
+      "max": [50.8, 38.1, 5.08]
+    }
+  }
+}

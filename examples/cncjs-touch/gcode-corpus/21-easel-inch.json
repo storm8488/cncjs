@@ -1,0 +1,42 @@
+{
+  "title": "Easel-style program in inches",
+  "covers": ["post Easel", "G20"],
+  "truth": {
+    "bbox": {
+      "X": [12.7, 38.1],
+      "Y": [12.7, 25.4],
+      "Z": [-1.5875, 3.81]
+    },
+    "units": "G20",
+    "relativeStart": false,
+    "final": [12.7, 12.7, 3.81],
+    "arcs": false
+  },
+  "preview": {
+    "accept": true,
+    "count": 5,
+    "bounds": [0, 0, 38.1, 25.4],
+    "zBounds": [-1.5875, 3.81],
+    "relativeStart": false
+  },
+  "travel": "ok",
+  "programCheck": {
+    "verdict": "validated",
+    "unknownAxes": [],
+    "extent": {
+      "X": [12.7, 38.1],
+      "Y": [12.7, 25.4],
+      "Z": [-1.5875, 3.81]
+    },
+    "rawUnits": false
+  },
+  "resume": {
+    "final": [12.7, 12.7, 3.81]
+  },
+  "toolpath": {
+    "bounds": {
+      "min": [0, 0, -1.5875],
+      "max": [38.1, 25.4, 3.81]
+    }
+  }
+}
