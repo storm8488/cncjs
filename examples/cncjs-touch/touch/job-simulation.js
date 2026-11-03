@@ -108,8 +108,8 @@
             if(['x','y','z'].indexOf(body.axis)<0||[0.1,1,10].indexOf(body.step)<0||[1,-1].indexOf(body.direction)<0)throw new Error(uiLocale.t('Déplacement simulé invalide.'));
             position[body.axis]=Math.round((position[body.axis]+body.step*body.direction)*1000)/1000;
           } else if(a==='zero') {
-            if(['x','y','z','xyz'].indexOf(body.axis)<0)throw new Error(uiLocale.t('Axe invalide.'));
-            ['x','y','z'].forEach(function(axis){if(body.axis==='xyz'||body.axis===axis)offset[axis]=position[axis];});
+            if(['x','y','z','xy','xyz'].indexOf(body.axis)<0)throw new Error(uiLocale.t('Axe invalide.'));
+            ['x','y','z'].forEach(function(axis){if(body.axis==='xyz'||body.axis===axis||(body.axis==='xy'&&axis!=='z'))offset[axis]=position[axis];});
           } else {position={x:0,y:0,z:0};offset={x:0,y:0,z:0};workFrames={G54:offset};wcs='G54';}
           motionRevision++;
           ticket=null;

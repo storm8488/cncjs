@@ -129,5 +129,7 @@
 ["Axe Z du laser","Laser Z axis","Eje Z del láser"],
 ["Affiché","Shown","Visible"],
 ["Masqué","Hidden","Oculto"],
-["Masqué : les coordonnées et commandes Z disparaissent de l’interface, pour un laser sans axe Z. Rien n’est envoyé à la machine.","Hidden: Z coordinates and controls disappear from the interface, for a laser without a Z axis. Nothing is sent to the machine.","Oculto: las coordenadas y los mandos Z desaparecen de la interfaz, para un láser sin eje Z. No se envía nada a la máquina."]
+["Masqué : les coordonnées et commandes Z disparaissent de l’interface, pour un laser sans axe Z. Rien n’est envoyé à la machine.","Hidden: Z coordinates and controls disappear from the interface, for a laser without a Z axis. Nothing is sent to the machine.","Oculto: las coordenadas y los mandos Z desaparecen de la interfaz, para un láser sin eje Z. No se envía nada a la máquina."],
+["Zéro XY","Zero XY","Cero XY"],
+["Palpage X / Y","Probing X / Y","Sondeo X / Y"]
 );

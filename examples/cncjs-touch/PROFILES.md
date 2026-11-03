@@ -37,7 +37,7 @@ The exact laser model is unknown, so the support is by capability, enforced by t
 | **Framing** | `M5` first, then bounded `$J=G90 G21 X… Y… F…` lines around the program's XY outline at the current Z, one at a time; behind the usual confirmation ticket; requires `touch.motion.enabled`, homing, the program inside the travel, the program's WCS active; Arrêter stops it; never `M3`/`M4`/`S>0` |
 | Program check | `S` above `$30` flagged, `M3` (constant) or `M4` (dynamic) reported |
 
-**Axe Z du laser** (Réglages, laser profile only, this browser: `cncjs-touch-laser-z-v1`): Affiché by default; Masqué hides the Z coordinates and the Z controls (Z rows, Zéro Z, Z+/Z−) for a laser without a Z axis. It only changes the display: nothing is sent to the machine, the server's checks are unchanged, and the CNC profile always shows Z.
+**Axe Z du laser** (Réglages, laser profile only, this browser: `cncjs-touch-laser-z-v1`): Affiché by default; Masqué hides the Z coordinates and the Z controls (Z rows, Zéro Z, Z+/Z−) for a laser without a Z axis, and renames « Zéro XYZ » to « Zéro XY » (the simulated zero then sets X and Y only) and « Palpage X / Y / Z » to « Palpage X / Y ». It only changes the display: nothing is sent to the machine, the server's checks are unchanged, and the CNC profile always shows Z.
 
 Wording: « consigne S » (the S set point the program asks for), never a power: nothing measures the optical power.
 

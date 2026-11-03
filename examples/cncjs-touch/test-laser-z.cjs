@@ -22,6 +22,10 @@ function setup(values, kind) {
   const zero = el('BUTTON', 'Zéro Z'), zplus = el('BUTTON', 'Z+'), xplus = el('BUTTON', 'X+'), zrow = el('DIV', ''), title = el('H2', 'Axe Z'), titleXY = el('H2', 'Axes X / Y');
   const choices = [el('BUTTON', 'Affiché', { 'data-laser-z-choice': 'on' }), el('BUTTON', 'Masqué', { 'data-laser-z-choice': 'off' })];
   const card = el('DIV', '', {}); card.querySelectorAll = () => choices;
+  // Buttons whose label names Z: a text node inside, renamed while Z is hidden.
+  const zeroText = { nodeType: 3, nodeValue: 'Zéro XYZ' }, probeText = { nodeType: 3, nodeValue: 'Palpage X / Y / Z' };
+  const zeroAll = el('BUTTON', '', { 'data-axis': 'xyz' }); zeroAll.childNodes = [{ nodeType: 1, childNodes: [zeroText] }];
+  const probe = el('BUTTON', ''); probe.childNodes = [probeText];
   const machineCard = { insertAdjacentHTML(where, html) { assert.equal(where, 'afterend'); assert.match(html, /id="ks-laser-z-card"/); } };
   const select = (sel) => {
     if (sel === '.t-coords > .t-axis') return [axisZ, axisX];
@@ -30,6 +34,8 @@ function setup(values, kind) {
     if (/data-axis/.test(sel)) return [zrow];
     if (sel === 'h2') return [title, titleXY];
     if (sel === '[data-laser-z-choice]') return choices;
+    if (sel === '.ks-origin-zero') return [zeroAll];
+    if (sel === '.probe-entry') return [probe];
     return [];
   };
   const document = { readyState: 'complete', body: { classList: { toggle: (n, on) => (on ? classes.add(n) : classes.delete(n)) } },
@@ -41,7 +47,7 @@ function setup(values, kind) {
     addEventListener(n, f) { listeners[n] = f; } };
   vm.runInNewContext(source, { window, document, JSON, String, Array, setTimeout });
   const change = (k) => { current = k; listeners['cnc-profile-change'](); };
-  return { window, classes, card, choices, change, spies, z: [axisZ, valZ, unitZ, rowZ, zero, zplus, zrow, title], other: [axisX, valX, rowX, xplus, titleXY] };
+  return { window, classes, card, choices, change, spies, zeroText, probeText, zeroAll, z: [axisZ, valZ, unitZ, rowZ, zero, zplus, zrow, title], other: [axisX, valX, rowX, xplus, titleXY] };
 }
 
 const values = new Map();
@@ -55,9 +61,12 @@ assert.equal(s.card.hidden, false); assert(s.classes.has('laser-no-z'));
 s.z.forEach((e) => assert(e.hasAttribute('data-laser-z'), 'tagged: ' + e.tagName + ' ' + e.textContent));
 s.other.forEach((e) => assert(!e.hasAttribute('data-laser-z'), 'not tagged: ' + e.tagName + ' ' + e.textContent));
 assert.equal(s.choices[1].getAttribute('aria-pressed'), 'true');
+// Labels naming Z say XY, and the simulated zero only zeroes X and Y.
+assert.equal(s.zeroText.nodeValue, 'Zéro XY'); assert.equal(s.probeText.nodeValue, 'Palpage X / Y'); assert.equal(s.zeroAll.getAttribute('data-axis'), 'xy');
 // Affiché: shown again at once and stored; back to CNC keeps it shown.
 s.choices[0].click();
 assert.equal(s.classes.has('laser-no-z'), false); assert.deepEqual(JSON.parse(values.get(KEY)), { version: 1, z: true });
+assert.equal(s.zeroText.nodeValue, 'Zéro XYZ'); assert.equal(s.probeText.nodeValue, 'Palpage X / Y / Z'); assert.equal(s.zeroAll.getAttribute('data-axis'), 'xyz');
 s.choices[1].click(); assert(s.classes.has('laser-no-z'));
 s.change('cnc'); assert.equal(s.classes.has('laser-no-z'), false); assert.equal(s.card.hidden, true);
 // Default (nothing stored) and corrupt value: Z shown.

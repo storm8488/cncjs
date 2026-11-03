@@ -19,9 +19,29 @@
     each('[data-axis="Z"],[data-axis="z"],.zrow,option[value="z"],option[value="Z"]', tag);
     each('h2', function (h) { if (text(h) === t('Axe Z') || text(h) === 'Axe Z') tag(h); });
   }
+  // Labels that name Z: renamed to XY while Z is hidden, the original text kept to put it back.
+  var RENAME = [['.ks-origin-zero', 'Zéro XYZ', 'Zéro XY'], ['.probe-entry', 'Palpage X / Y / Z', 'Palpage X / Y']];
+  function textNodes(e, out) { Array.prototype.forEach.call(e.childNodes || [], function (n) { if (n.nodeType === 3) out.push(n); else textNodes(n, out); }); return out; }
+  function rename(hide) {
+    RENAME.forEach(function (rule) {
+      var from = t(rule[1]), to = t(rule[2]);
+      Array.prototype.forEach.call(document.querySelectorAll(rule[0]), function (b) {
+        textNodes(b, []).forEach(function (n) {
+          var v = n.nodeValue.trim();
+          if (hide && v === from) n.nodeValue = n.nodeValue.replace(from, to);
+          else if (!hide && v === to) n.nodeValue = n.nodeValue.replace(to, from);
+        });
+        // The simulated zero follows its label: X and Y only while Z is hidden.
+        var axis = b.getAttribute && b.getAttribute('data-axis');
+        if (hide && axis === 'xyz') b.setAttribute('data-axis', 'xy');
+        else if (!hide && axis === 'xy') b.setAttribute('data-axis', 'xyz');
+      });
+    });
+  }
   function apply() {
     var hide = laser() && !showZ;
     if (hide) mark();
+    rename(hide);
     if (document.body) document.body.classList.toggle('laser-no-z', hide);
     var card = document.getElementById('ks-laser-z-card');
     if (card) {
@@ -46,7 +66,7 @@
   window.addEventListener('cnc-profile-change', apply);
   // Panels built later (jog, coordinate editor, Suivi values) are marked when a screen opens or a tap may have built one.
   window.addEventListener('cnc-screen-change', apply);
-  document.addEventListener('click', function () { if (laser() && !showZ) setTimeout(mark, 300); }, true);
+  document.addEventListener('click', function () { if (laser() && !showZ) setTimeout(function () { mark(); rename(true); }, 300); }, true);
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', apply); else apply();
   window.cncLaserZ = { shown: function () { return showZ; }, choose: choose, mark: mark };
 })();
