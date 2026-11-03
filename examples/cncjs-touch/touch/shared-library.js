@@ -161,7 +161,7 @@
   // shown, with the fingerprint of the program it was drawn from (the 3D views are kept per
   // fingerprint; without one they are not drawn).
   function describe(file, preview, fingerprint) {
-    $('library-image').cncPreview = preview ? { file: file, fingerprint: typeof fingerprint === 'string' ? fingerprint : '', projection: preview.projection, zBounds: preview.zBounds, path3d: preview.path3d || null } : null;
+    $('library-image').cncPreview = preview ? { file: file, fingerprint: typeof fingerprint === 'string' ? fingerprint : '', projection: preview.projection, zBounds: preview.zBounds, path3d: preview.path3d || null, estimate: preview.estimate || null, laser: preview.laser || null } : null;
   }
   // Row thumbnails and XY extents come from each file's stored preview, read one
   // at a time in idle time after the list is drawn (never before the selected
