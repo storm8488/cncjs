@@ -159,12 +159,12 @@ function settingsRows() {
   const kinds = ['cnc', 'laser'].map((v) => { const b = dom.element('button'); b.setAttribute('data-machine-kind', v); return b; });
   const perfs = ['eco', 'performance'].map((v) => { const b = dom.element('button'); b.setAttribute('data-performance', v); return b; });
   dom.node('ks-machine-kind-card').querySelectorAll = () => kinds; dom.node('ks-performance-card').querySelectorAll = () => perfs;
-  dom.node('profile-machine-confirm').hidden = true; dom.node('profile-machine-unconfirmed').hidden = true;
+  dom.node('profile-machine-unconfirmed').hidden = true;
   let answer = Promise.resolve({ message: 'ok' });
   const window = { innerWidth: 1366, innerHeight: 768, location: { reload() { spies.reload++; } }, XMLHttpRequest: function () { spies.xhr++; },
     addEventListener(n, f) { (listeners[n] || (listeners[n] = [])).push(f); }, dispatchEvent(e) { (listeners[e.type] || []).slice().forEach((f) => f(e)); },
     cncScreenSaver: { configure() {}, status: () => ({ blocked: false, reason: '' }), preview: () => true },
-    cncJobControls: { clientId: () => 't-abc-1a2b3c4d', pilot: () => ({ value: 'Cet appareil' }), setMachineKind(kind, label) { calls.push([kind, label]); return answer; }, forgetMachine() { calls.push(['forget']); return answer; } } };
+    cncJobControls: { clientId: () => 't-abc-1a2b3c4d', pilot: () => ({ value: 'Cet appareil' }), setMachineKind(kind, label) { calls.push([kind, label]); return answer; } } };
   const storage = memory();
   const context = { window, document: dom.document, localStorage: storage, Promise, JSON, Event: class { constructor(t) { this.type = t; } }, CustomEvent: class { constructor(t, o) { this.type = t; this.detail = o && o.detail; } } };
   window.localStorage = storage;
@@ -181,49 +181,43 @@ function settingsRows() {
   kinds.forEach((b) => { assert.equal(b.disabled, true); assert.match(b.getAttribute('title'), /Aucune machine connectée/); });
   // Unknown kind: the CNC interface stays, the prompt is visible.
   send(machine(null));
-  assert.equal(n('profile-machine-forget').hidden, true, 'nothing to forget without a record');
   assert.equal(n('profile-machine-unconfirmed').hidden, false); assert.match(n('profile-machine-unconfirmed').textContent, /Type de machine non confirmé/);
-  assert.match(n('profile-machine-target').textContent, /\/dev\/ttyUSB0/); assert.match(n('profile-machine-target').textContent, /pas encore associée/);
+  assert.match(n('profile-machine-target').textContent, /type non choisi · [/]dev[/]ttyUSB0/);
   // Not allowed now: disabled with the server's reason; a tap says it.
   const busy = machine('cnc'); busy.machineProfile.canChange = false; busy.machineProfile.changeReason = 'Machine en mouvement : changement refusé.';
   send(busy);
   kinds.forEach((b) => { assert.equal(b.disabled, true); assert.equal(b.getAttribute('title'), 'Machine en mouvement : changement refusé.'); });
   assert.equal(kinds[0].getAttribute('aria-pressed'), 'true'); assert.equal(n('profile-machine-unconfirmed').hidden, true);
   kinds[1].handlers.click.call(kinds[1]); assert.equal(n('profile-machine-status').textContent, 'Machine en mouvement : changement refusé.'); assert.equal(calls.length, 0);
-  // Allowed: a confirmation names the machine, the port, this device and the pilot; Annuler sends nothing.
-  send(machine('cnc'), { value: 'Tablette 3c4d', state: 'mine' });
+  // Allowed: a plain switch, one tap sends the kind with the machine's current name (or the kind word); no panel, no name asked.
+  send(machine('cnc'));
+  assert.match(n('profile-machine-target').textContent, /^Machine : CNC · [/]dev[/]ttyUSB0$/);
+  kinds[0].click(); assert.equal(calls.length, 0, 'the current kind sends nothing');
   kinds[1].click();
-  assert.equal(n('profile-machine-confirm').hidden, false);
-  const text = n('profile-machine-confirm-text').textContent;
-  assert.match(text, /« Laser » pour la machine « Fraiseuse » \(\/dev\/ttyUSB0\)/); assert.match(text, /cet appareil \(3c4d\)/); assert.match(text, /pilote actuel : Tablette 3c4d/); assert.match(text, /Aucune commande/);
-  assert.equal(n('profile-machine-label').value, 'Fraiseuse');
-  n('profile-machine-cancel').click(); assert.equal(n('profile-machine-confirm').hidden, true); assert.equal(calls.length, 0);
-  // Confirmed: one call to setMachineKind with the kind and the label typed.
-  kinds[1].click(); n('profile-machine-label').value = '  Laser atelier  '; n('profile-machine-apply').click();
-  assert.deepEqual(calls, [['laser', 'Laser atelier']]); assert.match(n('profile-machine-status').textContent, /Demande envoyée/);
+  assert.deepEqual(calls, [['laser', 'Fraiseuse']]); assert.match(n('profile-machine-status').textContent, /Demande envoyée/);
   kinds.forEach((b) => assert.equal(b.disabled, true, 'no second request while one is on its way'));
-  // An empty name is refused before any request.
   return flush().then(() => {
-    assert.match(n('profile-machine-status').textContent, /Type enregistré par le serveur CNCjs : Laser · « Laser atelier »/);
-    kinds[0].click(); n('profile-machine-label').value = '   '; n('profile-machine-apply').click(); assert.equal(calls.length, 1); assert.match(n('profile-machine-status').textContent, /Indiquez un nom/);
+    assert.match(n('profile-machine-status').textContent, /^Type enregistré : Laser.$/);
+    // A machine without a name gets the kind word.
+    const unnamed = machine('laser'); unnamed.machineProfile.label = ''; send(unnamed);
+    kinds[0].click(); assert.deepEqual(calls.at(-1), ['cnc', 'CNC']);
+    return flush();
+  }).then(() => {
     // A refusal from the server is shown as it comes.
     answer = Promise.reject(new Error('Refusé : pilotage attribué à « PC atelier ».'));
-    n('profile-machine-label').value = 'Fraiseuse'; n('profile-machine-apply').click(); assert.equal(calls.length, 2);
+    send(machine('cnc')); kinds[1].click(); assert.equal(calls.length, 3);
     return flush();
   }).then(() => {
     assert.match(n('profile-machine-status').textContent, /pilotage attribué/);
-    // Forget: shown for a known record, confirmed like a kind change, no label asked, one call.
+    // The simulated profile (simulation page) says nothing reaches the server.
     answer = Promise.resolve({ message: 'ok' });
-    send(machine('cnc'), { value: 'Tablette 3c4d', state: 'mine' });
-    assert.equal(n('profile-machine-forget').hidden, false); assert.equal(n('profile-machine-forget').disabled, false);
-    n('profile-machine-forget').click();
-    assert.match(n('profile-machine-confirm-text').textContent, /Oublier la fiche de la machine « Fraiseuse » \(\/dev\/ttyUSB0\)/); assert.match(n('profile-machine-confirm-text').textContent, /Aucune commande/);
-    assert.equal(n('profile-machine-label').hidden, true); assert.equal(calls.length, 2);
-    n('profile-machine-apply').click(); assert.deepEqual(calls.at(-1), ['forget']); assert.equal(calls.length, 3);
+    const sim = machine('cnc'); sim.machineProfile.simulated = true; sim.machineProfile.portHint = 'SIMULATION'; send(sim);
+    assert.match(n('profile-machine-target').textContent, /simulation : cette page seulement/);
+    kinds[1].click(); assert.equal(calls.length, 4);
     return flush();
   }).then(() => {
-    assert.match(n('profile-machine-status').textContent, /Fiche machine oubliée/);
-    n('profile-machine-label').hidden = false; calls.length = 2;
+    assert.match(n('profile-machine-status').textContent, /Type simulé appliqué à cette page : Laser/);
+    calls.length = 2;
     // Performance: applied and saved here, no reload, no request, no machine call.
     assert.equal(perfs[0].getAttribute('aria-pressed'), 'true');
     perfs[1].click();

@@ -211,8 +211,8 @@ GitHub when `repo` is set.
 - Machine type and tablet performance (2026-11, [PROFILES.md](PROFILES.md)):
   `touch.machines` in `.cncrc` and the browser keys `cncjs-touch-performance-v1`
   and `cncjs-touch-clamps-v1` are ignored by older builds and can stay; the
-  display preferences were not changed. To drop only the machine type, use
-  « Oublier cette fiche machine » or remove `touch.machines` with CNCjs stopped.
+  display preferences were not changed. To drop only the machine type, remove
+  `touch.machines` with CNCjs stopped.
 
 ## Checks after installation
 

@@ -122,5 +122,8 @@
 ["Simulation : cadrage non simulé, aucun mouvement.","Simulation: framing is not simulated, no movement.","Simulación: el encuadre no se simula, sin movimiento."],
 ["Type simulé :","Simulated type:","Tipo simulado:"],
 [". Affichage de cette page seulement, rien envoyé au serveur CNCjs.",". This page’s display only, nothing sent to the CNCjs server.",". Solo la visualización de esta página, nada enviado al servidor CNCjs."],
-["Type simulé effacé : interface CNC par défaut.","Simulated type cleared: CNC interface by default.","Tipo simulado borrado: interfaz CNC por defecto."]
+["Type simulé effacé : interface CNC par défaut.","Simulated type cleared: CNC interface by default.","Tipo simulado borrado: interfaz CNC por defecto."],
+["type non choisi","type not chosen","tipo no elegido"],
+["Type enregistré :","Type saved:","Tipo guardado:"],
+["Consigne S rapportée","Reported S set point","Consigna S informada"]
 );

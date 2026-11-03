@@ -4,12 +4,20 @@
   var $=function(id){return document.getElementById(id);};
   // Laser profile (server-side machine type): the spindle value is an S set point, not a speed.
   function laser(){return !!(window.cncProfile&&window.cncProfile.kind()==='laser');}
+  // The spindle labels follow the machine type when it changes (Réglages), not only at load.
+  function relabel(){
+    var a=$('home-override-spindle-label'),b=$('home-live-spindle-label');
+    var override=laser()?uiLocale.t('Consigne S'):uiLocale.t('Broche'),live=laser()?uiLocale.t('Consigne S rapportée'):uiLocale.t('Broche réelle');
+    if(a&&a.textContent!==override)a.textContent=override;
+    if(b&&b.textContent!==live)b.textContent=live;
+  }
+  window.addEventListener('cnc-profile-change',function(){relabel();});
   var home=$('file');if(!home)return;
   // UI 2027: preview and overrides on the left; progress, coordinates, live
   // values and the actions on the right. Démarrer or Reprendre is the one
   // primary action; Arrêter stands alone at the bottom, never next to Pause.
   var simulationPage=document.body.getAttribute('data-simulation')==='true';
-  home.parentNode.insertAdjacentHTML('beforeend',uiLocale.html('<div class="job-dashboard"><div id="home-left" class="home-left"><div class="job-art"><img id="home-job-image" alt="Aperçu du fichier" hidden><p id="home-image-status">Sélectionnez un fichier pour afficher son aperçu.</p></div></div><div class="job-metrics"><h2 id="home-job-title" class="ks-sr-only">Suivi du travail</h2><div class="t-card home-progress"><div class="home-progress-head"><strong id="home-job-percent">—</strong><div class="home-progress-text"><p id="home-job-eta">Temps restant : —</p><p id="home-job-motion" class="home-job-motion" hidden></p><p id="home-job-name" class="ks-sr-only"></p></div></div><progress id="home-job-progress" max="100" value="0" aria-label="Avancement du travail"></progress></div><div id="home-coords" class="home-coords"></div><div class="home-live-tiles"><div class="t-card"><small>Avance réelle</small><b id="home-live-feed">—</b></div><div class="t-card"><small>Broche réelle</small><b id="home-live-spindle">—</b></div></div><p id="home-job-note" class="ks-sr-only"></p></div></div>'));
+  home.parentNode.insertAdjacentHTML('beforeend',uiLocale.html('<div class="job-dashboard"><div id="home-left" class="home-left"><div class="job-art"><img id="home-job-image" alt="Aperçu du fichier" hidden><p id="home-image-status">Sélectionnez un fichier pour afficher son aperçu.</p></div></div><div class="job-metrics"><h2 id="home-job-title" class="ks-sr-only">Suivi du travail</h2><div class="t-card home-progress"><div class="home-progress-head"><strong id="home-job-percent">—</strong><div class="home-progress-text"><p id="home-job-eta">Temps restant : —</p><p id="home-job-motion" class="home-job-motion" hidden></p><p id="home-job-name" class="ks-sr-only"></p></div></div><progress id="home-job-progress" max="100" value="0" aria-label="Avancement du travail"></progress></div><div id="home-coords" class="home-coords"></div><div class="home-live-tiles"><div class="t-card"><small>Avance réelle</small><b id="home-live-feed">—</b></div><div class="t-card"><small id="home-live-spindle-label">Broche réelle</small><b id="home-live-spindle">—</b></div></div><p id="home-job-note" class="ks-sr-only"></p></div></div>'));
   var execution=document.querySelector('.library-execution');
   $('home-job-note').insertAdjacentHTML('afterend',uiLocale.html('<p id="home-job-ready" class="t-notice" role="status"></p><p id="home-job-selection" class="t-help"></p><button id="home-job-load" class="t-btn home-load" disabled>Charger la sélection</button><div id="home-job-primary-row" class="home-job-actions home-job-primary"><button id="home-job-start" class="t-btn t-btn--primary" disabled>Démarrer…</button><button id="home-job-pause" class="t-btn t-btn--warn t-btn--lg" disabled>Pause</button></div><div id="home-job-resume-row" class="home-job-actions home-job-resume" hidden><button id="home-job-resume" class="t-btn t-btn--primary" disabled>Reprendre…</button></div><p id="home-job-feedback" class="t-sent" role="status"></p><div class="home-stop"><button id="home-job-stop" class="t-btn t-btn--danger" disabled>Arrêter le travail</button><span class="t-help">Arrêt logiciel · pas un arrêt d’urgence</span></div>'));
   // The real page keeps its coordinate cards (#wx…, #mx…, written by app.js): they move under the progress.
@@ -27,13 +35,14 @@
   $('home-left').insertAdjacentHTML('beforeend',uiLocale.html('<div id="home-overrides" class="home-overrides t-card" hidden><div class="home-overrides-head"><p class="home-overrides-title">Corrections</p><p id="home-live" class="home-live ks-sr-only"></p></div><p id="home-spindle-warning" class="t-notice" data-tone="warn" role="alert" hidden></p>')+
     ['feed','spindle'].map(function(kind){
       var label=kind==='feed'?uiLocale.t('Avance'):laser()?uiLocale.t('Consigne S'):uiLocale.t('Broche');
-      return '<div class="t-override" data-kind="'+kind+'"><div class="t-ov-name">'+label+'<b id="home-override-'+kind+'">—</b></div><div class="t-ov-row">'+
+      return '<div class="t-override" data-kind="'+kind+'"><div class="t-ov-name"><span id="home-override-'+kind+'-label">'+label+'</span><b id="home-override-'+kind+'">—</b></div><div class="t-ov-row">'+
         [[-10,'−10 %',''],[0,'100 %',' t-btn--ghost'],[10,'+10 %',''],[-1,'−1 %',' t-btn--ghost t-fine'],[1,'+1 %',' t-btn--ghost t-fine']].map(function(step){return '<button type="button" class="t-btn'+step[2]+'" data-kind="'+kind+'" data-value="'+step[0]+'" disabled>'+step[1]+'</button>';}).join('')+'</div></div>';
     }).join('')+
     // Rapids (G0 only): 25 / 50 / 100 %, also at rest so a first run can start slowed.
     '<div class="t-override t-override--rapid" data-kind="rapid"><div class="t-ov-name">'+uiLocale.t('Rapides')+'<b id="home-override-rapid">—</b></div><div class="t-ov-row">'+
       [[25,'25 %'],[50,'50 %'],[100,'100 %']].map(function(step){return '<button type="button" class="t-btn t-btn--ghost" data-kind="rapid" data-value="'+step[0]+'" aria-pressed="false" disabled>'+step[1]+'</button>';}).join('')+'</div></div>'+
     uiLocale.html('<p id="home-override-note" class="t-help"></p><p id="home-rapid-note" class="t-help"></p></div>'));
+  relabel();
   var overridesBox=$('home-overrides');
   overridesBox.addEventListener('click',function(e){
     var button=e.target&&e.target.closest?e.target.closest('button[data-kind]'):null;
