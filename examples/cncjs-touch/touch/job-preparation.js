@@ -27,6 +27,9 @@
     var c = input.machine || null, sel = input.selection || null, ticks = input.ticks || {}, steps = [];
     var fresh = !!(c && c.fresh), alarm = !!(c && /^alarm/i.test(c.activeState || '')), busy = !!(c && c.workflow && c.workflow !== 'idle');
     var loaded = fresh && !!c.name, same = loaded && !!sel && sel.file === c.name;
+    // Laser profile (PROFILES-CONTRACT.md §3): material and focus instead of tool and stock, an XY
+    // origin checked by framing; no Z zero with a plate. Unknown or CNC: the CNC steps.
+    var profile = c && c.machineProfile && typeof c.machineProfile === 'object' ? c.machineProfile : null, laser = !!(profile && profile.kind === 'laser');
     // 1. File.
     var file;
     if (!fresh) file = { state: 'blocking', detail: t('État machine indisponible.'), next: t('Attendez un rapport récent du contrôleur.') };
@@ -40,7 +43,10 @@
     file.id = 'file'; file.title = t('Fichier'); steps.push(file);
     // 2. Tool and stock (operator tick, bound to the program).
     var canTick = loaded && !busy;
-    steps.push({ id: 'tool', title: t('Outil et matière'), state: !canTick ? 'todo' : ticks.tool ? 'ok' : 'todo',
+    if (laser) steps.push({ id: 'tool', title: t('Matériau et mise au point'), state: !canTick ? 'todo' : ticks.tool ? 'ok' : 'todo',
+      detail: !loaded ? t('Après le chargement du fichier.') : ticks.tool ? t('Vérifiés pour ce programme.') : t('Matériau posé à plat et maintenu ; mise au point : laser éteint, tête au-dessus du matériau, hauteur réglée avec la cale ou la méthode du fabricant, tête serrée, cale retirée ; lunettes, assistance d’air et extraction en marche ?'),
+      next: canTick && !ticks.tool ? t('Cochez après vérification. Aucune commande n’est envoyée.') : '' });
+    else steps.push({ id: 'tool', title: t('Outil et matière'), state: !canTick ? 'todo' : ticks.tool ? 'ok' : 'todo',
       detail: !loaded ? t('Après le chargement du fichier.') : ticks.tool ? t('Vérifiés pour ce programme.') : t('Outil monté, serré, matière et brides en place ?'),
       next: canTick && !ticks.tool ? t('Cochez après vérification.') : '' });
     // 3. Work origin (operator tick, bound to the program and to the current work offset).
@@ -48,7 +54,8 @@
     var origin = { id: 'origin', title: t('Origine de travail') };
     if (!loaded) { origin.state = 'todo'; origin.detail = t('Après le chargement du fichier.'); origin.next = ''; }
     else if (!offset) { origin.state = 'warn'; origin.detail = t('Positions du contrôleur inconnues.'); origin.next = t('Attendez un rapport avec les coordonnées.'); }
-    else if (ticks.origin) { origin.state = 'ok'; origin.detail = t('Réglée') + (frame ? ' · ' + frame : '') + (c.zeroZ && !c.zeroZ.failed ? t(' · zéro Z plaque ') + c.zeroZ.thickness + ' mm' : ''); origin.next = ''; }
+    else if (ticks.origin) { origin.state = 'ok'; origin.detail = t('Réglée') + (frame ? ' · ' + frame : '') + (!laser && c.zeroZ && !c.zeroZ.failed ? t(' · zéro Z plaque ') + c.zeroZ.thickness + ' mm' : ''); origin.next = ''; }
+    else if (laser) { origin.state = 'todo'; origin.detail = t('Zéro XY sur le matériau ; la hauteur est celle de la mise au point') + (frame ? ' · ' + frame : ''); origin.next = t('Réglez dans Préparer (Zéro X / Y), vérifiez avec le cadrage (Suivi), puis cochez.'); }
     else { origin.state = 'todo'; origin.detail = t('Zéro XY sur la pièce, zéro Z sur le dessus (plaque ou touche)') + (frame ? ' · ' + frame : ''); origin.next = t('Réglez dans Préparer (Zéro X / Y / Z, plaque), puis cochez.'); }
     steps.push(origin);
     // 4. Checks: alarm, homing, travel, stalled, server reasons.
@@ -71,6 +78,7 @@
         else if (tr && tr.state === 'unknown') notes.push(tr.message);
       }
       if (loaded && input.previewVerdict === 'unverified') notes.push(t('Aperçu non vérifié par le serveur.'));
+      if (profile && profile.coherent === false) { if (checks.state !== 'blocking') checks.state = 'warn'; notes.push(t('Réglages du contrôleur incohérents avec le type de machine : voir Réglages → Type de machine.')); }
     }
     checks.detail = notes.join(' ') || t('Rien à signaler.');
     steps.push(checks);
@@ -86,7 +94,7 @@
     else if (!ticksOk) { ready.state = 'todo'; ready.detail = t('La machine accepte le démarrage ; il reste des étapes à cocher.'); ready.next = t('Terminez les étapes ci-dessus.'); }
     else { ready.state = 'ok'; ready.detail = t('Tout est coché et la machine est prête.'); ready.next = t('Démarrer se touche dans Suivi, avec sa confirmation. Rien ne part d’ici.'); }
     steps.push(ready);
-    return { steps: steps, ready: ready.state === 'ok' && !busy, blocked: blocked, programKey: programKey(c, input.preview), offsetKey: offset };
+    return { steps: steps, ready: ready.state === 'ok' && !busy, blocked: blocked, programKey: programKey(c, input.preview), offsetKey: offset, laser: laser };
   }
   var api = { assess: assess, programKey: programKey, offsetKey: offsetKey };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
@@ -122,8 +130,8 @@
         var label = document.createElement('label'); label.className = 't-check ks-prep-check';
         var box = document.createElement('input'); box.type = 'checkbox'; box.id = 'ks-prep-' + step.id;
         box.addEventListener('change', function () { ticks[step.id] = !!box.checked; render(); });
-        label.appendChild(box); var text = document.createElement('span'); text.textContent = step.id === 'tool' ? t('Outil et matière vérifiés') : t('Origine de travail réglée'); label.appendChild(text);
-        li.appendChild(label); li._box = box;
+        label.appendChild(box); var text = document.createElement('span'); label.appendChild(text);
+        li.appendChild(label); li._box = box; li._tickText = text;
       }
       if (step.id === 'file') {
         var load = document.createElement('button'); load.type = 'button'; load.className = 't-btn'; load.id = 'ks-prep-load'; load.textContent = t('Charger la sélection');
@@ -150,6 +158,7 @@
       if (li._detail.textContent !== step.detail) li._detail.textContent = step.detail;
       if (li._next.textContent !== step.next) li._next.textContent = step.next;
       if (li._box) { var can = !!(machine && machine.fresh && machine.name && machine.workflow === 'idle'); if (li._box.disabled !== !can) li._box.disabled = !can; if (li._box.checked !== !!ticks[step.id]) li._box.checked = !!ticks[step.id]; }
+      if (li._tickText) { var tick = step.id === 'tool' ? (result.laser ? t('Matériau et mise au point vérifiés') : t('Outil et matière vérifiés')) : t('Origine de travail réglée'); if (li._tickText.textContent !== tick) li._tickText.textContent = tick; }
       if (li._load) { var b = document.getElementById('job-load'), show = step.state !== 'ok' && !!selection && !!(b && !b.disabled); if (li._load.hidden !== !show) li._load.hidden = !show; }
     });
     var foot = result.ready ? t('Prêt : ouvrez Suivi et touchez Démarrer. Ce panneau ne lance rien.') : result.blocked ? t('Une étape bloque le démarrage.') : t('Étapes restantes ci-dessus. Ce panneau ne lance rien.');

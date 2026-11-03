@@ -113,6 +113,12 @@
     }
     return p;
   }
+  // The machine the commands go to, as the server names it: label and kind (unknown kind: CNC).
+  function targetText(m){
+    var p=m&&m.machineProfile&&typeof m.machineProfile==='object'?m.machineProfile:null;
+    var kind=p&&p.kind==='laser'?uiLocale.t('Laser'):p&&p.kind==='cnc'?uiLocale.t('CNC'):uiLocale.t('type non confirmé');
+    return uiLocale.t('Machine : ')+(p&&p.label?'« '+p.label+' »':uiLocale.t('sans nom'))+' ('+kind+')';
+  }
   // A refusal because another device pilots the port (HTTP 409, code ECONTROL): who, and what to do next.
   function controlRefusal(data){
     var e=new Error(data.owner?uiLocale.t('Refusé : pilotage attribué à « ')+ownerName(data.owner)+uiLocale.t(' ». Pause et Arrêter restent possibles. Pour agir ici, touchez Pilote dans le bandeau et prenez le pilotage avec un motif, ou attendez sa libération.'):String(data.message||uiLocale.t('Refusé : la machine est pilotée par un autre appareil.')));
@@ -173,7 +179,9 @@
     unlock:[uiLocale.t('Le déverrouillage ($X) lève l’alarme sans aucun mouvement. La position peut être fausse : refaites la prise d’origine avant de travailler.'),uiLocale.t('Je suis devant la machine et la cause de l’alarme est réglée.')],
     home:[uiLocale.t('La prise d’origine ($H) déplace chaque axe jusqu’à ses capteurs. Dégagez la zone de travail.'),uiLocale.t('Je suis devant la machine et la zone est dégagée.')],
     spindle:[uiLocale.t('Le test fait tourner la broche. Tenez mains et objets à distance de l’outil.'),uiLocale.t('Je suis devant la machine et l’outil peut tourner.')],
-    zeroZ:[uiLocale.t('Le palpage descend Z jusqu’au contact avec la plaque. Vérifiez la plaque et la pince.'),uiLocale.t('Je suis devant la machine, la plaque et la pince sont en place.')]
+    zeroZ:[uiLocale.t('Le palpage descend Z jusqu’au contact avec la plaque. Vérifiez la plaque et la pince.'),uiLocale.t('Je suis devant la machine, la plaque et la pince sont en place.')],
+    // Laser framing (PROFILES-CONTRACT.md §4): XY moves around the program, M5 first, never emits.
+    frame:[uiLocale.t('Le cadrage déplace la tête en XY autour du programme chargé, à la hauteur actuelle, laser éteint (M5 envoyé d’abord). Arrêter interrompt le mouvement.'),uiLocale.t('Je suis devant la machine et la zone est dégagée.')]
   };
   function inStrip(node){return !!(node&&typeof node.closest==='function'&&node.closest('#real-banner,#simulation-banner'));}
   function stripKept(){return STRIP_STOPS.map($).filter(inStrip);}
@@ -252,9 +260,12 @@
   // Whether the machine state still allows what a ticket was issued for.
   // Commissioning commands confirmed through the same dialog (no loaded program involved).
   var COMMANDS={unlock:'canUnlock',home:'canHome',spindle:'canSpindleTest',zeroZ:'canZeroZ'};
-  function standalone(operation){return operation==='macro'||Object.prototype.hasOwnProperty.call(COMMANDS,operation);}
+  // Laser framing: a ticket of the machine action (frame-prepare, then frame with its nonce).
+  function laserFrame(state){var c=state&&state.machineProfile&&state.machineProfile.capabilities;return !!(c&&c.laserFrame&&c.laserFrame.supported===true);}
+  function standalone(operation){return operation==='macro'||operation==='frame'||Object.prototype.hasOwnProperty.call(COMMANDS,operation);}
   function ticketAllowed(t,state){
     if(t.operation==='macro')return !!state.canMacro;
+    if(t.operation==='frame')return laserFrame(state)&&state.revision===t.revision;
     if(Object.prototype.hasOwnProperty.call(COMMANDS,t.operation))return !!state[COMMANDS[t.operation]];
     if(state.revision!==t.revision)return false;
     return t.operation==='start'?!!state.canStart:!!state.canResume;
@@ -443,7 +454,7 @@
       return api('POST',target);
     }
     if(!current || Date.now()-lastSeen>=3000)return Promise.reject(new Error('État indisponible.'));
-    if(!simulation&&(['prepare','start','resume','macro','override','unlock','home','spindle','readSettings','set-origin'].indexOf(action)>=0||(action==='motion'&&!(extra&&extra.operation==='jog-stop')))&&(!current.generation||!transportId||!stream||!stream.alive()))return Promise.reject(new Error(uiLocale.t('Suivi continu interrompu. Nouvelle confirmation requise.')));
+    if(!simulation&&(['prepare','start','resume','macro','override','unlock','home','spindle','readSettings','set-origin','machine'].indexOf(action)>=0||(action==='motion'&&!(extra&&extra.operation==='jog-stop')))&&(!current.generation||!transportId||!stream||!stream.alive()))return Promise.reject(new Error(uiLocale.t('Suivi continu interrompu. Nouvelle confirmation requise.')));
     var body={action:action,port:current.port};
     if(current.generation)body.generation=current.generation;
     if(transportId)body.transportId=transportId;
@@ -474,7 +485,7 @@
     // Commands with parameters (the plate probe: thickness and search distance).
     if(standalone(operation)&&operation!=='macro'&&extra)Object.keys(extra).forEach(function(k){request[k]=extra[k];});
     preparing++;
-    command('prepare',request).then(function(data){
+    (operation==='frame'?command('machine',{operation:'frame-prepare'}):command('prepare',request)).then(function(data){
       preparing--;
       if(ownGeneration!==generation||ownConfirmation!==confirmation||document.hidden||!current||current.port!==port||(!standalone(operation)&&current.revision!==revision))return;
       until=started+Math.min(15,Number(data.expiresIn)||0)*1000;
@@ -492,8 +503,9 @@
       if(keep.length&&$('job-dialog').style){$('job-dialog').style.top='var(--statusbar-h,0px)';var card=$('job-dialog').querySelector&&$('job-dialog').querySelector('.job-dialog-card');if(card&&card.style)card.style.maxHeight='calc(100vh - var(--statusbar-h,0px) - 48px)';}
       // What this operation does, and what the operator confirms (N4: an unlock moves nothing).
       if(!simulation){var words=DIALOG_TEXT[operation]||DIALOG_TEXT.start;if($('job-warning'))$('job-warning').textContent=words[0];if($('job-check-text'))$('job-check-text').textContent=words[1];}
-      $('job-dialog-title').textContent=({start:uiLocale.t('Confirmer le démarrage'),macro:uiLocale.t('Exécuter la macro'),unlock:uiLocale.t('Déverrouiller la machine'),home:uiLocale.t('Lancer la prise d’origine'),spindle:uiLocale.t('Démarrer la broche'),zeroZ:uiLocale.t('Régler le zéro Z avec la plaque')})[operation]||uiLocale.t('Confirmer la reprise');
-      $('job-dialog-file').textContent=data.name+' · '+port;
+      $('job-dialog-title').textContent=({start:uiLocale.t('Confirmer le démarrage'),macro:uiLocale.t('Exécuter la macro'),unlock:uiLocale.t('Déverrouiller la machine'),home:uiLocale.t('Lancer la prise d’origine'),spindle:uiLocale.t('Démarrer la broche'),zeroZ:uiLocale.t('Régler le zéro Z avec la plaque'),frame:uiLocale.t('Cadrer le programme (laser éteint)')})[operation]||uiLocale.t('Confirmer la reprise');
+      // The target machine (label and kind, from the server's profile) and the piloting device.
+      $('job-dialog-file').textContent=(data.name||current.originalName||current.name||'')+' · '+port+(simulation?'':' · '+targetText(current)+' · '+uiLocale.t('Pilote : ')+(pilot.value||'—'));
       // Start of a real job: the server's travel pre-check of this exact program (F2), joined to the
       // ticket; unknown is never shown as a green light. Without it (older server), the client's
       // XY estimate from the preview of this program version.
@@ -524,7 +536,7 @@
   bind($('job-confirm'),'click',function(){
     if(!confirmable()){dismiss();return;}
     if(!$('job-check').checked)return;
-    var t=ticket;dismiss();command(t.operation,{nonce:t.nonce}).then(function(){
+    var t=ticket;dismiss();(t.operation==='frame'?command('machine',{operation:'frame',nonce:t.nonce}):command(t.operation,{nonce:t.nonce})).then(function(){
       // Tells the commissioning assistant which confirmed command the server accepted.
       if(Object.prototype.hasOwnProperty.call(COMMANDS,t.operation))window.dispatchEvent(new CustomEvent('cnc-command-sent',{detail:t.operation}));
     }).catch(function(){});
@@ -612,6 +624,17 @@
     // Closes an open confirmation and drops a prepare still on its way.
     cancel:function(){dismiss(false);},
     prepareCommand:function(operation,extra){if(Object.prototype.hasOwnProperty.call(COMMANDS,operation))prepare(operation,extra);},
+    // Laser framing (frame-prepare → confirmation → frame); offered only when the server says so.
+    prepareFrame:function(){if(simulation||!current||!laserFrame(current))return false;prepare('frame');return true;},
+    // Machine kind (PROFILES-CONTRACT.md §2): written in .cncrc by the server, nothing sent to the
+    // controller. Same path as every machine action: pilot, generation, stream, refusals.
+    setMachineKind:function(kind,label){
+      if(simulation)return Promise.reject(new Error(uiLocale.t('Simulation : type de machine non modifiable.')));
+      if(busy||!current)return Promise.reject(new Error(uiLocale.t('Opération en cours…')));
+      if(kind!=='cnc'&&kind!=='laser')return Promise.reject(new Error(uiLocale.t('Type de machine inconnu.')));
+      return command('machine',{operation:'set-kind',kind:kind,label:String(label||'').slice(0,60)});
+    },
+    targetText:function(){return targetText(current);},
     spindleStop:function(){if(!current)return Promise.reject(new Error(uiLocale.t('État indisponible.')));return command('spindleStop');},
     // Resume from a line: what would be sent (nothing loaded), then the load itself.
     resumePlan:function(file,line){if(!current)return Promise.reject(new Error(uiLocale.t('État indisponible.')));return run('resumePlan',{file:file,line:line});},

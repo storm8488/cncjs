@@ -234,6 +234,20 @@
     setText(toast,whyFor(hit));toast.hidden=false;
     if(toastTimer!==null)clearTimeout(toastTimer);toastTimer=setTimeout(function(){toast.hidden=true;toastTimer=null;},4000);
   });
+  // Inspection mode of Suivi (responsive.css, body.t-inspect): the path enlarged, the details
+  // panel folded. A view preference of this page only; kept across resizes and rotations.
+  var metrics=document.querySelector('#screen-home .job-art');
+  if(metrics){
+    var inspectRow=document.createElement('div');inspectRow.className='home-inspect-row';
+    var inspect=document.createElement('button');inspect.type='button';inspect.id='t-inspect';inspect.className='t-inspect-toggle';inspect.setAttribute('aria-pressed','false');
+    var inspectLabel=function(on){inspect.textContent=on?uiLocale.t('Afficher les détails'):uiLocale.t('Agrandir le tracé');};inspectLabel(false);
+    inspect.addEventListener('click',function(){
+      var on=!document.body.classList.contains('t-inspect');
+      document.body.classList.toggle('t-inspect',on);inspect.setAttribute('aria-pressed',String(on));inspectLabel(on);
+      window.dispatchEvent(new Event('resize'));
+    });
+    inspectRow.appendChild(inspect);metrics.appendChild(inspectRow);
+  }
   // Shared with later modules (macros): sheets with focus trapping and navigation.
   window.cncShell={sheet:sheet,closeSheet:closeSheet,go:go,preparationActions:preparationActions};
   go('menu',true);

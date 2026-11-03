@@ -14,7 +14,11 @@
 //   --url URL        touch base URL of a running server (default: preview-server.cjs)
 //   --browser PATH   Chrome/Edge executable (default: CNC_BROWSER or well-known paths)
 //   --repeat N       start-up repetitions (default 5)
-//   --only LIST      comma list among measure,sim,startup,e2e,strip (default all; sim = the
+//   --only LIST      comma list among measure,responsive,sim,startup,e2e,strip (default all;
+//                    responsive = every screen at the CSS viewports of RESPONSIVE (landscape,
+//                    portrait, intermediate sizes, large text, browser zoom 150 / 200 %, a
+//                    virtual keyboard), then Pause / Arrêter and the primary commands hit-tested
+//                    with a job running, paused, in alarm and under stacked overlays; sim = the
 //                    simulation page with a job running, paused and in alarm, FR and ES,
 //                    plus the real page with the controller at rest in alarm; strip =
 //                    Pause / Arrêter over every overlay, browser-strip.cjs)
@@ -27,8 +31,9 @@
 //                    jog arrow under 96 px, text under 16 px, a control's text drawn
 //                    outside its box or a word cut across two lines, or a rail that
 //                    scrolls horizontally, except the entries of
-//                    layout-exceptions.json (each with its reason). Browser zoom 200 %
-//                    and the default-font variant stay reported only.
+//                    layout-exceptions.json (each with its reason). The responsive variants
+//                    (zoom 150 / 200 % included) are enforced too; the default-font variant
+//                    stays reported only.
 //   --exceptions F   another exceptions file (default layout-exceptions.json here)
 // Exit code 1 when a harness step fails (and, with --strict, on a layout regression);
 // without --strict the measurements under the project goals are only reported.
@@ -46,7 +51,7 @@ const URL_BASE = option('--url', '');
 // --root DIR: serve another copy of the pages through the fixture (a bundled build, output/touch-bundle).
 const ROOT_DIR = option('--root', '');
 const REPEAT = Math.max(1, Number(option('--repeat', 5)) || 5);
-const ONLY = option('--only', 'measure,sim,startup,e2e,strip').split(',');
+const ONLY = option('--only', 'measure,responsive,sim,startup,e2e,strip').split(',');
 const KEEP = args.includes('--keep-browser');
 const STRICT = args.includes('--strict');
 const EXCEPTIONS_FILE = path.resolve(option('--exceptions', path.join(__dirname, 'layout-exceptions.json')));
@@ -54,6 +59,17 @@ const EXCEPTIONS_FILE = path.resolve(option('--exceptions', path.join(__dirname,
 // Project goals (design-tokens.css): not a WCAG requirement.
 const GOALS = { primary: 64, secondary: 48, jog: 96, gap: 12, text: 16 };
 const RESOLUTIONS = [[1366, 768], [1024, 600]];
+// Responsive layouts (touch/responsive.css), in CSS px: [width, height, device scale factor, label, options].
+// Browser zoom Z on a W x H screen is a (W / Z) x (H / Z) CSS viewport at device scale factor Z;
+// a virtual keyboard leaves the top of the window (320 px taken at the bottom here).
+const RESPONSIVE = [
+  [1440, 960, 1, '1440x960'], [1080, 720, 1, '1080x720'], [1280, 800, 1, '1280x800'], [1920, 1080, 1, '1920x1080'],
+  [720, 1080, 1, '720x1080 portrait'], [960, 1440, 1, '960x1440 portrait'],
+  [1180, 820, 1, '1180x820'], [1600, 900, 1, '1600x900'], [800, 1280, 1, '800x1280 portrait'], [600, 960, 1, '600x960 portrait'],
+  [1280, 800, 1, '1280x800 texte agrandi', { large: true }], [720, 1080, 1, '720x1080 portrait texte agrandi', { large: true }],
+  [911, 512, 1.5, '1366x768 zoom 150 % (911x512 @1.5)'], [683, 384, 2, '1366x768 zoom 200 % (683x384 @2)'], [540, 960, 2, '1080x1920 portrait zoom 200 % (540x960 @2)'],
+  [1366, 448, 1, '1366x768 clavier virtuel (1366x448)', { keyboard: true }], [720, 700, 1, '720x1080 portrait clavier virtuel (720x700)', { keyboard: true }]
+];
 const SCREENS = [['menu', 'Menu'], ['home', 'Suivi'], ['files', 'Fichiers'], ['jog', 'Préparer'], ['machine', 'Machine'], ['history', 'Journal'], ['settings', 'Réglages']];
 const STATE_WORDS = { fr: { idle: 'Repos', running: 'En cours', paused: 'Pause' }, en: { idle: 'Idle', running: 'Running', paused: 'Pause' }, es: { idle: 'Reposo', running: 'En curso', paused: 'Pausa' } };
 
@@ -263,6 +279,7 @@ const MEASURE = String(function measure(goals) {
   var transform = active ? getComputedStyle(active).transform : 'none', m = /matrix\(([^,]+),/.exec(transform);
   var screenScale = m ? Math.round(parseFloat(m[1]) * 1000) / 1000 : 1;
   function renderedFont(el, size) { return active && active.contains(el) ? size * screenScale : size; }
+  var de = document.documentElement, main = document.querySelector('main'), rail = document.getElementById('tabbar');
   var selector = 'button, a[href], input, select, textarea, [role="button"], [role="tab"], label.t-check, summary';
   var nodes = Array.prototype.filter.call(document.querySelectorAll(selector), function (el) {
     var screen = el.closest('main .screen'); if (screen && screen !== active) return false;
@@ -339,8 +356,10 @@ const MEASURE = String(function measure(goals) {
     // Screen-reader-only text (.ks-sr-only: 1 px clipped box) is not truncation.
     if (el.scrollWidth > el.clientWidth + 1 && cs.overflowX !== 'visible' && el.clientWidth > 2 && !el.classList.contains('ks-sr-only')) truncated.push({ text: own.slice(0, 60), tag: el.tagName.toLowerCase(), id: el.id || null, scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, textOverflow: cs.textOverflow });
   });
-  var de = document.documentElement, main = document.querySelector('main'), rail = document.getElementById('tabbar');
-  return { viewport: { width: vw, height: vh, dpr: dpr }, activeScreen: active ? active.id : null, screenScale: screenScale, scrolls: !!active && active.getAttribute('data-fit') === 'scroll',
+  // A screen scrolls when it is marked so (Réglages) or when the responsive layout let it grow
+  // past the window (data-fit-overflow, viewport-fit.js): main then scrolls under the strip.
+  var mainScrolls = !!main && getComputedStyle(main).overflowY === 'auto' && main.scrollHeight > main.clientHeight + 1;
+  return { viewport: { width: vw, height: vh, dpr: dpr }, activeScreen: active ? active.id : null, screenScale: screenScale, scrolls: !!active && (active.getAttribute('data-fit') === 'scroll' || (active.getAttribute('data-fit-overflow') === 'true' && mainScrolls)),
     railScroll: !!rail && rail.scrollWidth > rail.clientWidth + 1 ? rail.scrollWidth + ' > ' + rail.clientWidth : null,
     horizontalOverflow: { document: de.scrollWidth > de.clientWidth + 1, documentScrollWidth: de.scrollWidth, clientWidth: de.clientWidth, main: !!main && main.scrollWidth > main.clientWidth + 1, active: !!active && active.scrollWidth > active.clientWidth + 1 },
     verticalOverflow: { document: de.scrollHeight > de.clientHeight + 1, active: !!active && active.scrollHeight > active.clientHeight + 1 && active.getAttribute('data-fit') !== 'scroll' },
@@ -690,6 +709,163 @@ async function alarmVariant(cdp, summary, arg, kind) {
   } finally { fixture.child.kill(); }
 }
 
+// --- Responsive layouts (touch/responsive.css). First every screen of the real page at each
+// CSS viewport of RESPONSIVE, enforced like 1366 x 768 (no scale below 1 on a screen that does
+// not scroll, sizes, text, covered commands). Then, on the simulation page with a job, the
+// commands the operator must always reach, hit-tested at their centre (elementFromPoint) and not
+// inert: Pause / Arrêter of the strip on every screen, under one sheet and under a sheet with the
+// numeric pad stacked on it, in alarm; Reprendre in a pause and Démarrer once loaded (scrolled
+// into view when the screen scrolls). Last, a rotation keeps the selection, the screen, the
+// inspection mode and the page itself (no reload).
+const HIT_TEST = `(function(ids,scroll){return ids.map(function(id){var b=document.getElementById(id);if(!b)return {id:id,missing:true};
+  if(scroll&&b.scrollIntoView&&b.getClientRects().length)b.scrollIntoView({block:'nearest',inline:'nearest'});
+  var r=b.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2,shown=!b.hidden&&r.width>0&&r.height>0&&!b.closest('[hidden]');
+  var inView=cx>=0&&cy>=0&&cx<=window.innerWidth&&cy<=window.innerHeight,hit=shown&&inView?document.elementFromPoint(cx,cy):null;
+  function d(n){return n?(n.id?'#'+n.id:n.tagName.toLowerCase()+(typeof n.className==='string'&&n.className?'.'+n.className.split(' ')[0]:'')):'nothing';}
+  return {id:id,shown:shown,disabled:!!b.disabled,inView:inView,hitOk:!!hit&&(hit===b||b.contains(hit)),hit:d(hit),inert:b.closest('[inert]')?d(b.closest('[inert]')):null,w:Math.round(r.width),h:Math.round(r.height)};});})`;
+async function hitCheck(cdp, ctx, where, ids, opts, report) {
+  const list = await cdp.evaluate(HIT_TEST + '(' + JSON.stringify(ids) + ',' + !!(opts && opts.scroll) + ')');
+  for (const b of list) {
+    const label = ctx + ' · ' + where + ' · ' + b.id;
+    report.push(Object.assign({ variant: ctx, where }, b));
+    if (b.missing || !b.shown) { if (opts && opts.required) failures.push('responsive ' + label + ': not shown'); continue; }
+    if (b.disabled && !(opts && opts.allowDisabled)) { failures.push('responsive ' + label + ': disabled'); continue; }
+    if (!b.inView) failures.push('responsive ' + label + ': centre outside the window');
+    else if (!b.hitOk) failures.push('responsive ' + label + ': centre covered by ' + b.hit);
+    if (b.inert) failures.push('responsive ' + label + ': inert under ' + b.inert);
+    const goal = /^(t-pause|t-stop|t-resume|home-job-start|home-job-resume)$/.test(b.id) ? GOALS.primary : GOALS.secondary;
+    if (Math.min(b.w, b.h) < goal - 0.5) failures.push('responsive ' + label + ': ' + b.w + ' x ' + b.h + ' px, goal ' + goal);
+  }
+  return list;
+}
+async function closeOverlays(cdp) {
+  await cdp.evaluate('(function(){try{window.cncShell.closeSheet();}catch(e){}try{if(window.CNCPreviewGL&&window.CNCPreviewGL.close)window.CNCPreviewGL.close();}catch(e){}return true;})()').catch(() => {});
+}
+async function responsiveVariant(cdp, url, w, h, dpr, opts) {
+  await setViewport(cdp, w, h, dpr);
+  await navigate(cdp, url.replace(/[^/]*$/, '') + 'README.md');
+  await cdp.evaluate('localStorage.removeItem("cncjs-touch-language-v1");localStorage.setItem("cncjs-touch-display-v1",' + JSON.stringify(JSON.stringify({ size: opts && opts.large ? 'large' : 'standard' })) + ');true');
+  await navigate(cdp, url + (url.includes('?') ? '&' : '?') + 'responsive=' + w + 'x' + h);
+}
+async function responsiveMeasure(cdp, realUrl, simUrl, summary) {
+  const report = [];
+  for (const [w, h, dpr, label, opts] of RESPONSIVE) {
+    const dirName = 'responsive-' + label.replace(/[^A-Za-z0-9]+/g, '-').replace(/-+$/, '');
+    try {
+      await responsiveVariant(cdp, realUrl, w, h, dpr, opts); await waitSettled(cdp);
+      await measureScreens(cdp, realUrl, label, dirName, dpr, summary, true);
+    } catch (e) { failures.push('responsive ' + label + ': ' + e.message); log('FAIL responsive ' + label + ': ' + e.message); }
+  }
+  for (const [w, h, dpr, label, opts] of RESPONSIVE) {
+    const ctx = 'sim ' + label;
+    try {
+      await responsiveVariant(cdp, simUrl, w, h, dpr, opts);
+      try { await waitReady(cdp); } catch (_) { await responsiveVariant(cdp, simUrl, w, h, dpr, opts); await waitReady(cdp); }
+      await goScreen(cdp, 'files');
+      await cdp.evaluate('document.querySelector(".library-file").click();true');
+      await cdp.waitFor('(function(){var b=document.getElementById("job-load");return !!b&&!b.disabled;})()', 15000, 'load enabled');
+      await cdp.evaluate('document.getElementById("job-load").click();true');
+      await cdp.waitFor('(function(){var m=window.cncState.get().machine;return !!(m&&m.name);})()', 15000, 'loaded');
+      await goScreen(cdp, 'home');
+      await cdp.waitFor('(function(){var b=document.getElementById("home-job-start");return !!b&&!b.disabled;})()', 15000, 'Démarrer enabled');
+      await hitCheck(cdp, ctx, 'Suivi loaded', ['home-job-start'], { scroll: true, required: true }, report);
+      await cdp.evaluate('document.getElementById("home-job-start").click();true');
+      await cdp.waitFor('!document.getElementById("job-dialog").hidden', 15000, 'dialog');
+      await sleep(300);
+      // The confirmation's own commands, in its card (which scrolls instead of shrinking).
+      await hitCheck(cdp, ctx, 'confirmation', ['job-check', 'job-dismiss'], { scroll: true, required: true }, report);
+      await cdp.evaluate('(function(){var c=document.getElementById("job-check");c.checked=true;c.dispatchEvent(new Event("change",{bubbles:true}));return true;})()');
+      await hitCheck(cdp, ctx, 'confirmation', ['job-confirm'], { scroll: true, required: true }, report);
+      await cdp.evaluate('document.getElementById("job-confirm").click();true');
+      await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 15000, 'running');
+      await sleep(800);
+      for (const [name] of SCREENS) { await goScreen(cdp, name); await hitCheck(cdp, ctx, 'running ' + name, ['t-pause', 't-stop'], { required: true }, report); }
+      // One sheet, then the numeric pad stacked on it.
+      await goScreen(cdp, 'jog');
+      await cdp.evaluate('document.getElementById("ks-origin-info").click();true'); await sleep(400);
+      await hitCheck(cdp, ctx, 'sheet', ['t-pause', 't-stop'], { required: true }, report);
+      await cdp.evaluate('(function(){var i=document.getElementById("responsive-run-input");if(!i){i=document.createElement("input");i.id="responsive-run-input";document.getElementById("screen-jog").appendChild(i);}window.CNCNumeric.open(i,{label:"Test",unit:"mm",min:0,max:50});return true;})()'); await sleep(400);
+      if (!(await cdp.evaluate('!!document.getElementById("t-numpad")&&!document.getElementById("t-numpad").hidden'))) failures.push('responsive ' + ctx + ': numeric pad not opened over the sheet');
+      await hitCheck(cdp, ctx, 'sheet + numeric pad', ['t-pause', 't-stop'], { required: true }, report);
+      await cdp.evaluate('(function(){try{window.CNCNumeric.close();}catch(e){}try{window.cncShell.closeSheet();}catch(e){}return true;})()'); await sleep(300);
+      // Pause: Reprendre in Suivi (scrolled into view when Suivi scrolls) and in the strip.
+      await cdp.evaluate('document.getElementById("t-pause").click();true');
+      await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="paused"', 15000, 'paused');
+      await sleep(1200);
+      await goScreen(cdp, 'home');
+      await hitCheck(cdp, ctx, 'paused', ['t-stop', 't-resume'], { required: true }, report);
+      await hitCheck(cdp, ctx, 'paused Suivi', ['home-job-resume'], { scroll: true, required: true }, report);
+      // Alarm during the job: Arrêter stays reachable on every screen.
+      await goScreen(cdp, 'machine');
+      if (await cdp.evaluate('(function(){var b=document.getElementById("sim-trigger-alarm");if(!b||b.disabled)return false;b.click();return true;})()')) {
+        await cdp.waitFor('/^alarm/i.test(((window.cncState.get().machine||{}).activeState)||"")', 10000, 'alarm');
+        await sleep(1000);
+        for (const name of ['home', 'machine', 'menu']) { await goScreen(cdp, name); await hitCheck(cdp, ctx, 'alarm ' + name, ['t-stop'], { required: true }, report); }
+        await cdp.evaluate('(function(){var b=document.getElementById("sim-clear-alarm");if(b&&!b.disabled)b.click();return true;})()');
+      } else failures.push('responsive ' + ctx + ': alarm button unavailable');
+      await cdp.evaluate('document.getElementById("t-stop").click();true');
+      await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="idle"', 15000, 'idle after stop');
+      log('responsive ' + ctx + ': Pause / Arrêter / Reprendre / Démarrer hit-tested on every screen, under a sheet and a stacked pad, in alarm');
+    } catch (e) { failures.push('responsive ' + ctx + ': ' + e.message); log('FAIL responsive ' + ctx + ': ' + e.message); }
+  }
+  // Rotation and resizing keep the operator's state: selection, screen, inspection mode, page.
+  try {
+    await responsiveVariant(cdp, simUrl, 1080, 720, 1); await waitReady(cdp);
+    await goScreen(cdp, 'files');
+    const file = await cdp.evaluate('(function(){var b=document.querySelectorAll(".library-file");b=b[1]||b[0];b.click();return b.getAttribute("data-file");})()');
+    await goScreen(cdp, 'home');
+    await cdp.evaluate('window.__noReload=1;(function(){var b=document.getElementById("t-inspect");if(b&&b.getAttribute("aria-pressed")!=="true")b.click();return true;})()');
+    const before = await cdp.evaluate('({file:(window.cncLibrarySelection||{}).file||null,screen:(document.querySelector("main .screen.active")||{}).id,inspect:document.body.classList.contains("t-inspect")})');
+    for (const [w, h] of [[720, 1080], [1366, 448], [960, 1440], [1080, 720]]) {
+      await setViewport(cdp, w, h, 1); await sleep(700);
+      const now = await cdp.evaluate('({file:(window.cncLibrarySelection||{}).file||null,screen:(document.querySelector("main .screen.active")||{}).id,inspect:document.body.classList.contains("t-inspect"),kept:window.__noReload===1})');
+      if (!now.kept) failures.push('responsive rotation ' + w + 'x' + h + ': the page reloaded');
+      if (now.file !== before.file || now.file !== file) failures.push('responsive rotation ' + w + 'x' + h + ': selection ' + now.file + ' instead of ' + file);
+      if (now.screen !== before.screen) failures.push('responsive rotation ' + w + 'x' + h + ': screen ' + now.screen + ' instead of ' + before.screen);
+      if (now.inspect !== before.inspect) failures.push('responsive rotation ' + w + 'x' + h + ': inspection mode lost');
+      await hitCheck(cdp, 'rotation ' + w + 'x' + h, 'Suivi', ['t-inspect'], { scroll: true, required: true, allowDisabled: true }, report);
+    }
+    log('responsive rotation: selection ' + file + ', screen ' + before.screen + ', inspection ' + before.inspect + ' kept through 720x1080, 1366x448, 960x1440, 1080x720');
+  } catch (e) { failures.push('responsive rotation: ' + e.message); log('FAIL responsive rotation: ' + e.message); }
+  // Advanced views (PROFILES-CONTRACT.md §5): preview-gl.js is never requested in Éco (not at load,
+  // not by loadAdvanced, not by the « 3D libre » button), and is loaded once, for real, in Performance.
+  const GL_REQUESTS = '(performance.getEntriesByType("resource").filter(function(e){return /preview-gl\\.js/.test(e.name);}).length)';
+  const FREE = '(function(){var b=Array.prototype.filter.call(document.querySelectorAll(".pv3d-free"),function(x){return !x.hidden&&!x.disabled&&x.getClientRects().length;})[0];if(!b)return false;b.click();return true;})()';
+  const advanced = {};
+  try {
+    for (const perf of ['eco', 'performance']) {
+      await setViewport(cdp, 1366, 768, 1);
+      await navigate(cdp, realUrl.replace(/[^/]*$/, '') + 'README.md');
+      await cdp.evaluate('localStorage.setItem("cncjs-touch-performance-v1",' + JSON.stringify(JSON.stringify({ version: 1, profile: perf })) + ');true');
+      await navigate(cdp, realUrl + (realUrl.includes('?') ? '&' : '?') + 'advanced=' + perf); await waitReady(cdp);
+      const state = await cdp.evaluate('({perf:window.cncProfile.performance(),cls:document.body.classList.contains("perf-"+window.cncProfile.performance()),requests:' + GL_REQUESTS + ',tag:!!document.querySelector("script[src*=preview-gl]")})');
+      if (state.perf !== perf || !state.cls) failures.push('advanced ' + perf + ': profile read back as ' + state.perf);
+      if (state.requests || state.tag) failures.push('advanced ' + perf + ': preview-gl.js requested at load');
+      // The « 3D libre » button of a file's preview, when the fixture shows one.
+      await goScreen(cdp, 'files');
+      await cdp.evaluate('(function(){var f=document.querySelector(".library-file");if(f)f.click();return true;})()'); await sleep(1500);
+      const clicked = await cdp.evaluate(FREE); await sleep(1500);
+      const direct = await cdp.evaluate('window.cncProfile.loadAdvanced(["preview-gl.js"]).then(function(){return "loaded";},function(e){return "refused: "+e.message;})');
+      await sleep(300);
+      const after = await cdp.evaluate('({requests:' + GL_REQUESTS + ',tags:document.querySelectorAll("script[src*=preview-gl]").length,module:!!window.CNCPreviewGL})');
+      if (perf === 'eco') {
+        if (!/^refused/.test(direct)) failures.push('advanced eco: loadAdvanced was not refused (' + direct + ')');
+        if (after.requests || after.tags || after.module) failures.push('advanced eco: preview-gl.js requested (' + JSON.stringify(after) + ')');
+      } else {
+        if (direct !== 'loaded') failures.push('advanced performance: preview-gl.js not loaded (' + direct + ')');
+        if (after.requests !== 1 || after.tags !== 1 || !after.module) failures.push('advanced performance: preview-gl.js expected once, got ' + JSON.stringify(after));
+      }
+      advanced[perf] = { button: clicked, loadAdvanced: direct, after };
+      log('advanced ' + perf + ': « 3D libre » ' + (clicked ? 'clicked' : 'not shown by the fixture') + ', loadAdvanced ' + direct + ', preview-gl.js requests ' + after.requests + ', module ' + after.module);
+      await closeOverlays(cdp);
+    }
+  } catch (e) { failures.push('advanced: ' + e.message); log('FAIL advanced: ' + e.message); }
+  await cdp.evaluate('localStorage.removeItem("cncjs-touch-display-v1");localStorage.removeItem("cncjs-touch-performance-v1");true').catch(() => {});
+  fs.mkdirSync(OUT, { recursive: true });
+  fs.writeFileSync(path.join(OUT, 'responsive-hits.json'), JSON.stringify({ hits: report, advanced }, null, 1));
+  summary.responsive = { viewports: RESPONSIVE.map((v) => v[3]), hits: report.length };
+}
+
 // --- Strict layout check (--strict): the regressions the layout must never show, minus the
 // documented exceptions (layout-exceptions.json: check, variant / screen / label patterns, reason).
 function loadExceptions() {
@@ -805,7 +981,7 @@ function writeSummary(summary) {
     const st = summary.strict, row = (v) => '| ' + [v.check, v.variant, v.screenLabel, v.label, v.detail].map((x) => String(x).replace(/\|/g, '\\|')).join(' | ') + ' |';
     L.push('## Strict layout check' + (st.enabled ? '' : ' (report only: run with --strict to fail on it)'));
     L.push('');
-    L.push('Variants: 1366x768 and 1024x600, standard and large text, simulation FR/ES. Exceptions: `' + path.basename(st.exceptionsFile) + '`. Violations: ' + st.violations.length + ', excepted: ' + st.excepted.length + (st.staleExceptions.length ? ', unused exceptions: ' + st.staleExceptions.length : '') + '.');
+    L.push('Variants: 1366x768 and 1024x600, standard and large text, simulation FR/ES' + (summary.responsive ? ', responsive: ' + summary.responsive.viewports.join(', ') + ' (' + summary.responsive.hits + ' hit tests, `responsive-hits.json`)' : '') + '. Exceptions: `' + path.basename(st.exceptionsFile) + '`. Violations: ' + st.violations.length + ', excepted: ' + st.excepted.length + (st.staleExceptions.length ? ', unused exceptions: ' + st.staleExceptions.length : '') + '.');
     L.push('');
     if (st.violations.length) { L.push('| Check | Variant | Screen | Target | Detail |'); L.push('| --- | --- | --- | --- | --- |'); st.violations.forEach((v) => L.push(row(v))); L.push(''); }
     if (st.excepted.length) { L.push('Excepted (reason in the exceptions file):'); L.push(''); L.push('| Check | Variant | Screen | Target | Detail |'); L.push('| --- | --- | --- | --- | --- |'); st.excepted.forEach((v) => L.push(row(v))); L.push(''); }
@@ -815,6 +991,7 @@ function writeSummary(summary) {
   L.push('');
   L.push('- Headless Chrome on a PC: no touch digitiser, no Tegra 3 timings, GPU disabled like the kiosk but a different compositor; the Surface RT resolves the font stack to Bitstream Vera Sans, wider than Segoe UI.');
   L.push('- "Zoom 200 %" is emulated as a 683 × 384 CSS viewport at device scale factor 2 (what Ctrl + does at 1366 × 768); "font 200 %" uses `Page.setFontSizes` (default font size 32 px), which only moves text sized relative to the default.');
+  L.push('- Responsive: browser zoom is emulated by CSS viewport and device scale factor (no real Ctrl +); a virtual keyboard by a shorter window (layout viewport). A keyboard that only shrinks `visualViewport` is followed by viewport-fit.js but not emulated here.');
   L.push('- The simulation page has no Réglages screen, so the language is set through its storage key (`cncjs-touch-language-v1`) and a reload, which is what the Réglages control does on the real page.');
   fs.writeFileSync(path.join(OUT, 'summary.md'), L.join('\n') + '\n');
   fs.writeFileSync(path.join(OUT, 'summary.json'), JSON.stringify(summary, null, 1));
@@ -844,7 +1021,7 @@ async function main() {
       }
       await setViewport(cdp, 683, 384, 2);
       await navigate(cdp, realUrl); await waitSettled(cdp);
-      await measureScreens(cdp, realUrl, '1366x768 zoom 200 % (683x384 @2)', '1366x768-zoom200', 2, summary);
+      await measureScreens(cdp, realUrl, '1366x768 zoom 200 % (683x384 @2)', '1366x768-zoom200', 2, summary, true);
       await setViewport(cdp, 1366, 768, 1);
       try {
         await cdp.send('Page.setFontSizes', { fontSizes: { standard: 32, fixed: 26 } });
@@ -853,6 +1030,7 @@ async function main() {
         await cdp.send('Page.setFontSizes', { fontSizes: { standard: 16, fixed: 13 } });
       } catch (e) { summary.fontSizesUnsupported = e.message; log('font 200 % not available: ' + e.message); }
     }
+    if (ONLY.includes('responsive')) await responsiveMeasure(cdp, realUrl, simUrl, summary);
     if (ONLY.includes('sim')) { await simMeasure(cdp, simUrl, summary); if (!URL_BASE) await alarmMeasure(cdp, summary); }
     // Pause / Arrêter over every overlay, degraded start-up, offline flag (browser-strip.cjs).
     if (ONLY.includes('strip') && !URL_BASE) { await setViewport(cdp, 1366, 768, 1); const list = await require('./browser-strip.cjs').run(cdp, module.exports, { simBase: base, out: path.join(OUT, 'strip'), log }); list.forEach((f) => failures.push(f)); summary.strip = list; }
@@ -878,4 +1056,4 @@ async function main() {
 // The measurement scripts (measure-*.cjs) reuse the DevTools client, the browser
 // launcher and the fixture starter; run the harness only as a program.
 if (require.main === module) main().catch((e) => { console.error('browser-run: ' + (e.stack || e.message)); process.exit(1); });
-module.exports = { strictCheck, loadExceptions, GOALS, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors };
+module.exports = { strictCheck, loadExceptions, GOALS, RESPONSIVE, MEASURE, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors };

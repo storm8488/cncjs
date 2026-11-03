@@ -7,8 +7,16 @@
   var PLANNER_MARGIN=15;
   function spindleText(s){return s?s.mode+' S'+s.speed:'';}
   // What Suivi says while the program itself holds the job (M0, M1, M6, error).
-  function pauseText(p){
+  // Laser profile (PROFILES-CONTRACT.md §2-§4): no tool change, no plate, a resume at a pass boundary.
+  function laserOf(c){var p=c&&c.machineProfile;return !!(p&&typeof p==='object'&&p.kind==='laser');}
+  // A refused capability carries a code (no params): translated alone, else the server's French reason.
+  function capabilityOf(c,name){var k=c&&c.machineProfile&&c.machineProfile.capabilities,v=k&&k[name];if(!v||typeof v!=='object')return {supported:false,reason:''};
+    var reason=typeof v.reason==='string'?v.reason:'';if(v.supported!==true&&typeof v.code==='string'&&v.code&&uiLocale.format)reason=uiLocale.format(v.code,{},reason);
+    return {supported:v.supported===true,reason:reason};}
+  function laserPlan(p){return !!(p&&(p.mode==='laser'||p.kind==='laser'||p.preview&&p.preview.kind==='laser'));}
+  function pauseText(p,c){
     if(!p)return '';
+    if(p.kind==='M6'&&laserOf(c))return t('Pause sur M6 : le changement d’outil n’est pas géré pour un laser. Arrêtez le travail et vérifiez le programme.');
     if(p.kind==='M6')return t('Changement d’outil')+(p.tool!==null&&p.tool!==undefined?' T'+p.tool:'')+t(' : attendez l’arrêt, arrêtez la broche (M5), changez l’outil et refaites le zéro Z si sa longueur change, puis touchez Reprendre.')+
       (p.restartSpindle?t(' La broche sera relancée (')+spindleText(p.restartSpindle)+t(', 3 s) avant la reprise.'):'');
     if(p.kind==='M0'||p.kind==='M1')return t('Pause demandée par le programme (')+p.kind+')'+(p.message?' : '+p.message:'')+t('. Touchez Reprendre quand vous êtes prêt.');
@@ -31,7 +39,10 @@
     if(operation==='zeroZ')return request&&request.thickness!==undefined?plateNote(request):pendingPlate?plateNote(pendingPlate):'';
     if(!c)return '';
     var p=c.programPause;
+    if(operation==='resume'&&p&&p.kind==='M6'&&laserOf(c))return '';
     if(operation==='resume'&&p&&p.kind==='M6')return t('Outil')+(p.tool!==null&&p.tool!==undefined?' T'+p.tool:'')+t(' en place et zéro Z vérifié ?')+(p.restartSpindle?t(' La broche sera relancée (')+spindleText(p.restartSpindle)+t(', 3 s) avant la reprise.'):'');
+    if(operation==='start'&&c.resume&&(laserOf(c)||laserPlan(c.resume))){var lr=c.resume;
+      return t('Reprise laser à la ligne ')+lr.from+' / '+lr.total+' : '+lr.line+t('. Laser éteint (M5), déplacement en XY jusqu’au début de passe (Z rétabli seulement si le programme garde un Z constant), puis M3/M4 et consigne S du programme.')+notesText(lr.notes);}
     if(operation==='start'&&c.resume){var r=c.resume;
       return t('Reprise à la ligne ')+r.from+' / '+r.total+' : '+r.line+(r.tool!==null&&r.tool!==undefined?t(' — outil attendu T')+r.tool:'')+t('. La machine monte à la hauteur de dégagement, se place en XY, relance la broche puis plonge.')+notesText(r.notes);}
     return '';
@@ -44,6 +55,13 @@
     return Math.max(2,c.stoppedAtLine-PLANNER_MARGIN);
   }
   function planText(plan){
+    var pv=plan&&plan.preview&&typeof plan.preview==='object'?plan.preview:null;
+    if(laserPlan(plan)){
+      var lines=[t('Ligne ')+plan.from+' / '+plan.total+' : '+plan.line+'.',t('Début de passe : laser éteint (M5), G0 en XY jusqu’au départ (Z rétabli seulement si le programme garde un Z constant), puis M3/M4 et consigne S du programme.')];
+      if(pv&&Array.isArray(pv.preamble)&&pv.preamble.length)lines.push(t('Lignes envoyées avant la reprise : ')+pv.preamble.filter(function(l){return typeof l==='string';}).join(' · ')+'.');
+      if(Array.isArray(plan.notes))plan.notes.forEach(function(n){if(typeof n==='string'&&n)lines.push(n);});
+      return lines.join(' ');
+    }
     var parts=[t('Ligne ')+plan.from+' / '+plan.total+' : '+plan.line+'.'];
     parts.push(t('Départ : Z ')+plan.safeZ+t(', puis X ')+plan.position.X+' Y '+plan.position.Y+t(', plongée à Z ')+plan.position.Z+'.');
     if(plan.spindle)parts.push(t('Broche ')+spindleText(plan.spindle)+t(' relancée 3 s avant la plongée.'));
@@ -52,7 +70,7 @@
     if(Array.isArray(plan.notes))plan.notes.forEach(function(n){if(typeof n==='string'&&n)parts.push(n);});
     return parts.join(' ');
   }
-  var api={pauseText:pauseText,dialogNote:dialogNote,suggestedLine:suggestedLine,planText:planText,plateNote:plateNote,lastZeroText:lastZeroText,PLANNER_MARGIN:PLANNER_MARGIN,
+  var api={pauseText:pauseText,dialogNote:dialogNote,laserOf:laserOf,capabilityOf:capabilityOf,suggestedLine:suggestedLine,planText:planText,plateNote:plateNote,lastZeroText:lastZeroText,PLANNER_MARGIN:PLANNER_MARGIN,
     setPendingPlate:function(p){pendingPlate=p;}};
   if(typeof module==='object'&&module.exports){module.exports=api;return;}
   root.CNCJobResume=api;
@@ -104,24 +122,43 @@
     if((typeof rules.min==='number'&&n<rules.min)||(typeof rules.max==='number'&&n>rules.max))return {state:'range',value:n,message:''};
     return {state:'ok',value:n,message:''};
   }
+  // Laser framing (PROFILES-CONTRACT.md §4) in place of the plate: offered only when the server
+  // says it is possible, otherwise disabled with its reason. Confirmed through the usual dialog.
+  var frame=el('div','home-frame','t-card'),frameTitle=el('p','home-frame-title','','Cadrage du programme (laser éteint)'),
+    frameStart=el('button','home-frame-start','t-btn','Cadrer…'),frameHelp=el('p','home-frame-help','t-help','La tête parcourt le contour XY du programme à la hauteur actuelle, M5 envoyé d’abord : aucune émission. Arrêter interrompt le mouvement.'),
+    frameWhy=el('p','home-frame-why','t-help');
+  frameWhy.setAttribute('role','status');frame.hidden=true;
+  [frameTitle,frameStart,frameHelp,frameWhy].forEach(function(n){frame.appendChild(n);});
+  frameStart.addEventListener('click',function(){var c=controls();if(frameStart.disabled||!c||typeof c.prepareFrame!=='function')return;c.prepareFrame();});
   loadPlate();
-  after(ready,pause);after(pause,open);after(open,panel);after(panel,plate);
+  after(ready,pause);after(pause,open);after(open,panel);after(panel,plate);after(plate,frame);
   var machine=null,selection=window.cncLibrarySelection||null,checked=null,sequence=0,plateMessage='';
   function controls(){return window.cncJobControls;}
   function set(node,key,value){if(node[key]!==value)node[key]=value;}
   function canResumeFromLine(){return !!(machine&&selection&&machine.fresh&&machine.workflow==='idle'&&machine.canLoad);}
-  function close(){panel.hidden=true;checked=null;sequence++;set(load,'disabled',true);set(plan,'textContent','');}
+  // A laser resumes only at a pass boundary the server identifies: unsupported, the button stays
+  // shown but disabled with the server's reason (never a decorative button).
+  function laserResume(){return laserOf(machine)?capabilityOf(machine,'laserResume'):null;}
+  function close(){panel.hidden=true;checked=null;sequence++;set(load,'disabled',true);set(plan,'textContent','');if(window.cncResumePreview)window.cncResumePreview.hide(panel);}
   function render(){
     var p=machine&&machine.programPause;
-    var text=pauseText(p);if(p&&p.kind==='M6'&&machine.canZeroZ)text+=t(' Le zéro Z avec la plaque se règle ci-dessous.');
+    var laser=laserOf(machine),lr=laserResume();
+    var text=pauseText(p,machine);if(p&&p.kind==='M6'&&!laser&&machine.canZeroZ)text+=t(' Le zéro Z avec la plaque se règle ci-dessous.');
     set(pause,'hidden',!p||!text);set(pauseText_,'textContent',text);
-    set(plate,'hidden',!(machine&&(machine.canZeroZ||machine.probing)));
+    set(plate,'hidden',laser||!(machine&&(machine.canZeroZ||machine.probing)));
+    var fc=laser?capabilityOf(machine,'laserFrame'):null,idle=!!(machine&&machine.workflow==='idle');
+    set(frame,'hidden',!laser||!idle);
+    var frameReason=fc&&!fc.supported?(fc.reason||t('Cadrage indisponible.')):'';
+    set(frameStart,'disabled',!!frameReason);set(frameStart,'title',frameReason);set(frameWhy,'textContent',frameReason);
     set(probe,'disabled',!(machine&&machine.canZeroZ));
     set(plateLast,'textContent',lastZeroText(machine&&machine.zeroZ));
     // A refused parameter stays shown until the field changes (reports come several times a second).
     set(plateStatus,'textContent',machine&&machine.probing?t('Palpage en cours… Arrêter interrompt.'):plateMessage);
     set(m5,'hidden',!(p&&machine.canSpindleStop&&machine.spindleSpeed>0));
+    set(m5,'textContent',laser?t('Éteindre le laser (M5)'):t('Arrêter la broche (M5)'));
+    set(open,'textContent',laser?t('Reprendre à un début de passe…'):t('Reprendre à une ligne…'));
     var can=canResumeFromLine();set(open,'hidden',!can||!panel.hidden);
+    set(open,'disabled',!!lr&&!lr.supported);set(open,'title',lr&&!lr.supported?(lr.reason||t('Reprise laser indisponible.')):'');
     // A job that starts closes the panel; a passing refusal (an M5 or a $G on
     // its way) only disables the load and keeps the check.
     if(!panel.hidden&&(!machine||!selection||machine.workflow!=='idle'))close();
@@ -129,11 +166,11 @@
   }
   function line(){var p=parsed(input.value,LINE_RULES);return p.state==='ok'?p.value:null;}
   open.addEventListener('click',function(){
-    if(!canResumeFromLine())return;
+    if(!canResumeFromLine()||open.disabled)return;
     var s=suggestedLine(machine,selection.file);input.value=s===null?'':String(s);
     set(hint,'textContent',typeof machine.stoppedAtLine==='number'&&machine.stoppedFile===selection.file?
       t('Dernier arrêt après la ligne ')+machine.stoppedAtLine+t(' (acquittée). Grbl exécute jusqu’à 15 mouvements plus tard : ligne proposée ')+s+'.':
-      t('Numéro de ligne tel qu’affiché pendant le travail (lignes non vides).'));
+      t('Numéro de ligne tel qu’affiché pendant le travail (lignes non vides).')+(laserOf(machine)?' '+t('Laser : le serveur reprend au début de passe qu’il identifie (laser éteint par M5, S0 ou un G0 après une découpe).'):''));
     panel.hidden=false;render();
   });
   cancel.addEventListener('click',function(){close();render();});
@@ -143,7 +180,9 @@
     if(n===null){var why=parsed(input.value,LINE_RULES);set(plan,'textContent',t('Indiquez une ligne (2 ou plus).')+(why.message?' '+why.message:''));return;}
     if(!c||typeof c.resumePlan!=='function')return;
     set(plan,'textContent',t('Vérification…'));
-    c.resumePlan(selection.file,n).then(function(data){if(own!==sequence)return;checked={file:selection.file,line:n};set(plan,'textContent',planText(data));set(load,'disabled',false);},
+    c.resumePlan(selection.file,n).then(function(data){if(own!==sequence)return;checked={file:selection.file,line:n};set(plan,'textContent',planText(data));set(load,'disabled',false);
+      // The server's exact preamble and the file from the resume line, drawn by lot C (never recomputed here).
+      if(window.cncResumePreview)window.cncResumePreview.show(panel,data&&data.preview);},
       function(e){if(own!==sequence)return;checked=null;set(load,'disabled',true);set(plan,'textContent',e.message);});
   });
   load.addEventListener('click',function(){

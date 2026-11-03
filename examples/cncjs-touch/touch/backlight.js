@@ -18,8 +18,9 @@
   function set(n,value){if(n.textContent!==value)n.textContent=value;}
 
   var card=el('div','card ks-display-card ks-backlight');card.id='ks-backlight';
-  card.appendChild(el('h2','',t('Luminosité')));
-  card.appendChild(el('p','',t('Rétroéclairage de l’écran branché sur l’ordinateur qui exécute CNCjs.')));
+  // Scope (PROFILES-CONTRACT.md §1): the screen of the CNCjs host, not necessarily this tablet.
+  var heading=el('h2','',t('Luminosité')+' ');heading.appendChild(el('span','ks-scope',t('Serveur CNCjs')));heading.lastChild.setAttribute('data-scope','server');card.appendChild(heading);
+  card.appendChild(el('p','',t('Rétroéclairage de l’écran branché sur l’ordinateur qui exécute CNCjs (serveur CNCjs). Ce n’est l’écran de cette tablette que si CNCjs tourne sur elle.')));
   var row=el('div','ks-backlight-row');
   var down=el('button','ks-secondary ks-backlight-step','−'),up=el('button','ks-secondary ks-backlight-step','+');
   down.type=up.type='button';down.setAttribute('aria-label',t('Moins lumineux'));up.setAttribute('aria-label',t('Plus lumineux'));
