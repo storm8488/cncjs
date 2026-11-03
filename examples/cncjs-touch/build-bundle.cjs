@@ -38,7 +38,9 @@ function compileCheck(file, text) {
     if (acorn) acorn.parse(text, { ecmaVersion: 2017, sourceType: 'script' });
     else new (require('vm').Script)(text, { filename: file });
   } catch (error) {
-    const where = error.loc ? ' (line ' + error.loc.line + ', column ' + (error.loc.column + 1) + ')' : '';
+    // acorn gives `loc`; Node's SyntaxError only names `file:line` on the first line of its stack.
+    const vmLine = !error.loc && /^[^\n]*:(\d+)\s*$/m.exec(String(error.stack || '').split('\n')[0]);
+    const where = error.loc ? ' (line ' + error.loc.line + ', column ' + (error.loc.column + 1) + ')' : vmLine ? ' (line ' + vmLine[1] + ')' : '';
     throw new Error('bundle refused: ' + file + ' does not compile' + where + ': ' + error.message);
   }
 }

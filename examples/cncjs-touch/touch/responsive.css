@@ -149,3 +149,4 @@ body.ks-ui.t-inspect .home-overrides{display:none!important}
 /* Réglages → diagnostic of this tablet (tablet-diagnostic.js). */
 .ks-diagnostic-list{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr);gap:var(--sp-1) var(--sp-3);margin:var(--sp-2) 0;font-size:var(--fs-16)}
 .ks-diagnostic-list dt{color:var(--mute)}.ks-diagnostic-list dd{margin:0;overflow-wrap:anywhere}
+.ks-diagnostic .ks-help{font-size:var(--fs-16)}
