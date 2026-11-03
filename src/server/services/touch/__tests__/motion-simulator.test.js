@@ -122,11 +122,20 @@ describe('real motion against the Grbl 1.1h simulator (F1)', () => {
     // From X 0 (homed), travel [-200, 0], 1 mm margin: 199 mm, about 12 s at 1000 mm/min.
     expect(c.written[0]).toBe('$J=G91 G21 X-199 F1000\n');
     expect(res.distanceMm).toBe(199);
-    expect(await until(() => sim.machineState === 'Jog', 500)).toBe(true);
-    // Keepalives for 300 ms, then none (lost network).
-    for (let i = 0; i < 3; i++) {
-      await wait(100);
+    // Keepalives every 50 ms from the start (the server's 250 ms window opens at
+    // jog-start, and a slow CI runner can take most of it to reach Jog), then
+    // for 300 ms more, then none (lost network).
+    const keepalive = async () => {
+      await wait(50);
       expect(await req('jog-keepalive', { jogId: res.jogId })).toMatchObject({ active: true });
+    };
+    const jogDeadline = Date.now() + 500;
+    while (sim.machineState !== 'Jog' && Date.now() < jogDeadline) {
+      await keepalive();
+    }
+    expect(sim.machineState).toBe('Jog');
+    for (let i = 0; i < 6; i++) {
+      await keepalive();
     }
     const lastKeepalive = Date.now();
     expect(await until(() => sim.machineState === 'Idle', 1000)).toBe(true);

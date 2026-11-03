@@ -18,6 +18,11 @@ on:
       - master
   workflow_dispatch:
 
+# The Release steps of the build jobs attach the binaries to the GitHub release
+# of a tag; the default GITHUB_TOKEN of this repository can only read.
+permissions:
+  contents: write
+
 env:
   # Yarn 3.3.1 (.yarnrc.yml yarnPath) through corepack: no `npm install -g yarn`,
   # which installs Yarn classic 1.22 and only works because it delegates to yarnPath.
