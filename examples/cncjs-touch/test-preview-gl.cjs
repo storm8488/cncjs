@@ -266,10 +266,13 @@ function byText(root, text) { return findAll(root, n => n.textContent === text)[
   // Without tablet-profile.js at all: eco.
   vp = await viewsPage(undefined); assert.equal(vp.free.hidden, true);
   // Performance: the button shows, the module is asked through loadAdvanced only.
-  let mode = 'performance';
-  const perf = { performance: () => mode, kind: () => 'laser', machine: () => ({ laser: { sMax: 1000 } }), loadAdvanced: f => { loads.push(f); return Promise.reject(new Error('script refusé')); } };
+  let mode = 'performance', kind = 'laser';
+  const perf = { performance: () => mode, kind: () => kind, machine: () => ({ laser: { sMax: 1000 } }), loadAdvanced: f => { loads.push(f); return Promise.reject(new Error('script refusé')); } };
   vp = await viewsPage(perf);
-  assert.equal(vp.free.hidden, false); assert.equal(vp.laser.hidden, false, 'laser machine: laser view offered (eco too)');
+  // A laser machine has the laser view only: no free 3D view, even in Performance.
+  assert.equal(vp.free.hidden, true, 'laser: no free 3D'); assert.equal(vp.laser.hidden, false, 'laser machine: laser view offered (eco too)');
+  kind = 'cnc'; vp = await viewsPage(perf);
+  assert.equal(vp.free.hidden, false, 'CNC Performance: free 3D offered'); assert.equal(vp.laser.hidden, true);
   vp.free.click(); await tick(5);
   assert.equal(JSON.stringify(loads), '[["preview-gl.js"]]');
   assert.match(vp.status.textContent, /Vue 3D libre indisponible : script refusé\. Vues fixes conservées\./, 'load failure: fixed views kept');
