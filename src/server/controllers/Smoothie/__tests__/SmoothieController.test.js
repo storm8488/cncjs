@@ -82,18 +82,19 @@ const seedModal = (controller, patch) => {
   };
 };
 
+// Bounded in time, not in ticks: the file reads run on the libuv thread pool
+// and can outlast 1000 setImmediate turns on a busy CI runner.
 const waitForCallback = (callback) => new Promise((resolve, reject) => {
-  let attempts = 0;
+  const deadline = Date.now() + 5000;
   const check = () => {
     if (callback.mock.calls.length > 0) {
       resolve();
       return;
     }
-    if (attempts > 1000) {
+    if (Date.now() > deadline) {
       reject(new Error('callback was never invoked'));
       return;
     }
-    attempts += 1;
     setImmediate(check);
   };
   check();
