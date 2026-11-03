@@ -11,6 +11,8 @@
   var uiLocale=window.cncI18n||{t:function(s){return s;}};
   var t=uiLocale.t;
   var KEY='cncjs-touch-performance-v1',PROFILES=['eco','performance'];
+  // Cache key of the advanced scripts (they are not in the pages, so the pages' ?v= does not reach them).
+  var ADVANCED_VERSION='prof12';
   function read(){
     // Any failure (storage blocked, bad JSON, unknown value, other version) reads as eco.
     try{
@@ -72,7 +74,7 @@
   function loadOne(file){
     if(Object.prototype.hasOwnProperty.call(loading,file))return loading[file];
     var promise=new Promise(function(resolve,reject){
-      var s=document.createElement('script');s.src=file;s.async=false;
+      var s=document.createElement('script');s.src=file+'?v='+ADVANCED_VERSION;s.async=false;
       s.onload=function(){resolve(file);};
       s.onerror=function(){delete loading[file];if(s.parentNode)s.parentNode.removeChild(s);reject(new Error(t('Module avancé introuvable : ')+file));};
       (document.head||document.body).appendChild(s);

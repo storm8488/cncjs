@@ -132,7 +132,7 @@ for (const perf of ['eco', 'performance']) {
   await assert.rejects(p.profile.loadAdvanced(['../app.js']), /invalide/);
   await assert.rejects(p.profile.loadAdvanced(['https://x/y.js']), /invalide/); assert.equal(p.scripts.length, 0);
   const first = p.profile.loadAdvanced(['preview-gl.js']), again = p.profile.loadAdvanced('preview-gl.js');
-  assert.equal(p.scripts.length, 1); assert.equal(p.scripts[0].src, 'preview-gl.js');
+  assert.equal(p.scripts.length, 1); assert.match(p.scripts[0].src, /^preview-gl\.js\?v=[a-z0-9]+$/, 'versioned, so a kiosk does not keep an old copy');
   p.scripts[0].onload(); assert.deepEqual(await first, ['preview-gl.js']); assert.deepEqual(await again, ['preview-gl.js']);
   await p.profile.loadAdvanced(['preview-gl.js']); assert.equal(p.scripts.length, 1, 'injected once');
   const failing = p.profile.loadAdvanced(['motion-extra.js']); p.scripts[1].onerror();

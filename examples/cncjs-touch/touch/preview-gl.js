@@ -144,7 +144,8 @@
 
   var current = null;
   // Opens the free view over the page. meta: {file, fingerprint, path3d, zBounds, estimate};
-  // options: {document, window, onClose(reason), onFallback(message), source (inspection), storage, stock}.
+  // options: {document, window, onClose(reason), onFallback(message), source (inspection), storage, stock,
+  // container}: with a container the view is drawn inside it (the preview frame) instead of over the page.
   function open(meta, options) {
     options = options || {};
     var win = options.window || root, doc = options.document || win.document;
@@ -162,7 +163,9 @@
     var storage = options.storage || win.localStorage, clamps = PI.loadClamps(meta.fingerprint, storage), stock = options.stock || null, overlay = PI.overlayBoxes(stock, clamps, bounds);
 
     // ---- DOM ----
-    var dialog = el(doc, 'div', 'pgl-dialog'); dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true'); dialog.setAttribute('aria-label', t('Vue 3D libre'));
+    var inline = !!options.container;
+    var dialog = el(doc, 'div', inline ? 'pgl-dialog pgl-inline' : 'pgl-dialog'); dialog.setAttribute('aria-label', t('Vue 3D libre'));
+    if (!inline) { dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true'); }
     var head = el(doc, 'header', 'pgl-head'), title = el(doc, 'h2', '', t('Vue 3D libre')), file = el(doc, 'p', 'pgl-file', meta.originalName || meta.file || '');
     var closeButton = el(doc, 'button', 't-btn t-btn--ghost pgl-close', t('Fermer ×')); closeButton.type = 'button';
     head.appendChild(title); head.appendChild(file); head.appendChild(closeButton); dialog.appendChild(head);
@@ -214,14 +217,18 @@
     side.appendChild(clampBox);
     var foot = el(doc, 'p', 'pgl-foot', t('Géométrie simplifiée (') + path.count + t(' points, tolérance ') + fmt(meta.path3d.tolerance || 0) + ' mm' + (meta.path3d.decimated ? t(', points décimés') : '') + t(') : dessin indicatif, jamais envoyé à la machine.'));
     dialog.appendChild(foot);
-    doc.body.appendChild(dialog);
-    if (win.CNCStripGuard && typeof win.CNCStripGuard.isolate === 'function') restoreBackground = win.CNCStripGuard.isolate(dialog);
+    if (inline) options.container.appendChild(dialog);
+    else {
+      doc.body.appendChild(dialog);
+      if (win.CNCStripGuard && typeof win.CNCStripGuard.isolate === 'function') restoreBackground = win.CNCStripGuard.isolate(dialog);
+    }
 
     // ---- GL ----
     try { renderer = createRenderer(canvas); } catch (e) { fail(t('Vue 3D libre indisponible : ') + e.message + t('. Vues fixes conservées.')); return null; }
     on(canvas, 'webglcontextlost', function () { fail(t('Contexte WebGL perdu : vue 3D libre fermée, vues fixes conservées.')); });
 
-    function zLabel() { zButton.textContent = zs === 1 ? t('Z ×1 (échelle réelle)') : 'Z ×' + zs + t(' (exagéré)'); zButton.setAttribute('data-exaggerated', String(zs !== 1)); }
+    // Inline (small frame): a short label, the exaggeration still named.
+    function zLabel() { zButton.textContent = zs === 1 ? (inline ? 'Z ×1' : t('Z ×1 (échelle réelle)')) : 'Z ×' + zs + t(' (exagéré)'); zButton.setAttribute('data-exaggerated', String(zs !== 1)); }
     function upload() {
       overlay = PI.overlayBoxes(stock, clamps, bounds);
       var diag = Math.sqrt(Math.pow(bounds[3] - bounds[0], 2) + Math.pow(bounds[4] - bounds[1], 2)) || 10;
@@ -361,7 +368,7 @@
     on(win, 'cnc-screen-change', function () { close('screen'); });
     on(win, 'cnc-screen-lock', function (e) { if (e && e.detail) close('lock'); });
     on(win, 'pagehide', function () { close('pagehide'); });
-    on(doc, 'keydown', function (e) { if (e.key === 'Escape') { stop(e); close('user'); } });
+    if (!inline) on(doc, 'keydown', function (e) { if (e.key === 'Escape') { stop(e); close('user'); } });
 
     function close(reason) {
       if (closed) return; closed = true;
@@ -382,7 +389,7 @@
     };
     current = handle;
     zLabel(); upload(); resize();
-    if (closeButton.focus) try { closeButton.focus({ preventScroll: true }); } catch (_) {}
+    if (!inline && closeButton.focus) try { closeButton.focus({ preventScroll: true }); } catch (_) {}
     return handle;
   }
 

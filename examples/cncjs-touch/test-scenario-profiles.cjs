@@ -18,11 +18,19 @@ for (const page of ['index.html', 'simulation.html']) {
 const callers = fs.readdirSync(dir).filter((f) => /\.js$/.test(f) && f !== 'tablet-profile.js' && f !== 'preview-gl.js' && /\.loadAdvanced\(/.test(read(f)));
 assert.deepEqual(callers, ['preview-3d.js'], 'loadAdvanced is called from preview-3d.js only');
 {
-  const src = read('preview-3d.js'), at = src.indexOf('.loadAdvanced(');
-  const fn = src.lastIndexOf('function openFree', at);
-  assert(fn >= 0 && fn < at, 'the call sits in openFree');
-  const guard = src.slice(fn, at);
-  assert.match(guard, /if \(!performance\(\)\)[^;]*;[^}]*return;/, 'openFree returns before loading in eco');
+  // Two callers: openFree (returns before loading in eco) and the inline view, reached only through inlineMode (false without Performance).
+  const src = read('preview-3d.js');
+  for (let at = src.indexOf('.loadAdvanced('); at >= 0; at = src.indexOf('.loadAdvanced(', at + 1)) {
+    const free = src.lastIndexOf('function openFree', at), inl = src.lastIndexOf('function inline(', at);
+    if (free > inl) assert.match(src.slice(free, at), /if \(!performance\(\)\)[^;]*;[^}]*return;/, 'openFree returns before loading in eco');
+    else {
+      assert(inl >= 0, 'the call sits in openFree or inline');
+      const mode = src.slice(src.indexOf('function inlineMode('), src.indexOf('function visible('));
+      assert.match(mode, /!performance\(\)/, 'inlineMode is false without Performance');
+      const calls = src.split('inline(host);').length - 1, guarded = src.split('if (inlineMode(host)) { inline(host); return; }').length - 1;
+      assert.equal(calls, guarded, 'inline() is only called behind inlineMode');
+    }
+  }
 }
 assert.doesNotMatch(read('library-preview-worker.js'), /preview-gl/, 'the preview worker never imports preview-gl.js');
 
@@ -63,7 +71,7 @@ function browser(storage) {
   assert.equal(t2.scripts.length, 0);
   await t1.profile.loadAdvanced(['preview-gl.js']);
   await t1.profile.loadAdvanced(['preview-gl.js']);
-  assert.deepEqual(t1.scripts.map((s) => s.src), ['preview-gl.js'], 'performance: injected once');
+  assert.deepEqual(t1.scripts.map((s) => s.src.split('?')[0]), ['preview-gl.js'], 'performance: injected once');
   // Back to eco: refused again, nothing more injected.
   t1.profile.setPerformance('eco');
   await assert.rejects(t1.profile.loadAdvanced(['preview-gl.js']));

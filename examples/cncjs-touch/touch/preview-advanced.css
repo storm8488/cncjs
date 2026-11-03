@@ -39,3 +39,11 @@
 .pv-resume-canvas{display:block;width:100%;max-width:640px;height:auto;aspect-ratio:16/9;border:1px solid var(--line);border-radius:var(--r-s);background:#101820}
 .pv-resume-note{margin:var(--sp-1) 0 0;font-size:var(--fs-16);color:var(--mute)}
 .pv-resume[data-state="unavailable"] .pv-resume-note{color:var(--warn-text,#f0b429)}
+/* Inline free view (CNC, Performance): drawn in the preview frame, only the canvas and its camera buttons. */
+.pgl-dialog.pgl-inline{position:absolute;inset:0;z-index:2;display:flex;flex-direction:column;gap:0;padding:0;background:#101820;border-radius:inherit;overflow:hidden}
+.pgl-inline .pgl-head,.pgl-inline .pgl-side,.pgl-inline .pgl-foot{display:none}
+.pgl-inline .pgl-tools{position:absolute;left:8px;top:8px;right:8px;z-index:3;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;width:max-content;max-width:calc(100% - 16px);padding:2px;background:rgba(14,20,23,.88)}
+.pgl-inline .pgl-tools button{flex:0 0 auto;white-space:nowrap;min-height:48px;padding:0 var(--sp-2);font-size:var(--fs-16)}
+/* « Agrandir » stays over the inline view. */
+.pv3d-host>.preview-open{z-index:4}
+.pgl-inline .pgl-stage{position:relative;flex:1 1 auto;min-height:0}

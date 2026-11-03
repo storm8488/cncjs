@@ -255,7 +255,7 @@ function byText(root, text) { return findAll(root, n => n.textContent === text)[
     vm.runInContext(fs.readFileSync(path.join(__dirname, 'touch', 'preview-3d.js'), 'utf8'), win);
     const img = ids['library-image']; img.cncPreview = meta; img.src = 'data:image/png;base64,AAAA'; await tick(2);
     const bar = img.parentNode.children.find(c => c.attributes.role === 'group');
-    return { win, img, bar, free: bar.children.find(b => b.textContent === '3D libre'), laser: bar.children.find(b => b.attributes['data-view'] === 'laser'), status: img.parentNode.children.find(c => c.attributes.role === 'status') };
+    return { win, img, bar, free: bar.children.find(b => b.textContent === '3D libre'), laser: bar.children.find(b => b.attributes['data-view'] === 'laser'), status: img.parentNode.children.concat(img.parentNode.parentNode.children).find(c => c.attributes.role === 'status') };
   }
   let loads = [];
   const eco = { performance: () => 'eco', kind: () => 'cnc', machine: () => null, loadAdvanced: f => { loads.push(f); return Promise.reject(new Error('eco')); } };
@@ -271,10 +271,12 @@ function byText(root, text) { return findAll(root, n => n.textContent === text)[
   vp = await viewsPage(perf);
   // A laser machine has the laser view only: no free 3D view, even in Performance.
   assert.equal(vp.free.hidden, true, 'laser: no free 3D'); assert.equal(vp.laser.hidden, false, 'laser machine: laser view offered (eco too)');
-  kind = 'cnc'; vp = await viewsPage(perf);
-  assert.equal(vp.free.hidden, false, 'CNC Performance: free 3D offered'); assert.equal(vp.laser.hidden, true);
-  vp.free.click(); await tick(5);
-  assert.equal(JSON.stringify(loads), '[["preview-gl.js"]]');
+  assert.deepEqual(loads, [], 'laser: preview-gl.js not requested');
+  // CNC in Performance: the preview itself becomes the free view (no button, no dialog), loaded once.
+  kind = 'cnc'; vp = await viewsPage(perf); await tick(5);
+  assert.equal(vp.free.hidden, true, 'no 3D libre button: the preview is the free view'); assert.equal(vp.laser.hidden, true);
+  assert.equal(JSON.stringify(loads), '[["preview-gl.js"]]', 'loaded once for the inline view');
+  assert.equal(vp.bar.hidden, false, 'load failure: the fixed view buttons come back');
   assert.match(vp.status.textContent, /Vue 3D libre indisponible : script refusé\. Vues fixes conservées\./, 'load failure: fixed views kept');
   mode = 'eco'; vp.win.listeners['cnc-profile-change'].forEach(fn => fn({ detail: { performance: 'eco' } }));
   assert.equal(vp.free.hidden, true, 'profile back to eco: button hidden');

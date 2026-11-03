@@ -67,15 +67,52 @@
       var hide = laserMachine() ? name !== 'laser' : name === 'laser';
       if (b.hidden !== hide) b.hidden = hide;
     });
-    // The free 3D view: Performance profile and a 3D path only.
-    var free = !laserMachine() && performance() && !!keyOf(host.meta);
-    if (host.free.hidden !== !free) host.free.hidden = !free;
+    // CNC in Performance: the free 3D view is the preview itself (no view buttons); otherwise the fixed views.
+    var inline = inlineMode(host);
+    if (host.free.hidden !== true) host.free.hidden = true;
+    var bar = inline || !!host.img.hidden || !host.img.getAttribute('src');
+    if (host.bar.hidden !== bar) host.bar.hidden = bar;
+  }
+  // ---- Inline free 3D view (CNC, Performance): drawn in the preview frame, turned with a finger ----
+  // Suivi keeps its fixed view and progress trail while a job runs or is paused.
+  var jobBusy = false;
+  function inlineMode(host) {
+    if (laserMachine() || !performance() || !host.base || !keyOf(host.meta)) return false;
+    if (host.img.id === 'home-job-image' && jobBusy) return false;
+    return host.failedKey !== keyOf(host.meta);
+  }
+  function visible(host) { var s = host.img.closest ? host.img.closest('.screen') : null; return !s || !s.classList || s.classList.contains('active'); }
+  function closeInline(host) { host.glRequest = null; if (host.gl) { var h = host.gl; host.gl = null; h.close('view'); } }
+  function inline(host) {
+    var meta = host.meta, key = keyOf(meta);
+    show(host, host.base, null);
+    if (host.gl && host.glKey === key) return;
+    closeInline(host);
+    if (!visible(host)) return;
+    var P = profile(), request = host.glRequest = {};
+    host.glKey = key; status(host, t('Chargement de la vue 3D libre…'));
+    var extra = meta.estimate !== undefined ? Promise.resolve(meta) : sidecar(meta.file).then(function (s) { return s.fingerprint === meta.fingerprint && s.preview ? s.preview : {}; }, function () { return {}; });
+    function failed(message) { if (host.glRequest !== request && host.glRequest !== null) return; host.failedKey = key; host.gl = null; refresh(); status(host, message); }
+    Promise.all([P.loadAdvanced(['preview-gl.js']), extra]).then(function (r) {
+      if (host.glRequest !== request || !inlineMode(host) || !visible(host)) return;
+      if (!root.CNCPreviewGL) throw new Error(t('module absent'));
+      var full = {}; Object.keys(meta).forEach(function (k) { full[k] = meta[k]; });
+      if (full.estimate === undefined) full.estimate = r[1].estimate || null;
+      var stock = root.CNCProjects && typeof root.CNCProjects.stock === 'function' ? root.CNCProjects.stock(meta.file) : null;
+      status(host, '');
+      var handle = root.CNCPreviewGL.open(full, { container: host.img.parentNode, stock: stock,
+        onFallback: function (message) { failed(message); },
+        onClose: function () { if (host.gl === handle) host.gl = null; } });
+      if (handle) host.gl = handle;
+    }).catch(function (e) { failed(t('Vue 3D libre indisponible : ') + String(e && e.message || e) + t('. Vues fixes conservées.')); });
   }
   function update(host) {
     buttons(host);
     var meta = host.meta, view = current();
     host.key = '';
-    if (!host.base) { host.img.cncView = null; status(host, ''); return; }
+    if (!host.base) { closeInline(host); host.img.cncView = null; status(host, ''); return; }
+    if (inlineMode(host)) { inline(host); return; }
+    closeInline(host);
     if (view === '2d') { show(host, host.base, null); status(host, ''); return; }
     if (view === 'laser') { laser(host); return; }
     // No 3D path (old preview) or no fingerprint (older or unverified sidecar): the 2D image stays.
@@ -189,7 +226,7 @@
   // A host's 2D image changed (another file, a new preview, none): that becomes its base.
   // No image (a file without preview, an image that failed): no view to choose, and the bar
   // would cover the message shown in the image's place (validation D1).
-  function visibility(host) { var off = !!host.img.hidden || !host.img.getAttribute('src'); if (host.bar.hidden !== off) host.bar.hidden = off; if (host.transfer && host.transfer.hidden !== off) host.transfer.hidden = off; }
+  function visibility(host) { var off = !!host.img.hidden || !host.img.getAttribute('src'), bar = off || inlineMode(host); if (host.bar.hidden !== bar) host.bar.hidden = bar; if (host.transfer && host.transfer.hidden !== off) host.transfer.hidden = off; }
   function observe(host) {
     visibility(host);
     var src = host.img.getAttribute('src') || '';
@@ -346,8 +383,13 @@
       host.transfer = transfer;
     }
     note.className = 'pv3d-status'; note.setAttribute('role', 'status'); note.hidden = true;
-    box.classList.add('pv3d-host'); box.appendChild(bar); box.appendChild(note);
-    if (host.transfer && box.parentNode) box.parentNode.insertBefore(host.transfer, box.nextSibling);
+    box.classList.add('pv3d-host'); box.appendChild(bar);
+    // Export / import of the preview: in « Détails de l’aperçu » (touch-shell.js), so the preview keeps its height in Fichiers.
+    var details = typeof document.querySelector === 'function' ? document.querySelector('#ks-file-info .ks-sheet-content') : null;
+    if (host.transfer && details) details.appendChild(host.transfer);
+    else if (host.transfer && box.parentNode) box.parentNode.insertBefore(host.transfer, box.nextSibling);
+    // Fichiers: the status line goes under the preview (its frame clips what overflows); Suivi keeps it over the image.
+    if (imageId === 'library-image' && box.parentNode) { note.classList.add('pv3d-status--below'); box.parentNode.insertBefore(note, box.nextSibling); } else box.appendChild(note);
     hosts.push(host);
     new root.MutationObserver(function () { observe(host); }).observe(img, { attributes: true, attributeFilter: ['src', 'hidden'] });
     observe(host); buttons(host);
@@ -355,7 +397,15 @@
   ['library-image', 'home-job-image'].forEach(attach);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) pump(); });
   // The profile changed (eco / performance, CNC / laser): the buttons follow; an open free view closes itself.
-  if (typeof root.addEventListener === 'function') root.addEventListener('cnc-profile-change', function () { refresh(); });
+  if (typeof root.addEventListener === 'function') {
+    root.addEventListener('cnc-profile-change', function () { refresh(); });
+    // The inline view closes itself on a screen change; it is opened again on the screen now shown.
+    root.addEventListener('cnc-screen-change', function () { setTimeout(refresh, 50); });
+    root.addEventListener('cnc-job-status', function (e) {
+      var m = e && e.detail && e.detail.machine, busy = !!(m && m.workflow && m.workflow !== 'idle');
+      if (busy !== jobBusy) { jobBusy = busy; refresh(); }
+    });
+  }
   root.cncPreviewViews = { view: current, choose: choose, openFree: function (imageId) { var h = hosts.filter(function (x) { return x.img.id === imageId; })[0]; if (h) openFree(h); }, title: function (v) { return TITLES[v] || ''; },
     state: function () { return { worker: workerState, active: active ? active.view + (active.urgent ? '!' : '') : null, idle: idle !== null, queue: queue.map(function (j) { return j.entry.file + ':' + j.view + (j.urgent ? '!' : ''); }) }; }, cached: function () { return cache.map(function (e) { return { key: e.key, file: e.file, views: Object.keys(e.views), failed: e.failed }; }); } };
 })(typeof window !== 'undefined' ? window : this);

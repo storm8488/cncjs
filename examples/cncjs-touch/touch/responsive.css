@@ -152,3 +152,5 @@ body.ks-ui.t-inspect .home-overrides{display:none!important}
 .ks-ui #screen-settings .ks-diagnostic .ks-help{font-size:var(--fs-16);margin-top:0!important}
 /* Laser without a Z axis (laser-z.js): Z coordinates and controls hidden on this tablet. */
 body.machine-laser.laser-no-z [data-laser-z]{display:none!important}
+/* Fichiers: the preview's status line goes under the image (the frame clips what overflows it). */
+body.ks-ui .pv3d-status.pv3d-status--below{position:static;margin:0;max-width:none;white-space:normal}
