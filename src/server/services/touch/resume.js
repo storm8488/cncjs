@@ -68,6 +68,9 @@ const scale = (s, k) => {
   if (s.plungeFeed !== null) {
     s.plungeFeed *= k;
   }
+  if (s.zLast !== null) {
+    s.zLast *= k;
+  }
 };
 
 // State of the program just before line `from` (1-based, sender numbering).
@@ -100,7 +103,12 @@ safeZ: null,
     // work offset change that made them unknown, and of a G43.1 still active.
     unitsChanged: null,
 wcsReset: null,
-toolOffset: null
+toolOffset: null,
+    // Laser resume: the last absolute Z reached and whether Z ever took
+    // another value; the motion mode of the last line that moved.
+    zLast: null,
+    zVaries: false,
+    moveMotion: null
   };
   for (let i = 0; i < from - 1; i++) {
     const code = clean(lines[i]);
@@ -210,6 +218,7 @@ toolOffset: null
       continue;
     }
     if (axes.length && (s.motion || g.some((v) => [0, 1, 2, 3].includes(v)))) {
+      s.moveMotion = s.motion;
       axes.forEach((a) => {
         const v = at(a);
         const before = s.pos[a];
@@ -224,6 +233,10 @@ toolOffset: null
           s.plungeFeed = s.feed;
         }
         if (a === 'Z' && s.pos.Z !== null) {
+          if (s.zLast !== null && Math.abs(s.zLast - s.pos.Z) > 1e-9) {
+            s.zVaries = true;
+          }
+          s.zLast = s.pos.Z;
           s.safeZ = s.safeZ === null ? s.pos.Z : Math.max(s.safeZ, s.pos.Z);
           // s.motion already holds this line's motion word, or the modal one.
           if (s.motion === 'G0') {
@@ -259,8 +272,116 @@ export const modalsBeforeFirstMove = (gcode) => {
   return out;
 };
 
-// Builds the program that restarts at line `from`.
-export const buildResume = (gcode, from, { name = '' } = {}) => {
+// A first line relying on the modal motion (e.g. "X10 Y5" after G1) gets it back.
+const firstLineOf = (lines, from, s) => {
+  const first = lines[from - 1];
+  const firstCode = clean(first);
+  const hasAxis = /(^|[^A-Z])[XYZIJKR]\s*[-+]?[\d.]/.test(firstCode);
+  // Motion words, compact code included (G90G1X10: the G1 follows a digit).
+  const motion = words(firstCode).filter(([l, v]) => l === 'G' && [0, 1, 2, 3].includes(v)).map(([, v]) => 'G' + v).pop() || null;
+  return {
+    text: hasAxis && !motion && s.motion ? s.motion + ' ' + first.trim() : first,
+    motion: motion || (hasAxis ? s.motion : null),
+    xy: /(^|[^A-Z])[XY]\s*[-+]?[\d.]/.test(firstCode)
+  };
+};
+
+// Units, distance, plane, work offset and feed mode of the preamble.
+const modalLine = (s) => [s.units, 'G90', s.plane, s.wcs, s.feedMode].filter(Boolean).join(' ');
+
+const commonNotes = (s) => {
+  const notes = [];
+  if (!s.units) {
+    notes.push('Le programme ne fixe pas ses unités (G20/G21) : la machine garde les siennes.');
+  }
+  if (!s.wcs) {
+    notes.push('Le programme ne choisit pas de repère (G54-G59) : la machine garde le sien.');
+  }
+  if (s.unitsChanged) {
+    notes.push('Le programme change d’unités (ligne ' + s.unitsChanged + ') : positions et avances de la reprise converties en ' + s.units + '.');
+  }
+  if (s.wcsReset) {
+    notes.push('Repère ' + s.wcs + ' choisi à la ligne ' + s.wcsReset.line + ' : la reprise part des positions redonnées sous ce repère.');
+  }
+  return notes;
+};
+
+// Laser resume (PROFILES-CONTRACT §4), a mode of the same builder: only from
+// a pass/object boundary (the start of a new rapid G0, after a cut or with
+// the laser off), with M5 first, the modal state, a rapid to the XY start, no
+// Z move unless the program's Z is constant and known, then the replayed
+// M3/M4 and S: no dwell, no plunge. Grbl in laser mode ($32=1, checked by the
+// caller from the machine profile) emits only during G1/G2/G3 moves.
+const buildLaserResume = (lines, from, s, name) => {
+  const first = firstLineOf(lines, from, s);
+  if (first.motion !== 'G0' || !first.xy) {
+    throw refuse('ETOUCH_LASER_RESUME_NOT_RAPID', 'Reprise laser seulement au début d’un déplacement rapide (G0 en X/Y) : la ligne ' + from + ' n’en est pas un.', { from });
+  }
+  const off = s.spindle === 'M5' || s.speed === 0;
+  const afterCut = ['G1', 'G2', 'G3'].includes(s.moveMotion);
+  if (!off && !afterCut) {
+    throw refuse('ETOUCH_LASER_RESUME_NOT_BOUNDARY', 'La ligne ' + from + ' n’est pas une limite de passe : choisissez le premier G0 après une découpe, ou un G0 après M5 ou S0.', { from });
+  }
+  if (s.pos.X === null || s.pos.Y === null) {
+    throw refuse('ETOUCH_LASER_RESUME_POSITION', 'Position X/Y avant la ligne ' + from + ' inconnue (X et Y doivent avoir été donnés en absolu) : choisissez une ligne plus loin.', { from });
+  }
+  if (s.zVaries) {
+    throw refuse('ETOUCH_LASER_RESUME_Z_VARIES', 'Hauteur Z variable avant la ligne ' + from + ' : reprise laser impossible sans hauteur de tête connue.', { from });
+  }
+  const emitting = s.spindle === 'M3' || s.spindle === 'M4';
+  if (emitting && s.speed === null) {
+    throw refuse('ETOUCH_LASER_RESUME_S_UNKNOWN', 'Consigne S inconnue avant la ligne ' + from + ' alors que le laser est commandé (M3/M4) : reprise impossible.', { from });
+  }
+  const preamble = [
+    '(CNCjs Touch : reprise laser a la ligne ' + from + (name ? ' de ' + name.replace(/[()]/g, '') : '') + ')',
+    'M5',
+    modalLine(s),
+    'G0 X' + fmt(s.pos.X) + ' Y' + fmt(s.pos.Y)
+  ];
+  const zKnown = s.pos.Z !== null;
+  if (zKnown) {
+    preamble.push('G0 Z' + fmt(s.pos.Z));
+  }
+  if (s.coolant !== 'M9') {
+    preamble.push(s.coolant);
+  }
+  if (s.feed !== null && s.feed > 0) {
+    preamble.push('F' + fmt(s.feed));
+  }
+  if (emitting) {
+    preamble.push(s.spindle + ' S' + fmt(s.speed));
+  } else if (s.speed !== null) {
+    preamble.push('S' + fmt(s.speed));
+  }
+  const program = preamble.concat([first.text], lines.slice(from)).join('\n') + '\n';
+  const notes = [
+    'Reprise laser : M5, déplacement rapide (G0) vers le départ X/Y sans émission ; le laser n’est commandé qu’au premier déplacement de coupe (G1/G2/G3, mode laser $32=1).',
+    zKnown
+      ? 'Z ramené à Z' + fmt(s.pos.Z) + ', hauteur constante du programme avant la ligne ' + from + '.'
+      : 'Le programme ne donne pas de Z avant la ligne ' + from + ' : la tête reste à sa hauteur actuelle.'
+  ].concat(commonNotes(s));
+  return {
+    program,
+    mode: 'laser',
+    from,
+    total: lines.length,
+    line: lines[from - 1].trim().slice(0, 120),
+    tool: s.tool,
+    toolChanged: s.toolChanged,
+    spindle: emitting ? { mode: s.spindle, speed: s.speed } : null,
+    coolant: s.coolant !== 'M9' ? s.coolant : null,
+    position: { ...s.pos },
+    safeZ: null,
+    units: s.units,
+    wcs: s.wcs,
+    preamble,
+    notes
+  };
+};
+
+// Builds the program that restarts at line `from`. `mode` is chosen by the
+// server from the machine profile: 'cnc' (default) or 'laser'.
+export const buildResume = (gcode, from, { name = '', mode = 'cnc' } = {}) => {
   const lines = programLines(gcode);
   if (!Number.isInteger(from) || from < 2 || from > lines.length) {
     throw refuse('ETOUCH_RESUME_LINE', 'Ligne de reprise invalide : choisissez entre 2 et ' + lines.length + '.', { min: 2, max: lines.length });
@@ -271,6 +392,9 @@ export const buildResume = (gcode, from, { name = '' } = {}) => {
   }
   if (s.toolOffset !== null) {
     throw refuse('ETOUCH_RESUME_TOOL_OFFSET_ACTIVE', 'Décalage de longueur d’outil (G43.1) actif depuis la ligne ' + s.toolOffset + ' : non rejoué, reprise impossible avant son annulation (G49).', { line: s.toolOffset });
+  }
+  if (mode === 'laser') {
+    return buildLaserResume(lines, from, s, name);
   }
   if (s.pos.X === null || s.pos.Y === null || s.pos.Z === null) {
     if (s.wcsReset) {
@@ -297,7 +421,7 @@ export const buildResume = (gcode, from, { name = '' } = {}) => {
   }
   const preamble = [
     '(CNCjs Touch : reprise a la ligne ' + from + (name ? ' de ' + name.replace(/[()]/g, '') : '') + ')',
-    [s.units, 'G90', s.plane, s.wcs, s.feedMode].filter(Boolean).join(' '),
+    modalLine(s),
     'G0 Z' + fmt(s.safeZ),
     'G0 X' + fmt(s.pos.X) + ' Y' + fmt(s.pos.Y)
   ];
@@ -312,37 +436,17 @@ export const buildResume = (gcode, from, { name = '' } = {}) => {
   if (plunge !== s.feed) {
     preamble.push('F' + fmt(s.feed));
   }
-  // A first line relying on the modal motion (e.g. "X10 Y5" after G1) gets it back.
-  let first = lines[from - 1];
-  const firstCode = clean(first);
-  const hasAxis = /(^|[^A-Z])[XYZIJKR]\s*[-+]?[\d.]/.test(firstCode);
-  // Motion words, compact code included (G90G1X10: the G1 follows a digit).
-  const hasMotion = words(firstCode).some(([l, v]) => l === 'G' && [0, 1, 2, 3].includes(v));
-  if (hasAxis && !hasMotion && s.motion) {
-    first = s.motion + ' ' + first.trim();
-  }
-  const program = preamble.concat([first], lines.slice(from)).join('\n') + '\n';
+  const program = preamble.concat([firstLineOf(lines, from, s).text], lines.slice(from)).join('\n') + '\n';
   // Limits the operator must know before confirming (shown with the plan).
   const notes = [
     'Le dégagement Z' + fmt(s.safeZ) + ' est le Z le plus haut vu avant la ligne ' + from + ', pas une garantie d’absence d’obstacle (brides, pièce).',
     // Variant B of the counter-review: a program without any rapid Z retract
     // (G1-only posts) is not resumable; the rapid that justifies the clearance is named.
     'Retrait en rapide constaté à Z' + fmt(s.rapidZ) + (s.wcsReset ? ' sous ' + s.wcs : '') + ' : sans déplacement rapide G0 en Z, aucune reprise ne serait proposée.'
-  ];
-  if (!s.units) {
-    notes.push('Le programme ne fixe pas ses unités (G20/G21) : la machine garde les siennes.');
-  }
-  if (!s.wcs) {
-    notes.push('Le programme ne choisit pas de repère (G54-G59) : la machine garde le sien.');
-  }
-  if (s.unitsChanged) {
-    notes.push('Le programme change d’unités (ligne ' + s.unitsChanged + ') : positions et avances de la reprise converties en ' + s.units + '.');
-  }
-  if (s.wcsReset) {
-    notes.push('Repère ' + s.wcs + ' choisi à la ligne ' + s.wcsReset.line + ' : la reprise part des positions redonnées sous ce repère.');
-  }
+  ].concat(commonNotes(s));
   return {
     program,
+    mode: 'cnc',
     from,
     total: lines.length,
     line: lines[from - 1].trim().slice(0, 120),

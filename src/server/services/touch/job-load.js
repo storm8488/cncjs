@@ -97,11 +97,14 @@ const FILE_MESSAGES = {
 //   log(event)              durable job history (F4)
 //   jobInfo(job), controllerInfo(c, r)  what the history keeps of a job, a controller
 //   machineForCheck(c, r)   what the travel check (F2) needs from the machine now
+//   resumeMode(c)           'cnc' or 'laser' from the machine profile, or throws a coded refusal
+//                           (laser profile without $32=1, $32=1 without a laser profile)
 // Returns { sameFileAsLoaded(job), resumePlan(c, body), checkFile(c, body), load(c, r, body, actor) }.
 export const createLoader = (deps) => {
   const {
     files, config, conflict, available, idle, hasAutomations, record, changed, log, jobInfo, controllerInfo, machineForCheck
   } = deps;
+  const resumeMode = deps.resumeMode || (() => 'cnc');
 
   const fileConflict = (err) => {
     const message = err && FILE_MESSAGES[err.code];
@@ -148,14 +151,18 @@ export const createLoader = (deps) => {
     }
   };
 
-  // What a resume from a line would send, without loading anything.
+  // What a resume from a line would send, without loading anything. The
+  // preview is exactly the preamble the load sends before line `fromLine` of
+  // the same file (fingerprint): the tablet draws it, it never recomputes it.
   const resumePlan = async (c, body) => {
     available(c);
     validName(body.file);
-    const { text: gcode } = await readProgram(body.file);
-    const plan = buildResume(gcode, Number(body.line), { name: body.file.replace(/--touch-\d{14}-[a-f0-9]{16}(?=\.[^.]+$)/, '') });
+    const mode = resumeMode(c);
+    const { text: gcode, fingerprint } = await readProgram(body.file);
+    const plan = buildResume(gcode, Number(body.line), { name: body.file.replace(/--touch-\d{14}-[a-f0-9]{16}(?=\.[^.]+$)/, ''), mode });
     const summary = { ...plan };
     delete summary.program;
+    summary.preview = { version: 1, fingerprint, fromLine: plan.from, preamble: plan.preamble.slice(), kind: plan.mode };
     return summary;
   };
 
@@ -190,7 +197,7 @@ export const createLoader = (deps) => {
       let program = gcode;
       let resume = null;
       if (body.fromLine !== undefined && body.fromLine !== null) {
-        const plan = buildResume(gcode, Number(body.fromLine), { name: originalName });
+        const plan = buildResume(gcode, Number(body.fromLine), { name: originalName, mode: resumeMode(c) });
         program = plan.program;
         resume = {
           from: plan.from,
@@ -201,7 +208,8 @@ toolChanged: plan.toolChanged,
           spindle: plan.spindle,
 coolant: plan.coolant,
 preambleLength: plan.preamble.length,
-notes: plan.notes
+notes: plan.notes,
+mode: plan.mode
         };
       }
       const revision = crypto.randomBytes(20).toString('hex');

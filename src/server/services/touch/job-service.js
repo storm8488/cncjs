@@ -16,7 +16,9 @@ import { checkProgram } from './program-check.js';
 // eslint-disable-next-line import/extensions
 import { createControl, SAFE_ACTIONS } from './control.js';
 // eslint-disable-next-line import/extensions
-import { createMotion } from './motion.js';
+import { createMotion, maxFeedOf, MAX_JOG_MS, MIN_FEED } from './motion.js';
+// eslint-disable-next-line import/extensions
+import { createProfiles, describeProfile, machineRefusal, KINDS } from './machine-profile.js';
 // Parts of the service behind explicit contracts (audit 31, E2): the
 // orchestration, the guards and the public API stay here.
 // eslint-disable-next-line import/extensions
@@ -142,7 +144,8 @@ const monotonic = () => performance.now();
 
 // Actions that need the control lease when the port is owned by someone
 // else; a touch client that identifies itself claims a free port with them.
-const GUARDED_ACTIONS = ['load', 'prepare', 'start', 'resume', 'macro', 'override', 'unlock', 'home', 'spindle', 'zeroZ', 'readSettings', 'set-origin'];
+// `machine`: type of machine and laser framing (PROFILES-CONTRACT §2, §4).
+const GUARDED_ACTIONS = ['load', 'prepare', 'start', 'resume', 'macro', 'override', 'unlock', 'home', 'spindle', 'zeroZ', 'readSettings', 'set-origin', 'machine'];
 
 // Real moves (F1, motion.js): every `motion` operation is guarded like the
 // actions above, except `jog-stop`, which is free for everyone like Stop.
@@ -655,6 +658,16 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       if (j.probeFailed) {
         throw conflict('Palpage échoué pendant la pause : l’état modal du programme est perdu. Arrêtez le travail, puis reprenez à une ligne.');
       }
+      if (kind === 'M6') {
+        // No tool change on a laser; no spindle restart while $32=1 without a laser profile.
+        const profile = profileOf(c, record(c));
+        if (profile.kind === 'laser') {
+          throw machineRefusal('ETOUCH_LASER_NO_TOOL_CHANGE');
+        }
+        if (record(c).toolChange && record(c).toolChange.restart && !profile.capabilities.toolChange.supported) {
+          throw machineRefusal(profile.capabilities.toolChange.code);
+        }
+      }
       if (kind === 'M0' || kind === 'M1' || kind === 'M6') {
         if (state !== 'Idle' && state !== 'Hold') {
           throw conflict('Attendez l’arrêt de la machine (Idle ou Hold) avant de reprendre.');
@@ -761,7 +774,77 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
   };
 
+  // Machine type (CNC / laser) bound to the board's identity, kept in .cncrc
+  // (`touch.machines`, see machine-profile.js). Its capabilities are enforced
+  // here; the tablet only hides or disables.
+  const profiles = createProfiles({ config });
+  const profileOf = (c, r) => describeProfile({
+    settings: allSettings(c),
+    firmware: r.firmware || firmwareOf(c),
+    version: c.settings && c.settings.version,
+    port: c.options.port,
+    records: profiles.list(),
+    frameEnabled: moves.enabled(c, r)
+  });
+  const requireCapability = (c, name) => {
+    const cap = profileOf(c, record(c)).capabilities[name];
+    if (!cap.supported) {
+      throw machineRefusal(cap.code);
+    }
+  };
+  // Resume from a line: the laser mode of the builder for a laser profile
+  // ($32=1 required), the CNC one otherwise ($32=1 refused).
+  const resumeMode = (c) => {
+    const profile = profileOf(c, record(c));
+    const cap = profile.capabilities[profile.kind === 'laser' ? 'laserResume' : 'resume'];
+    if (!cap.supported) {
+      throw machineRefusal(cap.code);
+    }
+    return profile.kind === 'laser' ? 'laser' : 'cnc';
+  };
+
+  // Changing the machine type: the machine at rest (fresh report, Idle,
+  // nothing running, held, loading, homing, probing or moving, no host
+  // command) and its settings ($$) read. Coded refusals (ETOUCH_MACHINE_*).
+  const machineReady = (c) => {
+    const r = record(c);
+    if (controllers()[c.options.port] !== c || c.isClose() || !c.ready || !c.runner || !c.sender) {
+      throw machineRefusal('ETOUCH_MACHINE_CONNECTION');
+    }
+    if (!Number.isFinite(r.seen) || clock() < r.seen || clock() - r.seen > MAX_REPORT_AGE_MS) {
+      throw machineRefusal('ETOUCH_MACHINE_STALE');
+    }
+    const feeder = c.feeder.toJSON();
+    if (systemCommands.current() || r.loading || r.probing || homingActive(r) || moves.moving(c, r) ||
+        c.workflow.state !== 'idle' || feeder.queue || feeder.pending) {
+      throw machineRefusal('ETOUCH_MACHINE_BUSY');
+    }
+    const state = controllerStatus(c).activeState || '';
+    if (state !== 'Idle') {
+      throw machineRefusal('ETOUCH_MACHINE_NOT_IDLE', { state: state || 'inconnu' });
+    }
+    if (!profileOf(c, r).signature) {
+      throw machineRefusal('ETOUCH_MACHINE_SETTINGS_UNKNOWN');
+    }
+  };
+
+  const machineProfileOf = (c, r) => {
+    const profile = profileOf(c, r);
+    let changeReason = '';
+    try {
+      machineReady(c);
+      if (profile.match === 'ambiguous') {
+        throw machineRefusal('ETOUCH_MACHINE_AMBIGUOUS', { count: profile.issues.find((i) => i.code === 'ETOUCH_MACHINE_AMBIGUOUS').params.count });
+      }
+    } catch (err) {
+      changeReason = err.message;
+    }
+    const { capabilities, ...rest } = profile;
+    return { ...rest, canChange: !changeReason, changeReason, capabilities };
+  };
+
   const spindleReady = (c) => {
+    requireCapability(c, 'spindleTest');
     idle(c);
     noJob(c);
     if (!spindleTestSpeed(allSettings(c))) {
@@ -793,6 +876,11 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     probeInput,
     moving: (c, r) => moves.moving(c, r)
   });
+  // The plate probe turns no spindle but is a CNC operation (contract §3).
+  const plateReady = (c) => {
+    requireCapability(c, 'plateProbe');
+    zeroZReady(c);
+  };
 
   // Real jogging and work origins (F1): experimental, disabled unless .cncrc
   // has touch.motion.enabled: true (see motion.js).
@@ -862,10 +950,13 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       }
     },
     zeroZ: {
-      guard: zeroZReady,
+      guard: plateReady,
       params: plateParams,
       name: (c, params) => 'Zéro Z avec plaque de ' + params.thickness + ' mm (recherche ' + params.search + ' mm)',
-      run: zeroZ
+      run: (c, t, actor) => {
+        requireCapability(c, 'plateProbe');
+        return zeroZ(c, t, actor);
+      }
     },
     // Work origin at the current position (F1, motion.js).
     'set-origin': moves.originOperation
@@ -920,7 +1011,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     const homeReason = reason(() => homeReady(c));
     const spindleReason = reason(() => spindleReady(c));
     const spindleStopReason = reason(() => spindleStopReady(c));
-    const zeroZReason = reason(() => zeroZReady(c));
+    const zeroZReason = reason(() => plateReady(c));
 
     const jobErrors = (r.job && r.job.errors) || 0;
     const ended = Boolean(r.job && r.job.finishedAt && !r.job.stopped && c.workflow.state === 'idle');
@@ -1048,6 +1139,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       zeroZReason,
       probing: !!r.probing,
       zeroZ: r.zeroZ ? { ...r.zeroZ } : null,
+      // Machine type bound to this board's identity, and what it allows (PROFILES-CONTRACT §2, §3).
+      machineProfile: machineProfileOf(c, r),
       // Real moves (F1): `capabilities` (jog, jogContinuous, jogCancel, setOrigin)
       // and `motion` (what is possible now, the continuous jog, the last results).
       ...moves.snapshot(c, r)
@@ -1073,7 +1166,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       modal: parser ? { units: parser.units, distance: parser.distance, wcs: parser.wcs } : null,
       parameters,
       homed: r.homed === true,
-      reportUnits
+      reportUnits,
+      // Laser additions of the program check, for a machine declared laser only.
+      ...(profileOf(c, r).kind === 'laser' ? { laser: { sMax: settingNumber(allSettings(c), 30) } } : {})
     };
   };
 
@@ -1091,7 +1186,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     log,
     jobInfo,
     controllerInfo,
-    machineForCheck
+    machineForCheck,
+    resumeMode
   });
 
   // After a tool change the spindle was stopped by the operator: start it at
@@ -1136,6 +1232,149 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     check();
   });
 
+  // Laser framing (PROFILES-CONTRACT §4): the XY box of the loaded program
+  // (validated travel check, mm, work coordinates of the active offset) at
+  // the current Z, M5 first, bounded absolute jogs. Default feed below.
+  const FRAME_FEED = 1000;
+  const fmt3 = (n) => String(Math.round(n * 1000) / 1000);
+  const framePlan = (c, r, feedAsked) => {
+    requireCapability(c, 'laserFrame');
+    moves.jogReady(c, r);
+    const j = r.job;
+    const sender = c.sender.state || {};
+    if (!j || sender.name !== j.name || !sender.context || sender.context.touchJob !== j.revision) {
+      throw machineRefusal('ETOUCH_LASER_FRAME_NO_PROGRAM');
+    }
+    const a = j.analysis;
+    const check = checkProgram(a, machineForCheck(c, r));
+    if (check.axes.X.verdict !== 'validated' || check.axes.Y.verdict !== 'validated') {
+      throw machineRefusal('ETOUCH_LASER_FRAME_CHECK');
+    }
+    if (a.rawUnits || !a.extent.X || !a.extent.Y) {
+      throw machineRefusal('ETOUCH_LASER_FRAME_BOUNDS');
+    }
+    const active = modalWcs(r);
+    if (a.wcs && a.wcs !== active) {
+      throw machineRefusal('ETOUCH_LASER_FRAME_WCS', { wcs: a.wcs, active: active || 'inconnu' });
+    }
+    const settings = allSettings(c);
+    const max = Math.min(maxFeedOf(settings, 'X').max, maxFeedOf(settings, 'Y').max);
+    const feed = feedAsked === undefined || feedAsked === null ? Math.min(FRAME_FEED, max) : feedAsked;
+    if (typeof feed !== 'number' || !Number.isFinite(feed) || feed < MIN_FEED || feed > max) {
+      throw machineRefusal('ETOUCH_LASER_FRAME_FEED', { min: MIN_FEED, max: fmt3(max) });
+    }
+    const wpos = controllerStatus(c).wpos || {};
+    const here = ['x', 'y'].map((axis) => {
+      const v = wpos[axis];
+      const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
+      return typeof n === 'number' && Number.isFinite(n) ? n : null;
+    });
+    if (here.includes(null)) {
+      throw machineRefusal('ETOUCH_LASER_FRAME_POSITION');
+    }
+    const bounds = {
+      xMin: Number(fmt3(a.extent.X.min)),
+      xMax: Number(fmt3(a.extent.X.max)),
+      yMin: Number(fmt3(a.extent.Y.min)),
+      yMax: Number(fmt3(a.extent.Y.max))
+    };
+    const { xMin, xMax, yMin, yMax } = bounds;
+    const corners = [[xMin, yMin], [xMax, yMin], [xMax, yMax], [xMin, yMax], [xMin, yMin]];
+    const f = Number(fmt3(feed));
+    const lines = ['M5'];
+    const limits = [10000];
+    let from = here;
+    corners.forEach(([x, y]) => {
+      const ms = 60000 * Math.hypot(x - from[0], y - from[1]) / f;
+      if (ms > MAX_JOG_MS) {
+        throw machineRefusal('ETOUCH_LASER_FRAME_SLOW', { seconds: Math.ceil(ms / 1000), max: MAX_JOG_MS / 1000 });
+      }
+      lines.push('$J=G90 G21 X' + fmt3(x) + ' Y' + fmt3(y) + ' F' + fmt3(f));
+      limits.push(ms + 10000);
+      from = [x, y];
+    });
+    return { lines, limits, bounds, feed: f, job: j };
+  };
+
+  const MACHINE_OPERATIONS = ['set-kind', 'forget', 'frame-prepare', 'frame'];
+
+  // POST {action: 'machine', operation: 'set-kind' | 'forget' | 'frame-prepare' | 'frame'}.
+  // set-kind / forget write .cncrc only: nothing is ever sent to the
+  // controller, and $30, $31, $32 are never changed.
+  const machineAction = (c, r, body, actor) => {
+    const op = body.operation;
+    if (!MACHINE_OPERATIONS.includes(op)) {
+      throw machineRefusal('ETOUCH_MACHINE_OPERATION');
+    }
+    if (typeof body.generation !== 'string' || body.generation !== r.generation) {
+      throw machineRefusal('ETOUCH_MACHINE_CONTROLLER_CHANGED');
+    }
+    const framing = op === 'frame-prepare' || op === 'frame';
+    if ((framing && typeof body.transportId !== 'string') || (body.transportId !== undefined && !transports.has(body.transportId))) {
+      throw machineRefusal('ETOUCH_MACHINE_TRANSPORT');
+    }
+    if (op === 'set-kind' || op === 'forget') {
+      if (op === 'set-kind' && !KINDS.includes(body.kind)) {
+        throw machineRefusal('ETOUCH_MACHINE_KIND_INVALID');
+      }
+      machineReady(c);
+      const profile = profileOf(c, r);
+      const controller = controllerInfo(c, r);
+      if (op === 'forget') {
+        const removed = profiles.forget({ signature: profile.signature });
+        log({ event: 'machine', operation: 'forget', controller, signature: profile.signature, removed: removed.map((m) => ({ id: m.id, label: m.label || '', kind: m.kind })), actor: actor || null });
+        changed();
+        return { message: 'Fiche machine oubliée. Aucune commande envoyée à la carte.' };
+      }
+      const { record: saved, previous } = profiles.setKind({ signature: profile.signature, kind: body.kind, label: body.label });
+      log({ event: 'machine', operation: 'set-kind', controller, machine: { id: saved.id, label: saved.label, kind: saved.kind, signature: saved.signature }, previous, actor: actor || null });
+      changed();
+      return {
+        message: saved.kind === 'laser' ? 'Type de machine enregistré : laser. Aucune commande envoyée à la carte.' : 'Type de machine enregistré : CNC. Aucune commande envoyée à la carte.',
+        machine: { id: saved.id, label: saved.label, kind: saved.kind }
+      };
+    }
+    moves.bound(body, actor);
+    if (op === 'frame-prepare') {
+      const plan = framePlan(c, r, body.feed);
+      const nonce = crypto.randomBytes(24).toString('hex');
+      r.ticket = {
+        nonce,
+        operation: 'frame',
+        revision: plan.job.revision,
+        fingerprint: plan.job.fingerprint,
+        lines: plan.lines,
+        feed: plan.feed,
+        expires: clock() + TICKET_LIFETIME_MS,
+        transportId: body.transportId
+      };
+      return {
+        nonce,
+        name: 'Cadrage laser X ' + fmt3(plan.bounds.xMin) + ' → ' + fmt3(plan.bounds.xMax) + ', Y ' + fmt3(plan.bounds.yMin) + ' → ' + fmt3(plan.bounds.yMax) + ' mm à ' + fmt3(plan.feed) + ' mm/min (M5 d’abord, sans émission)',
+        operation: 'frame',
+        expiresIn: TICKET_LIFETIME_MS / 1000,
+        generation: r.generation,
+        frame: { lines: plan.lines.slice(), bounds: plan.bounds, feed: plan.feed }
+      };
+    }
+    const t = r.ticket;
+    r.ticket = null;
+    if (!t || t.operation !== 'frame' || t.nonce !== body.nonce || clock() > t.expires || t.transportId !== body.transportId) {
+      throw machineRefusal('ETOUCH_LASER_FRAME_EXPIRED');
+    }
+    // The same program (revision and fingerprint), the same lines, re-checked
+    // after the file on disk was read again (A5).
+    const again = () => {
+      const plan = framePlan(c, r, t.feed);
+      if (plan.job.revision !== t.revision || plan.job.fingerprint !== t.fingerprint || plan.lines.join('\n') !== t.lines.join('\n')) {
+        throw machineRefusal('ETOUCH_LASER_FRAME_CHANGED');
+      }
+      return plan;
+    };
+    const first = again();
+    return sameFileAsLoaded(first.job).then(() => moves.frame(c, r, again(), actor, body.transportId));
+  };
+
   const perform = (body, actor) => {
     if (!body || typeof body.port !== 'string') {
       throw conflict('Choisissez une machine.');
@@ -1172,6 +1411,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       control.authorize(c.options.port, actor, a);
     } else if (SAFE_ACTIONS.includes(a) || a === 'motion') {
       control.authorize(c.options.port, actor, a, { safe: true });
+    }
+
+    if (a === 'machine') {
+      return machineAction(c, r, body, actor);
     }
 
     if (['prepare', 'start', 'resume', 'macro', 'override', 'unlock', 'home', 'spindle', 'zeroZ', 'readSettings', 'set-origin'].includes(a) ||
@@ -1559,7 +1802,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       return '';
     }
     const registry = controllers();
-    return (systemCommands.current() ? systemCommands.current().since + '#' : '') + control.signature() + '#' + Object.keys(registry).map((port) => {
+    return (systemCommands.current() ? systemCommands.current().since + '#' : '') + control.signature() + '#' + profiles.revision() + '#' + Object.keys(registry).map((port) => {
       const c = registry[port];
       if (!c) {
         return port;

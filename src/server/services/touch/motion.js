@@ -83,6 +83,7 @@ const STOP_REASONS = {
   disabled: 'déplacements réels désactivés',
   late: 'maintien reçu après l’échéance',
   pause: 'bouton Pause',
+  state: 'machine sortie du repos (Idle) pendant le cadrage',
   dispose: 'service arrêté'
 };
 
@@ -264,7 +265,8 @@ export const createMotion = (deps) => {
       // pending: the last line sent (jog or origin) until Grbl answered it and
       // the machine is seen at rest after it; session: the continuous jog;
       // cancel: a jog cancel being confirmed.
-      r.motion = { pending: null, session: null, cancel: null, lastJog: null, lastOrigin: null };
+      // frame: a laser framing sequence (M5 then bounded absolute jogs).
+      r.motion = { pending: null, session: null, cancel: null, lastJog: null, lastOrigin: null, frame: null, lastFrame: null };
     }
     return r.motion;
   };
@@ -494,6 +496,9 @@ export const createMotion = (deps) => {
   const cancel = (c, r, why) => {
     const s = stateOf(r);
     endSession(c, r, s.session, 'cancelled', why, STOP_REASONS[why] || why);
+    if (s.frame) {
+      endFrame(c, r, s.frame, 'cancelled', why);
+    }
     if (!connected(c)) {
       changed();
       return;
@@ -702,7 +707,7 @@ export const createMotion = (deps) => {
   // Is there a jog of ours to stop (sent, running, or being cancelled)?
   const moving = (c, r) => {
     const s = stateOf(r);
-    return !!(s.session || (s.pending && s.pending.kind === 'jog' && !settle(c, r)));
+    return !!(s.session || s.frame || (s.pending && s.pending.kind === 'jog' && !settle(c, r)));
   };
 
   const STOP_MESSAGES = {
@@ -756,6 +761,123 @@ export const createMotion = (deps) => {
     }
     bound(body, actor);
     return op === 'jog' ? step(c, r, body) : start(c, r, body, actor);
+  };
+
+  // Laser framing (PROFILES-CONTRACT §4): `M5`, then bounded absolute jogs
+  // (`$J=G90 G21 X… Y… F…`) around the program's XY box at the current Z,
+  // one line at a time: the next one leaves once the previous one is answered
+  // and the machine is seen at rest after it (settle). Stop, Pause, jog stop,
+  // the owner's stream closing, a takeover, a stale report, an alarm or the
+  // function disabled cancel it (0x85) like a continuous jog. It never sends
+  // M3, M4 or S: the caller builds the lines (job-service.js) and this
+  // function refuses any other line.
+  const FRAME_LINE = /^(M5|\$J=G90 G21 X-?\d+(\.\d+)? Y-?\d+(\.\d+)? F\d+(\.\d+)?)$/;
+
+  const endFrame = (c, r, session, result, why) => {
+    const s = stateOf(r);
+    if (s.frame !== session) {
+      return;
+    }
+    s.frame = null;
+    s.lastFrame = { result, reason: why || '', message: result === 'ended' ? 'contour terminé' : (STOP_REASONS[why] || why || result), sent: session.index, total: session.lines.length, at: Date.now() };
+    log({
+      event: 'frame',
+      result,
+      reason: why || '',
+      controller: controllerInfo(c, r),
+      lines: session.lines,
+      sent: session.index,
+      bounds: session.bounds,
+      feed: session.feed,
+      startedAt: new Date(session.since).toISOString(),
+      durationMs: Date.now() - session.since,
+      actor: session.actor
+    });
+    changed();
+  };
+
+  const frameStopReason = (c, r, session) => {
+    if (!motionEnabled(config)) {
+      return 'disabled';
+    }
+    if (!transports.has(session.transportId)) {
+      return 'transport';
+    }
+    const owner = control.inspect(c.options.port).owner;
+    if (owner && keyOf(owner) !== session.actorKey) {
+      return 'control';
+    }
+    if (!fresh(r)) {
+      return 'stale';
+    }
+    if (/^Alarm/.test(activeOf(c))) {
+      return 'alarm';
+    }
+    return '';
+  };
+
+  // plan: { lines, limits (ms per line), bounds, feed }, checked by the caller.
+  const frame = (c, r, plan, actor, transportId) => {
+    jogReady(c, r);
+    if (!plan || !Array.isArray(plan.lines) || !plan.lines.length || plan.lines[0] !== 'M5' ||
+        plan.lines.some((line) => !FRAME_LINE.test(line)) || plan.limits.length !== plan.lines.length) {
+      throw conflict('Cadrage invalide.');
+    }
+    const s = stateOf(r);
+    const session = {
+      id: crypto.randomBytes(12).toString('hex'),
+      lines: plan.lines.slice(),
+      limits: plan.limits.slice(),
+      index: 0,
+      bounds: plan.bounds,
+      feed: plan.feed,
+      transportId,
+      actorKey: keyOf(actor),
+      actor: actor ? { kind: actor.kind, id: actor.id, label: actor.label || '', user: actor.user || '' } : null,
+      owner: actor ? { kind: actor.kind, id: actor.id, label: actor.label || '' } : null,
+      since: Date.now()
+    };
+    const sendNext = () => {
+      const i = session.index;
+      session.index += 1;
+      send(c, r, /^\$J=/.test(session.lines[i]) ? 'jog' : 'frame', session.lines[i], session.limits[i]);
+    };
+    s.frame = session;
+    sendNext();
+    const check = () => {
+      if (s.frame !== session) {
+        return;
+      }
+      if (!connected(c)) {
+        endFrame(c, r, session, 'lost', 'connection');
+        return;
+      }
+      const why = frameStopReason(c, r, session);
+      if (why) {
+        cancel(c, r, why);
+        return;
+      }
+      const p = s.pending;
+      const error = p && p.t.error;
+      if (settle(c, r)) {
+        if (error) {
+          endFrame(c, r, session, 'refused', 'error:' + error);
+          return;
+        }
+        if (session.index >= session.lines.length) {
+          endFrame(c, r, session, 'ended', '');
+          return;
+        }
+        if (activeOf(c) !== 'Idle') {
+          cancel(c, r, 'state');
+          return;
+        }
+        sendNext();
+      }
+      later(c, r, check, WATCH_MS);
+    };
+    later(c, r, check, WATCH_MS);
+    return { frameId: session.id, lines: session.lines.slice(), message: 'Cadrage laser lancé : M5 puis contour du programme, sans émission. Arrêt : bouton Arrêter.' };
   };
 
   // Work origin: the confirmed operation registered with the commissioning ones.
@@ -914,7 +1036,10 @@ export const createMotion = (deps) => {
         // Stays true while Grbl still reports Jog, even once the repeats stopped.
         cancelUnconfirmed: !!((s.cancel && s.cancel.unconfirmed) || (!s.cancel && s.pending && s.pending.unconfirmed && activeOf(c) === 'Jog')),
         lastJog: s.lastJog ? { ...s.lastJog } : null,
-        lastOrigin: s.lastOrigin ? { ...s.lastOrigin } : null
+        lastOrigin: s.lastOrigin ? { ...s.lastOrigin } : null,
+        // Laser framing in progress (contract §4) and the last one.
+        frame: s.frame ? { lines: s.frame.lines.slice(), index: s.frame.index, since: s.frame.since, owner: s.frame.owner } : null,
+        lastFrame: s.lastFrame ? { ...s.lastFrame } : null
       }
     };
   };
@@ -922,13 +1047,14 @@ export const createMotion = (deps) => {
   // Change detection for the stream (see job-service fingerprint()).
   const signature = (r) => {
     const s = r.motion;
-    return s ? [s.session && s.session.id, s.pending && s.pending.sentAt, s.cancel && s.cancel.since, s.cancel && s.cancel.unconfirmed, s.lastJog && s.lastJog.at, s.lastOrigin && s.lastOrigin.at].join('/') : '';
+    return s ? [s.session && s.session.id, s.pending && s.pending.sentAt, s.cancel && s.cancel.since, s.cancel && s.cancel.unconfirmed,
+      s.lastJog && s.lastJog.at, s.lastOrigin && s.lastOrigin.at, s.frame && s.frame.id, s.frame && s.frame.index, s.lastFrame && s.lastFrame.at].join('/') : '';
   };
 
   // The owner's event stream closed: its continuous jog stops at once.
   const transportClosed = (c, r, id) => {
     const s = r.motion;
-    if (s && s.session && s.session.transportId === id) {
+    if (s && ((s.session && s.session.transportId === id) || (s.frame && s.frame.transportId === id))) {
       cancel(c, r, 'transport');
     }
   };
@@ -944,11 +1070,14 @@ export const createMotion = (deps) => {
     if (!s) {
       return;
     }
-    if ((s.session || s.cancel || (s.pending && s.pending.kind === 'jog')) && connected(c)) {
+    if ((s.session || s.frame || s.cancel || (s.pending && s.pending.kind === 'jog')) && connected(c)) {
       c.command('jogCancel');
     }
     if (s.session) {
       endSession(c, r, s.session, 'cancelled', 'dispose', STOP_REASONS.dispose);
+    }
+    if (s.frame) {
+      endFrame(c, r, s.frame, 'cancelled', 'dispose');
     }
     if (s.pending) {
       s.pending.t.done();
@@ -957,7 +1086,10 @@ export const createMotion = (deps) => {
     s.cancel = null;
   };
 
-  return { perform, precheck, stop, moving, originOperation, snapshot, signature, transportClosed, holds, forget };
+  // Real moves enabled for this controller (laser framing capability).
+  const enabled = (c, r) => capabilities(c, r).jog.enabled;
+
+  return { perform, precheck, stop, moving, originOperation, snapshot, signature, transportClosed, holds, forget, jogReady, bound, frame, enabled };
 };
 
 export default { createMotion, capabilitiesOf, envelopeOf, limitsAt, maxFeedOf, grblVersion, jogLine, originLine, motionEnabled };

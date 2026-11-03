@@ -113,7 +113,9 @@ export const analyzeProgram = (gcode) => {
     // The same first reason per axis, coded ({ code, params, message }).
     unknownCodes: { X: null, Y: null, Z: null },
     zMin: null,
-    zMax: null
+    zMax: null,
+    // Spindle / laser commands (laser check): highest S and its line, first M3, first M4.
+    spindle: { sMax: null, sMaxLine: null, m3Line: null, m4Line: null }
   };
   const pos = { X: null, Y: null, Z: null };
   // Modal state while walking (one object, so the per-line closures below
@@ -171,7 +173,17 @@ export const analyzeProgram = (gcode) => {
       if (!KNOWN_M.includes(v)) {
         listed(lineNo, 'M' + v, false);
       }
+      if (v === 3 && a.spindle.m3Line === null) {
+        a.spindle.m3Line = lineNo;
+      } else if (v === 4 && a.spindle.m4Line === null) {
+        a.spindle.m4Line = lineNo;
+      }
     });
+    const speed = at('S');
+    if (speed !== null && (a.spindle.sMax === null || speed > a.spindle.sMax)) {
+      a.spindle.sMax = speed;
+      a.spindle.sMaxLine = lineNo;
+    }
 
     // Modal words first (G90 G1 X10 on one line is absolute).
     g.forEach((v) => {
@@ -395,12 +407,55 @@ const number = (v) => {
   return typeof n === 'number' && Number.isFinite(n) ? n : null;
 };
 
+// Laser additions (machine declared laser): the highest S setpoint against $30
+// (Grbl clamps it there), and M3 (constant) vs M4 (dynamic) reported. Wording:
+// "consigne S", never a power.
+const laserCheck = (analysis, laser) => {
+  const sp = analysis.spindle || { sMax: null, sMaxLine: null, m3Line: null, m4Line: null };
+  const max = number(laser && laser.sMax);
+  const reasons = [];
+  if (sp.m3Line !== null) {
+    reasons.push(reason('ETOUCH_LASER_CHECK_M3', { line: sp.m3Line }, 'Laser en M3 (consigne S constante) à partir de la ligne ' + sp.m3Line + '.'));
+  }
+  if (sp.m4Line !== null) {
+    reasons.push(reason('ETOUCH_LASER_CHECK_M4', { line: sp.m4Line }, 'Laser en M4 (consigne S dynamique, ajustée à la vitesse) à partir de la ligne ' + sp.m4Line + '.'));
+  }
+  if (sp.m3Line === null && sp.m4Line === null) {
+    reasons.push(reason('ETOUCH_LASER_CHECK_NO_M3_M4', {}, 'Aucun M3 ni M4 dans le programme : le laser n’est pas commandé par ce programme.'));
+  }
+  const aboveMax = sp.sMax !== null && max !== null && sp.sMax > max;
+  if (sp.sMax !== null && max === null) {
+    reasons.push(reason('ETOUCH_LASER_CHECK_MAX_UNKNOWN', {}, 'Réglage $30 inconnu : consignes S non comparées au maximum de la carte.'));
+  } else if (aboveMax) {
+    const text = 'Consigne S' + fmt(sp.sMax) + ' (ligne ' + sp.sMaxLine + ') au-dessus de $30=' + fmt(max) + ' : la carte la ramènera à $30.';
+    reasons.push(reason('ETOUCH_LASER_CHECK_S_ABOVE_MAX', { s: fmt(sp.sMax), line: sp.sMaxLine, max: fmt(max) }, text));
+  }
+  let mode = null;
+  if (sp.m3Line !== null && sp.m4Line !== null) {
+    mode = 'M3+M4';
+  } else if (sp.m3Line !== null || sp.m4Line !== null) {
+    mode = sp.m3Line !== null ? 'M3' : 'M4';
+  }
+  return {
+    mode,
+    m3Line: sp.m3Line,
+    m4Line: sp.m4Line,
+    sMax: sp.sMax,
+    sMaxLine: sp.sMaxLine,
+    settingMax: max,
+    aboveMax,
+    reasons: reasons.map((r) => r.message),
+    codedReasons: reasons
+  };
+};
+
 // Compares an analysis with the machine:
 //   machine = { settings: {$20,$22,$23,$130,$131,$132}, mpos: {x,y,z}, wpos: {x,y,z},
 //               modal: {units, distance, wcs} (fresh $G only, else null),
 //               parameters: {G54: {x,y,z}, …, G92: {…}, TLO: n} ($# if known, else null),
 //               homed: true when a homing cycle was seen complete since the last board restart,
-//               reportUnits: 'mm' | 'in' | null }
+//               reportUnits: 'mm' | 'in' | null,
+//               laser: { sMax } only for a machine declared laser (adds `laser` to the result) }
 export const checkProgram = (analysis, machine = {}) => {
   const s = machine.settings || {};
   const modal = machine.modal || null;
@@ -557,7 +612,7 @@ export const checkProgram = (analysis, machine = {}) => {
       }
     });
   });
-  return {
+  const out = {
     verdict,
     axes: axesOut,
     reasons,
@@ -578,6 +633,10 @@ export const checkProgram = (analysis, machine = {}) => {
     lines: analysis.lines,
     scope: 'Course machine X/Y/Z et profondeur Z du programme, dans le repère de travail : ni brides, ni outil, ni matière.'
   };
+  if (machine.laser) {
+    out.laser = laserCheck(analysis, machine.laser);
+  }
+  return out;
 };
 
 export const programCheck = (gcode, machine) => checkProgram(analyzeProgram(gcode), machine);
