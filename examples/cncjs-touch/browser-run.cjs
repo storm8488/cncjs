@@ -417,9 +417,12 @@ async function measureStartup(cdp, url, summary) {
   const runs = { cold: [], warm: [] };
   for (let i = 1; i <= REPEAT; i++) {
     try {
-      runs.cold.push(await startupRun(cdp, url, true, i));
-      runs.warm.push(await startupRun(cdp, url, false, i));
-      log('startup ' + i + '/' + REPEAT + ': cold ready ' + r1(runs.cold[i - 1].readyAt) + ' ms, warm ready ' + r1(runs.warm[i - 1].readyAt) + ' ms');
+      // Kept as a pair: a failed warm run must not shift the cold and warm lists.
+      const cold = await startupRun(cdp, url, true, i);
+      const warm = await startupRun(cdp, url, false, i);
+      runs.cold.push(cold);
+      runs.warm.push(warm);
+      log('startup ' + i + '/' + REPEAT + ': cold ready ' + r1(cold.readyAt) + ' ms, warm ready ' + r1(warm.readyAt) + ' ms');
     } catch (e) { failures.push('startup run ' + i + ': ' + e.message); log('FAIL startup ' + i + ': ' + e.message); }
   }
   const pick = (list, fn) => median(list.map(fn));
