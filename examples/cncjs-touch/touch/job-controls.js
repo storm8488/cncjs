@@ -629,13 +629,11 @@
     // Machine kind (PROFILES-CONTRACT.md §2): written in .cncrc by the server, nothing sent to the
     // controller. Same path as every machine action: pilot, generation, stream, refusals.
     setMachineKind:function(kind,label){
-      if(simulation)return Promise.reject(new Error(uiLocale.t('Simulation : type de machine non modifiable.')));
       if(busy||!current)return Promise.reject(new Error(uiLocale.t('Opération en cours…')));
       if(kind!=='cnc'&&kind!=='laser')return Promise.reject(new Error(uiLocale.t('Type de machine inconnu.')));
       return command('machine',{operation:'set-kind',kind:kind,label:String(label||'').slice(0,60)});
     },
     forgetMachine:function(){
-      if(simulation)return Promise.reject(new Error(uiLocale.t('Simulation : type de machine non modifiable.')));
       if(busy||!current)return Promise.reject(new Error(uiLocale.t('Opération en cours…')));
       return command('machine',{operation:'forget'});
     },

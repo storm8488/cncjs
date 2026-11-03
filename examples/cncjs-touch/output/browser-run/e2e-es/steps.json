@@ -1,0 +1,71 @@
+{
+ "lang": "es",
+ "ok": true,
+ "ms": 13050,
+ "steps": [
+  {
+   "step": "open simulation page (es)",
+   "ok": true,
+   "ms": 313,
+   "lang": "es",
+   "htmlLang": "es"
+  },
+  {
+   "step": "select and load a file",
+   "ok": true,
+   "ms": 1576,
+   "file": "Parcours_de_test_1.gcode",
+   "stateWord": "Reposo",
+   "ready": "Archivo cargado, listo para iniciar."
+  },
+  {
+   "step": "start with confirmation",
+   "ok": true,
+   "ms": 4783,
+   "dialog": {
+    "title": "Confirmar inicio",
+    "label": "Deseo iniciar esta simulación.",
+    "countdown": "Confirmación válida durante 15 s.",
+    "countdownLater": "Confirmación válida durante 13 s.",
+    "checkboxBox": {
+     "w": 48,
+     "h": 52
+    },
+    "labelBox": {
+     "w": 670,
+     "h": 70
+    }
+   },
+   "stateWord": "En curso",
+   "percent": "2 %",
+   "feedback": "SIMULACIÓN — Inicio simulado."
+  },
+  {
+   "step": "pause",
+   "ok": true,
+   "ms": 1235,
+   "stateWord": "Pausa",
+   "percent": "3 %",
+   "feedback": "SIMULACIÓN — Pausa simulada."
+  },
+  {
+   "step": "resume with confirmation",
+   "ok": true,
+   "ms": 3914,
+   "dialog": {
+    "title": "Confirmar reanudación"
+   },
+   "stateWord": "En curso",
+   "percent": "4 %"
+  },
+  {
+   "step": "stop",
+   "ok": true,
+   "ms": 1228,
+   "stateWord": "Reposo",
+   "percent": "5 %",
+   "feedback": "SIMULACIÓN — Trabajo simulado detenido.",
+   "startDisabledAfterStop": true
+  }
+ ]
+}

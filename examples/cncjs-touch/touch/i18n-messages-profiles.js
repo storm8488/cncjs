@@ -109,5 +109,18 @@
 ["Diagnostic exporté.","Diagnostic exported.","Diagnóstico exportado."],
 ["Diagnostic de cette tablette","Diagnostic of this tablet","Diagnóstico de esta tableta"],
 ["Au repos uniquement. Mesure l’écran et deux tracés courts, sans rien envoyer à la machine.","At rest only. Measures the screen and two short drawings, sending nothing to the machine.","Solo en reposo. Mide la pantalla y dos trazados cortos, sin enviar nada a la máquina."],
-["Exporter le diagnostic","Export the diagnostic","Exportar el diagnóstico"]
+["Exporter le diagnostic","Export the diagnostic","Exportar el diagnóstico"],
+["simulation : cette page seulement, rien sur le serveur","simulation: this page only, nothing on the server","simulación: solo esta página, nada en el servidor"],
+["Type simulé appliqué à cette page :","Simulated type applied to this page:","Tipo simulado aplicado a esta página:"],
+[". Rien n’est envoyé au serveur CNCjs.",". Nothing is sent to the CNCjs server.",". No se envía nada al servidor CNCjs."],
+["Profil laser simulé : opération de fraisage indisponible.","Simulated laser profile: milling operation unavailable.","Perfil láser simulado: operación de fresado no disponible."],
+["Profil CNC simulé : opération laser indisponible.","Simulated CNC profile: laser operation unavailable.","Perfil CNC simulado: operación láser no disponible."],
+["Type de machine simulé non choisi.","Simulated machine type not chosen.","Tipo de máquina simulado no elegido."],
+["Machine simulée","Simulated machine","Máquina simulada"],
+["Arrêtez la simulation avant de changer le type de machine simulé.","Stop the simulation before changing the simulated machine type.","Detenga la simulación antes de cambiar el tipo de máquina simulado."],
+["Simulation : reprise laser non simulée.","Simulation: laser resume is not simulated.","Simulación: la reanudación láser no se simula."],
+["Simulation : cadrage non simulé, aucun mouvement.","Simulation: framing is not simulated, no movement.","Simulación: el encuadre no se simula, sin movimiento."],
+["Type simulé :","Simulated type:","Tipo simulado:"],
+[". Affichage de cette page seulement, rien envoyé au serveur CNCjs.",". This page’s display only, nothing sent to the CNCjs server.",". Solo la visualización de esta página, nada enviado al servidor CNCjs."],
+["Type simulé effacé : interface CNC par défaut.","Simulated type cleared: CNC interface by default.","Tipo simulado borrado: interfaz CNC por defecto."]
 );

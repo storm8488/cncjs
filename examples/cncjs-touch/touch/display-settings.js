@@ -153,7 +153,7 @@
   function target(p){
     if(!p)return t('Machine : aucune information du serveur CNCjs.');
     var name=p.label?'« '+p.label+' »':t('machine sans nom');
-    return t('Machine : ')+name+(p.kind?' · '+KIND_WORDS[p.kind]:'')+(p.portHint?' · '+p.portHint:'')+' · '+(MATCH_WORDS[p.match]||p.match||'—');
+    return t('Machine : ')+name+(p.kind?' · '+KIND_WORDS[p.kind]:'')+(p.portHint?' · '+p.portHint:'')+' · '+(p.simulated?t('simulation : cette page seulement, rien sur le serveur'):MATCH_WORDS[p.match]||p.match||'—');
   }
   // Coded issues (ETOUCH_MACHINE_*: incoherent $32…), translated by the tablet's catalogue.
   function issuesText(p){
@@ -220,7 +220,8 @@
     if(!label){set($('profile-machine-status'),t('Indiquez un nom pour cette machine.'));return;}
     if(!c||typeof c.setMachineKind!=='function'){set($('profile-machine-status'),t('Commandes indisponibles.'));return;}
     sending=true;close();set($('profile-machine-status'),t('Demande envoyée…'));renderMachine();
-    c.setMachineKind(kind,label).then(function(){sending=false;set($('profile-machine-status'),t('Type enregistré par le serveur CNCjs : ')+KIND_WORDS[kind]+' · « '+label+' ».');renderMachine();},
+    var simulated=!!(profiles.machine()&&profiles.machine().simulated);
+    c.setMachineKind(kind,label).then(function(){sending=false;set($('profile-machine-status'),simulated?t('Type simulé appliqué à cette page : ')+KIND_WORDS[kind]+t('. Rien n’est envoyé au serveur CNCjs.'):t('Type enregistré par le serveur CNCjs : ')+KIND_WORDS[kind]+' · « '+label+' ».');renderMachine();},
       function(e){sending=false;set($('profile-machine-status'),e&&e.message?e.message:t('Refus du serveur sans détail.'));renderMachine();});
   });
   function renderPerformance(){
@@ -233,7 +234,7 @@
   });});
   if(profiles.storage&&profiles.storage()!=='ok'&&profiles.storage()!=='absent')set($('profile-performance-status'),t('Valeur enregistrée illisible : Éco appliqué. Elle sera remplacée à votre prochain choix.'));
   window.addEventListener('cnc-profile-change',function(){renderMachine();renderPerformance();});
-  window.addEventListener('cnc-job-status',function(e){var d=e&&e.detail||{};if(d.simulation)return;machine=d.machine||null;pilot=d.pilot||null;renderMachine();});
+  window.addEventListener('cnc-job-status',function(e){var d=e&&e.detail||{};machine=d.machine||null;pilot=d.simulation?null:d.pilot||null;renderMachine();});
   renderMachine();renderPerformance();
   window.cncProfileSettings={ask:ask,close:close,render:renderMachine};
 })();
