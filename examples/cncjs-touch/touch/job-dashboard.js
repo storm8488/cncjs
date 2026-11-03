@@ -2,6 +2,8 @@
   'use strict';
   var uiLocale=window.cncI18n||{t:function(s){return s;},html:function(s){return s;}};
   var $=function(id){return document.getElementById(id);};
+  // Laser profile (server-side machine type): the spindle value is an S set point, not a speed.
+  function laser(){return !!(window.cncProfile&&window.cncProfile.kind()==='laser');}
   var home=$('file');if(!home)return;
   // UI 2027: preview and overrides on the left; progress, coordinates, live
   // values and the actions on the right. Démarrer or Reprendre is the one
@@ -24,7 +26,7 @@
   // Overrides under the preview: ±10 % and 100 % as large steps, ±1 % as a second level.
   $('home-left').insertAdjacentHTML('beforeend',uiLocale.html('<div id="home-overrides" class="home-overrides t-card" hidden><div class="home-overrides-head"><p class="home-overrides-title">Corrections</p><p id="home-live" class="home-live ks-sr-only"></p></div><p id="home-spindle-warning" class="t-notice" data-tone="warn" role="alert" hidden></p>')+
     ['feed','spindle'].map(function(kind){
-      var label=kind==='feed'?uiLocale.t('Avance'):uiLocale.t('Broche');
+      var label=kind==='feed'?uiLocale.t('Avance'):laser()?uiLocale.t('Consigne S'):uiLocale.t('Broche');
       return '<div class="t-override" data-kind="'+kind+'"><div class="t-ov-name">'+label+'<b id="home-override-'+kind+'">—</b></div><div class="t-ov-row">'+
         [[-10,'−10 %',''],[0,'100 %',' t-btn--ghost'],[10,'+10 %',''],[-1,'−1 %',' t-btn--ghost t-fine'],[1,'+1 %',' t-btn--ghost t-fine']].map(function(step){return '<button type="button" class="t-btn'+step[2]+'" data-kind="'+kind+'" data-value="'+step[0]+'" disabled>'+step[1]+'</button>';}).join('')+'</div></div>';
     }).join('')+
@@ -193,7 +195,7 @@
     // The live values are written only while Suivi is shown (mount() renders again on opening):
     // hidden, they were rewritten at every report for nothing.
     var homeShown=visible('home');
-    if(homeShown)set('home-live','textContent',feed===null&&rpm===null?'':uiLocale.t('Avance réelle ')+(feed===null?'—':number(feed)+' mm/min')+uiLocale.t(' · Broche ')+(rpm===null?'—':number(rpm)+uiLocale.t(' tr/min')));
+    if(homeShown)set('home-live','textContent',feed===null&&rpm===null?'':uiLocale.t('Avance réelle ')+(feed===null?'—':number(feed)+' mm/min')+(laser()?uiLocale.t(' · Consigne S ')+(rpm===null?'—':number(rpm)):uiLocale.t(' · Broche ')+(rpm===null?'—':number(rpm)+uiLocale.t(' tr/min'))));
     // Work frame (G54…) next to the work coordinates, as reported by the controller; blank when unknown.
     var frameNode=$('home-work-frame');if(frameNode&&homeShown){var frame=c&&c.fresh&&c.operator&&/^G5[4-9]$/.test(String(c.operator.wcs||''))?' · '+c.operator.wcs:'';set('home-work-frame','textContent',frame);}
     if(homeShown){set('home-live-feed','textContent',feed===null?'—':number(feed)+' mm/min');
@@ -213,7 +215,7 @@
     if(homeShown&&simulationPage&&c&&c.workPosition)['x','y','z'].forEach(function(a){set('home-sim-'+a,'textContent',finiteNumber(c.workPosition[a])?c.workPosition[a].toFixed(3):'—');});
     var spinning=!!(c&&c.workflow==='paused'&&rpm!==null&&rpm>0);
     set('home-spindle-warning','hidden',!spinning);
-    set('home-spindle-warning','textContent',spinning?uiLocale.t('Pause : les axes sont arrêtés mais la broche tourne toujours (Grbl ne l’arrête pas en pause). Ne mettez pas les mains près de l’outil.'):'');
+    set('home-spindle-warning','textContent',spinning?(laser()?uiLocale.t('Pause : la consigne S reste active. En mode laser ($32=1), Grbl coupe l’émission tant que les axes sont arrêtés ; gardez la protection en place.'):uiLocale.t('Pause : les axes sont arrêtés mais la broche tourne toujours (Grbl ne l’arrête pas en pause). Ne mettez pas les mains près de l’outil.')):'');
     set('home-override-note','textContent',overrideOn?uiLocale.t('Pas de ±1 % / ±10 % envoyés au contrôleur en temps réel ; 100 % rétablit la valeur programmée.'):(c&&c.overrideReason?uiLocale.message?uiLocale.message(c.overrideReason):uiLocale.t(c.overrideReason):''));
     var valid=c&&c.fresh&&c.name&&finiteNumber(c.total)&&c.total>0&&finiteNumber(c.received)&&c.received>=0&&c.received<=c.total,p=valid?c.received/c.total*100:0;
     // CNCjs rewinds the line counters when a program ends: the server says whether it finished.

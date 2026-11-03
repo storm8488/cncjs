@@ -5,7 +5,7 @@
 .ks-ui .pv3d-free{border-left:1px solid var(--line-strong)}
 .pv3d-transfer{display:flex;flex-wrap:wrap;gap:var(--sp-2);margin:var(--sp-1) 0}
 .pv3d-transfer .t-btn{min-height:44px;font-size:var(--fs-14)}
-.home-job-motion{margin:var(--sp-1) 0 0;color:var(--mute);font-size:var(--fs-14);line-height:var(--lh)}
+.home-job-motion{margin:var(--sp-1) 0 0;color:var(--mute);font-size:var(--fs-16);line-height:var(--lh)}
 
 /* Free 3D view: a full-screen dialog under the status strip (strip-guard.js keeps Pause / Arrêter usable). */
 .pgl-dialog{position:fixed;inset:0;z-index:700;display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,300px);grid-template-rows:auto auto minmax(0,1fr) auto;gap:var(--sp-2);padding:var(--sp-3);background:var(--bg);color:var(--fg);font:16px/1.35 system-ui,sans-serif}
