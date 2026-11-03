@@ -1,0 +1,1 @@
+// Stub: lot B (see ../PROFILES-CONTRACT.md).
