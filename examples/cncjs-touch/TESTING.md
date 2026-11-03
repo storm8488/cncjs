@@ -26,6 +26,10 @@ An optional report can be written outside the source tree:
 node verify-project.cjs --report /absolute/path/to/offline-report.json
 ```
 
+## Machine type and tablet performance (2026-11)
+
+Commands, results and PC measurements are in [PROFILES.md](PROFILES.md), "What was tested"; the device and machine procedure is in its last section. Nothing was run on a machine, a laser, the Surface RT or a Surface Pro 3.
+
 ## Audit 2026-10 (2026-10-29/30)
 
 The 31-item audit (see [AUDIT-2026-10.md](AUDIT-2026-10.md)). Every figure in this section comes from the development PC: Windows 11, Node.js 24.20.0, Chrome 156 headless driven through the DevTools protocol. None is a Surface RT measurement: for Suivi during a job the tablet spends about 25 times more main-thread time than this PC, so even the 4× CPU throttling runs are far faster than the tablet. Pixel sizes are comparable; timings and memory are indications only.

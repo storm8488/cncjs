@@ -123,6 +123,7 @@ performance comparisons in `TESTING.md` did).
 | Key or file | Default | Effect |
 | --- | --- | --- |
 | `touch.motion.enabled` | absent (off) | `true` enables the EXPERIMENTAL real jog and work origins. Any other value, or no key, keeps them refused by the server and hidden on the tablet. |
+| `touch.machines` | absent | machine records written by the server when the pilot sets « Type de machine » (CNC / Laser) in Réglages: `{id, label, kind, signature, createdAt, updatedAt}`, matched by a signature of the firmware and mechanics settings, never by port. Absent: every machine uses the CNC interface. Never changes `$30`/`$31`/`$32`. See [PROFILES.md](PROFILES.md). |
 | `touch.backlight.percent` | absent | last brightness level, written by the server (README, "Screen brightness") |
 | `cncjs-touch-history.jsonl` | created on first use | durable job history, in the directory of `.cncrc`; JSON Lines, at most 500 entries and about 1 MB, rewritten atomically when trimmed. Deleting it clears the history. |
 | `.cnctouch-projects.json` | created on first write | project sheets, in the watch directory (`-w` or `watchDirectory`); at most 500 sheets and 2 MB |
@@ -207,6 +208,11 @@ GitHub when `repo` is set.
   update would enable real moves again without the operator noticing.
   `cncjs-touch-history.jsonl` and `.cnctouch-projects.json` are ignored by older
   builds and read again by newer ones; they can stay.
+- Machine type and tablet performance (2026-11, [PROFILES.md](PROFILES.md)):
+  `touch.machines` in `.cncrc` and the browser keys `cncjs-touch-performance-v1`
+  and `cncjs-touch-clamps-v1` are ignored by older builds and can stay; the
+  display preferences were not changed. To drop only the machine type, use
+  « Oublier cette fiche machine » or remove `touch.machines` with CNCjs stopped.
 
 ## Checks after installation
 
