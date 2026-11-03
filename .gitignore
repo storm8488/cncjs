@@ -18,3 +18,6 @@ yarn-error.log
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# Reports of examples/cncjs-touch/browser-run.cjs (default --out)
+/examples/cncjs-touch/output
