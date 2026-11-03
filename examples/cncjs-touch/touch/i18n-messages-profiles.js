@@ -92,5 +92,22 @@
 ["Oublier cette fiche machine","Forget this machine record","Olvidar esta ficha de máquina"],
 ["Oublier la fiche de la machine ","Forget the record of machine ","¿Olvidar la ficha de la máquina "],
 [" ? Son type redevient non confirmé et l’interface CNC est utilisée. Demandé depuis ","? Its type becomes unconfirmed and the CNC interface is used. Requested from ","? Su tipo vuelve a quedar sin confirmar y se usa la interfaz CNC. Solicitado desde "],
-["Fiche machine oubliée par le serveur CNCjs.","Machine record forgotten by the CNCjs server.","Ficha de máquina olvidada por el servidor CNCjs."]
+["Fiche machine oubliée par le serveur CNCjs.","Machine record forgotten by the CNCjs server.","Ficha de máquina olvidada por el servidor CNCjs."],
+["Diagnostic disponible seulement au repos : aucun travail, pause ou déplacement en cours.","Diagnostic available only at rest: no job, pause or move in progress.","Diagnóstico disponible solo en reposo: ningún trabajo, pausa o movimiento en curso."],
+["Mesure sur cette tablette, au repos, sans commande envoyée. Une mesure isolée, pas une garantie de fluidité.","Measured on this tablet, at rest, with no command sent. A single measurement, not a guarantee of smoothness.","Medición en esta tableta, en reposo, sin enviar comandos. Una medición aislada, no una garantía de fluidez."],
+["Fenêtre CSS","CSS window","Ventana CSS"],
+["Zone visible","Visible area","Zona visible"],
+["Rapport de pixels (DPR)","Pixel ratio (DPR)","Relación de píxeles (DPR)"],
+["Profil","Profile","Perfil"],
+["Workers · OffscreenCanvas","Workers · OffscreenCanvas","Workers · OffscreenCanvas"],
+["oui","yes","sí"],
+["non","no","no"],
+["(rendu logiciel)","(software rendering)","(renderizado por software)"],
+["Tracé 2D de 20 000 segments","2D drawing of 20,000 segments","Trazado 2D de 20 000 segmentos"],
+["Tracé WebGL de 20 000 segments","WebGL drawing of 20,000 segments","Trazado WebGL de 20 000 segmentos"],
+["Diagnostic terminé.","Diagnostic complete.","Diagnóstico terminado."],
+["Diagnostic exporté.","Diagnostic exported.","Diagnóstico exportado."],
+["Diagnostic de cette tablette","Diagnostic of this tablet","Diagnóstico de esta tableta"],
+["Au repos uniquement. Mesure l’écran et deux tracés courts, sans rien envoyer à la machine.","At rest only. Measures the screen and two short drawings, sending nothing to the machine.","Solo en reposo. Mide la pantalla y dos trazados cortos, sin enviar nada a la máquina."],
+["Exporter le diagnostic","Export the diagnostic","Exportar el diagnóstico"]
 );
