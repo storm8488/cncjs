@@ -19,6 +19,8 @@
   if (typeof module !== 'undefined' && module.exports) { T3 = require('./toolpath-3d.js'); PI = require('./preview-inspect.js'); }
   var uiLocale = root.cncI18n || { t: function (s) { return s; }, locale: 'fr-FR' }, t = uiLocale.t;
   var MAX_DPR = 1.5, GESTURE_FRAME_MS = 33, DEG = Math.PI / 180;
+  // Software renderer (no WebGL, e.g. the Surface RT): segments drawn during a gesture, the whole path at rest.
+  var SOFT_GESTURE_SEGMENTS = 3000;
   var PRESETS = { iso: [45, 35.264], top: [0, 90], front: [0, 0], side: [90, 0] };
   var Z_SCALES = [1, 2, 5, 10];
 
@@ -137,6 +139,41 @@
       get released() { return released; }
     };
   }
+  // Canvas 2D line renderer with the same interface, for a browser without WebGL: the vertices are
+  // projected on the CPU with the same matrix; during a gesture only every n-th segment is drawn
+  // (at most SOFT_GESTURE_SEGMENTS), the whole path when the finger is lifted.
+  function create2DRenderer(canvas) {
+    var g = null;
+    try { g = canvas.getContext('2d', { alpha: false }); } catch (_) { g = null; }
+    if (!g) throw new Error(t('WebGL et Canvas 2D indisponibles sur cette tablette'));
+    var data = null, vertices = 0, released = false, styles = {};
+    function style(i) {
+      var key = Math.round(data[i * 6 + 3] * 255) + ',' + Math.round(data[i * 6 + 4] * 255) + ',' + Math.round(data[i * 6 + 5] * 255);
+      return styles[key] || (styles[key] = 'rgb(' + key + ')');
+    }
+    return {
+      software: true,
+      upload: function (d) { if (!released) { data = d; vertices = d.length / 6; } },
+      draw: function (m, width, height, coarse) {
+        if (released || !data) return !released;
+        g.fillStyle = '#101820'; g.fillRect(0, 0, width, height);
+        g.lineWidth = 1;
+        var segments = vertices / 2, step = coarse ? Math.max(1, Math.ceil(segments / SOFT_GESTURE_SEGMENTS)) : 1, current = '', open = false;
+        var hw = width / 2, hh = height / 2;
+        for (var s = 0; s < segments; s += step) {
+          var a = s * 2, b = a + 1, c = style(a);
+          if (c !== current) { if (open) g.stroke(); g.strokeStyle = c; g.beginPath(); current = c; open = true; }
+          var ax = data[a * 6], ay = data[a * 6 + 1], az = data[a * 6 + 2], bx = data[b * 6], by = data[b * 6 + 1], bz = data[b * 6 + 2];
+          g.moveTo((m[0] * ax + m[4] * ay + m[8] * az + m[12] + 1) * hw, (1 - (m[1] * ax + m[5] * ay + m[9] * az + m[13])) * hh);
+          g.lineTo((m[0] * bx + m[4] * by + m[8] * bz + m[12] + 1) * hw, (1 - (m[1] * bx + m[5] * by + m[9] * bz + m[13])) * hh);
+        }
+        if (open) g.stroke();
+        return true;
+      },
+      release: function () { released = true; data = null; styles = {}; g = null; },
+      get released() { return released; }
+    };
+  }
 
   function el(doc, tag, cls, text) { var n = doc.createElement(tag); if (cls) n.className = cls; if (text) n.textContent = text; return n; }
   function number(text) { var s = String(text || '').trim().replace(',', '.'); if (!s) return null; var v = Number(s); return isFinite(v) ? v : NaN; }
@@ -224,7 +261,10 @@
     }
 
     // ---- GL ----
-    try { renderer = createRenderer(canvas); } catch (e) { fail(t('Vue 3D libre indisponible : ') + e.message + t('. Vues fixes conservées.')); return null; }
+    // WebGL first; without it (Surface RT kiosk), the Canvas 2D renderer: slower, lighter while turning.
+    try { renderer = createRenderer(canvas); } catch (e) {
+      try { renderer = create2DRenderer(canvas); } catch (e2) { fail(t('Vue 3D libre indisponible : ') + e2.message + t('. Vues fixes conservées.')); return null; }
+    }
     on(canvas, 'webglcontextlost', function () { fail(t('Contexte WebGL perdu : vue 3D libre fermée, vues fixes conservées.')); });
 
     // Inline (small frame): a short label, the exaggeration still named.
@@ -262,7 +302,7 @@
       // During a gesture: at most one frame every 33 ms.
       if (gesture && now - lastFrame < GESTURE_FRAME_MS) { frame = win.requestAnimationFrame(paint); return; }
       lastFrame = now;
-      if (!renderer.draw(matrix(cam, width, height, zs), canvas.width, canvas.height)) fail(t('Erreur WebGL : vue 3D libre fermée, vues fixes conservées.'));
+      if (!renderer.draw(matrix(cam, width, height, zs), canvas.width, canvas.height, gesture)) fail(t('Erreur WebGL : vue 3D libre fermée, vues fixes conservées.'));
     }
     function invalidate() { if (!closed && frame === null) frame = win.requestAnimationFrame(paint); }
 
@@ -384,7 +424,7 @@
     }
     var handle = {
       close: close,
-      state: function () { return { closed: closed, listeners: listeners.length, gesture: gesture, zScale: zs, camera: cam && { yaw: cam.yaw, pitch: cam.pitch, zoom: cam.zoom }, renderer: !!renderer, dpr: dpr, canvas: { width: canvas.width, height: canvas.height }, inspected: inspected, filters: filters }; },
+      state: function () { return { closed: closed, software: !!(renderer && renderer.software), listeners: listeners.length, gesture: gesture, zScale: zs, camera: cam && { yaw: cam.yaw, pitch: cam.pitch, zoom: cam.zoom }, renderer: !!renderer, dpr: dpr, canvas: { width: canvas.width, height: canvas.height }, inspected: inspected, filters: filters }; },
       paint: paint, applyFilters: applyFilters, inspect: showInspection, dialog: dialog, canvas: canvas
     };
     current = handle;
@@ -394,7 +434,7 @@
   }
 
   var api = { open: open, close: function (reason) { if (current) current.close(reason || 'api'); }, active: function () { return !!current; },
-    basis: basis, matrix: matrix, project: project, fit: fit, buildVertices: buildVertices, createRenderer: createRenderer, PRESETS: PRESETS, MAX_DPR: MAX_DPR, GESTURE_FRAME_MS: GESTURE_FRAME_MS };
+    basis: basis, matrix: matrix, project: project, fit: fit, buildVertices: buildVertices, createRenderer: createRenderer, create2DRenderer: create2DRenderer, PRESETS: PRESETS, MAX_DPR: MAX_DPR, GESTURE_FRAME_MS: GESTURE_FRAME_MS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CNCPreviewGL = api;
 })(typeof window !== 'undefined' ? window : this);

@@ -49,6 +49,7 @@ function createPage(options = {}) {
     if (n.tagName === 'CANVAS') {
       n.width = 300; n.height = 150;
       n.getContext = (kind) => {
+        if (kind === '2d') { if (!options.with2d) return null; return n.ctx2d || (n.ctx2d = { calls: { lineTo: 0, stroke: 0, fillRect: 0 }, fillRect() { this.calls.fillRect++; }, beginPath() {}, moveTo() {}, lineTo() { this.calls.lineTo++; }, stroke() { this.calls.stroke++; } }); }
         if (kind !== 'webgl' && kind !== 'experimental-webgl') return null;
         if (options.noWebGL) return null;
         if (!n.glStub) n.glStub = createGL(options);
@@ -206,14 +207,31 @@ function byText(root, text) { return findAll(root, n => n.textContent === text)[
   assert.match(fallbacks[0], /Profil éco/); assert.deepEqual(closes, ['eco']);
   assert.equal(page.win.CNCPreviewGL.active(), false);
 
-  // No WebGL: clean fallback, nothing left behind.
+  // No WebGL (Surface RT kiosk): the Canvas 2D renderer takes over, same camera and gestures, released on close.
+  page = createPage({ noWebGL: true, with2d: true }); fallbacks = [];
+  view = page.win.CNCPreviewGL.open(meta, { onFallback: m => fallbacks.push(m) });
+  assert(view, 'opened without WebGL'); assert.equal(view.state().software, true); assert.deepEqual(fallbacks, []);
+  view.paint(0); const ctx = view.canvas.ctx2d;
+  assert(ctx.calls.lineTo > 0 && ctx.calls.fillRect > 0, 'drawn on the CPU');
+  view.close('user'); assert.equal(view.state().closed, true); assert.equal(page.listenerCount.value, 0);
+  // While a finger moves, at most SOFT_GESTURE_SEGMENTS segments; the whole path at rest.
+  {
+    const R = page.win.CNCPreviewGL, c = { getContext: () => ({ fillRect() {}, beginPath() {}, moveTo() {}, stroke() {}, lineTo() { this.n = (this.n || 0) + 1; } }) };
+    const r = R.create2DRenderer(c), segments = 20000, d = new Float32Array(segments * 2 * 6);
+    r.upload(d); const g = c.getContext();
+    c.getContext = () => g; const r2 = R.create2DRenderer(c); r2.upload(d);
+    g.n = 0; r2.draw(new Float32Array(16), 800, 450, true); assert(g.n > 0 && g.n <= 3000, 'light while turning: ' + g.n);
+    g.n = 0; r2.draw(new Float32Array(16), 800, 450, false); assert.equal(g.n, segments, 'whole path at rest');
+    r.release(); r2.release();
+  }
+  // Neither WebGL nor Canvas 2D: clean fallback, nothing left behind.
   page = createPage({ noWebGL: true }); fallbacks = [];
   view = page.win.CNCPreviewGL.open(meta, { onFallback: m => fallbacks.push(m) });
-  assert.equal(view, null); assert.match(fallbacks[0], /WebGL indisponible.*Vues fixes conservées/);
+  assert.equal(view, null); assert.match(fallbacks[0], /indisponibles.*Vues fixes conservées/);
   assert.equal(page.doc.body.children.length, 0); assert.equal(page.listenerCount.value, 0);
-  // A shader refused: same.
+  // A shader refused and no Canvas 2D: same.
   page = createPage({ badShader: true }); fallbacks = [];
-  assert.equal(page.win.CNCPreviewGL.open(meta, { onFallback: m => fallbacks.push(m) }), null); assert.match(fallbacks[0], /shader refusé/);
+  assert.equal(page.win.CNCPreviewGL.open(meta, { onFallback: m => fallbacks.push(m) }), null); assert.match(fallbacks[0], /indisponibles/);
   assert.equal(page.listenerCount.value, 0);
   // Context lost while open: closed, released, fallback.
   page = createPage(); fallbacks = [];
@@ -281,5 +299,5 @@ function byText(root, text) { return findAll(root, n => n.textContent === text)[
   mode = 'eco'; vp.win.listeners['cnc-profile-change'].forEach(fn => fn({ detail: { performance: 'eco' } }));
   assert.equal(vp.free.hidden, true, 'profile back to eco: button hidden');
   console.log('PASS free 3D view: presets and picking match the fixed views, render on change, DPR cap 1.5, ≤ 30 frames/s in gestures, gestures kept in the canvas (no jog reached), ' +
-    'inspection simplified then exact, filters, clamps, released on eco/screen change/context loss, fallback without WebGL or shader, never loaded in eco nor script-tagged.');
+    'inspection simplified then exact, filters, clamps, released on eco/screen change/context loss, Canvas 2D without WebGL (light while turning), clean fallback without either, never loaded in eco nor script-tagged.');
 })().catch(e => { console.error(e); process.exit(1); });

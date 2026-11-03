@@ -142,5 +142,6 @@
 ['Point rose : position de travail rapportée par Grbl il y a ','Pink dot: work position reported by Grbl ','Punto rosa: posición de trabajo informada por Grbl hace '],
 [', G54 · projection indicative.',' ago, G54 · indicative projection.',', G54 · proyección indicativa.'],
 [' · Consigne S ',' · S set point ',' · Consigna S '],
-['Pause : la consigne S reste active. En mode laser ($32=1), Grbl coupe l’émission tant que les axes sont arrêtés ; gardez la protection en place.','Paused: the S set point stays active. In laser mode ($32=1), Grbl turns the beam off while the axes are stopped; keep the enclosure in place.','Pausa: la consigna S sigue activa. En modo láser ($32=1), Grbl apaga la emisión mientras los ejes están parados; mantenga la protección en su sitio.']
+['Pause : la consigne S reste active. En mode laser ($32=1), Grbl coupe l’émission tant que les axes sont arrêtés ; gardez la protection en place.','Paused: the S set point stays active. In laser mode ($32=1), Grbl turns the beam off while the axes are stopped; keep the enclosure in place.','Pausa: la consigna S sigue activa. En modo láser ($32=1), Grbl apaga la emisión mientras los ejes están parados; mantenga la protección en su sitio.'],
+["WebGL et Canvas 2D indisponibles sur cette tablette","WebGL and Canvas 2D unavailable on this tablet","WebGL y Canvas 2D no disponibles en esta tableta"]
 );
