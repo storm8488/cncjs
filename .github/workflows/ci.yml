@@ -286,7 +286,19 @@ jobs:
       if: github.ref_type == 'branch'
       run: yarn run build-latest
     - name: Build macOS binaries
-      run: yarn run build:macos-x64
+      # On this Intel runner, `hdiutil detach` of the DMG staging volume failed with
+      # "Resource busy" on every master run: Spotlight and XProtect keep it open.
+      # Stop them, and retry the build if the detach still fails.
+      shell: bash
+      run: |
+        sudo mdutil -a -i off || true
+        sudo pkill -9 XProtect || true
+        for attempt in 1 2 3; do
+          yarn run build:macos-x64 && exit 0
+          echo "build:macos-x64 failed (attempt $attempt)"
+          sleep 10
+        done
+        exit 1
     - name: Prepare release assets
       shell: bash
       run: |
