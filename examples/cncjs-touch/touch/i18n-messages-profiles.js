@@ -125,5 +125,9 @@
 ["Type simulé effacé : interface CNC par défaut.","Simulated type cleared: CNC interface by default.","Tipo simulado borrado: interfaz CNC por defecto."],
 ["type non choisi","type not chosen","tipo no elegido"],
 ["Type enregistré :","Type saved:","Tipo guardado:"],
-["Consigne S rapportée","Reported S set point","Consigna S informada"]
+["Consigne S rapportée","Reported S set point","Consigna S informada"],
+["Axe Z du laser","Laser Z axis","Eje Z del láser"],
+["Affiché","Shown","Visible"],
+["Masqué","Hidden","Oculto"],
+["Masqué : les coordonnées et commandes Z disparaissent de l’interface, pour un laser sans axe Z. Rien n’est envoyé à la machine.","Hidden: Z coordinates and controls disappear from the interface, for a laser without a Z axis. Nothing is sent to the machine.","Oculto: las coordenadas y los mandos Z desaparecen de la interfaz, para un láser sin eje Z. No se envía nada a la máquina."]
 );
