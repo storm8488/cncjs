@@ -7,7 +7,7 @@
   // values and the actions on the right. Démarrer or Reprendre is the one
   // primary action; Arrêter stands alone at the bottom, never next to Pause.
   var simulationPage=document.body.getAttribute('data-simulation')==='true';
-  home.parentNode.insertAdjacentHTML('beforeend',uiLocale.html('<div class="job-dashboard"><div id="home-left" class="home-left"><div class="job-art"><img id="home-job-image" alt="Aperçu du fichier" hidden><p id="home-image-status">Sélectionnez un fichier pour afficher son aperçu.</p></div></div><div class="job-metrics"><h2 id="home-job-title" class="ks-sr-only">Suivi du travail</h2><div class="t-card home-progress"><div class="home-progress-head"><strong id="home-job-percent">—</strong><div class="home-progress-text"><p id="home-job-eta">Temps restant : —</p><p id="home-job-name" class="ks-sr-only"></p></div></div><progress id="home-job-progress" max="100" value="0" aria-label="Avancement du travail"></progress></div><div id="home-coords" class="home-coords"></div><div class="home-live-tiles"><div class="t-card"><small>Avance réelle</small><b id="home-live-feed">—</b></div><div class="t-card"><small>Broche réelle</small><b id="home-live-spindle">—</b></div></div><p id="home-job-note" class="ks-sr-only"></p></div></div>'));
+  home.parentNode.insertAdjacentHTML('beforeend',uiLocale.html('<div class="job-dashboard"><div id="home-left" class="home-left"><div class="job-art"><img id="home-job-image" alt="Aperçu du fichier" hidden><p id="home-image-status">Sélectionnez un fichier pour afficher son aperçu.</p></div></div><div class="job-metrics"><h2 id="home-job-title" class="ks-sr-only">Suivi du travail</h2><div class="t-card home-progress"><div class="home-progress-head"><strong id="home-job-percent">—</strong><div class="home-progress-text"><p id="home-job-eta">Temps restant : —</p><p id="home-job-motion" class="home-job-motion" hidden></p><p id="home-job-name" class="ks-sr-only"></p></div></div><progress id="home-job-progress" max="100" value="0" aria-label="Avancement du travail"></progress></div><div id="home-coords" class="home-coords"></div><div class="home-live-tiles"><div class="t-card"><small>Avance réelle</small><b id="home-live-feed">—</b></div><div class="t-card"><small>Broche réelle</small><b id="home-live-spindle">—</b></div></div><p id="home-job-note" class="ks-sr-only"></p></div></div>'));
   var execution=document.querySelector('.library-execution');
   $('home-job-note').insertAdjacentHTML('afterend',uiLocale.html('<p id="home-job-ready" class="t-notice" role="status"></p><p id="home-job-selection" class="t-help"></p><button id="home-job-load" class="t-btn home-load" disabled>Charger la sélection</button><div id="home-job-primary-row" class="home-job-actions home-job-primary"><button id="home-job-start" class="t-btn t-btn--primary" disabled>Démarrer…</button><button id="home-job-pause" class="t-btn t-btn--warn t-btn--lg" disabled>Pause</button></div><div id="home-job-resume-row" class="home-job-actions home-job-resume" hidden><button id="home-job-resume" class="t-btn t-btn--primary" disabled>Reprendre…</button></div><p id="home-job-feedback" class="t-sent" role="status"></p><div class="home-stop"><button id="home-job-stop" class="t-btn t-btn--danger" disabled>Arrêter le travail</button><span class="t-help">Arrêt logiciel · pas un arrêt d’urgence</span></div>'));
   // The real page keeps its coordinate cards (#wx…, #mx…, written by app.js): they move under the progress.
@@ -113,7 +113,9 @@
         if(typeof src!=='string'||src.length>2500000||!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(src))throw new Error();
         // Depth and the 3D path (newer previews) feed the 3D views and their trail (preview-3d.js).
         img.cncPreview={file:file,fingerprint:typeof meta.fingerprint==='string'?meta.fingerprint:'',projection:meta.preview.projection,trail:Array.isArray(meta.preview.trail)?meta.preview.trail:null,lines:meta.preview.lines,
-          trailZ:Array.isArray(meta.preview.trailZ)?meta.preview.trailZ:null,zBounds:meta.preview.zBounds,path3d:meta.preview.path3d||null};
+          trailZ:Array.isArray(meta.preview.trailZ)?meta.preview.trailZ:null,zBounds:meta.preview.zBounds,path3d:meta.preview.path3d||null,
+          // Version 3 of the preview: motion-based estimate and laser summary (absent from older sidecars).
+          estimate:window.CNCMotionEstimate&&window.CNCMotionEstimate.valid(meta.preview.estimate)?meta.preview.estimate:null,laser:meta.preview.laser||null};
         imageLoading=true;
         img.onload=function(){if(id===request){imageLoading=false;img.hidden=false;if(note)set('home-image-status','textContent',note);$('home-image-status').hidden=!note;}};
         img.onerror=fail;img.src=src;
@@ -121,6 +123,48 @@
     };xhr.onerror=xhr.ontimeout=fail;xhr.send(JSON.stringify({file:file+'.cnctouch.json'}));
   }
   var halt=null;
+  // ---- Motion-based estimate (motion-estimate.js), shown next to the rhythm-based one ----
+  // Model of the program (lengths / programmed feeds, G4 dwells, rapids from $110-$112 when known,
+  // no acceleration); corrected during the job by the time observed per acknowledged line.
+  var motionTrack=null;
+  var UNKNOWN_TEXT={pause:'pause M0','optional-pause':'pause optionnelle M1',toolchange:'changement d’outil M6',home:'retour G28/G30',probe:'palpage G38',machine:'déplacement G53',frame:'changement de repère G10/G92',position:'position inconnue',feed:'avance F absente',dwell:'pause G4 sans durée',code:'code non pris en charge',arc:'arc illisible'};
+  function unknownsText(list){
+    var counts={},order=[];
+    (list||[]).forEach(function(u){if(u.kind==='rapid')return;if(!counts[u.kind]){counts[u.kind]={n:0,line:u.line};order.push(u.kind);}counts[u.kind].n++;});
+    return order.map(function(k){var c=counts[k];return (c.n>1?c.n+' × ':'')+uiLocale.t(UNKNOWN_TEXT[k]||'inconnue')+uiLocale.t(' (l. ')+c.line+(c.n>1?'…':'')+')';}).join(', ');
+  }
+  function motionText(c,file,now){
+    var ME=window.CNCMotionEstimate,img=$('home-job-image'),pv=img&&img.cncPreview;
+    if(!ME||!pv||pv.file!==file||img.hidden)return '';
+    var est=pv.estimate;
+    if(!est)return uiLocale.t('Estimation par les mouvements : indisponible pour cet aperçu (régénérez-le dans Fichiers).');
+    var rates=c&&!simulation?ME.ratesFrom(c.settings):null,running=!!(c&&(c.workflow==='running'||c.workflow==='paused')),parts=[];
+    var valid=c&&c.fresh&&c.name===file&&finiteNumber(c.total)&&c.total>0&&finiteNumber(c.received);
+    if(running&&valid){
+      // Acknowledged line in the preview's numbering (a resume counts the lines before it as done).
+      var r=c.resume,line=r&&typeof r.from==='number'&&typeof r.preambleLength==='number'?r.from-1+Math.max(0,c.received-r.preambleLength):c.received/c.total*est.lines;
+      line=Math.max(0,Math.min(est.lines,line));
+      var key=c.port+':'+c.name+':'+c.revision+':'+c.total;
+      if(!motionTrack||motionTrack.key!==key||line<motionTrack.line){motionTrack={key:key,fromLine:line,line:line,active:0,last:now};}
+      var dt=(now-motionTrack.last)/1000;
+      if(dt<0||dt>3){motionTrack.fromLine=line;motionTrack.active=0;}
+      else if(c.workflow==='running')motionTrack.active+=dt;
+      motionTrack.last=now;motionTrack.line=line;
+      var left=ME.remaining(est,rates,line,{activeSeconds:motionTrack.active,fromLine:motionTrack.fromLine});
+      if(!left)return '';
+      parts.push(uiLocale.t('Selon les mouvements : ')+remainingText(left.seconds)+uiLocale.t(' restantes')+(left.corrected?uiLocale.t(', corrigé ×')+(Math.round(left.factor*10)/10).toLocaleString(uiLocale.locale||'fr-FR')+uiLocale.t(' d’après les lignes acquittées'):''));
+      if(!left.rapidKnown)parts.push(uiLocale.t('rapides non comptés ($110–$112 inconnus)'));
+      var ahead=unknownsText(left.unknownsAhead);if(ahead)parts.push(uiLocale.t('durées inconnues à venir : ')+ahead);
+    }else{
+      motionTrack=null;
+      var tt=ME.total(est,rates);if(!tt)return '';
+      var low=remainingText(tt.low);
+      parts.push(uiLocale.t('Selon les mouvements (sans accélérations) : ')+(tt.high===null?uiLocale.t('au moins ')+low:Math.abs(tt.high-tt.low)<30?'≈ '+low:uiLocale.t('entre ')+low+uiLocale.t(' et ')+remainingText(tt.high)));
+      if(!tt.rapidKnown)parts.push(uiLocale.t('rapides non comptés ($110–$112 inconnus)'));
+      var unknown=unknownsText(tt.unknowns);if(unknown)parts.push(uiLocale.t('durées inconnues : ')+unknown);
+    }
+    return parts.join(' · ');
+  }
   function jogging(m){return !!(m&&m.motion&&typeof m.motion==='object'&&(m.motion.jog||m.motion.cancelling));}
   function render() {
     var c=machine,now=elapsedClock(),file=c&&c.name?c.name:selection&&selection.file||'';
@@ -217,7 +261,8 @@
       set('home-job-name','textContent',c&&c.name?(c.originalName||c.name):selection?uiLocale.t('Sélectionné : ')+selection.name:uiLocale.t('Aucun fichier chargé'));
       set('home-job-percent','textContent',percent);set('home-job-progress','value',p);
       // The static help sentence of the job controls is not a command result: only results show here.
-      set('home-job-eta','textContent',eta);set('home-job-feedback','textContent',feedback===uiLocale.t('Le chargement ne démarre pas le travail.')?'':feedback);
+      set('home-job-eta','textContent',eta);
+      var motion=motionText(c,file,now);set('home-job-motion','textContent',motion);set('home-job-motion','hidden',!motion);set('home-job-feedback','textContent',feedback===uiLocale.t('Le chargement ne démarre pas le travail.')?'':feedback);
       set('home-job-note','textContent',simulation?uiLocale.t('Progression fictive sur 60 secondes, hors pauses. Aucun G-code exécuté.'):uiLocale.t('Progression des lignes acquittées. Estimation indicative selon le rythme observé, pas selon la durée des mouvements.'));
     }
     if(visible('files'))set('job-progress-summary','textContent',percent+' · '+eta);

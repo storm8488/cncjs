@@ -99,7 +99,9 @@
     // The trail only needs the acknowledged lines and the preview, not the tool
     // position: it stays visible when the position cannot be projected.
     drawTrail(meta,s,box,projection);
-    var trailLabel=trail.hidden?'':simulation?t(' Tracé orange : avancement fictif.'):t(' Tracé orange : lignes acquittées, indicatif.');
+    // Three things, never mixed up: the planned path (the preview), the lines Grbl acknowledged
+    // ("acquittées": accepted into its buffer, not necessarily cut yet) and the reported position.
+    var trailLabel=trail.hidden?'':simulation?t(' Tracé orange : avancement fictif.'):t(' Tracé orange : lignes acquittées par Grbl (acceptées, pas forcément usinées), indicatif.');
     function noMarker(message){marker.hidden=true;var text=message+trailLabel;if(note.textContent!==text)note.textContent=text;}
     var point;
     if(simulation){
@@ -116,7 +118,11 @@
     var left=(box.left+(box.width-width)/2)+'px',top=(box.top+(box.height-height)/2)+'px',move='translate('+(pixel.x*width)+'px,'+(pixel.y*height)+'px) translate(-50%,-50%)';
     if(marker.style.left!==left)marker.style.left=left;if(marker.style.top!==top)marker.style.top=top;
     if(marker.style.transform!==move)marker.style.transform=move;marker.hidden=false;
-    var label=(simulation?t('Point rose : position fictive G54. Le travail simulé ne déplace pas ce point.'):t('Point rose : position de travail rapportée, G54 · projection indicative.'))+trailLabel;
+    // Age of the reported position: the server's age of the status report plus its time in transit here.
+    var age=(typeof s.statusAgeMs==='number'&&isFinite(s.statusAgeMs)&&s.statusAgeMs>=0?s.statusAgeMs:0)+Math.max(0,Date.now()-received);
+    // In whole seconds: a tenth would rewrite the note (and lay Suivi out) at every report.
+    var ageText=age<1000?t('moins d’une seconde'):Math.floor(age/1000)+' s';
+    var label=(simulation?t('Point rose : position fictive G54. Le travail simulé ne déplace pas ce point.'):t('Image : parcours prévu.')+' '+t('Point rose : position de travail rapportée par Grbl il y a ')+ageText+t(', G54 · projection indicative.'))+trailLabel;
     if(note.textContent!==label)note.textContent=label;
   }
   function schedule(){

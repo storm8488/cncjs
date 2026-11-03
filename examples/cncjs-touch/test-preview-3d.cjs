@@ -98,8 +98,11 @@ function page(options = {}) {
 
   // OffscreenCanvas worker.
   let p = page({ worker: true });
-  assert.equal(p.bar(p.files).children.length, 5); assert.equal(p.bar(p.home).children.length, 5);
-  assert.deepEqual(p.bar(p.files).children.map(b => b.textContent), ['2D', 'Iso', 'Face', 'Côté', 'Dessus']);
+  // Without a laser profile and in eco (no cncProfile): the laser view and the free 3D view stay hidden.
+  const shown = img => p.bar(img).children.filter(b => !b.hidden);
+  assert.equal(shown(p.files).length, 5); assert.equal(shown(p.home).length, 5);
+  assert.deepEqual(shown(p.files).map(b => b.textContent), ['2D', 'Iso', 'Face', 'Côté', 'Dessus']);
+  assert.deepEqual(p.bar(p.files).children.filter(b => b.hidden).map(b => b.attributes['data-view'] || 'free'), ['laser', 'free']);
   assert.equal(p.button(p.files, '2d').attributes['aria-pressed'], 'true', '2D by default');
   p.show(p.files, 'a.nc', pocket); await p.settle();
   assert.match(p.files.src, /^data:/); assert.equal(p.files.cncView, null); assert.equal(p.log.workers.length, 0, 'nothing computed while 2D is shown');

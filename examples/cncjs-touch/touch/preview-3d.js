@@ -10,11 +10,13 @@
   if (!T3 || typeof document === 'undefined') return;
   var uiLocale = root.cncI18n || { t: function (s) { return s; }, html: function (s) { return s; } }, t = uiLocale.t;
   var STORE = 'cncjs-touch-preview-view-v1';
-  var VIEWS = ['2d', 'iso', 'front', 'side', 'top'];
-  var LABELS = { '2d': '2D', iso: t('Iso'), front: t('Face'), side: t('Côté'), top: t('Dessus') };
-  var TITLES = { '2d': t('Aperçu 2D enregistré'), iso: t('Vue isométrique'), front: t('Vue de face (XZ)'), side: t('Vue de côté (YZ)'), top: t('Vue de dessus (XY)') };
+  // 'laser' (laser-view.js) only for a machine whose profile is laser; it stays available in eco.
+  var VIEWS = ['2d', 'iso', 'front', 'side', 'top', 'laser'];
+  var LABELS = { '2d': '2D', iso: t('Iso'), front: t('Face'), side: t('Côté'), top: t('Dessus'), laser: t('Laser') };
+  var TITLES = { '2d': t('Aperçu 2D enregistré'), iso: t('Vue isométrique'), front: t('Vue de face (XZ)'), side: t('Vue de côté (YZ)'), top: t('Vue de dessus (XY)'), laser: t('Vue laser (XY, consigne S)') };
   var source = document.currentScript && document.currentScript.src;
-  var workerURL = (source ? source.split(/[?#]/)[0].replace(/[^/]*$/, '') : '') + 'preview-3d-worker.js?v=view3';
+  var base = source ? source.split(/[?#]/)[0].replace(/[^/]*$/, '') : '';
+  var workerURL = base + 'preview-3d-worker.js?v=view3';
   var view = '2d', hosts = [], cache = [], queue = [], active = null, idle = null, nextId = 0;
   var worker = null, workerState = 'none', startup = null;
   try { var saved = root.localStorage.getItem(STORE); if (VIEWS.indexOf(saved) >= 0) view = saved; } catch (_) {}
@@ -51,15 +53,29 @@
     host.shown = src;
     if (host.img.getAttribute('src') !== src) host.img.src = src;
   }
+  // Profile (tablet-profile.js, lot B): absent or unreadable reads as eco and an unknown machine.
+  function profile() { var p = root.cncProfile; return p && typeof p.performance === 'function' ? p : null; }
+  function performance() { var p = profile(); try { return !!p && p.performance() === 'performance'; } catch (_) { return false; } }
+  function laserMachine() { var p = profile(); try { return !!p && typeof p.kind === 'function' && p.kind() === 'laser'; } catch (_) { return false; } }
+  function current() { return view === 'laser' && !laserMachine() ? '2d' : view; }
   function buttons(host) {
-    host.buttons.forEach(function (b) { var on = String(b.getAttribute('data-view') === view); if (b.getAttribute('aria-pressed') !== on) b.setAttribute('aria-pressed', on); });
+    var v = current();
+    host.buttons.forEach(function (b) {
+      var name = b.getAttribute('data-view'), on = String(name === v);
+      if (b.getAttribute('aria-pressed') !== on) b.setAttribute('aria-pressed', on);
+      if (name === 'laser' && b.hidden !== !laserMachine()) b.hidden = !laserMachine();
+    });
+    // The free 3D view: Performance profile and a 3D path only.
+    var free = performance() && !!keyOf(host.meta);
+    if (host.free.hidden !== !free) host.free.hidden = !free;
   }
   function update(host) {
     buttons(host);
-    var meta = host.meta;
+    var meta = host.meta, view = current();
     host.key = '';
     if (!host.base) { host.img.cncView = null; status(host, ''); return; }
     if (view === '2d') { show(host, host.base, null); status(host, ''); return; }
+    if (view === 'laser') { laser(host); return; }
     // No 3D path (old preview) or no fingerprint (older or unverified sidecar): the 2D image stays.
     var key = keyOf(meta);
     if (!key) {
@@ -76,10 +92,102 @@
   }
   function refresh() { hosts.forEach(update); }
 
+  // ---- Laser view (laser-view.js): computed on demand from the program's text, bound to its fingerprint ----
+  var laserJob = null;
+  function laser(host) {
+    var meta = host.meta, L = root.CNCLaserView;
+    if (!meta || !meta.fingerprint || !meta.file) { show(host, host.base, null); status(host, t('Vue laser indisponible : aperçu sans empreinte, régénérez-le dans Fichiers.')); return; }
+    if (!L || !root.CNCPreviewInspect) { show(host, host.base, null); status(host, t('Vue laser indisponible sur cette page.')); return; }
+    var key = 'laser|' + meta.fingerprint, entry = entryFor(key, meta.file, true), done = entry.views.laser;
+    host.key = key;
+    if (done) { show(host, done.url, { view: 'laser', projection: done.projection }); status(host, L.describe(done.summary)); return; }
+    show(host, host.base, null);
+    if (entry.failed.laser) { status(host, t('Vue laser indisponible : ') + entry.failed.laser); return; }
+    status(host, t('Calcul de la vue laser…'));
+    if (laserJob && laserJob.key === key) return;
+    if (laserJob) laserJob.run.cancel();
+    var m = null; try { m = profile() && profile().machine(); } catch (_) {}
+    var sRef = m && m.laser && m.laser.sMax > 0 ? m.laser.sMax : 0;
+    var job = laserJob = { key: key, run: L.render(meta, { sRef: sRef }) };
+    job.run.promise.then(function (r) {
+      if (laserJob !== job) return;
+      laserJob = null; entry.views.laser = { url: root.URL.createObjectURL(r.blob), projection: r.projection, summary: r.summary }; refresh();
+    }, function (e) {
+      if (laserJob !== job) return;
+      laserJob = null; entry.failed.laser = String(e && e.message || e); refresh();
+    });
+  }
+
+  // ---- Free 3D view (preview-gl.js, Performance profile only, loaded on demand) ----
+  function api(method, path, body, blob) {
+    return new Promise(function (resolve, reject) {
+      var token = ''; try { token = JSON.parse(root.localStorage.getItem('cnc')).state.session.token; } catch (_) {}
+      if (!token) { reject(new Error(t('Session CNCjs requise pour lire l’aperçu.'))); return; }
+      var apiBase = '/api'; try { apiBase = root.cncState.get().apiBase; } catch (_) {}
+      var xhr = new root.XMLHttpRequest(); xhr.open(method, apiBase + '/watch/' + path, true); xhr.timeout = 60000;
+      xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+      xhr.setRequestHeader('Content-Type', blob ? 'application/octet-stream' : 'application/json');
+      xhr.onload = function () { if (xhr.status < 200 || xhr.status >= 300) { reject(new Error(t('Le serveur a refusé la demande (HTTP ') + xhr.status + ').')); return; } try { resolve(xhr.responseText ? JSON.parse(xhr.responseText) : null); } catch (_) { resolve(null); } };
+      xhr.onerror = xhr.ontimeout = function () { reject(new Error(t('Serveur inaccessible.'))); };
+      xhr.send(blob || (body ? JSON.stringify(body) : null));
+    });
+  }
+  // The stored sidecar of a file ({version, file, fingerprint, preview, …}).
+  function sidecar(file) { return api('POST', 'file', { file: file + '.cnctouch.json' }).then(function (r) { var meta = JSON.parse(r && r.data); if (!meta || meta.file !== file) throw new Error(t('Aperçu enregistré illisible.')); return meta; }); }
+  var freeOpen = null;
+  function openFree(host) {
+    var P = profile(), meta = host.meta;
+    if (!performance()) { status(host, t('Vue 3D libre : profil Performance requis (Réglages).')); buttons(host); return; }
+    if (!keyOf(meta)) { status(host, t('Vues 3D indisponibles pour cet ancien aperçu : régénérez-le dans Fichiers.')); return; }
+    status(host, t('Chargement de la vue 3D libre…'));
+    var request = freeOpen = {};
+    // The estimate (tools, operations) is not on every image: read from the sidecar when missing.
+    var extra = meta.estimate !== undefined ? Promise.resolve(meta) : sidecar(meta.file).then(function (s) { return s.fingerprint === meta.fingerprint && s.preview ? s.preview : {}; }, function () { return {}; });
+    Promise.all([P.loadAdvanced(['preview-gl.js']), extra]).then(function (r) {
+      if (freeOpen !== request || !performance()) return;
+      if (!root.CNCPreviewGL) throw new Error(t('module absent'));
+      var full = {}; Object.keys(meta).forEach(function (k) { full[k] = meta[k]; });
+      if (full.estimate === undefined) full.estimate = r[1].estimate || null;
+      var stock = root.CNCProjects && typeof root.CNCProjects.stock === 'function' ? root.CNCProjects.stock(meta.file) : null;
+      status(host, '');
+      root.CNCPreviewGL.open(full, { stock: stock, onFallback: function (message) { status(host, message); }, onClose: function () { if (freeOpen === request) freeOpen = null; } });
+    }).catch(function (e) { if (freeOpen === request) { freeOpen = null; status(host, t('Vue 3D libre indisponible : ') + String(e && e.message || e) + t('. Vues fixes conservées.')); } });
+  }
+
+  // ---- Export / import of a preview between two servers (Fichiers only) ----
+  function exportPreview(host) {
+    var meta = host.meta, LP = root.CNCLibraryPreview;
+    if (!meta || !meta.file || !LP || !root.CNCDownload) { status(host, t('Export indisponible.')); return; }
+    sidecar(meta.file).then(function (s) {
+      var data = LP.exportPreview(s);
+      root.CNCDownload.save(new root.Blob([JSON.stringify(data)], { type: 'application/json' }), String(s.originalName || meta.file).replace(/\.[^.]*$/, '') + '.apercu-cncjs.json');
+      status(host, t('Aperçu exporté (sans réglage machine ni commande).'));
+    }).catch(function (e) { status(host, t('Export impossible : ') + e.message); });
+  }
+  function importPreview(host, fileInput) {
+    var meta = host.meta, chosen = fileInput.files && fileInput.files[0], LP = root.CNCLibraryPreview, PI = root.CNCPreviewInspect;
+    fileInput.value = '';
+    if (!chosen || !meta || !meta.file || !LP || !PI) return;
+    if (chosen.size > 8 * 1048576) { status(host, t('Fichier d’aperçu trop volumineux.')); return; }
+    status(host, t('Vérification de l’aperçu importé…'));
+    var reading = typeof chosen.text === 'function' ? chosen.text() : new Promise(function (resolve, reject) { var r = new root.FileReader(); r.onload = function () { resolve(r.result); }; r.onerror = reject; r.readAsText(chosen); });
+    // The fingerprint of the program on this server, as the server gives it now.
+    Promise.all([reading, PI.fetchProgram(meta.file), sidecar(meta.file).catch(function () { return null; })]).then(function (r) {
+      var preview = LP.importPreview(String(r[0]), r[1].fingerprint), old = r[2] || {};
+      var next = { version: 1, file: meta.file, originalName: typeof old.originalName === 'string' ? old.originalName : meta.file, bytes: old.bytes, fingerprint: r[1].fingerprint, preview: preview, previewVersion: 2, importedAt: new Date().toISOString() };
+      if (old.createdAt) next.createdAt = old.createdAt;
+      return api('PUT', 'file?file=' + encodeURIComponent(meta.file + '.cnctouch.json'), null, new root.Blob([JSON.stringify(next)], { type: 'application/octet-stream' }));
+    }).then(function () {
+      status(host, t('✓ Aperçu importé : empreinte du fichier vérifiée.'));
+      try { root.dispatchEvent(new root.CustomEvent('cnc-library-preview-updated', { detail: { file: meta.file } })); } catch (_) {}
+      var refreshButton = document.getElementById('library-refresh'); if (refreshButton && !refreshButton.disabled) refreshButton.click();
+    }).catch(function (e) { status(host, t('Aperçu non importé : ') + e.message); });
+  }
+
   // A host's 2D image changed (another file, a new preview, none): that becomes its base.
   // No image (a file without preview, an image that failed): no view to choose, and the bar
   // would cover the message shown in the image's place (validation D1).
-  function visibility(host) { var off = !!host.img.hidden || !host.img.getAttribute('src'); if (host.bar.hidden !== off) host.bar.hidden = off; }
+  function visibility(host) { var off = !!host.img.hidden || !host.img.getAttribute('src'); if (host.bar.hidden !== off) host.bar.hidden = off; if (host.transfer && host.transfer.hidden !== off) host.transfer.hidden = off; }
   function observe(host) {
     visibility(host);
     var src = host.img.getAttribute('src') || '';
@@ -200,7 +308,7 @@
   }
 
   function choose(next) {
-    if (VIEWS.indexOf(next) < 0 || next === view) return;
+    if (VIEWS.indexOf(next) < 0 || next === view || next === 'laser' && !laserMachine()) return;
     view = next;
     try { root.localStorage.setItem(STORE, view); } catch (_) {}
     refresh();
@@ -210,22 +318,42 @@
     if (!img || !img.parentNode) return;
     var box = img.parentNode, bar = document.createElement('div'), note = document.createElement('p');
     bar.className = 't-seg pv3d-views'; bar.setAttribute('role', 'group'); bar.setAttribute('aria-label', t('Vue de l’aperçu'));
-    var host = { img: img, bar: bar, status: note, buttons: [], base: '', meta: null, shown: null, key: '' };
+    var host = { img: img, bar: bar, status: note, buttons: [], base: '', meta: null, shown: null, key: '', free: null };
     VIEWS.forEach(function (v) {
       var b = document.createElement('button');
       b.type = 'button'; b.className = 'pv3d-view'; b.setAttribute('data-view', v); b.setAttribute('aria-pressed', 'false');
       b.textContent = LABELS[v]; b.title = TITLES[v]; b.setAttribute('aria-label', TITLES[v]);
+      if (v === 'laser') b.hidden = true;
       b.addEventListener('click', function () { choose(v); });
       bar.appendChild(b); host.buttons.push(b);
     });
+    var free = document.createElement('button');
+    free.type = 'button'; free.className = 'pv3d-view pv3d-free'; free.hidden = true; free.textContent = t('3D libre'); free.title = t('Vue 3D libre (profil Performance)'); free.setAttribute('aria-label', free.title);
+    free.addEventListener('click', function () { openFree(host); });
+    bar.appendChild(free); host.free = free;
+    if (imageId === 'library-image') {
+      var transfer = document.createElement('div'), out = document.createElement('button'), into = document.createElement('button'), input = document.createElement('input');
+      transfer.className = 'pv3d-transfer';
+      out.type = 'button'; out.className = 't-btn t-btn--ghost'; out.textContent = t('Exporter l’aperçu');
+      into.type = 'button'; into.className = 't-btn t-btn--ghost'; into.textContent = t('Importer un aperçu…');
+      input.type = 'file'; input.accept = '.json,application/json'; input.hidden = true;
+      out.addEventListener('click', function () { exportPreview(host); });
+      into.addEventListener('click', function () { if (host.meta) input.click(); });
+      input.addEventListener('change', function () { importPreview(host, input); });
+      transfer.appendChild(out); transfer.appendChild(into); transfer.appendChild(input);
+      host.transfer = transfer;
+    }
     note.className = 'pv3d-status'; note.setAttribute('role', 'status'); note.hidden = true;
     box.classList.add('pv3d-host'); box.appendChild(bar); box.appendChild(note);
+    if (host.transfer && box.parentNode) box.parentNode.insertBefore(host.transfer, box.nextSibling);
     hosts.push(host);
     new root.MutationObserver(function () { observe(host); }).observe(img, { attributes: true, attributeFilter: ['src', 'hidden'] });
     observe(host); buttons(host);
   }
   ['library-image', 'home-job-image'].forEach(attach);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) pump(); });
-  root.cncPreviewViews = { view: function () { return view; }, choose: choose, title: function (v) { return TITLES[v] || ''; },
+  // The profile changed (eco / performance, CNC / laser): the buttons follow; an open free view closes itself.
+  if (typeof root.addEventListener === 'function') root.addEventListener('cnc-profile-change', function () { refresh(); });
+  root.cncPreviewViews = { view: current, choose: choose, openFree: function (imageId) { var h = hosts.filter(function (x) { return x.img.id === imageId; })[0]; if (h) openFree(h); }, title: function (v) { return TITLES[v] || ''; },
     state: function () { return { worker: workerState, active: active ? active.view + (active.urgent ? '!' : '') : null, idle: idle !== null, queue: queue.map(function (j) { return j.entry.file + ':' + j.view + (j.urgent ? '!' : ''); }) }; }, cached: function () { return cache.map(function (e) { return { key: e.key, file: e.file, views: Object.keys(e.views), failed: e.failed }; }); } };
 })(typeof window !== 'undefined' ? window : this);
