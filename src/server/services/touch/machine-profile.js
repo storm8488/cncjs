@@ -42,6 +42,7 @@ const MESSAGES = {
   'ETOUCH_MACHINE_KIND_INVALID': () => 'Type de machine invalide : choisissez CNC ou laser.',
   'ETOUCH_MACHINE_NOT_ASSOCIATED': () => 'Aucune fiche machine associée à cette carte : rien à oublier.',
   'ETOUCH_MACHINE_STORE': () => 'Enregistrement impossible dans la configuration CNCjs (.cncrc) : type de machine non modifié.',
+  'ETOUCH_MACHINE_RESUME_MODE_CHANGED': (p) => 'Reprise chargée en mode ' + p.loaded + ', machine désormais en mode ' + p.now + ' : rechargez la reprise depuis Reprendre.',
   'ETOUCH_MACHINE_OPERATION': () => 'Opération machine inconnue.',
   'ETOUCH_LASER_NOT_LASER': () => 'Opération réservée à une machine déclarée laser.',
   'ETOUCH_LASER_NO_SPINDLE_TEST': () => 'Machine déclarée laser : pas de test de broche (aucune commande M3 de test envoyée).',

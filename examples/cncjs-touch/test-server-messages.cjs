@@ -68,7 +68,7 @@ const refusal = (fn) => { try { fn(); } catch (err) { return err; } throw new Er
     'ETOUCH_LASER_NO_PLATE_PROBE', 'ETOUCH_LASER_NO_TOOL_CHANGE', 'ETOUCH_LASER_NO_CNC_RESUME', 'ETOUCH_LASER_FRAME_DISABLED',
     'ETOUCH_LASER_FRAME_NO_PROGRAM', 'ETOUCH_LASER_FRAME_CHECK', 'ETOUCH_LASER_FRAME_BOUNDS', 'ETOUCH_LASER_FRAME_POSITION',
     'ETOUCH_LASER_FRAME_CHANGED', 'ETOUCH_LASER_FRAME_EXPIRED'].map((code) => machineRefusal(code)))
-    .concat([machineRefusal('ETOUCH_MACHINE_AMBIGUOUS', { count: 2 }), machineRefusal('ETOUCH_MACHINE_NOT_IDLE', { state: 'Alarm' }),
+    .concat([machineRefusal('ETOUCH_MACHINE_RESUME_MODE_CHANGED', { loaded: 'CNC', now: 'laser' }), machineRefusal('ETOUCH_MACHINE_AMBIGUOUS', { count: 2 }), machineRefusal('ETOUCH_MACHINE_NOT_IDLE', { state: 'Alarm' }),
       machineRefusal('ETOUCH_LASER_FRAME_WCS', { wcs: 'G55', active: 'G54' }), machineRefusal('ETOUCH_LASER_FRAME_FEED', { min: 1, max: '3000' }),
       machineRefusal('ETOUCH_LASER_FRAME_SLOW', { seconds: 75, max: 60 })]);
   const laserCheck = programCheck(P('G21 G90', 'M3 S1200', 'G1 X10 F1000', 'M4 S100', 'G1 Y5', 'M5'), { settings: { $30: 1000 }, laser: { sMax: 1000 } }).laser;
@@ -84,7 +84,7 @@ const refusal = (fn) => { try { fn(); } catch (err) { return err; } throw new Er
       assert.doesNotMatch(text, /[{}[\]]|power|puissance|potencia/i, err.code + ' ' + language + ' filled, no power wording');
     }
   }
-  assert.equal(machineSeen.size, 39, 'every machine/laser code checked against its French template');
+  assert.equal(machineSeen.size, 40, 'every machine/laser code checked against its French template');
   // [ optional part ] dropped when its value is null, kept with its value otherwise.
   const noWcs = cases.find((e) => e.code === 'ETOUCH_RESUME_NO_RAPID_Z' && e.params.wcs === null), g55 = cases.find((e) => e.code === 'ETOUCH_RESUME_NO_RAPID_Z' && e.params.wcs);
   assert(noWcs && g55, 'both forms of NO_RAPID_Z');

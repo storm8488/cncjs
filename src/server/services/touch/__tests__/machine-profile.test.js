@@ -474,6 +474,25 @@ describe('capability enforcement on the server (§3)', () => {
   });
 });
 
+describe('start re-checks the profile and $32', () => {
+  test('a laser profile with $32 other than 1 starts nothing; a resume starts only in the mode it was built for', async () => {
+    let ctx = setup({ machines: [record('laser')] });
+    await ctx.req('load', { file: 'frame.nc' });
+    expect(ctx.state().startReason).toBe(ctx.state().machineProfile.capabilities.laserResume.reason);
+    let err = await refusalOf(ctx.req('prepare', { operation: 'start', revision: ctx.state().revision }));
+    expect(err.code).toBe('ETOUCH_MACHINE_LASER_MODE_OFF');
+    ctx = setup({ machines: [record('cnc')] });
+    await ctx.req('load', { file: 'cnc.nc', fromLine: 7 });
+    ctx.c.settings.settings.$32 = '1';
+    await ctx.machine('set-kind', { kind: 'laser' });
+    err = await refusalOf(ctx.req('prepare', { operation: 'start', revision: ctx.state().revision }));
+    expect(err).toMatchObject({ code: 'ETOUCH_MACHINE_RESUME_MODE_CHANGED', params: { loaded: 'CNC', now: 'laser' } });
+    expectCatalogMatch(err);
+    expect(ctx.state().canStart).toBe(false);
+    expect(ctx.c.commands.filter(([n]) => n === 'gcode:start')).toEqual([]);
+  });
+});
+
 describe('resume preview (§4), both kinds', () => {
   const sentPreamble = (ctx) => {
     const load = ctx.c.commands.filter(([n]) => n === 'gcode:load').pop();

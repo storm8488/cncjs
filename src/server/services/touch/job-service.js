@@ -629,6 +629,22 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       if (j.started || !c.sender.state.total) {
         throw conflict('Rechargez le fichier avant un nouveau démarrage.');
       }
+      // The machine profile and $32 now, not only when the program was loaded:
+      // a resume runs only in the mode it was built for, with that mode still
+      // allowed; a laser profile starts nothing while $32 is not 1 (M3/M4
+      // would emit during every G0).
+      if (j.resume) {
+        const loaded = j.resume.mode || 'cnc';
+        const now = resumeMode(c);
+        if (now !== loaded) {
+          throw machineRefusal('ETOUCH_MACHINE_RESUME_MODE_CHANGED', { loaded: loaded === 'laser' ? 'laser' : 'CNC', now: now === 'laser' ? 'laser' : 'CNC' });
+        }
+      } else {
+        const profile = profileOf(c, record(c));
+        if (profile.kind === 'laser' && profile.laser.mode !== 1) {
+          throw machineRefusal('ETOUCH_MACHINE_LASER_MODE_OFF');
+        }
+      }
       // A program that does not set its units or distance mode runs in Grbl's
       // current ones, while its preview assumes millimetres and absolute.
       if (j.sets && (!j.sets.units || !j.sets.distance)) {
