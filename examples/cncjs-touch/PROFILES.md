@@ -50,7 +50,7 @@ Wording: « consigne S » (the S set point the program asks for), never a power:
 
 ## Previews (both profiles unless stated)
 
-- **Laser view**: XY image coloured by S set point (scale `$30` when known), non-emitting moves dashed; available in Éco.
+- **Laser view**: XY image coloured by S set point (scale `$30` when known), non-emitting moves dashed; available in Éco. With a laser profile it is the only view (2D, fixed and free 3D views hidden); the CNC choice comes back with the CNC profile.
 - **Suivi**: « parcours prévu », lines « acquittées par Grbl » (accepted, not necessarily cut), position « rapportée par Grbl il y a N s ».
 - **Motion-based time estimate** under the line-count estimate: distances, feeds, rapids (`$110-$112`), arcs, `G4`; pauses, tool changes, `G28`/`G30`, probing and missing feeds listed as unknown, with no invented duration; corrected during the job from the acknowledged lines. No acceleration model.
 - **Stock and clamps**: stock from the project sheet (assumed corner X0 Y0, top at Z0, stated on screen), clamps entered by hand and kept in this browser per program fingerprint (`cncjs-touch-clamps-v1`). Drawn in the free view and the resume preview. « Aucune garantie anticollision ».

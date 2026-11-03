@@ -55,6 +55,8 @@ function page(options = {}) {
     requestIdleCallback(fn, options) { if (this == null) throw new TypeError('Illegal invocation'); log.idleTimeout = options && options.timeout; idle.push(fn); return idle.length; },
     CNCToolpath3D: T3, cncI18n: { t: s => s, html: s => s, locale: 'fr-FR' }, setTimeout, clearTimeout, Date
   };
+  if (options.profile) { window.cncProfile = options.profile; window.addEventListener = (name, fn) => { (winListeners[name] = winListeners[name] || []).push(fn); }; }
+  const winListeners = {};
   if (options.worker) window.Worker = class {
     constructor(url) {
       assert.match(url, /^http:\/\/tablet\/touch\/preview-3d-worker\.js\?v=view\d+$/);
@@ -79,7 +81,7 @@ function page(options = {}) {
   vm.createContext(window);
   vm.runInContext(fs.readFileSync(path.join(dir, 'preview-3d.js'), 'utf8'), window);
   const files = ids['library-image'], home = ids['home-job-image'];
-  return { window, document, log, idle, storage, files, home, ids,
+  return { window, document, log, idle, storage, files, home, ids, winListeners,
     bar: img => img.parentNode.children.find(c => c.attributes.role === 'group'),
     status: img => img.parentNode.children.find(c => c.attributes.role === 'status'),
     button: (img, view) => img.parentNode.children.find(c => c.attributes.role === 'group').children.find(b => b.attributes['data-view'] === view),
@@ -95,6 +97,18 @@ function page(options = {}) {
   const pocket = await pathOf('G21 G90\nG0 Z5\nG0 X10 Y10\nG1 Z-1 F100\nG1 X50\nG1 Y30\nG1 Z-2\nG1 X10\nG0 Z5\nM2');
   const other = await pathOf('G21 G90\nG0 X0 Y0\nG1 Z-0.5 F100\nG2 X0 Y0 I8 J0\nG0 Z3\nM2');
   const third = await pathOf('G21 G90\nG0 X0 Y0\nG1 Z-1 F100\nG1 X20\nG1 Y15\nG0 Z3\nM2');
+
+  // A laser machine has the laser view only (no 2D, fixed or free 3D views); back to CNC, the remembered choice returns.
+  {
+    const prof = { kind: 'laser', performance: () => 'performance', kind() { return this.k; }, k: 'laser' };
+    const q = page({ worker: true, profile: prof });
+    const visible = img => q.bar(img).children.filter(b => !b.hidden).map(b => b.attributes['data-view'] || 'free');
+    assert.deepEqual(visible(q.files), ['laser']); assert.deepEqual(visible(q.home), ['laser']);
+    assert.equal(q.window.cncPreviewViews.view(), 'laser');
+    q.window.cncPreviewViews.choose('iso'); assert.equal(q.window.cncPreviewViews.view(), 'laser', 'no other view on a laser');
+    prof.k = 'cnc'; (q.winListeners['cnc-profile-change'] || []).forEach(fn => fn());
+    assert.deepEqual(visible(q.files), ['2d', 'iso', 'front', 'side', 'top']); assert.equal(q.window.cncPreviewViews.view(), '2d');
+  }
 
   // OffscreenCanvas worker.
   let p = page({ worker: true });

@@ -57,16 +57,18 @@
   function profile() { var p = root.cncProfile; return p && typeof p.performance === 'function' ? p : null; }
   function performance() { var p = profile(); try { return !!p && p.performance() === 'performance'; } catch (_) { return false; } }
   function laserMachine() { var p = profile(); try { return !!p && typeof p.kind === 'function' && p.kind() === 'laser'; } catch (_) { return false; } }
-  function current() { return view === 'laser' && !laserMachine() ? '2d' : view; }
+  // A laser machine has the laser view only; the CNC choice is kept for when the type goes back to CNC.
+  function current() { if (laserMachine()) return 'laser'; return view === 'laser' ? '2d' : view; }
   function buttons(host) {
     var v = current();
     host.buttons.forEach(function (b) {
       var name = b.getAttribute('data-view'), on = String(name === v);
       if (b.getAttribute('aria-pressed') !== on) b.setAttribute('aria-pressed', on);
-      if (name === 'laser' && b.hidden !== !laserMachine()) b.hidden = !laserMachine();
+      var hide = laserMachine() ? name !== 'laser' : name === 'laser';
+      if (b.hidden !== hide) b.hidden = hide;
     });
     // The free 3D view: Performance profile and a 3D path only.
-    var free = performance() && !!keyOf(host.meta);
+    var free = !laserMachine() && performance() && !!keyOf(host.meta);
     if (host.free.hidden !== !free) host.free.hidden = !free;
   }
   function update(host) {
@@ -308,7 +310,7 @@
   }
 
   function choose(next) {
-    if (VIEWS.indexOf(next) < 0 || next === view || next === 'laser' && !laserMachine()) return;
+    if (VIEWS.indexOf(next) < 0 || next === view || next === 'laser' || laserMachine()) return;
     view = next;
     try { root.localStorage.setItem(STORE, view); } catch (_) {}
     refresh();
