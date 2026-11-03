@@ -164,7 +164,7 @@ function settingsRows() {
   const window = { innerWidth: 1366, innerHeight: 768, location: { reload() { spies.reload++; } }, XMLHttpRequest: function () { spies.xhr++; },
     addEventListener(n, f) { (listeners[n] || (listeners[n] = [])).push(f); }, dispatchEvent(e) { (listeners[e.type] || []).slice().forEach((f) => f(e)); },
     cncScreenSaver: { configure() {}, status: () => ({ blocked: false, reason: '' }), preview: () => true },
-    cncJobControls: { clientId: () => 't-abc-1a2b3c4d', pilot: () => ({ value: 'Cet appareil' }), setMachineKind(kind, label) { calls.push([kind, label]); return answer; } } };
+    cncJobControls: { clientId: () => 't-abc-1a2b3c4d', pilot: () => ({ value: 'Cet appareil' }), setMachineKind(kind, label) { calls.push([kind, label]); return answer; }, forgetMachine() { calls.push(['forget']); return answer; } } };
   const storage = memory();
   const context = { window, document: dom.document, localStorage: storage, Promise, JSON, Event: class { constructor(t) { this.type = t; } }, CustomEvent: class { constructor(t, o) { this.type = t; this.detail = o && o.detail; } } };
   window.localStorage = storage;
@@ -181,6 +181,7 @@ function settingsRows() {
   kinds.forEach((b) => { assert.equal(b.disabled, true); assert.match(b.getAttribute('title'), /Aucune machine connectée/); });
   // Unknown kind: the CNC interface stays, the prompt is visible.
   send(machine(null));
+  assert.equal(n('profile-machine-forget').hidden, true, 'nothing to forget without a record');
   assert.equal(n('profile-machine-unconfirmed').hidden, false); assert.match(n('profile-machine-unconfirmed').textContent, /Type de machine non confirmé/);
   assert.match(n('profile-machine-target').textContent, /\/dev\/ttyUSB0/); assert.match(n('profile-machine-target').textContent, /pas encore associée/);
   // Not allowed now: disabled with the server's reason; a tap says it.
@@ -211,6 +212,18 @@ function settingsRows() {
     return flush();
   }).then(() => {
     assert.match(n('profile-machine-status').textContent, /pilotage attribué/);
+    // Forget: shown for a known record, confirmed like a kind change, no label asked, one call.
+    answer = Promise.resolve({ message: 'ok' });
+    send(machine('cnc'), { value: 'Tablette 3c4d', state: 'mine' });
+    assert.equal(n('profile-machine-forget').hidden, false); assert.equal(n('profile-machine-forget').disabled, false);
+    n('profile-machine-forget').click();
+    assert.match(n('profile-machine-confirm-text').textContent, /Oublier la fiche de la machine « Fraiseuse » \(\/dev\/ttyUSB0\)/); assert.match(n('profile-machine-confirm-text').textContent, /Aucune commande/);
+    assert.equal(n('profile-machine-label').hidden, true); assert.equal(calls.length, 2);
+    n('profile-machine-apply').click(); assert.deepEqual(calls.at(-1), ['forget']); assert.equal(calls.length, 3);
+    return flush();
+  }).then(() => {
+    assert.match(n('profile-machine-status').textContent, /Fiche machine oubliée/);
+    n('profile-machine-label').hidden = false; calls.length = 2;
     // Performance: applied and saved here, no reload, no request, no machine call.
     assert.equal(perfs[0].getAttribute('aria-pressed'), 'true');
     perfs[1].click();
@@ -234,6 +247,9 @@ async function jobPosts() {
   assert.equal(post.body.port, 'COM3'); assert.equal(post.body.generation, 'gen-1'); assert.equal(post.body.transportId, 'stream-one');
   f.answer(post, { message: 'Type enregistré.' }); await f.flush();
   await assert.rejects(c.setMachineKind('plasma', 'x'), /inconnu/);
+  c.forgetMachine();
+  const forget = f.posts().at(-1); assert.deepEqual([forget.body.action, forget.body.operation, forget.body.port, forget.body.generation], ['machine', 'forget', 'COM3', 'gen-1']);
+  f.answer(forget, { message: 'Fiche oubliée.' }); await f.flush();
   // Framing: frame-prepare, then the usual confirmation naming the machine and the pilot, then frame with the nonce.
   assert.equal(c.prepareFrame(), true);
   const prep = f.posts().at(-1); assert.deepEqual([prep.body.action, prep.body.operation], ['machine', 'frame-prepare']);

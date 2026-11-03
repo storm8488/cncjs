@@ -13,7 +13,7 @@
   // Scope of each row (PROFILES-CONTRACT.md §1): « Cette tablette » (this browser only) or
   // « Serveur CNCjs » (the computer running CNCjs, shared by every device).
   panel.innerHTML = uiLocale.html('<div class="card wide ks-panel-intro"><div><h2>Votre écran</h2><p>Préférences conservées dans ce navigateur, sur cet appareil uniquement.</p></div><span class="ks-readonly" id="display-resolution"></span></div>') +
-    uiLocale.html('<div class="card ks-display-card ks-profile-card" id="ks-machine-kind-card"><h2>Type de machine <span class="ks-scope" data-scope="server">Serveur CNCjs</span></h2><p id="profile-machine-target">Machine : —</p><div class="ks-display-choices" role="group" aria-label="Type de machine"><button type="button" data-machine-kind="cnc" aria-pressed="false">CNC</button><button type="button" data-machine-kind="laser" aria-pressed="false">Laser</button></div><p class="ks-help">Enregistré par le serveur CNCjs pour cette machine et partagé par tous les appareils. Seul l’appareil qui pilote peut le changer, machine au repos.</p><p id="profile-machine-unconfirmed" class="t-notice" data-tone="warn" role="status" hidden></p><div id="profile-machine-confirm" class="ks-profile-confirm" hidden><p id="profile-machine-confirm-text"></p><label for="profile-machine-label">Nom de la machine</label><input id="profile-machine-label" type="text" maxlength="60" autocomplete="off"><div class="ks-profile-confirm-actions"><button type="button" id="profile-machine-cancel" class="ks-secondary">Annuler</button><button type="button" id="profile-machine-apply" class="t-btn t-btn--primary">Confirmer</button></div></div><p id="profile-machine-status" role="status"></p></div>') +
+    uiLocale.html('<div class="card ks-display-card ks-profile-card" id="ks-machine-kind-card"><h2>Type de machine <span class="ks-scope" data-scope="server">Serveur CNCjs</span></h2><p id="profile-machine-target">Machine : —</p><div class="ks-display-choices" role="group" aria-label="Type de machine"><button type="button" data-machine-kind="cnc" aria-pressed="false">CNC</button><button type="button" data-machine-kind="laser" aria-pressed="false">Laser</button></div><p class="ks-help">Enregistré par le serveur CNCjs pour cette machine et partagé par tous les appareils. Seul l’appareil qui pilote peut le changer, machine au repos.</p><button type="button" id="profile-machine-forget" class="ks-secondary" hidden>Oublier cette fiche machine</button><p id="profile-machine-unconfirmed" class="t-notice" data-tone="warn" role="status" hidden></p><div id="profile-machine-confirm" class="ks-profile-confirm" hidden><p id="profile-machine-confirm-text"></p><label id="profile-machine-label-text" for="profile-machine-label">Nom de la machine</label><input id="profile-machine-label" type="text" maxlength="60" autocomplete="off"><div class="ks-profile-confirm-actions"><button type="button" id="profile-machine-cancel" class="ks-secondary">Annuler</button><button type="button" id="profile-machine-apply" class="t-btn t-btn--primary">Confirmer</button></div></div><p id="profile-machine-status" role="status"></p></div>') +
     uiLocale.html('<div class="card ks-display-card ks-profile-card" id="ks-performance-card"><h2>Performances de cette tablette <span class="ks-scope" data-scope="tablet">Cette tablette</span></h2><p>Ce choix ne concerne que ce navigateur, sur cet appareil. Il ne change rien sur la machine ni sur les autres appareils, et ne recharge pas la page.</p><div class="ks-display-choices" role="group" aria-label="Performances de cette tablette"><button type="button" data-performance="eco" aria-pressed="true">Éco</button><button type="button" data-performance="performance" aria-pressed="false">Performance</button></div><p class="ks-help">Éco : aperçu simple, pour les tablettes lentes. Performance : vues avancées chargées à la demande.</p><p id="profile-performance-status" role="status"></p></div>') +
     uiLocale.html('<div class="card ks-display-card"><h2>Taille du texte</h2><p>Choisissez le confort de lecture.</p><div class="ks-display-choices" role="group" aria-label="Taille du texte"><button type="button" data-display-size="standard" aria-pressed="true"><span class="ks-text-sample">Aa</span>Standard</button><button type="button" data-display-size="large" aria-pressed="false"><span class="ks-text-sample ks-text-large">Aa</span>Agrandi</button></div></div>') +
     uiLocale.html('<div class="card ks-display-card"><h2>Thème</h2><p>Sombre pour l’atelier, clair à fort contraste pour la lumière du jour.</p><div class="ks-display-choices" role="group" aria-label="Thème"><button type="button" data-display-theme="dark" aria-pressed="true"><span class="ks-theme-sample ks-theme-dark">Aa</span>Sombre</button><button type="button" data-display-theme="light" aria-pressed="false"><span class="ks-theme-sample ks-theme-light">Aa</span>Clair</button></div></div>') +
@@ -179,6 +179,10 @@
     var text=unknown?t('Type de machine non confirmé : l’interface CNC est utilisée. Choisissez CNC ou Laser pour cette machine.')+(p&&p.match==='ambiguous'?' '+t('Plusieurs fiches correspondent à ces réglages.'):''):'';
     var issues=issuesText(p);if(issues)text=(text?text+' ':'')+issues;
     set(note,text);prop(note,'hidden',!text);
+    // Forget: the record(s) of this board's signature, so an ambiguous match can be cleared from here.
+    var forget=$('profile-machine-forget'),known=!!(p&&(p.match==='signature'||p.match==='ambiguous'));
+    prop(forget,'hidden',!known);prop(forget,'disabled',!can);
+    if(why)attr(forget,'title',why);else if(forget&&forget.removeAttribute)forget.removeAttribute('title');
     if(!can&&asked&&!sending)close();
   }
   function ask(kind){
@@ -186,6 +190,9 @@
     var d=device(),name=p.label||'';
     asked=kind;
     set($('profile-machine-confirm-text'),t('Enregistrer « ')+KIND_WORDS[kind]+t(' » pour la machine ')+(name?'« '+name+' »':t('sans nom'))+(p.portHint?' ('+p.portHint+')':'')+t(' ? Demandé depuis ')+d.asking+t(' ; pilote actuel : ')+d.pilot+t('. Aucune commande n’est envoyée à la machine.'));
+    var forgetting=kind==='forget';
+    if(forgetting)set($('profile-machine-confirm-text'),t('Oublier la fiche de la machine ')+(name?'« '+name+' »':t('sans nom'))+(p.portHint?' ('+p.portHint+')':'')+t(' ? Son type redevient non confirmé et l’interface CNC est utilisée. Demandé depuis ')+d.asking+t(' ; pilote actuel : ')+d.pilot+t('. Aucune commande n’est envoyée à la machine.'));
+    prop($('profile-machine-label'),'hidden',forgetting);prop($('profile-machine-label-text'),'hidden',forgetting);
     $('profile-machine-label').value=name||(kind==='laser'?t('Laser'):t('CNC'));
     prop($('profile-machine-confirm'),'hidden',false);
     if($('profile-machine-apply').focus)$('profile-machine-apply').focus();
@@ -195,10 +202,21 @@
     if(b.disabled){set($('profile-machine-status'),b.getAttribute('title')||'');return;}
     ask(k);
   });});
+  $('profile-machine-forget').addEventListener('click',function(){
+    if(this.disabled){set($('profile-machine-status'),this.getAttribute('title')||'');return;}
+    ask('forget');
+  });
   $('profile-machine-cancel').addEventListener('click',function(){close();set($('profile-machine-status'),t('Aucun changement.'));});
   $('profile-machine-apply').addEventListener('click',function(){
     var c=window.cncJobControls,kind=asked,label=String($('profile-machine-label').value||'').trim().slice(0,60);
     if(!kind||sending)return;
+    if(kind==='forget'){
+      if(!c||typeof c.forgetMachine!=='function'){set($('profile-machine-status'),t('Commandes indisponibles.'));return;}
+      sending=true;close();set($('profile-machine-status'),t('Demande envoyée…'));renderMachine();
+      c.forgetMachine().then(function(){sending=false;set($('profile-machine-status'),t('Fiche machine oubliée par le serveur CNCjs.'));renderMachine();},
+        function(e){sending=false;set($('profile-machine-status'),e&&e.message?e.message:t('Refus du serveur sans détail.'));renderMachine();});
+      return;
+    }
     if(!label){set($('profile-machine-status'),t('Indiquez un nom pour cette machine.'));return;}
     if(!c||typeof c.setMachineKind!=='function'){set($('profile-machine-status'),t('Commandes indisponibles.'));return;}
     sending=true;close();set($('profile-machine-status'),t('Demande envoyée…'));renderMachine();

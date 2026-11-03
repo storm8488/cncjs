@@ -634,6 +634,11 @@
       if(kind!=='cnc'&&kind!=='laser')return Promise.reject(new Error(uiLocale.t('Type de machine inconnu.')));
       return command('machine',{operation:'set-kind',kind:kind,label:String(label||'').slice(0,60)});
     },
+    forgetMachine:function(){
+      if(simulation)return Promise.reject(new Error(uiLocale.t('Simulation : type de machine non modifiable.')));
+      if(busy||!current)return Promise.reject(new Error(uiLocale.t('Opération en cours…')));
+      return command('machine',{operation:'forget'});
+    },
     targetText:function(){return targetText(current);},
     spindleStop:function(){if(!current)return Promise.reject(new Error(uiLocale.t('État indisponible.')));return command('spindleStop');},
     // Resume from a line: what would be sent (nothing loaded), then the load itself.

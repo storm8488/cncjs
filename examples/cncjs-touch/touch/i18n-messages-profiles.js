@@ -88,5 +88,9 @@
 ['Réglages du contrôleur incohérents avec le type de machine : voir Réglages → Type de machine.','Controller settings inconsistent with the machine type: see Settings → Machine type.','Ajustes del controlador incoherentes con el tipo de máquina: vea Ajustes → Tipo de máquina.'],
 ['Matériau et mise au point vérifiés','Material and focus checked','Material y enfoque comprobados'],
 ['Agrandir le tracé','Enlarge the path','Ampliar la trayectoria'],
-['Afficher les détails','Show the details','Mostrar los detalles']
+['Afficher les détails','Show the details','Mostrar los detalles'],
+["Oublier cette fiche machine","Forget this machine record","Olvidar esta ficha de máquina"],
+["Oublier la fiche de la machine ","Forget the record of machine ","¿Olvidar la ficha de la máquina "],
+[" ? Son type redevient non confirmé et l’interface CNC est utilisée. Demandé depuis ","? Its type becomes unconfirmed and the CNC interface is used. Requested from ","? Su tipo vuelve a quedar sin confirmar y se usa la interfaz CNC. Solicitado desde "],
+["Fiche machine oubliée par le serveur CNCjs.","Machine record forgotten by the CNCjs server.","Ficha de máquina olvidada por el servidor CNCjs."]
 );
