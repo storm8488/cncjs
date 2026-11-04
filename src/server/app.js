@@ -350,6 +350,8 @@ const appMain = () => {
     app.put(urljoin(settings.route, 'api/touch-projects'), api.touch.writeProject);
     app.get(urljoin(settings.route, 'api/touch-backlight'), api.touch.getBacklight);
     app.post(urljoin(settings.route, 'api/touch-backlight'), api.touch.postBacklight);
+    app.get(urljoin(settings.route, 'api/touch-wifi'), api.touch.getWifi);
+    app.post(urljoin(settings.route, 'api/touch-wifi'), api.touch.postWifi);
   }
 
   // page

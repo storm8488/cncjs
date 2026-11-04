@@ -9,6 +9,7 @@ import { createService } from './job-service';
 import { createStream, VERSION } from './touch-stream';
 import { createSystemStats } from './system-stats';
 import { createBacklight } from './backlight';
+import { createWifi } from './wifi';
 import { createHistory } from './history';
 import { createControl, describeOwner, safeCommand, safeWrite } from './control';
 
@@ -165,6 +166,29 @@ const dimBacklight = (percent) => backlight.dim(percent);
 
 const wakeBacklight = () => backlight.wake();
 
+// Wi-Fi of the CNCjs host (Réglages → Système). Joining a network or scanning
+// cuts the link for a moment: taken like a host command, refused while a job,
+// a pause, a move, a homing, a probe or a load is in progress, or while
+// another device pilots a port, and machine actions wait while it runs.
+const wifi = createWifi();
+const wifiStatus = () => wifi.status();
+const wifiAction = async (body, actor) => {
+  const action = body && body.action;
+  if (action !== 'scan' && action !== 'connect') {
+    throw Object.assign(new Error('Action Wi-Fi inconnue.'), { status: 400 });
+  }
+  const refused = refuseSystemCommand(actor);
+  if (refused) {
+    throw Object.assign(new Error(refused.message), { status: 409 });
+  }
+  const reservation = service.reserveSystemCommand({ id: 'touch-wifi', title: action === 'scan' ? 'Recherche des réseaux Wi-Fi' : 'Changement de réseau Wi-Fi' });
+  try {
+    return action === 'scan' ? await wifi.scan() : await wifi.connect({ ssid: body.ssid, password: body.password });
+  } finally {
+    reservation.release();
+  }
+};
+
 export default {
   VERSION,
   start,
@@ -185,5 +209,7 @@ export default {
   backlightStatus,
   setBacklight,
   dimBacklight,
-  wakeBacklight
+  wakeBacklight,
+  wifiStatus,
+  wifiAction
 };

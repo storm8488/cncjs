@@ -101,3 +101,16 @@ main::-webkit-scrollbar{width:10px}main::-webkit-scrollbar-thumb{background:var(
 .ks-ui #screen-settings .language-settings label{white-space:nowrap}
 .ks-ui #screen-settings .language-settings{flex:0 1 auto;min-width:0;max-width:100%}.ks-ui #screen-settings .language-settings select{width:auto;max-width:260px}
 .ks-ui #screen-settings .ks-panel-intro .language-settings{flex:0 0 auto}
+/* Wi-Fi of the CNCjs host (wifi-settings.js). */
+.ks-ui #screen-settings .ks-wifi-current{margin:4px 0 8px;font-size:var(--fs-16,16px)}
+.ks-ui #screen-settings .ks-wifi-list{display:flex;flex-direction:column;gap:8px;margin:8px 0}
+.ks-ui #screen-settings .ks-wifi-network{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:48px;padding:0 12px;text-align:left;font-size:var(--fs-16,16px)}
+.ks-ui #screen-settings .ks-wifi-network.is-current{border-color:var(--ok,#2f9e44)}
+.ks-ui #screen-settings .ks-wifi-ssid{overflow-wrap:anywhere}
+.ks-ui #screen-settings .ks-wifi-meta{color:var(--mute);white-space:nowrap}
+.ks-ui #screen-settings .ks-wifi-form{display:flex;flex-direction:column;gap:8px;margin:8px 0}
+.ks-ui #screen-settings .ks-wifi-form[hidden]{display:none}
+.ks-ui #screen-settings .ks-wifi-password{display:flex;gap:8px}
+.ks-ui #screen-settings .ks-wifi-password input{flex:1 1 auto;min-width:0;min-height:48px;font-size:var(--fs-16,16px)}
+.ks-ui #screen-settings .ks-wifi-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.ks-ui #screen-settings .ks-wifi-actions button,.ks-ui #screen-settings .ks-wifi-scan{min-height:48px}

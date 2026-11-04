@@ -160,6 +160,29 @@ export const postBacklight = authorized((req, res) => {
   }
 });
 
+// Wi-Fi of the computer running CNCjs (Réglages → Système). The password goes
+// to nmcli only: it is never logged nor sent back.
+export const getWifi = authorized((req, res) => {
+  res.set('Cache-Control', 'no-store');
+  touch.wifiStatus()
+    .then((data) => res.send(data))
+    .catch((err) => res.status(err.status || ERR_INTERNAL_SERVER_ERROR).send({ message: err.status ? err.message : 'Wi-Fi indisponible.' }));
+});
+
+export const postWifi = authorized((req, res) => {
+  const body = req.body || {};
+  res.set('Cache-Control', 'no-store');
+  touch.wifiAction({ action: body.action, ssid: body.ssid, password: body.password }, actorOf(req))
+    .then((data) => {
+      log.info(`wifi ${body.action}${body.action === 'connect' ? ': ' + String(body.ssid || '').slice(0, 32) : ''}`);
+      res.send(data);
+    })
+    .catch((err) => {
+      log.warn(`wifi ${body.action} refused: ${err.message}`);
+      res.status(err.status || ERR_INTERNAL_SERVER_ERROR).send({ message: err.status ? err.message : 'Action Wi-Fi impossible.' });
+    });
+});
+
 // Project sheets of the shared library (F3) and the provenance of compensated
 // files (F6). They describe programs only: nothing here reaches a controller,
 // so they need a session but not the touch service.
