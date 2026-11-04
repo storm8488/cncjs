@@ -174,16 +174,23 @@ const wifi = createWifi();
 const wifiStatus = () => wifi.status();
 const wifiAction = async (body, actor) => {
   const action = body && body.action;
-  if (action !== 'scan' && action !== 'connect') {
+  if (action !== 'scan' && action !== 'connect' && action !== 'forget') {
     throw Object.assign(new Error('Action Wi-Fi inconnue.'), { status: 400 });
   }
   const refused = refuseSystemCommand(actor);
   if (refused) {
     throw Object.assign(new Error(refused.message), { status: 409 });
   }
-  const reservation = service.reserveSystemCommand({ id: 'touch-wifi', title: action === 'scan' ? 'Recherche des réseaux Wi-Fi' : 'Changement de réseau Wi-Fi' });
+  const titles = { scan: 'Recherche des réseaux Wi-Fi', forget: 'Oubli d’un réseau Wi-Fi', connect: 'Changement de réseau Wi-Fi' };
+  const reservation = service.reserveSystemCommand({ id: 'touch-wifi', title: titles[action] });
   try {
-    return action === 'scan' ? await wifi.scan() : await wifi.connect({ ssid: body.ssid, password: body.password });
+    if (action === 'scan') {
+      return await wifi.scan();
+    }
+    if (action === 'forget') {
+      return await wifi.forget({ ssid: body.ssid });
+    }
+    return await wifi.connect({ ssid: body.ssid, password: body.password, hidden: body.hidden === true });
   } finally {
     reservation.release();
   }

@@ -87,6 +87,8 @@
     var meta = host.meta, key = keyOf(meta);
     show(host, host.base, null);
     if (host.gl && host.glKey === key) return;
+    // « Agrandir » opened the free view in large: the inline one comes back when it closes.
+    if (freeOpen) return;
     closeInline(host);
     if (!visible(host)) return;
     var P = profile(), request = host.glRequest = {};
@@ -182,15 +184,19 @@
     var request = freeOpen = {};
     // The estimate (tools, operations) is not on every image: read from the sidecar when missing.
     var extra = meta.estimate !== undefined ? Promise.resolve(meta) : sidecar(meta.file).then(function (s) { return s.fingerprint === meta.fingerprint && s.preview ? s.preview : {}; }, function () { return {}; });
+    // Left (eco, another screen) while loading: nothing opens and the inline view comes back.
+    function drop() { if (freeOpen === request) { freeOpen = null; refresh(); } }
     Promise.all([P.loadAdvanced(['preview-gl.js']), extra]).then(function (r) {
-      if (freeOpen !== request || !performance()) return;
+      if (freeOpen !== request) return;
+      if (!performance() || !visible(host)) { drop(); return; }
       if (!root.CNCPreviewGL) throw new Error(t('module absent'));
       var full = {}; Object.keys(meta).forEach(function (k) { full[k] = meta[k]; });
       if (full.estimate === undefined) full.estimate = r[1].estimate || null;
       var stock = root.CNCProjects && typeof root.CNCProjects.stock === 'function' ? root.CNCProjects.stock(meta.file) : null;
       status(host, '');
-      root.CNCPreviewGL.open(full, { stock: stock, onFallback: function (message) { status(host, message); }, onClose: function () { if (freeOpen === request) freeOpen = null; } });
-    }).catch(function (e) { if (freeOpen === request) { freeOpen = null; status(host, t('Vue 3D libre indisponible : ') + String(e && e.message || e) + t('. Vues fixes conservées.')); } });
+      var opened = root.CNCPreviewGL.open(full, { stock: stock, onFallback: function (message) { status(host, message); }, onClose: drop });
+      if (!opened) drop();
+    }).catch(function (e) { if (freeOpen === request) { freeOpen = null; refresh(); status(host, t('Vue 3D libre indisponible : ') + String(e && e.message || e) + t('. Vues fixes conservées.')); } });
   }
 
   // ---- Export / import of a preview between two servers (Fichiers only) ----
@@ -384,6 +390,13 @@
     }
     note.className = 'pv3d-status'; note.setAttribute('role', 'status'); note.hidden = true;
     box.classList.add('pv3d-host'); box.appendChild(bar);
+    // « Agrandir » (preview-viewer.js) over the inline free view opens the free view in large,
+    // not the flat image: taken before the button's own listener.
+    box.addEventListener('click', function (e) {
+      var b = e.target && e.target.closest ? e.target.closest('.preview-open') : null;
+      if (!b || !host.gl || !inlineMode(host)) return;
+      e.stopPropagation(); e.preventDefault(); openFree(host);
+    }, true);
     // Export / import of the preview: in « Détails de l’aperçu » (touch-shell.js), so the preview keeps its height in Fichiers.
     var details = typeof document.querySelector === 'function' ? document.querySelector('#ks-file-info .ks-sheet-content') : null;
     if (host.transfer && details) details.appendChild(host.transfer);

@@ -172,9 +172,9 @@ export const getWifi = authorized((req, res) => {
 export const postWifi = authorized((req, res) => {
   const body = req.body || {};
   res.set('Cache-Control', 'no-store');
-  touch.wifiAction({ action: body.action, ssid: body.ssid, password: body.password }, actorOf(req))
+  touch.wifiAction({ action: body.action, ssid: body.ssid, password: body.password, hidden: body.hidden === true }, actorOf(req))
     .then((data) => {
-      log.info(`wifi ${body.action}${body.action === 'connect' ? ': ' + String(body.ssid || '').slice(0, 32) : ''}`);
+      log.info(`wifi ${body.action}${body.action === 'connect' || body.action === 'forget' ? ': ' + String(body.ssid || '').slice(0, 32) : ''}`);
       res.send(data);
     })
     .catch((err) => {

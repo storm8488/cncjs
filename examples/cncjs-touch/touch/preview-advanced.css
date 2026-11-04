@@ -44,6 +44,8 @@
 .pgl-inline .pgl-head,.pgl-inline .pgl-side,.pgl-inline .pgl-foot{display:none}
 .pgl-inline .pgl-tools{position:absolute;left:8px;top:8px;right:8px;z-index:3;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;width:max-content;max-width:calc(100% - 16px);padding:2px;background:rgba(14,20,23,.88)}
 .pgl-inline .pgl-tools button{flex:0 0 auto;white-space:nowrap;min-height:48px;padding:0 var(--sp-2);font-size:var(--fs-16)}
+.pgl-inline .pgl-tools.is-folded>:not(.pgl-fold){display:none}
+.pgl-inline .pgl-fold[aria-expanded="true"]{background:var(--info);color:var(--on-info)}
 /* « Agrandir » stays over the inline view. */
 .pv3d-host>.preview-open{z-index:4}
 .pgl-inline .pgl-stage{position:relative;flex:1 1 auto;min-height:0}

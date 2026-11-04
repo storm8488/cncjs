@@ -1,6 +1,7 @@
 // Wi-Fi of the computer that runs CNCjs (Réglages → Système), through
 // NetworkManager's nmcli: the current network, a scan, and joining a network
-// (a known one, or a new one with its password). nmcli is called with an
+// (a known one, a new one with its password, or a hidden one by its name), and
+// forgetting a saved network that is not in use. nmcli is called with an
 // argument list, never through a shell. The password is passed to nmcli only:
 // it is never logged, returned or stored here (NetworkManager keeps it in its
 // own connection profile, as when joining from a desktop).
@@ -66,11 +67,12 @@ const defaultRun = (file, args, timeout) => new Promise((resolve, reject) => {
   });
 });
 
-// nmcli's own error text, without its "Error: " prefix; never contains the password.
+// nmcli's own error text (stderr only), without its "Error: " prefix. Never err.message: on a
+// timeout it is "Command failed: nmcli … password <secret> …". A password word is masked anyway.
 const nmcliMessage = (err) => {
-  const parts = String((err && err.stderr) || (err && err.message) || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  const parts = String((err && err.stderr) || '').split('\n').map((l) => l.trim()).filter(Boolean);
   const text = parts.length ? parts[parts.length - 1] : '';
-  return text.replace(/^Error:\s*/i, '').slice(0, 200);
+  return text.replace(/^Error:\s*/i, '').replace(/(password\s+)\S+/gi, '$1***').slice(0, 200);
 };
 
 export const createWifi = ({ run = defaultRun } = {}) => {
@@ -141,7 +143,8 @@ export const createWifi = ({ run = defaultRun } = {}) => {
 
   // A known network without a password: its profile is brought up. Otherwise
   // nmcli joins (and saves) the network with the password given.
-  const connect = async ({ ssid, password } = {}) => {
+  // A hidden network (not in the scan) is joined by its name with `hidden yes`.
+  const connect = async ({ ssid, password, hidden } = {}) => {
     const name = checkSsid(ssid);
     const secret = checkPassword(password);
     const dev = await device();
@@ -149,7 +152,7 @@ export const createWifi = ({ run = defaultRun } = {}) => {
       throw problem(501, 'Aucune carte Wi-Fi sur l’ordinateur du serveur CNCjs.');
     }
     const known = await saved().catch(() => []);
-    const join = ['device', 'wifi', 'connect', name].concat(secret ? ['password', secret] : []).concat(['ifname', dev.name]);
+    const join = ['device', 'wifi', 'connect', name].concat(secret ? ['password', secret] : []).concat(['ifname', dev.name]).concat(hidden === true ? ['hidden', 'yes'] : []);
     const args = !secret && known.indexOf(name) >= 0 ? ['connection', 'up', 'id', name] : join;
     try {
       await nmcli(args, CONNECT_TIMEOUT_MS);
@@ -163,7 +166,34 @@ export const createWifi = ({ run = defaultRun } = {}) => {
     return { message: 'Connecté au réseau Wi-Fi « ' + name + ' ».', ssid: name };
   };
 
-  return { status, scan, connect };
+  // Forgets a saved network (its NetworkManager profile and password). The network in
+  // use is refused: forgetting it would cut the link to this tablet.
+  const forget = async ({ ssid } = {}) => {
+    const name = checkSsid(ssid);
+    const dev = await device();
+    if (!dev) {
+      throw problem(501, 'Aucune carte Wi-Fi sur l’ordinateur du serveur CNCjs.');
+    }
+    if (dev.connection === name) {
+      throw problem(409, '« ' + name + ' » est le réseau utilisé : rejoignez d’abord un autre réseau pour l’oublier.');
+    }
+    const known = await saved();
+    if (known.indexOf(name) < 0) {
+      throw problem(404, '« ' + name + ' » n’est pas un réseau enregistré.');
+    }
+    try {
+      await nmcli(['connection', 'delete', 'id', name], READ_TIMEOUT_MS);
+    } catch (err) {
+      if (err && err.status) {
+        throw err;
+      }
+      const why = nmcliMessage(err);
+      throw problem(409, 'Impossible d’oublier « ' + name + ' »' + (why ? ' : ' + why : '.'));
+    }
+    return { message: 'Réseau « ' + name + ' » oublié.', ssid: name };
+  };
+
+  return { status, scan, connect, forget };
 };
 
 export default { createWifi, parseTerse, checkSsid, checkPassword };

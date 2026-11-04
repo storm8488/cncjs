@@ -45,6 +45,9 @@ function createPage(options = {}) {
       click() { return n.dispatch('click'); }, focus() {}, setPointerCapture() {}, releasePointerCapture() {},
       getBoundingClientRect() { return { left: 0, top: 0, width: options.width || 800, height: options.height || 450 }; },
       querySelector() { return null; } };
+    const names = () => n.className.split(/\s+/).filter(Boolean);
+    n.classList = { contains: c => names().includes(c), add: c => { if (!names().includes(c)) n.className = names().concat(c).join(' '); },
+      remove: c => { n.className = names().filter(x => x !== c).join(' '); }, toggle: (c, on) => { if (on === undefined ? !names().includes(c) : on) n.classList.add(c); else n.classList.remove(c); } };
     Object.defineProperty(n, 'textContent', { get: () => text, set: v => { text = String(v); n.children.forEach(c => { c.parentNode = null; }); n.children = []; } });
     if (n.tagName === 'CANVAS') {
       n.width = 300; n.height = 150;
@@ -247,11 +250,27 @@ function byText(root, text) { return findAll(root, n => n.textContent === text)[
   view = page.win.CNCPreviewGL.open(meta, {});
   page.win.dispatch('cnc-screen-change', 'menu'); assert.equal(view.state().closed, true); assert.equal(page.listenerCount.value, 0);
 
+  // Inline (preview frame): the camera buttons fold behind « Vues »; a preset folds them again.
+  page = createPage();
+  const frameBox = page.doc.createElement('div');
+  view = page.win.CNCPreviewGL.open(meta, { container: frameBox });
+  const tools = view.dialog.children.find(c => /pgl-tools/.test(c.className));
+  assert(/pgl-inline/.test(view.dialog.className) && view.dialog.parentNode === frameBox, 'drawn in the frame');
+  const foldButton = tools.children.find(c => c.className === 'pgl-fold');
+  assert.equal(foldButton.textContent, 'Vues'); assert.equal(tools.classList.contains('is-folded'), true, 'folded at first');
+  foldButton.click(); assert.equal(tools.classList.contains('is-folded'), false); assert.equal(foldButton.getAttribute('aria-expanded'), 'true');
+  tools.children.find(c => c.getAttribute('data-preset') === 'top').click();
+  assert.equal(tools.classList.contains('is-folded'), true, 'a preset folds the buttons again');
+  view.close('test');
+  // The large view has no fold: every camera button shown.
+  page = createPage(); view = page.win.CNCPreviewGL.open(meta, {});
+  assert(!view.dialog.children.find(c => /pgl-tools/.test(c.className)).children.some(c => c.className === 'pgl-fold')); view.close('test');
+
   // Never script-tagged: only cncProfile.loadAdvanced brings preview-gl.js.
   for (const name of ['index.html', 'simulation.html']) assert(!/preview-gl\.js/.test(fs.readFileSync(path.join(__dirname, 'touch', name), 'utf8')), name);
 
   // preview-3d.js: the "3D libre" button follows the profile; eco never loads the module.
-  async function viewsPage(profile) {
+  async function viewsPage(profile, extra) {
     const ids = {}, observers = [];
     const mk = tag => {
       const n = { tagName: tag, children: [], attributes: {}, listeners: {}, hidden: false, textContent: '', parentNode: null, id: '', classList: { add() {} },
@@ -269,7 +288,7 @@ function byText(root, text) { return findAll(root, n => n.textContent === text)[
       MutationObserver: class { constructor(fn) { this.fn = fn; } observe(t) { observers.push({ t, fn: this.fn }); } },
       requestIdleCallback() { return 1; }, CNCToolpath3D: T3, cncI18n: { t: s => s, html: s => s, locale: 'fr-FR' }, cncProfile: profile, setTimeout, clearTimeout, Date, Promise, Object, Error, String, JSON,
       listeners: {}, addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); } };
-    win.window = win; vm.createContext(win);
+    Object.assign(win, extra || {}); win.window = win; vm.createContext(win);
     vm.runInContext(fs.readFileSync(path.join(__dirname, 'touch', 'preview-3d.js'), 'utf8'), win);
     const img = ids['library-image']; img.cncPreview = meta; img.src = 'data:image/png;base64,AAAA'; await tick(2);
     const bar = img.parentNode.children.find(c => c.attributes.role === 'group');
@@ -298,6 +317,33 @@ function byText(root, text) { return findAll(root, n => n.textContent === text)[
   assert.match(vp.status.textContent, /Vue 3D libre indisponible : script refusé\. Vues fixes conservées\./, 'load failure: fixed views kept');
   mode = 'eco'; vp.win.listeners['cnc-profile-change'].forEach(fn => fn({ detail: { performance: 'eco' } }));
   assert.equal(vp.free.hidden, true, 'profile back to eco: button hidden');
+  // « Agrandir » over the inline view: the free view opens in large (no container), the inline one
+  // comes back when it closes; the flat image viewer is not reached.
+  mode = 'performance'; kind = 'cnc';
+  const opened = []; let currentGL = null;
+  const stubGL = { open(m, o) { if (currentGL) currentGL.close('replaced'); const h = { o, close(r) { if (currentGL === h) currentGL = null; if (o.onClose) o.onClose(r); } }; currentGL = h; opened.push(o.container ? 'inline' : 'large'); return h; } };
+  const ready = { performance: () => mode, kind: () => kind, machine: () => null, loadAdvanced: () => Promise.resolve() };
+  vp = await viewsPage(ready, { CNCPreviewGL: stubGL }); await tick(5);
+  assert.deepEqual(opened, ['inline']);
+  const flat = []; let stopped = false;
+  vp.img.parentNode.listeners.click.forEach(fn => fn({ target: { closest: sel => (sel === '.preview-open' ? {} : null) }, stopPropagation() { stopped = true; }, preventDefault() {} }));
+  await tick(5);
+  assert.deepEqual(opened, ['inline', 'large'], 'Agrandir opens the large free view'); assert.equal(stopped, true, 'flat viewer not reached');
+  currentGL.close('user'); await tick(5);
+  assert.deepEqual(opened, ['inline', 'large', 'inline'], 'inline view back after the large one closes');
+  // A click elsewhere in the frame is left alone.
+  stopped = false; vp.img.parentNode.listeners.click.forEach(fn => fn({ target: { closest: () => null }, stopPropagation() { stopped = true; }, preventDefault() {} }));
+  assert.equal(stopped, false); assert.equal(flat.length, 0);
+  // Eco while the large view loads: nothing opens; back in Performance the inline view returns.
+  opened.length = 0; currentGL = null; let calls = 0, release = null;
+  const slowLoad = { performance: () => mode, kind: () => 'cnc', machine: () => null, loadAdvanced: () => (++calls === 2 ? new Promise(r => { release = r; }) : Promise.resolve()) };
+  vp = await viewsPage(slowLoad, { CNCPreviewGL: stubGL }); await tick(5);
+  vp.img.parentNode.listeners.click.forEach(fn => fn({ target: { closest: () => ({}) }, stopPropagation() {}, preventDefault() {} }));
+  mode = 'eco'; vp.win.listeners['cnc-profile-change'].forEach(fn => fn({ detail: { performance: 'eco' } }));
+  currentGL && currentGL.close('eco'); release(); await tick(5);
+  assert.deepEqual(opened, ['inline'], 'no large view opened after eco');
+  mode = 'performance'; vp.win.listeners['cnc-profile-change'].forEach(fn => fn({ detail: { performance: 'performance' } })); await tick(5);
+  assert.deepEqual(opened, ['inline', 'inline'], 'inline view back (freeOpen released)');
   console.log('PASS free 3D view: presets and picking match the fixed views, render on change, DPR cap 1.5, ≤ 30 frames/s in gestures, gestures kept in the canvas (no jog reached), ' +
-    'inspection simplified then exact, filters, clamps, released on eco/screen change/context loss, Canvas 2D without WebGL (light while turning), clean fallback without either, never loaded in eco nor script-tagged.');
+    'inspection simplified then exact, filters, clamps, inline buttons folded behind Vues, Agrandir opens the large free view, released on eco/screen change/context loss, Canvas 2D without WebGL (light while turning), clean fallback without either, never loaded in eco nor script-tagged.');
 })().catch(e => { console.error(e); process.exit(1); });

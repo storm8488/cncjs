@@ -75,8 +75,9 @@ describe('touch wifi (nmcli)', () => {
     const wrong = Object.assign(new Error('Command failed'), { stderr: 'Error: Connection activation failed: Secrets were required, but not provided.\n' });
     const { run } = fakeRun(answers({ 'wifi connect': wrong }));
     await expect(createWifi({ run }).connect({ ssid: 'Atelier', password: 'secret-pass-1' })).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/Connexion à « Atelier » impossible : Connection activation failed/) });
-    const slow = Object.assign(new Error('timeout'), { killed: true, stderr: '' });
+    const slow = Object.assign(new Error('Command failed: nmcli device wifi connect Atelier password secret-pass-1 ifname mlan0'), { killed: true, stderr: '' });
     const late = fakeRun(answers({ 'wifi connect': slow }));
+    await expect(createWifi({ run: late.run }).connect({ ssid: 'Atelier', password: 'secret-pass-1' })).rejects.toMatchObject({ message: expect.not.stringMatching(/secret-pass-1/) });
     await expect(createWifi({ run: late.run }).connect({ ssid: 'Atelier', password: 'secret-pass-1' })).rejects.toMatchObject({ message: expect.stringMatching(/délai dépassé/) });
     const errors = [];
     try {
@@ -85,6 +86,23 @@ describe('touch wifi (nmcli)', () => {
       errors.push(e.message);
     }
     expect(errors.join()).not.toMatch(/secret-pass-1/);
+  });
+
+  test('connect: a hidden network is joined by its name with hidden yes', async () => {
+    const { run, calls } = fakeRun(answers());
+    await createWifi({ run }).connect({ ssid: 'Cache', password: 'secret-pass-1', hidden: true });
+    expect(calls.pop()[1]).toEqual(['device', 'wifi', 'connect', 'Cache', 'password', 'secret-pass-1', 'ifname', 'mlan0', 'hidden', 'yes']);
+  });
+
+  test('forget: a saved network is deleted; the one in use and an unknown one are refused', async () => {
+    const { run, calls } = fakeRun(answers());
+    const w = createWifi({ run });
+    const r = await w.forget({ ssid: 'Airbox-893A' });
+    expect(r.message).toMatch(/Réseau « Airbox-893A » oublié/);
+    expect(calls.pop()[1]).toEqual(['connection', 'delete', 'id', 'Airbox-893A']);
+    await expect(w.forget({ ssid: 'Livebox-0FB0_2.4GHz' })).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/réseau utilisé/) });
+    await expect(w.forget({ ssid: 'Inconnu' })).rejects.toMatchObject({ status: 404 });
+    expect(calls.some(([, args]) => args[1] === 'delete' && args[3] !== 'Airbox-893A')).toBe(false);
   });
 
   test('invalid SSID or password refused before nmcli runs', async () => {

@@ -114,3 +114,15 @@ main::-webkit-scrollbar{width:10px}main::-webkit-scrollbar-thumb{background:var(
 .ks-ui #screen-settings .ks-wifi-password input{flex:1 1 auto;min-width:0;min-height:48px;font-size:var(--fs-16,16px)}
 .ks-ui #screen-settings .ks-wifi-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
 .ks-ui #screen-settings .ks-wifi-actions button,.ks-ui #screen-settings .ks-wifi-scan{min-height:48px}
+.ks-ui #screen-settings .ks-wifi-tools{display:flex;gap:8px;flex-wrap:wrap}
+.ks-ui #screen-settings .ks-wifi-hidden{min-height:48px}
+.ks-ui #screen-settings .ks-wifi-form [hidden]{display:none}
+.ks-ui #screen-settings #wifi-ssid{min-height:48px;font-size:var(--fs-16,16px)}
+.ks-ui #screen-settings .ks-wifi-form input.is-target{outline:2px solid var(--accent);outline-offset:1px}
+/* On-screen keyboard (the kiosk has no system keyboard). */
+.ks-ui #screen-settings .ks-wifi-keys{display:flex;flex-direction:column;gap:4px;user-select:none}
+.ks-ui #screen-settings .ks-wifi-keyrow{display:flex;gap:4px}
+.ks-ui #screen-settings .ks-wifi-key{flex:1 1 0;min-width:0;min-height:48px;padding:0;font-size:var(--fs-18,18px)}
+.ks-ui #screen-settings .ks-wifi-key--wide{flex-grow:1.6;font-size:var(--fs-16,16px)}
+.ks-ui #screen-settings .ks-wifi-key--space{flex-grow:6;font-size:var(--fs-16,16px)}
+.ks-ui #screen-settings .ks-wifi-key[aria-pressed="true"]{background:var(--info);color:var(--on-info);border-color:var(--info)}

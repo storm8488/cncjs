@@ -208,9 +208,17 @@
     head.appendChild(title); head.appendChild(file); head.appendChild(closeButton); dialog.appendChild(head);
     var tools = el(doc, 'div', 'pgl-tools t-seg'); tools.setAttribute('role', 'group');
     var presetButtons = {};
+    // Inline (small frame): the camera buttons fold behind « Vues » so the drawing keeps the frame.
+    var fold = null;
+    if (inline) {
+      fold = el(doc, 'button', 'pgl-fold', t('Vues')); fold.type = 'button'; fold.setAttribute('aria-expanded', 'false'); fold.setAttribute('aria-label', t('Vues de la caméra'));
+      tools.appendChild(fold); tools.classList.add('is-folded');
+      on(fold, 'click', function () { var open = tools.classList.contains('is-folded'); tools.classList.toggle('is-folded', !open); fold.setAttribute('aria-expanded', String(open)); });
+    }
+    function refold() { if (fold) { tools.classList.add('is-folded'); fold.setAttribute('aria-expanded', 'false'); } }
     [['iso', t('Iso')], ['top', t('Dessus')], ['front', t('Face')], ['side', t('Côté')]].forEach(function (p) {
       var b = el(doc, 'button', 'pgl-preset', p[1]); b.type = 'button'; b.setAttribute('data-preset', p[0]); tools.appendChild(b); presetButtons[p[0]] = b;
-      on(b, 'click', function () { cam = fit(bounds, p[0], width || 1, height || 1, zs); invalidate(); });
+      on(b, 'click', function () { cam = fit(bounds, p[0], width || 1, height || 1, zs); invalidate(); refold(); });
     });
     var recentre = el(doc, 'button', 'pgl-recentre', t('Recentrer')); recentre.type = 'button'; tools.appendChild(recentre);
     var zButton = el(doc, 'button', 'pgl-zscale', ''); zButton.type = 'button'; tools.appendChild(zButton);
