@@ -20,7 +20,7 @@
   var uiLocale = root.cncI18n || { t: function (s) { return s; }, locale: 'fr-FR' }, t = uiLocale.t;
   var MAX_DPR = 1.5, GESTURE_FRAME_MS = 33, DEG = Math.PI / 180;
   // Software renderer (no WebGL, e.g. the Surface RT): segments drawn during a gesture, the whole path at rest.
-  var SOFT_GESTURE_SEGMENTS = 3000;
+  var SOFT_GESTURE_SEGMENTS = 1500;
   var PRESETS = { iso: [45, 35.264], top: [0, 90], front: [0, 0], side: [90, 0] };
   var Z_SCALES = [1, 2, 5, 10];
 
@@ -141,36 +141,46 @@
   }
   // Canvas 2D line renderer with the same interface, for a browser without WebGL: the vertices are
   // projected on the CPU with the same matrix; during a gesture only every n-th segment is drawn
-  // (at most SOFT_GESTURE_SEGMENTS), the whole path when the finger is lifted.
+  // (about SOFT_GESTURE_SEGMENTS: 1 500 measured as the best compromise on the RT), the whole path when the finger is lifted.
   function create2DRenderer(canvas) {
     var g = null;
     try { g = canvas.getContext('2d', { alpha: false }); } catch (_) { g = null; }
     if (!g) throw new Error(t('WebGL et Canvas 2D indisponibles sur cette tablette'));
-    var data = null, vertices = 0, released = false, styles = {};
-    function style(i) {
-      var key = Math.round(data[i * 6 + 3] * 255) + ',' + Math.round(data[i * 6 + 4] * 255) + ',' + Math.round(data[i * 6 + 5] * 255);
-      return styles[key] || (styles[key] = 'rgb(' + key + ')');
+    // Segments grouped by colour at upload: one stroke() per colour, not per colour change (the depth
+    // shading of a large finishing path changes colour thousands of times; measured on the Surface RT).
+    var data = null, released = false, groups = [];
+    function group(d) {
+      var byKey = {}, out = [], segments = d.length / 12;
+      for (var s = 0; s < segments; s++) {
+        var i = s * 12, key = Math.round(d[i + 3] * 255) + ',' + Math.round(d[i + 4] * 255) + ',' + Math.round(d[i + 5] * 255);
+        var gr = byKey[key]; if (!gr) { gr = byKey[key] = { style: 'rgb(' + key + ')', list: [] }; out.push(gr); }
+        gr.list.push(s);
+      }
+      return out;
     }
     return {
       software: true,
-      upload: function (d) { if (!released) { data = d; vertices = d.length / 6; } },
+      upload: function (d) { if (!released) { data = d; groups = group(d); } },
       draw: function (m, width, height, coarse) {
         if (released || !data) return !released;
         g.fillStyle = '#101820'; g.fillRect(0, 0, width, height);
         g.lineWidth = 1;
-        var segments = vertices / 2, step = coarse ? Math.max(1, Math.ceil(segments / SOFT_GESTURE_SEGMENTS)) : 1, current = '', open = false;
+        var segments = data.length / 12, step = coarse ? Math.max(1, Math.ceil(segments / SOFT_GESTURE_SEGMENTS)) : 1;
         var hw = width / 2, hh = height / 2;
-        for (var s = 0; s < segments; s += step) {
-          var a = s * 2, b = a + 1, c = style(a);
-          if (c !== current) { if (open) g.stroke(); g.strokeStyle = c; g.beginPath(); current = c; open = true; }
-          var ax = data[a * 6], ay = data[a * 6 + 1], az = data[a * 6 + 2], bx = data[b * 6], by = data[b * 6 + 1], bz = data[b * 6 + 2];
-          g.moveTo((m[0] * ax + m[4] * ay + m[8] * az + m[12] + 1) * hw, (1 - (m[1] * ax + m[5] * ay + m[9] * az + m[13])) * hh);
-          g.lineTo((m[0] * bx + m[4] * by + m[8] * bz + m[12] + 1) * hw, (1 - (m[1] * bx + m[5] * by + m[9] * bz + m[13])) * hh);
+        for (var k = 0; k < groups.length; k++) {
+          var list = groups[k].list; if (!list.length) continue;
+          g.strokeStyle = groups[k].style; g.beginPath();
+          for (var j = 0; j < list.length; j += step) {
+            var a = list[j] * 12, b = a + 6;
+            var ax = data[a], ay = data[a + 1], az = data[a + 2], bx = data[b], by = data[b + 1], bz = data[b + 2];
+            g.moveTo((m[0] * ax + m[4] * ay + m[8] * az + m[12] + 1) * hw, (1 - (m[1] * ax + m[5] * ay + m[9] * az + m[13])) * hh);
+            g.lineTo((m[0] * bx + m[4] * by + m[8] * bz + m[12] + 1) * hw, (1 - (m[1] * bx + m[5] * by + m[9] * bz + m[13])) * hh);
+          }
+          g.stroke();
         }
-        if (open) g.stroke();
         return true;
       },
-      release: function () { released = true; data = null; styles = {}; g = null; },
+      release: function () { released = true; data = null; groups = []; g = null; },
       get released() { return released; }
     };
   }

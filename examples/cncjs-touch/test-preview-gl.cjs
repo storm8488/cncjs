@@ -223,9 +223,14 @@ function byText(root, text) { return findAll(root, n => n.textContent === text)[
     const r = R.create2DRenderer(c), segments = 20000, d = new Float32Array(segments * 2 * 6);
     r.upload(d); const g = c.getContext();
     c.getContext = () => g; const r2 = R.create2DRenderer(c); r2.upload(d);
-    g.n = 0; r2.draw(new Float32Array(16), 800, 450, true); assert(g.n > 0 && g.n <= 3000, 'light while turning: ' + g.n);
+    g.n = 0; r2.draw(new Float32Array(16), 800, 450, true); assert(g.n > 0 && g.n <= 1500, 'light while turning: ' + g.n);
     g.n = 0; r2.draw(new Float32Array(16), 800, 450, false); assert.equal(g.n, segments, 'whole path at rest');
     r.release(); r2.release();
+    // Colours alternating at every segment (depth shading): one stroke() per colour, not per change.
+    const shaded = new Float32Array(1000 * 12); for (let i = 0; i < 1000; i++) for (const v of [0, 6]) shaded[i * 12 + v + 3] = (i % 4) / 4;
+    let strokes = 0, lines = 0; const sc = { getContext: () => ({ fillRect() {}, beginPath() {}, moveTo() {}, stroke() { strokes++; }, lineTo() { lines++; } }) };
+    const r3 = R.create2DRenderer(sc); r3.upload(shaded); r3.draw(new Float32Array(16), 800, 450, false);
+    assert.equal(strokes, 4, 'one stroke per colour'); assert.equal(lines, 1000, 'every segment drawn'); r3.release();
   }
   // Neither WebGL nor Canvas 2D: clean fallback, nothing left behind.
   page = createPage({ noWebGL: true }); fallbacks = [];
