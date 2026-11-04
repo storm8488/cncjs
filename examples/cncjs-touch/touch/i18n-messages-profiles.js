@@ -157,5 +157,6 @@
 ["Connexion à « ","Connecting to “","Conectando a «"],
 [" »… la liaison peut se couper quelques secondes.","”… the link may drop for a few seconds.","»… el enlace puede cortarse unos segundos."],
 ["Connecté.","Connected.","Conectado."],
-["Connexion impossible. Si la liaison a changé, rechargez la page.","Connection failed. If the link changed, reload the page.","Conexión imposible. Si el enlace cambió, recargue la página."]
+["Connexion impossible. Si la liaison a changé, rechargez la page.","Connection failed. If the link changed, reload the page.","Conexión imposible. Si el enlace cambió, recargue la página."],
+[" · protégé"," · protected"," · protegida"]
 );

@@ -79,7 +79,7 @@
     networks.forEach(function (net) {
       var b = el('button', 'ks-wifi-network' + (net.inUse ? ' is-current' : '')); b.type = 'button'; b.setAttribute('role', 'listitem');
       b.appendChild(el('span', 'ks-wifi-ssid', net.ssid));
-      b.appendChild(el('span', 'ks-wifi-meta', net.signal + ' %' + (net.secure ? ' · 🔒' : t(' · ouvert')) + (net.inUse ? t(' · connecté') : net.saved ? t(' · enregistré') : '')));
+      b.appendChild(el('span', 'ks-wifi-meta', net.signal + ' %' + (net.secure ? t(' · protégé') : t(' · ouvert')) + (net.inUse ? t(' · connecté') : net.saved ? t(' · enregistré') : '')));
       b.addEventListener('click', function () { if (!b.disabled) choose(net); });
       list.appendChild(b);
     });
