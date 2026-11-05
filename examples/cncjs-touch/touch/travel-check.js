@@ -43,6 +43,29 @@
     if(node.textContent!==text)node.textContent=text;
     if(node.className!==cls)node.className=cls;
   }
-  var api={check:check,show:show};
+  // Data only (Performance UI, lot O): the machine space after homing, machine frame, for drawing.
+  // No rule of its own: the same $22 and $130/$131 refusals as check(); Z drawn only when $132 is known.
+  function travelBox(machine){
+    var s=(machine||{}).settings||{},mask=number(s.$23)||0,min=[0,0,0],max=[0,0,0],reason='',zKnown=false;
+    if(number(s.$22)!==1)reason=uiLocale.t('prise d’origine désactivée ($22), les coordonnées machine ne sont pas repérées.');
+    for(var i=0;i<3;i++){
+      var travel=number(s['$'+(130+i)]);
+      if(travel===null||travel<=0){if(i<2&&!reason)reason=uiLocale.t('course $'+(130+i)+' inconnue.');continue;}
+      if(i===2)zKnown=true;
+      min[i]=(mask>>i)&1?0:-travel;max[i]=min[i]+travel;
+    }
+    return {known:!reason,min:min,max:max,zKnown:zKnown,reason:reason};
+  }
+  // check() on a copy of the state where the work position is 0 in X and Y: what the next report
+  // would be right after « Zéro X » and « Zéro Y » here. Nothing is sent; only 'xy' exists (Z is never checked).
+  function place(preview,machine){
+    var c=machine||{},copy={},co=c.coordinates||{},coords={},wpos={};
+    Object.keys(c).forEach(function(k){copy[k]=c[k];});
+    Object.keys(co).forEach(function(k){coords[k]=co[k];});
+    Object.keys(co.wpos||{}).forEach(function(k){wpos[k]=co.wpos[k];});
+    wpos.x=0;wpos.y=0;coords.wpos=wpos;copy.coordinates=coords;
+    return check(preview,copy);
+  }
+  var api={check:check,show:show,travelBox:travelBox,place:place};
   if(typeof module==='object'&&module.exports)module.exports=api;else root.CNCTravelCheck=api;
 })(typeof window==='object'?window:this);
