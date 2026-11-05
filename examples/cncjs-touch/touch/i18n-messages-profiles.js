@@ -176,5 +176,18 @@
 ["Impossible d’oublier ce réseau.","Cannot forget this network.","No se puede olvidar esta red."],
 ["Vues","Views","Vistas"],
 ["Vues de la caméra","Camera views","Vistas de la cámara"],
-["Nom du réseau trop long : 32 octets au plus.","Network name too long: 32 bytes at most.","Nombre de red demasiado largo: 32 bytes como máximo."]
+["Nom du réseau trop long : 32 octets au plus.","Network name too long: 32 bytes at most.","Nombre de red demasiado largo: 32 bytes como máximo."],
+["Instruments","Gauges","Indicadores"],
+["Commandes","Controls","Mandos"],
+["Ligne acquittée","Acknowledged line","Línea confirmada"],
+["Reste ","Left: ","Quedan "],
+["durée simulée, aucun G-code exécuté","simulated duration, no G-code executed","duración simulada, ningún G-code ejecutado"],
+["mouvements, corrigé ×","moves, corrected ×","movimientos, corregido ×"],
+["mouvements (sans accélérations), pas encore corrigé","moves (no acceleration), not corrected yet","movimientos (sin aceleraciones), aún sin corregir"],
+["Selon le rythme observé : ","From the observed rate: ","Según el ritmo observado: "],
+["rythme observé des lignes acquittées","observed rate of the acknowledged lines","ritmo observado de las líneas confirmadas"],
+[" (rapides non comptés)"," (rapids not counted)"," (rápidos no contados)"],
+["Durées inconnues à venir : ","Unknown durations ahead: ","Duraciones desconocidas por venir: "],
+["Avance réelle, dernière minute","Actual feed, last minute","Avance real, último minuto"],
+[" · 0 à "," · 0 to "," · 0 a "]
 );

@@ -138,4 +138,119 @@ for(const changes of [{revision:2},{total:200},{received:5},{name:'other.nc'}]){
 }
 console.log('PASS: strict finite counters, stale status, clock jumps, pause, sleep/relearning, job identity, malformed simulation duration and acknowledged-lines completion.');
 
+// Wide workstation (body.perf-wide, PERFORMANCE-UI-SPEC.md 5.2, 6): Suivi in zones and its instruments.
+// The fixture gets the sibling links a browser has; the Suivi elements are placed as job-dashboard.js
+// and tool-position.js build them (the fixture does not parse insertAdjacentHTML).
+{
+  const ME = require('./touch/motion-estimate.js');
+  let clock = 10000, wide = false;
+  const events = {}, frames = [], dom = require('./dom-fixture.cjs').createDOM(['home']), { node } = dom;
+  const link = (e) => {
+    if (e._linked) return e; e._linked = true;
+    Object.defineProperty(e, 'nextSibling', { get() { const p = this.parentNode, i = p && p.children ? p.children.indexOf(this) : -1; return i >= 0 ? p.children[i + 1] || null : null; } });
+    Object.defineProperty(e, 'firstChild', { get() { return this.children[0] || null; } });
+    return e;
+  };
+  const make = dom.document.createElement;
+  // An id given after creation registers the element, as getElementById finds it in a browser.
+  dom.document.createElement = (tag) => { const e = link(make(tag)); let own = ''; Object.defineProperty(e, 'id', { get: () => own, set(v) { own = v; dom.nodes[v] = e; } }); return e; };
+  dom.document.createTextNode = (text) => { const t = link(make('#text')); t.textContent = text; return t; };
+  dom.document.createElementNS = (ns, tag) => link(make(tag));
+  const el = (id) => link(node(id)), box = (cls) => { const e = dom.document.createElement('div'); e.className = cls; return e; };
+  const board = box('job-dashboard'), left = el('home-left'), metrics = box('job-metrics'), art = box('job-art');
+  board.appendChild(left); board.appendChild(metrics);
+  left.appendChild(art); art.appendChild(el('home-job-image')); left.appendChild(el('tool-position-note')); left.appendChild(el('home-overrides'));
+  const progress = box('t-card home-progress'), head = box('home-progress-head'), coords = el('home-coords'), tiles = box('home-live-tiles'), feedCard = box('t-card'), stop = box('home-stop');
+  head.appendChild(el('home-job-percent')); progress.appendChild(head); progress.appendChild(el('home-job-progress'));
+  feedCard.appendChild(el('home-live-feed')); tiles.appendChild(feedCard);
+  stop.appendChild(el('home-job-stop'));
+  [el('home-job-title'), progress, coords, tiles, el('home-job-note'), el('home-job-ready'), el('home-program-pause'), el('home-job-selection'), el('home-job-load'), el('home-job-primary-row'), el('home-job-resume-row'), el('home-job-feedback'), stop].forEach((n) => metrics.appendChild(n));
+  const shape = () => JSON.stringify([board, left, metrics].map((p) => p.children.map((c) => c.id || c.className)));
+  const before = shape();
+  const window = { CNCMotionEstimate: ME, innerWidth: 1366, addEventListener: (n, f) => { events[n] = f; },
+    cncLayout: { wide: () => wide }, requestAnimationFrame: (f) => { frames.push(f); return frames.length; }, performance: { now: () => clock } };
+  vm.runInNewContext(fs.readFileSync(__dirname + '/touch/job-dashboard.js', 'utf8'), { window, document: dom.document, Date: { now: () => clock },
+    localStorage: { getItem: () => JSON.stringify({ state: { session: { token: 'fake' } } }) },
+    XMLHttpRequest: function () { this.open = () => {}; this.setRequestHeader = () => {}; this.abort = () => {}; this.send = () => {}; } });
+  const send = (machine, simulation = false) => events['cnc-job-status']({ detail: { machine, simulation } });
+  const layout = (on, width) => { wide = on; if (width) window.innerWidth = width; events['cnc-layout-change']({ detail: { wide: on } }); };
+  const text = (id) => node(id).textContent;
+  // Out of the wide layout nothing is built and the DOM is the one of today (the RT never changes).
+  send({ port: 'P', name: 'part.nc', revision: 1, fresh: true, total: 100, received: 0, workflow: 'idle', canStart: true });
+  assert.equal(shape(), before, 'no change without perf-wide');
+  assert.equal(board.getAttribute('data-zones'), null);
+  assert(!dom.nodes['home-zone-gauges'], 'no zone built without perf-wide');
+  // Two zones (1366 x 911): instruments then commands in the right column, the overrides under the view.
+  layout(true, 1366);
+  const gauges = node('home-zone-gauges'), controls = node('home-zone-controls');
+  assert.equal(board.getAttribute('data-zones'), '2');
+  assert.deepEqual(metrics.children.map((c) => c.id || c.className), ['home-job-title', 'home-zone-gauges', 'home-zone-controls']);
+  assert.deepEqual(gauges.children.map((c) => c.id || c.className), ['t-card home-progress', 'home-gauge-eta', 'home-coords', 'home-live-tiles', 'home-gauge-overrides', 'home-gauge-curve']);
+  assert.deepEqual(controls.children.map((c) => c.id || c.className), ['home-job-note', 'home-job-ready', 'home-program-pause', 'home-job-selection', 'home-job-load', 'home-job-primary-row', 'home-job-resume-row', 'home-job-feedback', 'home-stop'], 'commands in order, Arrêter alone at the bottom');
+  assert.equal(head.children.at(-1).id, 'home-gauge-ack', 'acknowledged line beside the percentage');
+  assert.equal(node('home-overrides').parentNode, left, 'two zones: overrides under the view');
+  assert(['home-job-percent', 'home-job-progress', 'home-job-eta', 'home-live-feed', 'home-job-stop', 'home-job-image'].every((id) => node(id).tagName === 'DIV'), 'existing IDs kept, same elements');
+  // Three zones (1728 x 1152): the overrides join the commands, above Arrêter.
+  window.innerWidth = 1728; events.resize();
+  assert.equal(board.getAttribute('data-zones'), '3');
+  assert.deepEqual(controls.children.slice(-2).map((c) => c.id || c.className), ['home-overrides', 'home-stop']);
+  // Back out of the wide layout: every element where it was, the wrappers gone.
+  layout(false, 1366);
+  assert.equal(shape(), before, 'DOM restored in order'); assert.equal(board.getAttribute('data-zones'), null);
+  layout(true, 1366);
+  // Remaining time: from the moves (corrected) when the rapids are known, its source written, the
+  // observed rhythm as the second estimate; acknowledged line by CNCToolPosition when present.
+  const lines = ['G21 G90', 'G0 Z5', 'G0 X0 Y0'];
+  for (let i = 0; i < 100; i++) lines.push('G1 X' + (i % 2 ? 0 : 100) + ' Y' + i + ' F3000');
+  lines.splice(50, 0, 'M0'); lines.push('T2 M6', 'G1 X50 Y50', 'M30');
+  const est = JSON.parse(JSON.stringify(ME.estimate(lines.join('\n'))));
+  node('home-job-image').cncPreview = { file: 'part.nc', lines: est.lines, estimate: est }; node('home-job-image').hidden = false;
+  const rates = { $110: '6000', $111: '6000', $112: '1000' };
+  const run = { port: 'P', name: 'part.nc', revision: 1, fresh: true, total: est.lines, received: 20, workflow: 'running', canStart: false, activeState: 'Run', settings: rates, overrides: { feed: 110, spindle: 100, rapid: 25 }, feedrate: 1800 };
+  send(run);
+  assert.match(text('home-gauge-eta-title'), /^Reste /); assert.match(text('home-gauge-eta-source'), /^mouvements \(sans accélérations\), pas encore corrigé$/);
+  for (let r = 21; r <= 50; r++) { clock += 1000; send({ ...run, received: r }); }
+  assert.match(text('home-gauge-eta-title'), /^Reste \d/); assert.match(text('home-gauge-eta-source'), /^mouvements, corrigé ×0,5 d’après les lignes acquittées$/);
+  assert.match(text('home-gauge-eta-second'), /^Selon le rythme observé : /); assert.equal(node('home-gauge-eta-second').hidden, false);
+  assert.match(text('home-gauge-eta-unknown'), /^Durées inconnues à venir : pause M0 \(l\. 51\), changement d’outil M6/);
+  assert.equal(text('home-gauge-ack-value'), '50 / ' + est.lines, 'fallback rule: the received lines');
+  window.CNCToolPosition = { acknowledged: () => 8412.7 };
+  send({ ...run, received: 50 });
+  assert.match(text('home-gauge-ack-value'), /^8\s412 \/ \d/u, 'acknowledged line by CNCToolPosition.acknowledged');
+  assert.doesNotMatch(text('home-gauge-ack-label'), /usin/);
+  // Overrides as read: a value off 100 % with its sign, flagged for the amber colour.
+  assert.equal(text('home-gauge-ov-feed'), '110 % (+10 %)'); assert.equal(node('home-gauge-ov-feed').getAttribute('data-off'), 'true');
+  assert.equal(text('home-gauge-ov-spindle'), '100 %'); assert.equal(node('home-gauge-ov-spindle').getAttribute('data-off'), 'false');
+  assert.equal(text('home-gauge-ov-rapid'), '25 % (−75 %)');
+  // Rapids unknown: the observed rhythm is the title, the moves the second estimate.
+  delete window.CNCToolPosition;
+  send({ ...run, settings: null, received: 51 }); clock += 1000; send({ ...run, settings: null, received: 52 });
+  assert.match(text('home-gauge-eta-source'), /^rythme observé des lignes acquittées$/); assert.match(text('home-gauge-eta-second'), /^Selon les mouvements : .*\(rapides non comptés\)$/);
+  // Paused: the existing wording, nothing invented; stale: no override value.
+  send({ ...run, received: 52, workflow: 'paused' }); assert.match(text('home-gauge-eta-title'), /^En pause — /);
+  send({ ...run, received: 52, fresh: false }); assert.equal(text('home-gauge-ov-feed'), '—'); assert.equal(text('home-gauge-ack-value'), '—');
+  // Simulation: the simulated duration, said so.
+  send({ ...run, received: 20, remainingSeconds: 40 }, true); assert.equal(text('home-gauge-eta-title'), 'Reste 40 s'); assert.match(text('home-gauge-eta-source'), /simulée/);
+  // Curve: samples stored by the handler, drawn in an animation frame, at most once a second, only on
+  // three zones and only while Suivi is shown.
+  while (frames.length) frames.shift()(); // the frame asked for on three zones earlier runs (and draws nothing on two)
+  send({ ...run, received: 53 });
+  assert.equal(frames.length, 0, 'two zones: no curve drawn');
+  window.innerWidth = 1728; events.resize(); while (frames.length) frames.shift()(); clock += 2000;
+  const drawn = node('home-gauge-curve-line').getAttribute('points');
+  send({ ...run, received: 54, feedrate: 1200 });
+  assert.equal(frames.length, 1, 'one frame requested'); assert.equal(node('home-gauge-curve-line').getAttribute('points'), drawn, 'nothing drawn in the handler');
+  send({ ...run, received: 55, feedrate: 1300 }); assert.equal(frames.length, 1, 'no second frame while one waits');
+  frames.shift()();
+  const points = node('home-gauge-curve-line').getAttribute('points');
+  assert(points && points.split(' ').length >= 2, 'polyline written'); assert.match(text('home-gauge-curve-title'), /^Avance réelle, dernière minute · 0 à 2\s000 mm\/min$/u);
+  clock += 500; send({ ...run, received: 56, feedrate: 1250 }); assert.equal(frames.length, 0, 'not again within a second');
+  clock += 600; send({ ...run, received: 57, feedrate: 1250 }); assert.equal(frames.length, 1, 'again after a second'); frames.shift()();
+  // Suivi hidden: no frame, no DOM write at all.
+  dom.activeScreens.clear(); dom.activeScreens.add('menu'); events['cnc-screen-change']({ detail: 'menu' });
+  const writes = dom.stats.writes; clock += 5000;
+  for (let i = 0; i < 20; i++) { clock += 250; send({ ...run, received: 58 + i, feedrate: 1000 + i }); }
+  assert.equal(frames.length, 0, 'no frame while Suivi is hidden'); assert.equal(dom.stats.writes, writes, 'no DOM write while Suivi is hidden');
+  console.log('PASS wide Suivi: zones built only under perf-wide and undone in order, IDs kept, Arrêter alone at the bottom, remaining time with its source and second estimate, acknowledged line, overrides read, curve in an animation frame at most once a second and never while hidden.');
+}
 
