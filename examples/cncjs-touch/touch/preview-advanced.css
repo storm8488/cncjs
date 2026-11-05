@@ -44,8 +44,14 @@
 .pgl-inline .pgl-head,.pgl-inline .pgl-side,.pgl-inline .pgl-foot{display:none}
 .pgl-inline .pgl-tools{position:absolute;left:8px;top:8px;right:8px;z-index:3;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;width:max-content;max-width:calc(100% - 16px);padding:2px;background:rgba(14,20,23,.88)}
 .pgl-inline .pgl-tools button{flex:0 0 auto;white-space:nowrap;min-height:48px;padding:0 var(--sp-2);font-size:var(--fs-16)}
-.pgl-inline .pgl-tools.is-folded>:not(.pgl-fold){display:none}
+.pgl-inline .pgl-tools.is-folded>:not(.pgl-fold):not(.is-live){display:none}
 .pgl-inline .pgl-fold[aria-expanded="true"]{background:var(--info);color:var(--on-info)}
 /* « Agrandir » stays over the inline view. */
 .pv3d-host>.preview-open{z-index:4}
 .pgl-inline .pgl-stage{position:relative;flex:1 1 auto;min-height:0}
+/* Live view (Performance UI, lot V): « Suivre l’outil » stays visible during a job or a pause (is-live),
+ * folded in « Vues » at rest; the tool marker is a fixed 16 px disc over the path, never a target. */
+.pgl-follow[disabled]{opacity:.55;cursor:not-allowed}
+.pgl-tool{position:absolute;left:0;top:0;z-index:2;width:16px;height:16px;margin:-8px 0 0 -8px;box-sizing:border-box;border-radius:50%;background:var(--accent,#8ecbff);border:3px solid #fff;box-shadow:0 0 0 1px #000;pointer-events:none;will-change:transform}
+.pgl-tool.is-stale{background:transparent;border-color:#87969f}
+.pgl-tool[hidden]{display:none}

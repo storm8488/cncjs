@@ -279,7 +279,7 @@
   function source(meta, options) {
     options = options || {};
     var worker = null, local = null, ready = null, nextId = 0, waiting = {}, released = false;
-    var scriptURL = options.workerURL || 'preview-inspect.js?v=prof1';
+    var scriptURL = options.workerURL || WORKER_URL;
     function load() {
       if (ready) return ready;
       ready = (options.fetchProgram || fetchProgram)(meta.file).then(function (res) {
@@ -319,6 +319,77 @@
     };
   }
 
+  // ---------- Full geometry (Performance UI spec 3.8): the whole program, for the GPU view ----------
+  // Interpreted read-only (CNCMotionEstimate's interpreter), arcs cut at a sagitta of 0.01 mm at most.
+  // Points as in path3d: point 0 is the program start, each other one the end of a move, with the
+  // sender line that reached it and its type (rapid G0 or work). More than `cap` segments: only the
+  // count is returned (tooLong), nothing kept. Never sends anything: a drawing, not a measurement.
+  var GEOMETRY_CAP = 500000, ARC_TOLERANCE = 0.01;
+  function buildGeometry(text, options) {
+    options = options || {};
+    var cap = options.cap > 0 ? Math.floor(options.cap) : GEOMETRY_CAP, tol = options.tolerance > 0 ? options.tolerance : ARC_TOLERANCE;
+    var size = 4096, n = 0, X = new Float32Array(size * 3), L = new Float32Array(size), R = new Uint8Array(size), segments = 0, tooLong = false;
+    function point(x, y, z, rapid, line) {
+      if (n) segments++;
+      if (tooLong) return;
+      if (segments > cap) { tooLong = true; return; }
+      if (n >= size) {
+        size *= 2;
+        var X2 = new Float32Array(size * 3), L2 = new Float32Array(size), R2 = new Uint8Array(size);
+        X2.set(X); L2.set(L); R2.set(R); X = X2; L = L2; R = R2;
+      }
+      X[n * 3] = x; X[n * 3 + 1] = y; X[n * 3 + 2] = z; L[n] = line; R[n] = rapid; n++;
+    }
+    var interp = ME.createInterpreter(function (mode, ax, ay, az, bx, by, bz, info) {
+      if (info.lost) return; // start unknown (after G28, G53…): not drawn
+      // Program start, or back on known ground after an unknown move: a rapid-flagged start point.
+      if (!tooLong && (!n || Math.abs(X[n * 3 - 3] - ax) > 1e-4 || Math.abs(X[n * 3 - 2] - ay) > 1e-4 || Math.abs(X[n * 3 - 1] - az) > 1e-4)) point(ax, ay, az, 1, n ? info.line : 0);
+      if (mode >= 2) ME.arcPoints(mode, ax, ay, az, bx, by, bz, info, tol, function (x, y, z) { point(x, y, z, 0, info.line); });
+      else point(bx, by, bz, mode === 0 ? 1 : 0, info.line);
+    }, null);
+    var offset = 0;
+    while (offset < text.length) {
+      var lf = text.indexOf('\n', offset); if (lf < 0) lf = text.length;
+      var raw = text.slice(offset, lf);
+      if (raw.charCodeAt(raw.length - 1) === 13) raw = raw.slice(0, -1);
+      interp.line(raw); offset = lf + 1;
+    }
+    if (tooLong) return { tooLong: true, segments: segments };
+    return { tooLong: false, segments: Math.max(0, n - 1), count: n, positions: X.slice(0, n * 3), lines: L.slice(0, n), rapid: R.slice(0, n) };
+  }
+  function geometryBounds(positions, count) {
+    var b = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+    for (var i = 0; i < count; i++) for (var k = 0; k < 3; k++) { var v = positions[i * 3 + k]; if (v < b[k]) b[k] = v; if (v > b[k + 3]) b[k + 3] = v; }
+    return b;
+  }
+  // Page side: reads the program (fingerprint checked against the preview's), interprets it in a worker,
+  // gets the typed arrays back (transferred). {promise, cancel}; the promise gives {tooLong, segments, path}.
+  var WORKER_URL = 'preview-inspect.js?v=perfv1';
+  function geometry(meta, options) {
+    options = options || {};
+    var worker = null, done = false, rejectNow = null;
+    var promise = new Promise(function (resolve, reject) {
+      rejectNow = reject;
+      (options.fetchProgram || fetchProgram)(meta.file).then(function (res) {
+        if (done) return;
+        if (!sameFingerprint(res.fingerprint, meta.fingerprint)) throw new Error(t('Le fichier a changé depuis l’aperçu : géométrie complète indisponible.'));
+        var W = options.Worker || root.Worker;
+        if (typeof W !== 'function') throw new Error(t('Géométrie complète indisponible sans Worker.'));
+        worker = new W(options.workerURL || WORKER_URL);
+        worker.onerror = function (e) { if (e && e.preventDefault) e.preventDefault(); finish(); reject(new Error(t('Analyse du fichier interrompue.'))); };
+        worker.onmessage = function (e) {
+          var m = e.data || {}; finish();
+          if (m.type === 'error') { reject(new Error(m.message)); return; }
+          if (m.tooLong) { resolve({ tooLong: true, segments: m.segments, path: null }); return; }
+          resolve({ tooLong: false, segments: m.segments, path: { count: m.count, positions: m.positions, lines: m.lines, rapid: m.rapid, bounds: geometryBounds(m.positions, m.count), full: true } });
+        };
+        worker.postMessage({ type: 'geometry', id: 1, blob: res.blob, cap: options.cap || GEOMETRY_CAP, tolerance: ARC_TOLERANCE });
+      }).catch(function (e) { finish(); reject(e); });
+    });
+    function finish() { done = true; if (worker) { worker.onmessage = worker.onerror = null; try { worker.terminate(); } catch (_) {} worker = null; } }
+    return { promise: promise, cancel: function () { if (done) return; finish(); rejectNow(new Error(t('Annulé'))); } };
+  }
+
   // ---------- Resume preview in the page ----------
   // show(container, preview, source?): source {fingerprint, path3d} defaults to the program shown in Suivi.
   function show(container, preview, src) {
@@ -352,7 +423,8 @@
 
   var api = { offers: offers, filterMask: filterMask, nearestSegment: nearestSegment, describe: describe, createSourceIndex: createSourceIndex, stateAt: stateAt,
     clampValue: clampValue, loadClamps: loadClamps, saveClamps: saveClamps, overlayBoxes: overlayBoxes, drawBoxes: drawBoxes,
-    resumePlan: resumePlan, drawResume: drawResume, reasonText: reasonText, sameFingerprint: sameFingerprint, fetchProgram: fetchProgram, textOf: textOf, source: source, show: show, hide: hide };
+    resumePlan: resumePlan, drawResume: drawResume, reasonText: reasonText, sameFingerprint: sameFingerprint, fetchProgram: fetchProgram, textOf: textOf, source: source, show: show, hide: hide,
+    buildGeometry: buildGeometry, geometry: geometry, GEOMETRY_CAP: GEOMETRY_CAP };
   if (typeof module !== 'undefined' && module.exports) { module.exports = api; return; }
   if (isWorker) {
     // Worker: one program kept, keyed by its fingerprint.
@@ -372,6 +444,15 @@
         } else if (m.type === 'state') {
           if (!current) throw new Error('Aucun fichier chargé');
           root.postMessage({ type: 'state', id: m.id, state: stateAt(current.index, m.line) });
+        } else if (m.type === 'geometry') {
+          // The whole program for the GPU view: its own read of the blob, nothing kept in the worker.
+          var text = typeof m.blob.text === 'function' ? m.blob.text() : Promise.resolve(new root.FileReaderSync().readAsText(m.blob, 'UTF-8'));
+          text.then(function (raw) {
+            var v = JSON.parse(raw); if (!v || typeof v.data !== 'string') throw new Error('G-code absent de la réponse du serveur');
+            var g = buildGeometry(v.data, { cap: m.cap, tolerance: m.tolerance });
+            if (g.tooLong) root.postMessage({ type: 'geometry', id: m.id, tooLong: true, segments: g.segments });
+            else root.postMessage({ type: 'geometry', id: m.id, segments: g.segments, count: g.count, positions: g.positions, lines: g.lines, rapid: g.rapid }, [g.positions.buffer, g.lines.buffer, g.rapid.buffer]);
+          }).catch(fail);
         } else if (m.type === 'forget') current = null;
       } catch (e) { fail(e); }
     };
