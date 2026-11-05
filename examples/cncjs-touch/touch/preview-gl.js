@@ -1095,7 +1095,8 @@
     return handle;
   }
 
-  var api = { open: open, close: function (reason) { if (current) current.close(reason || 'api'); }, active: function () { return !!current; },
+  // view(): the open view's handle (state(), stats()), for the measurements through DevTools (spec 10).
+  var api = { open: open, close: function (reason) { if (current) current.close(reason || 'api'); }, active: function () { return !!current; }, view: function () { return current; },
     basis: basis, matrix: matrix, project: project, fit: fit, buildVertices: buildVertices, createRenderer: createRenderer, create2DRenderer: create2DRenderer, PRESETS: PRESETS, MAX_DPR: MAX_DPR, GESTURE_FRAME_MS: GESTURE_FRAME_MS,
     probeGpu: probeGpu, checkOverlays: checkOverlays, OVERLAY_COLOURS: OVERLAY_COLOURS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
