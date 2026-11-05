@@ -8,6 +8,17 @@ function XHR(){this.open=()=>{};this.setRequestHeader=()=>{};this.send=()=>pendi
 const timers=[];
 let now=10000;class Clock extends Date{static now(){return now;}}
 vm.runInNewContext(fs.readFileSync(__dirname+'/touch/job-controls.js','utf8'),{document,window:{cncLibrarySelection:{name:'Feuille.nc',file:'leaf.nc'},addEventListener:(n,fn)=>listeners[n]=fn,dispatchEvent(){}},CustomEvent:function(type,options){this.type=type;this.detail=options.detail;},localStorage:{getItem:()=>JSON.stringify({state:{session:{token:'test'}}})},XMLHttpRequest:XHR,Promise,Date:Clock,setInterval:fn=>timers.push(fn)});
+// Wide workstation (PERFORMANCE-UI-SPEC.md 5.2, 6): display only. Suivi's zones and instruments send
+// nothing and click nothing; Suivi's buttons still relay to these job controls, by the same IDs.
+{
+ const dash=fs.readFileSync(__dirname+'/touch/job-dashboard.js','utf8'),controls=fs.readFileSync(__dirname+'/touch/job-controls.js','utf8');
+ const start=dash.indexOf('// ---- Wide workstation'),end=dash.indexOf('// Preview of the loaded program');
+ assert(start>0&&end>start,'wide section of job-dashboard.js found');
+ const wide=dash.slice(start,end);
+ for(const word of ['cncJobControls','.click(','XMLHttpRequest','fetch(','api/','sendBeacon','.override('])assert(!wide.includes(word),'wide Suivi code is display only: '+word);
+ assert(/\['load','start','pause','resume','stop'\]\.forEach\(function\(action\)\{\s*\$\('home-job-'\+action\)\.addEventListener\('click'/.test(dash),'Suivi buttons relay to the job controls');
+ for(const action of ['load','start','pause','resume','stop'])assert(new RegExp('job-'+action+'\\b').test(controls),'job-controls.js owns job-'+action);
+}
 (async()=>{
  pending.shift()();await new Promise(setImmediate);
  assert.match(el('job-selected').textContent,/Feuille.nc/); // Selection arrived before this script was loaded.

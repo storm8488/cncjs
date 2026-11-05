@@ -96,6 +96,30 @@
     var m=Math.ceil(s/60),h=Math.floor(m/60);m%=60;
     return (h?h+' h ':'')+(h&&!m?'':m+' min');
   }
+  function sessionToken(){var token='';try{token=JSON.parse(localStorage.getItem('cnc')).state.session.token;}catch(_){}return token;}
+  function previewXhr(file,token){
+    var xhr=new XMLHttpRequest();xhr.open('POST',apiBase()+'/watch/file',true);xhr.timeout=20000;
+    xhr.setRequestHeader('Authorization','Bearer '+token);xhr.setRequestHeader('Content-Type','application/json');
+    return xhr;
+  }
+  // The answer of /watch/file for a program's sidecar: { refused: notice } for a stale preview,
+  // { src, note, preview } otherwise; throws on anything malformed.
+  function previewAnswer(xhr,file){
+    if(xhr.status!==200)throw new Error();
+    var envelope=JSON.parse(xhr.responseText),meta=JSON.parse(envelope.data);
+    if(meta.file!==file)throw new Error();
+    // A preview of another version of the program (replaced under the same name, older
+    // sidecar) is never shown: the server's verdict says so.
+    var v=verdict(envelope,meta);
+    if(v.state==='stale')return {refused:previewNotice(v)};
+    var src=meta.preview&&meta.preview.image,note=v.state==='unverified'?previewNotice(v):'';
+    if(typeof src!=='string'||src.length>2500000||!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(src))throw new Error();
+    // Depth and the 3D path (newer previews) feed the 3D views and their trail (preview-3d.js).
+    return {src:src,note:note,preview:{file:file,fingerprint:typeof meta.fingerprint==='string'?meta.fingerprint:'',projection:meta.preview.projection,trail:Array.isArray(meta.preview.trail)?meta.preview.trail:null,lines:meta.preview.lines,
+      trailZ:Array.isArray(meta.preview.trailZ)?meta.preview.trailZ:null,zBounds:meta.preview.zBounds,path3d:meta.preview.path3d||null,
+      // Version 3 of the preview: motion-based estimate and laser summary (absent from older sidecars).
+      estimate:window.CNCMotionEstimate&&window.CNCMotionEstimate.valid(meta.preview.estimate)?meta.preview.estimate:null,laser:meta.preview.laser||null}};
+  }
   function preview(file) {
     if(file===imageKey)return;
     cancelPreview();imageKey=file;previewFailed=false;var id=++request;
@@ -104,29 +128,18 @@
     $('home-image-status').hidden=false;
     $('home-image-status').textContent=file?uiLocale.t('Chargement de l’aperçu…'):uiLocale.t('Sélectionnez un fichier pour afficher son aperçu.');
     if(!file)return;
-    var token='';try{token=JSON.parse(localStorage.getItem('cnc')).state.session.token;}catch(_){}
+    var token=sessionToken();
     if(!token){$('home-image-status').textContent=uiLocale.t('Session CNCjs requise pour lire l’aperçu.');return;}
-    var xhr=new XMLHttpRequest();previewRequest=xhr;xhr.open('POST',apiBase()+'/watch/file',true);xhr.timeout=20000;
-    xhr.setRequestHeader('Authorization','Bearer '+token);xhr.setRequestHeader('Content-Type','application/json');
+    var xhr=previewXhr(file,token);previewRequest=xhr;
     function fail(notice){if(id===request){previewRequest=null;imageLoading=false;previewFailed=true;img.hidden=true;$('home-image-status').hidden=false;set('home-image-status','textContent',typeof notice==='string'&&notice?notice:uiLocale.t('Aperçu indisponible. Régénérez-le dans Fichiers.'));}}
     xhr.onload=function(){
       if(id!==request)return;
       previewRequest=null;
       try{
-        if(xhr.status!==200)throw new Error();
-        var envelope=JSON.parse(xhr.responseText),meta=JSON.parse(envelope.data);
-        if(meta.file!==file)throw new Error();
-        // A preview of another version of the program (replaced under the same name, older
-        // sidecar) is never shown: the server's verdict says so.
-        var v=verdict(envelope,meta);
-        if(v.state==='stale'){fail(previewNotice(v));return;}
-        var src=meta.preview&&meta.preview.image,note=v.state==='unverified'?previewNotice(v):'';
-        if(typeof src!=='string'||src.length>2500000||!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(src))throw new Error();
-        // Depth and the 3D path (newer previews) feed the 3D views and their trail (preview-3d.js).
-        img.cncPreview={file:file,fingerprint:typeof meta.fingerprint==='string'?meta.fingerprint:'',projection:meta.preview.projection,trail:Array.isArray(meta.preview.trail)?meta.preview.trail:null,lines:meta.preview.lines,
-          trailZ:Array.isArray(meta.preview.trailZ)?meta.preview.trailZ:null,zBounds:meta.preview.zBounds,path3d:meta.preview.path3d||null,
-          // Version 3 of the preview: motion-based estimate and laser summary (absent from older sidecars).
-          estimate:window.CNCMotionEstimate&&window.CNCMotionEstimate.valid(meta.preview.estimate)?meta.preview.estimate:null,laser:meta.preview.laser||null};
+        var answer=previewAnswer(xhr,file);
+        if(answer.refused){fail(answer.refused);return;}
+        var src=answer.src,note=answer.note;
+        img.cncPreview=answer.preview;
         imageLoading=true;
         img.onload=function(){if(id===request){imageLoading=false;img.hidden=false;if(note)set('home-image-status','textContent',note);$('home-image-status').hidden=!note;}};
         img.onerror=fail;img.src=src;
@@ -137,7 +150,7 @@
   // ---- Motion-based estimate (motion-estimate.js), shown next to the rhythm-based one ----
   // Model of the program (lengths / programmed feeds, G4 dwells, rapids from $110-$112 when known,
   // no acceleration); corrected during the job by the time observed per acknowledged line.
-  var motionTrack=null;
+  var motionTrack=null,motionLeft=null;
   var UNKNOWN_TEXT={pause:'pause M0','optional-pause':'pause optionnelle M1',toolchange:'changement d’outil M6',home:'retour G28/G30',probe:'palpage G38',machine:'déplacement G53',frame:'changement de repère G10/G92',position:'position inconnue',feed:'avance F absente',dwell:'pause G4 sans durée',code:'code non pris en charge',arc:'arc illisible'};
   function unknownsText(list){
     var counts={},order=[];
@@ -145,7 +158,7 @@
     return order.map(function(k){var c=counts[k];return (c.n>1?c.n+' × ':'')+uiLocale.t(UNKNOWN_TEXT[k]||'inconnue')+uiLocale.t(' (l. ')+c.line+(c.n>1?'…':'')+')';}).join(', ');
   }
   function motionText(c,file,now){
-    var ME=window.CNCMotionEstimate,img=$('home-job-image'),pv=img&&img.cncPreview;
+    var ME=window.CNCMotionEstimate,img=$('home-job-image'),pv=img&&img.cncPreview;motionLeft=null;
     if(!ME||!pv||pv.file!==file||img.hidden)return '';
     var est=pv.estimate;
     if(!est)return uiLocale.t('Estimation par les mouvements : indisponible pour cet aperçu (régénérez-le dans Fichiers).');
@@ -163,6 +176,7 @@
       motionTrack.last=now;motionTrack.line=line;
       var left=ME.remaining(est,rates,line,{activeSeconds:motionTrack.active,fromLine:motionTrack.fromLine});
       if(!left)return '';
+      motionLeft=left;
       parts.push(uiLocale.t('Selon les mouvements : ')+remainingText(left.seconds)+uiLocale.t(' restantes')+(left.corrected?uiLocale.t(', corrigé ×')+(Math.round(left.factor*10)/10).toLocaleString(uiLocale.locale||'fr-FR')+uiLocale.t(' d’après les lignes acquittées'):''));
       if(!left.rapidKnown)parts.push(uiLocale.t('rapides non comptés ($110–$112 inconnus)'));
       var ahead=unknownsText(left.unknownsAhead);if(ahead)parts.push(uiLocale.t('durées inconnues à venir : ')+ahead);
@@ -274,6 +288,7 @@
       // The static help sentence of the job controls is not a command result: only results show here.
       set('home-job-eta','textContent',eta);
       var motion=motionText(c,file,now);set('home-job-motion','textContent',motion);set('home-job-motion','hidden',!motion);set('home-job-feedback','textContent',feedback===uiLocale.t('Le chargement ne démarre pas le travail.')?'':feedback);
+      if(zones.on)gauges(c,valid,p,eta,remaining);
       set('home-job-note','textContent',simulation?uiLocale.t('Progression fictive sur 60 secondes, hors pauses. Aucun G-code exécuté.'):uiLocale.t('Progression des lignes acquittées. Estimation indicative selon le rythme observé, pas selon la durée des mouvements.'));
     }
     if(visible('files'))set('job-progress-summary','textContent',percent+' · '+eta);
@@ -282,17 +297,173 @@
   window.addEventListener('cnc-job-status',function(e){machine=e.detail.machine;halt=!machine&&e.detail.halt&&typeof e.detail.halt==='object'?e.detail.halt:null;simulation=e.detail.simulation;busy=!!e.detail.busy;feedback=e.detail.feedback||'';
     // Sent / confirmed / failed / uncertain, mirrored from job-controls.js (ui-2027.css .t-sent).
     var fb=$('home-job-feedback'),state=e.detail.feedbackState||'';if(fb&&typeof fb.setAttribute==='function'&&(!fb.getAttribute||fb.getAttribute('data-state')!==state))fb.setAttribute('data-state',state);
+    if(zones.on){sample(machine);requestCurve();}
     render();});
   window.addEventListener('cnc-library-preview-updated',function(e){
     var file=machine&&machine.name?machine.name:selection&&selection.file||'';
+    forgetLoaded(e.detail&&e.detail.file||'');
     if(e.detail&&e.detail.file&&e.detail.file!==file)return;
     cancelPreview();imageKey='';render();
   });
-  function mount(){if(mounted||!visible('home'))return;mounted=true;if(previewFailed)imageKey='';render();}
+  function mount(){if(mounted||!visible('home'))return;mounted=true;if(previewFailed)imageKey='';render();requestCurve();}
   function unmount(){if(!mounted)return;mounted=false;cancelPreview();}
   window.addEventListener('cnc-screen-change',function(e){if(e.detail==='home')mount();else{unmount();if(e.detail==='files')render();}});
   document.addEventListener('visibilitychange',function(){if(visible('home'))mount();else unmount();});
-  window.cncDashboardView={mount:mount,unmount:unmount};
+  // ---- Wide workstation (body.perf-wide, touch-shell.js; PERFORMANCE-UI-SPEC.md 5.2, 6) ----
+  // Suivi in zones: View (#home-left) | Instruments (#home-zone-gauges) | Commandes (#home-zone-controls),
+  // the last two in .job-metrics. Two zones (Q3b, 1366 x 911): the instruments over the commands, the
+  // overrides under the view as today; three columns where the view keeps at least today's width. The
+  // wrappers and instruments are built the first time the layout is wide; out of it every element goes
+  // back where it was, in the same order (on the RT they are never built). Display only: no command here.
+  var THREE_ZONES_MIN_WIDTH=1600,CURVE_N=600,CURVE_MS=60000;
+  var zones={on:false,three:false,built:false,gauges:null,controls:null,eta:null,ack:null,read:null,curve:null};
+  var curve={t:[],v:[],i:0,n:0,frame:null,drawn:-Infinity,max:0,points:''};
+  function el(tag,id,cls,text){var e=document.createElement(tag);if(id)e.id=id;if(cls)e.className=cls;if(text)e.textContent=text;return e;}
+  function buildZones(){
+    zones.built=true;
+    zones.gauges=el('section','home-zone-gauges','home-zone home-zone-gauges');zones.gauges.setAttribute('aria-label',uiLocale.t('Instruments'));
+    zones.controls=el('section','home-zone-controls','home-zone home-zone-controls');zones.controls.setAttribute('aria-label',uiLocale.t('Commandes'));
+    // Acknowledged line, beside the percentage: « acquittée », never « en cours d’usinage ».
+    zones.ack=el('span','home-gauge-ack','home-gauge-ack');
+    zones.ack.appendChild(el('small','home-gauge-ack-label','',uiLocale.t('Ligne acquittée')));zones.ack.appendChild(el('b','home-gauge-ack-value','','—'));
+    // Remaining time with its source, the other estimate, the unknown durations ahead.
+    zones.eta=el('div','home-gauge-eta','t-card home-gauge-eta');
+    [['p','home-gauge-eta-title','home-gauge-eta-title'],['p','home-gauge-eta-source','t-help'],['p','home-gauge-eta-second','t-help'],['p','home-gauge-eta-unknown','t-help']].forEach(function(d){zones.eta.appendChild(el(d[0],d[1],d[2]));});
+    // Overrides as read from Grbl (the buttons stay in Commandes).
+    zones.read=el('p','home-gauge-overrides','home-gauge-overrides');
+    [['feed','Avance'],['spindle','Broche'],['rapid','Rapides']].forEach(function(d,i){
+      if(i)zones.read.appendChild(document.createTextNode(' · '));
+      zones.read.appendChild(el('span','home-gauge-ov-'+d[0]+'-label','',d[0]==='spindle'&&laser()?uiLocale.t('Consigne S'):uiLocale.t(d[1])));
+      zones.read.appendChild(document.createTextNode(' '));zones.read.appendChild(el('b','home-gauge-ov-'+d[0],'','—'));
+    });
+    // Real feed over the last minute (Q10): an SVG polyline rewritten at most once a second.
+    zones.curve=el('div','home-gauge-curve','t-card home-gauge-curve');
+    zones.curve.appendChild(el('p','home-gauge-curve-title','home-gauge-curve-title',uiLocale.t('Avance réelle, dernière minute')));
+    if(typeof document.createElementNS==='function'){
+      var NS='http://www.w3.org/2000/svg',svg=document.createElementNS(NS,'svg'),grid=document.createElementNS(NS,'path'),line=document.createElementNS(NS,'polyline');
+      svg.setAttribute('viewBox','0 0 300 70');svg.setAttribute('preserveAspectRatio','none');svg.setAttribute('aria-hidden','true');
+      grid.setAttribute('class','home-gauge-curve-grid');grid.setAttribute('d','M0 69.5H300M0 35H300');line.setAttribute('class','home-gauge-curve-line');line.id='home-gauge-curve-line';
+      svg.appendChild(grid);svg.appendChild(line);zones.curve.appendChild(svg);
+    }
+  }
+  function arrange(){
+    var wide=!!(window.cncLayout&&typeof window.cncLayout.wide==='function'&&window.cncLayout.wide()),three=wide&&window.innerWidth>=THREE_ZONES_MIN_WIDTH;
+    if(wide===zones.on&&three===zones.three)return;
+    var title=$('home-job-title'),metrics=title&&title.parentNode,left=$('home-left'),board=left&&left.parentNode;
+    if(!metrics||!left||!board||typeof metrics.insertBefore!=='function')return;
+    var progress=$('home-job-progress').parentNode,head=$('home-job-percent').parentNode,coords=$('home-coords'),tiles=$('home-live-feed').parentNode.parentNode,overrides=$('home-overrides'),stop=$('home-job-stop').parentNode,n,next;
+    if(wide&&!zones.built)buildZones();
+    if(wide&&!zones.on){
+      metrics.insertBefore(zones.gauges,progress);
+      [progress,zones.eta,coords,tiles,zones.read,zones.curve].forEach(function(node){zones.gauges.appendChild(node);});
+      head.appendChild(zones.ack);
+      // Everything after the instruments (ready line, Charger, Démarrer / Pause, Reprendre, feedback,
+      // what job-resume.js added, Arrêter alone at the bottom) goes into Commandes, in order.
+      metrics.appendChild(zones.controls);
+      for(n=zones.gauges.nextSibling;n&&n!==zones.controls;n=next){next=n.nextSibling;zones.controls.appendChild(n);}
+    }else if(!wide&&zones.on){
+      left.appendChild(overrides);
+      while(zones.controls.firstChild)metrics.insertBefore(zones.controls.firstChild,zones.controls);
+      metrics.removeChild(zones.controls);
+      [progress,coords,tiles].forEach(function(node){metrics.insertBefore(node,zones.gauges);});
+      metrics.removeChild(zones.gauges);head.removeChild(zones.ack);
+      board.removeAttribute('data-zones');
+    }
+    if(wide){
+      if(three)zones.controls.insertBefore(overrides,stop);else left.appendChild(overrides);
+      board.setAttribute('data-zones',three?'3':'2');
+    }
+    zones.on=wide;zones.three=three;
+    if(wide){render();requestCurve();}
+  }
+  window.addEventListener('cnc-layout-change',arrange);
+  window.addEventListener('resize',function(){if(zones.on||window.cncLayout&&window.cncLayout.wide())arrange();});
+  function overrideRead(v){return finiteNumber(v)?v+' %'+(v!==100?' ('+(v>100?'+':'−')+Math.abs(v-100)+' %)':''):'—';}
+  // The acknowledged line, by CNCToolPosition.acknowledged (tool-position.js) when the page has it,
+  // else the same rule: the received share of the lines, a resume counting the lines before it, all of
+  // them once the program finished.
+  function acknowledgedLine(c,totalLines){
+    var tp=window.CNCToolPosition;
+    if(tp&&typeof tp.acknowledged==='function')return tp.acknowledged(c,totalLines);
+    if((c.finished===true||c.finishedWithErrors===true)&&c.workflow==='idle')return totalLines;
+    var r=c.resume;
+    if(r&&typeof r.from==='number'&&typeof r.preambleLength==='number')return Math.min(totalLines,Math.max(0,r.from-1+Math.max(0,c.received-r.preambleLength)));
+    return Math.min(totalLines,Math.max(0,c.received/c.total*totalLines));
+  }
+  function gauges(c,valid,p,eta,remaining){
+    var pv=$('home-job-image').cncPreview,left=motionLeft,running=!!(valid&&c.workflow==='running'&&p<100);
+    var title=eta,source='',second='',unknown='';
+    var factor=left?(Math.round(left.factor*10)/10).toLocaleString(uiLocale.locale||'fr-FR'):'';
+    if(running&&simulation&&remaining!==null){title=uiLocale.t('Reste ')+remainingText(remaining);source=uiLocale.t('durée simulée, aucun G-code exécuté');}
+    else if(running&&left&&left.rapidKnown){
+      title=uiLocale.t('Reste ')+remainingText(left.seconds);
+      source=left.corrected?uiLocale.t('mouvements, corrigé ×')+factor+uiLocale.t(' d’après les lignes acquittées'):uiLocale.t('mouvements (sans accélérations), pas encore corrigé');
+      if(remaining!==null)second=uiLocale.t('Selon le rythme observé : ')+remainingText(remaining);
+    }else if(running&&remaining!==null){
+      title=uiLocale.t('Reste ')+remainingText(remaining);source=uiLocale.t('rythme observé des lignes acquittées');
+      if(left)second=uiLocale.t('Selon les mouvements : ')+remainingText(left.seconds)+uiLocale.t(' (rapides non comptés)');
+    }else if(valid&&c.workflow==='paused'&&remaining!==null)source=uiLocale.t('rythme observé des lignes acquittées');
+    if(left&&(running||valid&&c.workflow==='paused')){var ahead=unknownsText(left.unknownsAhead);if(ahead)unknown=uiLocale.t('Durées inconnues à venir : ')+ahead;}
+    set('home-gauge-eta-title','textContent',title);
+    [['home-gauge-eta-source',source],['home-gauge-eta-second',second],['home-gauge-eta-unknown',unknown]].forEach(function(d){set(d[0],'textContent',d[1]);set(d[0],'hidden',!d[1]);});
+    var total=valid?(pv&&pv.file===c.name&&finiteNumber(pv.lines)&&pv.lines>0?pv.lines:c.total):0;
+    set('home-gauge-ack-value','textContent',valid?number(Math.floor(acknowledgedLine(c,total)))+' / '+number(total):'—');
+    var ov=c&&c.fresh&&c.overrides&&typeof c.overrides==='object'?c.overrides:null;
+    ['feed','spindle','rapid'].forEach(function(kind){
+      var v=ov&&finiteNumber(ov[kind])?ov[kind]:null,node=$('home-gauge-ov-'+kind),off=String(v!==null&&v!==100);
+      set('home-gauge-ov-'+kind,'textContent',overrideRead(v));
+      if(node&&typeof node.setAttribute==='function'&&node.getAttribute('data-off')!==off)node.setAttribute('data-off',off);
+    });
+    set('home-gauge-ov-spindle-label','textContent',laser()?uiLocale.t('Consigne S'):uiLocale.t('Broche'));
+  }
+  // The curve: samples stored by the status handler, drawn in an animation frame at most once a
+  // second, only on three zones (two zones have no room for it) and only while Suivi is shown.
+  function sample(m){
+    if(!(m&&m.fresh&&finiteNumber(m.feedrate)))return;
+    curve.t[curve.i]=elapsedClock();curve.v[curve.i]=m.feedrate;curve.i=(curve.i+1)%CURVE_N;if(curve.n<CURVE_N)curve.n++;
+  }
+  function requestCurve(){
+    if(curve.frame!==null||!zones.three||!visible('home')||typeof window.requestAnimationFrame!=='function'||elapsedClock()-curve.drawn<1000)return;
+    curve.frame=window.requestAnimationFrame(drawCurve);
+  }
+  function drawCurve(){
+    curve.frame=null;
+    if(!zones.three||!visible('home'))return;
+    var now=elapsedClock(),from=now-CURVE_MS,max=0,k,j,points=[];
+    curve.drawn=now;
+    for(k=0;k<curve.n;k++){j=(curve.i-curve.n+k+CURVE_N)%CURVE_N;if(curve.t[j]>=from&&curve.v[j]>max)max=curve.v[j];}
+    // The axis ends at a round value: 100, 200, 500, 1 000, 2 000, 5 000…
+    var top=100;while(top<max)top=top*(String(top).charAt(0)==='2'?2.5:2);
+    for(k=0;k<curve.n;k++){j=(curve.i-curve.n+k+CURVE_N)%CURVE_N;if(curve.t[j]<from)continue;points.push(Math.round((curve.t[j]-from)/CURVE_MS*3000)/10+','+Math.round((70-curve.v[j]/top*69)*10)/10);}
+    var text=points.join(' '),line=$('home-gauge-curve-line');
+    if(text!==curve.points&&line&&typeof line.setAttribute==='function'){curve.points=text;line.setAttribute('points',text);}
+    if(top!==curve.max){curve.max=top;set('home-gauge-curve-title','textContent',uiLocale.t('Avance réelle, dernière minute')+uiLocale.t(' · 0 à ')+number(top)+' mm/min');}
+  }
+  // Preview of the loaded program for the other screens (spec 8.6, origin preview): the one Suivi
+  // already read when it is there, else one read of its own (one in flight, same verdict and checks),
+  // kept for that program until its preview is regenerated. null without a loaded program or a valid preview.
+  var loadedRead=null;
+  function loadedPreview(){
+    var file=machine&&machine.name?machine.name:'';
+    if(!file)return Promise.resolve(null);
+    var img=$('home-job-image'),shown=img&&img.cncPreview;
+    if(shown&&shown.file===file&&imageKey===file&&!previewFailed)return Promise.resolve(shown);
+    var revision=machine.revision;
+    if(loadedRead&&loadedRead.file===file&&loadedRead.revision===revision)return loadedRead.promise;
+    forgetLoaded('');
+    var token=sessionToken();if(!token)return Promise.resolve(null);
+    var read={file:file,revision:revision,xhr:null,promise:null};loadedRead=read;
+    read.promise=new Promise(function(resolve){
+      var xhr=previewXhr(file,token);read.xhr=xhr;
+      function done(meta){read.xhr=null;if(loadedRead===read&&!meta)loadedRead=null;resolve(meta&&machine&&machine.name===file?meta:null);}
+      xhr.onload=function(){var meta=null;try{var answer=previewAnswer(xhr,file);meta=answer.refused?null:answer.preview;}catch(_){}done(meta);};
+      xhr.onerror=xhr.ontimeout=xhr.onabort=function(){done(null);};
+      xhr.send(JSON.stringify({file:file+'.cnctouch.json'}));
+    });
+    return read.promise;
+  }
+  function forgetLoaded(file){if(!loadedRead||file&&loadedRead.file!==file)return;var xhr=loadedRead.xhr;loadedRead=null;if(xhr&&typeof xhr.abort==='function')xhr.abort();}
+  window.cncDashboardView={mount:mount,unmount:unmount,loadedPreview:loadedPreview};
   mount();
   render();
 })();

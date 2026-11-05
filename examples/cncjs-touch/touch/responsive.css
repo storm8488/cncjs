@@ -44,7 +44,7 @@ body.ks-ui #screen-files .library-execution>.job-buttons{position:sticky;bottom:
 
 /* === Inspection : tracé agrandi, panneau de détails replié ==================== */
 body.ks-ui.t-inspect .job-dashboard{grid-template-columns:minmax(0,1fr) minmax(0,auto)!important}
-body.ks-ui.t-inspect .job-metrics>:not(.home-inspect-row):not(.home-progress):not(#home-job-primary-row):not(#home-job-resume-row):not(.home-stop):not(#home-job-ready):not(.home-job-summary){display:none!important}
+body.ks-ui.t-inspect .job-metrics>:not(.home-inspect-row):not(.home-progress):not(#home-job-primary-row):not(#home-job-resume-row):not(.home-stop):not(#home-job-ready):not(.home-job-summary):not(.home-zone){display:none!important}
 body.ks-ui.t-inspect .job-metrics{width:clamp(280px,26vw,360px)}
 body.ks-ui.t-inspect .home-overrides{display:none!important}
 
@@ -159,3 +159,91 @@ body.ks-ui .pv3d-status.pv3d-status--below{position:static;margin:0;max-width:no
    keep the shared disabled look. */
 body.ks-ui #project-favorite:not(:disabled),body.ks-ui #project-open:not(:disabled){background:transparent;color:var(--fg);border:1px solid var(--line-strong);border-radius:var(--r-m)}
 body.ks-ui .preview-open:not(:disabled){background:var(--surface);color:var(--fg);border:1px solid var(--line-strong);border-radius:var(--r-m)}
+
+/* === Poste large (body.perf-wide, touch-shell.js) =============================
+   Profil Performance, rendu WebGL matériel et fenêtre ≥ 1300 × 880 en paysage (PERFORMANCE-UI-SPEC.md
+   § 2.2, § 5) : la classe seule décide, aucune requête média ne répète la règle. Hors perf-wide, rien
+   ne change. Cibles 64 / 48 / 96 px et texte ≥ 16 px comme ailleurs. */
+/* Préparer avec l'origine visuelle (body.perf-origin, posée par origin-preview.js quand #op-card est
+   montée) : coordonnées puis croix de jog dans la colonne gauche, sur toute la hauteur ; à droite le
+   bandeau d'intro puis la carte #op-card. À 1366 × 911, le bandeau sur toute la largeur ne laisse pas
+   la place à la croix sous les coordonnées (mesuré par browser-run.cjs) : il passe à droite. Le
+   tableau prend les tailles de la spécification (travail 36 px, machine 20 px, rangées 48 px) et la
+   ligne « Contrôleur suivi » se replie comme en fenêtre compacte. Entre le canvas de la carte et la
+   flèche la plus proche : la gouttière et les marges des deux cartes (≥ 24 px). Sans perf-origin, la
+   grille actuelle de Préparer s'applique. */
+body.ks-ui.perf-wide.perf-origin #screen-jog.active,body.ks-ui.perf-wide.perf-origin #screen-jog.kept{grid-template-columns:clamp(440px,34vw,520px) minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;grid-template-areas:"coords intro" "coords origin" "arrows origin"}
+body.ks-ui.perf-wide.perf-origin #screen-jog .ks-panel-intro{grid-area:intro;flex-wrap:wrap;row-gap:var(--sp-2)}
+body.ks-ui.perf-wide.perf-origin #screen-jog .ks-motion-coordinates{grid-area:coords;height:auto;min-height:0;gap:6px}
+body.ks-ui.perf-wide.perf-origin #screen-jog .ks-motion-arrows{grid-area:arrows;height:auto;min-height:0;gap:var(--sp-6);padding:var(--sp-2) var(--sp-3)!important}
+body.ks-ui.perf-wide.perf-origin #screen-jog #op-card{grid-area:origin;min-width:0;min-height:0;height:auto;align-self:stretch;overflow:hidden}
+body.ks-ui.perf-wide.perf-origin #screen-jog #jog-controller{display:none}
+body.ks-ui.perf-wide.perf-origin #screen-jog .ks-coordinate-table tbody tr{height:48px}
+body.ks-ui.perf-wide.perf-origin #screen-jog .ks-coordinate-table th,body.ks-ui.perf-wide.perf-origin #screen-jog .ks-coordinate-table td{padding:0 var(--sp-2)}
+body.ks-ui.perf-wide.perf-origin #screen-jog .ks-coordinate-table td b,body.ks-ui.perf-wide.perf-origin #screen-jog .ks-coordinate-table td[data-sim-coordinate]{font-size:var(--fs-36)}
+body.ks-ui.perf-wide.perf-origin #screen-jog .ks-coordinate-table td[data-coordinate=machine] b,body.ks-ui.perf-wide.perf-origin #screen-jog .ks-coordinate-table td[data-sim-coordinate=machinePosition]{font-size:var(--fs-20)}
+body.ks-ui.perf-wide.perf-origin #screen-jog .ks-coordinate-table td[data-coordinate=machine],body.ks-ui.perf-wide.perf-origin #screen-jog .ks-coordinate-table td[data-sim-coordinate=machinePosition]{width:110px}
+body.ks-ui.perf-wide.perf-origin #screen-jog .ks-coordinate-table td:last-child{width:104px}
+/* Suivi en zones (job-dashboard.js, .job-dashboard[data-zones]) : Vue (#home-left) | Instruments
+   (#home-zone-gauges) | Commandes (#home-zone-controls). Deux zones (Q3b, 1366 × 911) : la colonne
+   de droite garde ses 520 px, les instruments au-dessus des commandes, les corrections sous la vue.
+   Trois zones (fenêtre plus large) : 340 | 400 px, la vue au moins aussi large qu'aujourd'hui,
+   les corrections dans Commandes. Arrêter reste seul en bas des commandes. .job-art garde
+   position: relative et sa hauteur de grille (la vue 3D de V s'y monte). */
+body.ks-ui.perf-wide .job-dashboard[data-zones="2"]{grid-template-columns:minmax(0,1fr) 520px}
+body.ks-ui.perf-wide .job-dashboard[data-zones="3"]{grid-template-columns:minmax(0,1fr) 756px}
+body.ks-ui.perf-wide .job-dashboard[data-zones] .job-art{position:relative;flex:1 1 0;min-height:240px}
+/* Une note sous l'aperçu affiché (aperçu non vérifié…) garde sa colonne : sur une vue plus haute que
+   sur la RT, l'image ne la réduit plus à quelques pixels. */
+body.ks-ui.perf-wide .job-dashboard[data-zones] #home-job-image{min-width:0}
+body.ks-ui.perf-wide .job-dashboard[data-zones] #home-job-image:not([hidden])+#home-image-status{flex:0 0 210px}
+body.ks-ui.perf-wide .job-dashboard[data-zones] .job-metrics{gap:var(--sp-3)}
+body.ks-ui.perf-wide .job-dashboard[data-zones="3"] .job-metrics{display:grid;grid-template-columns:340px 400px;grid-template-rows:minmax(0,1fr);column-gap:var(--sp-4);align-items:stretch}
+body.ks-ui.perf-wide .home-zone{display:flex;flex-direction:column;gap:var(--sp-2);min-width:0;min-height:0}
+body.ks-ui.perf-wide .home-zone>*{flex-shrink:0;margin-top:0;margin-bottom:0}
+body.ks-ui.perf-wide .job-dashboard[data-zones="2"] .home-zone-controls{flex:1 1 auto}
+body.ks-ui.perf-wide .home-zone-controls>.home-stop{margin-top:auto}
+body.ks-ui.perf-wide .home-zone-controls>.home-load{margin-bottom:0}
+/* Instruments : pourcentage 64 px et ligne acquittée, temps restant 28 px avec sa source, coordonnées
+   travail 48 px et machine 24 px, avance et broche réelles 28 px, corrections lues, courbe (trois zones). */
+body.ks-ui.perf-wide #home-job-eta,body.ks-ui.perf-wide #home-job-motion{display:none}
+body.ks-ui.perf-wide .home-gauge-ack{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:0;text-align:right}
+body.ks-ui.perf-wide .home-gauge-ack small{font:600 var(--fs-16)/1.1 var(--font);color:var(--mute);letter-spacing:.04em;text-transform:uppercase}
+body.ks-ui.perf-wide .home-gauge-ack b{font:600 var(--fs-20)/1.1 var(--font-num);font-variant-numeric:tabular-nums;white-space:nowrap}
+body.ks-ui.perf-wide .home-gauge-eta{display:flex;flex-direction:column;gap:2px;padding:var(--sp-2) var(--sp-4)!important}
+body.ks-ui.perf-wide .home-gauge-eta-title{margin:0;font:600 var(--fs-28)/1.15 var(--font-num);font-variant-numeric:tabular-nums;color:var(--fg);overflow-wrap:anywhere}
+body.ks-ui.perf-wide .home-gauge-eta .t-help{margin:0;font-size:var(--fs-16);line-height:1.3}
+body.ks-ui.perf-wide .home-gauge-eta .t-help[hidden]{display:none}
+body.ks-ui.perf-wide .home-live-tiles b{font-size:var(--fs-28)}
+body.ks-ui.perf-wide .home-gauge-overrides{margin:0;font:var(--fs-18)/1.3 var(--font);color:var(--mute);font-variant-numeric:tabular-nums}
+body.ks-ui.perf-wide .home-gauge-overrides b{color:var(--fg);white-space:nowrap}
+body.ks-ui.perf-wide .home-gauge-overrides b[data-off="true"]{color:var(--warn-text)}
+body.ks-ui.perf-wide .home-gauge-curve{display:none}
+body.ks-ui.perf-wide .job-dashboard[data-zones="3"] .home-gauge-curve{display:flex;flex-direction:column;flex:0 1 auto;min-height:0;padding:var(--sp-2) var(--sp-3)!important}
+body.ks-ui.perf-wide .home-gauge-curve-title{margin:0;font:600 var(--fs-16)/1.2 var(--font);color:var(--mute)}
+body.ks-ui.perf-wide .home-gauge-curve svg{display:block;width:100%;height:90px;min-height:48px;flex:0 1 auto;margin-top:var(--sp-1)}
+body.ks-ui.perf-wide .home-gauge-curve-grid{fill:none;stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
+body.ks-ui.perf-wide .home-gauge-curve-line{fill:none;stroke:var(--info-text);stroke-width:2;vector-effect:non-scaling-stroke}
+/* Commandes : corrections ±10 % / 100 % à 64 px, ±1 % et rapides à 48 px ; en trois zones, le nom
+   au-dessus de sa rangée (400 px de large). */
+body.ks-ui.perf-wide .t-override:not(.t-override--rapid) .t-ov-row .t-btn:not(.t-fine){min-height:var(--tap-primary)}
+body.ks-ui.perf-wide .t-override--rapid .t-ov-row .t-btn{min-height:var(--tap)}
+body.ks-ui.perf-wide .job-dashboard[data-zones="3"] .t-override{grid-template-columns:minmax(0,1fr);gap:var(--sp-1)}
+body.ks-ui.perf-wide .job-dashboard[data-zones="3"] .t-ov-name{display:flex;align-items:baseline;gap:var(--sp-3)}
+body.ks-ui.perf-wide .job-dashboard[data-zones="3"] .t-ov-name b{display:inline;margin:0}
+body.ks-ui.perf-wide .job-dashboard[data-zones="3"] .t-ov-row .t-btn{font-size:var(--fs-20);padding:0 var(--sp-1)}
+body.ks-ui.perf-wide .job-dashboard[data-zones="3"] .t-ov-row .t-fine{font-size:var(--fs-18)}
+/* Inspection : deux zones comme aujourd'hui (avancement et commandes principales) ; trois zones : la
+   vue prend la place des instruments, les commandes restent entières. */
+body.ks-ui.perf-wide.t-inspect .job-dashboard[data-zones="2"] .home-zone-gauges>:not(.home-progress),body.ks-ui.perf-wide.t-inspect .job-dashboard[data-zones="2"] #home-zone-controls>:not(#home-job-primary-row):not(#home-job-resume-row):not(.home-stop):not(#home-job-ready):not(.home-overrides){display:none!important}
+body.ks-ui.perf-wide.t-inspect .job-dashboard[data-zones="2"] #home-zone-controls{flex:1 1 auto}
+body.ks-ui.perf-wide.t-inspect .job-dashboard[data-zones="3"]{grid-template-columns:minmax(0,1fr) 400px!important}
+body.ks-ui.perf-wide.t-inspect .job-dashboard[data-zones="3"] .job-metrics{width:auto;grid-template-columns:400px}
+body.ks-ui.perf-wide.t-inspect .job-dashboard[data-zones="3"] .home-zone-gauges{display:none!important}
+body.ks-ui.perf-wide.t-inspect .job-dashboard[data-zones="3"] .home-overrides:not([hidden]){display:grid!important}
+/* Fichiers : la liste à gauche, le détail et son grand aperçu à droite. */
+body.ks-ui.perf-wide #screen-files.active,body.ks-ui.perf-wide #screen-files.kept{grid-template-columns:clamp(440px,34vw,560px) minmax(0,1fr)}
+body.ks-ui.perf-wide #screen-files .library-detail{grid-template-rows:auto auto auto auto minmax(420px,1fr) auto auto}
+/* La liste plus étroite : le titre et « Ajouter » en haut, la recherche et « Favoris » dessous (comme en
+   fenêtre compacte), pour que le champ de recherche garde sa largeur. */
+body.ks-ui.perf-wide #screen-files .library-list-panel{grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto auto minmax(0,1fr) auto;grid-template-areas:"title add" "search fav" "status status" "list list" "pages pages"}

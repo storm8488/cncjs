@@ -17,7 +17,9 @@
 //   --only LIST      comma list among measure,responsive,sim,startup,e2e,strip (default all;
 //                    responsive = every screen at the CSS viewports of RESPONSIVE (landscape,
 //                    portrait, intermediate sizes, large text, browser zoom 150 / 200 %, a
-//                    virtual keyboard), then Pause / Arrêter and the primary commands hit-tested
+//                    virtual keyboard, the Surface Pro 3 kiosk at 1366 x 911 and the wide
+//                    workstation body.perf-wide at 1366 x 911 and 1728 x 1152 with Préparer
+//                    around an #op-card), then Pause / Arrêter and the primary commands hit-tested
 //                    with a job running, paused, in alarm and under stacked overlays; sim = the
 //                    simulation page with a job running, paused and in alarm, FR and ES,
 //                    plus the real page with the controller at rest in alarm; strip =
@@ -68,7 +70,11 @@ const RESPONSIVE = [
   [1180, 820, 1, '1180x820'], [1600, 900, 1, '1600x900'], [800, 1280, 1, '800x1280 portrait'], [600, 960, 1, '600x960 portrait'],
   [1280, 800, 1, '1280x800 texte agrandi', { large: true }], [720, 1080, 1, '720x1080 portrait texte agrandi', { large: true }],
   [911, 512, 1.5, '1366x768 zoom 150 % (911x512 @1.5)'], [683, 384, 2, '1366x768 zoom 200 % (683x384 @2)'], [540, 960, 2, '1080x1920 portrait zoom 200 % (540x960 @2)'],
-  [1366, 448, 1, '1366x768 clavier virtuel (1366x448)', { keyboard: true }], [720, 700, 1, '720x1080 portrait clavier virtuel (720x700)', { keyboard: true }]
+  [1366, 448, 1, '1366x768 clavier virtuel (1366x448)', { keyboard: true }], [720, 700, 1, '720x1080 portrait clavier virtuel (720x700)', { keyboard: true }],
+  // Surface Pro 3 kiosk (PERFORMANCE-UI-SPEC.md 5.1, 5.5): 1366 x 911 (scale 1.58) in Éco, then the wide
+  // workstation (body.perf-wide) at 1366 x 911 and 1728 x 1152: Performance profile by storage and
+  // perf-gpu set by CDP, since this PC's headless browser renders WebGL in software (Q12).
+  [1366, 911, 1, '1366x911'], [1366, 911, 1, '1366x911 poste large', { wide: true }], [1728, 1152, 1, '1728x1152 poste large', { wide: true }]
 ];
 const SCREENS = [['menu', 'Menu'], ['home', 'Suivi'], ['files', 'Fichiers'], ['jog', 'Préparer'], ['machine', 'Machine'], ['history', 'Journal'], ['settings', 'Réglages']];
 const STATE_WORDS = { fr: { idle: 'Repos', running: 'En cours', paused: 'Pause' }, en: { idle: 'Idle', running: 'Running', paused: 'Pause' }, es: { idle: 'Reposo', running: 'En curso', paused: 'Pausa' } };
@@ -370,11 +376,11 @@ const MEASURE = String(function measure(goals) {
 function textFitOf(data) {
   return data.targets.filter((t) => t.textOut > 1 || (t.brokenWords && t.brokenWords.length)).map((t) => ({ label: t.label, id: t.id, out: t.textOut, broken: t.brokenWords }));
 }
-async function measureScreens(cdp, baseUrl, variant, dirName, dpr, summary, strict) {
+async function measureScreens(cdp, baseUrl, variant, dirName, dpr, summary, strict, screens) {
   const dir = path.join(OUT, dirName);
   fs.mkdirSync(dir, { recursive: true });
   const results = [];
-  for (const [name, label] of SCREENS) {
+  for (const [name, label] of screens || SCREENS) {
     try {
       await goScreen(cdp, name);
       const data = await cdp.evaluate('(' + MEASURE + ')(' + JSON.stringify(GOALS) + ')');
@@ -741,12 +747,32 @@ async function hitCheck(cdp, ctx, where, ids, opts, report) {
 async function closeOverlays(cdp) {
   await cdp.evaluate('(function(){try{window.cncShell.closeSheet();}catch(e){}try{if(window.CNCPreviewGL&&window.CNCPreviewGL.close)window.CNCPreviewGL.close();}catch(e){}return true;})()').catch(() => {});
 }
+// The GPU gate of lot V (body.perf-gpu) forced from outside the page, after its own probe (Q12): the
+// shipped code has no hook for it. touch-shell.js then decides perf-wide by its own rule.
+// Suivi's structure (parent > children), compared before the wide layout and after leaving it.
+const SUIVI_SHAPE = '(function(){var d=document.querySelector("#screen-home .job-dashboard");if(!d)return "";function k(n){return n.id||n.tagName+"."+(typeof n.className==="string"?n.className:"");}' +
+  'return JSON.stringify([d,d.querySelector("#home-left"),d.querySelector(".job-metrics"),d.querySelector(".home-progress-head")].map(function(n){return n?k(n)+">"+Array.prototype.map.call(n.children,k).join(","):"";}))+"|"+d.hasAttribute("data-zones");})()';
+const FORCE_GPU = '(async function(){window.__brShape=' + SUIVI_SHAPE + ';try{if(window.cncGpu&&typeof window.cncGpu.ready==="function")await window.cncGpu.ready();}catch(e){}' +
+  'document.body.classList.add("perf-gpu");var s={checked:true,hardware:true,lost:false,renderer:"browser-run",reason:""};try{if(window.cncGpu)s=Object.assign(window.cncGpu.state(),{hardware:true,reason:""});}catch(e){}' +
+  'window.dispatchEvent(new CustomEvent("cnc-gpu-change",{detail:s}));await new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(r);});});' +
+  'return document.body.classList.contains("perf-wide")&&!!(window.cncLayout&&window.cncLayout.wide());})()';
 async function responsiveVariant(cdp, url, w, h, dpr, opts) {
   await setViewport(cdp, w, h, dpr);
   await navigate(cdp, url.replace(/[^/]*$/, '') + 'README.md');
-  await cdp.evaluate('localStorage.removeItem("cncjs-touch-language-v1");localStorage.setItem("cncjs-touch-display-v1",' + JSON.stringify(JSON.stringify({ size: opts && opts.large ? 'large' : 'standard' })) + ');true');
+  const profile = opts && opts.wide ? 'localStorage.setItem("cncjs-touch-performance-v1",' + JSON.stringify(JSON.stringify({ version: 1, profile: 'performance' })) + ');' : 'localStorage.removeItem("cncjs-touch-performance-v1");';
+  await cdp.evaluate('localStorage.removeItem("cncjs-touch-language-v1");' + profile + 'localStorage.setItem("cncjs-touch-display-v1",' + JSON.stringify(JSON.stringify({ size: opts && opts.large ? 'large' : 'standard' })) + ');true');
   await navigate(cdp, url + (url.includes('?') ? '&' : '?') + 'responsive=' + w + 'x' + h);
+  if (opts && opts.wide) {
+    await waitReady(cdp);
+    if (!(await cdp.evaluate(FORCE_GPU))) throw new Error('perf-wide not applied at ' + w + 'x' + h);
+  }
 }
+// Préparer with the origin preview of lot O (#op-card, body.perf-origin): measured with O's card when
+// the page mounted it, else with a placeholder card of the same id, to check D's grid around it.
+const ORIGIN_CARD = '(function(){var s=document.getElementById("screen-jog");if(!s)return false;var c=document.getElementById("op-card");' +
+  'if(!c){c=document.createElement("section");c.id="op-card";c.className="card op-card";c.setAttribute("data-browser-run","placeholder");' +
+  'var h=document.createElement("h2");h.textContent="Où le programme se placera";var v=document.createElement("div");v.style.cssText="flex:1 1 auto;min-height:260px;background:#101820;border-radius:10px";' +
+  'c.appendChild(h);c.appendChild(v);s.appendChild(c);}document.body.classList.add("perf-origin");return true;})()';
 async function responsiveMeasure(cdp, realUrl, simUrl, summary) {
   const report = [];
   for (const [w, h, dpr, label, opts] of RESPONSIVE) {
@@ -754,6 +780,20 @@ async function responsiveMeasure(cdp, realUrl, simUrl, summary) {
     try {
       await responsiveVariant(cdp, realUrl, w, h, dpr, opts); await waitSettled(cdp);
       await measureScreens(cdp, realUrl, label, dirName, dpr, summary, true);
+      if (opts && opts.wide) {
+        if (!(await cdp.evaluate(ORIGIN_CARD))) throw new Error('Préparer not found');
+        await measureScreens(cdp, realUrl, label + ' + #op-card', dirName + '-op-card', dpr, summary, true, [['jog', 'Préparer']]);
+        // The canvas of the origin card never lies within 24 px of a jog arrow (spec 5.4).
+        const gap = await cdp.evaluate('(function(){var c=document.getElementById("op-card").getBoundingClientRect(),m=Infinity;Array.prototype.forEach.call(document.querySelectorAll("#screen-jog .jog"),function(b){var r=b.getBoundingClientRect();if(!r.width)return;var dx=Math.max(c.left-r.right,r.left-c.right,0),dy=Math.max(c.top-r.bottom,r.top-c.bottom,0);m=Math.min(m,Math.max(dx,dy));});return m;})()');
+        if (!(gap >= 24)) failures.push('responsive ' + label + ': #op-card ' + gap + ' px from a jog arrow, goal 24');
+        log(label + ' Préparer + #op-card: nearest jog arrow ' + gap + ' px from the card');
+        // Leaving the wide layout (Éco chosen, for instance) puts Suivi back exactly as it was.
+        const back = await cdp.evaluate('(async function(){var c=document.getElementById("op-card");if(c&&c.getAttribute("data-browser-run"))c.remove();document.body.classList.remove("perf-origin","perf-gpu");' +
+          'window.dispatchEvent(new CustomEvent("cnc-gpu-change",{detail:{hardware:false}}));await new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(r);});});' +
+          'return {wide:document.body.classList.contains("perf-wide"),same:window.__brShape===' + SUIVI_SHAPE + ',zones:!!document.getElementById("home-zone-gauges")&&document.contains(document.getElementById("home-zone-gauges"))};})()');
+        if (back.wide || !back.same || back.zones) failures.push('responsive ' + label + ': Suivi not restored after leaving the wide layout (' + JSON.stringify(back) + ')');
+        else log(label + ': Suivi restored as before after leaving the wide layout');
+      }
     } catch (e) { failures.push('responsive ' + label + ': ' + e.message); log('FAIL responsive ' + label + ': ' + e.message); }
   }
   for (const [w, h, dpr, label, opts] of RESPONSIVE) {
@@ -780,6 +820,15 @@ async function responsiveMeasure(cdp, realUrl, simUrl, summary) {
       await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 15000, 'running');
       await sleep(800);
       for (const [name] of SCREENS) { await goScreen(cdp, name); await hitCheck(cdp, ctx, 'running ' + name, ['t-pause', 't-stop'], { required: true }, report); }
+      // Wide workstation: Pause and Arrêter of Suivi's Commandes zone too, Arrêter alone below Pause.
+      if (opts && opts.wide) {
+        await goScreen(cdp, 'home');
+        await hitCheck(cdp, ctx, 'running Suivi (zones)', ['home-job-pause', 'home-job-stop'], { scroll: true, required: true }, report);
+        const zones = await cdp.evaluate('(function(){var d=document.querySelector(".job-dashboard"),p=document.getElementById("home-job-pause").getBoundingClientRect(),s=document.getElementById("home-job-stop").getBoundingClientRect(),c=document.getElementById("home-zone-controls");' +
+          'return {zones:d&&d.getAttribute("data-zones"),stopInControls:!!(c&&c.contains(document.getElementById("home-job-stop"))),stopBelow:s.top>=p.bottom,side:!(s.top>=p.bottom||p.top>=s.bottom)};})()');
+        if (!zones.zones || !zones.stopInControls) failures.push('responsive ' + ctx + ': Suivi zones not built (' + JSON.stringify(zones) + ')');
+        if (!zones.stopBelow || zones.side) failures.push('responsive ' + ctx + ': Arrêter not alone below Pause (' + JSON.stringify(zones) + ')');
+      }
       // One sheet, then the numeric pad stacked on it.
       await goScreen(cdp, 'jog');
       await cdp.evaluate('document.getElementById("ks-origin-info").click();true'); await sleep(400);
@@ -838,9 +887,11 @@ async function responsiveMeasure(cdp, realUrl, simUrl, summary) {
       await navigate(cdp, realUrl.replace(/[^/]*$/, '') + 'README.md');
       await cdp.evaluate('localStorage.setItem("cncjs-touch-performance-v1",' + JSON.stringify(JSON.stringify({ version: 1, profile: perf })) + ');true');
       await navigate(cdp, realUrl + (realUrl.includes('?') ? '&' : '?') + 'advanced=' + perf); await waitReady(cdp);
-      const state = await cdp.evaluate('({perf:window.cncProfile.performance(),cls:document.body.classList.contains("perf-"+window.cncProfile.performance()),requests:' + GL_REQUESTS + ',tag:!!document.querySelector("script[src*=preview-gl]")})');
+      const state = await cdp.evaluate('({perf:window.cncProfile.performance(),cls:document.body.classList.contains("perf-"+window.cncProfile.performance()),requests:' + GL_REQUESTS + ',tags:document.querySelectorAll("script[src*=preview-gl]").length})');
       if (state.perf !== perf || !state.cls) failures.push('advanced ' + perf + ': profile read back as ' + state.perf);
-      if (state.requests || state.tag) failures.push('advanced ' + perf + ': preview-gl.js requested at load');
+      // Éco: never. Performance: at most once, by loadAdvanced for the GPU probe after load
+      // (PERFORMANCE-UI-SPEC.md 2.1, Q3), never as a script of the page itself.
+      if (perf === 'eco' ? state.requests || state.tags : state.requests > 1 || state.tags > 1) failures.push('advanced ' + perf + ': preview-gl.js requested at load (' + JSON.stringify(state) + ')');
       // The « 3D libre » button of a file's preview, when the fixture shows one.
       await goScreen(cdp, 'files');
       await cdp.evaluate('(function(){var f=document.querySelector(".library-file");if(f)f.click();return true;})()'); await sleep(1500);
