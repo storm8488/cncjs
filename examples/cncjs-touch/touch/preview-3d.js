@@ -74,11 +74,19 @@
     if (host.bar.hidden !== bar) host.bar.hidden = bar;
   }
   // ---- Inline free 3D view (CNC, Performance): drawn in the preview frame, turned with a finger ----
-  // Suivi keeps its fixed view and progress trail while a job runs or is paused.
-  var jobBusy = false;
+  // Suivi keeps its fixed view and progress trail while a job runs or is paused, except under the GPU
+  // gate (spec 3.1): the live 3D view of the loaded program then stays, with its progress and marker.
+  var jobBusy = false, jobMachine = null;
+  function samePrint(a, b) { return String(a || '').toLowerCase().replace(/^sha256:/, '') === String(b || '').toLowerCase().replace(/^sha256:/, ''); }
+  function liveAllowed(host) {
+    var g = gpuState(), m = jobMachine, meta = host.meta, art = host.img.parentNode;
+    if (host.img.id !== 'home-job-image' || !g.hardware || g.lost || !m || !meta || m.name !== meta.file) return false;
+    if (m.fingerprint && meta.fingerprint && !samePrint(m.fingerprint, meta.fingerprint)) return false;
+    return !(art && typeof art.getAttribute === 'function' && art.getAttribute('data-identity') === 'other');
+  }
   function inlineMode(host) {
     if (laserMachine() || !performance() || !host.base || !keyOf(host.meta)) return false;
-    if (host.img.id === 'home-job-image' && jobBusy) return false;
+    if (host.img.id === 'home-job-image' && jobBusy && !liveAllowed(host)) return false;
     return host.failedKey !== keyOf(host.meta);
   }
   function visible(host) { var s = host.img.closest ? host.img.closest('.screen') : null; return !s || !s.classList || s.classList.contains('active'); }
@@ -96,17 +104,20 @@
     var extra = meta.estimate !== undefined ? Promise.resolve(meta) : sidecar(meta.file).then(function (s) { return s.fingerprint === meta.fingerprint && s.preview ? s.preview : {}; }, function () { return {}; });
     function failed(message) { if (host.glRequest !== request && host.glRequest !== null) return; host.failedKey = key; host.gl = null; refresh(); status(host, message); }
     Promise.all([P.loadAdvanced(['preview-gl.js']), extra]).then(function (r) {
+      gpuEnsure();
       if (host.glRequest !== request || !inlineMode(host) || !visible(host)) return;
       if (!root.CNCPreviewGL) throw new Error(t('module absent'));
-      gpuEnsure();
       var full = {}; Object.keys(meta).forEach(function (k) { full[k] = meta[k]; });
       if (full.estimate === undefined) full.estimate = r[1].estimate || null;
       var stock = root.CNCProjects && typeof root.CNCProjects.stock === 'function' ? root.CNCProjects.stock(meta.file) : null;
       status(host, '');
-      var handle = root.CNCPreviewGL.open(full, { container: host.img.parentNode, stock: stock,
+      // Suivi: the live view (progress and tool marker; ignored by preview-gl.js without the GPU gate).
+      // Fichiers never follows the machine (spec 2.4).
+      var home = host.img.id === 'home-job-image';
+      var handle = root.CNCPreviewGL.open(full, { container: host.img.parentNode, stock: stock, live: home ? { progress: true, tool: true } : undefined,
         onFallback: function (message) { failed(message); },
-        onClose: function () { if (host.gl === handle) host.gl = null; } });
-      if (handle) host.gl = handle;
+        onClose: function () { if (host.gl === handle) host.gl = null; if (host.img.cncLiveView === handle) host.img.cncLiveView = null; } });
+      if (handle) { host.gl = handle; if (home) host.img.cncLiveView = handle; }
     }).catch(function (e) { failed(t('Vue 3D libre indisponible : ') + String(e && e.message || e) + t('. Vues fixes conservées.')); });
   }
   function update(host) {
@@ -238,7 +249,7 @@
     function run() {
       gpuIdle = null;
       if (gpuProbe || !performance()) return;
-      P.loadAdvanced(['preview-gl.js']).then(gpuEnsure, function () {
+      P.loadAdvanced(['preview-gl.js']).then(function () { var first = !gpuProbe; gpuEnsure(); if (first && gpuProbe) refresh(); }, function () {
         // Refused because the profile went back to eco: probed again on the next switch.
         if (performance() && !gpuProbe) { gpuProbe = { hardware: false, reason: 'probe-failed' }; gpuApply(); }
       });
@@ -475,6 +486,7 @@
     root.addEventListener('cnc-screen-change', function () { setTimeout(refresh, 50); });
     root.addEventListener('cnc-job-status', function (e) {
       var m = e && e.detail && e.detail.machine, busy = !!(m && m.workflow && m.workflow !== 'idle');
+      jobMachine = m || null;
       if (busy !== jobBusy) { jobBusy = busy; refresh(); }
     });
   }
