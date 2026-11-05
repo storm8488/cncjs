@@ -11,7 +11,7 @@ function fixture(){
     abort(){this.aborted=true;}
   }
   const window={};vm.runInNewContext(fs.readFileSync(__dirname+'/touch/job-stream.js','utf8'),{window});
-  const client=window.CNCJobStream.create({XMLHttpRequest:XHR,token:()=>'',clock:()=>now,
+  const client=window.CNCJobStream.create({XMLHttpRequest:XHR,token:()=>'fixture',clock:()=>now,
     timer:{setInterval(fn){tick=fn;return 1;},clearInterval(){tick=null;}},
     onSnapshot:p=>snapshots.push(p),onDisconnect:r=>disconnects.push(r),onStatus(){}});
   requests[0].responseText='{"loaded":true,"protocol":1}';requests[0].onload();

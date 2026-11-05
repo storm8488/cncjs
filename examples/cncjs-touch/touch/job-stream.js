@@ -35,7 +35,7 @@
       options.onDisconnect(locale.t(reason), !!rotating);
     }
     function open() {
-      if (disposed || offline || xhr || !available || clock() < retryAt) return;
+      if (disposed || offline || xhr || !available || clock() < retryAt || !token()) return;
       var id = ++generation, cursor = 0, rotate = false, clockOffset = null, sequence = 0, epoch = '', transport = '';
       xhr = new XHR(); var request = xhr; openedAt = clock();
       // The stream carries this device's presence (F5): its control lease lives while it is open.
@@ -77,6 +77,8 @@
     function health() {
       if (disposed || offline || healthRequest || clock() < healthAt) return;
       healthAt = clock() + 60000;
+      // No session yet (first start, expired token): nothing to send, app.js renews it and reloads.
+      if (!token()) { available = false; options.onStatus(locale.t('Session CNCjs requise.')); return; }
       var request = healthRequest = new XHR();
       request.open('GET',base+'/custom/health',true); request.timeout=5000;
       request.setRequestHeader('Authorization','Bearer '+token());

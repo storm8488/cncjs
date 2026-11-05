@@ -14,7 +14,7 @@
     uiLocale.html('<p id="library-status" role="status">Connexion à la bibliothèque…</p>') +
     uiLocale.html('<div id="library-list" aria-label="Fichiers disponibles"></div>') +
     uiLocale.html('<div class="library-pages"><button id="library-prev" type="button" hidden>← Précédent</button><span id="library-page"></span><button id="library-more" type="button" hidden>Suivant →</button></div>') +
-    uiLocale.html('<details id="library-upload"><summary>＋ Envoyer depuis ce PC</summary>') +
+    uiLocale.html('<details id="library-upload"><summary>+ Envoyer depuis ce PC</summary>') +
     uiLocale.html('<p>Le fichier et son image 2D seront enregistrés sur le serveur.</p>') +
     uiLocale.html('<label for="library-input">Fichier G-code — 20 Mo maximum</label>') +
     uiLocale.html('<input id="library-input" type="file" accept=".nc,.gcode,.tap,.ngc,.cnc,.txt">') +

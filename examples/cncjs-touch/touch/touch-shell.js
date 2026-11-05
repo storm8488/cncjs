@@ -102,7 +102,7 @@
   document.querySelector('.library-detail').appendChild(tools);
   var upload=sheet('ks-upload',uiLocale.t('Ajouter un fichier à la bibliothèque'));
   var uploadBlock=document.getElementById('library-upload');uploadBlock.open=true;uploadBlock.querySelector('summary').hidden=true;upload.content.appendChild(uploadBlock);
-  var uploadButton=document.createElement('button');uploadButton.type='button';uploadButton.className='ks-upload-button';uploadButton.textContent=uiLocale.t('＋ Ajouter un fichier');uploadButton.addEventListener('click',upload.open);document.querySelector('.library-list-panel').appendChild(uploadButton);
+  var uploadButton=document.createElement('button');uploadButton.type='button';uploadButton.className='ks-upload-button';uploadButton.textContent=uiLocale.t('+ Ajouter un fichier');uploadButton.addEventListener('click',upload.open);document.querySelector('.library-list-panel').appendChild(uploadButton);
   var refresh=document.getElementById('library-refresh');document.querySelector('.library-list-title').appendChild(refresh);document.querySelector('.library-header').hidden=true;
   document.getElementById('job-load').textContent=uiLocale.t('Charger et ouvrir le Suivi');
   document.querySelector('.library-execution h2').textContent=simulation?uiLocale.t('Travail simulé'):uiLocale.t('Exécution sur la machine');
