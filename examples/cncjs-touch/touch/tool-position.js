@@ -39,6 +39,8 @@
     return Math.min(totalLines,Math.max(0,s.received/s.total*totalLines));
   }
   if(typeof module!=='undefined'&&module.exports){module.exports={project:project,trailCount:trailCount,acknowledged:acknowledged};return;}
+  // Same functions in the page (PERFORMANCE-UI-SPEC.md 8.4): one rule for the acknowledged lines, read by the live 3D view and the gauges.
+  root.CNCToolPosition={project:project,trailCount:trailCount,acknowledged:acknowledged};
   var img=document.getElementById('home-job-image');if(!img)return;
   var marker=document.createElement('span');marker.className='tool-position-marker';marker.hidden=true;marker.setAttribute('aria-hidden','true');img.parentNode.appendChild(marker);
   // Progress trail: the acknowledged part of the toolpath, drawn from the

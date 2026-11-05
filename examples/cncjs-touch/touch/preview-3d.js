@@ -98,6 +98,7 @@
     Promise.all([P.loadAdvanced(['preview-gl.js']), extra]).then(function (r) {
       if (host.glRequest !== request || !inlineMode(host) || !visible(host)) return;
       if (!root.CNCPreviewGL) throw new Error(t('module absent'));
+      gpuEnsure();
       var full = {}; Object.keys(meta).forEach(function (k) { full[k] = meta[k]; });
       if (full.estimate === undefined) full.estimate = r[1].estimate || null;
       var stock = root.CNCProjects && typeof root.CNCProjects.stock === 'function' ? root.CNCProjects.stock(meta.file) : null;
@@ -190,6 +191,7 @@
       if (freeOpen !== request) return;
       if (!performance() || !visible(host)) { drop(); return; }
       if (!root.CNCPreviewGL) throw new Error(t('module absent'));
+      gpuEnsure();
       var full = {}; Object.keys(meta).forEach(function (k) { full[k] = meta[k]; });
       if (full.estimate === undefined) full.estimate = r[1].estimate || null;
       var stock = root.CNCProjects && typeof root.CNCProjects.stock === 'function' ? root.CNCProjects.stock(meta.file) : null;
@@ -198,6 +200,63 @@
       if (!opened) drop();
     }).catch(function (e) { if (freeOpen === request) { freeOpen = null; refresh(); status(host, t('Vue 3D libre indisponible : ') + String(e && e.message || e) + t('. Vues fixes conservées.')); } });
   }
+
+  // ---- GPU gate (PERFORMANCE-UI-SPEC.md 2.1, 8.1): Performance profile AND a hardware WebGL probe ----
+  // The probe (CNCPreviewGL.probeGpu, in the advanced module) runs once per page, in Performance only,
+  // from an idle callback or when a 3D view is opened, never from a cnc-job-status handler. Eco loads
+  // nothing, opens no context and answers {checked: true, hardware: false, reason: 'eco'}. The result is
+  // kept for the page's life: eco removes the class, Performance puts it back without a new probe.
+  // There is no way to force the gate open (no URL parameter, no storage key).
+  var gpuProbe = null, gpuLost = false, gpuWaiters = [], gpuIdle = null, gpuSent = '';
+  function gpuState() {
+    var p = gpuProbe || {};
+    var s = { checked: !!gpuProbe, hardware: p.hardware === true, lost: gpuLost, renderer: typeof p.renderer === 'string' ? p.renderer : '', webgl2: p.webgl2 === true, antialias: p.antialias === true,
+      lineWidth: Array.isArray(p.lineWidth) && p.lineWidth.length === 2 ? p.lineWidth.slice() : [1, 1], maxTextureSize: typeof p.maxTextureSize === 'number' ? p.maxTextureSize : 0,
+      reason: gpuProbe ? (typeof p.reason === 'string' ? p.reason : '') : 'pending' };
+    if (!performance()) { s.checked = true; s.hardware = false; s.reason = 'eco'; } else if (s.lost) s.reason = 'context-lost';
+    return s;
+  }
+  function gpuApply() {
+    var s = gpuState(), list = document.body && document.body.classList;
+    if (list && typeof list.toggle === 'function') { list.toggle('perf-gpu', s.hardware); list.toggle('perf-gpu-lost', s.hardware && s.lost); }
+    var signature = JSON.stringify(s);
+    if (signature !== gpuSent) {
+      gpuSent = signature;
+      try { root.dispatchEvent(new root.CustomEvent('cnc-gpu-change', { detail: s })); } catch (_) {}
+    }
+    if (s.checked && gpuWaiters.length) { var waiting = gpuWaiters; gpuWaiters = []; waiting.forEach(function (fn) { fn(s); }); }
+  }
+  // Probe now, the module being loaded (a 3D view is opening): the view then decides its rendering.
+  function gpuEnsure() {
+    if (gpuProbe || !performance() || !root.CNCPreviewGL || typeof root.CNCPreviewGL.probeGpu !== 'function') return;
+    try { gpuProbe = root.CNCPreviewGL.probeGpu(document); } catch (_) { gpuProbe = { hardware: false, reason: 'probe-failed' }; }
+    gpuApply();
+  }
+  function gpuSchedule() {
+    var P = profile();
+    if (gpuProbe || gpuIdle !== null || !performance() || !P || typeof P.loadAdvanced !== 'function') return;
+    function run() {
+      gpuIdle = null;
+      if (gpuProbe || !performance()) return;
+      P.loadAdvanced(['preview-gl.js']).then(gpuEnsure, function () {
+        // Refused because the profile went back to eco: probed again on the next switch.
+        if (performance() && !gpuProbe) { gpuProbe = { hardware: false, reason: 'probe-failed' }; gpuApply(); }
+      });
+    }
+    // Called on window: Chromium refuses a detached requestIdleCallback.
+    if (typeof root.requestIdleCallback === 'function') gpuIdle = root.requestIdleCallback(run, { timeout: 3000 });
+    else gpuIdle = setTimeout(run, 300);
+  }
+  root.cncGpu = {
+    state: gpuState,
+    ready: function () {
+      var s = gpuState();
+      if (s.checked) return Promise.resolve(s);
+      return new Promise(function (resolve) { gpuWaiters.push(resolve); gpuSchedule(); });
+    },
+    // Internal (preview-gl.js): a view lost its WebGL context. Only ever closes the gate, until a reload.
+    _contextLost: function () { if (!gpuLost) { gpuLost = true; gpuApply(); refresh(); } }
+  };
 
   // ---- Export / import of a preview between two servers (Fichiers only) ----
   function exportPreview(host) {
@@ -411,7 +470,7 @@
   document.addEventListener('visibilitychange', function () { if (!document.hidden) pump(); });
   // The profile changed (eco / performance, CNC / laser): the buttons follow; an open free view closes itself.
   if (typeof root.addEventListener === 'function') {
-    root.addEventListener('cnc-profile-change', function () { refresh(); });
+    root.addEventListener('cnc-profile-change', function () { gpuApply(); gpuSchedule(); refresh(); });
     // The inline view closes itself on a screen change; it is opened again on the screen now shown.
     root.addEventListener('cnc-screen-change', function () { setTimeout(refresh, 50); });
     root.addEventListener('cnc-job-status', function (e) {
@@ -419,6 +478,7 @@
       if (busy !== jobBusy) { jobBusy = busy; refresh(); }
     });
   }
+  gpuApply(); gpuSchedule();
   root.cncPreviewViews = { view: current, choose: choose, openFree: function (imageId) { var h = hosts.filter(function (x) { return x.img.id === imageId; })[0]; if (h) openFree(h); }, title: function (v) { return TITLES[v] || ''; },
     state: function () { return { worker: workerState, active: active ? active.view + (active.urgent ? '!' : '') : null, idle: idle !== null, queue: queue.map(function (j) { return j.entry.file + ':' + j.view + (j.urgent ? '!' : ''); }) }; }, cached: function () { return cache.map(function (e) { return { key: e.key, file: e.file, views: Object.keys(e.views), failed: e.failed }; }); } };
 })(typeof window !== 'undefined' ? window : this);

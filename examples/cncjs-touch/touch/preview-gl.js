@@ -64,6 +64,102 @@
   }
   function centreOf(b) { return [(b[0] + b[3]) / 2, (b[1] + b[4]) / 2, (b[2] + b[5]) / 2]; }
 
+  // ---- Overlays (PERFORMANCE-UI-SPEC.md 8.3): coloured lines only, no command meaning ----
+  // Named colours only (the dark tokens), never a free CSS colour.
+  var OVERLAY_COLOURS = { info: '#7cbcff', ok: '#5fe39a', warn: '#ffc857', danger: '#ff8a80', neutral: '#aab8c1', stock: '#dbc796', clamp: '#ff784f' };
+  var OVERLAY_FIELDS = { segments: ['id', 'kind', 'frame', 'points', 'colour', 'width'], box: ['id', 'kind', 'frame', 'min', 'max', 'colour', 'width'],
+    program: ['id', 'kind', 'translate', 'colour', 'width'], marker: ['id', 'kind', 'frame', 'at', 'colour'] };
+  var MAX_OVERLAYS = 16, MAX_POINT_NUMBERS = 300000, MAX_ABS = 100000;
+  function triple(v) { return (Array.isArray(v) || ArrayBuffer.isView(v)) && v.length === 3 && Array.prototype.every.call(v, function (n) { return typeof n === 'number' && isFinite(n) && Math.abs(n) <= MAX_ABS; }); }
+  // '' when accepted, else the refusal code. Same rules, same order as the stub of spec 8.10.
+  function checkOne(o, ids, budget) {
+    if (!o || typeof o !== 'object') return 'field';
+    if (typeof o.id !== 'string' || !/^[a-z0-9-]{1,32}$/.test(o.id) || ids[o.id]) return 'id';
+    var allowed = OVERLAY_FIELDS[o.kind]; if (!allowed || !Object.prototype.hasOwnProperty.call(OVERLAY_FIELDS, o.kind)) return 'kind';
+    var extra = Object.keys(o).filter(function (k) { return allowed.indexOf(k) < 0 || typeof o[k] === 'function'; });
+    if (extra.length) return 'field';
+    if (o.kind !== 'program' && o.frame !== undefined && o.frame !== 'work' && o.frame !== 'machine') return 'frame';
+    if (!Object.prototype.hasOwnProperty.call(OVERLAY_COLOURS, o.colour)) return 'colour';
+    if (o.kind !== 'marker' && o.width !== undefined && o.width !== 'thin' && o.width !== 'thick') return 'width';
+    if (o.kind === 'segments') {
+      var p = o.points;
+      if (!(Array.isArray(p) || p instanceof Float32Array) || !p.length || p.length % 6) return 'points';
+      for (var i = 0; i < p.length; i++) if (typeof p[i] !== 'number' || !isFinite(p[i]) || Math.abs(p[i]) > MAX_ABS) return 'number';
+      if (budget.points + p.length > MAX_POINT_NUMBERS) return 'limit';
+      budget.points += p.length;
+    }
+    if (o.kind === 'box') { if (!triple(o.min) || !triple(o.max)) return 'number'; for (var a = 0; a < 3; a++) if (o.min[a] > o.max[a]) return 'number'; }
+    if (o.kind === 'program' && !triple(o.translate)) return 'number';
+    if (o.kind === 'marker' && !triple(o.at)) return 'number';
+    return '';
+  }
+  // Pure: {accepted: the accepted objects, refused: [{id, code, message}]}. At most 16 accepted.
+  function checkOverlays(list) {
+    var accepted = [], refused = [], ids = {}, budget = { points: 0 };
+    (Array.isArray(list) ? list : []).forEach(function (o) {
+      var code = accepted.length >= MAX_OVERLAYS ? 'limit' : checkOne(o, ids, budget);
+      if (code) refused.push({ id: o && typeof o.id === 'string' ? o.id : '', code: code, message: t('Incrustation refusée : ') + code });
+      else { ids[o.id] = true; accepted.push(o); }
+    });
+    return { accepted: accepted, refused: refused };
+  }
+  // A private copy of an accepted overlay (the caller may change its arrays afterwards).
+  function copyOverlay(o) {
+    var c = { id: o.id, kind: o.kind, frame: o.kind === 'program' ? 'work' : o.frame || 'work', colour: o.colour, width: o.kind === 'marker' ? 'thin' : o.width || 'thin' };
+    ['min', 'max', 'at', 'translate'].forEach(function (k) { if (o[k]) c[k] = [o[k][0], o[k][1], o[k][2]]; });
+    if (o.points) c.points = new Float32Array(o.points);
+    return c;
+  }
+  function sameOverlay(a, b) {
+    if (!a || !b) return false;
+    var keys = ['id', 'kind', 'frame', 'colour', 'width'];
+    for (var i = 0; i < keys.length; i++) if (a[keys[i]] !== b[keys[i]]) return false;
+    var arrays = ['min', 'max', 'at', 'translate', 'points'];
+    for (var j = 0; j < arrays.length; j++) {
+      var x = a[arrays[j]], y = b[arrays[j]];
+      if (!x !== !y) return false;
+      if (x) { if (x.length !== y.length) return false; for (var k = 0; k < x.length; k++) if (x[k] !== y[k]) return false; }
+    }
+    return true;
+  }
+
+  // ---- GPU gate probe (spec 2.1): called by preview-3d.js only, in the Performance profile ----
+  var SOFTWARE_RENDERER = /swiftshader|llvmpipe|softpipe|software|basic render/i;
+  // A 1 × 1 canvas off the document: a hardware WebGL context and a renderer that is not a
+  // software one. Reads the capabilities the GPU rendering needs, then releases the contexts.
+  function probeGpu(doc) {
+    doc = doc || root.document;
+    var result = { hardware: false, renderer: '', webgl2: false, antialias: false, lineWidth: [1, 1], maxTextureSize: 0, reason: 'no-webgl' };
+    function lose(g) { try { var x = g && g.getExtension && g.getExtension('WEBGL_lose_context'); if (x) x.loseContext(); } catch (_) {} }
+    var gl = null;
+    try {
+      var canvas = doc.createElement('canvas'); canvas.width = 1; canvas.height = 1;
+      gl = canvas.getContext('webgl', { failIfMajorPerformanceCaveat: true, antialias: true }) || canvas.getContext('experimental-webgl', { failIfMajorPerformanceCaveat: true, antialias: true });
+      if (!gl) return result;
+      var info = gl.getExtension && gl.getExtension('WEBGL_debug_renderer_info');
+      result.renderer = String((info && gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) || gl.getParameter(gl.RENDERER) || '');
+      var range = gl.getParameter(gl.ALIASED_LINE_WIDTH_RANGE);
+      if (range && range.length >= 2 && isFinite(range[0]) && isFinite(range[1])) result.lineWidth = [Number(range[0]), Number(range[1])];
+      result.maxTextureSize = Number(gl.getParameter(gl.MAX_TEXTURE_SIZE)) || 0;
+      var attrs = gl.getContextAttributes && gl.getContextAttributes();
+      result.antialias = !!(attrs && attrs.antialias);
+      try {
+        var c2 = doc.createElement('canvas'); c2.width = 1; c2.height = 1;
+        var g2 = c2.getContext('webgl2', { failIfMajorPerformanceCaveat: true });
+        result.webgl2 = !!g2; lose(g2);
+      } catch (_) { result.webgl2 = false; }
+      result.hardware = !SOFTWARE_RENDERER.test(result.renderer);
+      result.reason = result.hardware ? '' : 'software';
+    } catch (_) {
+      result.hardware = false; result.reason = 'probe-failed';
+    } finally { lose(gl); }
+    return result;
+  }
+  // The gate as the views read it at opening: Performance, hardware probe, no context lost since.
+  function gpuGate(win) {
+    try { var s = win.cncGpu && typeof win.cncGpu.state === 'function' ? win.cncGpu.state() : null; return s && s.hardware === true && s.lost !== true ? s : null; } catch (_) { return null; }
+  }
+
   // Interleaved vertices (x, y, z, r, g, b) of the visible segments, the boxes and the axes.
   function buildVertices(path, mask, centre, zmin, boxes, axisLength) {
     var n = path.count, P = path.positions, R = path.rapid, visible = 0, i;
@@ -193,10 +289,19 @@
   // Opens the free view over the page. meta: {file, fingerprint, path3d, zBounds, estimate};
   // options: {document, window, onClose(reason), onFallback(message), source (inspection), storage, stock,
   // container}: with a container the view is drawn inside it (the preview frame) instead of over the page.
+  // Under the GPU gate (cncGpu, read once here, never changed during the view's life), also
+  // {live: {progress, tool}, overlays: [...], pathStyle: 'normal'|'ghost'|'hidden', fit: 'path'|'all'}
+  // (spec 8.2); without the gate these are ignored and the view behaves as before.
   function open(meta, options) {
     options = options || {};
     var win = options.window || root, doc = options.document || win.document;
     if (current) current.close('replaced');
+    var gate = gpuGate(win), gpu = !!gate;
+    var liveOptions = gpu && options.live && typeof options.live === 'object' ? { progress: options.live.progress === true, tool: options.live.tool === true } : { progress: false, tool: false };
+    var pathStyle = gpu && (options.pathStyle === 'ghost' || options.pathStyle === 'hidden') ? options.pathStyle : 'normal';
+    var fitMode = gpu && options.fit === 'all' ? 'all' : 'path';
+    var overlays = [], followOn = false;
+    var counters = { frames: 0, gestureFrames: 0, lastPaintMs: 0, maxPaintMs: 0, uploads: 0, uploadBytes: 0 };
     var listeners = [], frame = null, lastFrame = 0, gesture = false, closed = false, renderer = null, path = null, mask = null, screen = null, screenKey = '';
     var zs = 1, cam = null, width = 0, height = 0, dpr = 1, centre = [0, 0, 0], bounds = null, src = null, inspected = -1, filters = { rapids: true };
     var pointers = {}, start = null, restoreBackground = null;
@@ -283,7 +388,11 @@
     try { renderer = createRenderer(canvas); } catch (e) {
       try { renderer = create2DRenderer(canvas); } catch (e2) { fail(t('Vue 3D libre indisponible : ') + e2.message + t('. Vues fixes conservées.')); return null; }
     }
-    on(canvas, 'webglcontextlost', function () { fail(t('Contexte WebGL perdu : vue 3D libre fermée, vues fixes conservées.')); });
+    // A lost context also closes the GPU gate until a reload (spec 2.1): no live WebGL view opens again.
+    on(canvas, 'webglcontextlost', function () {
+      try { if (win.cncGpu && typeof win.cncGpu._contextLost === 'function') win.cncGpu._contextLost(); } catch (_) {}
+      fail(t('Contexte WebGL perdu : vue 3D libre fermée, vues fixes conservées.'));
+    });
 
     // Inline (small frame): a short label, the exaggeration still named.
     function zLabel() { zButton.textContent = zs === 1 ? (inline ? 'Z ×1' : t('Z ×1 (échelle réelle)')) : 'Z ×' + zs + t(' (exagéré)'); zButton.setAttribute('data-exaggerated', String(zs !== 1)); }
@@ -428,8 +537,21 @@
     on(win, 'pagehide', function () { close('pagehide'); });
     if (!inline) on(doc, 'keydown', function (e) { if (e.key === 'Escape') { stop(e); close('user'); } });
 
+    // ---- Live view (spec 3): reports, acknowledged lines, tool marker ----
+    var live = { ackLine: 0, lastAckSegment: 0, pass: null, offset: null, offsetReason: 'no-offset' };
+    function offsetReason() { return liveOptions.tool ? live.offsetReason : 'no-offset'; }
+    function geometryKind() { return 'simplified'; }
+    function liveState() {
+      return { ackLine: live.ackLine, lastAckSegment: live.lastAckSegment, pass: live.pass ? live.pass.slice() : null,
+        marker: { shown: false, stale: false, alarm: false, snapped: false, interpolating: false, ageMs: null, at: null }, follow: followOn };
+    }
+    function setFollow(on) { followOn = !!on; invalidate(); }
+    function dropOverlay() {}
+    function overlaysChanged() { invalidate(); }
+
     function close(reason) {
       if (closed) return; closed = true;
+      overlays.forEach(dropOverlay); overlays = []; followOn = false;
       if (frame !== null && win.cancelAnimationFrame) win.cancelAnimationFrame(frame); frame = null;
       listeners.forEach(function (l) { try { l[0].removeEventListener(l[1], l[2], l[3]); } catch (_) {} }); listeners = [];
       if (renderer) renderer.release();
@@ -440,19 +562,55 @@
       if (current === handle) current = null;
       if (options.onClose) options.onClose(reason);
     }
+    // ---- Overlays and live state (spec 8.2-8.3) ----
+    // Declarative: the list replaces the previous one; an unchanged overlay keeps its GPU buffer.
+    // Callable from an event handler: it stores and asks for a frame, it never draws.
+    function setOverlays(list) {
+      var r = checkOverlays(list), next = r.accepted.map(function (o) {
+        var copy = copyOverlay(o), old = overlays.filter(function (x) { return x.id === copy.id; })[0];
+        return old && sameOverlay(old, copy) ? old : copy;
+      });
+      overlays.forEach(function (o) { if (next.indexOf(o) < 0) dropOverlay(o); });
+      overlays = next;
+      overlaysChanged();
+      return { ok: !r.refused.length, accepted: next.map(function (o) { return o.id; }), refused: r.refused };
+    }
+    // Whether an overlay is drawn now, and why not: a machine-frame one needs the offset o = mpos − wpos.
+    function overlayReason(o) {
+      if (!gpu) return 'software';
+      if (o.frame === 'machine') return offsetReason();
+      return '';
+    }
+    function follow(on) {
+      if (typeof on === 'boolean' && liveOptions.tool) setFollow(on);
+      return followOn;
+    }
+    function stats() {
+      return { frames: counters.frames, gestureFrames: counters.gestureFrames, lastPaintMs: counters.lastPaintMs, maxPaintMs: counters.maxPaintMs, uploads: counters.uploads, uploadBytes: counters.uploadBytes,
+        dpr: dpr, canvas: { width: canvas.width, height: canvas.height } };
+    }
     var handle = {
       close: close,
-      state: function () { return { closed: closed, software: !!(renderer && renderer.software), listeners: listeners.length, gesture: gesture, zScale: zs, camera: cam && { yaw: cam.yaw, pitch: cam.pitch, zoom: cam.zoom }, renderer: !!renderer, dpr: dpr, canvas: { width: canvas.width, height: canvas.height }, inspected: inspected, filters: filters }; },
+      state: function () {
+        var lw = renderer && renderer.lineWidthRange ? renderer.lineWidthRange.slice() : [1, 1];
+        return { closed: closed, software: !!(renderer && renderer.software), listeners: listeners.length, gesture: gesture, zScale: zs, camera: cam && { yaw: cam.yaw, pitch: cam.pitch, zoom: cam.zoom }, renderer: !!renderer, dpr: dpr, canvas: { width: canvas.width, height: canvas.height }, inspected: inspected, filters: filters,
+          gpu: gpu && !!renderer && !renderer.software, antialias: !!(renderer && renderer.antialias), lineWidth: lw, geometry: geometryKind(), segments: path ? Math.max(0, path.count - 1) : 0,
+          pathStyle: pathStyle, fit: fitMode, live: liveState(),
+          overlays: overlays.map(function (o) { var reason = overlayReason(o); return { id: o.id, drawn: !closed && !reason, reason: reason }; }) };
+      },
+      stats: stats, setOverlays: setOverlays, follow: follow,
       paint: paint, applyFilters: applyFilters, inspect: showInspection, dialog: dialog, canvas: canvas
     };
     current = handle;
+    if (Array.isArray(options.overlays)) setOverlays(options.overlays);
     zLabel(); upload(); resize();
     if (!inline && closeButton.focus) try { closeButton.focus({ preventScroll: true }); } catch (_) {}
     return handle;
   }
 
   var api = { open: open, close: function (reason) { if (current) current.close(reason || 'api'); }, active: function () { return !!current; },
-    basis: basis, matrix: matrix, project: project, fit: fit, buildVertices: buildVertices, createRenderer: createRenderer, create2DRenderer: create2DRenderer, PRESETS: PRESETS, MAX_DPR: MAX_DPR, GESTURE_FRAME_MS: GESTURE_FRAME_MS };
+    basis: basis, matrix: matrix, project: project, fit: fit, buildVertices: buildVertices, createRenderer: createRenderer, create2DRenderer: create2DRenderer, PRESETS: PRESETS, MAX_DPR: MAX_DPR, GESTURE_FRAME_MS: GESTURE_FRAME_MS,
+    probeGpu: probeGpu, checkOverlays: checkOverlays, OVERLAY_COLOURS: OVERLAY_COLOURS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CNCPreviewGL = api;
 })(typeof window !== 'undefined' ? window : this);
