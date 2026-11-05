@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Suivi poste large</title>
+<!-- Mockup of the Suivi screen, Performance profile with hardware WebGL, wide layout (body.perf-wide), job running.
+     Self-contained mockup: no external script, style sheet, font or image; open it as is from
+     /touch-next/design/. Values copied from touch/design-tokens.css and touch/ui-2027.css. -->
+<style>
+/* Design tokens copied from touch/design-tokens.css (dark workshop theme, UI 2027).
+ * Copied on purpose: this page must open on its own from /touch-next/design/. */
+:root{
+  color-scheme:dark;
+  --bg:#0e1417;--surface:#182028;--surface-2:#222d36;--surface-3:#2c3942;--line:#34434d;--line-strong:#4a5b66;
+  --fg:#eef3f6;--mute:#aab8c1;--faint:#87969f;
+  --ok:#2fbf6b;--ok-text:#5fe39a;--ok-soft:#133523;--on-ok:#06130b;
+  --warn:#f0b13a;--warn-text:#ffc857;--warn-soft:#3a2b0b;--on-warn:#1a1200;
+  --danger:#a51d19;--danger-text:#ff8a80;--danger-soft:#3d1512;--on-danger:#ffffff;
+  --info:#3b8fe6;--info-text:#7cbcff;--info-soft:#102a44;--on-info:#06111c;
+  --disabled-fg:#8a98a1;--disabled-bg:#1b242b;--disabled-stripe:rgba(255,255,255,.045);
+  --accent:#8ecbff;--focus:#ffd166;--shadow:0 2px 6px rgba(0,0,0,.35);
+  --font:"Segoe UI",system-ui,-apple-system,Roboto,"Helvetica Neue",Arial,sans-serif;--font-num:var(--font);
+  --fs-14:14px;--fs-16:16px;--fs-18:18px;--fs-20:20px;--fs-24:24px;--fs-28:28px;--fs-36:36px;--fs-48:48px;--fs-64:64px;
+  --lh-tight:1.1;--lh:1.35;
+  --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:20px;--sp-6:24px;--sp-8:32px;
+  --r-s:6px;--r-m:10px;--r-l:14px;--r-pill:999px;
+  --tap:48px;--tap-primary:64px;--tap-gap:12px;--tap-jog:96px;
+  --statusbar-h:72px;--rail-w:88px;
+  /* 3D canvas colours (touch/toolpath-3d.js, touch/preview-gl.js): fixed dark canvas in both themes. */
+  --gl-bg:#101820;--gl-rapid:#50636f;--gl-done:#ffc857;--gl-pass:#eef3f6;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:#05080a;color:var(--fg);font:16px/1.35 var(--font)}
+button{font-family:inherit}
+
+/* ---- Mockup chrome (not part of the interface) ---- */
+.mk-bar{position:sticky;top:0;z-index:30;display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:8px 16px;background:#11181d;border-bottom:1px solid var(--line)}
+.mk-bar h1{margin:0 auto 0 0;font:700 20px/1.2 var(--font)}
+.mk-bar h1 small{display:block;font:400 16px/1.3 var(--font);color:var(--mute)}
+.mk-seg{display:inline-flex;gap:4px;padding:3px;background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m)}
+.mk-seg button{min-height:48px;padding:0 14px;font:600 16px/1 var(--font);color:var(--mute);background:transparent;border:0;border-radius:7px;cursor:pointer}
+.mk-seg button[aria-pressed="true"]{background:var(--accent);color:var(--bg)}
+.mk-btn{min-height:48px;padding:0 14px;font:600 16px/1 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m);cursor:pointer}
+.mk-btn[aria-pressed="true"]{background:var(--info);color:var(--on-info);border-color:transparent}
+.mk-nav a{color:var(--info-text);font-size:16px;margin-right:12px}
+.mk-summary{font:600 16px/1.2 var(--font);color:var(--mute)}
+.mk-summary[data-bad="true"]{color:var(--danger-text)}
+.mk-stage{padding:16px;overflow:hidden}
+.mk-frame{position:relative;width:var(--fw,1366px);height:var(--fh,911px);transform-origin:0 0;background:var(--bg);overflow:hidden;outline:1px solid var(--line-strong)}
+.mk-notes{max-width:1100px;margin:0 16px 32px;color:var(--mute);font-size:16px}
+.mk-notes h2{color:var(--fg);font-size:20px;margin:24px 0 8px}
+.mk-notes li{margin-bottom:6px}
+.mk-notes code{color:var(--fg)}
+body.mk-full .mk-bar,body.mk-full .mk-notes{display:none}
+body.mk-full .mk-stage{padding:0}
+body.mk-full .mk-frame{outline:0}
+.mk-exit{display:none;position:fixed;left:8px;bottom:8px;z-index:40;width:72px;min-height:48px;font:600 16px/1.1 var(--font);color:var(--fg);background:rgba(34,45,54,.92);border:1px dashed var(--line-strong);border-radius:var(--r-m);cursor:pointer}
+body.mk-full .mk-exit{display:block}
+/* Tap-target annotations: drawn over the frame, outside the interface's own layout. */
+.mk-annot-layer{position:absolute;inset:0;z-index:50;pointer-events:none}
+.mk-badge{position:absolute;transform:translate(-100%,-50%);padding:1px 5px;border-radius:4px;font:700 13px/1.2 var(--font);white-space:nowrap;background:#0b3d1f;color:#9ff5c0;border:1px solid #2fbf6b;box-shadow:0 1px 3px rgba(0,0,0,.6)}
+.mk-badge[data-ok="false"]{background:#4a0f0c;color:#ffd0cb;border-color:#ff8a80}
+.mk-badge[data-kind="96"]{background:#102a44;color:#cfe6ff;border-color:#7cbcff}
+body.mk-annot [data-tap]{outline:2px dashed rgba(124,188,255,.55);outline-offset:1px}
+body.mk-annot .mk-small-text{outline:2px solid #ff8a80!important}
+
+/* ---- Interface shell (status strip at the top, rail on the left, as touch/ui-2027.css) ---- */
+.app{display:grid;grid-template-columns:var(--rail-w) minmax(0,1fr);grid-template-rows:var(--statusbar-h) minmax(0,1fr);width:100%;height:100%;font:var(--fs-18)/var(--lh) var(--font)}
+.strip{grid-column:1/-1;display:grid;grid-template-columns:auto auto minmax(0,1fr) auto auto;align-items:center;gap:var(--sp-4);padding:0 var(--sp-4);background:var(--surface);border-bottom:1px solid var(--line)}
+.t-state{display:inline-flex;align-items:center;gap:var(--sp-3);min-width:200px;height:52px;padding:0 var(--sp-4);border-left:6px solid var(--faint);border-radius:var(--r-m);font:700 var(--fs-28)/1 var(--font);letter-spacing:.02em}
+.t-state svg{width:28px;height:28px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.t-state[data-tone="run"]{color:var(--info-text);background:var(--info-soft);border-left-color:var(--info)}
+.t-state[data-tone="ok"]{color:var(--ok-text);background:var(--ok-soft);border-left-color:var(--ok)}
+.t-fresh{display:inline-flex;align-items:center;gap:var(--sp-2);font:var(--fs-16)/1 var(--font-num);color:var(--mute);white-space:nowrap}
+.t-fresh i{width:10px;height:10px;border-radius:50%;background:var(--ok)}
+.t-vitals{display:flex;gap:var(--sp-5);align-items:center;min-width:0;overflow:hidden}
+.t-vital{display:flex;flex-direction:column;gap:2px;min-width:0}
+.t-vital span{font:var(--fs-16)/1 var(--font);color:var(--mute);letter-spacing:.04em;text-transform:uppercase;white-space:nowrap}
+.t-vital b{font:600 var(--fs-20)/1.1 var(--font-num);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t-vital--file{flex:1 1 auto;min-width:0}
+.strip-actions{display:flex;gap:var(--tap-gap)}
+.strip-actions .btn{min-height:52px}
+.strip-actions .btn.danger{min-width:140px;font-size:var(--fs-20)}
+.strip-slot{display:flex;align-items:center;justify-content:center;max-width:230px;min-height:52px;padding:0 var(--sp-3);border:1px dashed var(--line-strong);border-radius:var(--r-m);color:var(--mute);font-size:var(--fs-16);text-align:center;line-height:1.2}
+.strip-right{display:flex;align-items:center;gap:var(--sp-3);white-space:nowrap}
+.real-tag{font:600 var(--fs-16)/1 var(--font);letter-spacing:.08em;color:var(--danger-text);border:1px solid var(--danger);border-radius:var(--r-s);padding:var(--sp-2) var(--sp-3)}
+.clock{font-size:var(--fs-20)}
+.rail{grid-row:2;display:flex;flex-direction:column;gap:var(--sp-2);padding:var(--sp-2);background:var(--bg);border-right:1px solid var(--line)}
+.nav{min-height:76px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--sp-1);padding:var(--sp-2) 2px;color:var(--mute);background:transparent;border:0;border-radius:var(--r-m);font:500 var(--fs-16)/1.1 var(--font)}
+.nav svg{width:28px;height:28px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.nav.on{background:var(--surface-2);color:var(--fg);box-shadow:inset 4px 0 0 var(--accent)}
+.app>main{grid-row:2;grid-column:2;min-width:0;min-height:0;padding:var(--sp-4);display:grid;gap:var(--sp-4);overflow:hidden}
+
+/* ---- Components (as touch/ui-2027.css) ---- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--sp-2);min-height:var(--tap);padding:0 var(--sp-4);font:600 var(--fs-18)/1.1 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m);white-space:nowrap;cursor:pointer}
+.btn svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.btn.primary{min-height:var(--tap-primary);background:var(--ok);color:var(--on-ok);border-color:transparent;font-size:var(--fs-24)}
+.btn.warn{background:var(--warn);color:var(--on-warn);border-color:transparent}
+.btn.danger{background:var(--danger);color:var(--on-danger);border-color:transparent}
+.btn.ghost{background:transparent}
+.btn.lg{min-height:var(--tap-primary);font-size:var(--fs-24)}
+.btn:disabled{color:var(--disabled-fg);background:var(--disabled-bg);border-color:var(--line);background-image:repeating-linear-gradient(135deg,var(--disabled-stripe) 0 6px,transparent 6px 14px);cursor:default}
+.btn[aria-pressed="true"]{background:var(--info);color:var(--on-info);border-color:transparent}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:var(--sp-3) var(--sp-4);min-width:0;min-height:0}
+.label{margin:0;font:600 var(--fs-16)/1.1 var(--font);color:var(--mute);letter-spacing:.06em;text-transform:uppercase}
+.help{margin:0;font-size:var(--fs-16);color:var(--mute);line-height:var(--lh)}
+.notice{margin:0;padding:var(--sp-2) var(--sp-3);border-left:6px solid var(--info);border-radius:var(--r-m);background:var(--info-soft);color:var(--fg);font-size:var(--fs-18)}
+.notice[data-tone="ok"]{border-left-color:var(--ok);background:var(--ok-soft)}
+.notice[data-tone="warn"]{border-left-color:var(--warn);background:var(--warn-soft)}
+.notice[data-tone="danger"]{border-left-color:var(--danger);background:var(--danger-soft)}
+.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* ---- 3D view frame (inline view of touch/preview-gl.js) ---- */
+.view{position:relative;min-height:0;min-width:0;background:var(--gl-bg);border:1px solid var(--line);border-radius:var(--r-l);overflow:hidden}
+.view>svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+.view-tools{position:absolute;left:8px;top:8px;display:flex;gap:var(--sp-2);padding:2px;background:rgba(14,20,23,.88);border-radius:var(--r-s)}
+.view-tools .btn,.view-corner .btn{min-height:48px;font-size:var(--fs-16);padding:0 var(--sp-3)}
+.view-corner{position:absolute;right:8px;top:8px;display:flex;gap:var(--sp-2)}
+.view-tag{position:absolute;left:8px;bottom:8px;padding:var(--sp-1) var(--sp-2);border-radius:var(--r-s);background:rgba(14,20,23,.88);color:var(--mute);font-size:var(--fs-16)}
+/* ---- Page-specific layout ---- */
+.suivi{grid-template-columns:minmax(0,1fr) 300px 360px;grid-template-rows:minmax(0,1fr)}
+[data-size="1728"] .suivi{grid-template-columns:minmax(0,1fr) 340px 400px}
+.zone{display:flex;flex-direction:column;gap:var(--sp-2);min-width:0;min-height:0}
+.zone-view .view{flex:1 1 auto}
+.zone-view .note{flex:none}
+.zone-gauges>*,.zone-controls>*{flex-shrink:0}
+.zone-gauges>.curve{flex-shrink:1}
+.prog-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-3)}
+.pct{font:700 var(--fs-64)/1 var(--font-num);letter-spacing:-.02em}
+.ackline{display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+.ackline b{font:600 var(--fs-20)/1.1 var(--font-num)}
+.bar{height:18px;margin-top:var(--sp-2);border-radius:var(--r-pill);background:var(--surface-3);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--info);border-radius:var(--r-pill)}
+.eta{display:flex;flex-direction:column;gap:2px}
+.eta-main{margin:0;font:600 var(--fs-28)/1.1 var(--font-num)}
+.xyz{display:grid;grid-template-columns:auto 1fr;column-gap:var(--sp-3);align-items:baseline;margin:var(--sp-1) 0}
+.xyz span{font:700 var(--fs-24)/1 var(--font);color:var(--mute)}
+.xyz b{font:500 var(--fs-48)/1 var(--font-num);text-align:right}
+.live2{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-2)}
+.live2 .card{padding:var(--sp-2) var(--sp-3)}
+.live2 b{display:block;margin-top:var(--sp-1);font:600 var(--fs-20)/1.1 var(--font-num)}
+.ovr-read{margin:0;font-size:var(--fs-18);color:var(--mute)}
+.ovr-read b{color:var(--fg)}
+.hi{color:var(--warn-text)!important}
+.curve{flex:0 1 auto;display:flex;flex-direction:column;min-height:0}
+.curve svg{display:block;width:100%;height:90px;min-height:48px;flex:0 1 auto;margin:var(--sp-1) 0}
+.mco{font-variant-numeric:tabular-nums}
+.pair{display:grid;grid-template-columns:3fr 2fr;gap:var(--tap-gap)}
+.ovr{display:flex;flex-direction:column;gap:var(--sp-2)}
+.ov-name{margin:0;font-size:var(--fs-18)}
+.ov-name b{font-weight:700}
+.ov-row{display:grid;grid-template-columns:repeat(3,minmax(64px,1fr)) repeat(2,minmax(48px,.75fr));gap:var(--sp-2)}
+.ovr{padding-left:var(--sp-3);padding-right:var(--sp-3)}
+.ov-row .btn{min-height:var(--tap-primary);padding:0 var(--sp-1);font-size:var(--fs-20)}
+.ov-row .fine{min-height:var(--tap);align-self:center;font-size:var(--fs-18);font-weight:500}
+.ov-row.r3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.ov-row.r3 .btn{min-height:var(--tap);font-size:var(--fs-18)}
+.stop{margin-top:auto;padding-top:var(--sp-2);border-top:1px dashed var(--line);display:grid;gap:2px;text-align:center}
+/* Variant (Q3b): view + one double column; the overrides go under the view. */
+.suivi.v2{grid-template-columns:minmax(0,1fr) 520px;grid-template-rows:minmax(0,auto) minmax(0,1fr);grid-template-areas:"view gauges" "view controls"}
+.suivi.v2 .zone-view{grid-area:view}.suivi.v2 .zone-gauges{grid-area:gauges}.suivi.v2 .zone-controls{grid-area:controls}
+.suivi.v2 .curve{display:none}
+.suivi.v2 .zone-gauges{display:grid;grid-template-columns:1fr 1fr;align-content:start}
+.suivi.v2 .prog,.suivi.v2 .ovr-read{grid-column:1/-1}
+.suivi.v2 .live2{grid-column:1/-1}
+.suivi.v2 .eta{grid-column:2;grid-row:2}
+.suivi.v2 .coords{grid-column:1;grid-row:2}
+.suivi.v2 .zone-view .ovr{flex:none}
+[data-size="1728"] .suivi.v2{grid-template-columns:minmax(0,1fr) 600px}
+[data-size="1728"] .suivi.v2 .curve{display:flex;grid-column:1/-1}
+</style>
+</head>
+<body>
+<header class="mk-bar">
+  <h1>Suivi — poste large, travail en cours<small>Profil Performance, GPU matériel, fenêtre ≥ 1300 × 880. Vue 3D en direct (lot V), trois zones et instruments (lot D). Maquette : le parcours est un faux dessin SVG.</small></h1>
+  <div class="mk-seg" role="group" aria-label="Taille de la fenêtre"><button type="button" data-mk-size="1366" aria-pressed="true">1366 × 911 (échelle 1,58)</button><button type="button" data-mk-size="1728" aria-pressed="false">1728 × 1152 (échelle 1,25)</button></div>
+  <div class="mk-seg" role="group" aria-label="Disposition"><button type="button" data-mk-variant="3" aria-pressed="true">3 colonnes (brief)</button><button type="button" data-mk-variant="2" aria-pressed="false">Vue + colonne double (Q3b)</button></div>
+  <button type="button" class="mk-btn" id="mk-annot" aria-pressed="false">Annoter les cibles</button>
+  <button type="button" class="mk-btn" id="mk-full">Taille réelle</button>
+  <span class="mk-summary" id="mk-summary" role="status"></span>
+  <span class="mk-summary" id="mk-scale"></span>
+  <nav class="mk-nav"><a href="performance-suivi.html">Suivi</a><a href="performance-fichiers.html">Fichiers</a><a href="performance-preparer.html">Préparer</a></nav>
+</header>
+<div class="mk-stage" id="mk-stage"><div class="mk-frame" id="mk-frame" data-size="1366">
+<div class="app">
+<header class="strip">
+  <span class="t-state" data-tone="run"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5l12 7-12 7z"/></svg>EN COURS</span>
+  <span class="t-fresh"><i></i>0,3 s</span>
+  <div class="t-vitals"><div class="t-vital"><span>Broche</span><b class="num">12 000 tr/min</b></div><div class="t-vital"><span>Avance</span><b class="num">1 800 mm/min</b></div><div class="t-vital"><span>Machine</span><b>Fraiseuse · CNC</b></div><div class="t-vital t-vital--file"><span>Fichier</span><b>plateau-poche-v2.nc</b></div></div>
+  <div class="strip-actions"><button type="button" class="btn warn" data-tap="48">Pause</button><button type="button" class="btn danger" data-tap="48"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>Arrêter</button></div>
+  <div class="strip-right"><span class="real-tag">MACHINE RÉELLE</span><span class="clock num">15:12</span></div>
+</header>
+<nav class="rail" aria-label="Écrans"><button type="button" class="nav" data-tap="48"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg><span>Menu</span></button><button type="button" class="nav" data-tap="48"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/></svg><span>Préparer</span></button><button type="button" class="nav" data-tap="48"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h6l2 2h10v10H3z"/></svg><span>Fichiers</span></button><button type="button" class="nav on" data-tap="48" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4M6 13l3-4 3 3 4-5 2 3"/></svg><span>Suivi</span></button><button type="button" class="nav" data-tap="48"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg><span>Machine</span></button><button type="button" class="nav" data-tap="48"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>Journal</span></button><button type="button" class="nav" data-tap="48"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.5"/><circle cx="15" cy="17" r="2.5"/></svg><span>Réglages</span></button></nav>
+<main class="suivi" id="suivi">
+  <section class="zone zone-view" id="home-zone-view" aria-label="Vue">
+    <div class="view" id="view">
+      <svg aria-hidden="true"></svg>
+      <div class="view-tools"><button type="button" class="btn" data-tap="48">Vues</button><button type="button" class="btn" data-tap="48" aria-pressed="false">Suivre l’outil</button></div>
+      <div class="view-corner"><button type="button" class="btn" data-tap="48">Agrandir</button></div>
+      <span class="view-tag">Z ×1</span>
+    </div>
+    <p class="help note">Parcours prévu · orange : lignes acquittées par Grbl (acceptées, pas forcément usinées) · blanc : passe en cours · repère : position de travail rapportée par Grbl il y a moins d’une seconde, G54, interpolée entre deux rapports.</p>
+  </section>
+  <section class="zone zone-gauges" id="home-zone-gauges" aria-label="Instruments">
+    <div class="card prog">
+      <div class="prog-head"><strong class="pct num">42 %</strong><span class="ackline"><span class="label">Ligne acquittée</span><b class="num">8 412 / 20 030</b></span></div>
+      <div class="bar"><i style="width:42%"></i></div>
+    </div>
+    <div class="card eta">
+      <p class="eta-main num">Reste 18 min</p>
+      <p class="help">mouvements, corrigé ×1,1 d’après les lignes acquittées</p>
+      <p class="help">Selon le rythme observé : 19 min</p>
+      <p class="help">Durées inconnues à venir : changement d’outil M6 (l. 812)</p>
+    </div>
+    <div class="card coords">
+      <p class="label">Travail · G54</p>
+      <div class="xyz num"><span>X</span><b>148.000</b><span>Y</span><b>52.000</b><span>Z</span><b>−9.000</b></div>
+      <p class="help mco">Machine X −162.000 · Y −248.000 · Z −69.000</p>
+    </div>
+    <div class="live2"><div class="card"><p class="label">Avance réelle</p><b class="num">1 800 mm/min</b></div><div class="card"><p class="label">Broche réelle</p><b class="num">12 000 tr/min</b></div></div>
+    <p class="ovr-read num">Avance <b class="hi">110 %</b> · Broche <b>100 %</b> · Rapides <b>100 %</b></p>
+    <div class="card curve"><p class="label">Avance réelle, dernière minute · 0 à 2 000 mm/min</p><svg viewBox="0 0 300 70" preserveAspectRatio="none" aria-hidden="true"><path d="M0 69.5H300M0 35H300" stroke="#34434d" stroke-width="1" vector-effect="non-scaling-stroke"/><polyline fill="none" stroke="#7cbcff" stroke-width="2" vector-effect="non-scaling-stroke" points="0,30 20,28 40,29 60,31 80,30 95,52 105,62 115,30 140,28 160,27 180,18 200,17 220,18 240,17 260,18 280,17 300,17"/></svg></div>
+  </section>
+  <section class="zone zone-controls" id="home-zone-controls" aria-label="Commandes">
+    <p class="notice" data-tone="info">Travail en cours.</p>
+    <div class="pair"><button type="button" class="btn primary" disabled data-tap="64">Démarrer…</button><button type="button" class="btn warn lg" data-tap="64">Pause</button></div>
+    <p class="help">Démarrage confirmé par la machine à 14:53</p>
+    <div class="card ovr" id="home-overrides">
+      <p class="label">Corrections</p>
+      <div class="ov"><p class="ov-name">Avance <b class="hi num">110 %</b></p><div class="ov-row"><button type="button" class="btn" data-tap="64">−10 %</button><button type="button" class="btn ghost" data-tap="64">100 %</button><button type="button" class="btn" data-tap="64">+10 %</button><button type="button" class="btn ghost fine" data-tap="48">−1 %</button><button type="button" class="btn ghost fine" data-tap="48">+1 %</button></div></div>
+      <div class="ov"><p class="ov-name">Broche <b class="num">100 %</b></p><div class="ov-row"><button type="button" class="btn" data-tap="64">−10 %</button><button type="button" class="btn ghost" data-tap="64">100 %</button><button type="button" class="btn" data-tap="64">+10 %</button><button type="button" class="btn ghost fine" data-tap="48">−1 %</button><button type="button" class="btn ghost fine" data-tap="48">+1 %</button></div></div>
+      <div class="ov"><p class="ov-name">Rapides <b class="num">100 %</b></p><div class="ov-row r3"><button type="button" class="btn ghost" data-tap="48" aria-pressed="false">25 %</button><button type="button" class="btn ghost" data-tap="48" aria-pressed="false">50 %</button><button type="button" class="btn ghost" data-tap="48" aria-pressed="true">100 %</button></div></div>
+      <p class="help">Pas de ±1 % / ±10 % envoyés au contrôleur en temps réel ; 100 % rétablit la valeur programmée.</p>
+    </div>
+    <div class="stop"><button type="button" class="btn danger lg" data-tap="64"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>Arrêter le travail</button><p class="help">Arrêt logiciel · pas un arrêt d’urgence</p></div>
+  </section>
+</main>
+</div>
+</div></div>
+<button type="button" class="mk-exit" id="mk-exit">Quitter la taille réelle</button>
+<section class="mk-notes">
+<h2>Ce qu'il faut regarder</h2>
+<ul>
+<li><b>Vue 3D en direct (lot V).</b> Coupes restantes dans les couleurs de profondeur actuelles, coupes acquittées en orange (la couleur du tracé de progression actuel), passe en cours en blanc épais, repère d'outil en disque bleu clair cerclé de blanc. Le repère est interpolé entre les deux derniers rapports de Grbl et ne dépasse jamais le dernier segment acquitté (spécification § 3.3). Ici le repère est derrière la fin de l'orange : Grbl acquitte des lignes avant de les exécuter.</li>
+<li><b>Barre de la vue.</b> « Vues » (préréglages, Recentrer, Z) et « Suivre l’outil » restent visibles pendant un travail ; « Agrandir » ouvre la grande vue existante. Cibles 48 px.</li>
+<li><b>Trois zones (lot D).</b> Vue | Instruments | Commandes. À 1366 × 911 la vue fait environ 554 px de large, moins que la vue actuelle à 1366 × 768 (environ 710 px) : comparez avec « Vue + colonne double » (question Q3b). À 1728 × 1152 elle fait environ 836 px.</li>
+<li><b>Instruments.</b> Pourcentage 64 px, ligne acquittée (jamais « en cours d’usinage »), temps restant avec sa source, coordonnées travail 48 px, avance et broche réelles, corrections en lecture (une valeur ≠ 100 % en ambre), courbe d'avance de la dernière minute (question Q10).</li>
+<li><b>Commandes.</b> Démarrer (verrouillé pendant le travail) et Pause à 64 px, corrections ±10 % / 100 % à 64 px, ±1 % et rapides à 48 px, Arrêter seul en bas à 64 px. Pause et Arrêter restent aussi dans le bandeau d'état.</li>
+<li><b>Vérification.</b> « Annoter les cibles » mesure chaque cible dans le cadre (px CSS) et marque en rouge un texte utile sous 16 px. « Taille réelle » masque cet en-tête : à 1366 × 911 sur la Surface (échelle 1,58), le cadre est alors à l'échelle 1.</li>
+</ul>
+</section>
+<script>
+/* Mockup helpers (not interface code): frame size selector (1366 x 911 or 1728 x 1152 CSS px),
+ * scale-to-fit of the frame in the real window, full-size mode, tap-target and text-size
+ * annotations, and a fake 3D toolpath drawn in inline SVG (isometric projection, same depth
+ * colours as touch/toolpath-3d.js). No network, no storage, no external script. */
+(function () {
+  'use strict';
+  var SIZES = { '1366': [1366, 911], '1728': [1728, 1152] };
+  var frame = document.getElementById('mk-frame'), stage = document.getElementById('mk-stage');
+  var size = /1728/.test(location.hash) ? '1728' : '1366', scale = 1, scenes = [];
+
+  function fit() {
+    var w = SIZES[size][0], h = SIZES[size][1], full = document.body.classList.contains('mk-full');
+    var pad = full ? 0 : 32, top = full ? 0 : stage.getBoundingClientRect().top + window.scrollY;
+    var availW = Math.max(200, window.innerWidth - pad), availH = Math.max(200, window.innerHeight - (full ? 0 : document.querySelector('.mk-bar').offsetHeight) - pad);
+    scale = Math.min(1, availW / w, availH / h);
+    frame.style.transform = scale === 1 ? 'none' : 'scale(' + scale + ')';
+    stage.style.height = Math.ceil(h * scale + pad) + 'px';
+    var out = document.getElementById('mk-scale'); if (out) out.textContent = 'échelle de la maquette ' + scale.toFixed(2).replace('.', ',') + (scale === 1 ? ' (taille réelle)' : '');
+    void top;
+  }
+  function setSize(next) {
+    size = SIZES[next] ? next : '1366';
+    frame.style.setProperty('--fw', SIZES[size][0] + 'px'); frame.style.setProperty('--fh', SIZES[size][1] + 'px');
+    frame.setAttribute('data-size', size);
+    document.querySelectorAll('[data-mk-size]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-mk-size') === size)); });
+    fit(); redraw(); annotate();
+  }
+  function redraw() { scenes.forEach(function (s) { s(); }); }
+
+  // ---- Annotations: every [data-tap] target measured in frame (CSS) pixels ----
+  function annotate() {
+    var layer = frame.querySelector('.mk-annot-layer');
+    if (!layer) { layer = document.createElement('div'); layer.className = 'mk-annot-layer'; frame.appendChild(layer); }
+    layer.textContent = '';
+    var on = document.body.classList.contains('mk-annot'), fr = frame.getBoundingClientRect(), good = 0, bad = 0, small = 0;
+    frame.querySelectorAll('[data-tap]').forEach(function (el) {
+      if (!el.getClientRects().length) return;
+      var r = el.getBoundingClientRect(), need = Number(el.getAttribute('data-tap'));
+      var w = r.width / scale, h = r.height / scale, min = Math.round(Math.min(w, h)), ok = min >= need;
+      if (ok) good++; else bad++;
+      if (!on) return;
+      var b = document.createElement('span'); b.className = 'mk-badge'; b.setAttribute('data-ok', String(ok)); b.setAttribute('data-kind', String(need));
+      b.textContent = (ok ? need + ' ✓' : need + ' ✗ ' + min);
+      b.style.left = ((r.right - fr.left) / scale - 2) + 'px'; b.style.top = ((r.top - fr.top) / scale + 2) + 'px';
+      layer.appendChild(b);
+    });
+    // Useful text under 16 px (the badges themselves are not interface text).
+    frame.querySelectorAll('.mk-small-text').forEach(function (el) { el.classList.remove('mk-small-text'); });
+    frame.querySelectorAll('.app *').forEach(function (el) {
+      if (el.closest('svg')) return;
+      var text = Array.prototype.some.call(el.childNodes, function (n) { return n.nodeType === 3 && n.data.trim(); });
+      if (!text || !el.getClientRects().length) return;
+      if (parseFloat(getComputedStyle(el).fontSize) < 16) { small++; el.classList.add('mk-small-text'); }
+    });
+    var sum = document.getElementById('mk-summary');
+    if (sum) { sum.textContent = 'Cibles : ' + good + ' conformes, ' + bad + ' en défaut · textes < 16 px : ' + small; sum.setAttribute('data-bad', String(bad + small > 0)); }
+  }
+
+  // ---- Fake 3D scene in SVG ----
+  var DEG = Math.PI / 180;
+  var DEPTH = (function () {
+    var stops = [[195, 166, 255], [255, 99, 184], [255, 59, 59]], out = [];
+    for (var i = 0; i < 8; i++) {
+      var t = (i + 0.5) / 8 * 2, k = Math.min(1, Math.floor(t)), f = t - k, a = stops[k], b = stops[k + 1], hex = '#';
+      for (var c = 0; c < 3; c++) hex += ('0' + Math.round(a[c] + (b[c] - a[c]) * f).toString(16)).slice(-2);
+      out.push(hex);
+    }
+    return out;
+  })();
+  function depthColour(z, zmin) {
+    if (!(zmin < 0) || !(z < -1e-6)) return '#55d6ed';
+    var i = Math.floor(z / zmin * DEPTH.length);
+    return DEPTH[i < 0 ? 0 : i >= DEPTH.length ? DEPTH.length - 1 : i];
+  }
+  // A small pocketing program in work coordinates (mm): four depth levels, each a raster pocket
+  // then the outer contour with rounded corners; rapids between them.
+  function program() {
+    var pts = [], depths = [-3, -6, -9, -12];
+    function p(x, y, z, rapid) { pts.push({ x: x, y: y, z: z, r: rapid ? 1 : 0 }); }
+    p(0, 0, 10, 1);
+    depths.forEach(function (d) {
+      p(30, 22, 3, 1); p(30, 22, d, 0);
+      for (var y = 22, i = 0; y <= 58; y += 4, i++) { var xa = i % 2 ? 90 : 30, xb = i % 2 ? 30 : 90; p(xa, y, d, 0); p(xb, y, d, 0); if (y + 4 <= 58) p(xb, y + 4, d, 0); }
+      p(pts[pts.length - 1].x, pts[pts.length - 1].y, 3, 1);
+      var r = 8, x0 = 6, y0 = 6, x1 = 114, y1 = 74;
+      p(x0 + r, y0, 3, 1); p(x0 + r, y0, d, 0);
+      function arc(cx, cy, a0) { for (var k = 1; k <= 6; k++) { var a = (a0 + k * 15) * DEG; p(cx + r * Math.cos(a), cy + r * Math.sin(a), d, 0); } }
+      p(x1 - r, y0, d, 0); arc(x1 - r, y0 + r, 270);
+      p(x1, y1 - r, d, 0); arc(x1 - r, y1 - r, 0);
+      p(x0 + r, y1, d, 0); arc(x0 + r, y1 - r, 90);
+      p(x0, y0 + r, d, 0); arc(x0 + r, y0 + r, 180);
+      p(x0 + r, y0, 3, 1);
+    });
+    p(0, 0, 10, 1);
+    return pts;
+  }
+  function basis(yaw, pitch) {
+    var a = yaw * DEG, e = pitch * DEG;
+    return { r: [Math.cos(a), Math.sin(a), 0], u: [-Math.sin(a) * Math.sin(e), Math.cos(a) * Math.sin(e), Math.cos(e)], f: [Math.sin(a) * Math.cos(e), -Math.cos(a) * Math.cos(e), Math.sin(e)] };
+  }
+  // scene: { yaw, pitch, items: [{ a:[x,y,z], b:[x,y,z], colour, width, opacity }], dots: [{ at, kind }], fit: [[x,y,z], ...] }
+  function drawScene(svg, scene) {
+    var w = svg.parentNode.offsetWidth || 600, h = svg.parentNode.offsetHeight || 400, B = basis(scene.yaw, scene.pitch);
+    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    function proj(p) { return [B.r[0] * p[0] + B.r[1] * p[1] + B.r[2] * p[2], -(B.u[0] * p[0] + B.u[1] * p[1] + B.u[2] * p[2])]; }
+    var r0 = Infinity, r1 = -Infinity, u0 = Infinity, u1 = -Infinity;
+    scene.fit.forEach(function (p) { var s = proj(p); r0 = Math.min(r0, s[0]); r1 = Math.max(r1, s[0]); u0 = Math.min(u0, s[1]); u1 = Math.max(u1, s[1]); });
+    var padTop = scene.padTop || 72, padBottom = scene.padBottom || 48, k = 0.9 * Math.min(w / (r1 - r0), (h - padTop - padBottom) / (u1 - u0));
+    var ox = w / 2 - k * (r0 + r1) / 2, oy = padTop + (h - padTop - padBottom) / 2 - k * (u0 + u1) / 2;
+    function scr(p) { var s = proj(p); return (ox + k * s[0]).toFixed(1) + ' ' + (oy + k * s[1]).toFixed(1); }
+    // Depth fade: farther segments drawn closer to the background (opacity buckets).
+    var depths = scene.items.map(function (it) { return B.f[0] * it.a[0] + B.f[1] * it.a[1] + B.f[2] * it.a[2]; });
+    var dmin = Math.min.apply(null, depths), dmax = Math.max.apply(null, depths), groups = {}, order = [];
+    scene.items.forEach(function (it, i) {
+      var fade = scene.fade === false || dmax === dmin ? 0 : Math.round((depths[i] - dmin) / (dmax - dmin) * 3) / 3;
+      var key = it.colour + '|' + it.width + '|' + (it.opacity || 1) + '|' + fade + '|' + (it.layer || 0);
+      if (!groups[key]) { groups[key] = { it: it, fade: fade, d: [] }; order.push(key); }
+      groups[key].d.push('M' + scr(it.a) + 'L' + scr(it.b));
+    });
+    order.sort(function (a, b) { return (groups[a].it.layer || 0) - (groups[b].it.layer || 0); });
+    var out = '';
+    order.forEach(function (key) {
+      var g = groups[key], op = (g.it.opacity || 1) * (1 - 0.45 * g.fade);
+      out += '<path fill="none" stroke="' + g.it.colour + '" stroke-width="' + g.it.width + '" stroke-linecap="round" stroke-linejoin="round" opacity="' + op.toFixed(2) + '" d="' + g.d.join('') + '"/>';
+    });
+    (scene.dots || []).forEach(function (d) {
+      var s = scr(d.at).split(' ');
+      if (d.kind === 'tool') out += '<circle cx="' + s[0] + '" cy="' + s[1] + '" r="10" fill="#111" /><circle cx="' + s[0] + '" cy="' + s[1] + '" r="8" fill="#8ecbff" stroke="#fff" stroke-width="2"/>';
+      if (d.kind === 'origin') {
+        var L = 24;
+        [[1, 0, 0, '#ff7a7a'], [0, 1, 0, '#5fe39a'], [0, 0, 1, '#7cbcff']].forEach(function (ax) {
+          var e = proj([ax[0], ax[1], ax[2]]), n = Math.sqrt(e[0] * e[0] + e[1] * e[1]) || 1;
+          out += '<path stroke="' + ax[3] + '" stroke-width="3" stroke-linecap="round" d="M' + s[0] + ' ' + s[1] + 'l' + (e[0] / n * L).toFixed(1) + ' ' + (e[1] / n * L).toFixed(1) + '"/>';
+        });
+        out += '<circle cx="' + s[0] + '" cy="' + s[1] + '" r="5" fill="none" stroke="#7cbcff" stroke-width="2"/>';
+      }
+    });
+    svg.innerHTML = out;
+  }
+  function boxEdges(min, max) {
+    var c = [], e = [[0, 1], [1, 3], [3, 2], [2, 0], [4, 5], [5, 7], [7, 6], [6, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
+    for (var i = 0; i < 8; i++) c.push([i & 1 ? max[0] : min[0], i & 2 ? max[1] : min[1], i & 4 ? max[2] : min[2]]);
+    return e.map(function (p) { return [c[p[0]], c[p[1]]]; });
+  }
+
+  window.MK = {
+    program: program, depthColour: depthColour, drawScene: drawScene, boxEdges: boxEdges,
+    scene: function (fn) { scenes.push(fn); fn(); }, annotate: annotate
+  };
+
+  document.querySelectorAll('[data-mk-size]').forEach(function (b) { b.addEventListener('click', function () { setSize(b.getAttribute('data-mk-size')); }); });
+  var annot = document.getElementById('mk-annot');
+  if (annot) annot.addEventListener('click', function () { var on = !document.body.classList.contains('mk-annot'); document.body.classList.toggle('mk-annot', on); annot.setAttribute('aria-pressed', String(on)); annotate(); });
+  var full = document.getElementById('mk-full'), exit = document.getElementById('mk-exit');
+  function setFull(on) { document.body.classList.toggle('mk-full', on); fit(); annotate(); window.scrollTo(0, 0); }
+  if (full) full.addEventListener('click', function () { setFull(true); });
+  if (exit) exit.addEventListener('click', function () { setFull(false); });
+  window.addEventListener('resize', function () { fit(); redraw(); annotate(); });
+  window.MKSetSize = setSize;
+  // Hash flags for screenshots and links: #1728, #full, #annot, #v2 (e.g. performance-suivi.html#1728-full-v2).
+  document.addEventListener('DOMContentLoaded', function () {
+    var h = location.hash;
+    if (/annot/.test(h) && annot) annot.click();
+    if (/v2/.test(h)) { var v = document.querySelector('[data-mk-variant="2"]'); if (v) v.click(); }
+    if (/full/.test(h)) document.body.classList.add('mk-full');
+    setSize(size);
+  });
+})();
+</script>
+<script>
+(function () {
+  'use strict';
+  var pts = MK.program(), zmin = -12, n = pts.length, ack = Math.round((n - 1) * 0.58), tool = ack - 14;
+  // Current pass: the run of work segments around the tool, never beyond the last acknowledged one.
+  var a = tool, b = tool; while (a > 1 && !pts[a - 1].r) a--; while (b < ack && b + 1 < n && !pts[b + 1].r) b++;
+  var svg = document.querySelector('#view svg');
+  MK.scene(function () {
+    var items = [];
+    for (var i = 1; i < n; i++) {
+      var p = pts[i - 1], q = pts[i], A = [p.x, p.y, p.z], B = [q.x, q.y, q.z];
+      if (q.r) items.push({ a: A, b: B, colour: i <= ack ? '#ffc857' : '#50636f', width: 1, opacity: i <= ack ? 0.5 : 1, layer: 0 });
+      else if (i >= a && i <= b) items.push({ a: A, b: B, colour: '#eef3f6', width: 3, layer: 3 });
+      else if (i <= ack) items.push({ a: A, b: B, colour: '#ffc857', width: 2, layer: 2 });
+      else items.push({ a: A, b: B, colour: MK.depthColour(Math.min(p.z, q.z), zmin), width: 2, layer: 1 });
+    }
+    MK.boxEdges([0, 0, -14], [120, 80, 0]).forEach(function (e) { items.push({ a: e[0], b: e[1], colour: '#dbc796', width: 1, opacity: 0.6, layer: 0 }); });
+    var t0 = pts[tool - 1], t1 = pts[tool], at = [t0.x + (t1.x - t0.x) * 0.6, t0.y + (t1.y - t0.y) * 0.6, t1.z];
+    MK.drawScene(svg, { yaw: 30, pitch: 40, items: items, dots: [{ at: at, kind: 'tool' }], fit: [[0, 0, -14], [120, 80, 10]] });
+  });
+  var main = document.getElementById('suivi'), ovr = document.getElementById('home-overrides'), controls = document.getElementById('home-zone-controls'), view = document.getElementById('home-zone-view');
+  document.querySelectorAll('[data-mk-variant]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var two = btn.getAttribute('data-mk-variant') === '2';
+      main.classList.toggle('v2', two);
+      if (two) view.appendChild(ovr); else controls.insertBefore(ovr, controls.querySelector('.stop'));
+      document.querySelectorAll('[data-mk-variant]').forEach(function (b) { b.setAttribute('aria-pressed', String(b === btn)); });
+      requestAnimationFrame(function () { window.dispatchEvent(new Event('resize')); });
+    });
+  });
+})();
+</script>
+</body>
+</html>
