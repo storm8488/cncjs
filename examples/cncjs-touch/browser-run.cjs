@@ -887,9 +887,11 @@ async function responsiveMeasure(cdp, realUrl, simUrl, summary) {
       await navigate(cdp, realUrl.replace(/[^/]*$/, '') + 'README.md');
       await cdp.evaluate('localStorage.setItem("cncjs-touch-performance-v1",' + JSON.stringify(JSON.stringify({ version: 1, profile: perf })) + ');true');
       await navigate(cdp, realUrl + (realUrl.includes('?') ? '&' : '?') + 'advanced=' + perf); await waitReady(cdp);
-      const state = await cdp.evaluate('({perf:window.cncProfile.performance(),cls:document.body.classList.contains("perf-"+window.cncProfile.performance()),requests:' + GL_REQUESTS + ',tag:!!document.querySelector("script[src*=preview-gl]")})');
+      const state = await cdp.evaluate('({perf:window.cncProfile.performance(),cls:document.body.classList.contains("perf-"+window.cncProfile.performance()),requests:' + GL_REQUESTS + ',tags:document.querySelectorAll("script[src*=preview-gl]").length})');
       if (state.perf !== perf || !state.cls) failures.push('advanced ' + perf + ': profile read back as ' + state.perf);
-      if (state.requests || state.tag) failures.push('advanced ' + perf + ': preview-gl.js requested at load');
+      // Éco: never. Performance: at most once, by loadAdvanced for the GPU probe after load
+      // (PERFORMANCE-UI-SPEC.md 2.1, Q3), never as a script of the page itself.
+      if (perf === 'eco' ? state.requests || state.tags : state.requests > 1 || state.tags > 1) failures.push('advanced ' + perf + ': preview-gl.js requested at load (' + JSON.stringify(state) + ')');
       // The « 3D libre » button of a file's preview, when the fixture shows one.
       await goScreen(cdp, 'files');
       await cdp.evaluate('(function(){var f=document.querySelector(".library-file");if(f)f.click();return true;})()'); await sleep(1500);
