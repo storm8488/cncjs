@@ -38,6 +38,38 @@
   var token = saved.state && saved.state.session &&
               saved.state.session.token;
 
+  // CNCjs tokens expire after 30 days (accessTokenLifetime). Without CNCjs users the server
+  // hands out a fresh one on /api/signin, so a kiosk renews it here instead of needing the
+  // main app opened again. With users, the server only returns the same token: nothing changes.
+  function storedToken() { try { return JSON.parse(localStorage.getItem('cnc')).state.session.token || ''; } catch (_) { return ''; } }
+  function renewSession(done) {
+    var x = new XMLHttpRequest();
+    x.open('POST', (store ? store.get().apiBase : '/api') + '/signin');
+    x.setRequestHeader('Content-Type', 'application/json');
+    x.onload = function () {
+      var r = null; try { r = JSON.parse(x.responseText); } catch (_) {}
+      if (x.status !== 200 || !r || !r.token || r.token === storedToken()) return;
+      try {
+        var d = JSON.parse(localStorage.getItem('cnc') || '{}');
+        d.state = d.state || {};
+        d.state.session = { enabled: !!r.enabled, token: r.token, name: r.name || '' };
+        localStorage.setItem('cnc', JSON.stringify(d));
+      } catch (_) { return; }
+      if (done) done();
+    };
+    var current = storedToken();
+    x.send(JSON.stringify(current ? { token: current } : {}));
+  }
+  // Reload with the new token at most once a minute, so a refused token cannot loop.
+  function reloadOnce() {
+    var last = 0; try { last = Number(sessionStorage.getItem('cnc-touch-renewed')) || 0; } catch (_) {}
+    if (Date.now() - last < 60000) return;
+    try { sessionStorage.setItem('cnc-touch-renewed', String(Date.now())); } catch (_) {}
+    location.reload();
+  }
+  renewSession(token ? null : reloadOnce);
+  setInterval(function () { renewSession(null); }, 12 * 3600 * 1000);
+
   if (!token) {
     badge('st-server', uiLocale.t('Serveur : authentification requise'), 'warn');
     notice(uiLocale.t("Ouvrez CNCjs à la racine du même serveur, connectez-vous, puis rechargez /touch/."));
@@ -51,6 +83,9 @@
   function on(name,fn){if(!socket)return;socket.on(name,fn);disposers.push(function(){if(socket.off)socket.off(name,fn);else if(socket.removeListener)socket.removeListener(name,fn);});}
 
   function authError(err) {
+    // The socket keeps the token it was opened with: an expired one is refused on reconnect.
+    var text = err && (err.message || err.description || err.type) || String(err);
+    if (/jwt|token|unauthori/i.test(text)) renewSession(reloadOnce);
     badge('st-server', uiLocale.t('Serveur : connexion refusée'), 'err');
     notice(uiLocale.t('Erreur CNCjs : ') + (
       err && (err.message || err.description) || String(err)
