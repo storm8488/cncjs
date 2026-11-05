@@ -156,5 +156,11 @@
 [', G54.',' ago, G54.',', G54.'],
 [', G54, interpolée entre deux rapports.',' ago, G54, interpolated between two reports.',', G54, interpolada entre dos informes.'],
 [', G54 (hors du parcours dessiné : non interpolée).',' ago, G54 (off the drawn toolpath: not interpolated).',', G54 (fuera de la trayectoria dibujada: no interpolada).'],
-[' points).',' points).',' puntos).']
+[' points).',' points).',' puntos).'],
+['Géométrie simplifiée : programme trop long pour la géométrie complète (','Simplified geometry: program too long for the full geometry (','Geometría simplificada: programa demasiado largo para la geometría completa ('],
+[' segments).',' segments).',' segmentos).'],
+['Géométrie complète (','Full geometry (','Geometría completa ('],
+[' segments, arcs à 0,01 mm) : dessin indicatif, jamais envoyé à la machine.',' segments, arcs to 0.01 mm): indicative drawing, never sent to the machine.',' segmentos, arcos a 0,01 mm): dibujo indicativo, nunca enviado a la máquina.'],
+['Le fichier a changé depuis l’aperçu : géométrie complète indisponible.','The file changed since the preview: full geometry unavailable.','El archivo cambió desde la vista previa: geometría completa no disponible.'],
+['Géométrie complète indisponible sans Worker.','Full geometry unavailable without a Worker.','Geometría completa no disponible sin Worker.']
 );

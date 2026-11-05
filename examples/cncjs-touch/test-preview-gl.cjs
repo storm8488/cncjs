@@ -443,7 +443,95 @@ function byText(root, text) { return findAll(root, n => n.textContent === text)[
       if (reason === 'fallback') assert.equal(page.win.gpuLost, 1, 'a lost context closes the gate (cncGpu)');
     }
   }
+  // ---------------- Full geometry (spec 3.8, Q7): the whole program in the worker of preview-inspect.js ----------------
+  {
+    const PIN = require('./touch/preview-inspect.js');
+    // Arcs cut at a sagitta of 0.01 mm at most; sender lines as path3d counts them.
+    const circle = PIN.buildGeometry('G21 G90\nG0 X10 Y0 Z1\nG1 Z-1 F100\nG2 X10 Y0 I-10 J0\nG0 Z5\nM2');
+    let worst = 0;
+    for (let i = 3; i < circle.count - 1; i++) {
+      const ax = circle.positions[i * 3 - 3], ay = circle.positions[i * 3 - 2], bx = circle.positions[i * 3], by = circle.positions[i * 3 + 1];
+      assert(Math.abs(Math.hypot(bx, by) - 10) < 1e-4, 'arc points on the circle');
+      const half = Math.hypot(bx - ax, by - ay) / 2; worst = Math.max(worst, 10 - Math.sqrt(100 - half * half));
+    }
+    assert(worst <= 0.0101, 'sagitta ≤ 0.01 mm: ' + worst);
+    const g = PIN.buildGeometry(code), p3 = T3.decode(meta.path3d);
+    assert.equal(g.lines[g.count - 1], p3.lines[p3.count - 1], 'same sender line numbering as path3d');
+    assert.equal(g.rapid[0], 1); assert(g.positions instanceof Float32Array && g.lines instanceof Float32Array && g.rapid instanceof Uint8Array);
+    assert.deepEqual(PIN.buildGeometry(code, { cap: 3 }), { tooLong: true, segments: g.segments }, 'over the cap: the count only');
+    assert.equal(PIN.GEOMETRY_CAP, 500000, 'design cap of Q7');
+
+    // preview-inspect.js run as a worker (vm): the geometry message, typed arrays transferred.
+    function workerClass(log) {
+      return class {
+        constructor(url) {
+          log.urls.push(url); const outer = this;
+          const ctx = { Math, Promise, Error, JSON, Float32Array, Float64Array, Uint8Array, Int16Array, Int32Array, Array, Object, Number, String, isFinite, parseInt, setTimeout,
+            postMessage(m, transfer) { log.transfer = transfer; Promise.resolve().then(() => { if (outer.onmessage) outer.onmessage({ data: m }); }); },
+            importScripts(...names) { names.forEach(n => vm.runInContext(fs.readFileSync(path.join(__dirname, 'touch', n.split('?')[0]), 'utf8'), ctx)); } };
+          ctx.self = ctx; vm.createContext(ctx); this.ctx = ctx;
+          vm.runInContext(fs.readFileSync(path.join(__dirname, 'touch', 'preview-inspect.js'), 'utf8'), ctx);
+        }
+        postMessage(m) { log.posted.push(m.type); Promise.resolve().then(() => this.ctx.onmessage({ data: m })); }
+        terminate() { log.terminated++; }
+      };
+    }
+    const glog = { urls: [], posted: [], terminated: 0 }, reads = [];
+    const fetchProgram = file => { reads.push(file); return Promise.resolve({ blob: { text: () => Promise.resolve(JSON.stringify({ data: code })) }, fingerprint: 'SHA256:AA11' }); };
+    page = createPage({ gpu: true });
+    view = page.win.CNCPreviewGL.open(meta, { container: page.doc.createElement('div'), fullGeometry: true, Worker: workerClass(glog), fetchProgram });
+    assert.equal(view.state().geometry, 'simplified'); assert.equal(view.state().geometryPending, true);
+    page.runFrames(1); const up0 = view.stats().uploads;
+    await tick(5);
+    let st = view.state();
+    assert.equal(st.geometry, 'full'); assert.equal(st.segments, g.segments); assert.deepEqual(reads, ['piece.nc'], 'read once');
+    assert.match(glog.urls[0], /^preview-inspect\.js\?v=/); assert.deepEqual(glog.posted, ['geometry']); assert.equal(glog.transfer.length, 3, 'positions, lines, rapid transferred');
+    assert.equal(glog.terminated, 1, 'worker ended once the geometry is back');
+    assert.equal(view.stats().uploads, up0 + 2, 'path and extras sent again, once');
+    assert.equal(page.frames.length, 1); page.runFrames(2);
+    assert.match(byClass(view.dialog, 'pgl-foot')[0].textContent, /^Géométrie complète \(\d+ segments, arcs à 0,01 mm\)/);
+    // Kept for the loaded program from one screen to the other: reopened without a read.
+    page.win.dispatch('cnc-screen-change', 'menu'); assert.equal(view.state().closed, true);
+    view = page.win.CNCPreviewGL.open(meta, { container: page.doc.createElement('div'), fullGeometry: true, Worker: workerClass(glog), fetchProgram });
+    assert.equal(view.state().geometry, 'full', 'from the cache'); assert.deepEqual(reads, ['piece.nc'], 'not read again');
+    view.close('test');
+    assert.equal(page.listenerCount.value, 2, 'only the cache listeners (eco, pagehide) remain while it is kept');
+    // Eco drops it (and its listeners).
+    page.win.dispatch('cnc-profile-change', { performance: 'eco' });
+    assert.equal(page.listenerCount.value, 0);
+    view = page.win.CNCPreviewGL.open(meta, { container: page.doc.createElement('div') });
+    assert.equal(view.state().geometry, 'simplified', 'dropped in eco'); view.close('test');
+    // Not asked without fullGeometry (Fichiers, Suivi during a job) nor without the gate.
+    reads.length = 0;
+    view = page.win.CNCPreviewGL.open(meta, { container: page.doc.createElement('div'), Worker: workerClass(glog), fetchProgram }); await tick(5);
+    assert.deepEqual(reads, []); assert.equal(view.state().geometry, 'simplified'); view.close('test');
+    let soft = createPage({});
+    view = soft.win.CNCPreviewGL.open(meta, { fullGeometry: true, Worker: workerClass(glog), fetchProgram }); await tick(5);
+    assert.deepEqual(reads, [], 'no read without the GPU gate'); view.close('test');
+    // Another version of the file on the server: simplified kept, nothing cached.
+    const changed = file => { reads.push(file); return Promise.resolve({ blob: { text: () => Promise.resolve(JSON.stringify({ data: code })) }, fingerprint: 'sha256:bb' }); };
+    view = page.win.CNCPreviewGL.open(meta, { container: page.doc.createElement('div'), fullGeometry: true, Worker: workerClass(glog), fetchProgram: changed }); await tick(5);
+    assert.equal(view.state().geometry, 'simplified'); assert.equal(view.state().geometryPending, false); view.close('test');
+    assert.equal(page.listenerCount.value, 0, 'nothing cached');
+    // Over the cap: simplified, and the reason with the count.
+    const realGeometry = page.win.CNCPreviewInspect.geometry;
+    page.win.CNCPreviewInspect.geometry = () => ({ promise: Promise.resolve({ tooLong: true, segments: 612345, path: null }), cancel() {} });
+    view = page.win.CNCPreviewGL.open(meta, { container: page.doc.createElement('div'), fullGeometry: true }); await tick(2);
+    assert.equal(view.state().geometry, 'simplified'); assert.equal(view.state().geometryReason, 'too-long'); assert.equal(view.state().geometryTotal, 612345); view.close('test');
+    // Closed while reading: the worker is ended, nothing kept.
+    page.win.CNCPreviewInspect.geometry = realGeometry;
+    let slow = null; const slowFetch = () => new Promise(r => { slow = r; });
+    const before = glog.terminated;
+    view = page.win.CNCPreviewGL.open(meta, { container: page.doc.createElement('div'), fullGeometry: true, Worker: workerClass(glog), fetchProgram: slowFetch });
+    view.close('screen'); slow({ blob: { text: () => Promise.resolve(JSON.stringify({ data: code })) }, fingerprint: 'sha256:aa11' }); await tick(5);
+    assert.equal(glog.terminated, before, 'no worker started after the close'); assert.equal(page.listenerCount.value, 0);
+    // A lost context drops the cache too.
+    view = page.win.CNCPreviewGL.open(meta, { container: page.doc.createElement('div'), fullGeometry: true, Worker: workerClass(glog), fetchProgram }); await tick(5);
+    assert.equal(view.state().geometry, 'full'); view.canvas.dispatch('webglcontextlost', {});
+    assert.equal(page.listenerCount.value, 0, 'cache dropped on a lost context');
+  }
   console.log('PASS free 3D view: presets and picking match the fixed views, render on change, DPR cap 1.5, ≤ 30 frames/s in gestures, gestures kept in the canvas (no jog reached), ' +
     'inspection simplified then exact, filters, clamps, inline buttons folded behind Vues, Agrandir opens the large free view, released on eco/screen change/context loss, Canvas 2D without WebGL (light while turning), clean fallback without either, never loaded in eco nor script-tagged; ' +
-    'GPU gate open: antialiasing and depth asked, DPR ≤ 2, a frame per animation frame in gestures, widths × DPR bounded by the line width range (1 px driver), antialias refusal reported, previous rendering when the gate is closed, everything released at the six closing causes.');
+    'GPU gate open: antialiasing and depth asked, DPR ≤ 2, a frame per animation frame in gestures, widths × DPR bounded by the line width range (1 px driver), antialias refusal reported, previous rendering when the gate is closed, everything released at the six closing causes; ' +
+    'full geometry: arcs at 0.01 mm, path3d line numbering, cap 500 000 (count only), read once in a worker at rest and only with the gate, kept by fingerprint across screens, dropped in eco / on a lost context / for another version, cancelled on close.');
 })().catch(e => { console.error(e); process.exit(1); });

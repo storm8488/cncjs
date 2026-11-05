@@ -417,13 +417,29 @@
   function number(text) { var s = String(text || '').trim().replace(',', '.'); if (!s) return null; var v = Number(s); return isFinite(v) ? v : NaN; }
   function fmt(v, d) { try { return v.toLocaleString(uiLocale.locale || 'fr-FR', { maximumFractionDigits: d === undefined ? 3 : d }); } catch (_) { return String(v); } }
 
+  // Full geometry of the loaded program (spec 3.8, Q7): one entry, by fingerprint, kept from one screen
+  // to the other (the program is not read again, even less during a job); dropped in eco, on a lost
+  // context, at pagehide and when another program's geometry is read. Listeners only while kept.
+  var fullCache = null, fullListening = false;
+  function fullDrop() {
+    fullCache = null;
+    if (fullListening && typeof root.removeEventListener === 'function') { root.removeEventListener('cnc-profile-change', fullOnProfile); root.removeEventListener('pagehide', fullDrop); }
+    fullListening = false;
+  }
+  function fullOnProfile(e) { var d = e && e.detail; if (d && d.performance !== 'performance') fullDrop(); }
+  function fullKeep(fingerprint, full) {
+    fullCache = { fingerprint: fingerprint, path: full };
+    if (!fullListening && typeof root.addEventListener === 'function') { root.addEventListener('cnc-profile-change', fullOnProfile); root.addEventListener('pagehide', fullDrop); fullListening = true; }
+  }
+
   var current = null;
   // Opens the free view over the page. meta: {file, fingerprint, path3d, zBounds, estimate};
   // options: {document, window, onClose(reason), onFallback(message), source (inspection), storage, stock,
   // container}: with a container the view is drawn inside it (the preview frame) instead of over the page.
   // Under the GPU gate (cncGpu, read once here, never changed during the view's life), also
   // {live: {progress, tool}, overlays: [...], pathStyle: 'normal'|'ghost'|'hidden', fit: 'path'|'all'}
-  // (spec 8.2); without the gate these are ignored and the view behaves as before.
+  // (spec 8.2), and fullGeometry: true (Suivi at rest: read the whole program for the drawing, spec 3.8);
+  // without the gate these are ignored and the view behaves as before.
   function open(meta, options) {
     options = options || {};
     var win = options.window || root, doc = options.document || win.document;
@@ -529,6 +545,7 @@
     // A lost context also closes the GPU gate until a reload (spec 2.1): no live WebGL view opens again.
     on(canvas, 'webglcontextlost', function () {
       try { if (win.cncGpu && typeof win.cncGpu._contextLost === 'function') win.cncGpu._contextLost(); } catch (_) {}
+      fullDrop();
       fail(t('Contexte WebGL perdu : vue 3D libre fermée, vues fixes conservées.'));
     });
 
@@ -542,6 +559,7 @@
         if (gpuPath) renderer.free(gpuPath.buffer);
         built = buildPathVertices(path, mask, centre, bounds[2]);
         gpuPath = { buffer: renderer.buffer(built.data), built: built };
+        built.data = null; // on the GPU now: the copy is not kept
         if (extrasBuffer) renderer.free(extrasBuffer);
         extrasBuffer = renderer.buffer(extraVertices(overlay.boxes, diag * 0.08));
         if (!triadBuffer) triadBuffer = renderer.buffer(colouredVertices([[0, 0, 0, [1, 1, 1]], [1, 0, 0, [1, 1, 1]], [0, 0, 0, [1, 1, 1]], [0, 1, 0, [1, 1, 1]], [0, 0, 0, [1, 1, 1]], [0, 0, 1, [1, 1, 1]]]));
@@ -868,7 +886,34 @@
       return isStale() ? 'stale' : '';
     }
     function progressLine() { return liveOptions.progress ? live.ackLine : -1; }
-    function geometryKind() { return 'simplified'; }
+    // ---- Geometry: path3d (simplified), or the whole program (spec 3.8) under the cap of Q7 ----
+    var geometry = 'simplified', geometryReason = '', geometryTotal = 0, fullRequest = null;
+    function geometryKind() { return geometry; }
+    function footText() {
+      foot.textContent = geometry === 'full' ? t('Géométrie complète (') + Math.max(0, path.count - 1) + t(' segments, arcs à 0,01 mm) : dessin indicatif, jamais envoyé à la machine.')
+        : t('Géométrie simplifiée (') + path.count + t(' points, tolérance ') + fmt(meta.path3d.tolerance || 0) + ' mm' + (meta.path3d.decimated ? t(', points décimés') : '') + t(') : dessin indicatif, jamais envoyé à la machine.');
+    }
+    // The whole program replaces path3d in this view (same centre and camera; filters and snaps reset).
+    function useFull(full, now) {
+      path = full; geometry = 'full'; mask = null; screen = null; screenKey = ''; cumulative = null; lastSnap = 0;
+      if (live.report) live.report.snap = undefined;
+      if (live.previous) live.previous.snap = undefined;
+      footText();
+      if (now) { upload(); invalidate(); }
+    }
+    if (gpuMode && meta.fingerprint) {
+      if (fullCache && PI.sameFingerprint(fullCache.fingerprint, meta.fingerprint)) useFull(fullCache.path, false);
+      else if (options.fullGeometry === true && typeof PI.geometry === 'function') {
+        var asked = fullRequest = PI.geometry(meta, { Worker: options.Worker, fetchProgram: options.fetchProgram });
+        asked.promise.then(function (r) {
+          if (fullRequest !== asked) return;
+          fullRequest = null;
+          if (closed) return;
+          if (r.tooLong) { geometryReason = 'too-long'; geometryTotal = r.segments; invalidate(); return; }
+          fullDrop(); fullKeep(meta.fingerprint, r.path); useFull(r.path, true);
+        }, function () { if (fullRequest === asked) fullRequest = null; });
+      }
+    }
     // Cumulative length along the path, once per view.
     function cumulativeLengths() {
       if (cumulative) return cumulative;
@@ -879,7 +924,7 @@
     // Nearest point of the segments 1..limit to p, within the tolerance: {seg, s (abscissa), d}, or null.
     // A sliding window from the previous snap (forward, a little backward), the whole range if it misses.
     function snapTo(p, limit, hint) {
-      var P = path.positions, c = cumulativeLengths(), tol = Math.max(2 * (meta.path3d && meta.path3d.tolerance || 0), 0.1), best = null;
+      var P = path.positions, c = cumulativeLengths(), tol = geometry === 'full' ? 0.1 : Math.max(2 * (meta.path3d && meta.path3d.tolerance || 0), 0.1), best = null;
       function scan(from, to) {
         for (var j = Math.max(1, from); j <= to; j++) {
           var ax = P[j * 3 - 3], ay = P[j * 3 - 2], az = P[j * 3 - 1], vx = P[j * 3] - ax, vy = P[j * 3 + 1] - ay, vz = P[j * 3 + 2] - az;
@@ -992,6 +1037,7 @@
       // (live is not set yet when the view fails while opening.)
       if (live) { if (live.staleTimer !== null) clearTimeout(live.staleTimer); live.staleTimer = null; live.report = live.previous = live.machine = live.display = null; }
       cumulative = null; gpuPath = extrasBuffer = triadBuffer = null;
+      if (fullRequest) { var pending = fullRequest; fullRequest = null; pending.cancel(); }
       if (frame !== null && win.cancelAnimationFrame) win.cancelAnimationFrame(frame); frame = null;
       listeners.forEach(function (l) { try { l[0].removeEventListener(l[1], l[2], l[3]); } catch (_) {} }); listeners = [];
       if (renderer) renderer.release();
@@ -1035,6 +1081,7 @@
         var lw = renderer && renderer.lineWidthRange ? renderer.lineWidthRange.slice() : [1, 1];
         return { closed: closed, software: !!(renderer && renderer.software), listeners: listeners.length, gesture: gesture, zScale: zs, camera: cam && { yaw: cam.yaw, pitch: cam.pitch, zoom: cam.zoom }, renderer: !!renderer, dpr: dpr, canvas: { width: canvas.width, height: canvas.height }, inspected: inspected, filters: filters,
           gpu: gpu && !!renderer && !renderer.software, antialias: !!(renderer && renderer.antialias), lineWidth: lw, geometry: geometryKind(), segments: path ? Math.max(0, path.count - 1) : 0,
+          geometryReason: geometryReason, geometryTotal: geometryTotal, geometryPending: !!fullRequest,
           pathStyle: pathStyle, fit: fitMode, live: liveState(),
           overlays: overlays.map(function (o) { var reason = overlayReason(o); return { id: o.id, drawn: !closed && !reason, reason: reason }; }) };
       },

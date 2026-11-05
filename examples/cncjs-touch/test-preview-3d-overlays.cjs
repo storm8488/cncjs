@@ -169,4 +169,55 @@ page = gpuPage(); page.win.cncGpu.state = () => ({ checked: true, hardware: true
 view = page.win.CNCPreviewGL.open(meta, { pathStyle: 'hidden' });
 assert.equal(view.state().pathStyle, 'normal'); view.close('test');
 
-console.log('PASS overlays: the spec 8.10 reference cases and ' + more.length + ' more give the stub\'s result; named colours only; setOverlays declarative with refusals, private copies; machine frame accepted but not drawn without the offset; ignored without the GPU gate; released with the view.');
+// ---- Machine frame converted by o = mpos − wpos (live.tool), reasons, program without a buffer, release ----
+{
+  let now = 0;
+  page = createPage({ dpr: 2, gpu: true, clock: () => now, setTimeout: () => 0, clearTimeout() {} });
+  const report = extra => page.win.dispatch('cnc-job-status', { machine: Object.assign({ fresh: true, name: 'piece.nc', workflow: 'idle', activeState: 'Idle',
+    operator: { reportUnits: 'mm', wcs: 'G54' }, coordinates: { wpos: { x: '10', y: '20', z: '5' }, mpos: { x: '-290', y: '-180', z: '-45' } } }, extra || {}) });
+  view = page.win.CNCPreviewGL.open(meta, { container: page.doc.createElement('div'), live: { tool: true }, pathStyle: 'ghost', fit: 'all',
+    overlays: [box('travel'), { id: 'placed', kind: 'program', translate: [5, 5, 0], colour: 'info', width: 'thick' }, { id: 'origin', kind: 'marker', frame: 'work', at: [10, 20, 0], colour: 'info' }] });
+  const g = view.canvas.glStub.log;
+  page.runFrames(1);
+  eq(view.state().overlays.map(o => [o.id, o.drawn, o.reason]), [['travel', false, 'no-offset'], ['placed', true, ''], ['origin', true, '']], 'no report yet: no offset');
+  report(); page.runFrames(2);
+  eq(view.state().overlays[0], { id: 'travel', drawn: true, reason: '' }, 'offset known: drawn');
+  let calls = g.calls.filter(c => c.frame === g.frames);
+  // o = mpos − wpos = (-300, -200, -50): a machine box is drawn shifted by -o.
+  const travelCall = calls.find(c => c.count === 24 && c.solid && Math.abs(c.solid[0] - 0xaa / 255) < 1e-6);
+  eq(travelCall.shift, [300, 200, 50], 'machine frame: work = machine − o'); assert.equal(travelCall.width, 2, 'thin: 1 px × DPR 2');
+  const programCall = calls.find(c => c.solid && Math.abs(c.solid[0] - 0x7c / 255) < 1e-6 && c.count === view.state().segments * 2);
+  eq(programCall.shift, [5, 5, 0], 'program: the path buffer with a translation'); assert.equal(programCall.width, 4, 'thick: 2 px × DPR 2');
+  assert(calls.some(c => c.solid && Math.abs(c.solid[0] - 0x87 / 255) < 1e-6 && c.width === 2), 'ghost path: grey, 1 px');
+  const markerCall = calls.find(c => c.count === 6 && c.depth === false);
+  assert(markerCall && markerCall.scale[0] > 0, 'marker: fixed-size triad over everything');
+  // A new translation, the same box again: no buffer sent.
+  const uploads = view.stats().uploads;
+  view.setOverlays([box('travel'), { id: 'placed', kind: 'program', translate: [-312.4, -250, 0], colour: 'info', width: 'thick' }]); page.runFrames(3);
+  assert.equal(view.stats().uploads, uploads, 'program moved and box unchanged: no upload');
+  eq(g.calls.filter(c => c.frame === g.frames).find(c => c.solid && Math.abs(c.solid[0] - 0x7c / 255) < 1e-6 && c.count === view.state().segments * 2).shift, [-312.4, -250, 0]);
+  // A changed box: one buffer (the old one freed).
+  const deleted = g.deleted.buffer;
+  view.setOverlays([box('travel', { max: [0, 0, 10] })]); page.runFrames(4);
+  assert.equal(view.stats().uploads, uploads + 1); assert.equal(g.deleted.buffer, deleted + 1);
+  // The stored overlay is a private copy: the caller changing its array afterwards changes nothing.
+  const seg = { id: 'seg', kind: 'segments', frame: 'work', points: [0, 0, 0, 10, 0, 0], colour: 'ok', width: 'thick' };
+  view.setOverlays([box('travel', { max: [0, 0, 10] }), seg]); page.runFrames(6); const sent = view.stats().uploads;
+  seg.points[3] = 99; view.setOverlays([box('travel', { max: [0, 0, 10] }), { id: 'seg', kind: 'segments', frame: 'work', points: [0, 0, 0, 10, 0, 0], colour: 'ok', width: 'thick' }]); page.runFrames(7);
+  assert.equal(view.stats().uploads, sent, 'same values as the stored copy: kept, no upload');
+  // Stale (2.5 s without a fresh report), units, work frame: accepted, not drawn, with the reason; back when known.
+  now = 3000; assert.equal(view.state().overlays[0].reason, 'stale');
+  report({ operator: { reportUnits: 'in', wcs: 'G54' } }); assert.equal(view.state().overlays[0].reason, 'units');
+  report({ operator: { reportUnits: 'mm', wcs: 'G55' } }); assert.equal(view.state().overlays[0].reason, 'wcs');
+  report({ coordinates: { wpos: { x: '1', y: '2', z: '3' } } }); assert.equal(view.state().overlays[0].reason, 'no-offset');
+  report(); assert.equal(view.state().overlays[0].reason, ''); page.runFrames(5);
+  // fit: 'all' includes the drawn overlays: Recentrer shows the travel box too.
+  const zoomPath = view.state().camera.zoom;
+  view.dialog.children.find(c => /pgl-tools/.test(c.className)).children.find(c => c.className === 'pgl-recentre').click();
+  assert(view.state().camera.zoom < zoomPath * 0.5, 'Recentrer with fit all: the 400 mm travel box fits');
+  // Released with the view.
+  view.close('screen');
+  assert.equal(g.deleted.buffer, g.created.buffer, 'every buffer freed'); eq(view.state().overlays, []); assert.equal(page.listenerCount.value, 0);
+}
+
+console.log('PASS overlays: the spec 8.10 reference cases and ' + more.length + ' more give the stub\'s result; named colours only; setOverlays declarative with refusals, private copies; machine frame converted by o = mpos − wpos, not drawn when no-offset / stale / units / wcs; program as a translation of the path buffer (no upload), unchanged overlay kept; fit all; ignored without the GPU gate; released with the view.');

@@ -149,7 +149,7 @@
       if(!m.shown)text=head+'. '+(v.reason||t('Position outil inconnue.'));
       else text=head+t(' · repère : position de travail rapportée par Grbl il y a ')+seconds(m.ageMs||0)+(v.workflow==='paused'?t(', G54.'):m.snapped?t(', G54, interpolée entre deux rapports.'):t(', G54 (hors du parcours dessiné : non interpolée).'));
     }
-    if(ls.geometry==='simplified')text+=' '+t('Géométrie simplifiée (')+(ls.segments+1)+t(' points).');
+    if(ls.geometry==='simplified')text+=' '+(ls.geometryReason==='too-long'?t('Géométrie simplifiée : programme trop long pour la géométrie complète (')+ls.geometryTotal+t(' segments).'):t('Géométrie simplifiée (')+(ls.segments+1)+t(' points).'));
     return text;
   }
   function schedule(){
