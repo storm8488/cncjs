@@ -1,0 +1,21 @@
+/* Visual origin card in Préparer (Performance UI, lot O). Injected by origin-preview.js, never linked
+ * by the pages; every rule is under body.perf-origin, so nothing applies once the card is unmounted.
+ * Only the inside of #op-card: its place in the Préparer grid belongs to responsive.css (lot D). */
+body.perf-origin #op-card{display:flex;flex-direction:column;gap:var(--sp-2);min-width:0;min-height:0}
+body.perf-origin #op-card .op-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-3);flex-wrap:wrap}
+body.perf-origin #op-card .op-head h2{margin:0;font-size:var(--fs-24);line-height:1.1}
+body.perf-origin #op-card .op-file{color:var(--mute);font-size:var(--fs-16);overflow-wrap:anywhere}
+body.perf-origin #op-card .op-note{margin:0;padding:var(--sp-2) var(--sp-3);border-left:6px solid var(--info);border-radius:var(--r-m);background:var(--info-soft);color:var(--fg);font-size:var(--fs-16);line-height:1.35}
+body.perf-origin #op-card .op-note[data-tone="ok"]{border-left-color:var(--ok);background:var(--ok-soft)}
+body.perf-origin #op-card .op-note[data-tone="warn"]{border-left-color:var(--warn);background:var(--warn-soft)}
+body.perf-origin #op-card .op-note[data-tone="danger"]{border-left-color:var(--danger);background:var(--danger-soft)}
+body.perf-origin #op-card .op-note[data-tone="neutral"]{border-left-color:var(--faint);background:var(--surface-2)}
+/* Host of CNCPreviewGL's inline view (.pgl-inline is absolutely positioned inside it). */
+body.perf-origin #op-card .op-view{position:relative;flex:1 1 auto;min-height:260px;border-radius:var(--r-m);overflow:hidden;background:#101820}
+body.perf-origin #op-card .op-legend{display:flex;flex-wrap:wrap;align-items:center;gap:4px 20px;margin:0;color:var(--mute);font-size:var(--fs-16)}
+body.perf-origin #op-card .op-legend span{white-space:nowrap}
+body.perf-origin #op-card .op-sw{display:inline-block;width:22px;height:4px;margin-right:4px;border-radius:2px;vertical-align:middle}
+body.perf-origin #op-card .op-sw-ghost{background:#87969f}
+body.perf-origin #op-card .op-sw-placed{background:#7cbcff}
+body.perf-origin #op-card .op-sw-travel{height:2px;background:#aab8c1}
+body.perf-origin #op-card [hidden]{display:none}

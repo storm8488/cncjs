@@ -160,11 +160,37 @@
       if (li._box) { var can = !!(machine && machine.fresh && machine.name && machine.workflow === 'idle'); if (li._box.disabled !== !can) li._box.disabled = !can; if (li._box.checked !== !!ticks[step.id]) li._box.checked = !!ticks[step.id]; }
       if (li._tickText) { var tick = step.id === 'tool' ? (result.laser ? t('Matériau et mise au point vérifiés') : t('Outil et matière vérifiés')) : t('Origine de travail réglée'); if (li._tickText.textContent !== tick) li._tickText.textContent = tick; }
       if (li._load) { var b = document.getElementById('job-load'), show = step.state !== 'ok' && !!selection && !!(b && !b.disabled); if (li._load.hidden !== !show) li._load.hidden = !show; }
+      // Visual origin (origin-preview.js, once loaded): its verdict under the step, display only; the tick stays manual.
+      if (step.id === 'origin' && window.CNCOriginPreview) {
+        if (!li._hint) { li._hint = document.createElement('p'); li._hint.className = 'ks-prep-origin-hint'; li.insertBefore(li._hint, li._next); }
+        var hint = window.CNCOriginPreview.hint(machine, pv) || '';
+        if (li._hint.textContent !== hint) li._hint.textContent = hint; if (li._hint.hidden !== !hint) li._hint.hidden = !hint;
+      }
     });
     var foot = result.ready ? t('Prêt : ouvrez Suivi et touchez Démarrer. Ce panneau ne lance rien.') : result.blocked ? t('Une étape bloque le démarrage.') : t('Étapes restantes ci-dessus. Ce panneau ne lance rien.');
     if (footer.textContent !== foot) footer.textContent = foot;
     var tone = result.ready ? 'ok' : result.blocked ? 'danger' : 'warn'; if (open.getAttribute('data-tone') !== tone) open.setAttribute('data-tone', tone);
   }
+  // Visual origin in Préparer (Performance UI, lot O): only in the wide layout, on a CNC machine, while
+  // Préparer is visible; the advanced module is loaded then, never otherwise. Display only.
+  var originMounted = false, originRequest = 0;
+  function originWanted() {
+    var jog = document.getElementById('screen-jog'), P = window.cncProfile, L = window.cncLayout;
+    try { return !!(jog && jog.classList.contains('active') && L && L.wide() === true && P && P.performance() === 'performance' && P.kind() !== 'laser'); } catch (_) { return false; }
+  }
+  function originSync() {
+    if (!originWanted()) { originRequest++; if (originMounted) { originMounted = false; if (window.CNCOriginPreview) window.CNCOriginPreview.unmount(); } return; }
+    if (originMounted) return;
+    var request = ++originRequest;
+    function mount() {
+      if (request !== originRequest || originMounted || !originWanted() || !window.CNCOriginPreview) return;
+      originMounted = true; window.CNCOriginPreview.mount(document.getElementById('screen-jog')); render();
+    }
+    // Without preview-gl.js the card still says why the 3D view is missing.
+    window.cncProfile.loadAdvanced(['preview-gl.js', 'origin-preview.js']).then(mount, mount);
+  }
+  ['cnc-screen-change', 'cnc-layout-change', 'cnc-profile-change'].forEach(function (name) { window.addEventListener(name, originSync); });
+  originSync();
   window.addEventListener('cnc-job-status', function (e) { var d = e && e.detail || {}; if (d.simulation) return; machine = d.machine || null; render(); });
   window.addEventListener('cnc-library-select', function (e) { selection = e && e.detail || null; render(); });
   window.addEventListener('cnc-library-preview-updated', render);
