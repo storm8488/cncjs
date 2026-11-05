@@ -96,6 +96,30 @@
     var m=Math.ceil(s/60),h=Math.floor(m/60);m%=60;
     return (h?h+' h ':'')+(h&&!m?'':m+' min');
   }
+  function sessionToken(){var token='';try{token=JSON.parse(localStorage.getItem('cnc')).state.session.token;}catch(_){}return token;}
+  function previewXhr(file,token){
+    var xhr=new XMLHttpRequest();xhr.open('POST',apiBase()+'/watch/file',true);xhr.timeout=20000;
+    xhr.setRequestHeader('Authorization','Bearer '+token);xhr.setRequestHeader('Content-Type','application/json');
+    return xhr;
+  }
+  // The answer of /watch/file for a program's sidecar: { refused: notice } for a stale preview,
+  // { src, note, preview } otherwise; throws on anything malformed.
+  function previewAnswer(xhr,file){
+    if(xhr.status!==200)throw new Error();
+    var envelope=JSON.parse(xhr.responseText),meta=JSON.parse(envelope.data);
+    if(meta.file!==file)throw new Error();
+    // A preview of another version of the program (replaced under the same name, older
+    // sidecar) is never shown: the server's verdict says so.
+    var v=verdict(envelope,meta);
+    if(v.state==='stale')return {refused:previewNotice(v)};
+    var src=meta.preview&&meta.preview.image,note=v.state==='unverified'?previewNotice(v):'';
+    if(typeof src!=='string'||src.length>2500000||!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(src))throw new Error();
+    // Depth and the 3D path (newer previews) feed the 3D views and their trail (preview-3d.js).
+    return {src:src,note:note,preview:{file:file,fingerprint:typeof meta.fingerprint==='string'?meta.fingerprint:'',projection:meta.preview.projection,trail:Array.isArray(meta.preview.trail)?meta.preview.trail:null,lines:meta.preview.lines,
+      trailZ:Array.isArray(meta.preview.trailZ)?meta.preview.trailZ:null,zBounds:meta.preview.zBounds,path3d:meta.preview.path3d||null,
+      // Version 3 of the preview: motion-based estimate and laser summary (absent from older sidecars).
+      estimate:window.CNCMotionEstimate&&window.CNCMotionEstimate.valid(meta.preview.estimate)?meta.preview.estimate:null,laser:meta.preview.laser||null}};
+  }
   function preview(file) {
     if(file===imageKey)return;
     cancelPreview();imageKey=file;previewFailed=false;var id=++request;
@@ -104,29 +128,18 @@
     $('home-image-status').hidden=false;
     $('home-image-status').textContent=file?uiLocale.t('Chargement de l’aperçu…'):uiLocale.t('Sélectionnez un fichier pour afficher son aperçu.');
     if(!file)return;
-    var token='';try{token=JSON.parse(localStorage.getItem('cnc')).state.session.token;}catch(_){}
+    var token=sessionToken();
     if(!token){$('home-image-status').textContent=uiLocale.t('Session CNCjs requise pour lire l’aperçu.');return;}
-    var xhr=new XMLHttpRequest();previewRequest=xhr;xhr.open('POST',apiBase()+'/watch/file',true);xhr.timeout=20000;
-    xhr.setRequestHeader('Authorization','Bearer '+token);xhr.setRequestHeader('Content-Type','application/json');
+    var xhr=previewXhr(file,token);previewRequest=xhr;
     function fail(notice){if(id===request){previewRequest=null;imageLoading=false;previewFailed=true;img.hidden=true;$('home-image-status').hidden=false;set('home-image-status','textContent',typeof notice==='string'&&notice?notice:uiLocale.t('Aperçu indisponible. Régénérez-le dans Fichiers.'));}}
     xhr.onload=function(){
       if(id!==request)return;
       previewRequest=null;
       try{
-        if(xhr.status!==200)throw new Error();
-        var envelope=JSON.parse(xhr.responseText),meta=JSON.parse(envelope.data);
-        if(meta.file!==file)throw new Error();
-        // A preview of another version of the program (replaced under the same name, older
-        // sidecar) is never shown: the server's verdict says so.
-        var v=verdict(envelope,meta);
-        if(v.state==='stale'){fail(previewNotice(v));return;}
-        var src=meta.preview&&meta.preview.image,note=v.state==='unverified'?previewNotice(v):'';
-        if(typeof src!=='string'||src.length>2500000||!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(src))throw new Error();
-        // Depth and the 3D path (newer previews) feed the 3D views and their trail (preview-3d.js).
-        img.cncPreview={file:file,fingerprint:typeof meta.fingerprint==='string'?meta.fingerprint:'',projection:meta.preview.projection,trail:Array.isArray(meta.preview.trail)?meta.preview.trail:null,lines:meta.preview.lines,
-          trailZ:Array.isArray(meta.preview.trailZ)?meta.preview.trailZ:null,zBounds:meta.preview.zBounds,path3d:meta.preview.path3d||null,
-          // Version 3 of the preview: motion-based estimate and laser summary (absent from older sidecars).
-          estimate:window.CNCMotionEstimate&&window.CNCMotionEstimate.valid(meta.preview.estimate)?meta.preview.estimate:null,laser:meta.preview.laser||null};
+        var answer=previewAnswer(xhr,file);
+        if(answer.refused){fail(answer.refused);return;}
+        var src=answer.src,note=answer.note;
+        img.cncPreview=answer.preview;
         imageLoading=true;
         img.onload=function(){if(id===request){imageLoading=false;img.hidden=false;if(note)set('home-image-status','textContent',note);$('home-image-status').hidden=!note;}};
         img.onerror=fail;img.src=src;
@@ -285,6 +298,7 @@
     render();});
   window.addEventListener('cnc-library-preview-updated',function(e){
     var file=machine&&machine.name?machine.name:selection&&selection.file||'';
+    forgetLoaded(e.detail&&e.detail.file||'');
     if(e.detail&&e.detail.file&&e.detail.file!==file)return;
     cancelPreview();imageKey='';render();
   });
@@ -292,7 +306,31 @@
   function unmount(){if(!mounted)return;mounted=false;cancelPreview();}
   window.addEventListener('cnc-screen-change',function(e){if(e.detail==='home')mount();else{unmount();if(e.detail==='files')render();}});
   document.addEventListener('visibilitychange',function(){if(visible('home'))mount();else unmount();});
-  window.cncDashboardView={mount:mount,unmount:unmount};
+  // Preview of the loaded program for the other screens (spec 8.6, origin preview): the one Suivi
+  // already read when it is there, else one read of its own (one in flight, same verdict and checks),
+  // kept for that program until its preview is regenerated. null without a loaded program or a valid preview.
+  var loadedRead=null;
+  function loadedPreview(){
+    var file=machine&&machine.name?machine.name:'';
+    if(!file)return Promise.resolve(null);
+    var img=$('home-job-image'),shown=img&&img.cncPreview;
+    if(shown&&shown.file===file&&imageKey===file&&!previewFailed)return Promise.resolve(shown);
+    var revision=machine.revision;
+    if(loadedRead&&loadedRead.file===file&&loadedRead.revision===revision)return loadedRead.promise;
+    forgetLoaded('');
+    var token=sessionToken();if(!token)return Promise.resolve(null);
+    var read={file:file,revision:revision,xhr:null,promise:null};loadedRead=read;
+    read.promise=new Promise(function(resolve){
+      var xhr=previewXhr(file,token);read.xhr=xhr;
+      function done(meta){read.xhr=null;if(loadedRead===read&&!meta)loadedRead=null;resolve(meta&&machine&&machine.name===file?meta:null);}
+      xhr.onload=function(){var meta=null;try{var answer=previewAnswer(xhr,file);meta=answer.refused?null:answer.preview;}catch(_){}done(meta);};
+      xhr.onerror=xhr.ontimeout=xhr.onabort=function(){done(null);};
+      xhr.send(JSON.stringify({file:file+'.cnctouch.json'}));
+    });
+    return read.promise;
+  }
+  function forgetLoaded(file){if(!loadedRead||file&&loadedRead.file!==file)return;var xhr=loadedRead.xhr;loadedRead=null;if(xhr&&typeof xhr.abort==='function')xhr.abort();}
+  window.cncDashboardView={mount:mount,unmount:unmount,loadedPreview:loadedPreview};
   mount();
   render();
 })();

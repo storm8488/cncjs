@@ -159,3 +159,17 @@ body.ks-ui .pv3d-status.pv3d-status--below{position:static;margin:0;max-width:no
    keep the shared disabled look. */
 body.ks-ui #project-favorite:not(:disabled),body.ks-ui #project-open:not(:disabled){background:transparent;color:var(--fg);border:1px solid var(--line-strong);border-radius:var(--r-m)}
 body.ks-ui .preview-open:not(:disabled){background:var(--surface);color:var(--fg);border:1px solid var(--line-strong);border-radius:var(--r-m)}
+
+/* === Poste large (body.perf-wide, touch-shell.js) =============================
+   Profil Performance, rendu WebGL matériel et fenêtre ≥ 1300 × 880 en paysage (PERFORMANCE-UI-SPEC.md
+   § 2.2, § 5) : la classe seule décide, aucune requête média ne répète la règle. Hors perf-wide, rien
+   ne change. Cibles 64 / 48 / 96 px et texte ≥ 16 px comme ailleurs. */
+/* Préparer avec l'origine visuelle (body.perf-origin, posée par origin-preview.js quand #op-card est
+   montée) : coordonnées puis croix de jog à gauche, la carte #op-card à droite sur toute la hauteur.
+   Entre le canvas de la carte et la flèche la plus proche : la gouttière et les marges des deux
+   cartes (≥ 24 px). Sans perf-origin, la grille actuelle de Préparer s'applique. */
+body.ks-ui.perf-wide.perf-origin #screen-jog.active,body.ks-ui.perf-wide.perf-origin #screen-jog.kept{grid-template-columns:clamp(440px,34vw,520px) minmax(0,1fr);grid-template-rows:auto auto minmax(0,1fr);grid-template-areas:"intro intro" "coords origin" "arrows origin"}
+body.ks-ui.perf-wide.perf-origin #screen-jog .ks-panel-intro{grid-area:intro}
+body.ks-ui.perf-wide.perf-origin #screen-jog .ks-motion-coordinates{grid-area:coords;height:auto}
+body.ks-ui.perf-wide.perf-origin #screen-jog .ks-motion-arrows{grid-area:arrows;min-height:0}
+body.ks-ui.perf-wide.perf-origin #screen-jog #op-card{grid-area:origin;min-width:0;min-height:0;height:auto;align-self:stretch;overflow:hidden}

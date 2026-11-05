@@ -55,6 +55,15 @@
     if(document.body.classList.contains('t-compact')!==compact)document.body.classList.toggle('t-compact',compact);
     window.dispatchEvent(new CustomEvent('cnc-library-page-size',{detail:compact?3:5}));window.dispatchEvent(new CustomEvent('cnc-history-page-size',{detail:compact?4:8}));}
   window.addEventListener('resize',fitLibrary);fitLibrary();
+  // Wide workstation (PERFORMANCE-UI-SPEC.md 2.2, body.perf-wide): Performance profile, hardware WebGL
+  // (body.perf-gpu, preview-3d.js) and a landscape window of at least 1300 x 880 CSS px. The style
+  // sheets key on the class only; cnc-layout-change tells the modules. A lost GPU context keeps
+  // perf-gpu, so the layout never moves during a job (Q4).
+  var layoutWideOn=false;
+  function layoutWide(){var b=document.body.classList;return b.contains('perf-performance')&&b.contains('perf-gpu')&&window.innerWidth>=1300&&window.innerHeight>=880&&window.innerWidth>=window.innerHeight;}
+  function fitLayout(){var on=layoutWide();if(on===layoutWideOn)return;layoutWideOn=on;document.body.classList.toggle('perf-wide',on);window.dispatchEvent(new CustomEvent('cnc-layout-change',{detail:{wide:on}}));}
+  window.cncLayout={wide:function(){return layoutWideOn;}};
+  window.addEventListener('resize',fitLayout);window.addEventListener('cnc-profile-change',fitLayout);window.addEventListener('cnc-gpu-change',fitLayout);fitLayout();
   var openedSheet=null,sheetReturn=null,sheetRestore=null;
   // Pause / Arrêter of the strip stay usable over a sheet (strip-guard.js, U5): the sheet
   // starts below the strip and makes the rest inert; without the guard, everything else.
