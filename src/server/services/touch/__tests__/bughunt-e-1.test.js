@@ -51,9 +51,25 @@ describe('E-1 : $23 et le contrôle de course serveur', () => {
 // scenario-profiles.test.js : machine laser, $32=1, déplacements activés,
 // référencée (Home puis Idle), programme chargé, puis frame-prepare.
 const SETTINGS = {
-  $10: '1', $13: '0', $22: '1', $23: '3', $30: '1000', $31: '0', $32: '1',
-  $100: '80', $101: '80', $102: '400', $110: '3000', $111: '3000', $112: '500',
-  $120: '200', $121: '200', $122: '50', $130: '400', $131: '400', $132: '80'
+  $10: '1',
+$13: '0',
+$22: '1',
+$23: '3',
+$30: '1000',
+$31: '0',
+$32: '1',
+  $100: '80',
+$101: '80',
+$102: '400',
+$110: '3000',
+$111: '3000',
+$112: '500',
+  $120: '200',
+$121: '200',
+$122: '50',
+$130: '400',
+$131: '400',
+$132: '80'
 };
 const signature = signatureOf(SETTINGS, '1.1h', '1.1h');
 const LASER = { id: 'm-0123456789ab', label: 'Laser', kind: 'laser', signature, createdAt: 'x', updatedAt: 'x' };

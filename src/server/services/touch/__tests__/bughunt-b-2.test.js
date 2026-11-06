@@ -25,10 +25,10 @@ jest.mock('../../../config/settings', () => {
 });
 jest.mock('../wifi', () => ({
   createWifi: () => ({
-    status: async () => ({ available: true }),
-    scan: async () => ({ networks: [] }),
-    connect: async () => ({ ok: true }),
-    forget: async () => ({ ok: true })
+    status: () => Promise.resolve({ available: true }),
+    scan: () => Promise.resolve({ networks: [] }),
+    connect: () => Promise.resolve({ ok: true }),
+    forget: () => Promise.resolve({ ok: true })
   })
 }));
 

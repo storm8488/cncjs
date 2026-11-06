@@ -567,8 +567,9 @@ export const checkProgram = (analysis, machine = {}) => {
     // axis is not checked, never "inside" or "outside" from a guessed envelope.
     if (travel !== null && travel > 0) {
       if (Math.floor(mask / (2 ** i)) % 2 === 1) {
-        reasons.push(reason('ETOUCH_CHECK_HOMING_DIRECTION', { axis, setting: 130 + i },
-          'Sens de prise d’origine inversé ($23) en ' + axis + ' : selon la compilation du firmware, la course va de −$' + (130 + i) + ' à 0 ou de 0 à $' + (130 + i) + ' ; axe non vérifié.'));
+        const setting = '$' + (130 + i);
+        const text = 'Sens de prise d’origine inversé ($23) en ' + axis + ' : selon la compilation du firmware, la course va de −' + setting + ' à 0 ou de 0 à ' + setting + ' ; axe non vérifié.';
+        reasons.push(reason('ETOUCH_CHECK_HOMING_DIRECTION', { axis, setting: 130 + i }, text));
       } else {
         entry.low = -travel;
         entry.high = 0;

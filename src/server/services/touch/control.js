@@ -81,9 +81,9 @@ export const describeOwner = (owner) => {
 };
 
 export const createControl = ({ now = Date.now, elapsed = () => performance.now(), graceMs = GRACE_MS, idleMs = IDLE_MS, isAdmin = () => false, onEvent } = {}) => {
-  // port → { who, key, since, graceEnd (elapsed() when the lease ends, null while
-  // present), absentAt (elapsed() of the last detach, null otherwise), absentTold
-  // ('absent' emitted for this absence) }
+  // port → { who, key, since, graceEnd (elapsed() when the lease ends, null
+  // while present), absentAt (elapsed() of the last detach, null otherwise),
+  // absentTold ('absent' emitted for this absence) }
   const leases = new Map();
   // key → Set of presence handles (transport ids, socket ids)
   const present = new Map();
@@ -291,7 +291,7 @@ export const createControl = ({ now = Date.now, elapsed = () => performance.now(
       return;
     }
     present.delete(key);
-    for (const [port, lease] of leases) {
+    for (const lease of leases.values()) {
       if (lease.key === key && lease.graceEnd === null) {
         lease.graceEnd = elapsed() + graceMs;
         lease.absentAt = elapsed();
