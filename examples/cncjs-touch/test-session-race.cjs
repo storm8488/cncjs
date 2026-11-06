@@ -23,7 +23,8 @@ function run({ stored, renewedAgo, compact } = {}) {
   const io = { connect(origin, options) { sockets++; return { options, on() {}, emit() {} }; } };
   let state = { apiBase: '/api', transportConnected: false, transportReason: '', machine: null }, subscribers = [];
   const store = { get: () => state, set(p) { state = Object.assign({}, state, p); subscribers.forEach((f) => f(state)); }, subscribe(f) { subscriptions++; subscribers.push(f); f(state); return () => {}; } };
-  const window = { addEventListener(n, f) { (listeners[n] || (listeners[n] = [])).push(f); }, removeEventListener() {},
+  const clock = { mono: 0 };
+  const window = { performance: { now: () => clock.mono }, addEventListener(n, f) { (listeners[n] || (listeners[n] = [])).push(f); }, removeEventListener() {},
     dispatchEvent(e) { (listeners[e.type] || []).slice().forEach((f) => f(e)); } };
   if (compact) { window.cncState = store; window.CNCJobStream = {}; }
   const context = {
@@ -34,7 +35,7 @@ function run({ stored, renewedAgo, compact } = {}) {
     setInterval: () => 0, setTimeout: () => 0, clearTimeout() {}, clearInterval() {}, requestAnimationFrame: () => 0, Date
   };
   vm.runInNewContext(source, context);
-  return { storage, requests, window, store, node, listeners,
+  return { storage, requests, window, store, node, listeners, advance(ms) { clock.mono += ms; },
     get reloads() { return reloads; }, get sockets() { return sockets; }, get subscriptions() { return subscriptions; },
     token: () => JSON.parse(storage.cnc).state.session.token, last: () => requests[requests.length - 1] };
 }
@@ -50,6 +51,18 @@ r = run({ stored: { state: { session: { enabled: false, token: 'A-token', name: 
 r.storage.cnc = JSON.stringify({ state: { session: { enabled: true, token: 'B-token', name: 'Bob' } } });
 r.requests[0].answer(200, { enabled: false, token: 'A-fresh', name: '' });
 assert.equal(r.token(), 'B-token');
+assert.equal(r.reloads, 0);
+
+// D-7 without a token at load: Bob's tab stores a valid session during /signin; the ignored
+// answer must still let the page start, with the stored session.
+r = run({ compact: true });
+assert.equal(r.subscriptions, 0);
+r.storage.cnc = JSON.stringify({ state: { session: { enabled: true, token: 'B-token', name: 'Bob' } } });
+r.requests[0].answer(200, { enabled: false, token: 'A-fresh', name: '' });
+assert.equal(r.token(), 'B-token');
+assert.equal(r.subscriptions, 1, 'D-7: the page starts with the stored session');
+assert.ok(r.window.cncConnection, 'D-7: connection set up');
+assert.notEqual(r.node('st-server').textContent, 'Serveur : authentification requise');
 assert.equal(r.reloads, 0);
 
 // D-8: no token, the previous renewal was 10 s ago (guard holds the reload back).
@@ -82,6 +95,9 @@ r = run({ stored: { state: { session: { enabled: false, token: 'old', name: '' }
 r.requests[0].answer(200, { enabled: false, token: 'new', name: '' });
 assert.equal(r.reloads, 0, 'renewed in place at load');
 r.window.dispatchEvent({ type: 'cnc-session-refused' });
+assert.equal(r.requests.length, 1, 'at most one renewal attempt a minute (the load counts)');
+r.advance(60000);
+r.window.dispatchEvent({ type: 'cnc-session-refused' });
 r.window.dispatchEvent({ type: 'cnc-session-refused' });
 assert.equal(r.requests.length, 2, 'one renewal at a time');
 assert.deepEqual(r.last().body, { token: 'new' });
@@ -91,6 +107,8 @@ assert.equal(r.reloads, 1, 'B-3: reload with the renewed session');
 // With CNCjs users: no token is given back; the notice asks to sign in again and stays.
 r = run({ stored: { state: { session: { enabled: true, token: 'expired', name: 'ana' } } }, compact: true });
 r.requests[0].answer(500, { msg: 'Internal server error' });
+assert.match(r.node('notice').textContent, /reconnectez-vous/, 'said from the load already');
+r.advance(60000);
 r.window.dispatchEvent({ type: 'cnc-session-refused' });
 r.last().answer(500, { msg: 'Internal server error' });
 assert.equal(r.reloads, 0);
@@ -99,10 +117,14 @@ r.store.set({ transportReason: 'Session CNCjs expirée.' });
 assert.match(r.node('notice').textContent, /reconnectez-vous/, 'kept over the stream reason');
 r.store.set({ transportConnected: true, transportReason: '' });
 assert.doesNotMatch(r.node('notice').textContent, /reconnectez-vous/, 'cleared once the stream is back');
-// A failed renewal request (network) renews again at the next refusal.
+// A failed renewal request (network): tried again at the next refusal a minute later, not before.
+r.advance(60000);
 r.window.dispatchEvent({ type: 'cnc-session-refused' });
 r.last().onerror();
 const n = r.requests.length;
+r.window.dispatchEvent({ type: 'cnc-session-refused' });
+assert.equal(r.requests.length, n);
+r.advance(60000);
 r.window.dispatchEvent({ type: 'cnc-session-refused' });
 assert.equal(r.requests.length, n + 1);
 console.log('PASS');

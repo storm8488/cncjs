@@ -42,8 +42,8 @@
   // hands out a fresh one on /api/signin, so a kiosk renews it here instead of needing the
   // main app opened again. With users, the server only returns the same token: nothing changes.
   function storedToken() { try { return JSON.parse(localStorage.getItem('cnc')).state.session.token || ''; } catch (_) { return ''; } }
-  // done: a new token was stored. refused(users): no new token from this answer; users is true
-  // when CNCjs has user accounts (the operator must sign in again in CNCjs).
+  // done: a new token was stored. refused(users): no new token from this answer; users is true when
+  // /signin refused it (only CNCjs with user accounts does): the operator must sign in again.
   function renewSession(done, refused) {
     var x = new XMLHttpRequest(), sent = storedToken();
     x.open('POST', (store ? store.get().apiBase : '/api') + '/signin');
@@ -52,7 +52,7 @@
       var r = null; try { r = JSON.parse(x.responseText); } catch (_) {}
       // Another tab changed the session meanwhile (D-7): this older answer must not replace it.
       if (storedToken() !== sent) { if (refused) refused(false); return; }
-      if (x.status !== 200 || !r || !r.token || r.token === sent) { if (refused) refused(!(x.status === 200 && r && r.enabled === false)); return; }
+      if (x.status !== 200 || !r || !r.token || r.token === sent) { if (refused) refused(x.status !== 200); return; }
       try {
         var d = JSON.parse(localStorage.getItem('cnc') || '{}');
         d.state = d.state || {};
@@ -73,23 +73,30 @@
     location.reload();
     return true;
   }
-  var started = false;
-  renewSession(token ? null : function () { if (!reloadOnce() && !started) { token = storedToken(); init(); } });
-  setInterval(function () { renewSession(null); }, 12 * 3600 * 1000);
-
-  // A request refused for its session (job-stream.js, job-controls.js: HTTP 401, or 403 without a
-  // JSON body): one renewal at a time; with CNCjs users, the operator is asked to sign in again.
-  var renewing = false, sessionNotice = '';
-  window.addEventListener('cnc-session-refused', function () {
-    if (renewing) return;
-    renewing = true;
-    renewSession(function () { renewing = false; reloadOnce(); }, function (users) {
+  var started = false, renewing = false, lastRenewal = null, sessionNotice = '';
+  function elapsed() { var p = window.performance; return p && typeof p.now === 'function' ? p.now() : Date.now(); }
+  // One renewal attempt a minute at most, for the whole page (load, refused socket, refused
+  // requests): with CNCjs users and an expired session, every refusal would otherwise ask again.
+  function renew(done) {
+    var now = elapsed();
+    if (renewing || (lastRenewal !== null && now - lastRenewal >= 0 && now - lastRenewal < 60000)) return;
+    renewing = true; lastRenewal = now;
+    renewSession(function () { renewing = false; if (done) done(); }, function (users) {
       renewing = false;
+      // Another tab stored a session meanwhile (D-7), or none was needed: a page still waiting for
+      // a token starts with the stored one.
+      if (!started && storedToken()) { token = storedToken(); init(); }
       if (!users) return;
       sessionNotice = uiLocale.t('Session CNCjs refusée : ouvrez CNCjs à la racine du même serveur, reconnectez-vous, puis rechargez /touch/.');
       notice(sessionNotice);
     });
-  });
+  }
+  renew(token ? null : function () { if (!reloadOnce() && !started) { token = storedToken(); init(); } });
+  setInterval(function () { renewSession(null); }, 12 * 3600 * 1000);
+
+  // A request refused for its session (job-stream.js, job-controls.js: HTTP 401, or 403 without a
+  // JSON body): renewed (one reload), or the operator is asked to sign in again (CNCjs users).
+  window.addEventListener('cnc-session-refused', function () { renew(reloadOnce); });
 
   if (!token) {
     badge('st-server', uiLocale.t('Serveur : authentification requise'), 'warn');
@@ -109,7 +116,7 @@
   function authError(err) {
     // The socket keeps the token it was opened with: an expired one is refused on reconnect.
     var text = err && (err.message || err.description || err.type) || String(err);
-    if (/jwt|token|unauthori/i.test(text)) renewSession(reloadOnce);
+    if (/jwt|token|unauthori/i.test(text)) renew(reloadOnce);
     badge('st-server', uiLocale.t('Serveur : connexion refusée'), 'err');
     notice(uiLocale.t('Erreur CNCjs : ') + (
       err && (err.message || err.description) || String(err)

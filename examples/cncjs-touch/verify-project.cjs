@@ -23,7 +23,7 @@ const tests = [
  'motion-estimate','preview-inspect','laser-view','preview-gl','preview-sidecar','job-motion','viz-i18n',
  'tablet-profile','tablet-diagnostic','scenario-profiles','simulated-kind','laser-z','wifi-settings',
  'preview-3d-gpu','preview-3d-live','preview-3d-overlays','responsive-wide','origin-preview','session-renew','job-stream-no-session','scenario-perf-safety','scenario-perf-defects',
- 'network-loopback','session-refused','settings-identity','session-race','plain-403','monotonic-delays','dashboard-pause-guard'
+ 'network-hint','session-backoff','session-refused','settings-identity','session-race','plain-403','monotonic-delays','dashboard-pause-guard'
 ].map(name=>'test-'+name+'.cjs');
 // The backend (job service, event stream, motion preflight, probe input) lives in
 // src/server/services/touch and is covered by the root Jest suite (`yarn test`).

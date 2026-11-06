@@ -15,7 +15,8 @@ function run({ stored, socketError } = {}) {
     answer(status, data) { this.status = status; this.responseText = JSON.stringify(data); this.onload(); }
   }
   const io = { connect() { socket = { handlers: {}, on(n, f) { this.handlers[n] = f; }, emit() {} }; return socket; } };
-  const window = { addEventListener() {}, removeEventListener() {} };
+  const clock = { mono: 0 };
+  const window = { performance: { now: () => clock.mono }, addEventListener() {}, removeEventListener() {} };
   const context = {
     window, document, io, XMLHttpRequest, console,
     localStorage: { getItem: (k) => (k in storage ? storage[k] : null), setItem: (k, v) => { storage[k] = String(v); } },
@@ -26,7 +27,7 @@ function run({ stored, socketError } = {}) {
     requestAnimationFrame: () => 0, Date
   };
   try { vm.runInNewContext(source, context); } catch (e) { if (!socketError) throw e; }
-  return { storage, requests, timers, get reloads() { return reloads; }, get socket() { return socket; }, token: () => JSON.parse(storage.cnc).state.session.token };
+  return { storage, requests, timers, advance(ms) { clock.mono += ms; }, get reloads() { return reloads; }, get socket() { return socket; }, token: () => JSON.parse(storage.cnc).state.session.token };
 }
 
 // No session yet (fresh kiosk): asks for one, stores it, reloads once to connect with it.
@@ -60,17 +61,24 @@ every.fn();
 r.requests[1].answer(200, { enabled: true, token: 'new', name: 'ana' });
 assert.equal(r.storage.cnc, before);
 
-// The socket refuses an expired token: renewed, then one reload (not a loop).
+// The socket refuses an expired token: renewed, then one reload (not a loop). One renewal
+// attempt a minute at most for the whole page (the load counts).
 assert(r.socket, 'socket opened with the stored token');
 {
+  const sent = r.requests.length;
+  r.socket.handlers.error({ message: 'jwt expired' });
+  assert.equal(r.requests.length, sent, 'no second renewal within the minute');
+  r.advance(60000);
   r.socket.handlers.error({ message: 'jwt expired', code: 'invalid_token', type: 'UnauthorizedError' });
   r.requests[r.requests.length - 1].answer(200, { enabled: false, token: 'newer', name: '' });
   assert.equal(r.reloads, 1);
+  r.advance(60000);
   r.socket.handlers.error({ message: 'jwt expired' });
   r.requests[r.requests.length - 1].answer(200, { enabled: false, token: 'newest', name: '' });
   assert.equal(r.reloads, 1, 'at most one reload a minute');
   // Other connection errors do not touch the session.
   const n = r.requests.length;
+  r.advance(60000);
   r.socket.handlers.connect_error({ message: 'xhr poll error' });
   assert.equal(r.requests.length, n);
 }
