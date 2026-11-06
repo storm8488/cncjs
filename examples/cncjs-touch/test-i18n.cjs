@@ -52,6 +52,20 @@ s=setup();choose(s,'es');s.events.pagehide({persisted:true});assert(s.events['cn
 for(const name of ['index.html','simulation.html']){const html=fs.readFileSync(path.join(__dirname,'touch',name),'utf8');assert(html.indexOf('i18n-messages.js')<html.indexOf('i18n.js'));assert(html.indexOf('i18n.js')<html.indexOf('cnc-state.js'));assert(html.indexOf('language-settings.js')>html.indexOf('touch-shell.js'));}
 // Every literal passed to t() in the page scripts has a catalog row (a missing row stays French in EN/ES).
 {
+ // Origin's held v2 card can show a deferred line after the gate closes. Only
+ // calls inside a positive s.v2 branch may use this catalogue; v1/RT calls keep
+ // requiring a static row. Parse the guard rather than excluding the module.
+ function v2Branches(src){
+  const ranges=[],ast=require('acorn').parse(src,{ecmaVersion:2017});
+  function positive(n){return n.type==='MemberExpression'&&!n.computed&&n.object.type==='Identifier'&&n.object.name==='s'&&n.property.name==='v2'||n.type==='LogicalExpression'&&n.operator==='&&'&&(positive(n.left)||positive(n.right));}
+  function visit(n){if(!n||typeof n!=='object')return;if(n.type==='IfStatement'&&positive(n.test))ranges.push([n.consequent.start,n.consequent.end]);Object.keys(n).forEach(k=>{const v=n[k];if(Array.isArray(v))v.forEach(visit);else if(v&&typeof v==='object')visit(v);});}
+  visit(ast);return ranges;
+ }
+ assert.deepEqual(v2Branches("if (!s.v2) t('v1'); if (s.v2 || fallback) t('v1');"),[],'v1 paths cannot borrow deferred translations');
+ const guarded="if (s.v2 && closed) { t('v2'); } else { t('v1'); }",ranges=v2Branches(guarded);
+ assert(ranges.some(([a,b])=>guarded.indexOf("t('v2')")>=a&&guarded.indexOf("t('v2')")<b));
+ assert(!ranges.some(([a,b])=>guarded.indexOf("t('v1')")>=a&&guarded.indexOf("t('v1')")<b),'alternate remains static');
+ const deferred=new Set(JSON.parse(fs.readFileSync(path.join(__dirname,'touch','i18n-messages-v2.js'),'utf8')).map(row=>row[0].trim().replace(/\s+/g,' ')));
  // Every catalog: i18n-messages.js and the per-lot i18n-messages-*.js loaded after it, no key twice across them.
  // i18n-messages.js first: it assigns the array the others push into.
  const catalogs=['i18n-messages.js'].concat(fs.readdirSync(path.join(__dirname,'touch')).filter(n=>/^i18n-messages-[a-z]+\.js$/.test(n)));
@@ -62,7 +76,8 @@ for(const name of ['index.html','simulation.html']){const html=fs.readFileSync(p
  const missing=[];
  for(const file of fs.readdirSync(path.join(__dirname,'touch')).filter(n=>n.endsWith('.js')&&!/^(i18n|i18n-messages(-[a-z]+)?|startup)\.js$/.test(n))){
   const src=fs.readFileSync(path.join(__dirname,'touch',file),'utf8');
-  for(const m of src.matchAll(/\bt\('((?:[^'\\]|\\.)*)'\)/g)){const v=m[1].replace(/\\n/g," ").replace(/\\'/g,"'").trim().replace(/\s+/g,' ');if(v&&/[a-zà-ÿ]{2}/i.test(v)&&!known.has(v)&&v!=='Idle ✓')missing.push(file+': '+v);}
+  const v2=file==='origin-preview.js'?v2Branches(src):[];
+  for(const m of src.matchAll(/\bt\('((?:[^'\\]|\\.)*)'\)/g)){const v=m[1].replace(/\\n/g," ").replace(/\\'/g,"'").trim().replace(/\s+/g,' ');const lazy=deferred.has(v)&&v2.some(([a,b])=>m.index>=a&&m.index<b);if(v&&/[a-zà-ÿ]{2}/i.test(v)&&!known.has(v)&&!lazy&&v!=='Idle ✓')missing.push(file+': '+v);}
  }
  assert.deepEqual(missing,[],'phrases without a catalog row');
 }
