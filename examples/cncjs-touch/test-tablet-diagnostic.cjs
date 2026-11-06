@@ -83,6 +83,20 @@ function fakeGL(spies) {
   assert.equal(spies.drawn, 20000); assert(spies.lost >= 1, 'WebGL context released');
   assert.match(s.node('profile-diagnostic-list').innerHTML, /HD Graphics 4400/);
 }
+// Performance v2 (L6): the live v2 scene owns the only WebGL context, so the diagnostic does not
+// open a second one; it says so, and reports the existing probe's hardware verdict.
+{
+  const spies = { lost: 0 };
+  const s = setup(fakeGL(spies));
+  s.window.document.body = { classList: { contains: (n) => n === 'perf-v2' } };
+  s.window.cncGpu = { state: () => ({ checked: true, hardware: true, lost: false }) };
+  s.node('profile-diagnostic-run').click();
+  const r = s.window.cncTabletDiagnostic.collect();
+  assert.equal(spies.drawn, undefined, 'no second WebGL drawing under perf-v2'); assert.equal(spies.lost, 0, 'no second context created');
+  assert.equal(r.render.webgl.skipped, true); assert.equal(r.render.webgl.software, false); assert.equal(r.render.webgl.drawMs, null);
+  assert.match(s.node('profile-diagnostic-list').innerHTML, /Non mesuré/);
+  assert.equal(typeof r.render.canvas2dMs, 'number');
+}
 for (const page of ['index.html', 'simulation.html']) {
   const html = fs.readFileSync(path.join(__dirname, 'touch', page), 'utf8');
   assert(html.indexOf('tablet-diagnostic.js') > html.indexOf('display-settings.js'), page + ': after display-settings.js');

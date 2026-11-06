@@ -126,3 +126,72 @@ main::-webkit-scrollbar{width:10px}main::-webkit-scrollbar-thumb{background:var(
 .ks-ui #screen-settings .ks-wifi-key--wide{flex-grow:1.6;font-size:var(--fs-16,16px)}
 .ks-ui #screen-settings .ks-wifi-key--space{flex-grow:6;font-size:var(--fs-16,16px)}
 .ks-ui #screen-settings .ks-wifi-key[aria-pressed="true"]{background:var(--info);color:var(--on-info);border-color:var(--info)}
+/* « Interface Performance v2 » entry (display-settings.js): created only where v2 is eligible. */
+.ks-ui #screen-settings #ks-v2-card[hidden]{display:none}
+/* Performance v2 (L6): every rule below is scoped to body.perf-v2; outside it the L6 mounts
+ * never show. Réglages: rendering quality and diagnostic, read on demand. */
+body:not(.perf-v2) #perf-v2-settings,body:not(.perf-v2) #perf-v2-history,body:not(.perf-v2) #perf-v2-machine{display:none!important}
+body.perf-v2 #perf-v2-settings{display:block;margin:0 0 12px}
+body.perf-v2 #perf-v2-settings[hidden]{display:none}
+body.perf-v2 #screen-settings .ks-v2-quality>.ks-v2-diagnostic-tools,body.perf-v2 #screen-settings .ks-v2-quality>.ks-diagnostic-list,body.perf-v2 #screen-settings .ks-v2-quality>.ks-v2-status{grid-column:1/-1}
+body.perf-v2 #screen-settings .ks-v2-diagnostic-tools{display:flex;flex-wrap:wrap;gap:12px}
+body.perf-v2 #screen-settings .ks-v2-diagnostic-tools button{min-height:64px}
+body.perf-v2 #screen-settings .ks-v2-quality .ks-diagnostic-list{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 18px;margin:0;font-size:16px}
+body.perf-v2 #screen-settings .ks-v2-quality .ks-diagnostic-list dt{color:var(--mute)}
+body.perf-v2 #screen-settings .ks-v2-quality .ks-diagnostic-list dd{margin:0;font-variant-numeric:tabular-nums}
+body.perf-v2 #screen-settings .ks-v2-quality .ks-v2-status{font-size:16px}
+/* Journal (real-history.js): wide chronological list, touch filters, detail on the right. The v1
+ * list and filters give way to it once the presenter is drawn; export stays in the header. */
+body.perf-v2 #screen-history[data-v2-presenter=on]>.ks-history-card,body.perf-v2 #screen-history[data-v2-presenter=on] .ks-history-filters{display:none!important}
+body.perf-v2 #perf-v2-history{display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;gap:12px;min-height:0}
+body.perf-v2 #perf-v2-history[hidden]{display:none}
+body.perf-v2 #perf-v2-history .v2j-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px}
+body.perf-v2 #perf-v2-history .v2j-titles{flex:1 1 320px;min-width:0}
+body.perf-v2 #perf-v2-history .v2j-titles h2{margin:0;font-size:22px}
+body.perf-v2 #perf-v2-history .v2j-context{margin:4px 0 0;font-size:16px;color:var(--mute);overflow-wrap:anywhere}
+body.perf-v2 #perf-v2-history .v2j-head button,body.perf-v2 #perf-v2-history .v2j-filters button,body.perf-v2 #perf-v2-history .v2j-pages button{min-height:56px;font-size:18px}
+body.perf-v2 #perf-v2-history .v2j-filters{display:flex;gap:8px}
+body.perf-v2 #perf-v2-history .v2j-filters button{flex:1 1 0;min-width:120px}
+body.perf-v2 #perf-v2-history .v2j-body{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,1fr);gap:16px;min-height:0}
+body.perf-v2 #perf-v2-history .v2j-list{display:flex;flex-direction:column;gap:6px;min-height:0;overflow:auto;margin:0;padding:0;list-style:none}
+body.perf-v2 #perf-v2-history .v2j-list>li{display:block;min-height:0;padding:0;border-left-width:6px}
+body.perf-v2 #perf-v2-history .v2j-row{display:grid;grid-template-columns:96px minmax(0,1fr) auto;align-items:center;gap:12px;width:100%;min-height:56px;padding:6px 12px;font-size:17px;text-align:left;background:transparent;border:0}
+body.perf-v2 #perf-v2-history .v2j-row[aria-pressed=true]{outline:3px solid var(--accent);outline-offset:-3px}
+body.perf-v2 #perf-v2-history .v2j-time{font-variant-numeric:tabular-nums;color:var(--mute)}
+body.perf-v2 #perf-v2-history .v2j-message{overflow-wrap:anywhere}
+body.perf-v2 #perf-v2-history .v2j-badge{padding:4px 10px;border-radius:999px;background:var(--surface-2);font-size:16px;font-weight:600}
+body.perf-v2 #perf-v2-history li[data-category=command][data-state=refused] .v2j-badge{color:var(--danger)}
+body.perf-v2 #perf-v2-history li[data-category=command][data-state=uncertain] .v2j-badge{color:var(--warn)}
+body.perf-v2 #perf-v2-history li[data-category=command][data-state=confirmed] .v2j-badge{color:var(--ok-text)}
+body.perf-v2 #perf-v2-history li[data-category=command]{border-left-color:var(--accent)}
+body.perf-v2 #perf-v2-history .v2j-empty{padding:16px;font-size:18px;color:var(--mute)}
+body.perf-v2 #perf-v2-history .v2j-detail{min-height:0;overflow:auto;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-size:17px}
+body.perf-v2 #perf-v2-history .v2j-detail dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 14px;margin:0}
+body.perf-v2 #perf-v2-history .v2j-detail dt{color:var(--mute)}
+body.perf-v2 #perf-v2-history .v2j-detail dd{margin:0;overflow-wrap:anywhere}
+body.perf-v2 #perf-v2-history .v2j-note,body.perf-v2 #perf-v2-history .v2j-readonly,body.perf-v2 #perf-v2-history .v2j-hint{margin:12px 0 0;font-size:16px}
+body.perf-v2 #perf-v2-history .v2j-readonly{color:var(--mute)}
+body.perf-v2 #perf-v2-history .v2j-pages{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:16px}
+body.perf-v2 #perf-v2-history .v2j-pages[hidden],body.perf-v2 #perf-v2-history [hidden]{display:none}
+/* Machine (machine-limits.js): a third row across the screen, condition left, parameters right.
+ * The v1 alarm notice gives way to the explained one; coordinates and every button stay. */
+body.perf-v2 #screen-machine[data-v2-presenter=on]{grid-template-rows:auto auto minmax(0,1fr)!important}
+body.perf-v2 #screen-machine[data-v2-presenter=on] #ks-machine-alarm{display:none!important}
+body.perf-v2 #perf-v2-machine{grid-column:1/-1;min-height:0;overflow:auto}
+body.perf-v2 #perf-v2-machine[hidden]{display:none}
+body.perf-v2 #perf-v2-machine .v2m-zones{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:16px}
+body.perf-v2 #perf-v2-machine .v2m-zone{padding:14px 18px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-size:17px}
+body.perf-v2 #perf-v2-machine .v2m-zone h2{margin:0 0 8px;font-size:22px}
+body.perf-v2 #perf-v2-machine .v2m-zone p{margin:6px 0 0;font-size:17px}
+body.perf-v2 #perf-v2-machine .v2m-alarm{margin:8px 0;padding:10px 14px;border-left:6px solid var(--danger);border-radius:8px;background:var(--surface-2)}
+body.perf-v2 #perf-v2-machine .v2m-alarm h3{margin:0;font-size:20px}
+body.perf-v2 #perf-v2-machine .v2m-origin,body.perf-v2 #perf-v2-machine .v2m-note,body.perf-v2 #perf-v2-machine .v2m-count{color:var(--mute);font-size:16px!important}
+body.perf-v2 #perf-v2-machine .v2m-next{font-weight:600}
+body.perf-v2 #perf-v2-machine .v2m-freshness[data-freshness=stale],body.perf-v2 #perf-v2-machine .v2m-freshness[data-freshness=unknown]{color:var(--warn)}
+body.perf-v2 #perf-v2-machine .v2m-table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+body.perf-v2 #perf-v2-machine .v2m-table th,body.perf-v2 #perf-v2-machine .v2m-table td{padding:6px 8px;text-align:left;font-size:16px;border-bottom:1px solid var(--line)}
+body.perf-v2 #perf-v2-machine .v2m-table td b{display:block;font-size:17px}
+body.perf-v2 #perf-v2-machine .v2m-table td small{color:var(--mute);font-size:16px}
+body.perf-v2 #perf-v2-machine .v2m-table td[data-known=false] b{color:var(--mute);font-weight:400}
+body.perf-v2 #perf-v2-machine .v2m-flags{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 14px;margin:10px 0 0;font-size:16px}
+body.perf-v2 #perf-v2-machine .v2m-flags dd{margin:0}

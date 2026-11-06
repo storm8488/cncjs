@@ -203,3 +203,146 @@
   renderMachine();renderPerformance();
   window.cncProfileSettings={choose:choose,render:renderMachine};
 })();
+/* Performance v2 (L6) — Réglages. « Interface Performance v2 » appears only where the v2 gate
+ * could open (Performance + known CNC + hardware GPU + wide workstation, cncV2.state().eligible)
+ * or while this page uses the v2 layout. It writes the deferred preference (cncV2.setPreference)
+ * and nothing else: no reload, request, host command, Wi-Fi or machine kind. Under body.perf-v2
+ * only, the settings mount offers visual quality (cncV2.use('inspect').setQuality) and a
+ * diagnostic read on demand; the frame measurement runs only at a safe Idle. Event handlers
+ * only queue a frame; RT/Eco/software/narrow get no frame, timer or element. */
+(function () {
+  'use strict';
+  var v2=window.cncV2,perfCard=document.getElementById('ks-performance-card');
+  if(!v2||typeof v2.state!=='function'||!perfCard)return;
+  // Embedded EN/ES rows: the entry must work before (or without) the deferred v2 catalogue.
+  var TEXT={
+    'Interface Performance v2':['Performance v2 interface','Interfaz Performance v2'],
+    'Cette tablette':['This tablet','Esta tableta'],
+    'Disponible ici : profil Performance, machine CNC, GPU matériel et poste large. Le choix s’applique à la prochaine ouverture de l’interface au repos ; la page n’est pas rechargée et rien n’est envoyé à la machine.':['Available here: Performance profile, CNC machine, hardware GPU and wide workstation. The choice applies the next time the interface opens while idle; the page is not reloaded and nothing is sent to the machine.','Disponible aquí: perfil Performance, máquina CNC, GPU por hardware y puesto ancho. La elección se aplica la próxima vez que se abra la interfaz en reposo; la página no se recarga y no se envía nada a la máquina.'],
+    'Activée':['On','Activada'],'Désactivée':['Off','Desactivada'],
+    'Interface v2 active pour cette session.':['v2 interface active for this session.','Interfaz v2 activa en esta sesión.'],
+    'Rendu 3D de cette session':['3D rendering for this session','Renderizado 3D de esta sesión'],
+    'Agit seulement sur l’affichage, dans le même cadre : les commandes ne bougent pas et rien n’est envoyé à la machine.':['Affects the display only, in the same frame: the controls do not move and nothing is sent to the machine.','Solo afecta a la visualización, en el mismo marco: los mandos no se mueven y no se envía nada a la máquina.'],
+    'Qualité complète':['Full quality','Calidad completa'],'Rendu allégé':['Reduced rendering detail','Renderizado simplificado'],
+    'Arrêter le rendu 3D':['Stop 3D rendering','Detener el renderizado 3D'],'Rendu 3D arrêté':['3D rendering stopped','Renderizado 3D detenido'],
+    'Diagnostic du rendu':['Rendering diagnostic','Diagnóstico del renderizado'],'Mesurer 60 images':['Measure 60 frames','Medir 60 imágenes'],
+    'GPU matériel':['Hardware GPU','GPU por hardware'],'Oui':['Yes','Sí'],'Non (rendu logiciel)':['No (software rendering)','No (renderizado por software)'],
+    'Contexte GPU perdu':['GPU context lost','Contexto GPU perdido'],'Inconnu':['Unknown','Desconocido'],
+    'Résolution':['Resolution','Resolución'],'Rapport de pixels (DPR)':['Device pixel ratio (DPR)','Relación de píxeles (DPR)'],
+    'Qualité effective':['Effective quality','Calidad efectiva'],'DPR de rendu ':['Rendering DPR ','DPR de renderizado '],
+    'inconnu':['unknown','desconocido'],'Mesure du rendu':['Rendering measurement','Medición del renderizado'],
+    ' images · tracé p95 ':[' frames · drawing p95 ',' imágenes · trazado p95 '],' ms · intervalle p95 ':[' ms · interval p95 ',' ms · intervalo p95 '],
+    ' ms. Mesure isolée sur cette tablette, pas une garantie.':[' ms. One measurement on this tablet, not a guarantee.',' ms. Medición aislada en esta tableta, no una garantía.'],
+    'Mesure annulée ou indisponible.':['Measurement cancelled or unavailable.','Medición cancelada o no disponible.'],
+    'Mesure possible seulement au repos, avec un état récent.':['Measurement only possible while idle, with a recent state.','Medición posible solo en reposo, con un estado reciente.'],
+    'Mesure en cours…':['Measuring…','Midiendo…'],
+    'Interface v2 arrêtée pour cette session : vue fixe conservée, rien n’a bougé.':['v2 interface stopped for this session: fixed view kept, nothing moved.','Interfaz v2 detenida en esta sesión: vista fija conservada, nada se ha movido.'],
+    'Vue 3D indisponible pour le moment.':['3D view unavailable for now.','Vista 3D no disponible por ahora.']
+  };
+  function vt(s){var l=window.cncI18n&&window.cncI18n.language,row=TEXT[s];return row&&l==='en'?row[0]:row&&l==='es'?row[1]:s;}
+  function el(tag,cls,txt){var n=document.createElement(tag);if(cls)n.className=cls;if(txt!==undefined)n.textContent=txt;return n;}
+  function set(n,k,v){if(n&&n[k]!==v)n[k]=v;}
+  function attr(n,k,v){if(n&&n.getAttribute(k)!==v)n.setAttribute(k,v);}
+  function v2Layout(){return !!(document.body&&document.body.classList&&document.body.classList.contains('perf-v2'));}
+  var card=null,toggle=null,toggleState=null,status=null,result=null,frame=0;
+  var quality=null,qualityButtons=[],qualityStatus=null,list=null,diagnosis=null,measured=null,measuring=false,disposed=false,registered=false;
+  function wanted(){var s=v2.state();return s.eligible===true||s.layout===true;}
+  function queue(){
+    if(frame||!window.requestAnimationFrame||(!card&&!wanted()))return;
+    frame=window.requestAnimationFrame(render);
+  }
+  function buildEntry(){
+    card=el('div','card ks-display-card ks-v2-card');card.id='ks-v2-card';
+    var h=el('h2',null,vt('Interface Performance v2')+' '),scope=el('span','ks-scope',vt('Cette tablette'));scope.setAttribute('data-scope','tablet');h.appendChild(scope);
+    toggle=el('button','ks-display-toggle');toggle.type='button';toggle.id='ks-v2-toggle';toggle.setAttribute('aria-pressed','false');
+    toggle.appendChild(el('span',null,vt('Interface Performance v2')));toggleState=el('b');toggle.appendChild(toggleState);
+    status=el('p','ks-v2-status');status.id='ks-v2-status';status.setAttribute('role','status');
+    card.appendChild(h);card.appendChild(el('p',null,vt('Disponible ici : profil Performance, machine CNC, GPU matériel et poste large. Le choix s’applique à la prochaine ouverture de l’interface au repos ; la page n’est pas rechargée et rien n’est envoyé à la machine.')));
+    card.appendChild(toggle);card.appendChild(status);
+    toggle.addEventListener('click',function(){
+      var p=v2.preference();result=v2.setPreference(!(p&&p.enabled===true));queue();
+    });
+    perfCard.parentNode.insertBefore(card,perfCard.nextSibling||null);
+  }
+  function inspect(){var x=!disposed&&v2.gate()&&typeof v2.use==='function'?v2.use('inspect'):null;return x&&typeof x.setQuality==='function'?x:null;}
+  var MODES={full:'Qualité complète',reduced:'Rendu allégé',fixed:'Rendu 3D arrêté'};
+  function currentQuality(){var x=inspect(),q=x&&x.snapshot().quality;return q||null;}
+  function line(dl,label,value){dl.appendChild(el('dt',null,label));dl.appendChild(el('dd',null,value));}
+  function buildQuality(content){
+    quality=el('div','card ks-display-card ks-v2-quality');quality.id='ks-v2-quality';
+    quality.appendChild(el('h2',null,vt('Rendu 3D de cette session')));
+    quality.appendChild(el('p',null,vt('Agit seulement sur l’affichage, dans le même cadre : les commandes ne bougent pas et rien n’est envoyé à la machine.')));
+    var group=el('div','ks-display-choices');group.setAttribute('role','group');group.setAttribute('aria-label',vt('Rendu 3D de cette session'));
+    [['full','Qualité complète'],['reduced','Rendu allégé'],['fixed','Arrêter le rendu 3D']].forEach(function(pair){
+      var b=el('button',null,vt(pair[1]));b.type='button';b.setAttribute('data-v2-quality',pair[0]);b.setAttribute('aria-pressed','false');
+      b.addEventListener('click',function(){
+        var x=inspect();if(!x||b.disabled)return;
+        if(x.setQuality(pair[0])===false)result={quality:vt('Vue 3D indisponible pour le moment.')};queue();
+      });
+      qualityButtons.push(b);group.appendChild(b);
+    });
+    quality.appendChild(group);
+    var tools=el('div','ks-v2-diagnostic-tools'),run=el('button','ks-secondary',vt('Diagnostic du rendu')),measure=el('button','ks-secondary',vt('Mesurer 60 images'));
+    run.type=measure.type='button';run.id='ks-v2-diagnostic-run';measure.id='ks-v2-measure';tools.appendChild(run);tools.appendChild(measure);
+    list=el('dl','ks-diagnostic-list');list.id='ks-v2-diagnostic-list';
+    qualityStatus=el('p','ks-v2-status');qualityStatus.id='ks-v2-quality-status';qualityStatus.setAttribute('role','status');
+    quality.appendChild(tools);quality.appendChild(list);quality.appendChild(qualityStatus);
+    // Read once, on request: no polling, no permanent dashboard.
+    run.addEventListener('click',function(){if(disposed)return;diagnosis=read();queue();});
+    measure.addEventListener('click',function(){
+      var x=inspect();if(!x||measuring)return;
+      if(v2.state().safeIdle!==true){result={quality:vt('Mesure possible seulement au repos, avec un état récent.')};queue();return;}
+      measuring=true;result={quality:vt('Mesure en cours…')};queue();
+      Promise.resolve(x.diagnose({frames:60})).then(function(r){measuring=false;measured=r&&!r.cancelled?r:null;
+        if(!diagnosis)diagnosis=read();result={quality:measured?'':vt('Mesure annulée ou indisponible.')};queue();},
+        function(){measuring=false;result={quality:vt('Mesure annulée ou indisponible.')};queue();});
+    });
+    content.appendChild(quality);
+  }
+  function read(){
+    var g=window.cncGpu&&window.cncGpu.state?window.cncGpu.state():null,dpr=window.devicePixelRatio||1,w=window.innerWidth||0,h=window.innerHeight||0,q=currentQuality();
+    return {gpu:!g||g.checked!==true?vt('Inconnu'):g.lost?vt('Contexte GPU perdu'):g.hardware?vt('Oui'):vt('Non (rendu logiciel)'),
+      resolution:w+' × '+h+' px CSS · '+Math.round(w*dpr)+' × '+Math.round(h*dpr)+' px',dpr:String(dpr),
+      quality:q&&MODES[q.mode]?vt(MODES[q.mode])+' · '+vt('DPR de rendu ')+(typeof q.dpr==='number'&&isFinite(q.dpr)?q.dpr:vt('inconnu')):vt('Inconnu')};
+  }
+  function render(){
+    frame=0;
+    var show=wanted();
+    if(!card&&show)buildEntry();
+    if(card){
+      var p=v2.preference(),on=!!(p&&p.enabled===true),s=v2.state();
+      set(card,'hidden',!show);attr(toggle,'aria-pressed',String(on));set(toggleState,'textContent',vt(on?'Activée':'Désactivée'));
+      var message=result&&result.persisted===false?result.message:s.pending?v2.message():s.layout&&s.open&&on?vt('Interface v2 active pour cette session.'):'';
+      set(status,'textContent',message||'');
+    }
+    if(!v2Layout()||!v2.mounts)return;
+    var mount=v2.mounts.get('settings');if(!mount||!mount.content)return;
+    if(!quality&&!disposed&&v2.gate())buildQuality(mount.content);
+    if(!quality)return;
+    set(mount.content,'hidden',false);
+    var q=currentQuality();
+    qualityButtons.forEach(function(b){attr(b,'aria-pressed',String(!!q&&q.mode===b.getAttribute('data-v2-quality')));set(b,'disabled',disposed);});
+    set(qualityStatus,'textContent',disposed?vt('Interface v2 arrêtée pour cette session : vue fixe conservée, rien n’a bougé.'):result&&result.quality!==undefined?result.quality:'');
+    var shown=diagnosis?JSON.stringify([diagnosis,measured]):'';
+    if(diagnosis&&list.getAttribute('data-shown')!==shown){
+      list.setAttribute('data-shown',shown);
+      while(list.children.length)list.removeChild(list.lastChild);
+      line(list,vt('GPU matériel'),diagnosis.gpu);line(list,vt('Résolution'),diagnosis.resolution);
+      line(list,vt('Rapport de pixels (DPR)'),diagnosis.dpr);line(list,vt('Qualité effective'),diagnosis.quality);
+      if(measured)line(list,vt('Mesure du rendu'),measured.samples+vt(' images · tracé p95 ')+measured.paintP95Ms+vt(' ms · intervalle p95 ')+measured.frameP95Ms+vt(' ms. Mesure isolée sur cette tablette, pas une garantie.'));
+    }
+  }
+  // The presenter slot lets the contract release it on Eco, GPU loss, gate close or pagehide.
+  function register(){
+    if(registered||typeof v2.register!=='function'||!v2.gate())return;
+    var s=v2.state();if(!s.ready||!s.layout)return;
+    registered=true;
+    var snap={version:1,available:true,screen:'settings',model:null};
+    v2.register('settings',{snapshot:function(){return snap;},update:function(){return snap;},cancel:function(){},
+      dispose:function(){disposed=true;measuring=false;queue();}});
+  }
+  window.addEventListener('cnc-v2-change',function(){register();queue();});
+  ['cnc-profile-change','cnc-gpu-change','cnc-layout-change'].forEach(function(name){window.addEventListener(name,queue);});
+  window.addEventListener('cnc-v2-data',function(e){if(quality&&e&&e.detail&&e.detail.slot==='inspect')queue();});
+  queue();
+})();

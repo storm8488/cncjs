@@ -44,6 +44,12 @@ assert.match(api.text(j.report()),/en pause/);
 assert(j.observe({...machine,fresh:false}));assert(!j.observe(null));assert(!j.observe({...machine,fresh:false}));
 assert(j.observe(machine));assert.match(j.report().events.at(-1).message,/Journal ouvert/);
 assert(!JSON.stringify(j.report()).includes('SECRET'));
+// Performance v2 metadata (monotone time, loaded identity, command state) stays internal:
+// the export keeps exactly its v1 fields, even for a fingerprinted program.
+assert(j.observe({...machine,fingerprint:'sha256:private-fp',generation:'gen-x',revision:'r9'}));
+assert(j.report().events.every(e=>Object.keys(e).every(k=>['id','time','kind','message','port','file'].includes(k))));
+assert(!JSON.stringify(j.report()).includes('private-fp'));
+assert.equal(j.entries()[0].job.fingerprint,'sha256:private-fp');assert.equal(j.command('replay','x'),false,'only the four command states');
 assert(j.observe({...machine,revision:'two'}));assert.equal(j.report().events[0].message,'Fichier chargé dans CNCjs.');
 assert(j.observe({...machine,port:'/dev/other',revision:'two'}));
 assert(j.observe({...machine,name:'',originalName:'',revision:'',loading:true}));
