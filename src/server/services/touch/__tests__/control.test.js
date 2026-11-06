@@ -1,5 +1,5 @@
 /* eslint-env jest */
-import { createControl, safeCommand, safeWrite, actorOf, SAFE_ACTIONS, SAFE_WRITES, GRACE_MS, IDLE_MS, REATTACH_MS } from '../control';
+import { createControl, safeCommand, safeWrite, actorOf, SAFE_ACTIONS, SAFE_WRITES, GRACE_MS, IDLE_MS } from '../control';
 
 const tablet = { kind: 'touch', id: 'tablet-abc', label: 'Tablette atelier', user: 'ana' };
 const phone = { kind: 'touch', id: 'phone-xyz', label: 'Téléphone', user: 'bob' };
@@ -71,25 +71,28 @@ describe('control attribution (F5)', () => {
     expect(events.map((e) => e.type)).toEqual(['claim', 'absent', 'expired', 'claim']);
   });
 
-  // Bug hunt B-1: the planned rotation of the stream (every 60 s) detaches and
-  // reattaches the same owner at once; that is no absence.
-  test('a reattach within REATTACH_MS emits nothing; past it, absent is told at the next tick, then restored', () => {
+  // Bug hunt B-1: the planned rotation of the stream (every 60 s), a reload or
+  // a blip detaches and reattaches the same owner within the grace; that is no
+  // absence. 'absent' is told only when the grace ends, right before 'expired'.
+  test('a reattach within the grace emits nothing, however long; absent is told with the expiry', () => {
     const ctx = setup();
     const { control, events } = ctx;
     control.attach(tablet, 't1');
     control.claim('COM3', tablet);
     control.detach(tablet, 't1');
     expect(control.inspect('COM3').owner).toMatchObject({ present: false });
-    ctx.advance(REATTACH_MS - 1);
+    ctx.advance(GRACE_MS - 1);
+    expect(control.tick()).toEqual([]);
     control.attach(tablet, 't2');
     expect(control.inspect('COM3').owner).toMatchObject({ present: true, expires: null });
     expect(events.map((e) => e.type)).toEqual(['claim']);
     control.detach(tablet, 't2');
-    ctx.advance(REATTACH_MS);
-    expect(control.tick().map((e) => e.type)).toEqual(['absent']);
+    ctx.advance(GRACE_MS);
+    expect(control.tick().map((e) => e.type)).toEqual(['absent', 'expired']);
     expect(control.tick()).toEqual([]);
     control.attach(tablet, 't3');
-    expect(events.map((e) => e.type)).toEqual(['claim', 'absent', 'restored']);
+    expect(control.inspect('COM3').owner).toBeNull();
+    expect(events.map((e) => e.type)).toEqual(['claim', 'absent', 'expired']);
   });
 
   test('a reconnection with the same clientId inside the grace delay restores the lease', () => {
@@ -103,7 +106,8 @@ describe('control attribution (F5)', () => {
     expect(control.inspect('COM3').owner).toMatchObject({ id: 'tablet-abc', present: true, expires: null });
     ctx.advance(120000);
     expect(control.inspect('COM3').owner.id).toBe('tablet-abc');
-    expect(events.map((e) => e.type)).toEqual(['claim', 'absent', 'restored']);
+    // B-1: back within the grace, the owner was never absent.
+    expect(events.map((e) => e.type)).toEqual(['claim']);
     // Two tabs on the same tablet: the lease stays while one of them is open.
     control.attach(tablet, 't3');
     control.detach(tablet, 't2');
@@ -272,7 +276,7 @@ describe('control (F5), cross-check 3', () => {
       control.claim('COM3', A);
       control.detach(A, 't1');
       ctx.advance(GRACE_MS + 1);
-      // B-1 : l'absence n'est dite qu'au premier tick passé REATTACH_MS, ici le même que l'expiration.
+      // B-1 : l'absence n'est dite qu'à la fin de la grâce, juste avant l'expiration.
       expect(control.tick().map((e) => e.type)).toEqual(['absent', 'expired']);
       control.attach(A, 't2');
       expect(control.inspect('COM3').owner).toBeNull();
@@ -499,8 +503,8 @@ describe('control (F5), cross-check 5 · idle release', () => {
       ctx.control.detach(tablet, 't1');
       ctx.advance(30000);
       // 310 s since the last action, absent for 30 s: the idle rule applies first
-      // (B-1: the absence, past REATTACH_MS, is told by the same tick).
-      expect(ctx.control.tick({ busy: () => false })).toEqual([expect.objectContaining({ type: 'absent' }), expect.objectContaining({ type: 'idle' })]);
+      // (B-1: an absence within the grace is not told).
+      expect(ctx.control.tick({ busy: () => false })).toEqual([expect.objectContaining({ type: 'idle' })]);
       // Absent and busy: the grace ends it all the same.
       const other = setupControl();
       other.control.attach(tablet, 't1');
