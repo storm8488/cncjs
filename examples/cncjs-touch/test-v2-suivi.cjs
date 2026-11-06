@@ -8,6 +8,18 @@ const {createDOM} = require('./dom-fixture.cjs');
 async function suivi(options = {}) {
   const p = page(options.page || {});
   p.status(); p.frame(); await p.complete();
+  // Stub of L0's cncV2.reportAge(machine) unless the contract already provides it: monotone age memorised
+  // per [port, generation, statusObservedAt] at its first sight, never fresh without statusObservedAt.
+  if (options.reportAge !== false && typeof p.api.reportAge !== 'function') {
+    const seen = new Map();
+    p.api.reportAge = options.reportAge || ((m) => {
+      if (!m || typeof m.statusObservedAt !== 'number' || typeof m.statusAgeMs !== 'number') return {known: false, fresh: false, ageMs: null};
+      const key = JSON.stringify([m.port, m.generation, m.statusObservedAt]), now = p.window.performance.now();
+      if (!seen.has(key)) seen.set(key, {at: now, age: m.statusAgeMs});
+      const r = seen.get(key), age = r.age + now - r.at;
+      return {known: true, fresh: age <= 2500, ageMs: age};
+    });
+  }
   const dom = createDOM(['home']), {node} = dom, timers = [], opened = [], overrides = [];
   const link = (e) => {
     if (e._linked) return e; e._linked = true;
@@ -159,6 +171,27 @@ async function cases(entries) {
       // A really new report (another observation time) is fresh.
       s.p.advance(250); s.running({statusObservedAt: 10300, statusAgeMs: 0}); s.p.frame();
       assert.match(s.text('home-v2-age'), /^Rapport frais/);
+    }],
+    ['freshness has one source, cncV2.reportAge: absent or throwing -> unknown, never m.fresh', async () => {
+      for (const reportAge of [false, () => { throw new Error('broken'); }, () => ({known: false, fresh: true, ageMs: 0})]) {
+        const s = await suivi({reportAge}); s.send(); s.layout(true); s.p.frame();
+        s.running({fresh: true, statusAgeMs: 0}); s.p.frame();
+        assert.equal(s.text('home-v2-age'), 'Rapport inconnu', 'no fallback on m.fresh'); assert.notEqual(s.obs().snapshot().report.freshness, 'fresh');
+        assert.equal(s.text('home-v2-position'), 'Inconnue · pas de rapport');
+      }
+      // The contract says stale although the snapshot claims fresh: stale.
+      const s = await suivi({reportAge: () => ({known: true, fresh: false, ageMs: 3000})}); s.send(); s.layout(true); s.p.frame();
+      s.running({fresh: true, statusAgeMs: 0}); s.p.frame(); assert.match(s.text('home-v2-age'), /^Rapport périmé/);
+    }],
+    ['A -> B -> A without a new report, after expiry and a civil clock set back, stays stale', async () => {
+      const s = await suivi(); s.send(); s.layout(true); s.p.frame();
+      s.running({port: 'A', generation: 'g1', statusObservedAt: 10000, statusAgeMs: 0}); s.p.frame(); assert.match(s.text('home-v2-age'), /^Rapport frais/);
+      s.p.advance(2600); s.timers.splice(0).forEach((f) => f()); s.p.frame(); assert.match(s.text('home-v2-age'), /^Rapport périmé/);
+      s.p.advance(10); s.running({port: 'B', generation: 'g2', statusObservedAt: 50000, statusAgeMs: 0}); s.p.frame();
+      assert.match(s.text('home-v2-age'), /^Rapport frais/, 'B: its own new report');
+      s.p.advance(10); s.running({port: 'A', generation: 'g1', statusObservedAt: 10000, statusAgeMs: 0}); s.p.frame();
+      assert.match(s.text('home-v2-age'), /^Rapport périmé/, 'A again, same report: no re-ageing');
+      assert.equal(s.obs().snapshot().report.freshness, 'stale');
     }],
     ['feed curve: drawn from chart() in a frame, gaps and reported markers, never while hidden', async () => {
       const s = await suivi(); s.send(); s.layout(true); s.p.frame();
