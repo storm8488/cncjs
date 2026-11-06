@@ -25,7 +25,7 @@ const crypto = require('crypto');
 
 const SOURCE = path.join(__dirname, 'touch');
 const PAGES = ['index.html', 'simulation.html'];
-const ADVANCED = ['preview-gl.js'];
+const ADVANCED = ['preview-gl.js', 'origin-preview.js'];
 
 // A syntax error in one file would lose the whole bundle (every module, Pause / Arrêter too),
 // where separate files lose only that one: every script must parse on its own, at the

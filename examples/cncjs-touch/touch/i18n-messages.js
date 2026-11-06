@@ -100,8 +100,6 @@ window.CNCTouchMessages = [
 ['Position outil : repère G54 et rapports en mm requis.','Tool position: G54 and reports in mm required.','Posición de la herramienta: se requieren G54 e informes en mm.'],
 ['Position outil inconnue.','Tool position unknown.','Posición de la herramienta desconocida.'],
 ['Position outil hors aperçu ou projection invalide.','Tool position outside the preview or invalid projection.','Posición de la herramienta fuera de la vista previa o proyección no válida.'],
-['Point rose : position fictive G54. Le travail simulé ne déplace pas ce point.','Pink dot: simulated G54 position. The simulated job does not move it.','Punto rosa: posición simulada G54. El trabajo simulado no lo mueve.'],
-['Point rose : position de travail rapportée, G54 · projection indicative.','Pink dot: reported work position, G54 · indicative projection.','Punto rosa: posición de trabajo informada, G54 · proyección indicativa.'],
 ['préparation réelle','real preparation','preparación real'],
 [' (fictive)',' (simulated)',' (simulada)'],
 [' (fictif)',' (simulated)',' (simulado)'],

@@ -187,7 +187,9 @@ async function launchBrowser(width, height) {
   const portFile = path.join(profile, 'DevToolsActivePort');
   const until = Date.now() + 30000;
   while (!fs.existsSync(portFile) || !fs.readFileSync(portFile, 'utf8').trim()) {
-    if (child.exitCode !== null) throw new Error('browser exited early: ' + stderr.slice(-800));
+    // Edge on Windows with an update pending hands the session to a new process and exits 0:
+    // keep waiting for its DevToolsActivePort (Browser.close at the end closes that process).
+    if (child.exitCode !== null && child.exitCode !== 0) throw new Error('browser exited early: ' + stderr.slice(-800));
     if (Date.now() > until) throw new Error('DevToolsActivePort not written: ' + stderr.slice(-800));
     await sleep(100);
   }

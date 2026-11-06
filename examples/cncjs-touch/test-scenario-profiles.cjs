@@ -16,7 +16,14 @@ for (const page of ['index.html', 'simulation.html']) {
 }
 // preview-gl.js is the advanced module itself (its header comment names the call).
 const callers = fs.readdirSync(dir).filter((f) => /\.js$/.test(f) && f !== 'tablet-profile.js' && f !== 'preview-gl.js' && /\.loadAdvanced\(/.test(read(f)));
-assert.deepEqual(callers, ['preview-3d.js'], 'loadAdvanced is called from preview-3d.js only');
+assert.deepEqual(callers, ['job-preparation.js', 'preview-3d.js'], 'loadAdvanced is called from preview-3d.js and the visual origin of Préparer only');
+{
+  // The visual origin (Performance UI, lot O) loads only when originWanted() holds, which requires Performance.
+  const src = read('job-preparation.js'), wanted = src.slice(src.indexOf('function originWanted('), src.indexOf('function originSync('));
+  assert.match(wanted, /P\.performance\(\) === 'performance'/, 'the visual origin requires the Performance profile');
+  const sync = src.slice(src.indexOf('function originSync('), src.indexOf('.loadAdvanced(', src.indexOf('function originSync(')));
+  assert.match(sync, /if \(!originWanted\(\)\)[^;]*;[\s\S]*return;/, 'originSync returns before loading when the origin is not wanted');
+}
 {
   // Two callers: openFree (returns before loading in eco) and the inline view, reached only through inlineMode (false without Performance).
   const src = read('preview-3d.js');
