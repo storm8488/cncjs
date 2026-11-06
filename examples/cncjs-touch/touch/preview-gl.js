@@ -895,7 +895,10 @@
     // it in onStatus; any other view (« Agrandir ») listens only while it has something to cancel.
     function stopReads() {
       if (fullRequest) { var stopped = fullRequest; fullRequest = null; stopped.cancel(); }
-      if (src) { var reading = src; src = null; inspected = -1; if (reading.release) reading.release(); }
+      if (src) {
+        var reading = src, shown = inspected >= 0; src = null; inspected = -1; if (reading.release) reading.release();
+        if (shown) hint.textContent = t('Inspection suspendue pendant le travail.');
+      }
     }
     var readWatch = false;
     function watchReads() {

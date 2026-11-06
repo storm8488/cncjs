@@ -163,5 +163,6 @@
 [' segments, arcs à 0,01 mm) : dessin indicatif, jamais envoyé à la machine.',' segments, arcs to 0.01 mm): indicative drawing, never sent to the machine.',' segmentos, arcos a 0,01 mm): dibujo indicativo, nunca enviado a la máquina.'],
 ['Le fichier a changé depuis l’aperçu : géométrie complète indisponible.','The file changed since the preview: full geometry unavailable.','El archivo cambió desde la vista previa: geometría completa no disponible.'],
 ['Géométrie complète indisponible sans Worker.','Full geometry unavailable without a Worker.','Geometría completa no disponible sin Worker.'],
-['Travail en cours : la ligne source n’est pas lue, valeurs du tracé simplifié.','Job running: the source line is not read, values of the simplified path.','Trabajo en curso: la línea de origen no se lee, valores de la trayectoria simplificada.']
+['Travail en cours : la ligne source n’est pas lue, valeurs du tracé simplifié.','Job running: the source line is not read, values of the simplified path.','Trabajo en curso: la línea de origen no se lee, valores de la trayectoria simplificada.'],
+['Inspection suspendue pendant le travail.','Inspection suspended during the job.','Inspección suspendida durante el trabajo.']
 );

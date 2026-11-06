@@ -222,7 +222,14 @@
     var machine = null; try { machine = root.cncState.get().machine || null; } catch (_) {}
     s = { screen: screen, card: card, view: view, nodes: { file: file, legend: legend, verdict: verdictNode, current: currentNode, state: state, view: view },
       listeners: [], frame: null, handle: null, closing: false, closedBy: '', failure: '', machine: machine, meta: undefined, metaKey: '', request: 0, last: [], sent: '', file: '' };
-    on(root, 'cnc-job-status', function (e) { var d = e && e.detail || {}; if (d.simulation) return; s.machine = d.machine || null; schedule(); });
+    on(root, 'cnc-job-status', function (e) {
+      var d = e && e.detail || {}; if (d.simulation) return;
+      s.machine = d.machine || null;
+      // State lost with no preview yet (read pending, or answered null for want of a state): asked again
+      // when the state comes back, even for the same program and even if no frame shows the loss.
+      if ((!s.machine || !s.machine.fresh) && !s.meta) s.metaKey = '';
+      schedule();
+    });
     on(root, 'cnc-gpu-change', schedule);
     on(root, 'cnc-library-preview-updated', function () { s.metaKey = ''; schedule(); });
     on(root, 'cnc-screen-lock', schedule);
