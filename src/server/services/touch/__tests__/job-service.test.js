@@ -62,9 +62,9 @@ beforeAll(async () => {
   await fs.writeFile(path.join(root, 'macro.nc'), '%wait\nG1 X1');
   await fs.writeFile(path.join(root, 'offset.nc'), 'G21 G90\nG55\nG1 X1 F100\nM2');
   await fs.writeFile(path.join(root, 'bare.nc'), '(no units, no distance mode)\nG1 X1 F100\nM2');
-  await fs.writeFile(path.join(root, 'resume.nc'), ['G21 G90', 'M3 S9000', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200',
+  await fs.writeFile(path.join(root, 'resume.nc'), ['G21 G90 G94', 'M3 S9000', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200',
     'G1 X10 F800', 'G1 Y10', 'G1 X0', 'G0 Z5', 'M5', 'M30'].join('\n'));
-  await fs.writeFile(path.join(root, 'square.nc'), ['G21 G90 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-3 F100', 'G1 X40 F500', 'G1 Y30', 'G1 X0', 'G1 Y0', 'G0 Z5', 'M30'].join('\n'));
+  await fs.writeFile(path.join(root, 'square.nc'), ['G21 G90 G54 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-3 F100', 'G1 X40 F500', 'G1 Y30', 'G1 X0', 'G1 Y0', 'G0 Z5', 'M30'].join('\n'));
 });
 
 afterAll(async () => {
@@ -3144,7 +3144,7 @@ describe('job service A5 and F2, cross-check 3', () => {
   let root;
   beforeAll(async () => {
     root = await fs.mkdtemp(path.join(os.tmpdir(), 'cnc-xv3-a5-'));
-    await fs.writeFile(path.join(root, 'resume.nc'), ['G21 G90', 'M3 S9000', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200',
+    await fs.writeFile(path.join(root, 'resume.nc'), ['G21 G90 G94', 'M3 S9000', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200',
       'G1 X10 F800', 'G1 Y10', 'G1 X0', 'G0 Z5', 'M5', 'M30'].join('\n'));
   });
   afterAll(async () => {

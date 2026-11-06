@@ -28,32 +28,39 @@ const refuse = (code, message, params = {}) => {
 
 // Comments removed the way the CNCjs sender does (nested parentheses), upper
 // case (codeOf), then read as Grbl reads the line: every whitespace removed
-// ("G4 9 Z-100" is G49 Z-100, "G0 X1 0" is X10). The text of a CNCjs
-// [expression] is not G-code ("X['G2'.length]" holds no G word): it is blanked
-// to "[]" before words are read, and the letter it values becomes a word whose
-// value is the string '[]' (never a number).
+// ("G4 9 Z-100" is G49 Z-100, "G0 X1 0" is X10). A CNCjs [expression] or a
+// "/" (block delete, stripped by Grbl, kept by CNCjs) is refused by
+// checkSyntax before any line is read.
 const clean = codeOf;
-const grbl = (line) => {
-  let code = clean(line).replace(/\s+/g, '');
-  let previous;
-  do {
-    previous = code;
-    code = code.replace(/\[[^[\]]*\]/g, '[]');
-  } while (code !== previous);
-  return code;
-};
+const grbl = (line) => clean(line).replace(/\s+/g, '');
 
 const words = (code) => {
   const out = [];
-  const re = /([A-Z])([-+]?(?:\d+\.?\d*|\.\d+)|\[\])/g;
+  const re = /([A-Z])([-+]?(?:\d+\.?\d*|\.\d+))/g;
   let m;
   while ((m = re.exec(code))) {
-    out.push([m[1], m[2] === '[]' ? '[]' : Number(m[2])]);
+    out.push([m[1], Number(m[2])]);
   }
   return out;
 };
 
 const fmt = (n) => String(Math.round(n * 10000) / 10000);
+
+// A feed written with enough decimals never to round to 0 (F0.00001 stays
+// F0.00001): Grbl reads no exponent, so a feed too small to write is refused.
+const fmtFeed = (f, from) => {
+  const short = fmt(f);
+  if (Number(short) > 0) {
+    return short;
+  }
+  for (let digits = 5; digits <= 10; digits++) {
+    const text = f.toFixed(digits);
+    if (Number(text) > 0) {
+      return text.replace(/0+$/, '');
+    }
+  }
+  throw refuse('ETOUCH_RESUME_FEED_PRECISION', 'Avance trop petite pour être écrite (moins de 0,0000000001) avant la ligne ' + from + ' : reprise impossible.', { from });
+};
 
 const MM_PER_INCH = 25.4;
 
@@ -94,17 +101,24 @@ const scale = (s, k) => {
 export const stateBefore = (lines, from) => {
   const s = {
     units: null,
-    // Null until the program chooses them: the preamble never assumes G90 or G17.
+    // Null until the program chooses them: the preamble never assumes G90, G17 or G94.
     distance: null,
     plane: null,
 wcs: null,
-feedMode: 'G94',
+    feedMode: null,
 motion: null,
     feed: null,
 plungeFeed: null,
 speed: null,
 spindle: 'M5',
-coolant: 'M9',
+    // Mist (M7) and flood (M8) are independent, M9 clears both; coolantSet
+    // once the program commanded any of them. tloCancelled: a G49 was seen
+    // (the preamble repeats it, an inherited G43.1 offset would stay).
+    coolant: { mist: false, flood: false },
+    coolantSet: false,
+    tloCancelled: false,
+    // The first line with an axis word, and the distance mode it was read in.
+    firstMove: null,
 tool: null,
 toolChanged: false,
     pos: { X: null, Y: null, Z: null },
@@ -129,9 +143,9 @@ wcsReset: null,
     if (!code || code === '%') {
       continue;
     }
-    // CNCjs evaluates [expressions] (and % lines) when it sends them: the values
-    // Grbl receives cannot be known here (same rule as program-check.js).
-    if (/^%/.test(code) || /[[\]#]/.test(code)) {
+    // CNCjs evaluates % lines and #variables when it sends them: the values
+    // Grbl receives cannot be known here ([expressions] are refused by checkSyntax).
+    if (/^%/.test(code) || /#/.test(code)) {
       throw refuse('ETOUCH_RESUME_EXPRESSION', 'Expression ou macro CNCjs à la ligne ' + (i + 1) + ' avant la ligne ' + from + ' : reprise impossible.', { line: i + 1, from });
     }
     const w = words(code);
@@ -175,6 +189,8 @@ wcsReset: null,
         // The Z arithmetic of a dynamic tool offset (G43.1, then G49) is not
         // modelled: the Z positions seen after it are not the machine's.
         throw refuse('ETOUCH_RESUME_TOOL_OFFSET', 'Décalage d’outil dynamique (G43.1) à la ligne ' + lineNo + ' avant la ligne ' + from + ' : hauteurs Z non modélisées, reprise impossible.', { line: lineNo, from });
+      } else if (v === 49) {
+        s.tloCancelled = true;
       } else if (v === 90 || v === 91) {
         s.distance = 'G' + v;
       } else if (v === 17 || v === 18 || v === 19) {
@@ -212,8 +228,12 @@ wcsReset: null,
     m.forEach((v) => {
       if (v === 3 || v === 4 || v === 5) {
         s.spindle = 'M' + v;
-      } else if (v === 7 || v === 8 || v === 9) {
-        s.coolant = 'M' + v;
+      } else if (v === 7 || v === 8) {
+        s.coolant[v === 7 ? 'mist' : 'flood'] = true;
+        s.coolantSet = true;
+      } else if (v === 9) {
+        s.coolant = { mist: false, flood: false };
+        s.coolantSet = true;
       } else if (v === 6) {
         s.toolChanged = true;
       }
@@ -227,6 +247,9 @@ wcsReset: null,
     }
     const probe = /^G38/.test(s.motion || '');
     const axes = ['X', 'Y', 'Z'].filter((a) => at(a) !== null);
+    if (axes.length && s.firstMove === null) {
+      s.firstMove = { line: lineNo, distance: s.distance };
+    }
     if (machineMove || probe) {
       // G53/G28/G30 moves are in machine coordinates and a probe stops at the
       // contact: the work position of those axes is unknown until the program
@@ -334,7 +357,7 @@ const motionRestore = (s, from) => {
     return 'G0';
   }
   if (s.motion === 'G1') {
-    return 'G1 F' + fmt(s.feed);
+    return 'G1 F' + fmtFeed(s.feed, from);
   }
   const motion = s.motion || 'inconnu';
   throw refuse('ETOUCH_RESUME_FIRST_LINE', 'Mode de déplacement ' + motion + ' avant la ligne ' + from + ' : il ne peut pas être rétabli devant cette ligne (qui ne fixe pas le sien), choisissez une autre ligne de reprise.', { motion, from });
@@ -342,6 +365,22 @@ const motionRestore = (s, from) => {
 
 // Units, distance, plane, work offset and feed mode of the preamble.
 const modalLine = (s) => [s.units, 'G90', s.plane, s.wcs, s.feedMode].filter(Boolean).join(' ');
+
+// The coolant the program had: M9 first (whatever the controller inherited),
+// then the active ones; nothing when the program never commanded it.
+const coolantLines = (s) => (s.coolantSet ? ['M9'].concat(s.coolant.mist ? ['M7'] : [], s.coolant.flood ? ['M8'] : []) : []);
+const coolantOf = (s) => {
+  const on = [].concat(s.coolant.mist ? ['M7'] : [], s.coolant.flood ? ['M8'] : []);
+  return on.length ? on.join(' ') : null;
+};
+
+// Grbl keeps the feed mode of an earlier program: a file that never chose
+// G94 before the line is not resumed (its own G93 is refused earlier).
+const checkFeedMode = (s, from) => {
+  if (s.feedMode === null) {
+    throw refuse('ETOUCH_RESUME_FEED_MODE', 'Mode d’avance (G93/G94) non fixé avant la ligne ' + from + ' : le mode de la carte est inconnu, reprise impossible.', { from });
+  }
+};
 
 const commonNotes = (s) => {
   const notes = [];
@@ -386,21 +425,19 @@ const buildLaserResume = (lines, from, s, name) => {
   if (emitting && s.speed === null) {
     throw refuse('ETOUCH_LASER_RESUME_S_UNKNOWN', 'Consigne S inconnue avant la ligne ' + from + ' alors que le laser est commandé (M3/M4) : reprise impossible.', { from });
   }
+  checkFeedMode(s, from);
   const preamble = [
     '(CNCjs Touch : reprise laser a la ligne ' + from + (name ? ' de ' + name.replace(/[()]/g, '') : '') + ')',
     'M5',
-    modalLine(s),
-    'G0 X' + fmt(s.pos.X) + ' Y' + fmt(s.pos.Y)
-  ];
+    modalLine(s)
+  ].concat(s.tloCancelled ? ['G49'] : [], ['G0 X' + fmt(s.pos.X) + ' Y' + fmt(s.pos.Y)]);
   const zKnown = s.pos.Z !== null;
   if (zKnown) {
     preamble.push('G0 Z' + fmt(s.pos.Z));
   }
-  if (s.coolant !== 'M9') {
-    preamble.push(s.coolant);
-  }
+  preamble.push(...coolantLines(s));
   if (s.feed !== null && s.feed > 0) {
-    preamble.push('F' + fmt(s.feed));
+    preamble.push('F' + fmtFeed(s.feed, from));
   }
   if (emitting) {
     preamble.push(s.spindle + ' S' + fmt(s.speed));
@@ -423,7 +460,7 @@ const buildLaserResume = (lines, from, s, name) => {
     tool: s.tool,
     toolChanged: s.toolChanged,
     spindle: emitting ? { mode: s.spindle, speed: s.speed } : null,
-    coolant: s.coolant !== 'M9' ? s.coolant : null,
+    coolant: coolantOf(s),
     position: { ...s.pos },
     safeZ: null,
     units: s.units,
@@ -438,12 +475,32 @@ const buildLaserResume = (lines, from, s, name) => {
 const g49WithAxis = (w) => w.some(([l, v]) => l === 'G' && v === 49) && w.some(([l]) => 'XYZ'.indexOf(l) >= 0);
 const g49Refusal = (line) => refuse('ETOUCH_RESUME_G49_AXIS', 'G49 avec mot d’axe à la ligne ' + line + ' : effet ambigu (annulation du décalage d’outil ou déplacement), reprise impossible.', { line });
 
-// The resume line itself: an expression CNCjs evaluates when it sends the
-// line (its words cannot be read here, "X[..]" or "G[0]"), or a G49 with an
-// axis word, is refused like the lines before it.
+// The whole file, before anything is read: a CNCjs [expression] (evaluated
+// when the line is sent, its words cannot be read here) or a "/" (block
+// delete, stripped by Grbl but sent as is by CNCjs) anywhere, before, at or
+// after the resume line, is refused.
+const checkSyntax = (lines) => {
+  const line = lines.findIndex((text) => /[[\]/]/.test(clean(text)));
+  if (line >= 0) {
+    throw refuse('ETOUCH_RESUME_UNSUPPORTED_SYNTAX', 'Expression CNCjs ou « / » à la ligne ' + (line + 1) + ' : syntaxe non prise en charge par la reprise.', { line: line + 1 });
+  }
+};
+
+// Grbl resets its modes at a program end (M2/M30): nothing after one is resumable.
+const checkProgramEnd = (lines, from) => {
+  for (let i = 0; i < from - 1; i++) {
+    const m = words(grbl(lines[i])).filter(([l]) => l === 'M').map(([, v]) => v);
+    if (m.includes(2) || m.includes(30)) {
+      throw refuse('ETOUCH_RESUME_PROGRAM_END', 'Fin de programme (M2/M30) à la ligne ' + (i + 1) + ' avant la ligne ' + from + ' : la carte y remet ses modes, reprise impossible.', { line: i + 1, from });
+    }
+  }
+};
+
+// The resume line itself: a CNCjs directive or variable (its words cannot be
+// read here), or a G49 with an axis word, is refused like the lines before it.
 const checkFirstLine = (lines, from) => {
   const code = grbl(lines[from - 1]);
-  if (/^%/.test(code) || /[[\]#]/.test(code)) {
+  if (/^%/.test(code) || /#/.test(code)) {
     throw refuse('ETOUCH_RESUME_FIRST_EXPRESSION', 'Expression ou macro CNCjs à la ligne de reprise ' + from + ' : sa valeur n’est pas connue ici, choisissez une autre ligne.', { from });
   }
   if (g49WithAxis(words(code))) {
@@ -454,24 +511,20 @@ const checkFirstLine = (lines, from) => {
 // An arc from the resume line on, while the program never chose its plane
 // (G17/G18/G19) before it: the preamble cannot restore a plane it does not
 // know, and the controller may be in G18 or G19. The motion mode is followed
-// line by line as Grbl keeps it (an axis-only line after a G2/G3 is an arc);
-// a G word valued by an expression (G[..]) leaves it unknown, refused as well.
+// line by line as Grbl keeps it (an axis-only line after a G2/G3 is an arc).
 // A plane chosen later in the program, before its first arc, is the
 // program's own business.
 const checkPlane = (lines, from, s) => {
   if (s.plane) {
     return;
   }
-  const refusal = (line) => refuse('ETOUCH_RESUME_PLANE', 'Plan de travail (G17/G18/G19) non fixé avant la ligne ' + from + ' : arc ou mode de déplacement indéterminé (G2/G3, ou G suivi d’une expression) à la ligne ' + line + ', plan de la carte inconnu, reprise impossible.', { from, line });
+  const refusal = (line) => refuse('ETOUCH_RESUME_PLANE', 'Plan de travail (G17/G18/G19) non fixé avant la ligne ' + from + ' et arc (G2/G3) à la ligne ' + line + ' : plan de la carte inconnu, reprise impossible.', { from, line });
   let motion = s.motion;
   for (let i = from - 1; i < lines.length; i++) {
     const w = words(grbl(lines[i]));
     const g = w.filter(([l]) => l === 'G').map(([, v]) => v);
     if (g.some((v) => v === 17 || v === 18 || v === 19)) {
       return;
-    }
-    if (g.includes('[]')) {
-      throw refusal(i + 1);
     }
     const set = g.filter((v) => [0, 1, 2, 3].includes(v) || (v >= 38.2 && v <= 38.5)).pop();
     if (set !== undefined) {
@@ -492,14 +545,20 @@ export const buildResume = (gcode, from, { name = '', mode = 'cnc' } = {}) => {
   if (!Number.isInteger(from) || from < 2 || from > lines.length) {
     throw refuse('ETOUCH_RESUME_LINE', 'Ligne de reprise invalide : choisissez entre 2 et ' + lines.length + '.', { min: 2, max: lines.length });
   }
+  checkSyntax(lines);
+  checkProgramEnd(lines, from);
   const s = stateBefore(lines, from);
   checkFirstLine(lines, from);
   checkPlane(lines, from, s);
-  // The controller may have been left in G91 by an earlier program: a file
-  // that never chose its distance mode is not resumed (the preamble's own G90
-  // would hide it).
-  if (s.distance === null) {
-    throw refuse('ETOUCH_RESUME_DISTANCE', 'Mode de distance (G90/G91) non fixé avant la ligne ' + from + ' : le mode de la carte est inconnu, reprise impossible.', { from });
+  // The controller may have been left in G91 by an earlier program: a move
+  // made before the file chose G90 or G91 was read in an unknown mode, and a
+  // file that never chose it is not resumed (the preamble's own G90 would hide it).
+  let unchosen = s.distance === null ? from : null;
+  if (s.firstMove && s.firstMove.distance === null) {
+    unchosen = s.firstMove.line;
+  }
+  if (unchosen !== null) {
+    throw refuse('ETOUCH_RESUME_DISTANCE', 'Mode de distance (G90/G91) non fixé avant le premier déplacement du programme (ligne ' + unchosen + ') : le mode de la carte est inconnu, reprise impossible.', { line: unchosen, from });
   }
   if (s.distance === 'G91') {
     throw refuse('ETOUCH_RESUME_RELATIVE', 'Le programme est en coordonnées relatives (G91) à la ligne ' + from + ' : reprise impossible.', { from });
@@ -530,22 +589,25 @@ export const buildResume = (gcode, from, { name = '', mode = 'cnc' } = {}) => {
   if (spindleOn && !(s.speed > 0)) {
     throw refuse('ETOUCH_RESUME_SPINDLE_SPEED', 'Vitesse de broche inconnue avant la ligne ' + from + ' : reprise impossible.', { from });
   }
+  checkFeedMode(s, from);
   const preamble = [
     '(CNCjs Touch : reprise a la ligne ' + from + (name ? ' de ' + name.replace(/[()]/g, '') : '') + ')',
-    modalLine(s),
+    modalLine(s)
+  ].concat(s.tloCancelled ? ['G49'] : [], [
     'G0 Z' + fmt(s.safeZ),
     'G0 X' + fmt(s.pos.X) + ' Y' + fmt(s.pos.Y)
-  ];
+  ]);
   if (spindleOn) {
     preamble.push(s.spindle + ' S' + fmt(s.speed), 'G4 P' + SPINUP_SECONDS);
+  } else if (s.speed !== null) {
+    // The S the program had, so an M3 after the line starts at that speed.
+    preamble.push('S' + fmt(s.speed));
   }
-  if (s.coolant !== 'M9') {
-    preamble.push(s.coolant);
-  }
+  preamble.push(...coolantLines(s));
   const plunge = s.plungeFeed || s.feed;
-  preamble.push('G1 Z' + fmt(s.pos.Z) + ' F' + fmt(plunge));
+  preamble.push('G1 Z' + fmt(s.pos.Z) + ' F' + fmtFeed(plunge, from));
   if (plunge !== s.feed) {
-    preamble.push('F' + fmt(s.feed));
+    preamble.push('F' + fmtFeed(s.feed, from));
   }
   const first = firstLineOf(lines, from, s);
   if (first.restoreMotion) {
@@ -568,7 +630,7 @@ export const buildResume = (gcode, from, { name = '', mode = 'cnc' } = {}) => {
     tool: s.tool,
     toolChanged: s.toolChanged,
     spindle: spindleOn ? { mode: s.spindle, speed: s.speed } : null,
-    coolant: s.coolant !== 'M9' ? s.coolant : null,
+    coolant: coolantOf(s),
     position: { ...s.pos },
     safeZ: s.safeZ,
     units: s.units,

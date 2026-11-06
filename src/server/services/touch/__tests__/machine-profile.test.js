@@ -87,11 +87,11 @@ const A = { kind: 'touch', id: 'tablet-A', label: 'Tablette A', user: 'op' };
 const B = { kind: 'touch', id: 'tablet-B', label: 'Tablette B', user: 'op' };
 
 const PROGRAMS = {
-  'frame.nc': ['G21 G90', 'G0 X10 Y20', 'M4 S300', 'G1 X60 F1500', 'G1 Y50', 'G1 X10', 'G1 Y20', 'M5', 'M30'].join('\n'),
-  'passes.nc': ['G21 G90 G54', 'G0 X0 Y0 Z2', 'M3 S800', 'G1 X10 F1200', 'G1 Y10', 'G0 X20 Y0', 'G1 X30', 'G0 X40 Y40', 'M5', 'M30'].join('\n'),
-  'cnc.nc': ['G21 G90', 'M3 S9000', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200', 'G1 X10 F800', 'G1 Y10', 'G1 X0', 'G0 Z5', 'M5', 'M30'].join('\n'),
-  'g55.nc': ['G21 G90 G55', 'G0 X10 Y20', 'G1 X60 F1500', 'M30'].join('\n'),
-  'idle-y.nc': ['G21 G90', 'G0 X10', 'G1 X60 F1500', 'M30'].join('\n')
+  'frame.nc': ['G21 G90 G94', 'G0 X10 Y20', 'M4 S300', 'G1 X60 F1500', 'G1 Y50', 'G1 X10', 'G1 Y20', 'M5', 'M30'].join('\n'),
+  'passes.nc': ['G21 G90 G54 G94', 'G0 X0 Y0 Z2', 'M3 S800', 'G1 X10 F1200', 'G1 Y10', 'G0 X20 Y0', 'G1 X30', 'G0 X40 Y40', 'M5', 'M30'].join('\n'),
+  'cnc.nc': ['G21 G90 G94', 'M3 S9000', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200', 'G1 X10 F800', 'G1 Y10', 'G1 X0', 'G0 Z5', 'M5', 'M30'].join('\n'),
+  'g55.nc': ['G21 G90 G55 G94', 'G0 X10 Y20', 'G1 X60 F1500', 'M30'].join('\n'),
+  'idle-y.nc': ['G21 G90 G94', 'G0 X10', 'G1 X60 F1500', 'M30'].join('\n')
 };
 
 const services = [];
@@ -527,7 +527,7 @@ describe('laser resume boundaries (§4)', () => {
   const P = (...lines) => lines.join('\n');
 
   test('after a cut, at the start of a new rapid: M5, modal state, G0 XY, constant Z, F, then M3/M4 S; no dwell, no plunge', () => {
-    const plan = buildResume(P('G21 G90 G54', 'G0 X0 Y0 Z2', 'M4 S800', 'G1 X10 F1200', 'G1 Y10', 'G0 X20 Y0', 'G1 X30', 'M5', 'M30'), 6, { name: 'plaque.nc', mode: 'laser' });
+    const plan = buildResume(P('G21 G90 G54 G94', 'G0 X0 Y0 Z2', 'M4 S800', 'G1 X10 F1200', 'G1 Y10', 'G0 X20 Y0', 'G1 X30', 'M5', 'M30'), 6, { name: 'plaque.nc', mode: 'laser' });
     expect(plan.mode).toBe('laser');
     expect(plan.preamble).toEqual(['(CNCjs Touch : reprise laser a la ligne 6 de plaque.nc)', 'M5', 'G21 G90 G54 G94', 'G0 X10 Y10', 'G0 Z2', 'F1200', 'M4 S800']);
     expect(plan.program.split('\n').slice(7, 9)).toEqual(['G0 X20 Y0', 'G1 X30']);
@@ -536,13 +536,13 @@ describe('laser resume boundaries (§4)', () => {
   });
 
   test('laser off (M5 or S0): a rapid after it is a boundary; no Z move when the program gives none; S kept when off', () => {
-    const off = buildResume(P('G21 G90', 'G0 X0 Y0', 'M3 S500', 'G1 X10 F900', 'M5', 'G0 X5 Y5', 'G0 X7 Y7', 'M3', 'G1 X20'), 7, { mode: 'laser' });
+    const off = buildResume(P('G21 G90 G94', 'G0 X0 Y0', 'M3 S500', 'G1 X10 F900', 'M5', 'G0 X5 Y5', 'G0 X7 Y7', 'M3', 'G1 X20'), 7, { mode: 'laser' });
     expect(off.preamble.slice(1)).toEqual(['M5', 'G21 G90 G94', 'G0 X5 Y5', 'F900', 'S500']);
     expect(off.notes.join(' ')).toMatch(/reste à sa hauteur actuelle/);
-    const s0 = buildResume(P('G21 G90', 'G0 X0 Y0', 'M3 S500', 'G1 X10 F900', 'S0', 'G0 X5 Y5'), 6, { mode: 'laser' });
+    const s0 = buildResume(P('G21 G90 G94', 'G0 X0 Y0', 'M3 S500', 'G1 X10 F900', 'S0', 'G0 X5 Y5'), 6, { mode: 'laser' });
     expect(s0.preamble.slice(-1)).toEqual(['M3 S0']);
     // A modal G0 line gets its motion word back.
-    const modal = buildResume(P('G21 G90', 'G0 X0 Y0', 'M3 S500', 'G1 X10 F900', 'G0', 'X3 Y3'), 6, { mode: 'laser' });
+    const modal = buildResume(P('G21 G90 G94', 'G0 X0 Y0', 'M3 S500', 'G1 X10 F900', 'G0', 'X3 Y3'), 6, { mode: 'laser' });
     expect(modal.program.split('\n')[modal.preamble.length]).toBe('G0 X3 Y3');
   });
 
@@ -556,15 +556,15 @@ describe('laser resume boundaries (§4)', () => {
       }
       return null;
     };
-    expect(code(P('G21 G90', 'G0 X0 Y0', 'M3 S500', 'G1 X10 F1000', 'G1 Y10'), 5)).toBe('ETOUCH_LASER_RESUME_NOT_RAPID');
-    expect(code(P('G21 G90', 'G0 X0 Y0', 'M3 S500', 'G1 X10 F1000', 'G0 Z5'), 5)).toBe('ETOUCH_LASER_RESUME_NOT_RAPID');
-    expect(code(P('G21 G90', 'M3 S500', 'G0 X0 Y0', 'G0 X5 Y5', 'G1 X10 F1000'), 4)).toBe('ETOUCH_LASER_RESUME_NOT_BOUNDARY');
-    expect(code(P('G21 G90', 'G1 Z0 F100', 'M5', 'G0 Y5', 'G0 X1 Y1'), 4)).toBe('ETOUCH_LASER_RESUME_POSITION');
-    expect(code(P('G21 G90', 'G0 Z1 X0 Y0', 'G0 Z2', 'M5', 'G0 X1 Y1'), 5)).toBe('ETOUCH_LASER_RESUME_Z_VARIES');
-    expect(code(P('G21 G90', 'G0 X0 Y0', 'M3', 'G1 X10 F1000', 'G0 X20 Y0'), 5)).toBe('ETOUCH_LASER_RESUME_S_UNKNOWN');
+    expect(code(P('G21 G90 G94', 'G0 X0 Y0', 'M3 S500', 'G1 X10 F1000', 'G1 Y10'), 5)).toBe('ETOUCH_LASER_RESUME_NOT_RAPID');
+    expect(code(P('G21 G90 G94', 'G0 X0 Y0', 'M3 S500', 'G1 X10 F1000', 'G0 Z5'), 5)).toBe('ETOUCH_LASER_RESUME_NOT_RAPID');
+    expect(code(P('G21 G90 G94', 'M3 S500', 'G0 X0 Y0', 'G0 X5 Y5', 'G1 X10 F1000'), 4)).toBe('ETOUCH_LASER_RESUME_NOT_BOUNDARY');
+    expect(code(P('G21 G90 G94', 'G1 Z0 F100', 'M5', 'G0 Y5', 'G0 X1 Y1'), 4)).toBe('ETOUCH_LASER_RESUME_POSITION');
+    expect(code(P('G21 G90 G94', 'G0 Z1 X0 Y0', 'G0 Z2', 'M5', 'G0 X1 Y1'), 5)).toBe('ETOUCH_LASER_RESUME_Z_VARIES');
+    expect(code(P('G21 G90 G94', 'G0 X0 Y0', 'M3', 'G1 X10 F1000', 'G0 X20 Y0'), 5)).toBe('ETOUCH_LASER_RESUME_S_UNKNOWN');
     // The common refusals of the builder still apply.
     expect(code(P('G21 G91', 'G0 X1 Y1', 'M5', 'G0 X1'), 4)).toBe('ETOUCH_RESUME_RELATIVE');
-    expect(code(P('G21 G90', 'G92 X0', 'M5', 'G0 X1 Y1'), 4)).toBe('ETOUCH_RESUME_ORIGIN_CHANGED');
+    expect(code(P('G21 G90 G94', 'G92 X0', 'M5', 'G0 X1 Y1'), 4)).toBe('ETOUCH_RESUME_ORIGIN_CHANGED');
   });
 
   test('the CNC mode is unchanged (default)', () => {
@@ -577,7 +577,7 @@ describe('laser resume boundaries (§4)', () => {
 
 describe('program check for a laser (§4)', () => {
   test('S above $30 flagged, M3 / M4 reported, "consigne S" wording; nothing added for a CNC', () => {
-    const gcode = ['G21 G90', 'M3 S1200', 'G1 X10 F1000', 'M4 S100', 'G1 Y5', 'M5'].join('\n');
+    const gcode = ['G21 G90 G94', 'M3 S1200', 'G1 X10 F1000', 'M4 S100', 'G1 Y5', 'M5'].join('\n');
     const laser = programCheck(gcode, { settings: { $30: 1000 }, laser: { sMax: 1000 } }).laser;
     expect(laser).toMatchObject({ mode: 'M3+M4', m3Line: 2, m4Line: 4, sMax: 1200, sMaxLine: 2, settingMax: 1000, aboveMax: true });
     expect(laser.codedReasons.map((r) => r.code)).toEqual(['ETOUCH_LASER_CHECK_M3', 'ETOUCH_LASER_CHECK_M4', 'ETOUCH_LASER_CHECK_S_ABOVE_MAX']);
