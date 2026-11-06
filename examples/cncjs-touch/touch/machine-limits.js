@@ -131,11 +131,10 @@
   };
   function vt(s){var l=uiLocale.language,row=TEXT[s];return row&&l==='en'?row[0]:row&&l==='es'?row[1]:s;}
   var AXES=['X','Y','Z'],ROWS=[[110,'Vitesse maximale','mm/min'],[120,'Accélération','mm/s²'],[130,'Course maximale','mm']],FLAGS=[[20,'Limites logicielles'],[21,'Fins de course'],[22,'Référencement']];
-  var v2={registered:false,disposed:false,frame:0,timer:0,detail:null,arrival:null,nodes:null,shown:''};
+  var v2={registered:false,disposed:false,frame:0,timer:0,detail:null,nodes:null,shown:''};
   function api(){var a=window.cncV2;return a&&typeof a.gate==='function'&&typeof a.state==='function'?a:null;}
   function layout(){return !!(document.body.classList&&document.body.classList.contains('perf-v2'));}
   function visible(){var s=document.getElementById('screen-machine');return !document.hidden&&!!s&&s.classList.contains('active');}
-  function now(){var p=window.performance,n=p&&typeof p.now==='function'?p.now():null;return typeof n==='number'&&isFinite(n)?n:null;}
   function finite(n){return typeof n==='number'&&isFinite(n);}
   function queue(){if(!v2.registered||v2.disposed||v2.frame||!window.requestAnimationFrame)return;v2.frame=window.requestAnimationFrame(render);}
   function clearTimer(){if(v2.timer&&window.clearTimeout)window.clearTimeout(v2.timer);v2.timer=0;}
@@ -144,8 +143,13 @@
   function format(n){return n.toLocaleString(uiLocale.locale||'fr-FR',{maximumFractionDigits:3});}
   // A view model of facts only; unknown stays unknown, never zero.
   function model(){
-    var d=v2.detail||{},m=d.machine||null,at=now(),age=m&&finite(m.statusAgeMs)&&finite(at)&&finite(v2.arrival)?m.statusAgeMs+Math.max(0,at-v2.arrival):null;
-    var freshness=!m?'unknown':m.fresh===true&&age!==null&&age<=2500?'fresh':m.fresh===false||age!==null?'stale':'unknown';
+    // Single source of freshness: the L0 contract, monotone per [port, generation,
+    // statusObservedAt]. Absent, throwing or unknown: never fresh (v1's age uses Date.now()).
+    var d=v2.detail||{},m=d.machine||null,r=null;
+    if(m){try{var a=api();r=a&&typeof a.reportAge==='function'?a.reportAge(m):null;}catch(_){r=null;}}
+    var known=!!(r&&r.known===true&&finite(r.ageMs)&&r.ageMs>=0),age=known?r.ageMs:null;
+    // Never fresher than the existing snapshot either: fresh:false (lost stream…) stays stale.
+    var freshness=!known?'unknown':r.fresh===true&&age<=2500&&m.fresh!==false?'fresh':'stale';
     var alarm=!!(m&&/^alarm/i.test(m.activeState||'')),code=alarm&&finite(m.alarmCode)?m.alarmCode:null,inferred=alarm&&code!==null&&m.alarmCodeInferred===true;
     var help=alarm&&window.CNCGrblHelp?window.CNCGrblHelp.alarm(code,inferred):null,pilot=d.pilot;
     var s=m&&m.settings&&typeof m.settings==='object'?m.settings:{},known=0,rows=[],flags=[];
@@ -231,7 +235,7 @@
     }
     queue();
   });
-  window.addEventListener('cnc-job-status',function(e){var d=e&&e.detail;if(!d||d.simulation)return;v2.detail=d;v2.arrival=now();queue();});
+  window.addEventListener('cnc-job-status',function(e){var d=e&&e.detail;if(!d||d.simulation)return;v2.detail=d;queue();});
   window.addEventListener('cnc-screen-change',function(e){if(e&&e.detail==='machine')queue();else clearTimer();});
   document.addEventListener('visibilitychange',function(){if(document.hidden)clearTimer();else queue();});
 })();
