@@ -297,8 +297,7 @@ describe('E-3 (6e tour) : syntaxe CNCjs, modes G94/G90, G49, S, M2/M30, précisi
   });
 
   test('ni G93 ni G94 avant la ligne : reprise acceptée, la machine garde son mode et le plan le dit (comme les unités)', () => {
-    const prog = ['G21 G90 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5', 'G1 X10', 'M30'].join('
-');
+    const prog = ['G21 G90 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5', 'G1 X10', 'M30'].join('\n');
     const r = buildResume(prog, 6);
     expect(r.preamble[1]).toBe('G21 G90 G54');
     expect(r.notes).toContain('Le programme ne fixe pas son mode d’avance (G94) : la machine garde le sien.');
@@ -307,8 +306,7 @@ describe('E-3 (6e tour) : syntaxe CNCjs, modes G94/G90, G49, S, M2/M30, précisi
     expect(declared.preamble[1]).toBe('G21 G90 G54 G94');
     expect(declared.notes).not.toContain('Le programme ne fixe pas son mode d’avance (G94) : la machine garde le sien.');
     // Reprise laser : même règle.
-    const laser = ['G21 G90', 'M3 S500', 'G0 X0 Y0', 'G1 X10 F1000', 'M5', 'G0 X5 Y5', 'G1 X15 F1000', 'M30'].join('
-');
+    const laser = ['G21 G90', 'M3 S500', 'G0 X0 Y0', 'G1 X10 F1000', 'M5', 'G0 X5 Y5', 'G1 X15 F1000', 'M30'].join('\n');
     expect(buildResume(laser, 6, { mode: 'laser' }).mode).toBe('laser');
     // Un G93 du fichier lui-même reste refusé.
     expect(refusalOf(() => buildResume(prog.replace('G0 Z5', 'G93 G0 Z5'), 6))).toMatchObject({ code: 'ETOUCH_RESUME_INVERSE_TIME' });
@@ -349,8 +347,9 @@ describe('E-3 (6e tour) : syntaxe CNCjs, modes G94/G90, G49, S, M2/M30, précisi
     const r = buildResume(tiny, 6);
     expect(r.preamble.at(-1)).toBe('G1 Z5 F0.00001');
     const absurd = P.map((l) => l.replace('F100', 'F0.00000000001')).concat(['G1 X10', 'M30']).join('\n');
+    // More than 8 digits: Grbl itself reads F0 there, the file is refused before any reading.
     const err = refusalOf(() => buildResume(absurd, 6));
-    expect(err).toMatchObject({ code: 'ETOUCH_RESUME_FEED_PRECISION', params: { from: 6 } });
+    expect(err).toMatchObject({ code: 'ETOUCH_RESUME_UNSUPPORTED_SYNTAX' });
     expectCatalogMatch(err);
   });
 

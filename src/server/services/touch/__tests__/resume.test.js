@@ -813,14 +813,23 @@ describe('resume, re-check of c4c048c7 (xvg)', () => {
       expectCatalogMatch(err);
     });
 
+    // A bracket even inside a comment is refused since 2026-11-06: CNCjs evaluates
+    // expressions before removing comments, and an expression can close the comment
+    // (Codex's final review: ([')'] M3 S12000 M8) sends M3 S12000 M8).
     test.each([
-      ['(note [x])', ''],
-      ['G1 Y6 ; [posx] 50%', 'G1 Y6'],
+      ['(note [x])'],
+      ['G1 Y6 ; [posx] 50%'],
+      ['(a (b [c]) d) G1 Y6']
+    ])('« %s » (crochet dans un commentaire) : refusé', (extra) => {
+      const { err } = attempt(prog(extra), 8);
+      expect(err).toMatchObject({ code: 'ETOUCH_RESUME_UNSUPPORTED_SYNTAX' });
+    });
+
+    test.each([
       ['(50%) G1 Y6', 'G1 Y6'],
       ['; 50%', ''],
       ['(#1 = outil)', ''],
       ['(%wait)', ''],
-      ['(a (b [c]) d) G1 Y6', 'G1 Y6'],
       ['%', '']
     ])('« %s » (commentaire ou % seul) : pas de refus', (extra, cncjs) => {
       expect(sent(extra)).toBe(cncjs);

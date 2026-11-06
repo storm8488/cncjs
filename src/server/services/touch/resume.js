@@ -48,15 +48,23 @@ const fmt = (n) => String(Math.round(n * 10000) / 10000);
 
 // A feed written with enough decimals never to round to 0 (F0.00001 stays
 // F0.00001): Grbl reads no exponent, so a feed too small to write is refused.
+// Written as Grbl reads it: at most 8 digits, the leading zero of a feed under 1
+// dropped (Grbl counts it: F0.00000001 reads as F0, F.00000001 does not).
+const grblDigits = (text) => text.replace(/[^0-9]/g, '').length;
 const fmtFeed = (f, from) => {
-  const short = fmt(f);
-  if (Number(short) > 0) {
+  const fit = (text) => {
+    const t = text.indexOf('.') >= 0 ? text.replace(/0+$/, '').replace(/\.$/, '') : text;
+    const g = grblDigits(t) > GRBL_DIGITS && Number(t) < 1 ? t.replace(/^0\./, '.') : t;
+    return Number(g) > 0 && grblDigits(g) <= GRBL_DIGITS ? g : null;
+  };
+  const short = fit(fmt(f));
+  if (short) {
     return short;
   }
   for (let digits = 5; digits <= 10; digits++) {
-    const text = f.toFixed(digits);
-    if (Number(text) > 0) {
-      return text.replace(/0+$/, '');
+    const text = fit(f.toFixed(digits));
+    if (text) {
+      return text;
     }
   }
   throw refuse('ETOUCH_RESUME_FEED_PRECISION', 'Avance trop petite pour être écrite (moins de 0,0000000001) avant la ligne ' + from + ' : reprise impossible.', { from });
@@ -480,8 +488,31 @@ const g49Refusal = (line) => refuse('ETOUCH_RESUME_G49_AXIS', 'G49 avec mot d’
 // when the line is sent, its words cannot be read here) or a "/" (block
 // delete, stripped by Grbl but sent as is by CNCjs) anywhere, before, at or
 // after the resume line, is refused.
+// Grbl reads at most 8 significant characters of a number (leading zeros
+// included: X0000000010 is X0) and rounds the fraction of a G/M number to
+// hundredths (G91.001 is G91): such numbers are read differently here, so they
+// are refused like an expression. A CNCjs [expression] is evaluated before the
+// comments are removed, so a bracket inside a comment counts too.
+const GRBL_DIGITS = 8;
+const oddNumber = (code) => {
+  const re = /([A-Z])([-+]?)(\d*)(\.?)(\d*)/g;
+  let m;
+  while ((m = re.exec(code))) {
+    if (!m[3] && !m[5]) {
+      re.lastIndex = m.index + 1;
+      continue;
+    }
+    if ((m[3] + m[5]).length > GRBL_DIGITS) {
+      return true;
+    }
+    if ((m[1] === 'G' || m[1] === 'M') && m[5].length > 1) {
+      return true;
+    }
+  }
+  return false;
+};
 const checkSyntax = (lines) => {
-  const line = lines.findIndex((text) => /[[\]/]/.test(clean(text)));
+  const line = lines.findIndex((text) => /[[\]]/.test(text) || /\//.test(clean(text)) || oddNumber(grbl(text)));
   if (line >= 0) {
     throw refuse('ETOUCH_RESUME_UNSUPPORTED_SYNTAX', 'Expression CNCjs ou « / » à la ligne ' + (line + 1) + ' : syntaxe non prise en charge par la reprise.', { line: line + 1 });
   }
