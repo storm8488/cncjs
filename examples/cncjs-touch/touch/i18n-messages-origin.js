@@ -17,5 +17,6 @@
 ['Travail en pause : aperçu d’origine suspendu.','Job paused: origin preview suspended.','Trabajo en pausa: vista previa del origen suspendida.'],
 ['Alarme : position machine non garantie, aperçu d’origine suspendu.','Alarm: machine position not guaranteed, origin preview suspended.','Alarma: posición de la máquina no garantizada, vista previa del origen suspendida.'],
 ['État machine indisponible : aperçu figé.','Machine state unavailable: preview frozen.','Estado de la máquina no disponible: vista previa congelada.'],
-['contexte WebGL perdu','WebGL context lost','contexto WebGL perdido']
+['contexte WebGL perdu','WebGL context lost','contexto WebGL perdido'],
+["sens de prise d’origine inversé ($23) : selon la compilation du firmware, la course est [−$13x, 0] ou [0, $13x].","axis homing the other way ($23): depending on the firmware build, the travel is [−$13x, 0] or [0, $13x].","eje con referencia en sentido contrario ($23): según la compilación del firmware, el recorrido es [−$13x, 0] o [0, $13x]."]
 );

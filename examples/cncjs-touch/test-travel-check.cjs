@@ -1,7 +1,8 @@
 'use strict';
 // Off-machine check before a start: program XY extent placed at the current work
-// offset, against Grbl's machine space after homing ([-$13x, 0], or [0, $13x]
-// for an axis with its $23 bit set). Unknown whenever it cannot be trusted.
+// offset, against stock Grbl 1.1's machine space after homing ([-$13x, 0]). An X or Y
+// axis homing the other way ($23 bit) is [0, $13x] only on builds with
+// HOMING_FORCE_SET_ORIGIN: unknown. Unknown whenever it cannot be trusted.
 const assert=require('assert').strict;
 const {check}=require('./touch/travel-check');
 const preview=(b)=>({projection:{version:1,units:'mm',wcs:'G54',bounds:b}});
@@ -15,11 +16,10 @@ r=check(preview([0,0,60,70]),machine(-30,-250));
 assert.equal(r.state,'outside');assert.match(r.message,/^Hors course machine : X -30,0 → 30,0 mm \(course -400,0 → 0,0\)/);assert.doesNotMatch(r.message,/ Y /);
 // Negative program coordinates past -travel.
 assert.equal(check(preview([-80,0,10,10]),machine(-350,-250)).state,'outside');
-// X homing towards +: machine space [0, 400].
-assert.equal(check(preview([0,0,60,70]),machine(30,-250,{$23:'1'})).state,'ok');
-assert.equal(check(preview([0,0,60,70]),machine(-30,-250,{$23:'1'})).state,'outside');
-// Y bit only ($23=2).
-assert.equal(check(preview([0,0,60,70]),machine(-350,10,{$23:'2'})).state,'ok');
+// X or Y homing towards + ($23 bit 0 or 1): the machine space depends on the firmware build.
+for(const mask of ['1','2','3']){r=check(preview([0,0,60,70]),machine(30,-250,{$23:mask}));assert.equal(r.state,'unknown',mask);assert.match(r.message,/\$23/);}
+// Z bit only ($23=4): X and Y still checked.
+assert.equal(check(preview([0,0,60,70]),machine(-350,-250,{$23:'4'})).state,'ok');
 // A work offset with G92 or another WCS is just the difference mpos - wpos.
 const m=machine(-350,-250);m.coordinates.wpos={x:'10',y:'20',z:'0'};
 r=check(preview([0,0,60,70]),m);assert.deepEqual([r.axes[0].min,r.axes[1].min],[-360,-270]);

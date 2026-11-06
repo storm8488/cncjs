@@ -850,6 +850,8 @@
       if (!m || closed) return;
       var now = clock(), wasStale = isStale(now);
       live.machine = m; live.simulation = !!d.simulation; live.receivedAt = now; live.fresh = m.fresh === true;
+      // The whole program is read at rest only (Q7c): a read still in flight when a job starts is cancelled.
+      if (fullRequest && busy()) { var stopped = fullRequest; fullRequest = null; stopped.cancel(); }
       live.alarm = /^alarm/i.test(String(m.activeState || ''));
       // A and L: from a fresh report of this program only; frozen otherwise (stale, alarm).
       if (liveOptions.progress && live.fresh && !live.alarm) {
@@ -903,12 +905,17 @@
     }
     if (gpuMode && meta.fingerprint) {
       if (fullCache && PI.sameFingerprint(fullCache.fingerprint, meta.fingerprint)) useFull(fullCache.path, false);
-      else if (options.fullGeometry === true && typeof PI.geometry === 'function') {
+      else {
+        // Another program is shown: the geometry kept for the previous one is released now (Q7b),
+        // whatever happens to this program's own read (too long, refused, no read at all).
+        if (fullCache) fullDrop();
+      }
+      if (geometry !== 'full' && options.fullGeometry === true && typeof PI.geometry === 'function') {
         var asked = fullRequest = PI.geometry(meta, { Worker: options.Worker, fetchProgram: options.fetchProgram });
         asked.promise.then(function (r) {
           if (fullRequest !== asked) return;
           fullRequest = null;
-          if (closed) return;
+          if (closed || busy()) return;
           if (r.tooLong) { geometryReason = 'too-long'; geometryTotal = r.segments; invalidate(); return; }
           fullDrop(); fullKeep(meta.fingerprint, r.path); useFull(r.path, true);
         }, function () { if (fullRequest === asked) fullRequest = null; });

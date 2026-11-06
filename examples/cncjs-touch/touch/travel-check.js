@@ -2,9 +2,11 @@
   'use strict';
   var uiLocale=(typeof window!=='undefined'&&window.cncI18n)||{t:function(s){return s;}};
   // Before a start: does the program's XY extent, placed at the current work
-  // offset, stay inside the machine travel? Grbl's machine space after homing
-  // is [-$13x, 0] per axis, or [0, $13x] when the axis homes the other way
-  // ($23 bit). Only meaningful once homed ($22=1); Z is not in the 2D preview.
+  // offset, stay inside the machine travel? Stock Grbl 1.1's machine space after
+  // homing is [-$13x, 0] per axis whatever the homing direction; with an axis homing
+  // the other way ($23 bit) a build with HOMING_FORCE_SET_ORIGIN uses [0, $13x]
+  // instead, which the tablet cannot tell: such an axis is not checked (unknown).
+  // Only meaningful once homed ($22=1); Z is not in the 2D preview.
   function number(v){var n=typeof v==='string'?Number(v):v;return typeof n==='number'&&isFinite(n)?n:null;}
   function fmt(v){return (Math.round(v*10)/10).toFixed(1).replace('.',',');}
   function check(preview,machine){
@@ -20,11 +22,12 @@
     if(number(s.$22)!==1)return unknown('prise d’origine désactivée ($22), les coordonnées machine ne sont pas repérées.');
     if(c.operator&&c.operator.reportUnits&&c.operator.reportUnits!=='mm')return unknown('positions rapportées en pouces ($13=1).');
     var mask=number(s.$23)||0,axes=[],outside=[];
+    if(mask&3)return unknown('sens de prise d’origine inversé ($23) : selon la compilation du firmware, la course est [−$13x, 0] ou [0, $13x].');
     for(var i=0;i<2;i++){
       var axis=i?'y':'x',travel=number(s['$'+(130+i)]),m=number(co.mpos&&co.mpos[axis]),w=number(co.wpos&&co.wpos[axis]);
       if(travel===null||travel<=0)return unknown('course $'+(130+i)+' inconnue.');
       if(m===null||w===null)return unknown('position machine inconnue.');
-      var offset=m-w,min=b[i]+offset,max=b[i+2]+offset,low=(mask>>i)&1?0:-travel,high=low+travel;
+      var offset=m-w,min=b[i]+offset,max=b[i+2]+offset,low=-travel,high=0;
       var entry={axis:axis.toUpperCase(),min:min,max:max,low:low,high:high};
       axes.push(entry);
       if(min<low-0.001||max>high+0.001)outside.push(entry);
@@ -48,11 +51,13 @@
   function travelBox(machine){
     var s=(machine||{}).settings||{},mask=number(s.$23)||0,min=[0,0,0],max=[0,0,0],reason='',zKnown=false;
     if(number(s.$22)!==1)reason=uiLocale.t('prise d’origine désactivée ($22), les coordonnées machine ne sont pas repérées.');
+    else if(mask&3)reason=uiLocale.t('sens de prise d’origine inversé ($23) : selon la compilation du firmware, la course est [−$13x, 0] ou [0, $13x].');
     for(var i=0;i<3;i++){
       var travel=number(s['$'+(130+i)]);
       if(travel===null||travel<=0){if(i<2&&!reason)reason=uiLocale.t('course $'+(130+i)+' inconnue.');continue;}
-      if(i===2)zKnown=true;
-      min[i]=(mask>>i)&1?0:-travel;max[i]=min[i]+travel;
+      // Z homing the other way: same uncertainty as X/Y, so Z is not drawn.
+      if(i===2){if((mask>>2)&1)continue;zKnown=true;}
+      min[i]=-travel;max[i]=0;
     }
     return {known:!reason,min:min,max:max,zKnown:zKnown,reason:reason};
   }

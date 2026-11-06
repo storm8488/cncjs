@@ -253,11 +253,13 @@
   // ---------- Program text on demand (page only) ----------
   function apiBase() { try { return root.cncState.get().apiBase; } catch (_) { return '/api'; } }
   // The program's bytes and the fingerprint the server gives for them (header X-Program-Fingerprint).
-  function fetchProgram(file) {
+  // onRequest(xhr) lets the caller abort the read (geometry().cancel()).
+  function fetchProgram(file, onRequest) {
     return new Promise(function (resolve, reject) {
       var token = ''; try { token = JSON.parse(root.localStorage.getItem('cnc')).state.session.token; } catch (_) {}
       if (!token) { reject(new Error(t('Session CNCjs requise pour lire le fichier.'))); return; }
       var xhr = new root.XMLHttpRequest();
+      if (onRequest) onRequest(xhr);
       xhr.open('POST', apiBase() + '/watch/file', true); xhr.timeout = 60000;
       try { xhr.responseType = 'blob'; } catch (_) {}
       xhr.setRequestHeader('Authorization', 'Bearer ' + token); xhr.setRequestHeader('Content-Type', 'application/json');
@@ -364,13 +366,13 @@
   }
   // Page side: reads the program (fingerprint checked against the preview's), interprets it in a worker,
   // gets the typed arrays back (transferred). {promise, cancel}; the promise gives {tooLong, segments, path}.
-  var WORKER_URL = 'preview-inspect.js?v=perfv1';
+  var WORKER_URL = 'preview-inspect.js?v=perfui2';
   function geometry(meta, options) {
     options = options || {};
-    var worker = null, done = false, rejectNow = null;
+    var worker = null, done = false, rejectNow = null, request = null;
     var promise = new Promise(function (resolve, reject) {
       rejectNow = reject;
-      (options.fetchProgram || fetchProgram)(meta.file).then(function (res) {
+      (options.fetchProgram || fetchProgram)(meta.file, function (xhr) { request = xhr; }).then(function (res) {
         if (done) return;
         if (!sameFingerprint(res.fingerprint, meta.fingerprint)) throw new Error(t('Le fichier a changé depuis l’aperçu : géométrie complète indisponible.'));
         var W = options.Worker || root.Worker;
@@ -386,7 +388,11 @@
         worker.postMessage({ type: 'geometry', id: 1, blob: res.blob, cap: options.cap || GEOMETRY_CAP, tolerance: ARC_TOLERANCE });
       }).catch(function (e) { finish(); reject(e); });
     });
-    function finish() { done = true; if (worker) { worker.onmessage = worker.onerror = null; try { worker.terminate(); } catch (_) {} worker = null; } }
+    function finish() {
+      done = true;
+      // A read still on its way is aborted: the server stops sending the program.
+      if (request) { var r = request; request = null; r.onload = r.onerror = r.ontimeout = null; try { r.abort(); } catch (_) {} }
+      if (worker) { worker.onmessage = worker.onerror = null; try { worker.terminate(); } catch (_) {} worker = null; } }
     return { promise: promise, cancel: function () { if (done) return; finish(); rejectNow(new Error(t('Annulé'))); } };
   }
 

@@ -68,14 +68,13 @@ const r2 = v => (typeof v === 'number' ? Math.round(v * 100) / 100 : v);
   await cdp.evaluate('(function(c){window.__pglDown=0;c.addEventListener("pointerdown",window.__pglFn=function(){window.__pglDown++;},true);return true;})(' + VIEW + '.canvas)');
   const before = await cdp.evaluate(VIEW + '.stats()');
   await cdp.evaluate('(function(){var m=window.__pglMeasure={t:[],on:true};function f(ts){if(!m.on)return;m.t.push(ts);requestAnimationFrame(f);}requestAnimationFrame(f);return true;})()');
+  // One move per animation frame, generated in the page: a CDP round trip per event (about 20/s here)
+  // would measure the injection rate, not the drawing.
   const radius = Math.min(rect.w, rect.h) / 4, start = Date.now();
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: rect.x + radius, y: rect.y }] });
-  for (let k = 0; Date.now() - start < SECONDS * 1000; k++) {
-    const a = k * 0.05;
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: rect.x + radius * Math.cos(a), y: rect.y + radius * Math.sin(a) }] });
-    await sleep(16);
-  }
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await cdp.evaluate('(function(c,x,y,rad,ms){return new Promise(function(done){var t0=performance.now(),k=0;' +
+    'function ev(type,px,py){var e=new PointerEvent(type,{pointerId:7,pointerType:"touch",isPrimary:true,clientX:px,clientY:py,bubbles:true,cancelable:true,buttons:type==="pointerup"?0:1});c.dispatchEvent(e);}' +
+    'ev("pointerdown",x+rad,y);function step(){var a=(k++)*0.05;ev("pointermove",x+rad*Math.cos(a),y+rad*Math.sin(a));if(performance.now()-t0<ms)requestAnimationFrame(step);else{ev("pointerup",x+rad*Math.cos(a),y+rad*Math.sin(a));done(k);}}' +
+    'requestAnimationFrame(step);});})(' + VIEW + '.canvas,' + rect.x + ',' + rect.y + ',' + radius + ',' + SECONDS * 1000 + ')');
   const elapsed = (Date.now() - start) / 1000;
   const intervals = await cdp.evaluate('(function(){var m=window.__pglMeasure;m.on=false;var d=[];for(var i=1;i<m.t.length;i++)d.push(m.t[i]-m.t[i-1]);delete window.__pglMeasure;return d;})()');
   const after = await cdp.evaluate(VIEW + '.stats()');

@@ -19,9 +19,9 @@ const preview = (b, extra = {}) => ({ file: 'a.nc', fingerprint: 'sha256:aa', pa
   let b = TC.travelBox(machine(0, 0, 0, 0));
   eq(b, { known: true, min: [-400, -300, -80], max: [0, 0, 0], zKnown: true, reason: '' });
   b = TC.travelBox(machine(0, 0, 0, 0, { $23: '3' }));
-  eq([b.min, b.max], [[0, 0, -80], [400, 300, 0]], '$23 bits 0 and 1: X and Y home towards +');
+  eq(b.known, false, '$23 bits 0 and 1: the travel depends on the firmware build, not drawn');
   b = TC.travelBox(machine(0, 0, 0, 0, { $23: '4' }));
-  eq([b.min[2], b.max[2]], [0, 80], '$23 bit 2: Z towards +');
+  eq([b.known, b.zKnown, b.min[0], b.max[0]], [true, false, -400, 0], '$23 bit 2: X and Y drawn, Z not');
   b = TC.travelBox(machine(0, 0, 0, 0, { $132: undefined }));
   assert(b.known && !b.zKnown); eq([b.min[2], b.max[2]], [0, 0]);
   b = TC.travelBox(machine(0, 0, 0, 0, { $22: '0' })); assert(!b.known); assert.match(b.reason, /\$22/);
@@ -248,9 +248,10 @@ const shown = (p, cls) => { const n = nodeOf(p, cls); return n.hidden ? '' : n.t
     assert.equal(r.overlays.find(o => o.id === 'outline').colour, 'danger');
     assert.equal(r.verdict.text, 'Si l’origine X Y est posée ici : hors course en X -30,0 → 30,0 mm (course -400,0 → 0,0).');
     assert(!r.overlays.some(o => o.id === 'stock'), 'no stock box without a project stock');
-    // $23 decides the travel box.
+    // An axis homing the other way ($23): the travel depends on the firmware build, so neither the box nor a verdict.
     r = O.model(machine(30, -250, 0, 0, { $23: '1' }), meta, null);
-    eq([r.overlays[0].min, r.overlays[0].max], [[0, -300, -80], [400, 0, 0]]); assert.equal(r.verdict.state, 'ok');
+    assert(!r.overlays.some(o => o.id === 'travel'), 'no travel box'); assert.equal(r.verdict.state, 'unknown');
+    assert.equal(r.overlays.find(o => o.id === 'outline').colour, 'neutral');
     // Unknown (homing off): neutral outline, never green, the reason of travel-check.js; no travel box.
     r = O.model(machine(-350, -250, 0, 0, { $22: '0' }), meta, null);
     assert.equal(r.overlays.find(o => o.id === 'outline').colour, 'neutral'); assert(!r.overlays.some(o => o.id === 'travel'));

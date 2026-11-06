@@ -26,6 +26,14 @@ An optional report can be written outside the source tree:
 node verify-project.cjs --report /absolute/path/to/offline-report.json
 ```
 
+## Performance UI on a hardware GPU (2026-11-06)
+
+Branch `perf-ui/integration` (lots V, D, O of [PERFORMANCE-UI-BRIEF.md](PERFORMANCE-UI-BRIEF.md), merged and reviewed). On the development PC (Node 26.13): `node verify-project.cjs` 121/121, `npx jest src/server/services/touch` 857/857, `node browser-run.cjs --strict --browser "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"` 0 violation (windows 1366 × 768, 1366 × 911 Éco and wide, 1728 × 1152 wide, and the earlier list). New tests: `test-preview-3d-gpu.cjs`, `test-preview-3d-live.cjs` (marker never past the last report nor the last acknowledged line, 1 000 generated report sequences), `test-preview-3d-overlays.cjs`, `test-responsive-wide.cjs`, `test-origin-preview.cjs`, and the reviewer's `test-scenario-perf-safety.cjs` (nothing sent through a whole live view, no drawing in the status handler, release in Éco) and `test-scenario-perf-defects.cjs` (full-geometry read cancelled when a job starts; kept geometry released for another program).
+
+`browser-run.cjs` on Windows: Edge with an update pending hands the session to a new process and exits 0; the harness now waits for its DevTools port instead of failing with « browser exited early ». Each run may still leave headless Edge processes (profiles `cnc-browser-run-*` in `%TEMP%`): stop them afterwards.
+
+Device figures (Surface Pro 3, no controller) are in [PROFILES.md](PROFILES.md), « Performance on a hardware GPU ». To measure again: publish the pages under `/touch-next/`, open a second Chromium with `--remote-debugging-port` on the tablet's display (not `--headless`, which falls back to SwiftShader), open Suivi or Fichiers on a program, then `node measure-preview-gl-tablet.cjs --port <port> --seconds 10 --paint 100 --out m.json` on the tablet (Node 22). Its gesture (M1) now generates one move per animation frame in the page; the previous version sent one CDP event per round trip and could not show more than about 20 frames/s.
+
 ## Machine type and tablet performance (2026-11)
 
 Commands, results and PC measurements are in [PROFILES.md](PROFILES.md), "What was tested"; the device and machine procedure is in its last section. Nothing was run on a machine, a laser, the Surface RT or a Surface Pro 3.

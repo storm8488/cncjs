@@ -216,7 +216,7 @@ Grille `body.perf-wide #screen-files` : liste `clamp(440px, 34vw, 560px)` | dét
 
 ### 5.4 Préparer
 
-Grille `body.perf-wide.perf-origin #screen-jog` (la classe `perf-origin` est posée par O quand sa carte est montée, § 8.7) : bandeau d'intro sur toute la largeur | colonne gauche `clamp(440px, 34vw, 520px)` : tableau des coordonnées (Travail 36 px, Machine 20 px, « Zéro X / Y / Z » 48 px), pas de déplacement (58 px), « Zéro XYZ » et « Vitesse du test… » (48 px), croix de jog 96 px et Z+ / Z− 96 px | colonne droite `minmax(0,1fr)` : carte `#op-card` d'O (vue 3D d'origine, légende, état de la course). Entre le bord du canvas et le bouton de jog le plus proche : au moins 24 px (deux gouttières et le bord de carte), pour qu'un doigt qui glisse d'un geste de caméra n'atteigne jamais une flèche, et inversement. Sans `perf-origin` (O pas chargé, échec, travail en cours), la grille actuelle de Préparer s'applique.
+Grille `body.perf-wide.perf-origin #screen-jog` (la classe `perf-origin` est posée par O quand sa carte est montée, § 8.7) : bandeau d'intro sur toute la largeur | colonne gauche `clamp(440px, 34vw, 520px)` : tableau des coordonnées (Travail 36 px, Machine 20 px, « Zéro X / Y / Z » 48 px), pas de déplacement (58 px), « Zéro XYZ » et « Vitesse du test… » (48 px), croix de jog 96 px et Z+ / Z− 96 px | colonne droite `minmax(0,1fr)` : carte `#op-card` d'O (vue 3D d'origine, légende, état de la course). Entre le bord du canvas et le bouton de jog le plus proche : au moins 24 px (deux gouttières et le bord de carte), pour qu'un doigt qui glisse d'un geste de caméra n'atteigne jamais une flèche, et inversement. Sans `perf-origin` (O pas chargé, échec), la grille actuelle de Préparer s'applique. Pendant un travail, la carte reste montée et la grille ne change pas (la vue 3D est fermée, la carte dit « suspendu ») : comme pour Q4, la croix de jog et les coordonnées ne changent pas de place quand un travail démarre ou s'arrête (décision de l'intégrateur, 2026-11-06, sur recommandation du relecteur).
 
 ### 5.5 Cibles, texte, harnais
 
@@ -664,4 +664,5 @@ Toutes les recommandations de l'architecte sont retenues ; elles priment sur les
 - **Q10** : courbe de la dernière minute oui ; texte G-code de la ligne non.
 - **Q11** : traits par `gl.lineWidth`, WebGL1 conservé, cache en texture décidé par V selon les mesures.
 - **Q12** : le harnais force `perf-gpu` par CDP, sans crochet dans le code livré.
+- **$23 (correction du relecteur, D4)** : un axe X ou Y qui fait sa prise d'origine dans l'autre sens n'est plus vérifié (« Course machine non vérifiée ») : Grbl 1.1 standard garde l'espace [−$13x, 0] quel que soit `$23`, seule une compilation avec `HOMING_FORCE_SET_ORIGIN` passe en [0, $13x], et la tablette ne peut pas le savoir. Avant, `travel-check.js` supposait [0, $13x] et pouvait annoncer « dans la course » à tort.
 - **Q13** : `i18n-messages-origin.js` en `<script>`, demandé aussi en Éco (fichier de données).
