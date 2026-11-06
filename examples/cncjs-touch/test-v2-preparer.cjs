@@ -118,7 +118,14 @@ const meta = { file: 'a.nc', fingerprint: 'sha256:aa', projection: { units: 'mm'
   // ---- No command, no gesture on the scene. ----
   assert.equal(Object.keys(p.card.handlers).length, 0, 'no listener put on the scene');
   const source = fs.readFileSync(__dirname + '/touch/job-preparation.js', 'utf8');
-  assert(!/cncJobControls|XMLHttpRequest|fetch\(|\.click\(\)(?![^\n]*job-load)/.test(source.replace("if (b && !b.disabled) b.click();", '')), 'the presenter never commands nor clicks a control');
+  assert(!/cncJobControls|XMLHttpRequest|fetch\(/.test(source), 'the presenter never commands');
+  // Clicks: the v1 sheet's job-load relay, and the v2 relays to existing entries only (each opens its own dialog).
+  const clicks = [...source.matchAll(/[^\n]*\.click\(\)[^\n]*/g)].map(m => m[0]);
+  assert.equal(clicks.length, 3, clicks.join('\n'));
+  assert(clicks[0].includes("getElementById('job-load')") || clicks[0].includes('b && !b.disabled'));
+  assert(clicks[1].includes("relayTarget('real-motion-open')") && clicks[1].includes("v2Phase(v2.machine) === 'idle'"), 'Poser X Y ici… only relays to « Déplacement réel » at Idle');
+  assert(clicks[2].includes('relayTarget(x[1])'));
+  assert.match(source, /\[\['speed', 'ks-jog-settings', [^\]]*\], \['coordinates', 'coordinate-open', [^\]]*\]\]/, 'the tools relay only to the two existing coordinate-card buttons');
   // ---- Declarations: a preview of another version is never passed (L2 would reset the placement). ----
   {
     const q = preparerPage({ preview: { ...meta, fingerprint: 'sha256:other' } });

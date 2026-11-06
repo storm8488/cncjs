@@ -24,23 +24,33 @@ body.perf-origin #op-card [hidden]{display:none}
  * presenter of job-preparation.js while body.perf-v2 holds and removed otherwise: nothing applies in v1,
  * on the RT or once the card is unmounted. Placement rules tie with responsive.css (same specificity
  * through .screen) and win by order: this sheet is linked at mount, after the page's static sheets.
- * The scene (#op-card) keeps the same cell in both modes, so opening or closing the jog zone neither
- * moves nor refits it. « compare »: bar / scene / dimensions on the left; summary, then the coordinates
- * card (zero buttons and their confirmation unchanged) on the right. « jog »: the jog head and the
- * existing jog card (96 px targets) replace the summary, 24 px (column gap) from the scene. */
-body.perf-origin #screen-jog.screen[data-pv2].active,body.perf-origin #screen-jog.screen[data-pv2].kept{grid-template-columns:minmax(0,1fr) clamp(440px,34vw,520px);grid-template-rows:auto auto minmax(0,1fr) auto auto;column-gap:24px;row-gap:var(--sp-3);grid-template-areas:"intro intro" "bar side" "origin side" "origin coords" "cotes coords"}
+ * Rows: intro / bar 48 px / scene (1fr + auto) / dimensions 104 px. The bar and dimension rows are
+ * fixed, so the scene (#op-card, rows 3–4) keeps the same rectangle in both modes: opening or closing
+ * the jog zone neither moves nor refits it. « compare » (mockup performance-v2-preparer.html): the
+ * summary takes the whole right column (steps 1–3, offsets, travel, « Déplacer l'outil… »); the
+ * coordinates card is not shown there (its zero buttons are disabled on this page, the origin is set
+ * through « Poser X Y ici… » → « Déplacement réel »; its two tools are relayed by the summary).
+ * « jog »: jog head in the bar row, the existing jog card (96 px targets) under it, then the
+ * coordinates (work/machine, step) — 24 px column gap from the scene. Budget at 1366 × 911 in
+ * test-v2-preparer-layout.cjs; the browser harness measures it. */
+body.perf-origin #screen-jog.screen[data-pv2].active,body.perf-origin #screen-jog.screen[data-pv2].kept{grid-template-columns:minmax(0,1fr) clamp(440px,34vw,520px);grid-template-rows:auto 48px minmax(0,1fr) auto 104px;column-gap:24px;row-gap:var(--sp-3);grid-template-areas:"intro intro" "bar side" "origin side" "origin side" "cotes side"}
 body.perf-origin #screen-jog.screen[data-pv2="jog"].active,body.perf-origin #screen-jog.screen[data-pv2="jog"].kept{grid-template-areas:"intro intro" "bar jhead" "origin jog" "origin coords" "cotes coords"}
 body.perf-origin #screen-jog.screen[data-pv2] #perf-v2-prepare{display:contents}
 body.perf-origin #screen-jog.screen[data-pv2] .ks-panel-intro{grid-area:intro}
 body.perf-origin #screen-jog.screen[data-pv2] #op-card{grid-area:origin;min-height:0}
-body.perf-origin #screen-jog.screen[data-pv2] .ks-motion-coordinates{grid-area:coords;height:auto;min-height:0}
-body.perf-origin #screen-jog.screen[data-pv2] .pv2-bar{grid-area:bar}
-body.perf-origin #screen-jog.screen[data-pv2] .pv2-cotes{grid-area:cotes}
+body.perf-origin #screen-jog.screen[data-pv2] .pv2-bar{grid-area:bar;min-height:0}
+body.perf-origin #screen-jog.screen[data-pv2] .pv2-cotes{grid-area:cotes;min-height:0}
 body.perf-origin #screen-jog.screen[data-pv2] .pv2-summary{grid-area:side;min-height:0}
-body.perf-origin #screen-jog.screen[data-pv2] .pv2-jog-head{grid-area:jhead}
-body.perf-origin #screen-jog.screen[data-pv2="compare"] .ks-motion-arrows{display:none}
-body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-arrows{grid-area:jog;height:auto;min-height:0;overflow:auto;display:grid;grid-template-columns:auto auto;gap:var(--sp-6);justify-content:center;align-content:center;align-items:center}
+body.perf-origin #screen-jog.screen[data-pv2] .pv2-jog-head{grid-area:jhead;min-height:0}
+body.perf-origin #screen-jog.screen[data-pv2="compare"] .ks-motion-arrows,body.perf-origin #screen-jog.screen[data-pv2="compare"] .ks-motion-coordinates{display:none}
+/* Jog zone: the whole cross and Z (3 × 96 px + 2 × 12 px = 312 px) in the 1fr row. */
+body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-arrows{grid-area:jog;height:auto;min-height:0;display:grid;grid-template-columns:auto auto;gap:var(--sp-6);justify-content:center;align-content:center;align-items:center;padding:var(--sp-2) var(--sp-3)!important}
 body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-arrows .jog{min-width:var(--tap-jog);min-height:var(--tap-jog)}
+/* Coordinates under the cross: the work/machine table and the step; the heading, « Zéro XYZ » (disabled
+ * here) / « Vitesse du test… » and « Coordonnées… » give their rows to the cross (the last two are relayed
+ * by the summary). */
+body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-coordinates{grid-area:coords;height:auto;min-height:0;align-self:end}
+body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-coordinates>h2,body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-zero,body.perf-origin #screen-jog.screen[data-pv2="jog"] #coordinate-open{display:none}
 body.perf-origin #screen-jog.screen[data-pv2] [hidden]{display:none!important}
 /* Comparison bar: three exclusive choices (aria-pressed) and the dimensions toggle, 48 px targets. */
 body.perf-origin #screen-jog[data-pv2] .pv2-bar{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;min-width:0}
@@ -58,10 +68,10 @@ body.perf-origin #screen-jog[data-pv2] .pv2-cote-value{font:600 var(--fs-20)/1.2
 body.perf-origin #screen-jog[data-pv2] .pv2-cote-source{font-size:var(--fs-16);color:var(--mute);overflow-wrap:anywhere}
 /* Summary: program, X Y origin and its offsets, Z unchanged, qualified travel, « Déplacer l'outil… ». */
 body.perf-origin #screen-jog[data-pv2] .pv2-summary{display:flex;flex-direction:column;gap:var(--sp-2);overflow:auto}
-body.perf-origin #screen-jog[data-pv2] .pv2-program,body.perf-origin #screen-jog[data-pv2] .pv2-origin,body.perf-origin #screen-jog[data-pv2] .pv2-jog-head{display:flex;flex-direction:column;gap:var(--sp-1);padding:var(--sp-3) var(--sp-4);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m)}
+body.perf-origin #screen-jog[data-pv2] .pv2-program,body.perf-origin #screen-jog[data-pv2] .pv2-origin,body.perf-origin #screen-jog[data-pv2] .pv2-final{display:flex;flex-direction:column;gap:var(--sp-1);padding:var(--sp-3) var(--sp-4);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m)}
 body.perf-origin #screen-jog[data-pv2] .pv2-eyebrow{font:600 var(--fs-16)/1 var(--font);color:var(--mute);letter-spacing:.06em;text-transform:uppercase}
 body.perf-origin #screen-jog[data-pv2] .pv2-program-name{font:600 var(--fs-20)/1.2 var(--font);color:var(--fg);overflow-wrap:anywhere}
-body.perf-origin #screen-jog[data-pv2] .pv2-sub,body.perf-origin #screen-jog[data-pv2] .pv2-hypothesis,body.perf-origin #screen-jog[data-pv2] .pv2-only,body.perf-origin #screen-jog[data-pv2] .pv2-jog-head p{margin:0;font-size:var(--fs-16);color:var(--mute)}
+body.perf-origin #screen-jog[data-pv2] .pv2-sub,body.perf-origin #screen-jog[data-pv2] .pv2-hypothesis,body.perf-origin #screen-jog[data-pv2] .pv2-jog-head p{margin:0;font-size:var(--fs-16);color:var(--mute)}
 body.perf-origin #screen-jog[data-pv2] .pv2-origin-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-3)}
 body.perf-origin #screen-jog[data-pv2] .pv2-origin h3,body.perf-origin #screen-jog[data-pv2] .pv2-jog-head h3{margin:0;font:600 var(--fs-20)/1.2 var(--font);color:var(--fg)}
 body.perf-origin #screen-jog[data-pv2] .pv2-state{font:600 var(--fs-16)/1 var(--font);color:var(--info-text)}
@@ -81,5 +91,17 @@ body.perf-origin #screen-jog[data-pv2] .pv2-travel[data-tone="warn"] b{color:var
 body.perf-origin #screen-jog[data-pv2] .pv2-travel[data-tone="danger"]{border-left-color:var(--danger);background:var(--danger-soft)}
 body.perf-origin #screen-jog[data-pv2] .pv2-margins{font-variant-numeric:tabular-nums}
 body.perf-origin #screen-jog[data-pv2] .pv2-jog-open{flex:none;min-height:var(--tap-primary);margin-top:auto;font:600 var(--fs-20)/1 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m)}
-body.perf-origin #screen-jog[data-pv2] .pv2-jog-head{flex-direction:row;align-items:center;justify-content:space-between;gap:var(--sp-3)}
-body.perf-origin #screen-jog[data-pv2] .pv2-jog-head>div{display:flex;flex-direction:column;gap:2px;min-width:0}
+body.perf-origin #screen-jog[data-pv2] .pv2-jog-head>div{display:flex;flex-direction:column;gap:0;min-width:0}
+/* Round 2 (1366 × 911): compact program head, step 3 and relays; every target 48 px, primary 64 px. */
+body.perf-origin #screen-jog[data-pv2] .pv2-program{padding:var(--sp-2) var(--sp-3)}
+body.perf-origin #screen-jog[data-pv2] .pv2-program-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-3)}
+body.perf-origin #screen-jog[data-pv2] .pv2-set-xy{flex:none;min-height:var(--tap-primary);margin-top:var(--sp-1);font:600 var(--fs-20)/1 var(--font);color:var(--info-text);background:var(--info-soft);border:1px solid var(--info);border-radius:var(--r-m)}
+body.perf-origin #screen-jog[data-pv2] .pv2-final{flex-direction:row;align-items:center;justify-content:space-between;gap:var(--sp-3);padding:var(--sp-2) var(--sp-3)}
+body.perf-origin #screen-jog[data-pv2] .pv2-final h3{margin:0;font:600 var(--fs-18)/1.2 var(--font);color:var(--fg)}
+body.perf-origin #screen-jog[data-pv2] .pv2-final>div{display:flex;flex-direction:column;gap:2px;min-width:0}
+body.perf-origin #screen-jog[data-pv2] .pv2-final button,body.perf-origin #screen-jog[data-pv2] .pv2-tools button{flex:none;min-height:var(--tap);padding:0 var(--sp-3);font:600 var(--fs-16)/1 var(--font);color:var(--fg);background:transparent;border:1px solid var(--line-strong);border-radius:var(--r-m)}
+body.perf-origin #screen-jog[data-pv2] .pv2-tools{display:grid;grid-template-columns:1fr 1fr;gap:var(--tap-gap);flex:none}
+body.perf-origin #screen-jog[data-pv2] .pv2-set-xy:disabled,body.perf-origin #screen-jog[data-pv2] .pv2-tools button:disabled{color:var(--disabled-fg);background:var(--disabled-bg);border-color:var(--line)}
+body.perf-origin #screen-jog[data-pv2] .pv2-jog-head{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:var(--sp-3);padding:0 0 0 var(--sp-3);border-left:6px solid var(--info)}
+body.perf-origin #screen-jog[data-pv2] .pv2-jog-head h3{font-size:var(--fs-18)}
+body.perf-origin #screen-jog[data-pv2] .pv2-cotes li{overflow:hidden}

@@ -14,12 +14,12 @@ function preparerPage(options = {}) {
   document.body.classList = { contains: n => classes.has(n), add: n => classes.add(n), remove: n => classes.delete(n), toggle(n, on) { if (on) classes.add(n); else classes.delete(n); } };
   document.body.getAttribute = () => null;
   document.querySelector = sel => sel === '.ks-file-tools' ? node('tools') : null;
-  const listeners = {}, frames = [], calls = { mount: [], unmount: 0, comparison: [], loads: [], updates: [], reads: 0, catalogues: [], tracked: 0 };
+  const listeners = {}, frames = [], calls = { mount: [], unmount: 0, comparison: [], loads: [], updates: [], reads: 0, catalogues: [], tracked: 0, sheets: [] };
   const window = { document, addEventListener: (n, f) => (listeners[n] = listeners[n] || []).push(f),
     removeEventListener: (n, f) => { listeners[n] = (listeners[n] || []).filter(x => x !== f); },
     requestAnimationFrame: f => { frames.push(f); return frames.length; }, cancelAnimationFrame() {},
     cncI18n: { t: s => s, message: s => s, locale: 'fr-FR', registerCatalog: (name, rows) => { calls.catalogues.push([name, rows]); return true; } },
-    cncShell: { sheet: () => ({ content: element('div'), open() {} }), preparationActions: element('div') },
+    cncShell: { sheet: id => ({ content: element('div'), open() { calls.sheets.push(id); } }), preparationActions: element('div') },
     CNCTravelCheck: { check: () => null } };
   if (options.i18n === false) delete window.cncI18n;
   const pending = [];
@@ -32,7 +32,7 @@ function preparerPage(options = {}) {
     unmount: () => { calls.unmount++; if (card.parentNode) card.parentNode.removeChild(card); classes.delete('perf-origin'); },
     hint: () => '', comparison: mode => { if (['both', 'current', 'hypothesis'].includes(mode)) { calls.comparison.push(mode); comparisonMode = mode; } return comparisonMode; } };
   // Contract: gate, layout, holdLayout, placement model and the prepare mount (real page).
-  const v2 = { gate: true, layout: options.v2 !== false, safeIdle: true, placement: null };
+  const v2 = { gate: true, layout: options.v2 !== false, safeIdle: options.safeIdle !== false, placement: null };
   const content = element('div', 'perf-v2-prepare'); content.hidden = true;
   const empty = { version: 1, available: false, identity: null, current: null, hypothesis: null, travel: { verdict: 'unknown', source: null, marginsMm: null, zVerified: false, collisionsVerified: false }, declarations: [] };
   const life = { token: () => (v2.gate && v2.safeIdle ? { ok: true } : null), valid: t => !!t && v2.gate && v2.safeIdle,

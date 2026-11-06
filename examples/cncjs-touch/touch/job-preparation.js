@@ -99,7 +99,7 @@
   // FR/EN/ES lines of the v2 Préparer presenter below, registered only when it is built (v2 open).
   var V2_MESSAGES = [
     ['Comparer les placements', 'Compare placements', 'Comparar colocaciones'],
-    ['Placement · dessus XY', 'Placement · XY top view', 'Colocación · vista superior XY'],
+    ['Placement · dessus XY · affichage seul', 'Placement · XY top view · display only', 'Colocación · vista superior XY · solo visualización'],
     ['Les deux', 'Both', 'Ambas'],
     ['Actuelle', 'Current', 'Actual'],
     ['Hypothèse XY', 'XY hypothesis', 'Hipótesis XY'],
@@ -111,7 +111,14 @@
     ['À confirmer', 'To confirm', 'Por confirmar'],
     ['Suspendu', 'Suspended', 'Suspendido'],
     ['Inconnu', 'Unknown', 'Desconocido'],
-    ['Hypothèse : zéro X Y à la position actuelle de l’outil. Décalage :', 'Hypothesis: X Y zero at the current tool position. Offset:', 'Hipótesis: cero X Y en la posición actual de la herramienta. Desplazamiento:'],
+    ['Hypothèse : zéro X Y à la position de l’outil.', 'Hypothesis: X Y zero at the tool position.', 'Hipótesis: cero X Y en la posición de la herramienta.'],
+    ['Poser X Y ici…', 'Set X Y here…', 'Fijar X Y aquí…'],
+    ['Ouvre « Déplacement réel » : X = 0 puis Y = 0, chacun avec sa confirmation.', 'Opens « Real motion »: X = 0 then Y = 0, each with its confirmation.', 'Abre « Movimiento real »: X = 0 y luego Y = 0, cada uno con su confirmación.'],
+    ['Origine réelle indisponible ici : « Déplacement réel » n’est pas ouvert sur ce poste.', 'Real origin unavailable here: « Real motion » is not open on this station.', 'Origen real no disponible aquí: « Movimiento real » no está abierto en este puesto.'],
+    ['3 · Origine Z et contrôle final', '3 · Z origin and final check', '3 · Origen Z y control final'],
+    ['Z séparé · validation manuelle.', 'Z separate · manual validation.', 'Z aparte · validación manual.'],
+    ['Contrôle final…', 'Final check…', 'Control final…'],
+    ['Coordonnées…', 'Coordinates…', 'Coordenadas…'],
     ['Décalage X', 'X offset', 'Desplazamiento X'],
     ['Décalage Y', 'Y offset', 'Desplazamiento Y'],
     ['Z conserve son origine actuelle.', 'Z keeps its current origin.', 'Z conserva su origen actual.'],
@@ -138,8 +145,7 @@
     ['Déplacer l’outil…', 'Move the tool…', 'Mover la herramienta…'],
     ['Déplacer l’outil', 'Move the tool', 'Mover la herramienta'],
     ['Revenir à la comparaison', 'Back to the comparison', 'Volver a la comparación'],
-    ['Commandes et vérifications existantes. Toucher le dessin ne déplace jamais l’outil.', 'Existing controls and checks. Touching the drawing never moves the tool.', 'Mandos y verificaciones existentes. Tocar el dibujo nunca mueve la herramienta.'],
-    ['Affichage seul : aucune commande envoyée. Les zéros restent dans les coordonnées, avec leur confirmation.', 'Display only: no command sent. Zeroing stays in the coordinates, with its confirmation.', 'Solo visualización: no se envía ningún comando. Los ceros siguen en las coordenadas, con su confirmación.']
+    ['Toucher le dessin ne déplace jamais l’outil.', 'Touching the drawing never moves the tool.', 'Tocar el dibujo nunca mueve la herramienta.']
   ];
   var api = { assess: assess, programKey: programKey, offsetKey: offsetKey, v2Messages: V2_MESSAGES };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
@@ -227,6 +233,9 @@
   function v2State() { var v = window.cncV2; try { return v && typeof v.state === 'function' && typeof v.gate === 'function' ? { layout: v.state().layout === true, hold: v.state().holdLayout === true, open: v.gate() === true } : null; } catch (_) { return null; } }
   // A v2 page whose gate has closed (Eco, GPU loss, preference off): no origin is opened again.
   function v2Closed() { var s = v2State(); return !!s && s.layout && !s.open; }
+  // A v2 page outside a safe Idle (Run/Hold/Alarm/unknown): no advanced load now; cnc-v2-change
+  // (safeIdle is part of the state) brings the request back at rest.
+  function v2Busy() { var s = v2State(), idle = false; try { idle = window.cncV2.state().safeIdle === true; } catch (_) {} return !!s && s.layout && !idle; }
   function originSync() {
     if (!originWanted()) {
       // v2: while the layout is held (Run/Hold/Alarm/unknown), the card keeps its rectangle in Préparer;
@@ -237,7 +246,7 @@
     }
     if (originMounted) return;
     var request = ++originRequest;
-    if (v2Closed()) return;
+    if (v2Closed() || v2Busy()) return;
     function mount() {
       if (request !== originRequest || originMounted || !originWanted() || v2Closed() || !window.CNCOriginPreview) return;
       originMounted = true; window.CNCOriginPreview.mount(document.getElementById('screen-jog')); v2Mounted(); render();
@@ -269,6 +278,9 @@
   function set(node, text) { text = String(text); if (node.textContent !== text) node.textContent = text; }
   function hide(node, hidden) { if (node.hidden !== hidden) node.hidden = hidden; }
   function attr(node, name, value) { if (node.getAttribute(name) !== value) node.setAttribute(name, value); }
+  function prop(node, name, value) { if (node[name] !== value) node[name] = value; }
+  // An existing control this presenter may relay a tap to: present, shown and enabled.
+  function relayTarget(id) { var b = document.getElementById(id); return b && !b.hidden && !b.disabled ? b : null; }
   function locale() { return window.cncI18n && window.cncI18n.locale || 'fr-FR'; }
   function decimals(v, n) { return Math.abs(v).toLocaleString(locale(), { minimumFractionDigits: n, maximumFractionDigits: n }); }
   // Signed offset, three decimals: '+18,000'; a missing value is a dash, never zero.
@@ -281,7 +293,7 @@
     var root = mount.content, n = {};
     // Comparison bar above the scene: three exclusive choices and the dimensions toggle.
     n.bar = el('div', 'pv2-bar', '', root); n.bar.setAttribute('role', 'group'); n.bar.setAttribute('aria-label', tv2('Comparer les placements'));
-    el('span', 'pv2-bar-title', tv2('Placement · dessus XY'), n.bar);
+    el('span', 'pv2-bar-title', tv2('Placement · dessus XY · affichage seul'), n.bar);
     n.modes = {};
     [['both', tv2('Les deux')], ['current', tv2('Actuelle')], ['hypothesis', tv2('Hypothèse XY')]].forEach(function (m) {
       var b = el('button', 'pv2-mode', m[1], n.bar); b.type = 'button'; b.id = 'pv2-mode-' + m[0]; b.setAttribute('data-mode', m[0]); b.setAttribute('aria-pressed', 'false');
@@ -294,26 +306,42 @@
     n.cotes = el('ul', 'pv2-cotes', '', root); n.cotes.id = 'pv2-cotes';
     // Summary beside the scene.
     n.summary = el('section', 'pv2-summary', '', root); n.summary.id = 'pv2-summary';
-    var program = el('div', 'pv2-program', '', n.summary);
-    el('span', 'pv2-eyebrow', tv2('1 · Programme chargé'), program); n.program = el('b', 'pv2-program-name', '', program); n.programSub = el('span', 'pv2-sub', '', program);
+    var program = el('div', 'pv2-program', '', n.summary), programHead = el('div', 'pv2-program-head', '', program);
+    el('span', 'pv2-eyebrow', tv2('1 · Programme chargé'), programHead); n.programSub = el('span', 'pv2-sub', '', programHead);
+    n.program = el('b', 'pv2-program-name', '', program);
     var origin = el('div', 'pv2-origin', '', n.summary), head = el('div', 'pv2-origin-head', '', origin);
     el('h3', '', tv2('2 · Origine X Y'), head); n.state = el('span', 'pv2-state', '', head); n.state.id = 'pv2-state';
-    n.hypothesis = el('p', 'pv2-hypothesis', tv2('Hypothèse : zéro X Y à la position actuelle de l’outil. Décalage :'), origin);
+    n.hypothesis = el('p', 'pv2-hypothesis', tv2('Hypothèse : zéro X Y à la position de l’outil.'), origin);
     var offsets = el('div', 'pv2-offsets', '', origin); n.offsets = {};
     ['x', 'y'].forEach(function (a) {
       var box = el('div', 'pv2-offset', '', offsets); el('span', '', tv2(a === 'x' ? 'Décalage X' : 'Décalage Y'), box);
       var value = el('strong', '', '', box); value.id = 'pv2-offset-' + a; n.offsets[a] = value;
     });
     el('p', 'pv2-z', tv2('Z conserve son origine actuelle.'), origin);
+    // « Poser X Y ici… » relays to the existing origin entry (real-motion.js « Déplacement réel »), whose
+    // X = 0 and Y = 0 keep their own ticket and confirmation: no new command path.
+    n.setXY = el('button', 'pv2-set-xy', tv2('Poser X Y ici…'), origin); n.setXY.type = 'button'; n.setXY.id = 'pv2-set-xy';
+    n.setXY.addEventListener('click', function () { var entry = relayTarget('real-motion-open'); if (entry && v2Phase(v2.machine) === 'idle') entry.click(); });
     n.travel = el('div', 'pv2-travel', '', n.summary); n.travel.id = 'pv2-travel'; n.travel.setAttribute('role', 'status');
     n.travelTitle = el('b', '', '', n.travel); n.travelText = el('p', '', '', n.travel); n.margins = el('p', 'pv2-margins', '', n.travel);
+    // Step 3: Z stays its own operation; the final check is the guided preparation sheet of this module.
+    var final = el('div', 'pv2-final', '', n.summary), finalText = el('div', '', '', final);
+    el('h3', '', tv2('3 · Origine Z et contrôle final'), finalText); el('p', 'pv2-sub', tv2('Z séparé · validation manuelle.'), finalText);
+    n.final = el('button', 'pv2-final-open', tv2('Contrôle final…'), final); n.final.type = 'button'; n.final.id = 'pv2-final-open';
+    n.final.addEventListener('click', function () { render(); panel.open(); });
     n.open = el('button', 'pv2-jog-open', tv2('Déplacer l’outil…'), n.summary); n.open.type = 'button'; n.open.id = 'pv2-jog-open';
     n.open.addEventListener('click', function () { v2.jog = true; v2.focus = 'close'; v2Schedule(); });
-    el('p', 'pv2-only', tv2('Affichage seul : aucune commande envoyée. Les zéros restent dans les coordonnées, avec leur confirmation.'), n.summary);
+    // The coordinates card is not shown beside the comparison: its two tools stay one tap away.
+    var tools = el('div', 'pv2-tools', '', n.summary); n.tools = {};
+    [['speed', 'ks-jog-settings', tv2('Vitesse du test…')], ['coordinates', 'coordinate-open', tv2('Coordonnées…')]].forEach(function (x) {
+      var b = el('button', '', x[2], tools); b.type = 'button'; b.id = 'pv2-tool-' + x[0];
+      b.addEventListener('click', function () { var target = relayTarget(x[1]); if (target) target.click(); });
+      n.tools[x[1]] = b;
+    });
     // Head of the jog zone (the jog card itself is the existing .ks-motion-arrows, shown by CSS).
     n.jogHead = el('div', 'pv2-jog-head', '', root); n.jogHead.id = 'pv2-jog-head';
     var jogText = el('div', '', '', n.jogHead); el('h3', '', tv2('Déplacer l’outil'), jogText);
-    el('p', '', tv2('Commandes et vérifications existantes. Toucher le dessin ne déplace jamais l’outil.'), jogText);
+    el('p', '', tv2('Toucher le dessin ne déplace jamais l’outil.'), jogText);
     n.close = el('button', 'pv2-jog-close', tv2('Revenir à la comparaison'), n.jogHead); n.close.type = 'button'; n.close.id = 'pv2-jog-close';
     n.close.addEventListener('click', function () { v2.jog = false; v2.focus = 'open'; v2Schedule(); });
     v2.nodes = n;
@@ -448,6 +476,11 @@
     attr(n.cotes, 'data-visible', v2.cotes ? 'true' : 'false');
     // Jog zone: the summary or the jog head, chosen by the operator only (never automatically).
     hide(n.summary, v2.jog); hide(n.jogHead, !v2.jog);
+    // Relays: enabled only while their existing target can be used (its own guards still apply).
+    var canSet = phase === 'idle' && !!h && !!relayTarget('real-motion-open');
+    prop(n.setXY, 'disabled', !canSet);
+    attr(n.setXY, 'title', tv2(relayTarget('real-motion-open') ? 'Ouvre « Déplacement réel » : X = 0 puis Y = 0, chacun avec sa confirmation.' : 'Origine réelle indisponible ici : « Déplacement réel » n’est pas ouvert sur ce poste.'));
+    Object.keys(n.tools).forEach(function (id) { prop(n.tools[id], 'disabled', !relayTarget(id)); });
     if (v2.focus) { var target = v2.focus === 'close' ? n.close : n.open; v2.focus = ''; if (target.focus) target.focus({ preventScroll: true }); }
   }
   window.addEventListener('cnc-job-status', function (e) { var d = e && e.detail || {}; if (d.simulation) return; v2.machine = d.machine || null; v2Schedule(); });
