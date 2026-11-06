@@ -101,3 +101,120 @@
     receiveSettings(type,payload);
   });
 })();
+/* Performance v2 (L6) — Machine, under body.perf-v2 only (mount #perf-v2-machine). Left: the
+ * current condition, an alarm with a readable title, its reported or deduced origin, the
+ * explanation and the next possible action; report freshness and the pilot device. Right: the
+ * travel parameters known/unknown with their units, never an invented value or a machine
+ * drawing. Read only: no button; unlock and homing keep their place, conditions and
+ * confirmations. Handlers only queue a frame; one bounded timer marks the report stale. */
+(function () {
+  'use strict';
+  // tablet-profile.js always defines cncV2 (even in Eco); without it there is nothing to present.
+  if (!window.cncV2 || document.body.getAttribute('data-simulation') === 'true') return;
+  var uiLocale=window.cncI18n||{t:function(s){return s;}};
+  var TEXT={
+    'Condition actuelle':['Current condition','Condición actual'],'Paramètres de course':['Travel parameters','Parámetros de recorrido'],
+    'État : ':['State: ','Estado: '],'inconnu':['unknown','desconocido'],'Aucune alarme rapportée.':['No alarm reported.','Ninguna alarma notificada.'],
+    ' rapporté par Grbl.':[' reported by Grbl.',' notificado por Grbl.'],'Code ALARM:':['Code ALARM:','Código ALARM:'],'Code ':['Code ','Código '],
+    ' déduit de l’état précédent : la carte l’a effacé en redémarrant.':[' deduced from the previous state: the board erased it when restarting.',' deducido del estado anterior: la placa lo borró al reiniciarse.'],
+    'Aucun code reçu : cause non rapportée par la carte.':['No code received: cause not reported by the board.','Ningún código recibido: causa no notificada por la placa.'],
+    'Prochaine action possible : corriger la cause, puis Déverrouiller ($X) ou faire la prise d’origine ($H) depuis leurs commandes habituelles, avec leur confirmation. Cet écran n’envoie rien.':['Next possible action: fix the cause, then Unlock ($X) or home ($H) from their usual controls, with their confirmation. This screen sends nothing.','Próxima acción posible: corregir la causa y luego Desbloquear ($X) o hacer el referenciado ($H) desde sus mandos habituales, con su confirmación. Esta pantalla no envía nada.'],
+    'Rapport frais · âge ':['Fresh report · age ','Informe reciente · antigüedad '],
+    'Rapport périmé : dernières valeurs connues, non actualisées.':['Stale report: last known values, not updated.','Informe caducado: últimos valores conocidos, sin actualizar.'],
+    'Fraîcheur inconnue : aucun rapport récent du contrôleur.':['Freshness unknown: no recent controller report.','Antigüedad desconocida: ningún informe reciente del controlador.'],
+    'Appareil pilote : ':['Pilot device: ','Dispositivo piloto: '],
+    'Sens de prise d’origine':['Homing direction','Sentido del referenciado'],
+    ' paramètres connus':[' parameters known',' parámetros conocidos'],
+    'Valeurs transmises par Grbl via CNCjs ; « inconnu » : non reçue ou invalide. Le référencement activé ne signifie pas que la machine est référencée.':['Values sent by Grbl through CNCjs; “unknown”: not received or invalid. Homing enabled does not mean the machine is homed.','Valores enviados por Grbl a través de CNCjs; «desconocido»: no recibido o no válido. El referenciado activado no significa que la máquina esté referenciada.']
+  };
+  function vt(s){var l=uiLocale.language,row=TEXT[s];return row&&l==='en'?row[0]:row&&l==='es'?row[1]:s;}
+  var AXES=['X','Y','Z'],ROWS=[[110,'Vitesse maximale','mm/min'],[120,'Accélération','mm/s²'],[130,'Course maximale','mm']],FLAGS=[[20,'Limites logicielles'],[21,'Fins de course'],[22,'Référencement']];
+  var v2={registered:false,disposed:false,frame:0,timer:0,detail:null,arrival:null,nodes:null,shown:''};
+  function api(){var a=window.cncV2;return a&&typeof a.gate==='function'&&typeof a.state==='function'?a:null;}
+  function layout(){return !!(document.body.classList&&document.body.classList.contains('perf-v2'));}
+  function visible(){var s=document.getElementById('screen-machine');return !document.hidden&&!!s&&s.classList.contains('active');}
+  function now(){var p=window.performance,n=p&&typeof p.now==='function'?p.now():null;return typeof n==='number'&&isFinite(n)?n:null;}
+  function finite(n){return typeof n==='number'&&isFinite(n);}
+  function queue(){if(!v2.registered||v2.disposed||v2.frame||!window.requestAnimationFrame)return;v2.frame=window.requestAnimationFrame(render);}
+  function clearTimer(){if(v2.timer&&window.clearTimeout)window.clearTimeout(v2.timer);v2.timer=0;}
+  function el(tag,cls,value){var n=document.createElement(tag);if(cls)n.className=cls;if(value!==undefined)n.textContent=value;return n;}
+  function number(raw){var n=(typeof raw==='number'||typeof raw==='string'&&raw.trim()!=='')?Number(raw):NaN;return isFinite(n)?n:null;}
+  function format(n){return n.toLocaleString(uiLocale.locale||'fr-FR',{maximumFractionDigits:3});}
+  // A view model of facts only; unknown stays unknown, never zero.
+  function model(){
+    var d=v2.detail||{},m=d.machine||null,at=now(),age=m&&finite(m.statusAgeMs)&&finite(at)&&finite(v2.arrival)?m.statusAgeMs+Math.max(0,at-v2.arrival):null;
+    var freshness=!m?'unknown':m.fresh===true&&age!==null&&age<=2500?'fresh':m.fresh===false||age!==null?'stale':'unknown';
+    var alarm=!!(m&&/^alarm/i.test(m.activeState||'')),code=alarm&&finite(m.alarmCode)?m.alarmCode:null,inferred=alarm&&code!==null&&m.alarmCodeInferred===true;
+    var help=alarm&&window.CNCGrblHelp?window.CNCGrblHelp.alarm(code,inferred):null,pilot=d.pilot;
+    var s=m&&m.settings&&typeof m.settings==='object'?m.settings:{},known=0,rows=[],flags=[];
+    ROWS.forEach(function(r){rows.push({label:uiLocale.t(r[1]),unit:r[2],cells:AXES.map(function(_,i){var key='$'+(r[0]+i),n=number(s[key]),ok=n!==null&&n>0;if(ok)known++;return {key:key,value:ok?format(n)+' '+r[2]:vt('inconnu')};})});});
+    FLAGS.forEach(function(f){var raw=s['$'+f[0]],on=raw==='1'||raw===1,off=raw==='0'||raw===0;if(on||off)known++;flags.push({key:'$'+f[0],label:uiLocale.t(f[1]),value:on?uiLocale.t('Activé'):off?uiLocale.t('Désactivé'):vt('inconnu')});});
+    var mask=number(s.$23),maskOk=mask!==null&&mask>=0&&Math.floor(mask)===mask;if(maskOk)known++;
+    flags.push({key:'$23',label:vt('Sens de prise d’origine'),value:maskOk?String(mask):vt('inconnu')});
+    return {state:m&&m.activeState?m.activeState:null,alarm:alarm,title:help?help.title:null,action:help?help.action:null,
+      origin:!alarm?null:inferred?vt('Code ')+code+vt(' déduit de l’état précédent : la carte l’a effacé en redémarrant.'):code!==null?vt('Code ALARM:')+code+vt(' rapporté par Grbl.'):vt('Aucun code reçu : cause non rapportée par la carte.'),
+      freshness:freshness,age:freshness==='fresh'?age:null,
+      pilot:pilot&&pilot.sentence?pilot.sentence:pilot&&pilot.value&&pilot.value!=='—'?vt('Appareil pilote : ')+pilot.value:vt('Appareil pilote : ')+vt('inconnu'),
+      rows:rows,flags:flags,known:known};
+  }
+  function build(content){
+    var n={},zones=el('div','v2m-zones');
+    n.condition=el('section','v2m-zone v2m-condition');n.condition.id='v2m-condition';
+    n.parameters=el('section','v2m-zone v2m-parameters');n.parameters.id='v2m-parameters';
+    zones.appendChild(n.condition);zones.appendChild(n.parameters);content.appendChild(zones);return n;
+  }
+  function clear(node){while(node.children.length)node.removeChild(node.lastChild);}
+  function draw(n,x){
+    clear(n.condition);clear(n.parameters);
+    n.condition.appendChild(el('h2',null,vt('Condition actuelle')));
+    n.condition.appendChild(el('p','v2m-state',vt('État : ')+(x.state||vt('inconnu'))));
+    if(x.alarm){
+      var box=el('div','v2m-alarm');box.setAttribute('data-tone','danger');
+      box.appendChild(el('h3',null,x.title||uiLocale.t('Alarme')));box.appendChild(el('p','v2m-origin',x.origin));
+      if(x.action)box.appendChild(el('p','v2m-explanation',x.action));
+      box.appendChild(el('p','v2m-next',vt('Prochaine action possible : corriger la cause, puis Déverrouiller ($X) ou faire la prise d’origine ($H) depuis leurs commandes habituelles, avec leur confirmation. Cet écran n’envoie rien.')));
+      n.condition.appendChild(box);
+    } else n.condition.appendChild(el('p','v2m-calm',vt('Aucune alarme rapportée.')));
+    var fresh=el('p','v2m-freshness',x.freshness==='fresh'?vt('Rapport frais · âge ')+format(Math.round(x.age/100)/10)+' s':x.freshness==='stale'?vt('Rapport périmé : dernières valeurs connues, non actualisées.'):vt('Fraîcheur inconnue : aucun rapport récent du contrôleur.'));
+    fresh.setAttribute('data-freshness',x.freshness);n.condition.appendChild(fresh);
+    n.condition.appendChild(el('p','v2m-pilot',x.pilot));
+    n.parameters.appendChild(el('h2',null,vt('Paramètres de course')));
+    var table=el('table','v2m-table'),head=el('tr');
+    [uiLocale.t('Paramètre')].concat(AXES).forEach(function(h){var th=el('th',null,h);th.setAttribute('scope','col');head.appendChild(th);});
+    var thead=el('thead');thead.appendChild(head);table.appendChild(thead);var body=el('tbody');
+    x.rows.forEach(function(r){var tr=el('tr'),th=el('th',null,r.label+' · '+r.unit);th.setAttribute('scope','row');tr.appendChild(th);
+      r.cells.forEach(function(c){var td=el('td');td.appendChild(el('b',null,c.value));td.appendChild(el('small',null,c.key));td.setAttribute('data-known',String(c.value!==vt('inconnu')));tr.appendChild(td);});body.appendChild(tr);});
+    table.appendChild(body);n.parameters.appendChild(table);
+    var dl=el('dl','v2m-flags');
+    x.flags.forEach(function(f){dl.appendChild(el('dt',null,f.label+' '+f.key));dl.appendChild(el('dd',null,f.value));});
+    n.parameters.appendChild(dl);
+    n.parameters.appendChild(el('p','v2m-count',x.known+'/13'+vt(' paramètres connus')));
+    n.parameters.appendChild(el('p','v2m-note',vt('Valeurs transmises par Grbl via CNCjs ; « inconnu » : non reçue ou invalide. Le référencement activé ne signifie pas que la machine est référencée.')));
+  }
+  function render(){
+    v2.frame=0;
+    var a=api(),mounts=a&&a.mounts,mount=mounts&&mounts.get('machine');
+    if(v2.disposed||!a||!a.gate()||!layout()||!mount||!mount.content||!visible())return;
+    var n=v2.nodes||(v2.nodes=build(mount.content));
+    if(mount.content.hidden)mount.content.hidden=false;
+    if(mount.root.getAttribute('data-v2-presenter')!=='on')mount.root.setAttribute('data-v2-presenter','on');
+    var x=model(),signature=JSON.stringify(x);
+    if(signature!==v2.shown){v2.shown=signature;draw(n,x);}
+    // The age keeps running without a new report: one timer at the stale threshold.
+    clearTimer();
+    if(x.freshness==='fresh'&&window.setTimeout)v2.timer=window.setTimeout(function(){v2.timer=0;queue();},Math.ceil(2500-x.age)+20);
+  }
+  window.addEventListener('cnc-v2-change',function(){
+    var a=api(),s=a&&a.state();
+    if(!v2.registered&&a&&typeof a.register==='function'&&a.gate()&&s.ready&&s.layout){
+      v2.registered=true;
+      var snap={version:1,available:true,screen:'machine',model:null};
+      a.register('machine',{snapshot:function(){return snap;},update:function(){return snap;},cancel:function(){},
+        dispose:function(){v2.disposed=true;clearTimer();if(v2.frame&&window.cancelAnimationFrame)window.cancelAnimationFrame(v2.frame);v2.frame=0;}});
+    }
+    queue();
+  });
+  window.addEventListener('cnc-job-status',function(e){var d=e&&e.detail;if(!d||d.simulation)return;v2.detail=d;v2.arrival=now();queue();});
+  window.addEventListener('cnc-screen-change',function(e){if(e&&e.detail==='machine')queue();else clearTimer();});
+  document.addEventListener('visibilitychange',function(){if(document.hidden)clearTimer();else queue();});
+})();
