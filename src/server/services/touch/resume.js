@@ -278,11 +278,12 @@ export const modalsBeforeFirstMove = (gcode) => {
 // is error:21 (two words of the motion group). Such a line is complete as
 // written: prefixing it would be refused after the preamble has moved the
 // machine (bug hunt E-3: a resume at the "G28 G91 Z0" of a tool change).
-// A non-modal one leaves the motion mode as it was, so the program's modal
-// motion is restored on its own line before it (the preamble ends in G1);
-// a G38.x sets the motion mode itself, as in the program.
+// Any first line that does not set the motion mode itself (no G0-G3 or
+// G38.x word: a non-modal command, a dwell, an M code, a comment…) would
+// leave the preamble's G1 to the lines after it, so the program's modal
+// motion is restored on its own line before it; a G38.x sets the motion
+// mode itself, as in the program.
 const OWN_AXIS_WORDS = [10, 28, 30, 92, 43.1, 38.2, 38.3, 38.4, 38.5];
-const NON_MODAL_AXIS_WORDS = [10, 28, 30, 92, 43.1];
 
 // A first line relying on the modal motion (e.g. "X10 Y5" after G1) gets it back.
 const firstLineOf = (lines, from, s) => {
@@ -293,12 +294,14 @@ const firstLineOf = (lines, from, s) => {
   // Motion words, compact code included (G90G1X10: the G1 follows a digit).
   const motion = g.filter((v) => [0, 1, 2, 3].includes(v)).map((v) => 'G' + v).pop() || null;
   const modalMove = hasAxis && !g.some((v) => OWN_AXIS_WORDS.includes(v));
+  const prefixed = modalMove && !motion && !!s.motion;
+  const setsMotion = !!motion || g.some((v) => v >= 38.2 && v <= 38.5);
   return {
-    text: modalMove && !motion && s.motion ? s.motion + ' ' + first.trim() : first,
+    text: prefixed ? s.motion + ' ' + first.trim() : first,
     motion: motion || (modalMove ? s.motion : null),
     xy: /(^|[^A-Z])[XY]\s*[-+]?[\d.]/.test(firstCode),
     // The lines after it run in the program's modal motion, not the preamble's.
-    restoreMotion: hasAxis && !motion && g.some((v) => NON_MODAL_AXIS_WORDS.includes(v))
+    restoreMotion: !setsMotion && !prefixed
   };
 };
 
@@ -313,7 +316,7 @@ const motionRestore = (s, from) => {
     return 'G1 F' + fmt(s.feed);
   }
   const motion = s.motion || 'inconnu';
-  throw refuse('ETOUCH_RESUME_FIRST_LINE', 'Mode de déplacement ' + motion + ' avant la ligne ' + from + ' : il ne peut pas être rétabli devant cette ligne (commande non modale avec mots d’axe), choisissez une autre ligne de reprise.', { motion, from });
+  throw refuse('ETOUCH_RESUME_FIRST_LINE', 'Mode de déplacement ' + motion + ' avant la ligne ' + from + ' : il ne peut pas être rétabli devant cette ligne (qui ne fixe pas le sien), choisissez une autre ligne de reprise.', { motion, from });
 };
 
 // Units, distance, plane, work offset and feed mode of the preamble.

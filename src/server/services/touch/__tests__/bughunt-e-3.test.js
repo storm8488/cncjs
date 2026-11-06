@@ -96,6 +96,46 @@ describe('E-3 (suite) : les lignes après la première gardent le mode de dépla
     expect(after(r)).toEqual(['G38.2 Z-10 F50', 'G0 Z5', 'M30', '']);
   });
 
+  // Troisième tour (revue Codex) : la règle vaut pour toute première ligne qui
+  // ne fixe pas le mode de déplacement (G4, G28 sans axe, commentaire, code M),
+  // pas seulement pour une commande non modale à mots d'axe ; « G4 P1 » ne
+  // contourne plus le refus en mode arc.
+  const G0_PROGRAM = (line) => ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5', line, 'X20', 'M30'].join('\n');
+  const G1_PROGRAM = (line) => ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G1 X10 F250', line, 'X20', 'M30'].join('\n');
+
+  test.each([['G4 P1'], ['G28'], ['(changement de passe)'], ['M8'], ['M3 S9000']])('programme en G0, première ligne « %s » : « G0 » rétabli, « X20 » reste un rapide', (line) => {
+    const r = buildResume(G0_PROGRAM(line), 6);
+    expect(r.preamble.at(-2)).toMatch(/^G1 Z5 F100$/);
+    expect(r.preamble.at(-1)).toBe('G0');
+    expect(after(r)).toEqual([line, 'X20', 'M30', '']);
+  });
+
+  test.each([['G4 P1'], ['G28'], ['(changement de passe)'], ['M8']])('programme en G1, première ligne « %s » : « G1 F250 » rétabli, « X20 » reste une coupe', (line) => {
+    const r = buildResume(G1_PROGRAM(line), 6);
+    expect(r.preamble.at(-1)).toBe('G1 F250');
+    expect(after(r)).toEqual([line, 'X20', 'M30', '']);
+  });
+
+  test('programme en G2, première ligne « G4 P1 » : reprise refusée (ETOUCH_RESUME_FIRST_LINE), plus de contournement', () => {
+    const prog = ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G2 X10 Y0 I5 J0', 'G4 P1', 'X20 Y0 I5 J0', 'M30'].join('\n');
+    let refusal = null;
+    try {
+      buildResume(prog, 6);
+    } catch (err) {
+      refusal = err;
+    }
+    expect(refusal).toMatchObject({ code: 'ETOUCH_RESUME_FIRST_LINE', params: { motion: 'G2', from: 6 } });
+    expectCatalogMatch(refusal);
+  });
+
+  test('une ligne qui fixe son mode (G0 X…, G1 Y…, G38.2) ou un mot d’axe seul préfixé : rien d’autre n’est ajouté', () => {
+    expect(buildResume(G0_PROGRAM('G1 X5 F200'), 6).preamble.at(-1)).toMatch(/^G1 Z5 F100$/);
+    expect(buildResume(G0_PROGRAM('G0 X5'), 6).preamble.at(-1)).toMatch(/^G1 Z5 F100$/);
+    const plain = buildResume(G0_PROGRAM('Y5'), 6);
+    expect(plain.preamble.at(-1)).toMatch(/^G1 Z5 F100$/);
+    expect(after(plain)[0]).toBe('G0 Y5');
+  });
+
   test('reprise laser : une telle ligne n’est pas un G0 X/Y, refus inchangé (ETOUCH_LASER_RESUME_NOT_RAPID)', () => {
     const prog = ['G21 G90', 'M3 S500', 'G0 X0 Y0', 'G1 X10 F1000', 'M5', 'G0 X5 Y5', 'G92 X0 Y0', 'G1 X15 F1000', 'M30'].join('\n');
     let refusal = null;

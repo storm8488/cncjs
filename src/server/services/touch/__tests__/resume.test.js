@@ -828,14 +828,17 @@ describe('resume, re-check of c4c048c7 (xvg)', () => {
       expect(first).toBe('G1 X[4*2]');
     });
 
-    // Observation : une première ligne « X[..] » sans mot de mouvement ne reçoit pas le
-    // mouvement modal (hasAxis exige un chiffre après la lettre) ; elle est exécutée
-    // dans le mode laissé par le préambule (G1), pas dans le mode du programme.
-    test('première ligne « X[..] Y[..] » après un G0 modal : pas de G0 rajouté (exécutée en G1)', () => {
+    // Observation d'alors : une première ligne « X[..] » sans mot de mouvement ne recevait
+    // pas le mouvement modal (hasAxis exige un chiffre après la lettre) et s'exécutait
+    // dans le mode laissé par le préambule (G1). Bug hunt E-3 (3e tour) : une première
+    // ligne qui ne fixe pas son mode reçoit le mode modal du programme sur sa propre
+    // ligne de préambule ; la ligne elle-même n'est pas préfixée.
+    test('première ligne « X[..] Y[..] » après un G0 modal : « G0 » rétabli dans le préambule, ligne inchangée', () => {
       const gcode = BASE.concat(['G0 Z5', 'G0 X1 Y1', 'X[4*2] Y[3]', 'M30']).join('\n');
       const { ok } = attempt(gcode, 8);
       const first = ok.program.split('\n')[ok.preamble.length];
-      expect(ok.preamble[ok.preamble.length - 1]).toMatch(/^(G1 Z|F)/);
+      expect(ok.preamble[ok.preamble.length - 2]).toMatch(/^(G1 Z|F)/);
+      expect(ok.preamble[ok.preamble.length - 1]).toBe('G0');
       expect(first).toBe('X[4*2] Y[3]');
       // Même ligne sans expression : le G0 modal est rajouté.
       const plain = attempt(gcode.replace('X[4*2] Y[3]', 'X8 Y3'), 8).ok;

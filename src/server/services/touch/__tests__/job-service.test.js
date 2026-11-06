@@ -2428,7 +2428,8 @@ describe('F5: attribution of control in the service', () => {
     // Back within the grace delay: the lease is restored, nothing was transferred.
     ctx.service.openTransport('stream-A2', TABLET_A);
     expect(ctx.state().control.owner).toMatchObject({ id: 'tablet-A', present: true });
-    expect(ctx.state().control.lastChange.type).toBe('restored');
+    // B-1: back within the grace, nothing was recorded; the last change is still the claim.
+    expect(ctx.state().control.lastChange.type).toBe('claim');
     ctx.service.closeTransport('stream-A2');
     ctx.now += 60001;
     ctx.report();
@@ -3062,7 +3063,7 @@ describe('job service F5, cross-check 3', () => {
       ctx.advance(45000);
       const commandsBefore = ctx.c.commands.length;
       ctx.service.openTransport('stream-A2', A);
-      expect(ctx.state().control).toMatchObject({ owner: { id: 'tablet-A', present: true }, lastChange: { type: 'restored' } });
+      expect(ctx.state().control).toMatchObject({ owner: { id: 'tablet-A', present: true }, lastChange: { type: 'claim' } });
       expect(ctx.state().workflow).toBe('paused');
       expect(ctx.c.commands.length).toBe(commandsBefore);
       // Le ticket de A (s'il en avait un) a été révoqué par la fermeture du flux : une reprise exige une nouvelle confirmation.
