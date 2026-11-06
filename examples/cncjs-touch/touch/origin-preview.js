@@ -171,6 +171,9 @@
     var m = s.machine, ph = phase(m), reason = s.failure || unavailable();
     if (reason) { closeView(); show({ state: t('Vue 3D indisponible : ') + reason + t('. Le contrôle de course reste au chargement et au démarrage.') }); return; }
     if (ph === 'stale') {
+      // No preview yet (read pending or answered null, loadedPreview() giving null without a state):
+      // asked again when the state comes back, even for the same program.
+      if (!s.meta) s.metaKey = '';
       // Frozen and greyed: the last placement stays, nothing new is computed.
       if (s.handle && s.last.length) { var grey = frozen(s.last), key = JSON.stringify(grey); if (key !== s.sent) { s.handle.setOverlays(grey); s.sent = key; } }
       show({ file: s.file, legend: !!s.handle, state: t('État machine indisponible : aperçu figé.') }); return;

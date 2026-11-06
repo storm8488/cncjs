@@ -762,7 +762,7 @@
       showRows(PI.describe(path, i, null, meta.path3d));
       // No read of the program during a job (spec 3.7, Q7): the simplified values stay.
       if (jobBusy()) { hint.textContent = t('Travail en cours : la ligne source n’est pas lue, valeurs du tracé simplifié.'); return; }
-      if (!src) src = options.source || PI.source(meta, options.sourceOptions);
+      if (!src) { src = options.source || PI.source(meta, options.sourceOptions); watchReads(); }
       var line = path.lines[i];
       src.stateAt(line).then(function (state) {
         if (closed || inspected !== i) return;
@@ -862,9 +862,7 @@
       var now = clock(), wasStale = isStale(now);
       live.machine = m; live.simulation = !!d.simulation; live.receivedAt = now; live.fresh = m.fresh === true;
       // The whole program is read at rest only (Q7c): a read still in flight when a job starts is cancelled.
-      if (fullRequest && busy()) { var stopped = fullRequest; fullRequest = null; stopped.cancel(); }
-      // Same for the source of an inspection: its read is aborted, the worker ended.
-      if (src && busy()) { var reading = src; src = null; inspected = -1; if (reading.release) reading.release(); }
+      if (busy()) stopReads();
       live.alarm = /^alarm/i.test(String(m.activeState || ''));
       // A and L: from a fresh report of this program only; frozen otherwise (stale, alarm).
       if (liveOptions.progress && live.fresh && !live.alarm) {
@@ -892,6 +890,19 @@
       invalidate();
     }
     if (liveOn) on(win, 'cnc-job-status', onStatus);
+    // No read of the program during a job (Q7c): a geometry read, or the source of an inspection, still
+    // in flight when a job starts or pauses is cancelled (aborted request, worker ended). A live view does
+    // it in onStatus; any other view (« Agrandir ») listens only while it has something to cancel.
+    function stopReads() {
+      if (fullRequest) { var stopped = fullRequest; fullRequest = null; stopped.cancel(); }
+      if (src) { var reading = src; src = null; inspected = -1; if (reading.release) reading.release(); }
+    }
+    var readWatch = false;
+    function watchReads() {
+      if (liveOn || readWatch || closed) return;
+      readWatch = true;
+      on(win, 'cnc-job-status', function (e) { var m = e && e.detail && e.detail.machine; if (m && (m.workflow === 'running' || m.workflow === 'paused')) stopReads(); });
+    }
     function isStale(now) { return !live.fresh || (typeof now === 'number' ? now : clock()) - live.receivedAt > STALE_MS; }
     function running() { return !!live.machine && live.machine.workflow === 'running'; }
     function busy() { return !!live.machine && (live.machine.workflow === 'running' || live.machine.workflow === 'paused'); }
@@ -930,8 +941,9 @@
         // only looked at (Fichiers) does not change the loaded program: its geometry stays.
         if (fullCache && (options.fullGeometry === true || options.loaded === true)) fullDrop();
       }
-      if (geometry !== 'full' && options.fullGeometry === true && typeof PI.geometry === 'function') {
+      if (geometry !== 'full' && options.fullGeometry === true && typeof PI.geometry === 'function' && !jobBusy()) {
         var asked = fullRequest = PI.geometry(meta, { Worker: options.Worker, fetchProgram: options.fetchProgram });
+        watchReads();
         asked.promise.then(function (r) {
           if (fullRequest !== asked) return;
           fullRequest = null;

@@ -146,6 +146,26 @@ function dashboard(options = {}) {
     assert(aborted, 'the program is still being read during the job');
   });
 
+  await scenario('D-5 the enlarged view (no live option): a read in flight is aborted when a job starts or pauses', async () => {
+    for (const workflow of ['running', 'paused']) {
+      const page = createPage({ gpu: true }), sent = recorder(page), meta = program('live.nc', 'sha256:live');
+      // « Agrandir » (preview-3d.js openFree): no live option, no container.
+      const view = page.win.CNCPreviewGL.open(meta, {});
+      view.inspect(5); await tick(2);
+      assert.equal(sent.length, 1, 'read at rest');
+      page.win.dispatch('cnc-job-status', { machine: report('live.nc', 'sha256:live', workflow) });
+      const aborted = sent[0].xhr.aborted === true;
+      // During the job, another tap reads nothing.
+      page.win.cncState = { get: () => ({ machine: report('live.nc', 'sha256:live', workflow) }) };
+      view.inspect(6); await tick(2);
+      const more = sent.length - 1;
+      view.close('test');
+      assert(aborted, workflow + ': the enlarged view still reads the program during the job');
+      assert.equal(more, 0, workflow + ': a read started during the job');
+      assert.equal(page.listenerCount.value, 0, 'listeners released at close');
+    }
+  });
+
   await scenario('D-4 looking at another file keeps the loaded program\'s full geometry (Q7b)', async () => {
     const page = createPage({ gpu: true });
     const A = program('a.nc', 'sha256:aa'), B = program('b.nc', 'sha256:bb');
@@ -197,6 +217,42 @@ function dashboard(options = {}) {
     if (extra) d.answer(d.requests.at(-1).xhr, 'part.nc', 'sha256:aa', {});
     const got = await again;
     assert(got && got.file === 'part.nc', 'null kept for the program (' + extra + ' new request)');
+  });
+
+  await scenario('D-3 the origin card asks again when the state comes back after a null answer', async () => {
+    // origin-preview.js with stubs of its neighbours (as test-origin-preview.cjs, reduced).
+    const listeners = {}, frames = [], reads = [];
+    const el = (tag) => { const n = { tagName: tag, children: [], hidden: false, attributes: {}, className: '', textContent: '', parentNode: null,
+      appendChild(c) { c.parentNode = n; n.children.push(c); return c; }, removeChild(c) { n.children.splice(n.children.indexOf(c), 1); c.parentNode = null; return c; },
+      setAttribute(k, v) { n.attributes[k] = String(v); }, getAttribute(k) { return k in n.attributes ? n.attributes[k] : null; } };
+      n.classList = { contains: c => n.className.split(' ').includes(c), add() {}, remove() {} }; return n; };
+    const document = { head: el('head'), body: el('body'), createElement: el, createTextNode: t => ({ textContent: t }), getElementById: () => null };
+    const win = { document, addEventListener: (t, f) => { (listeners[t] = listeners[t] || []).push(f); }, removeEventListener() {},
+      requestAnimationFrame: f => { frames.push(f); return frames.length; }, cancelAnimationFrame() {}, setTimeout, clearTimeout, Promise, JSON, Math, Object, Array, String, Number, isFinite };
+    win.window = win;
+    win.cncProfile = { performance: () => 'performance', kind: () => 'cnc' };
+    win.cncLayout = { wide: () => true };
+    win.CNCTravelCheck = require('./touch/travel-check.js');
+    win.CNCPreviewGL = { open: () => ({ setOverlays() {}, close() {} }), checkOverlays: () => ({ accepted: [], refused: [] }), active: () => false };
+    let answer = null, first = null;
+    win.cncDashboardView = { loadedPreview: () => { reads.push(1); return reads.length === 1 ? new Promise(r => { first = r; }) : Promise.resolve(answer); } };
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'touch', 'origin-preview.js'), 'utf8'), win);
+    const screen = el('section'); screen.className = 'screen active';
+    win.CNCOriginPreview.mount(screen);
+    const status = m => (listeners['cnc-job-status'] || []).forEach(f => f({ detail: { machine: m } }));
+    const flush = async () => { for (let k = 0; k < 4; k++) { await tick(2); frames.splice(0).forEach(f => f(0)); } };
+    const idle = { fresh: true, activeState: 'Idle', workflow: 'idle', name: 'a.nc', revision: 1, settings: { $22: 1, $130: 400, $131: 300 },
+      operator: { wcs: 'G54', reportUnits: 'mm' }, coordinates: { mpos: { x: -100, y: -100, z: 0 }, wpos: { x: 0, y: 0, z: 0 } } };
+    status(idle); await flush();
+    assert.equal(reads.length, 1);
+    // The state is lost while the read is answered null (loadedPreview() has no machine then).
+    status(null); await flush();
+    first(null); await flush();
+    // The same program comes back without leaving Préparer: the preview is there now.
+    answer = { file: 'a.nc', fingerprint: 'sha256:aa', path3d: 'P', zBounds: [0, 0], projection: { units: 'mm', bounds: [0, 0, 10, 10] } };
+    status(idle); await flush();
+    win.CNCOriginPreview.unmount();
+    assert.equal(reads.length, 2, 'no new read after the state came back (' + reads.length + ' read)');
   });
 
   await scenario('D-6 resumed job without a preview: acknowledged line in the original file', async () => {
