@@ -327,7 +327,7 @@
   function mount(){if(mounted||!visible('home'))return;mounted=true;if(previewFailed)imageKey='';render();requestCurve();requestV2();}
   function unmount(){if(!mounted)return;mounted=false;cancelPreview();}
   window.addEventListener('cnc-screen-change',function(e){if(e.detail==='home')mount();else{unmount();if(e.detail==='files')render();}});
-  document.addEventListener('visibilitychange',function(){if(visible('home'))mount();else unmount();});
+  document.addEventListener('visibilitychange',function(){if(document.hidden)forgetLoaded('');if(visible('home'))mount();else unmount();});
   // ---- Wide workstation (body.perf-wide, touch-shell.js; PERFORMANCE-UI-SPEC.md 5.2, 6) ----
   // Suivi in zones: View (#home-left) | Instruments (#home-zone-gauges) | Commandes (#home-zone-controls),
   // the last two in .job-metrics. Two zones (Q3b, 1366 x 911): the instruments over the commands, the
@@ -633,9 +633,15 @@
     if(!o||o.stub||typeof o.reset!=='function'||!v||!v.identity||!v.time||!m||!m.name)return;
     var id=v.identity.create({role:'loaded',file:m.name,fingerprint:m.fingerprint,controller:m.port,generation:m.generation,revision:m.revision});
     if(!id.jobKey)return;
-    if(v2.key!==id.jobKey||!o.snapshot().identity){v2.key=id.jobKey;v2.id=id;v2.last=null;v2.markers=[];o.reset(id);}
-    var time=v.time.stamp({serverTime:m.statusObservedAt,serverSource:'status'}),at=time.arrivalMonoMs;
-    var age=finiteNumber(m.statusAgeMs)&&m.statusAgeMs>=0?m.statusAgeMs:null,op=m.operator&&typeof m.operator==='object'?m.operator:{};
+    if(v2.key!==id.jobKey||!o.snapshot().identity){v2.key=id.jobKey;v2.id=id;v2.last=null;v2.markers=[];v2.report=null;o.reset(id);}
+    // A report gets a monotone arrival only when it is a new one (another server observation time). The
+    // same report re-projected later (job-controls.js recomputes its age with Date.now(), which a clock
+    // change can lower) keeps its first stamp and age: it can turn stale, never fresh again.
+    var reportKey=finiteNumber(m.statusObservedAt)?JSON.stringify([m.port,m.generation,m.statusObservedAt]):null,same=!!(reportKey&&v2.report&&v2.report.key===reportKey);
+    var time=same?v2.report.time:v.time.stamp({serverTime:m.statusObservedAt,serverSource:'status'}),at=time.arrivalMonoMs;
+    var age=same?v2.report.age:finiteNumber(m.statusAgeMs)&&m.statusAgeMs>=0?m.statusAgeMs:null,op=m.operator&&typeof m.operator==='object'?m.operator:{};
+    var fresh=same?v2.report.fresh:m.fresh===true&&age!==null&&age<=2500;
+    if(!same)v2.report=reportKey?{key:reportKey,time:time,age:age,fresh:fresh}:null;
     var units=op.reportUnits==='mm'||op.reportUnits==='in'?op.reportUnits:null,w=m.coordinates&&m.coordinates.wpos,pos=null;
     if(w){var x=v2Number(w.x),y=v2Number(w.y),z=v2Number(w.z);if(x!==null&&y!==null&&z!==null)pos={x:x,y:y,z:z};}
     var valid=m.fresh&&finiteNumber(m.total)&&m.total>0&&finiteNumber(m.received)&&m.received>=0&&m.received<=m.total;
@@ -653,11 +659,12 @@
     if(ov&&age!==null&&finiteNumber(at))v2.last={ov:{feed:ov.feed,spindle:ov.spindle,rapid:ov.rapid},workflow:m.workflow,at:at};
     var feed=units&&finiteNumber(m.feedrate)?Math.round((units==='in'?m.feedrate*25.4:m.feedrate)*10)/10:null,est=v2.estimate;
     o.update({version:1,available:age!==null,identity:id,time:time,
-      report:{freshness:age===null?'unknown':m.fresh===true&&age<=2500?'fresh':'stale',ageMs:age,wcs:typeof op.wcs==='string'&&op.wcs?op.wcs:null,units:units,position:pos,
+      report:{freshness:age===null?'unknown':fresh?'fresh':'stale',ageMs:age,wcs:typeof op.wcs==='string'&&op.wcs?op.wcs:null,units:units,position:pos,
         feedMmMin:feed,spindleS:finiteNumber(m.spindleSpeed)?m.spindleSpeed:null},
       acknowledgement:{line:line,total:total,meaning:'accepted-not-machined'},
       estimate:{seconds:est.seconds,source:est.source,estimated:true,unknowns:est.unknowns.slice()},markers:v2.markers});
     // One timer per report: the band turns stale 2.5 s after it, even when no other report arrives.
+    if(same)return;
     if(v2.timer!==null&&typeof window.clearTimeout==='function')window.clearTimeout(v2.timer);v2.timer=null;
     if(age!==null&&age<=2500&&typeof window.setTimeout==='function')v2.timer=window.setTimeout(function(){v2.timer=null;requestV2();},2550-age);
   }
@@ -751,22 +758,25 @@
     if(!meta||!machine||machine.name!==file||machine.revision!==revision)return false;
     return !(machine.fingerprint&&meta.fingerprint&&!samePrint(machine.fingerprint,meta.fingerprint));
   }
+  // The loaded program a read belongs to: controller, generation, revision, name and fingerprint.
+  function programOf(m){return m?JSON.stringify([m.port,m.generation,m.revision,m.name,String(m.fingerprint||'').toLowerCase().replace(/^sha256:/,'')]):'';}
   function loadedPreview(){
     var file=machine&&machine.name?machine.name:'';
     if(!file)return Promise.resolve(null);
     var img=$('home-job-image'),shown=img&&img.cncPreview,revision=machine.revision;
     if(shown&&shown.file===file&&imageKey===file&&!previewFailed&&imageRevision===revision&&ofLoaded(shown,file,revision))return Promise.resolve(shown);
-    if(loadedRead&&loadedRead.file===file&&loadedRead.revision===revision)return loadedRead.promise;
+    var program=programOf(machine);
+    if(loadedRead&&loadedRead.program===program)return loadedRead.promise;
     forgetLoaded('');
     // No sidecar read during a job (or with an unknown state): only what is already shown is given.
     if(!idleNow())return Promise.resolve(null);
     var token=sessionToken();if(!token)return Promise.resolve(null);
-    var read={file:file,revision:revision,xhr:null,promise:null,resolve:null,cancelled:false};loadedRead=read;
+    var read={file:file,revision:revision,program:program,xhr:null,promise:null,resolve:null,cancelled:false};loadedRead=read;
     read.promise=new Promise(function(resolve){
       var xhr=previewXhr(file,token);read.xhr=xhr;read.resolve=resolve;
       // A result given as null (no preview, no state, another version by now) is never kept: asked again later.
       // A cancelled read resolves null once, and its late answer is never given (forgetLoaded).
-      function done(meta){if(read.cancelled)return;read.xhr=null;var result=ofLoaded(meta,file,revision)?meta:null;if(loadedRead===read&&!result)loadedRead=null;resolve(result);}
+      function done(meta){if(read.cancelled)return;read.xhr=null;var result=ofLoaded(meta,file,revision)&&programOf(machine)===program?meta:null;if(loadedRead===read&&!result)loadedRead=null;resolve(result);}
       xhr.onload=function(){var meta=null;try{var answer=previewAnswer(xhr,file);meta=answer.refused?null:answer.preview;}catch(_){}done(meta);};
       xhr.onerror=xhr.ontimeout=xhr.onabort=function(){done(null);};
       xhr.send(JSON.stringify({file:file+'.cnctouch.json'}));
@@ -780,16 +790,26 @@
     if(xhr){xhr.onload=xhr.onerror=xhr.ontimeout=xhr.onabort=null;if(typeof xhr.abort==='function')xhr.abort();}
     if(read.resolve)read.resolve(null);
   }
-  function idleNow(){return !!(machine&&machine.fresh&&(!machine.workflow||machine.workflow==='idle')&&!/^(run|hold|jog|alarm|door|home|check)/i.test(String(machine.activeState||'')));}
+  // A safe rest only: Idle and also no spindle, probing, homing, loading or jog; and, where the v2 contract
+  // judges it, its safeIdle (fresh monotone report, connected transport…).
+  function idleNow(){
+    var m=machine,v=window.cncV2;
+    if(!(m&&m.fresh&&(!m.workflow||m.workflow==='idle')&&!/^(run|hold|jog|alarm|door|home|check)/i.test(String(m.activeState||''))))return false;
+    if(finiteNumber(m.spindleSpeed)&&m.spindleSpeed>0||m.probing||m.probeBusy||m.homing||m.loading||jogging(m))return false;
+    try{if(v&&typeof v.state==='function'&&v.state().safeIdle===false)return false;}catch(_){}
+    return true;
+  }
   // Cancelled by its consumer's transitions too: a job starts or the program changes, Éco is chosen, the v2
   // gate closes (only where v2 was opened), the page is hidden for good.
   // (Called from the existing cnc-job-status, cnc-profile-change and cnc-v2-change listeners.)
   // A missing state alone does not abort: the answer then resolves null (no loaded program to match).
-  function loadedStatus(){if(loadedRead&&machine&&(!idleNow()||machine.name!==loadedRead.file||machine.revision!==loadedRead.revision))forgetLoaded('');}
+  function loadedStatus(){if(loadedRead&&machine&&(!idleNow()||programOf(machine)!==loadedRead.program))forgetLoaded('');}
   function loadedProfile(){var p=window.cncProfile;try{if(loadedRead&&p&&typeof p.performance==='function'&&p.performance()==='eco')forgetLoaded('');}catch(_){}}
   function loadedGate(){var v=window.cncV2;try{if(loadedRead&&v&&typeof v.gate==='function'&&!v.gate()&&v.state().sessionEnabled)forgetLoaded('');}catch(_){}}
   window.addEventListener('pagehide',function(){forgetLoaded('');});
-  window.cncDashboardView={mount:mount,unmount:unmount,loadedPreview:loadedPreview};
+  window.addEventListener('cnc-screen-lock',function(e){if(e&&e.detail)forgetLoaded('');});
+  // cancelLoadedPreview(): for the consumer (origin-preview.js on unmount, screen change, lock, hidden).
+  window.cncDashboardView={mount:mount,unmount:unmount,loadedPreview:loadedPreview,cancelLoadedPreview:function(){forgetLoaded('');}};
   mount();
   render();
 })();

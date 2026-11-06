@@ -7,11 +7,11 @@ const source = fs.readFileSync(__dirname + '/touch/job-dashboard.js', 'utf8');
 
 function fixture() {
   const lists = {}, requests = [], dom = require('./dom-fixture.cjs').createDOM(['menu']);
-  let profile = 'performance', gate = true;
+  let profile = 'performance', gate = true, safeIdle = true;
   const win = {
     addEventListener(n, f) { (lists[n] || (lists[n] = [])).push(f); },
     cncProfile: {kind: () => 'cnc', performance: () => profile},
-    cncV2: {gate: () => gate, state: () => ({layout: true, sessionEnabled: true, open: gate, holdLayout: false})}
+    cncV2: {gate: () => gate, state: () => ({layout: true, sessionEnabled: true, open: gate, holdLayout: false, safeIdle})}
   };
   function XHR() {
     this.open = (m, p) => { assert.equal(m, 'POST'); assert.equal(p, '/api/watch/file'); };
@@ -21,10 +21,11 @@ function fixture() {
   vm.runInNewContext(source, {window: win, document: dom.document, Date, Promise, XMLHttpRequest: XHR,
     localStorage: {getItem: () => JSON.stringify({state: {session: {token: 'fake'}}})}});
   const emit = (n, detail) => (lists[n] || []).slice().forEach((f) => f({type: n, detail}));
-  const status = (patch) => emit('cnc-job-status', {machine: Object.assign({port: 'P', name: 'piece.nc', revision: 1, fresh: true, workflow: 'idle', activeState: 'Idle'}, patch), simulation: false});
-  const answer = (xhr) => { xhr.status = 200; xhr.responseText = JSON.stringify({preview: {stale: false}, data: JSON.stringify({file: 'piece.nc', fingerprint: 'f1',
+  const status = (patch) => emit('cnc-job-status', {machine: Object.assign({port: 'P', name: 'piece.nc', revision: 1, generation: 'g1', fingerprint: 'f1', fresh: true, workflow: 'idle', activeState: 'Idle'}, patch), simulation: false});
+  const answer = (xhr, fingerprint = 'f1') => { xhr.status = 200; xhr.responseText = JSON.stringify({preview: {stale: false}, data: JSON.stringify({file: 'piece.nc', fingerprint,
     preview: {image: 'data:image/png;base64,AAAA', lines: 40, path3d: {version: 1}}})}); xhr.onload(); };
-  return {view: win.cncDashboardView, requests, emit, status, answer, setProfile(p) { profile = p; }, closeGate() { gate = false; }};
+  const docEmit = (n) => (dom.document._listeners && dom.document._listeners[n] || []).slice().forEach((fn) => fn({type: n}));
+  return {view: win.cncDashboardView, requests, emit, status, answer, dom, docEmit, setProfile(p) { profile = p; }, closeGate() { gate = false; }, unsafe() { safeIdle = false; }};
 }
 
 (async () => {
@@ -32,7 +33,11 @@ function fixture() {
     'job starts': (f) => f.status({workflow: 'running', activeState: 'Run'}),
     'Éco chosen': (f) => { f.setProfile('eco'); f.emit('cnc-profile-change', {performance: 'eco'}); },
     'v2 gate closes': (f) => { f.closeGate(); f.emit('cnc-v2-change', {open: false}); },
-    'pagehide': (f) => f.emit('pagehide', {persisted: false})
+    'pagehide': (f) => f.emit('pagehide', {persisted: false}),
+    'cancelLoadedPreview() by its consumer': (f) => f.view.cancelLoadedPreview(),
+    'screen locked': (f) => f.emit('cnc-screen-lock', true),
+    'document hidden': (f) => { f.dom.document.hidden = true; f.docEmit('visibilitychange'); },
+    'not a safe Idle any more (spindle on, still Idle)': (f) => { f.unsafe(); f.status({spindleSpeed: 12000}); }
   };
   for (const [name, transition] of Object.entries(transitions)) {
     const f = fixture(); f.status();
@@ -53,8 +58,13 @@ function fixture() {
   const f = fixture(); f.status(); const p = f.view.loadedPreview(); f.answer(f.requests[0].xhr);
   const meta = await p; assert(meta && meta.path3d, 'at rest the preview is returned');
   assert.equal(await f.view.loadedPreview(), meta); assert.equal(f.requests.length, 1);
+  // The cache belongs to one loaded program: same name and revision, another generation and fingerprint -> read again.
+  const k = fixture(); k.status(); const a = k.view.loadedPreview(); k.answer(k.requests[0].xhr); assert((await a).fingerprint === 'f1');
+  k.status({generation: 'g2', fingerprint: 'f2'}); const b = k.view.loadedPreview();
+  assert.equal(k.requests.length, 2, 'generation / fingerprint change: read again'); k.answer(k.requests[1].xhr, 'f2');
+  assert.equal((await b).fingerprint, 'f2', 'the new program, never the cached one');
   // The program changes while a read is pending: aborted too.
   const g = fixture(); g.status(); const q = g.view.loadedPreview(); g.status({name: 'other.nc', revision: 2});
   assert.equal(g.requests[0].xhr.aborted, true); assert.equal(await q, null);
-  console.log('PASS loadedPreview: pending sidecar read aborted and forgotten on job start, Éco, v2 gate closing, pagehide and program change; no late answer, no read during a job; unchanged at rest.');
+  console.log('PASS loadedPreview: pending sidecar read aborted and forgotten on job start, Éco, v2 gate closing, pagehide, cancelLoadedPreview(), lock, hidden document, unsafe Idle and program change; cache keyed by generation and fingerprint; no late answer, no read during a job; unchanged at rest.');
 })().catch((e) => { console.error(e); process.exitCode = 1; });
