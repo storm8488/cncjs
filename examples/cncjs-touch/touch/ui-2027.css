@@ -604,6 +604,12 @@
 .ks-ui #screen-machine .ks-machine-overview{gap:6px var(--tap-gap)}
 /* Bandeau pendant un travail : le nom du fichier garde sa place. */
 .ks-ui [data-job=true] .ks-exit{display:none}
+/* Pause, Arrêter and Pilote take room from the information zone: during a job the machine name (shown
+ * in the start dialog) and the state box's resting width give way, so the file name stays readable
+ * (cut with its own ellipsis, never clipped by the zone). */
+.ks-ui [data-job=true] .t-vital--machine{display:none}
+.ks-ui [data-job=true] .t-vitals{gap:var(--sp-3)}
+.ks-ui [data-job=true]>.t-state{min-width:0}
 .t-vital--file{min-width:0}
 .t-vital--file span{overflow:visible}
 /* The information zone never runs under the buttons: it is clipped to its grid

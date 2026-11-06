@@ -419,7 +419,7 @@
 
   // Full geometry of the loaded program (spec 3.8, Q7): one entry, by fingerprint, kept from one screen
   // to the other (the program is not read again, even less during a job); dropped in eco, on a lost
-  // context, at pagehide and when another program's geometry is read. Listeners only while kept.
+  // context, at pagehide and when a view of another loaded program opens. Listeners only while kept.
   var fullCache = null, fullListening = false;
   function fullDrop() {
     fullCache = null;
@@ -438,7 +438,8 @@
   // container}: with a container the view is drawn inside it (the preview frame) instead of over the page.
   // Under the GPU gate (cncGpu, read once here, never changed during the view's life), also
   // {live: {progress, tool}, overlays: [...], pathStyle: 'normal'|'ghost'|'hidden', fit: 'path'|'all'}
-  // (spec 8.2), and fullGeometry: true (Suivi at rest: read the whole program for the drawing, spec 3.8);
+  // (spec 8.2), fullGeometry: true (Suivi at rest: read the whole program for the drawing, spec 3.8) and
+  // loaded: true (the view shows the loaded program, Suivi: another one releases the kept geometry);
   // without the gate these are ignored and the view behaves as before.
   function open(meta, options) {
     options = options || {};
@@ -738,6 +739,8 @@
       cam.panX = px - (px - cam.panX) * k; cam.panY = py - (py - cam.panY) * k; cam.zoom = z;
     }
     function tap(e) {
+      // The inline view has no inspection panel (preview-advanced.css): a tap there reads nothing.
+      if (inline) return;
       var rect = canvas.getBoundingClientRect(), key = [cam.yaw, cam.pitch, cam.zoom, cam.panX, cam.panY, zs, width, height].join(',');
       if (screenKey !== key) { screen = project(path.positions, path.count, centre, cam, width, height, zs, screen); screenKey = key; }
       var hit = PI.nearestSegment(screen, path.count, mask, e.clientX - rect.left, e.clientY - rect.top, 24);
@@ -757,6 +760,8 @@
       if (i < 0) { hint.textContent = t('Aucun segment à cet endroit.'); rows.textContent = ''; return; }
       hint.textContent = t('Lecture de la ligne source…');
       showRows(PI.describe(path, i, null, meta.path3d));
+      // No read of the program during a job (spec 3.7, Q7): the simplified values stay.
+      if (jobBusy()) { hint.textContent = t('Travail en cours : la ligne source n’est pas lue, valeurs du tracé simplifié.'); return; }
       if (!src) src = options.source || PI.source(meta, options.sourceOptions);
       var line = path.lines[i];
       src.stateAt(line).then(function (state) {
@@ -790,6 +795,12 @@
       clamps.push(c); PI.saveClamps(meta.fingerprint, clamps, storage); upload(); invalidate();
     });
     on(win, 'resize', resize);
+    // A view drawn in a frame of the page follows the frame's own size (Préparer: the card's texts appear
+    // after the view opens; a frame shown after open), not only the window's.
+    var sizeWatch = null;
+    if (inline && typeof win.ResizeObserver === 'function') {
+      try { sizeWatch = new win.ResizeObserver(function () { if (!closed) resize(); }); sizeWatch.observe(stage); } catch (_) { sizeWatch = null; }
+    }
     on(win, 'cnc-profile-change', function (e) { var d = e && e.detail; if (d && d.performance !== 'performance') { close('eco'); if (options.onFallback) options.onFallback(t('Profil éco : vue 3D libre fermée et ressources libérées, vues fixes conservées.')); } });
     on(win, 'cnc-screen-change', function () { close('screen'); });
     on(win, 'cnc-screen-lock', function (e) { if (e && e.detail) close('lock'); });
@@ -852,6 +863,8 @@
       live.machine = m; live.simulation = !!d.simulation; live.receivedAt = now; live.fresh = m.fresh === true;
       // The whole program is read at rest only (Q7c): a read still in flight when a job starts is cancelled.
       if (fullRequest && busy()) { var stopped = fullRequest; fullRequest = null; stopped.cancel(); }
+      // Same for the source of an inspection: its read is aborted, the worker ended.
+      if (src && busy()) { var reading = src; src = null; inspected = -1; if (reading.release) reading.release(); }
       live.alarm = /^alarm/i.test(String(m.activeState || ''));
       // A and L: from a fresh report of this program only; frozen otherwise (stale, alarm).
       if (liveOptions.progress && live.fresh && !live.alarm) {
@@ -882,6 +895,12 @@
     function isStale(now) { return !live.fresh || (typeof now === 'number' ? now : clock()) - live.receivedAt > STALE_MS; }
     function running() { return !!live.machine && live.machine.workflow === 'running'; }
     function busy() { return !!live.machine && (live.machine.workflow === 'running' || live.machine.workflow === 'paused'); }
+    // A job running or paused, as this view knows it (live view) or as the page does (cncState).
+    function jobBusy() {
+      if (busy()) return true;
+      var m = null; try { m = win.cncState && win.cncState.get().machine; } catch (_) {}
+      return !!m && (m.workflow === 'running' || m.workflow === 'paused');
+    }
     function offsetReason() {
       if (!liveOptions.tool || !live.machine) return 'no-offset';
       if (live.offsetReason) return live.offsetReason;
@@ -906,9 +925,10 @@
     if (gpuMode && meta.fingerprint) {
       if (fullCache && PI.sameFingerprint(fullCache.fingerprint, meta.fingerprint)) useFull(fullCache.path, false);
       else {
-        // Another program is shown: the geometry kept for the previous one is released now (Q7b),
-        // whatever happens to this program's own read (too long, refused, no read at all).
-        if (fullCache) fullDrop();
+        // Another loaded program is shown (Suivi): the geometry kept for the previous one is released now
+        // (Q7b), whatever happens to this program's own read (too long, refused, no read at all). A file
+        // only looked at (Fichiers) does not change the loaded program: its geometry stays.
+        if (fullCache && (options.fullGeometry === true || options.loaded === true)) fullDrop();
       }
       if (geometry !== 'full' && options.fullGeometry === true && typeof PI.geometry === 'function') {
         var asked = fullRequest = PI.geometry(meta, { Worker: options.Worker, fetchProgram: options.fetchProgram });
@@ -1046,6 +1066,7 @@
       cumulative = null; gpuPath = extrasBuffer = triadBuffer = null;
       if (fullRequest) { var pending = fullRequest; fullRequest = null; pending.cancel(); }
       if (frame !== null && win.cancelAnimationFrame) win.cancelAnimationFrame(frame); frame = null;
+      if (sizeWatch) { try { sizeWatch.disconnect(); } catch (_) {} sizeWatch = null; }
       listeners.forEach(function (l) { try { l[0].removeEventListener(l[1], l[2], l[3]); } catch (_) {} }); listeners = [];
       if (renderer) renderer.release();
       if (src && src.release) src.release();

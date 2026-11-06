@@ -115,7 +115,7 @@
       // and the whole program's geometry, read at rest only, never during a job (Q7).
       // Fichiers never follows the machine (spec 2.4).
       var home = host.img.id === 'home-job-image';
-      var handle = root.CNCPreviewGL.open(full, { container: host.img.parentNode, stock: stock, live: home ? { progress: true, tool: true } : undefined, fullGeometry: home && !jobBusy,
+      var handle = root.CNCPreviewGL.open(full, { container: host.img.parentNode, stock: stock, live: home ? { progress: true, tool: true } : undefined, fullGeometry: home && !jobBusy, loaded: home,
         onFallback: function (message) { failed(message); },
         onClose: function () { if (host.gl === handle) host.gl = null; if (host.img.cncLiveView === handle) host.img.cncLiveView = null; } });
       if (handle) { host.gl = handle; if (home) host.img.cncLiveView = handle; }
