@@ -102,10 +102,10 @@ describe('resume from a line', () => {
   test('units and work offset the program never chose are left to the controller (no forced G54/G21)', () => {
     const prog = ['G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200', 'G1 X10 F800', 'G1 Y10', 'G1 X0', 'M30'].join('\n');
     const r = buildResume(prog, 5);
-    expect(r.preamble[1]).toBe('G90 G17 G94');
+    expect(r.preamble[1]).toBe('G90 G94');
     expect(r).toMatchObject({ wcs: null, units: null });
     const chosen = buildResume('G20 G55\n' + prog, 6);
-    expect(chosen.preamble[1]).toBe('G20 G90 G17 G55 G94');
+    expect(chosen.preamble[1]).toBe('G20 G90 G55 G94');
   });
 
   test('a compact first line keeps its own motion word (G90G1X10)', () => {
@@ -149,7 +149,7 @@ describe('resume from a line', () => {
   test('a program without spindle or coolant gets neither, and comments do not count as moves', () => {
     const prog = ['G20 G90', 'G0 Z0.5 (clear)', 'G0 X1 Y1 ; start', 'G1 Z-0.1 F10', '(note X99)', 'G1 X2', 'M30'].join('\n');
     const r = buildResume(prog, 6);
-    expect(r.preamble).toEqual(['(CNCjs Touch : reprise a la ligne 6)', 'G20 G90 G17 G94', 'G0 Z0.5', 'G0 X1 Y1', 'G1 Z-0.1 F10']);
+    expect(r.preamble).toEqual(['(CNCjs Touch : reprise a la ligne 6)', 'G20 G90 G94', 'G0 Z0.5', 'G0 X1 Y1', 'G1 Z-0.1 F10']);
     expect(r.spindle).toBe(null);
     expect(r.coolant).toBe(null);
   });
@@ -157,14 +157,14 @@ describe('resume from a line', () => {
   test('a unit change converts positions, clearance and feeds together (5 mm under G20 is Z0.1969, never Z5)', () => {
     const prog = ['G21 G90', 'G0 X100 Y0 Z5', 'G20', 'G1 X4 F10', 'G1 Y1'].join('\n');
     const r = buildResume(prog, 5);
-    expect(r.preamble).toEqual(['(CNCjs Touch : reprise a la ligne 5)', 'G20 G90 G17 G94', 'G0 Z0.1969', 'G0 X4 Y0', 'G1 Z0.1969 F10']);
+    expect(r.preamble).toEqual(['(CNCjs Touch : reprise a la ligne 5)', 'G20 G90 G94', 'G0 Z0.1969', 'G0 X4 Y0', 'G1 Z0.1969 F10']);
     expect(r.preamble.join('\n')).not.toMatch(/Z5\b/);
     expect(r.units).toBe('G20');
     expect(r.safeZ).toBeCloseTo(5 / 25.4, 6);
     expect(r.notes).toEqual(expect.arrayContaining([expect.stringMatching(/unités.*ligne 3/)]));
     // Feeds (units per minute) and the plunge feed follow the same conversion.
     const feeds = ['G21 G90', 'G0 X0 Y0 Z5', 'G1 Z-1 F300', 'G20', 'G1 X1'].join('\n');
-    expect(buildResume(feeds, 5).preamble.slice(1)).toEqual(['G20 G90 G17 G94', 'G0 Z0.1969', 'G0 X0 Y0', 'G1 Z-0.0394 F11.811']);
+    expect(buildResume(feeds, 5).preamble.slice(1)).toEqual(['G20 G90 G94', 'G0 Z0.1969', 'G0 X0 Y0', 'G1 Z-0.0394 F11.811']);
   });
 
   test('a program that alternates units several times, with incremental moves in between, is followed', () => {
@@ -173,7 +173,7 @@ describe('resume from a line', () => {
     expect(r.position.X).toBeCloseTo(76.2, 6);
     expect(r.position).toMatchObject({ Y: 10 });
     expect(r.position.Z).toBeCloseTo(5, 6);
-    expect(r.preamble.slice(1)).toEqual(['G21 G90 G17 G94', 'G0 Z5', 'G0 X76.2 Y10', 'G1 Z5 F200']);
+    expect(r.preamble.slice(1)).toEqual(['G21 G90 G94', 'G0 Z5', 'G0 X76.2 Y10', 'G1 Z5 F200']);
   });
 
   test('units chosen after moves made in the machine units cannot be converted: refused', () => {
@@ -189,7 +189,7 @@ describe('resume from a line', () => {
     expect(buildResume(prog, 8)).toMatchObject({ wcs: 'G55', position: { X: 20, Y: 5, Z: 3 }, safeZ: 3 });
     const r = buildResume(prog, 9);
     expect(r).toMatchObject({ wcs: 'G55', position: { X: 20, Y: 5, Z: -1 }, safeZ: 3 });
-    expect(r.preamble.slice(1)).toEqual(['G21 G90 G17 G55 G94', 'G0 Z3', 'G0 X20 Y5', 'G1 Z-1 F100']);
+    expect(r.preamble.slice(1)).toEqual(['G21 G90 G55 G94', 'G0 Z3', 'G0 X20 Y5', 'G1 Z-1 F100']);
     // Selecting the same offset again changes nothing.
     const same = ['G21 G90 G54', 'G0 X10 Y20 Z5', 'G1 Z-1 F100', 'G54', 'G1 X20'].join('\n');
     expect(buildResume(same, 5).position).toEqual({ X: 10, Y: 20, Z: -1 });
@@ -209,7 +209,8 @@ describe('resume from a line', () => {
   });
 
   test('arcs: end points are followed, I/J/R are never taken for positions, a modal arc line gets its G2 back', () => {
-    const prog = ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G2 X10 Y10 I5 J5', 'X0 Y0 I-5 J-5', 'G3 X4 Y4 R3', 'G1 X1'].join('\n');
+    // The plane is chosen (E-3, round 4: arcs without a chosen plane are refused).
+    const prog = ['G21 G90 G17', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G2 X10 Y10 I5 J5', 'X0 Y0 I-5 J-5', 'G3 X4 Y4 R3', 'G1 X1'].join('\n');
     expect(buildResume(prog, 6).position).toEqual({ X: 10, Y: 10, Z: -1 });
     expect(buildResume(prog, 6).program.split('\n')).toContain('G2 X0 Y0 I-5 J-5');
     expect(buildResume(prog, 7).position).toEqual({ X: 0, Y: 0, Z: -1 });
@@ -225,7 +226,7 @@ describe('resume from a line', () => {
     };
     expect(at(['G30'], 6)).toThrow(/Position/);
     expect(at(['G38.2 Z-10 F50'], 6)).toThrow(/Position/);
-    expect(at(['G53 G0 Z-1', 'G0 Z5'], 7)().preamble.slice(1)).toEqual(['G21 G90 G17 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z5 F100']);
+    expect(at(['G53 G0 Z-1', 'G0 Z5'], 7)().preamble.slice(1)).toEqual(['G21 G90 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z5 F100']);
   });
 
   test('notes state the limits: the clearance is the highest Z seen, modes left to the controller are named', () => {
@@ -253,21 +254,21 @@ describe('resume cross-check: units', () => {
     expect(r.units).toBe('G21');
     expect(r.position).toEqual({ X: near(1 * IN), Y: near(1 * IN), Z: near(-0.05 * IN) });
     expect(r.safeZ).toBeCloseTo(0.2 * IN, 6);
-    expect(r.preamble.slice(1)).toEqual(['G21 G90 G17 G94', 'G0 Z5.08', 'G0 X25.4 Y25.4', 'G1 Z-1.27 F254']);
+    expect(r.preamble.slice(1)).toEqual(['G21 G90 G94', 'G0 Z5.08', 'G0 X25.4 Y25.4', 'G1 Z-1.27 F254']);
     expect(r.notes.join(' ')).toMatch(/unités.*ligne 4.*G21/);
   });
 
   test('a feed given before G20 and reused after it is converted (working and plunge feeds)', () => {
     const prog = ['G21 G90', 'G0 X0 Y0 Z5', 'G1 Z-1 F300', 'G1 X10 F600', 'G20', 'G1 X1', 'G1 Y1'].join('\n');
     const r = buildResume(prog, 7);
-    expect(r.preamble.slice(1)).toEqual(['G20 G90 G17 G94', 'G0 Z0.1969', 'G0 X1 Y0', 'G1 Z-0.0394 F11.811', 'F23.622']);
+    expect(r.preamble.slice(1)).toEqual(['G20 G90 G94', 'G0 Z0.1969', 'G0 X1 Y0', 'G1 Z-0.0394 F11.811', 'F23.622']);
   });
 
   test('several G words on a line: G1 G20 X1 F10 converts the state before X is applied in inches', () => {
     const prog = ['G21 G90', 'G0 X0 Y0 Z5', 'G1 G20 X1 F10', 'G1 Y1'].join('\n');
     const r = buildResume(prog, 4);
     expect(r.position).toEqual({ X: 1, Y: 0, Z: near(5 / IN) });
-    expect(r.preamble.slice(1)).toEqual(['G20 G90 G17 G94', 'G0 Z0.1969', 'G0 X1 Y0', 'G1 Z0.1969 F10']);
+    expect(r.preamble.slice(1)).toEqual(['G20 G90 G94', 'G0 Z0.1969', 'G0 X1 Y0', 'G1 Z0.1969 F10']);
   });
 
   test('G21, G20, G21, G20 with G91 between two changes', () => {
@@ -284,7 +285,7 @@ describe('resume cross-check: units', () => {
     ].join('\n');
     const r = buildResume(prog, 9);
     expect(r.position).toEqual({ X: near(35.4 / IN), Y: near(10 / IN), Z: near(5 / IN) });
-    expect(r.preamble.slice(1)).toEqual(['G20 G90 G17 G94', 'G0 Z0.1969', 'G0 X1.3937 Y0.3937', 'G1 Z0.1969 F7.874']);
+    expect(r.preamble.slice(1)).toEqual(['G20 G90 G94', 'G0 Z0.1969', 'G0 X1.3937 Y0.3937', 'G1 Z0.1969 F7.874']);
     expect(r.notes.join(' ')).toMatch(/ligne 8/);
     expect(() => buildResume(prog, 6)).toThrow(/G91/);
   });
@@ -292,7 +293,7 @@ describe('resume cross-check: units', () => {
   test('G91 then G90 with a clearance reached under G91: the absolute height is followed', () => {
     const prog = ['G21 G90', 'G0 X0 Y0 Z5', 'G1 Z-1 F100', 'G91', 'G0 Z6', 'G90', 'G0 X10 Y10', 'G1 Z-1', 'G1 X20'].join('\n');
     expect(buildResume(prog, 9)).toMatchObject({ position: { X: 10, Y: 10, Z: -1 }, safeZ: 5 });
-    expect(buildResume(prog, 8).preamble.slice(1)).toEqual(['G21 G90 G17 G94', 'G0 Z5', 'G0 X10 Y10', 'G1 Z5 F100']);
+    expect(buildResume(prog, 8).preamble.slice(1)).toEqual(['G21 G90 G94', 'G0 Z5', 'G0 X10 Y10', 'G1 Z5 F100']);
   });
 
   test('a lone F before G21 (no move) refuses the resume: conservative, its unit depends on the machine', () => {
@@ -304,7 +305,7 @@ describe('resume cross-check: units', () => {
     const prog = ['g21 g90 g54', 'g0z5', 'g0x10y10', 'g1z-1f100 (G20 G91 G55)', 'g1x20 ; G92 X0 G10', 'g1y5'].join('\n');
     const r = buildResume(prog, 6);
     expect(r).toMatchObject({ units: 'G21', wcs: 'G54', position: { X: 20, Y: 10, Z: -1 }, safeZ: 5 });
-    expect(r.preamble.slice(1)).toEqual(['G21 G90 G17 G54 G94', 'G0 Z5', 'G0 X20 Y10', 'G1 Z-1 F100']);
+    expect(r.preamble.slice(1)).toEqual(['G21 G90 G54 G94', 'G0 Z5', 'G0 X20 Y10', 'G1 Z-1 F100']);
     // The clearance note and the rapid-retract note only (no mode left to the machine).
     expect(r.notes).toHaveLength(2);
   });
@@ -313,7 +314,7 @@ describe('resume cross-check: units', () => {
     const prog = ['G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G1 X5'].join('\n');
     const r = buildResume(prog, 5);
     expect(r).toMatchObject({ units: null, wcs: null });
-    expect(r.preamble[1]).toBe('G90 G17 G94');
+    expect(r.preamble[1]).toBe('G90 G94');
     expect(r.notes).toEqual([
       expect.stringMatching(/dégagement/), expect.stringMatching(/Retrait en rapide/), expect.stringMatching(/unités/), expect.stringMatching(/repère/)
     ]);
@@ -373,7 +374,7 @@ describe('resume cross-check: work offsets, origin, machine coordinates', () => 
     const prog = ['G21 G90 G54', 'G0 X10 Y10 Z5', 'G1 Z-1 F100', 'G20 G55 G0 X1 Y1 Z0.5', 'G1 Z-0.1', 'G1 X2'].join('\n');
     const r = buildResume(prog, 6);
     expect(r).toMatchObject({ units: 'G20', wcs: 'G55', position: { X: 1, Y: 1, Z: -0.1 }, safeZ: 0.5 });
-    expect(r.preamble.slice(1)).toEqual(['G20 G90 G17 G55 G94', 'G0 Z0.5', 'G0 X1 Y1', 'G1 Z-0.1 F3.937']);
+    expect(r.preamble.slice(1)).toEqual(['G20 G90 G55 G94', 'G0 Z0.5', 'G0 X1 Y1', 'G1 Z-0.1 F3.937']);
   });
 });
 
@@ -400,7 +401,8 @@ describe('resume cross-check: compensations, probes, arcs', () => {
   });
 
   test('arcs: I/J/K/R are never positions, a helical G2 follows Z, the modal G2/G3 is given back', () => {
-    const prog = base.concat(['G2 X10 Y0 I5 J0', 'X0 Y0 I-5 J0', 'G2 X10 Y0 Z-2 I5 J0 K0', 'G3 X0 Y0 R5', 'G1 X1']).join('\n');
+    // The plane is chosen on the arc line (E-3, round 4: arcs without a chosen plane are refused).
+    const prog = base.concat(['G17 G2 X10 Y0 I5 J0', 'X0 Y0 I-5 J0', 'G2 X10 Y0 Z-2 I5 J0 K0', 'G3 X0 Y0 R5', 'G1 X1']).join('\n');
     expect(buildResume(prog, 6)).toMatchObject({ position: { X: 10, Y: 0, Z: -1 } });
     expect(buildResume(prog, 6).program.split('\n')).toContain('G2 X0 Y0 I-5 J0');
     expect(buildResume(prog, 8)).toMatchObject({ position: { X: 10, Y: 0, Z: -2 } });
@@ -426,9 +428,9 @@ describe('resume cross-check: a clearance that is only a cutting depth is refuse
 
   test('a clearance equal to the current Z is accepted when reached in rapid, also after a G1 retract', () => {
     const rapid = ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5', 'G1 X10', 'G1 Y10'].join('\n');
-    expect(buildResume(rapid, 6).preamble.slice(1)).toEqual(['G21 G90 G17 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z5 F100']);
+    expect(buildResume(rapid, 6).preamble.slice(1)).toEqual(['G21 G90 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z5 F100']);
     const modal = ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0', 'Z5', 'G1 X10'].join('\n');
-    expect(buildResume(modal, 7).preamble.slice(1)).toEqual(['G21 G90 G17 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z5 F100']);
+    expect(buildResume(modal, 7).preamble.slice(1)).toEqual(['G21 G90 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z5 F100']);
     // A retract made at feed (G1 Z8) followed by a plunge: the clearance Z8 is above the resume Z.
     const feed = ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G1 Z8 F500', 'G1 Z-2 F100', 'G1 X10'].join('\n');
     expect(buildResume(feed, 7)).toMatchObject({ position: { X: 0, Y: 0, Z: -2 }, safeZ: 8 });
@@ -455,7 +457,7 @@ describe('resume cross-check 2: the motion of the current line decides whether a
   test('Z5 without a G word under a modal G0 (after a G0 X5 line) is a rapid', () => {
     const prog = ['G21 G90', 'G0 X0 Y0 Z5', 'G1 Z-1 F100', 'G0 X5', 'Z5', 'G1 X10'];
     expect(xvState(prog, 6)).toMatchObject({ motion: 'G0', safeZ: 5, rapidZ: 5, pos: { X: 5, Y: 0, Z: 5 } });
-    expect(buildResume(prog.join('\n'), 6).preamble.slice(1)).toEqual(['G21 G90 G17 G94', 'G0 Z5', 'G0 X5 Y0', 'G1 Z5 F100']);
+    expect(buildResume(prog.join('\n'), 6).preamble.slice(1)).toEqual(['G21 G90 G94', 'G0 Z5', 'G0 X5 Y0', 'G1 Z5 F100']);
   });
 
   test('G1 Z5 after a modal G0 line, never reached in rapid: refused (no rapid Z at all)', () => {
@@ -492,7 +494,7 @@ describe('resume cross-check 2: the motion of the current line decides whether a
   test('a unit change scales the clearance and the rapid Z together', () => {
     const rapid = ['G21 G90', 'G0 X0 Y0 Z5', 'G1 Z-1 F100', 'G0 Z5', 'G20', 'G1 X1'];
     expect(xvState(rapid, 6)).toMatchObject({ rapidZ: expect.closeTo(5 / 25.4, 6), unitsChanged: 5 });
-    expect(buildResume(rapid.join('\n'), 6).preamble.slice(1)).toEqual(['G20 G90 G17 G94', 'G0 Z0.1969', 'G0 X0 Y0', 'G1 Z0.1969 F3.937']);
+    expect(buildResume(rapid.join('\n'), 6).preamble.slice(1)).toEqual(['G20 G90 G94', 'G0 Z0.1969', 'G0 X0 Y0', 'G1 Z0.1969 F3.937']);
     const feed = ['G21 G90', 'G0 X0 Y0', 'G1 Z-1 F100', 'G1 Z5', 'G20', 'G1 X1'];
     expect(xvState(feed, 6)).toMatchObject({ rapidZ: null });
     expect(xvOutcome(feed, 6)).toMatch(/dégagement/);
@@ -505,7 +507,7 @@ describe('resume cross-check 2: the motion of the current line decides whether a
     expect(xvState(feed, 6)).toMatchObject({ safeZ: 5, rapidZ: null });
     expect(xvOutcome(feed, 6)).toMatch(/dégagement.*aucun déplacement rapide G0 en Z sous G55/);
     const rapid = ['G21 G90 G54 F100', 'G0 X0 Y0 Z5', 'G55', 'G0 X1 Y1', 'G0 Z5', 'G1 X2'];
-    expect(buildResume(rapid.join('\n'), 6).preamble.slice(1)).toEqual(['G21 G90 G17 G55 G94', 'G0 Z5', 'G0 X1 Y1', 'G1 Z5 F100']);
+    expect(buildResume(rapid.join('\n'), 6).preamble.slice(1)).toEqual(['G21 G90 G55 G94', 'G0 Z5', 'G0 X1 Y1', 'G1 Z5 F100']);
     // Same offset repeated (G54 again): nothing is reset.
     const same = ['G21 G90 G54', 'G0 X0 Y0 Z5', 'G54', 'G1 Z-1 F100', 'G1 X2'];
     expect(xvState(same, 5)).toMatchObject({ safeZ: 5, rapidZ: 5, wcsReset: null });
@@ -622,7 +624,7 @@ describe('resume, cross-check 3', () => {
       const plan = buildResume(withRapid, 11);
       expect(plan).toMatchObject({ safeZ: 3, wcs: 'G55' });
       expect(plan.notes[1]).toMatch(/Retrait en rapide constaté à Z3 sous G55/);
-      expect(plan.preamble[1]).toBe('G21 G90 G17 G55 G94');
+      expect(plan.preamble[1]).toBe('G21 G90 G55 G94');
     });
 
     test('G91 G0 Z5 relatif puis G90 : le rapide relatif compte comme retrait (position absolue connue avant)', () => {
@@ -703,7 +705,7 @@ describe('final cross-check · reprise après commentaires imbriqués', () => {
     expect(plan.position).toEqual({ X: 5, Y: 7, Z: -1 });
     expect(plan.preamble).toEqual([
       '(CNCjs Touch : reprise a la ligne 8)',
-      'G21 G90 G17 G54 G94',
+      'G21 G90 G54 G94',
       'G0 Z5',
       'G0 X5 Y7',
       'G1 Z-1 F200',
@@ -819,27 +821,22 @@ describe('resume, re-check of c4c048c7 (xvg)', () => {
       expect(ok.program).toMatch(/G1 X\[posx\+1\]\n%_z=5\nG0 Z\[_z\]/);
     });
 
-    test('la ligne de reprise elle-même est une expression : acceptée, envoyée telle quelle', () => {
+    // Bug hunt E-3 (4e tour) : la ligne de reprise elle-même n'est pas lue par le
+    // serveur quand CNCjs l'évalue à l'envoi (« G[0] X20 » lu comme un G0, « X[4*2] »
+    // sans mot d'axe) : refusée, comme une expression avant la ligne.
+    test('la ligne de reprise elle-même est une expression : refusée (ETOUCH_RESUME_FIRST_EXPRESSION)', () => {
       const gcode = BASE.concat(['G1 Y7', 'G1 X[4*2]', 'G0 Z5', 'M30']).join('\n');
-      const { ok } = attempt(gcode, 7);
-      const first = ok.program.split('\n')[ok.preamble.length];
-      // eslint-disable-next-line no-console
-      console.log('first line', first);
-      expect(first).toBe('G1 X[4*2]');
+      const { err } = attempt(gcode, 7);
+      expect(err).toMatchObject({ status: 409, code: 'ETOUCH_RESUME_FIRST_EXPRESSION', params: { from: 7 } });
     });
 
     // Observation d'alors : une première ligne « X[..] » sans mot de mouvement ne recevait
     // pas le mouvement modal (hasAxis exige un chiffre après la lettre) et s'exécutait
-    // dans le mode laissé par le préambule (G1). Bug hunt E-3 (3e tour) : une première
-    // ligne qui ne fixe pas son mode reçoit le mode modal du programme sur sa propre
-    // ligne de préambule ; la ligne elle-même n'est pas préfixée.
-    test('première ligne « X[..] Y[..] » après un G0 modal : « G0 » rétabli dans le préambule, ligne inchangée', () => {
+    // dans le mode laissé par le préambule (G1). Bug hunt E-3 (4e tour) : refusée.
+    test('première ligne « X[..] Y[..] » après un G0 modal : refusée ; la même ligne sans expression reçoit son G0', () => {
       const gcode = BASE.concat(['G0 Z5', 'G0 X1 Y1', 'X[4*2] Y[3]', 'M30']).join('\n');
-      const { ok } = attempt(gcode, 8);
-      const first = ok.program.split('\n')[ok.preamble.length];
-      expect(ok.preamble[ok.preamble.length - 2]).toMatch(/^(G1 Z|F)/);
-      expect(ok.preamble[ok.preamble.length - 1]).toBe('G0');
-      expect(first).toBe('X[4*2] Y[3]');
+      const { err } = attempt(gcode, 8);
+      expect(err).toMatchObject({ status: 409, code: 'ETOUCH_RESUME_FIRST_EXPRESSION', params: { from: 8 } });
       // Même ligne sans expression : le G0 modal est rajouté.
       const plain = attempt(gcode.replace('X[4*2] Y[3]', 'X8 Y3'), 8).ok;
       expect(plain.program.split('\n')[plain.preamble.length]).toBe('G0 X8 Y3');

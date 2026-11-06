@@ -16,7 +16,7 @@
 // la ligne est du Grbl complet, exécutée depuis la position que le préambule
 // a rejointe, exactement comme dans le programme ; le cas réel (reprise au
 // bloc de changement d'outil d'un post Fusion 360) reste possible.
-import { buildResume, programLines } from '../resume';
+import { buildResume, programLines, stateBefore } from '../resume';
 import { expectCatalogMatch } from './touch-codes-catalog';
 
 const sentFirst = (r) => r.program.split('\n')[r.preamble.length];
@@ -135,7 +135,68 @@ describe('E-3 (suite) : les lignes après la première gardent le mode de dépla
     expect(plain.preamble.at(-1)).toMatch(/^G1 Z5 F100$/);
     expect(after(plain)[0]).toBe('G0 Y5');
   });
+});
 
+// Quatrième tour (revue Codex) : cas de resume.js refusés plutôt que modélisés.
+describe('E-3 (4e tour) : G49 avec axe, palpage modal, expressions en ligne de reprise, plan non fixé', () => {
+  const P = ['G21 G90 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5'];
+  const refusalOf = (fn) => {
+    try {
+      fn();
+    } catch (err) {
+      return err;
+    }
+    return null;
+  };
+
+  test('G49 Z-100 (mot d’axe avec G49) : refusé avant la ligne de reprise et comme ligne de reprise (ETOUCH_RESUME_G49_AXIS)', () => {
+    const prog = P.concat(['G49 Z-100', 'G4 P1', 'X20']).join('\n');
+    const before = refusalOf(() => buildResume(prog, 7));
+    expect(before).toMatchObject({ code: 'ETOUCH_RESUME_G49_AXIS', params: { line: 6 } });
+    expectCatalogMatch(before);
+    const first = refusalOf(() => buildResume(prog, 6));
+    expect(first).toMatchObject({ code: 'ETOUCH_RESUME_G49_AXIS', params: { line: 6 } });
+    // G49 seul reste accepté (annulation du décalage, aucun mot d'axe).
+    expect(buildResume(prog.replace('G49 Z-100', 'G49'), 7).preamble.at(-1)).toBe('G0');
+  });
+
+  test('G38.3 reste le mode modal : « X20 » après lui est un palpage, la position est inconnue, reprise refusée (ETOUCH_RESUME_POSITION)', () => {
+    const prog = P.slice(0, 4).concat(['G38.3 X10 F50', 'X20', 'G4 P1', 'X30']).join('\n');
+    const s = stateBefore(programLines(prog), 7);
+    expect(s.motion).toBe('G38.3');
+    expect(s.pos.X).toBeNull();
+    expect(refusalOf(() => buildResume(prog, 7))).toMatchObject({ code: 'ETOUCH_RESUME_POSITION', params: { from: 7 } });
+    expect(refusalOf(() => buildResume(prog, 6))).toMatchObject({ code: 'ETOUCH_RESUME_POSITION', params: { from: 6 } });
+    // Une position redonnée en absolu après le palpage (G0 fixe aussi le mode) : reprise possible, « G0 » rétabli.
+    const again = P.slice(0, 4).concat(['G38.3 X10 F50', 'G0 Z5', 'G0 X5 Y5', 'G4 P1', 'X30']).join('\n');
+    const r = buildResume(again, 8);
+    expect(r.position).toEqual({ X: 5, Y: 5, Z: 5 });
+    expect(r.preamble.at(-1)).toBe('G0');
+  });
+
+  test.each([['G[0] X20'], ['G[10] L20 P1 X0'], ['X[4*2] Y[3]'], ['%wait']])('ligne de reprise « %s » : expression ou directive CNCjs, refusée (ETOUCH_RESUME_FIRST_EXPRESSION)', (line) => {
+    const prog = P.concat([line, 'X20', 'M30']).join('\n');
+    const err = refusalOf(() => buildResume(prog, 6));
+    expect(err).toMatchObject({ code: 'ETOUCH_RESUME_FIRST_EXPRESSION', params: { from: 6 } });
+    expectCatalogMatch(err);
+  });
+
+  test('plan non fixé (pas de G17/G18/G19) et arc à partir de la ligne de reprise : refusé (ETOUCH_RESUME_PLANE), jamais de G17 supposé', () => {
+    const prog = P.concat(['G1 X10', 'G2 X20 Y0 I5 J0', 'G1 X30', 'M30']).join('\n');
+    const err = refusalOf(() => buildResume(prog, 6));
+    expect(err).toMatchObject({ code: 'ETOUCH_RESUME_PLANE', params: { from: 6, line: 7 } });
+    expectCatalogMatch(err);
+    // Plan déclaré par le programme avant la reprise : préambule en G18, reprise acceptée.
+    const g18 = buildResume(prog.replace('G21 G90 G54', 'G21 G90 G54 G18'), 6);
+    expect(g18.preamble[1]).toBe('G21 G90 G18 G54 G94');
+    // Plan déclaré plus loin, avant le premier arc : affaire du programme, reprise acceptée.
+    expect(buildResume(prog.replace('G2 X20', 'G17\nG2 X20'), 6).preamble[1]).toBe('G21 G90 G54 G94');
+    // Sans arc : rien n'est supposé, le préambule ne nomme aucun plan.
+    expect(buildResume(prog.replace('G2 X20 Y0 I5 J0', 'G1 X20'), 6).preamble[1]).toBe('G21 G90 G54 G94');
+  });
+});
+
+describe('E-3 (suite, laser)', () => {
   test('reprise laser : une telle ligne n’est pas un G0 X/Y, refus inchangé (ETOUCH_LASER_RESUME_NOT_RAPID)', () => {
     const prog = ['G21 G90', 'M3 S500', 'G0 X0 Y0', 'G1 X10 F1000', 'M5', 'G0 X5 Y5', 'G92 X0 Y0', 'G1 X15 F1000', 'M30'].join('\n');
     let refusal = null;

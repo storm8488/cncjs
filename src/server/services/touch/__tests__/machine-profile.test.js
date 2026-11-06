@@ -529,7 +529,7 @@ describe('laser resume boundaries (§4)', () => {
   test('after a cut, at the start of a new rapid: M5, modal state, G0 XY, constant Z, F, then M3/M4 S; no dwell, no plunge', () => {
     const plan = buildResume(P('G21 G90 G54', 'G0 X0 Y0 Z2', 'M4 S800', 'G1 X10 F1200', 'G1 Y10', 'G0 X20 Y0', 'G1 X30', 'M5', 'M30'), 6, { name: 'plaque.nc', mode: 'laser' });
     expect(plan.mode).toBe('laser');
-    expect(plan.preamble).toEqual(['(CNCjs Touch : reprise laser a la ligne 6 de plaque.nc)', 'M5', 'G21 G90 G17 G54 G94', 'G0 X10 Y10', 'G0 Z2', 'F1200', 'M4 S800']);
+    expect(plan.preamble).toEqual(['(CNCjs Touch : reprise laser a la ligne 6 de plaque.nc)', 'M5', 'G21 G90 G54 G94', 'G0 X10 Y10', 'G0 Z2', 'F1200', 'M4 S800']);
     expect(plan.program.split('\n').slice(7, 9)).toEqual(['G0 X20 Y0', 'G1 X30']);
     expect(plan.spindle).toEqual({ mode: 'M4', speed: 800 });
     expect(plan.preamble.join('\n')).not.toMatch(/^(G4|G1) /m);
@@ -537,7 +537,7 @@ describe('laser resume boundaries (§4)', () => {
 
   test('laser off (M5 or S0): a rapid after it is a boundary; no Z move when the program gives none; S kept when off', () => {
     const off = buildResume(P('G21 G90', 'G0 X0 Y0', 'M3 S500', 'G1 X10 F900', 'M5', 'G0 X5 Y5', 'G0 X7 Y7', 'M3', 'G1 X20'), 7, { mode: 'laser' });
-    expect(off.preamble.slice(1)).toEqual(['M5', 'G21 G90 G17 G94', 'G0 X5 Y5', 'F900', 'S500']);
+    expect(off.preamble.slice(1)).toEqual(['M5', 'G21 G90 G94', 'G0 X5 Y5', 'F900', 'S500']);
     expect(off.notes.join(' ')).toMatch(/reste à sa hauteur actuelle/);
     const s0 = buildResume(P('G21 G90', 'G0 X0 Y0', 'M3 S500', 'G1 X10 F900', 'S0', 'G0 X5 Y5'), 6, { mode: 'laser' });
     expect(s0.preamble.slice(-1)).toEqual(['M3 S0']);
@@ -571,7 +571,7 @@ describe('laser resume boundaries (§4)', () => {
     const gcode = PROGRAMS['cnc.nc'];
     const before = buildResume(gcode, 7);
     expect(buildResume(gcode, 7, { mode: 'cnc' })).toEqual(before);
-    expect(before.preamble.slice(1)).toEqual(['G21 G90 G17 G94', 'G0 Z5', 'G0 X10 Y0', 'M3 S9000', 'G4 P3', 'G1 Z-1 F200', 'F800']);
+    expect(before.preamble.slice(1)).toEqual(['G21 G90 G94', 'G0 Z5', 'G0 X10 Y0', 'M3 S9000', 'G4 P3', 'G1 Z-1 F200', 'F800']);
   });
 });
 
