@@ -25,6 +25,7 @@ const crypto = require('crypto');
 
 const SOURCE = path.join(__dirname, 'touch');
 const PAGES = ['index.html', 'simulation.html'];
+const ADVANCED = ['preview-gl.js', 'origin-preview.js'];
 
 // A syntax error in one file would lose the whole bundle (every module, Pause / Arrêter too),
 // where separate files lose only that one: every script must parse on its own, at the
@@ -37,7 +38,9 @@ function compileCheck(file, text) {
     if (acorn) acorn.parse(text, { ecmaVersion: 2017, sourceType: 'script' });
     else new (require('vm').Script)(text, { filename: file });
   } catch (error) {
-    const where = error.loc ? ' (line ' + error.loc.line + ', column ' + (error.loc.column + 1) + ')' : '';
+    // acorn gives `loc`; Node's SyntaxError only names `file:line` on the first line of its stack.
+    const vmLine = !error.loc && /^[^\n]*:(\d+)\s*$/m.exec(String(error.stack || '').split('\n')[0]);
+    const where = error.loc ? ' (line ' + error.loc.line + ', column ' + (error.loc.column + 1) + ')' : vmLine ? ' (line ' + vmLine[1] + ')' : '';
     throw new Error('bundle refused: ' + file + ' does not compile' + where + ': ' + error.message);
   }
 }
@@ -111,6 +114,8 @@ function build(outDir, source) {
     resources(fs.readFileSync(path.join(source, p), 'utf8')).filter((r) => r.kind === 'script' && !isExternal(r.ref))
       .forEach((r) => compileCheck(r.file, fs.readFileSync(path.join(source, r.file), 'utf8')));
   });
+  // Scripts that only cncProfile.loadAdvanced injects (Performance): copied as they are, checked like the others.
+  ADVANCED.filter((f) => fs.existsSync(path.join(source, f))).forEach((f) => compileCheck(f, fs.readFileSync(path.join(source, f), 'utf8')));
   fs.mkdirSync(outDir, { recursive: true });
   // The whole directory first (workers, notices, VERSION.json, deep links), then the bundles over it.
   fs.readdirSync(source).forEach((f) => { if (fs.statSync(path.join(source, f)).isFile()) fs.copyFileSync(path.join(source, f), path.join(outDir, f)); });

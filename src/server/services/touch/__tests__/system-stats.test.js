@@ -120,7 +120,7 @@ describe('system stats', () => {
 
   test('ignores unreadable or nonsensical sensor values', () => {
     const { files, dirs } = tablet();
-    files['/sys/class/thermal/thermal_zone0/temp'] = 'garbage';
+    files['/sys/class/thermal/thermal_zone0/temp'] = '-268400'; // Surface Pro 3 acpitz firmware bug
     files['/sys/class/power_supply/surface-rt-battery/capacity'] = '140';
     delete files['/sys/class/power_supply/surface-rt-battery/status'];
     const stats = createSystemStats({ os: makeOs([[cpu(0, 0)]]), fs: makeFs(files, dirs), now: () => 10000 });

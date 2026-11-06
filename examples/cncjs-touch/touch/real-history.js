@@ -117,7 +117,8 @@
       if (xhr.status >= 200 && xhr.status < 300 && data && Array.isArray(data.entries)) {
         finish({ entries: data.entries.filter(function (e) { return e && typeof e === 'object'; }), total: Number(data.total) || 0, skipped: Number(data.skipped) || 0, more: data.more === true }, '');
       } else {
-        finish(null, xhr.status === 401 ? uiLocale.t('Session CNCjs requise.') : uiLocale.t('Historique serveur indisponible') + (xhr.status ? ' (HTTP ' + xhr.status + ')' : '') +
+        // 401, or CNCjs' plain-text 403 (« Forbidden Access »): the session is refused.
+        finish(null, xhr.status === 401 || (xhr.status === 403 && !data) ? uiLocale.t('Session CNCjs requise.') : uiLocale.t('Historique serveur indisponible') + (xhr.status ? ' (HTTP ' + xhr.status + ')' : '') +
           (data && typeof data.message === 'string' ? ' : ' + uiLocale.t(data.message.slice(0, 200)) : '.'));
       }
     };

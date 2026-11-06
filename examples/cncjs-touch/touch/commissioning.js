@@ -79,11 +79,17 @@
     if(id==='limits')return st.seen&&st.seen.X&&st.seen.Y&&st.seen.Z?'ok':'';
     if(id==='probe')return st.seen&&st.seen.P&&st.released&&st.released.P?'ok':'';
     if(id==='homing')return st.homed?'ok':'';
+    // Laser profile: the spindle step is a checklist only (no command), PROFILES-CONTRACT.md §3.
+    if(id==='spindle'&&st.laser)return checked(st,LASER_CHECKS)?'manual':'';
     if(id==='spindle')return st.ran&&st.stopped&&checked(st,['direction','noise','vfd'])?'ok':'';
     if(id==='aircut')return st.finished?'ok':(st.created&&checked(st,['ran'])?'manual':'');
     return 'ok';
   }
-  function program(speed){
+  var LASER_CHECKS=['goggles','enclosure','air','focus'];
+  // Laser: the same square with the laser off from start to end (M5, no S above zero, no M3/M4).
+  function program(speed,laser){
+    if(laser)return ['(CNCjs Touch - essai en l air : carre de 40 mm, LASER ETEINT)','(Origine X0 Y0 au centre ; aucune commande M3 ou M4)',
+      'G21 G90 G17 G94','M5 S0','G0 X-20 Y-20','G1 X20 Y-20 F1000','G1 X20 Y20','G1 X-20 Y20','G1 X-20 Y-20','G0 X0 Y0','M5','M2',''].join('\n');
     return ['(CNCjs Touch - essai en l air : carre de 40 mm a Z0, SANS fraise)','(Origine X0 Y0 au centre, Z0 au moins 30 mm au-dessus de tout)',
       'G21 G90 G17 G94','G0 Z5','G0 X-20 Y-20','M3 S'+speed,'G4 P3','G1 Z0 F300','G1 X20 Y-20 F1000','G1 X20 Y20','G1 X-20 Y20','G1 X-20 Y-20',
       'G0 Z5','M5','G0 X0 Y0','M2',''].join('\n');
@@ -102,7 +108,7 @@
     else if(detail==='unlock'){st.sent=false;st.left=false;st.homing=false;}
     return st;
   }
-  window.CNCCommissioning={STEPS:STEPS,observe:observe,result:result,program:program,settingsText:settingsText,commandSent:commandSent};
+  window.CNCCommissioning={STEPS:STEPS,observe:observe,result:result,program:program,settingsText:settingsText,commandSent:commandSent,LASER_CHECKS:LASER_CHECKS};
 
   if(typeof document==='undefined')return;
   var shell=window.cncShell,main=document.querySelector('main');
@@ -150,6 +156,9 @@
 
   var machine=null,port=null,index=0,st={},view=null,current='menu',autoDone=false;
   function jc(){return window.cncJobControls||null;}
+  // Effective machine kind from the server (tablet-profile.js); unknown keeps the CNC steps.
+  function laser(){return !!(window.cncProfile&&window.cncProfile.kind()==='laser');}
+  function titleOf(id){return id==='spindle'&&laser()?t('Laser : sécurité et mise au point'):TITLES[id];}
   function shown(text){return window.cncI18n&&window.cncI18n.message?window.cncI18n.message(text):t(text);}
   function command(fn){var c=jc();if(!c)return;try{var p=fn(c);if(p&&typeof p.then==='function')p.then(function(r){if(r&&r.message)set(status,shown(r.message));},function(e){set(status,shown(e.message));});}catch(e){set(status,shown(e.message));}}
   function record(r){var e=entry(port);if(!e)return;e.results=e.results||{};e.results[STEPS[index]]=r;save();}
@@ -177,6 +186,23 @@
   var unlockButton=null;
   function unlockControl(){return button(t('Déverrouiller ($X)…'),'ks-secondary',function(){command(function(c){c.prepareCommand('unlock');});});}
 
+  // Laser profile, instead of the spindle test: safety and focus as a checklist; nothing is sent.
+  function laserView(box){
+    st.laser=true;
+    box.appendChild(para(t('Profil laser : pas de test de broche. Vérifiez la sécurité et la mise au point ; aucune commande n’est envoyée par cette étape.')));
+    box.appendChild(checkbox('goggles',t('Lunettes de protection adaptées à la longueur d’onde du laser, portées par toutes les personnes présentes.')));
+    box.appendChild(checkbox('enclosure',t('Capot ou écran de protection en place ; rien d’inflammable près de la zone de travail.')));
+    box.appendChild(checkbox('air',t('Assistance d’air et extraction des fumées en marche.')));
+    var steps=el('ol','ks-wiz-list');
+    [t('Laser éteint, placez la tête au-dessus d’une chute du matériau.'),t('Réglez la hauteur de la tête avec la cale ou la méthode du fabricant.'),t('Serrez la tête et retirez la cale.')].forEach(function(s){steps.appendChild(el('li','',s));});
+    box.appendChild(steps);
+    box.appendChild(checkbox('focus',t('Mise au point faite selon la procédure ci-dessus.')));
+    var why=para('','ks-help');box.appendChild(why);
+    return function(){
+      var c=window.cncProfile?window.cncProfile.capability('spindleTest'):null;
+      set(why,c&&!c.supported&&c.reason?t('Test de broche : ')+shown(c.reason):'');
+    };
+  }
   var VIEWS={
     prepare:function(box){
       box.appendChild(para(t('Cet assistant vérifie la machine pièce par pièce avant le premier travail. Il ne lance un mouvement ou la broche qu’après votre confirmation.')));
@@ -264,6 +290,7 @@
       };
     },
     spindle:function(box){
+      if(laser())return laserView(box);
       box.appendChild(checkbox('empty',t('Aucune fraise dans la pince ; écrou de pince bien serré ou retiré.')));
       box.appendChild(checkbox('clear',t('Variateur sous tension, câbles et mains loin de la broche.')));
       var row=el('div','ks-wiz-row');
@@ -289,16 +316,17 @@
       };
     },
     aircut:function(box){
-      box.appendChild(para(t('Dernier essai : un vrai programme, broche à vitesse mini, outil en l’air. Il trace un carré de 40 mm autour de l’origine, sans descendre sous Z 0.')));
+      var l=laser();
+      box.appendChild(para(l?t('Dernier essai : un vrai programme, laser éteint du début à la fin (M5, aucune commande M3 ni M4). Il trace un carré de 40 mm autour de l’origine, sans mouvement en Z.'):t('Dernier essai : un vrai programme, broche à vitesse mini, outil en l’air. Il trace un carré de 40 mm autour de l’origine, sans descendre sous Z 0.')));
       var steps=el('ol','ks-wiz-list');
-      [t('Ajoutez le fichier d’essai à la bibliothèque.'),t('Dans CNCjs, placez la broche (sans fraise) au-dessus du centre de la table, à 30 mm au moins au-dessus de tout, et mettez X, Y et Z à zéro à cet endroit.'),
+      [t('Ajoutez le fichier d’essai à la bibliothèque.'),l?t('Dans CNCjs, placez la tête au-dessus du centre de la table, sans matériau dessous, et mettez X et Y à zéro à cet endroit.'):t('Dans CNCjs, placez la broche (sans fraise) au-dessus du centre de la table, à 30 mm au moins au-dessus de tout, et mettez X, Y et Z à zéro à cet endroit.'),
         t('Dans Fichiers, choisissez essai-en-l-air, chargez-le et démarrez, main sur l’arrêt d’urgence.')].forEach(function(s){steps.appendChild(el('li','',s));});
       box.appendChild(steps);
       var row=el('div','ks-wiz-row');
       var add=button(t('Ajouter le fichier d’essai'),'ks-secondary',function(){
         if(typeof window.cncLibraryImport!=='function'){set(status,t('Bibliothèque indisponible.'));return;}
         add.disabled=true;set(status,t('Envoi du fichier d’essai…'));
-        window.cncLibraryImport(TEST_FILE,program(machine&&machine.spindleTestSpeed||6000)).then(function(){st.created=true;set(status,t('Fichier d’essai ajouté à la bibliothèque.'));refresh();},
+        window.cncLibraryImport(TEST_FILE,program(machine&&machine.spindleTestSpeed||6000,l)).then(function(){st.created=true;set(status,t('Fichier d’essai ajouté à la bibliothèque.'));refresh();},
           function(e){add.disabled=false;set(status,e.message);});
       });
       row.appendChild(add);row.appendChild(button(t('Ouvrir Fichiers →'),'ks-secondary',function(){shell.go('files');}));box.appendChild(row);
@@ -315,7 +343,7 @@
       var list=el('ul','ks-wiz-summary');
       STEPS.slice(0,-1).forEach(function(id){
         var r=results[id],li=el('li',r==='ok'?'ok':r==='manual'?'manual':'skipped');
-        li.appendChild(el('b','',TITLES[id]));li.appendChild(el('span','',r==='ok'?t('vérifié ✓'):r==='manual'?t('vérifié à la main'):t('passé')));list.appendChild(li);
+        li.appendChild(el('b','',titleOf(id)));li.appendChild(el('span','',r==='ok'?t('vérifié ✓'):r==='manual'?t('vérifié à la main'):t('passé')));list.appendChild(li);
       });
       box.appendChild(list);
       box.appendChild(para(t('Touchez Terminer pour enregistrer ce bilan avec la date. Vous pourrez relancer l’assistant depuis Réglages.')));
@@ -335,7 +363,7 @@
     index=Math.max(0,Math.min(STEPS.length-1,i));st={};unlockButton=null;
     var e=entry(port);if(e){e.step=index;save();}
     var id=STEPS[index];
-    set(title,TITLES[id]);set(progress,t('Mise en service · étape ')+(index+1)+' / '+STEPS.length+(port?' · '+port:''));
+    set(title,titleOf(id));set(progress,t('Mise en service · étape ')+(index+1)+' / '+STEPS.length+(port?' · '+port:''));
     dotNodes.forEach(function(d,k){var r=e&&e.results&&e.results[STEPS[k]];var cls=k===index?'current':r==='skipped'?'skipped':r?'ok':'';if(d.className!==cls)d.className=cls;});
     content.textContent='';set(status,'');skipBox.hidden=true;
     view=VIEWS[id](content);observe(id,st,machine);refresh();

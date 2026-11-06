@@ -14,7 +14,7 @@
     uiLocale.html('<p id="library-status" role="status">Connexion à la bibliothèque…</p>') +
     uiLocale.html('<div id="library-list" aria-label="Fichiers disponibles"></div>') +
     uiLocale.html('<div class="library-pages"><button id="library-prev" type="button" hidden>← Précédent</button><span id="library-page"></span><button id="library-more" type="button" hidden>Suivant →</button></div>') +
-    uiLocale.html('<details id="library-upload"><summary>＋ Envoyer depuis ce PC</summary>') +
+    uiLocale.html('<details id="library-upload"><summary>+ Envoyer depuis ce PC</summary>') +
     uiLocale.html('<p>Le fichier et son image 2D seront enregistrés sur le serveur.</p>') +
     uiLocale.html('<label for="library-input">Fichier G-code — 20 Mo maximum</label>') +
     uiLocale.html('<input id="library-input" type="file" accept=".nc,.gcode,.tap,.ngc,.cnc,.txt">') +
@@ -161,7 +161,7 @@
   // shown, with the fingerprint of the program it was drawn from (the 3D views are kept per
   // fingerprint; without one they are not drawn).
   function describe(file, preview, fingerprint) {
-    $('library-image').cncPreview = preview ? { file: file, fingerprint: typeof fingerprint === 'string' ? fingerprint : '', projection: preview.projection, zBounds: preview.zBounds, path3d: preview.path3d || null } : null;
+    $('library-image').cncPreview = preview ? { file: file, fingerprint: typeof fingerprint === 'string' ? fingerprint : '', projection: preview.projection, zBounds: preview.zBounds, path3d: preview.path3d || null, estimate: preview.estimate || null, laser: preview.laser || null } : null;
   }
   // Row thumbnails and XY extents come from each file's stored preview, read one
   // at a time in idle time after the list is drawn (never before the selected

@@ -183,48 +183,28 @@ function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port
     assert.equal(requests.find(r=>r.method==='POST').body.action,'prepare');
     window.cncJobControls.dispose();assert.equal(intervals.size,0);
   }
-  // Browser offline closes confirmations immediately, ignores in-flight replies,
-  // suppresses fallback/stream retries and only recovers after a new health+stream.
+  // B-4: the browser's offline flag is a hint only (kiosk on localhost, a misread link): nothing is
+  // closed, suspended or disabled, a warning is shown; 'online' clears it; no command is replayed.
   Object.keys(nodes).forEach(key=>delete nodes[key]);requests.length=0;
   for(const file of ['cnc-state.js','job-stream.js','job-controls.js'])vm.runInContext(fs.readFileSync(__dirname+'/touch/'+file,'utf8'),context);
   answer(requests.find(r=>r.url.endsWith('/custom/health')),{loaded:true,protocol:1});
   const beforeOffline=requests.find(r=>isStream(r.url));
-  const staleProgress=beforeOffline.onprogress;
   push(beforeOffline,packet(1,[machine()]));
-  el('job-start').click();const prepareOffline=requests.at(-1);
   window.dispatchEvent({type:'offline'});
-  assert(beforeOffline.aborted);assert.equal(el('job-start').disabled,true);assert.equal(window.cncState.get().transportConnected,false);
-  assert.match(window.cncState.get().transportReason,/Réseau indisponible/);
-  answer(prepareOffline,{nonce:'must-not-reopen',name:'Test',expiresIn:15});await flush();assert.equal(el('job-dialog').hidden,true);
-  const offlineRequests=requests.length,posts=requests.filter(r=>r.method==='POST').length;
-  document.hidden=true;window.dispatchEvent({type:'visibilitychange'});
-  document.hidden=false;window.dispatchEvent({type:'visibilitychange'});
-  assert.equal(requests.length,offlineRequests,'returning while offline must not restart requests');
-  for(let n=0;n<65;n++){now+=1000;Array.from(intervals.values()).forEach(fn=>fn());await flush();}
-  assert.equal(requests.length,offlineRequests,'no fallback/health/stream request while offline');
-  staleProgress();assert.equal(window.cncState.get().machine,null,'late stream callback must remain invalid');
+  assert(!beforeOffline.aborted,'the stream is kept');assert.equal(el('job-start').disabled,false);assert.equal(window.cncState.get().transportConnected,true);
+  assert.match(window.cncState.get().transportReason,/navigateur signale le réseau coupé/);
+  const posts=requests.filter(r=>r.method==='POST').length;
+  el('job-start').click();answer(requests.at(-1),{nonce:'offline-flag',name:'Test',expiresIn:15});await flush();
+  assert.equal(el('job-dialog').hidden,false,'a confirmation still opens');el('job-dismiss').click();
   window.dispatchEvent({type:'online'});
-  const reconnectHealth=requests.filter(r=>r.url.endsWith('/custom/health')).at(-1);
-  assert.notEqual(reconnectHealth,requests[0]);assert(el('job-start').disabled);
-  const obsoleteHealthCallback=reconnectHealth.onload;
-  window.dispatchEvent({type:'offline'});assert(reconnectHealth.aborted);
-  reconnectHealth.status=200;reconnectHealth.responseText='{"loaded":true,"protocol":1}';obsoleteHealthCallback();
-  assert.equal(requests.filter(r=>isStream(r.url)).length,1,'obsolete health cannot open a stream');
-  window.dispatchEvent({type:'online'});
-  answer(requests.filter(r=>r.url.endsWith('/custom/health')).at(-1),{loaded:true,protocol:1});
-  const recovered=requests.filter(r=>isStream(r.url)).at(-1);
-  assert.notEqual(recovered,beforeOffline);assert(el('job-start').disabled);
-  push(recovered,packet(2,[machine()],'after-offline'));assert.equal(el('job-start').disabled,false);
-  assert.equal(el('job-dialog').hidden,true);assert.equal(requests.filter(r=>r.method==='POST').length,posts,'reconnect must not replay commands');
-  el('job-start').click();answer(requests.at(-1),{nonce:'visible-confirmation',name:'Test',expiresIn:15});await flush();
-  assert.equal(el('job-dialog').hidden,false);window.dispatchEvent({type:'offline'});
-  assert.equal(el('job-dialog').hidden,true);assert.equal(el('job-confirm').disabled,true);
+  assert.equal(window.cncState.get().transportReason,'');
+  assert.equal(requests.filter(r=>r.method==='POST').length,posts+1,'no command replayed');
   window.cncJobControls.dispose();assert.equal(intervals.size,0);
-  // A page opened while offline does not send even its initial health or fallback GET.
+  // A page opened while offline still sends its health check and its fallback read.
   Object.keys(nodes).forEach(key=>delete nodes[key]);requests.length=0;window.navigator={onLine:false};
   for(const file of ['cnc-state.js','job-stream.js','job-controls.js'])vm.runInContext(fs.readFileSync(__dirname+'/touch/'+file,'utf8'),context);
-  assert.equal(requests.length,0);assert(el('job-start').disabled);assert.match(window.cncState.get().transportReason,/Réseau indisponible/);
-  window.dispatchEvent({type:'online'});assert(requests.some(r=>r.url.endsWith('/custom/health')));assert(el('job-start').disabled);
+  assert(requests.some(r=>r.url.endsWith('/custom/health')));assert(requests.some(r=>r.method==='GET'&&/\/touch-job$/.test(r.url)));
+  Array.from(intervals.values()).forEach(fn=>fn());assert.match(window.cncState.get().transportReason,/navigateur signale/);
   window.cncJobControls.dispose();assert.equal(intervals.size,0);
   const afterDispose=requests.length;window.dispatchEvent({type:'offline'});window.dispatchEvent({type:'online'});assert.equal(requests.length,afterDispose);
   // Local simulation stays usable; browser network events must not contact hardware.
@@ -238,5 +218,5 @@ function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port
   document.hidden=false;window.dispatchEvent({type:'visibilitychange'});await flush();
   assert.equal(el('job-start').disabled,false);assert.equal(requests.length,0);
   window.cncJobControls.dispose();assert.equal(intervals.size,0);
-  console.log('PASS: NDJSON integration, auth/prefix, ordered snapshots, confirmation lifecycle, freshness, STOP, silence backoff, offline suspension/recovery with no command replay, initially offline and disposal; zero network.');
+  console.log('PASS: NDJSON integration, auth/prefix, ordered snapshots, confirmation lifecycle, freshness, STOP, silence backoff, offline flag as a hint only (no suspension, no command replay), initially offline and disposal; zero network.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

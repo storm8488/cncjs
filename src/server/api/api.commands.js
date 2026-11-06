@@ -9,6 +9,7 @@ import config from '../services/configstore';
 import touch from '../services/touch';
 import store from '../store';
 import { getPagingRange } from './paging';
+import { actorOf } from './api.touch';
 import {
   ERR_BAD_REQUEST,
   ERR_FORBIDDEN,
@@ -324,14 +325,11 @@ export const run = (req, res) => {
   let reservation = null;
   if (sensitiveCommand(commands)) {
     // Someone else holds the control of a port (F5): the command would take
-    // the machine away from them.
+    // the machine away from them. The caller is identified as in api.touch.js
+    // (the clientId/clientLabel of the touch page, else the session user), so
+    // the piloting tablet is not refused as a stranger (bug hunt B-2 / E-2).
     if (touch.isStarted() && typeof touch.refuseSystemCommand === 'function') {
-      const user = req.user && typeof req.user === 'object' ? req.user : {};
-      let name = typeof user.name === 'string' ? user.name : '';
-      if (!name && user.id) {
-        name = String(user.id);
-      }
-      const refused = touch.refuseSystemCommand({ kind: 'http', id: 'http:' + (name || 'anonyme'), user: name });
+      const refused = touch.refuseSystemCommand(actorOf(req));
       if (refused) {
         log.warn(`run refused: title="${title}", reason="${refused.message}"`);
         res.status(ERR_CONFLICT).send({ msg: refused.message, message: refused.message });

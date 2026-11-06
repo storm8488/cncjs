@@ -160,11 +160,23 @@ describe('program check (F2): comparison with the machine', () => {
     expect(up.axes.Z.machineMax).toBe(5);
   });
 
-  test('the homing direction mask flips an axis to [0, travel]', () => {
+  // Bug hunt D-1 / E-1: this test used to expect [0, travel] for an axis whose $23
+  // bit is set. Stock Grbl 1.1 keeps [-travel, 0] whatever $23 says (limits.c);
+  // only a HOMING_FORCE_SET_ORIGIN build or Grbl_ESP32 gives [0, travel], and the
+  // report does not tell them apart: such an axis is not checked (unknown), as the
+  // tablet's travel-check.js and motion.js already do.
+  test('the homing direction mask leaves an axis unchecked: never validated, never outside', () => {
     const r = programCheck(SQUARE, machine({ settings: { $23: '1' }, mpos: { x: 50, y: -150, z: -40 } }));
-    expect(r.axes.X).toMatchObject({ verdict: 'validated', low: 0, high: 300, machineMin: 50, machineMax: 90 });
-    const out = programCheck(SQUARE, machine({ settings: { $23: '1' }, mpos: { x: 280, y: -150, z: -40 } }));
-    expect(out.axes.X.verdict).toBe('outside');
+    expect(r.axes.X).toMatchObject({ verdict: 'unknown', low: null, high: null });
+    expect(r.axes.X.machineMin).toBeUndefined();
+    expect(r.axes.X.codedReasons.map((c) => c.code)).toEqual(['ETOUCH_CHECK_HOMING_DIRECTION']);
+    expectCatalogMatch(r.axes.X.codedReasons[0]);
+    expect(r.axes.X.reasons[0]).toBe('Sens de prise d’origine inversé ($23) en X : selon la compilation du firmware, la course va de −$130 à 0 ou de 0 à $130 ; axe non vérifié.');
+    expect(r.verdict).toBe('unknown');
+    expect(r.axes.Y.verdict).toBe('validated');
+    // X machine +280 (a HOMING_FORCE_SET_ORIGIN build) or -280 (stock Grbl): unknown both ways.
+    expect(programCheck(SQUARE, machine({ settings: { $23: '1' }, mpos: { x: 280, y: -150, z: -40 } })).axes.X.verdict).toBe('unknown');
+    expect(programCheck(SQUARE, machine({ settings: { $23: '1' }, mpos: { x: -280, y: -150, z: -40 } })).axes.X.verdict).toBe('unknown');
   });
 
   test('homing enabled is not homing done: without an observed homing cycle, the verdict is unknown, never validated', () => {
@@ -265,13 +277,18 @@ describe('program check (F2), cross-check 3: dépassements détectés', () => {
     expect(out.axes.X).toMatchObject({ verdict: 'outside' });
   });
 
-  test('direction de homing $23 : bit X (1) → espace X [0, +300] ; un programme à X machine négatif devient hors course', () => {
-    const m = machine({ settings: { $23: '1' }, mpos: { x: 50, y: -150, z: -40 } }); // X travail 0 = X machine +50
+  // Bug hunt D-1 / E-1 (see above): an axis whose $23 bit is set has no known
+  // envelope; the other axes are still checked, each from its own bit.
+  test('direction de homing $23 : bit X (1) → X non vérifié, Y toujours comparé ; bit Z (4) → Z non vérifié', () => {
+    const m = machine({ settings: { $23: '1' }, mpos: { x: 50, y: -150, z: -40 } });
     const r = programCheck('G21 G90\nG0 X-60 Y-10\nG0 X200', m);
-    expect(r.axes.X).toMatchObject({ low: 0, high: 300, machineMin: -10, machineMax: 250, verdict: 'outside' });
-    expect(r.axes.Y).toMatchObject({ low: -200, high: 0 });
+    expect(r.axes.X).toMatchObject({ low: null, high: null, verdict: 'unknown' });
+    expect(r.axes.X.codedReasons[0]).toMatchObject({ code: 'ETOUCH_CHECK_HOMING_DIRECTION', params: { axis: 'X', setting: 130 } });
+    expect(r.axes.Y).toMatchObject({ low: -200, high: 0, verdict: 'validated' });
     const z = programCheck('G21 G90\nG0 Z1', machine({ settings: { $23: '4' }, mpos: { x: -250, y: -150, z: 40 } }));
-    expect(z.axes.Z).toMatchObject({ low: 0, high: 80, verdict: 'validated' });
+    expect(z.axes.Z).toMatchObject({ low: null, high: null, verdict: 'unknown' });
+    expect(z.axes.Z.codedReasons[0]).toMatchObject({ code: 'ETOUCH_CHECK_HOMING_DIRECTION', params: { axis: 'Z', setting: 132 } });
+    expect(z.axes.X.verdict).toBe('validated');
   });
 });
 
@@ -345,7 +362,8 @@ describe('program check (F2), cross-check 3: « axe non sollicité = validé »'
     const fusion = programCheck('G90 G94 G17\nG21\nG53 G0 Z0\nG0 X10 Y10\nG0 Z5\nG1 Z-1 F100\nG53 G0 Z0\nM30', machine());
     expect(fusion.axes.Z).toMatchObject({ verdict: 'validated', machineMin: -41, machineMax: 0 });
     expect(fusion.verdict).toBe('validated');
-    expect(programCheck('G21 G90\nG53 G0 Z0', machine({ settings: { $23: '4' }, mpos: { x: -250, y: -150, z: 40 } })).axes.Z.verdict).toBe('validated');
+    // Bug hunt D-1 / E-1: Z homed the other way ($23 bit 2) has no known envelope, G53 included.
+    expect(programCheck('G21 G90\nG53 G0 Z0', machine({ settings: { $23: '4' }, mpos: { x: -250, y: -150, z: 40 } })).axes.Z.verdict).toBe('unknown');
     // Pouces : G20 G53 X-12 = -304,8 mm machine.
     const inch = programCheck('G20 G90\nG53 G0 X-12', machine()).axes.X;
     expect(inch.verdict).toBe('outside');
@@ -460,6 +478,7 @@ describe('program check (F2): coded reasons (ETOUCH_CHECK_*)', () => {
     ['ETOUCH_CHECK_ACTIVE_WCS_UNKNOWN', P('G21 G90 G55', 'G0 X10'), { modal: noWcs }, { wcs: 'G55' }],
     ['ETOUCH_CHECK_AXIS_IDLE', P('G21 G90', 'G0 X10 Y10'), {}, { axis: 'Z' }],
     ['ETOUCH_CHECK_TRAVEL_UNKNOWN', SQUARE, { settings: { $131: undefined } }, { setting: 131 }],
+    ['ETOUCH_CHECK_HOMING_DIRECTION', SQUARE, { settings: { $23: '2' } }, { axis: 'Y', setting: 131 }],
     ['ETOUCH_CHECK_POSITION_UNKNOWN', P('G21 G90', 'G0 X10'), { mpos: {} }, { axis: 'X' }],
     ['ETOUCH_CHECK_OUTSIDE', P('G21 G90', 'G0 X300.0004'), {}, { axis: 'X', min: '50', max: '50', low: '-300', high: '0' }],
     ['ETOUCH_CHECK_OUTSIDE_G53', P('G21 G90', 'G53 G0 X10'), {}, { axis: 'X', min: '10', max: '10', low: '-300', high: '0' }],
@@ -499,7 +518,7 @@ describe('program check (F2): coded reasons (ETOUCH_CHECK_*)', () => {
   test('every ETOUCH_CHECK_* row of the client catalog is emitted by one case above', () => {
     const catalog = catalogCodes().filter((code) => /^ETOUCH_CHECK_/.test(code)).sort();
     expect(cases.map(([code]) => code).sort()).toEqual(catalog);
-    expect(catalog).toHaveLength(28);
+    expect(catalog).toHaveLength(29);
   });
 
   test('French reasons and verdicts are those of the uncoded check; a validated program has none', () => {

@@ -10,11 +10,13 @@
   if (!T3 || typeof document === 'undefined') return;
   var uiLocale = root.cncI18n || { t: function (s) { return s; }, html: function (s) { return s; } }, t = uiLocale.t;
   var STORE = 'cncjs-touch-preview-view-v1';
-  var VIEWS = ['2d', 'iso', 'front', 'side', 'top'];
-  var LABELS = { '2d': '2D', iso: t('Iso'), front: t('Face'), side: t('Côté'), top: t('Dessus') };
-  var TITLES = { '2d': t('Aperçu 2D enregistré'), iso: t('Vue isométrique'), front: t('Vue de face (XZ)'), side: t('Vue de côté (YZ)'), top: t('Vue de dessus (XY)') };
+  // 'laser' (laser-view.js) only for a machine whose profile is laser; it stays available in eco.
+  var VIEWS = ['2d', 'iso', 'front', 'side', 'top', 'laser'];
+  var LABELS = { '2d': '2D', iso: t('Iso'), front: t('Face'), side: t('Côté'), top: t('Dessus'), laser: t('Laser') };
+  var TITLES = { '2d': t('Aperçu 2D enregistré'), iso: t('Vue isométrique'), front: t('Vue de face (XZ)'), side: t('Vue de côté (YZ)'), top: t('Vue de dessus (XY)'), laser: t('Vue laser (XY, consigne S)') };
   var source = document.currentScript && document.currentScript.src;
-  var workerURL = (source ? source.split(/[?#]/)[0].replace(/[^/]*$/, '') : '') + 'preview-3d-worker.js?v=view3';
+  var base = source ? source.split(/[?#]/)[0].replace(/[^/]*$/, '') : '';
+  var workerURL = base + 'preview-3d-worker.js?v=view3';
   var view = '2d', hosts = [], cache = [], queue = [], active = null, idle = null, nextId = 0;
   var worker = null, workerState = 'none', startup = null;
   try { var saved = root.localStorage.getItem(STORE); if (VIEWS.indexOf(saved) >= 0) view = saved; } catch (_) {}
@@ -51,15 +53,83 @@
     host.shown = src;
     if (host.img.getAttribute('src') !== src) host.img.src = src;
   }
+  // Profile (tablet-profile.js, lot B): absent or unreadable reads as eco and an unknown machine.
+  function profile() { var p = root.cncProfile; return p && typeof p.performance === 'function' ? p : null; }
+  function performance() { var p = profile(); try { return !!p && p.performance() === 'performance'; } catch (_) { return false; } }
+  function laserMachine() { var p = profile(); try { return !!p && typeof p.kind === 'function' && p.kind() === 'laser'; } catch (_) { return false; } }
+  // A laser machine has the laser view only; the CNC choice is kept for when the type goes back to CNC.
+  function current() { if (laserMachine()) return 'laser'; return view === 'laser' ? '2d' : view; }
   function buttons(host) {
-    host.buttons.forEach(function (b) { var on = String(b.getAttribute('data-view') === view); if (b.getAttribute('aria-pressed') !== on) b.setAttribute('aria-pressed', on); });
+    var v = current();
+    host.buttons.forEach(function (b) {
+      var name = b.getAttribute('data-view'), on = String(name === v);
+      if (b.getAttribute('aria-pressed') !== on) b.setAttribute('aria-pressed', on);
+      var hide = laserMachine() ? name !== 'laser' : name === 'laser';
+      if (b.hidden !== hide) b.hidden = hide;
+    });
+    // CNC in Performance: the free 3D view is the preview itself (no view buttons); otherwise the fixed views.
+    var inline = inlineMode(host);
+    if (host.free.hidden !== true) host.free.hidden = true;
+    var bar = inline || !!host.img.hidden || !host.img.getAttribute('src');
+    if (host.bar.hidden !== bar) host.bar.hidden = bar;
+  }
+  // ---- Inline free 3D view (CNC, Performance): drawn in the preview frame, turned with a finger ----
+  // Suivi keeps its fixed view and progress trail while a job runs or is paused, except under the GPU
+  // gate (spec 3.1): the live 3D view of the loaded program then stays, with its progress and marker.
+  var jobBusy = false, jobMachine = null;
+  function samePrint(a, b) { return String(a || '').toLowerCase().replace(/^sha256:/, '') === String(b || '').toLowerCase().replace(/^sha256:/, ''); }
+  function liveAllowed(host) {
+    var g = gpuState(), m = jobMachine, meta = host.meta, art = host.img.parentNode;
+    if (host.img.id !== 'home-job-image' || !g.hardware || g.lost || !m || !meta || m.name !== meta.file) return false;
+    if (m.fingerprint && meta.fingerprint && !samePrint(m.fingerprint, meta.fingerprint)) return false;
+    return !(art && typeof art.getAttribute === 'function' && art.getAttribute('data-identity') === 'other');
+  }
+  function inlineMode(host) {
+    if (laserMachine() || !performance() || !host.base || !keyOf(host.meta)) return false;
+    if (host.img.id === 'home-job-image' && jobBusy && !liveAllowed(host)) return false;
+    return host.failedKey !== keyOf(host.meta);
+  }
+  function visible(host) { var s = host.img.closest ? host.img.closest('.screen') : null; return !s || !s.classList || s.classList.contains('active'); }
+  function closeInline(host) { host.glRequest = null; if (host.gl) { var h = host.gl; host.gl = null; h.close('view'); } }
+  function inline(host) {
+    var meta = host.meta, key = keyOf(meta);
+    show(host, host.base, null);
+    if (host.gl && host.glKey === key) return;
+    // « Agrandir » opened the free view in large: the inline one comes back when it closes.
+    if (freeOpen) return;
+    closeInline(host);
+    if (!visible(host)) return;
+    var P = profile(), request = host.glRequest = {};
+    host.glKey = key; status(host, t('Chargement de la vue 3D libre…'));
+    var extra = meta.estimate !== undefined ? Promise.resolve(meta) : sidecar(meta.file).then(function (s) { return s.fingerprint === meta.fingerprint && s.preview ? s.preview : {}; }, function () { return {}; });
+    function failed(message) { if (host.glRequest !== request && host.glRequest !== null) return; host.failedKey = key; host.gl = null; refresh(); status(host, message); }
+    Promise.all([P.loadAdvanced(['preview-gl.js']), extra]).then(function (r) {
+      gpuEnsure();
+      if (host.glRequest !== request || !inlineMode(host) || !visible(host)) return;
+      if (!root.CNCPreviewGL) throw new Error(t('module absent'));
+      var full = {}; Object.keys(meta).forEach(function (k) { full[k] = meta[k]; });
+      if (full.estimate === undefined) full.estimate = r[1].estimate || null;
+      var stock = root.CNCProjects && typeof root.CNCProjects.stock === 'function' ? root.CNCProjects.stock(meta.file) : null;
+      status(host, '');
+      // Suivi: the live view (progress and tool marker; ignored by preview-gl.js without the GPU gate),
+      // and the whole program's geometry, read at rest only, never during a job (Q7).
+      // Fichiers never follows the machine (spec 2.4).
+      var home = host.img.id === 'home-job-image';
+      var handle = root.CNCPreviewGL.open(full, { container: host.img.parentNode, stock: stock, live: home ? { progress: true, tool: true } : undefined, fullGeometry: home && !jobBusy, loaded: home,
+        onFallback: function (message) { failed(message); },
+        onClose: function () { if (host.gl === handle) host.gl = null; if (host.img.cncLiveView === handle) host.img.cncLiveView = null; } });
+      if (handle) { host.gl = handle; if (home) host.img.cncLiveView = handle; }
+    }).catch(function (e) { failed(t('Vue 3D libre indisponible : ') + String(e && e.message || e) + t('. Vues fixes conservées.')); });
   }
   function update(host) {
     buttons(host);
-    var meta = host.meta;
+    var meta = host.meta, view = current();
     host.key = '';
-    if (!host.base) { host.img.cncView = null; status(host, ''); return; }
+    if (!host.base) { closeInline(host); host.img.cncView = null; status(host, ''); return; }
+    if (inlineMode(host)) { inline(host); return; }
+    closeInline(host);
     if (view === '2d') { show(host, host.base, null); status(host, ''); return; }
+    if (view === 'laser') { laser(host); return; }
     // No 3D path (old preview) or no fingerprint (older or unverified sidecar): the 2D image stays.
     var key = keyOf(meta);
     if (!key) {
@@ -76,10 +146,164 @@
   }
   function refresh() { hosts.forEach(update); }
 
+  // ---- Laser view (laser-view.js): computed on demand from the program's text, bound to its fingerprint ----
+  var laserJob = null;
+  function laser(host) {
+    var meta = host.meta, L = root.CNCLaserView;
+    if (!meta || !meta.fingerprint || !meta.file) { show(host, host.base, null); status(host, t('Vue laser indisponible : aperçu sans empreinte, régénérez-le dans Fichiers.')); return; }
+    if (!L || !root.CNCPreviewInspect) { show(host, host.base, null); status(host, t('Vue laser indisponible sur cette page.')); return; }
+    var key = 'laser|' + meta.fingerprint, entry = entryFor(key, meta.file, true), done = entry.views.laser;
+    host.key = key;
+    if (done) { show(host, done.url, { view: 'laser', projection: done.projection }); status(host, L.describe(done.summary)); return; }
+    show(host, host.base, null);
+    if (entry.failed.laser) { status(host, t('Vue laser indisponible : ') + entry.failed.laser); return; }
+    status(host, t('Calcul de la vue laser…'));
+    if (laserJob && laserJob.key === key) return;
+    if (laserJob) laserJob.run.cancel();
+    var m = null; try { m = profile() && profile().machine(); } catch (_) {}
+    var sRef = m && m.laser && m.laser.sMax > 0 ? m.laser.sMax : 0;
+    var job = laserJob = { key: key, run: L.render(meta, { sRef: sRef }) };
+    job.run.promise.then(function (r) {
+      if (laserJob !== job) return;
+      laserJob = null; entry.views.laser = { url: root.URL.createObjectURL(r.blob), projection: r.projection, summary: r.summary }; refresh();
+    }, function (e) {
+      if (laserJob !== job) return;
+      laserJob = null; entry.failed.laser = String(e && e.message || e); refresh();
+    });
+  }
+
+  // ---- Free 3D view (preview-gl.js, Performance profile only, loaded on demand) ----
+  function api(method, path, body, blob) {
+    return new Promise(function (resolve, reject) {
+      var token = ''; try { token = JSON.parse(root.localStorage.getItem('cnc')).state.session.token; } catch (_) {}
+      if (!token) { reject(new Error(t('Session CNCjs requise pour lire l’aperçu.'))); return; }
+      var apiBase = '/api'; try { apiBase = root.cncState.get().apiBase; } catch (_) {}
+      var xhr = new root.XMLHttpRequest(); xhr.open(method, apiBase + '/watch/' + path, true); xhr.timeout = 60000;
+      xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+      xhr.setRequestHeader('Content-Type', blob ? 'application/octet-stream' : 'application/json');
+      xhr.onload = function () { if (xhr.status < 200 || xhr.status >= 300) { reject(new Error(t('Le serveur a refusé la demande (HTTP ') + xhr.status + ').')); return; } try { resolve(xhr.responseText ? JSON.parse(xhr.responseText) : null); } catch (_) { resolve(null); } };
+      xhr.onerror = xhr.ontimeout = function () { reject(new Error(t('Serveur inaccessible.'))); };
+      xhr.send(blob || (body ? JSON.stringify(body) : null));
+    });
+  }
+  // The stored sidecar of a file ({version, file, fingerprint, preview, …}).
+  function sidecar(file) { return api('POST', 'file', { file: file + '.cnctouch.json' }).then(function (r) { var meta = JSON.parse(r && r.data); if (!meta || meta.file !== file) throw new Error(t('Aperçu enregistré illisible.')); return meta; }); }
+  var freeOpen = null;
+  function openFree(host) {
+    var P = profile(), meta = host.meta;
+    if (!performance()) { status(host, t('Vue 3D libre : profil Performance requis (Réglages).')); buttons(host); return; }
+    if (!keyOf(meta)) { status(host, t('Vues 3D indisponibles pour cet ancien aperçu : régénérez-le dans Fichiers.')); return; }
+    status(host, t('Chargement de la vue 3D libre…'));
+    var request = freeOpen = {};
+    // The estimate (tools, operations) is not on every image: read from the sidecar when missing.
+    var extra = meta.estimate !== undefined ? Promise.resolve(meta) : sidecar(meta.file).then(function (s) { return s.fingerprint === meta.fingerprint && s.preview ? s.preview : {}; }, function () { return {}; });
+    // Left (eco, another screen) while loading: nothing opens and the inline view comes back.
+    function drop() { if (freeOpen === request) { freeOpen = null; refresh(); } }
+    Promise.all([P.loadAdvanced(['preview-gl.js']), extra]).then(function (r) {
+      if (freeOpen !== request) return;
+      if (!performance() || !visible(host)) { drop(); return; }
+      if (!root.CNCPreviewGL) throw new Error(t('module absent'));
+      gpuEnsure();
+      var full = {}; Object.keys(meta).forEach(function (k) { full[k] = meta[k]; });
+      if (full.estimate === undefined) full.estimate = r[1].estimate || null;
+      var stock = root.CNCProjects && typeof root.CNCProjects.stock === 'function' ? root.CNCProjects.stock(meta.file) : null;
+      status(host, '');
+      var opened = root.CNCPreviewGL.open(full, { stock: stock, onFallback: function (message) { status(host, message); }, onClose: drop });
+      if (!opened) drop();
+    }).catch(function (e) { if (freeOpen === request) { freeOpen = null; refresh(); status(host, t('Vue 3D libre indisponible : ') + String(e && e.message || e) + t('. Vues fixes conservées.')); } });
+  }
+
+  // ---- GPU gate (PERFORMANCE-UI-SPEC.md 2.1, 8.1): Performance profile AND a hardware WebGL probe ----
+  // The probe (CNCPreviewGL.probeGpu, in the advanced module) runs once per page, in Performance only,
+  // from an idle callback or when a 3D view is opened, never from a cnc-job-status handler. Eco loads
+  // nothing, opens no context and answers {checked: true, hardware: false, reason: 'eco'}. The result is
+  // kept for the page's life: eco removes the class, Performance puts it back without a new probe.
+  // There is no way to force the gate open (no URL parameter, no storage key).
+  var gpuProbe = null, gpuLost = false, gpuWaiters = [], gpuIdle = null, gpuSent = '';
+  function gpuState() {
+    var p = gpuProbe || {};
+    var s = { checked: !!gpuProbe, hardware: p.hardware === true, lost: gpuLost, renderer: typeof p.renderer === 'string' ? p.renderer : '', webgl2: p.webgl2 === true, antialias: p.antialias === true,
+      lineWidth: Array.isArray(p.lineWidth) && p.lineWidth.length === 2 ? p.lineWidth.slice() : [1, 1], maxTextureSize: typeof p.maxTextureSize === 'number' ? p.maxTextureSize : 0,
+      reason: gpuProbe ? (typeof p.reason === 'string' ? p.reason : '') : 'pending' };
+    if (!performance()) { s.checked = true; s.hardware = false; s.reason = 'eco'; } else if (s.lost) s.reason = 'context-lost';
+    return s;
+  }
+  function gpuApply() {
+    var s = gpuState(), list = document.body && document.body.classList;
+    if (list && typeof list.toggle === 'function') { list.toggle('perf-gpu', s.hardware); list.toggle('perf-gpu-lost', s.hardware && s.lost); }
+    var signature = JSON.stringify(s);
+    if (signature !== gpuSent) {
+      gpuSent = signature;
+      try { root.dispatchEvent(new root.CustomEvent('cnc-gpu-change', { detail: s })); } catch (_) {}
+    }
+    if (s.checked && gpuWaiters.length) { var waiting = gpuWaiters; gpuWaiters = []; waiting.forEach(function (fn) { fn(s); }); }
+  }
+  // Probe now, the module being loaded (a 3D view is opening): the view then decides its rendering.
+  function gpuEnsure() {
+    if (gpuProbe || !performance() || !root.CNCPreviewGL || typeof root.CNCPreviewGL.probeGpu !== 'function') return;
+    try { gpuProbe = root.CNCPreviewGL.probeGpu(document); } catch (_) { gpuProbe = { hardware: false, reason: 'probe-failed' }; }
+    gpuApply();
+  }
+  function gpuSchedule() {
+    var P = profile();
+    if (gpuProbe || gpuIdle !== null || !performance() || !P || typeof P.loadAdvanced !== 'function') return;
+    function run() {
+      gpuIdle = null;
+      if (gpuProbe || !performance()) return;
+      P.loadAdvanced(['preview-gl.js']).then(function () { var first = !gpuProbe; gpuEnsure(); if (first && gpuProbe) refresh(); }, function () {
+        // Refused because the profile went back to eco: probed again on the next switch.
+        if (performance() && !gpuProbe) { gpuProbe = { hardware: false, reason: 'probe-failed' }; gpuApply(); }
+      });
+    }
+    // Called on window: Chromium refuses a detached requestIdleCallback.
+    if (typeof root.requestIdleCallback === 'function') gpuIdle = root.requestIdleCallback(run, { timeout: 3000 });
+    else gpuIdle = setTimeout(run, 300);
+  }
+  root.cncGpu = {
+    state: gpuState,
+    ready: function () {
+      var s = gpuState();
+      if (s.checked) return Promise.resolve(s);
+      return new Promise(function (resolve) { gpuWaiters.push(resolve); gpuSchedule(); });
+    },
+    // Internal (preview-gl.js): a view lost its WebGL context. Only ever closes the gate, until a reload.
+    _contextLost: function () { if (!gpuLost) { gpuLost = true; gpuApply(); refresh(); } }
+  };
+
+  // ---- Export / import of a preview between two servers (Fichiers only) ----
+  function exportPreview(host) {
+    var meta = host.meta, LP = root.CNCLibraryPreview;
+    if (!meta || !meta.file || !LP || !root.CNCDownload) { status(host, t('Export indisponible.')); return; }
+    sidecar(meta.file).then(function (s) {
+      var data = LP.exportPreview(s);
+      root.CNCDownload.save(new root.Blob([JSON.stringify(data)], { type: 'application/json' }), String(s.originalName || meta.file).replace(/\.[^.]*$/, '') + '.apercu-cncjs.json');
+      status(host, t('Aperçu exporté (sans réglage machine ni commande).'));
+    }).catch(function (e) { status(host, t('Export impossible : ') + e.message); });
+  }
+  function importPreview(host, fileInput) {
+    var meta = host.meta, chosen = fileInput.files && fileInput.files[0], LP = root.CNCLibraryPreview, PI = root.CNCPreviewInspect;
+    fileInput.value = '';
+    if (!chosen || !meta || !meta.file || !LP || !PI) return;
+    if (chosen.size > 8 * 1048576) { status(host, t('Fichier d’aperçu trop volumineux.')); return; }
+    status(host, t('Vérification de l’aperçu importé…'));
+    var reading = typeof chosen.text === 'function' ? chosen.text() : new Promise(function (resolve, reject) { var r = new root.FileReader(); r.onload = function () { resolve(r.result); }; r.onerror = reject; r.readAsText(chosen); });
+    // The fingerprint of the program on this server, as the server gives it now.
+    Promise.all([reading, PI.fetchProgram(meta.file), sidecar(meta.file).catch(function () { return null; })]).then(function (r) {
+      var preview = LP.importPreview(String(r[0]), r[1].fingerprint), old = r[2] || {};
+      var next = { version: 1, file: meta.file, originalName: typeof old.originalName === 'string' ? old.originalName : meta.file, bytes: old.bytes, fingerprint: r[1].fingerprint, preview: preview, previewVersion: 2, importedAt: new Date().toISOString() };
+      if (old.createdAt) next.createdAt = old.createdAt;
+      return api('PUT', 'file?file=' + encodeURIComponent(meta.file + '.cnctouch.json'), null, new root.Blob([JSON.stringify(next)], { type: 'application/octet-stream' }));
+    }).then(function () {
+      status(host, t('✓ Aperçu importé : empreinte du fichier vérifiée.'));
+      try { root.dispatchEvent(new root.CustomEvent('cnc-library-preview-updated', { detail: { file: meta.file } })); } catch (_) {}
+      var refreshButton = document.getElementById('library-refresh'); if (refreshButton && !refreshButton.disabled) refreshButton.click();
+    }).catch(function (e) { status(host, t('Aperçu non importé : ') + e.message); });
+  }
+
   // A host's 2D image changed (another file, a new preview, none): that becomes its base.
   // No image (a file without preview, an image that failed): no view to choose, and the bar
   // would cover the message shown in the image's place (validation D1).
-  function visibility(host) { var off = !!host.img.hidden || !host.img.getAttribute('src'); if (host.bar.hidden !== off) host.bar.hidden = off; }
+  function visibility(host) { var off = !!host.img.hidden || !host.img.getAttribute('src'), bar = off || inlineMode(host); if (host.bar.hidden !== bar) host.bar.hidden = bar; if (host.transfer && host.transfer.hidden !== off) host.transfer.hidden = off; }
   function observe(host) {
     visibility(host);
     var src = host.img.getAttribute('src') || '';
@@ -200,7 +424,7 @@
   }
 
   function choose(next) {
-    if (VIEWS.indexOf(next) < 0 || next === view) return;
+    if (VIEWS.indexOf(next) < 0 || next === view || next === 'laser' || laserMachine()) return;
     view = next;
     try { root.localStorage.setItem(STORE, view); } catch (_) {}
     refresh();
@@ -210,22 +434,64 @@
     if (!img || !img.parentNode) return;
     var box = img.parentNode, bar = document.createElement('div'), note = document.createElement('p');
     bar.className = 't-seg pv3d-views'; bar.setAttribute('role', 'group'); bar.setAttribute('aria-label', t('Vue de l’aperçu'));
-    var host = { img: img, bar: bar, status: note, buttons: [], base: '', meta: null, shown: null, key: '' };
+    var host = { img: img, bar: bar, status: note, buttons: [], base: '', meta: null, shown: null, key: '', free: null };
     VIEWS.forEach(function (v) {
       var b = document.createElement('button');
       b.type = 'button'; b.className = 'pv3d-view'; b.setAttribute('data-view', v); b.setAttribute('aria-pressed', 'false');
       b.textContent = LABELS[v]; b.title = TITLES[v]; b.setAttribute('aria-label', TITLES[v]);
+      if (v === 'laser') b.hidden = true;
       b.addEventListener('click', function () { choose(v); });
       bar.appendChild(b); host.buttons.push(b);
     });
+    var free = document.createElement('button');
+    free.type = 'button'; free.className = 'pv3d-view pv3d-free'; free.hidden = true; free.textContent = t('3D libre'); free.title = t('Vue 3D libre (profil Performance)'); free.setAttribute('aria-label', free.title);
+    free.addEventListener('click', function () { openFree(host); });
+    bar.appendChild(free); host.free = free;
+    if (imageId === 'library-image') {
+      var transfer = document.createElement('div'), out = document.createElement('button'), into = document.createElement('button'), input = document.createElement('input');
+      transfer.className = 'pv3d-transfer';
+      out.type = 'button'; out.className = 't-btn t-btn--ghost'; out.textContent = t('Exporter l’aperçu');
+      into.type = 'button'; into.className = 't-btn t-btn--ghost'; into.textContent = t('Importer un aperçu…');
+      input.type = 'file'; input.accept = '.json,application/json'; input.hidden = true;
+      out.addEventListener('click', function () { exportPreview(host); });
+      into.addEventListener('click', function () { if (host.meta) input.click(); });
+      input.addEventListener('change', function () { importPreview(host, input); });
+      transfer.appendChild(out); transfer.appendChild(into); transfer.appendChild(input);
+      host.transfer = transfer;
+    }
     note.className = 'pv3d-status'; note.setAttribute('role', 'status'); note.hidden = true;
-    box.classList.add('pv3d-host'); box.appendChild(bar); box.appendChild(note);
+    box.classList.add('pv3d-host'); box.appendChild(bar);
+    // « Agrandir » (preview-viewer.js) over the inline free view opens the free view in large,
+    // not the flat image: taken before the button's own listener.
+    box.addEventListener('click', function (e) {
+      var b = e.target && e.target.closest ? e.target.closest('.preview-open') : null;
+      if (!b || !host.gl || !inlineMode(host)) return;
+      e.stopPropagation(); e.preventDefault(); openFree(host);
+    }, true);
+    // Export / import of the preview: in « Détails de l’aperçu » (touch-shell.js), so the preview keeps its height in Fichiers.
+    var details = typeof document.querySelector === 'function' ? document.querySelector('#ks-file-info .ks-sheet-content') : null;
+    if (host.transfer && details) details.appendChild(host.transfer);
+    else if (host.transfer && box.parentNode) box.parentNode.insertBefore(host.transfer, box.nextSibling);
+    // Fichiers: the status line goes under the preview (its frame clips what overflows); Suivi keeps it over the image.
+    if (imageId === 'library-image' && box.parentNode) { note.classList.add('pv3d-status--below'); box.parentNode.insertBefore(note, box.nextSibling); } else box.appendChild(note);
     hosts.push(host);
     new root.MutationObserver(function () { observe(host); }).observe(img, { attributes: true, attributeFilter: ['src', 'hidden'] });
     observe(host); buttons(host);
   }
   ['library-image', 'home-job-image'].forEach(attach);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) pump(); });
-  root.cncPreviewViews = { view: function () { return view; }, choose: choose, title: function (v) { return TITLES[v] || ''; },
+  // The profile changed (eco / performance, CNC / laser): the buttons follow; an open free view closes itself.
+  if (typeof root.addEventListener === 'function') {
+    root.addEventListener('cnc-profile-change', function () { gpuApply(); gpuSchedule(); refresh(); });
+    // The inline view closes itself on a screen change; it is opened again on the screen now shown.
+    root.addEventListener('cnc-screen-change', function () { setTimeout(refresh, 50); });
+    root.addEventListener('cnc-job-status', function (e) {
+      var m = e && e.detail && e.detail.machine, busy = !!(m && m.workflow && m.workflow !== 'idle');
+      jobMachine = m || null;
+      if (busy !== jobBusy) { jobBusy = busy; refresh(); }
+    });
+  }
+  gpuApply(); gpuSchedule();
+  root.cncPreviewViews = { view: current, choose: choose, openFree: function (imageId) { var h = hosts.filter(function (x) { return x.img.id === imageId; })[0]; if (h) openFree(h); }, title: function (v) { return TITLES[v] || ''; },
     state: function () { return { worker: workerState, active: active ? active.view + (active.urgent ? '!' : '') : null, idle: idle !== null, queue: queue.map(function (j) { return j.entry.file + ':' + j.view + (j.urgent ? '!' : ''); }) }; }, cached: function () { return cache.map(function (e) { return { key: e.key, file: e.file, views: Object.keys(e.views), failed: e.failed }; }); } };
 })(typeof window !== 'undefined' ? window : this);

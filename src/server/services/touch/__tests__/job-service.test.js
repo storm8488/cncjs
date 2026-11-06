@@ -62,9 +62,9 @@ beforeAll(async () => {
   await fs.writeFile(path.join(root, 'macro.nc'), '%wait\nG1 X1');
   await fs.writeFile(path.join(root, 'offset.nc'), 'G21 G90\nG55\nG1 X1 F100\nM2');
   await fs.writeFile(path.join(root, 'bare.nc'), '(no units, no distance mode)\nG1 X1 F100\nM2');
-  await fs.writeFile(path.join(root, 'resume.nc'), ['G21 G90', 'M3 S9000', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200',
+  await fs.writeFile(path.join(root, 'resume.nc'), ['G21 G90 G94', 'M3 S9000', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200',
     'G1 X10 F800', 'G1 Y10', 'G1 X0', 'G0 Z5', 'M5', 'M30'].join('\n'));
-  await fs.writeFile(path.join(root, 'square.nc'), ['G21 G90 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-3 F100', 'G1 X40 F500', 'G1 Y30', 'G1 X0', 'G1 Y0', 'G0 Z5', 'M30'].join('\n'));
+  await fs.writeFile(path.join(root, 'square.nc'), ['G21 G90 G54 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-3 F100', 'G1 X40 F500', 'G1 Y30', 'G1 X0', 'G1 Y0', 'G0 Z5', 'M30'].join('\n'));
 });
 
 afterAll(async () => {
@@ -1243,7 +1243,7 @@ describe('job service', () => {
       ctx.report();
       const plan = await ctx.req('resumePlan', { file: 'resume.nc', line: 7 });
       expect(plan).toMatchObject({ from: 7, total: 11, line: 'G1 Y10', spindle: { mode: 'M3', speed: 9000 } });
-      expect(plan.preamble).toEqual(['(CNCjs Touch : reprise a la ligne 7 de resume.nc)', 'G21 G90 G17 G94', 'G0 Z5', 'G0 X10 Y0', 'M3 S9000', 'G4 P3', 'G1 Z-1 F200', 'F800']);
+      expect(plan.preamble).toEqual(['(CNCjs Touch : reprise a la ligne 7 de resume.nc)', 'G21 G90 G94', 'G0 Z5', 'G0 X10 Y0', 'M3 S9000', 'G4 P3', 'G1 Z-1 F200', 'F800']);
       expect(plan.notes[0]).toMatch(/dégagement Z5 .*pas une garantie/);
       expect(plan.program).toBeUndefined();
       expect(ctx.c.commands).toEqual([]);
@@ -1258,7 +1258,7 @@ describe('job service', () => {
       const [name, file, program] = ctx.c.commands[0];
       expect(name).toBe('gcode:load');
       expect(file).toBe('resume.nc');
-      expect(program.split('\n').slice(0, 9)).toEqual(['(CNCjs Touch : reprise a la ligne 7 de resume.nc)', 'G21 G90 G17 G94', 'G0 Z5', 'G0 X10 Y0', 'M3 S9000', 'G4 P3', 'G1 Z-1 F200', 'F800', 'G1 Y10']);
+      expect(program.split('\n').slice(0, 9)).toEqual(['(CNCjs Touch : reprise a la ligne 7 de resume.nc)', 'G21 G90 G94', 'G0 Z5', 'G0 X10 Y0', 'M3 S9000', 'G4 P3', 'G1 Z-1 F200', 'F800', 'G1 Y10']);
       const state = ctx.state();
       expect(state.resume).toMatchObject({ from: 7, total: 11, line: 'G1 Y10', notes: [expect.stringMatching(/dégagement/), expect.stringMatching(/Retrait en rapide/), expect.stringMatching(/repère/)] });
       expect(state.canStart).toBe(true);
@@ -2428,7 +2428,8 @@ describe('F5: attribution of control in the service', () => {
     // Back within the grace delay: the lease is restored, nothing was transferred.
     ctx.service.openTransport('stream-A2', TABLET_A);
     expect(ctx.state().control.owner).toMatchObject({ id: 'tablet-A', present: true });
-    expect(ctx.state().control.lastChange.type).toBe('restored');
+    // B-1: back within the grace, nothing was recorded; the last change is still the claim.
+    expect(ctx.state().control.lastChange.type).toBe('claim');
     ctx.service.closeTransport('stream-A2');
     ctx.now += 60001;
     ctx.report();
@@ -3062,7 +3063,7 @@ describe('job service F5, cross-check 3', () => {
       ctx.advance(45000);
       const commandsBefore = ctx.c.commands.length;
       ctx.service.openTransport('stream-A2', A);
-      expect(ctx.state().control).toMatchObject({ owner: { id: 'tablet-A', present: true }, lastChange: { type: 'restored' } });
+      expect(ctx.state().control).toMatchObject({ owner: { id: 'tablet-A', present: true }, lastChange: { type: 'claim' } });
       expect(ctx.state().workflow).toBe('paused');
       expect(ctx.c.commands.length).toBe(commandsBefore);
       // Le ticket de A (s'il en avait un) a été révoqué par la fermeture du flux : une reprise exige une nouvelle confirmation.
@@ -3143,7 +3144,7 @@ describe('job service A5 and F2, cross-check 3', () => {
   let root;
   beforeAll(async () => {
     root = await fs.mkdtemp(path.join(os.tmpdir(), 'cnc-xv3-a5-'));
-    await fs.writeFile(path.join(root, 'resume.nc'), ['G21 G90', 'M3 S9000', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200',
+    await fs.writeFile(path.join(root, 'resume.nc'), ['G21 G90 G94', 'M3 S9000', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200',
       'G1 X10 F800', 'G1 Y10', 'G1 X0', 'G0 Z5', 'M5', 'M30'].join('\n'));
   });
   afterAll(async () => {

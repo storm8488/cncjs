@@ -39,6 +39,8 @@
     return Math.min(totalLines,Math.max(0,s.received/s.total*totalLines));
   }
   if(typeof module!=='undefined'&&module.exports){module.exports={project:project,trailCount:trailCount,acknowledged:acknowledged};return;}
+  // Same functions in the page (PERFORMANCE-UI-SPEC.md 8.4): one rule for the acknowledged lines, read by the live 3D view and the gauges.
+  root.CNCToolPosition={project:project,trailCount:trailCount,acknowledged:acknowledged};
   var img=document.getElementById('home-job-image');if(!img)return;
   var marker=document.createElement('span');marker.className='tool-position-marker';marker.hidden=true;marker.setAttribute('aria-hidden','true');img.parentNode.appendChild(marker);
   // Progress trail: the acknowledged part of the toolpath, drawn from the
@@ -82,6 +84,12 @@
     var screen=document.getElementById('screen-home');
     if(document.hidden||!screen.classList.contains('active')){hide('');return;}
     var meta=img.cncPreview,s=state;
+    // The live 3D view (preview-gl.js under the GPU gate) draws its own marker and progress: the DOM
+    // marker and the trail stay hidden, and during a job or a pause the note describes the live view.
+    var lv=img.cncLiveView,ls=null;
+    try{ls=lv&&typeof lv.state==='function'?lv.state():null;}catch(_){ls=null;}
+    if(ls&&(ls.closed||!ls.gpu||!ls.live))ls=null;
+    if(ls){var text=liveNote(ls);if(text!==null){marker.hidden=true;trail.hidden=true;if(note.textContent!==text)note.textContent=text;return;}}
     if(!s||!s.fresh||Date.now()-received>2500||img.hidden||!meta||!s.name||meta.file!==s.name){hide(t('Position outil : données ou aperçu indisponibles.'));return;}
     if(!meta.projection){hide(t('Position outil : régénérez cet ancien aperçu dans Fichiers.'));return;}
     // The chosen 3D view, when it is the image shown; otherwise the stored 2D image.
@@ -99,7 +107,10 @@
     // The trail only needs the acknowledged lines and the preview, not the tool
     // position: it stays visible when the position cannot be projected.
     drawTrail(meta,s,box,projection);
-    var trailLabel=trail.hidden?'':simulation?t(' Tracé orange : avancement fictif.'):t(' Tracé orange : lignes acquittées, indicatif.');
+    if(ls)trail.hidden=true;
+    // Three things, never mixed up: the planned path (the preview), the lines Grbl acknowledged
+    // ("acquittées": accepted into its buffer, not necessarily cut yet) and the reported position.
+    var trailLabel=trail.hidden?'':simulation?t(' Tracé orange : avancement fictif.'):t(' Tracé orange : lignes acquittées par Grbl (acceptées, pas forcément usinées), indicatif.');
     function noMarker(message){marker.hidden=true;var text=message+trailLabel;if(note.textContent!==text)note.textContent=text;}
     var point;
     if(simulation){
@@ -115,9 +126,31 @@
     if(!pixel){noMarker(t('Position outil hors aperçu ou projection invalide.'));return;}
     var left=(box.left+(box.width-width)/2)+'px',top=(box.top+(box.height-height)/2)+'px',move='translate('+(pixel.x*width)+'px,'+(pixel.y*height)+'px) translate(-50%,-50%)';
     if(marker.style.left!==left)marker.style.left=left;if(marker.style.top!==top)marker.style.top=top;
-    if(marker.style.transform!==move)marker.style.transform=move;marker.hidden=false;
-    var label=(simulation?t('Point rose : position fictive G54. Le travail simulé ne déplace pas ce point.'):t('Point rose : position de travail rapportée, G54 · projection indicative.'))+trailLabel;
+    if(marker.style.transform!==move)marker.style.transform=move;marker.hidden=!!ls;
+    // Age of the reported position: the server's age of the status report plus its time in transit here.
+    var age=(typeof s.statusAgeMs==='number'&&isFinite(s.statusAgeMs)&&s.statusAgeMs>=0?s.statusAgeMs:0)+Math.max(0,Date.now()-received);
+    // In whole seconds: a tenth would rewrite the note (and lay Suivi out) at every report.
+    var ageText=age<1000?t('moins d’une seconde'):Math.floor(age/1000)+' s';
+    var label=(simulation?t('Point bleu : position fictive G54. Le travail simulé ne déplace pas ce point.'):t('Image : parcours prévu.')+' '+t('Point bleu : position de travail rapportée par Grbl il y a ')+ageText+t(', G54 · projection indicative.'))+trailLabel;
     if(note.textContent!==label)note.textContent=label;
+  }
+  // Note of the live 3D view during a job or a pause (PERFORMANCE-UI-SPEC.md 3.6), or null at rest
+  // (the note above is kept). One sentence per state, whole seconds: rewritten only when it changes.
+  function seconds(ms){return ms<1000?t('moins d’une seconde'):Math.floor(ms/1000)+' s';}
+  function liveNote(ls){
+    var v=ls.live,m=v.marker;
+    if(v.workflow!=='running'&&v.workflow!=='paused')return null;
+    var text;
+    if(v.simulation)text=t('Tracé orange : avancement fictif.')+' '+t('Point bleu : position fictive G54. Le travail simulé ne déplace pas ce point.');
+    else if(m.shown&&m.alarm)text=t('Alarme : position non garantie. Repère et avancement figés.');
+    else if(m.shown&&m.stale)text=t('Position périmée : dernier rapport il y a ')+Math.floor((m.ageMs||0)/1000)+t(' s. Repère et avancement figés.');
+    else{
+      var head=t('Parcours prévu · orange : lignes acquittées par Grbl (acceptées, pas forcément usinées) · blanc : passe en cours');
+      if(!m.shown)text=head+'. '+(v.reason||t('Position outil inconnue.'));
+      else text=head+t(' · repère : position de travail rapportée par Grbl il y a ')+seconds(m.ageMs||0)+(v.workflow==='paused'?t(', G54.'):m.snapped?t(', G54, interpolée entre deux rapports.'):t(', G54 (hors du parcours dessiné : non interpolée).'));
+    }
+    if(ls.geometry==='simplified')text+=' '+(ls.geometryReason==='too-long'?t('Géométrie simplifiée : programme trop long pour la géométrie complète (')+ls.geometryTotal+t(' segments).'):t('Géométrie simplifiée (')+(ls.segments+1)+t(' points).'));
+    return text;
   }
   function schedule(){
     if(disposed)return;

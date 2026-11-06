@@ -1,6 +1,6 @@
 /* eslint-env jest */
 // Test helper (not a test file): the Touch client's catalog of coded server
-// refusals (examples/cncjs-touch/touch/i18n-messages.js, window.CNCTouchCodes)
+// refusals (examples/cncjs-touch/touch/i18n-messages.js and i18n-messages-machine.js, window.CNCTouchCodes)
 // and its formatter (i18n.js, cncI18n.format), loaded in a vm per language, so
 // server tests can check that the French template of a stable ETOUCH_* code,
 // filled with the emitted params, is exactly the server's French message.
@@ -18,7 +18,8 @@ const load = (language) => {
     document: { documentElement: {}, title: '' },
     localStorage: { getItem: (k) => saved.get(k) || null, setItem() {} }
   };
-  ['i18n-messages.js', 'i18n.js'].forEach((name) => vm.runInNewContext(fs.readFileSync(path.join(TOUCH, name), 'utf8'), context));
+  // i18n-messages-machine.js: the machine type and laser codes (lot A of PROFILES-CONTRACT.md).
+  ['i18n-messages.js', 'i18n-messages-machine.js', 'i18n.js'].forEach((name) => vm.runInNewContext(fs.readFileSync(path.join(TOUCH, name), 'utf8'), context));
   return window;
 };
 

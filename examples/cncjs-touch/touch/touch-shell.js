@@ -55,6 +55,15 @@
     if(document.body.classList.contains('t-compact')!==compact)document.body.classList.toggle('t-compact',compact);
     window.dispatchEvent(new CustomEvent('cnc-library-page-size',{detail:compact?3:5}));window.dispatchEvent(new CustomEvent('cnc-history-page-size',{detail:compact?4:8}));}
   window.addEventListener('resize',fitLibrary);fitLibrary();
+  // Wide workstation (PERFORMANCE-UI-SPEC.md 2.2, body.perf-wide): Performance profile, hardware WebGL
+  // (body.perf-gpu, preview-3d.js) and a landscape window of at least 1300 x 880 CSS px. The style
+  // sheets key on the class only; cnc-layout-change tells the modules. A lost GPU context keeps
+  // perf-gpu, so the layout never moves during a job (Q4).
+  var layoutWideOn=false;
+  function layoutWide(){var b=document.body.classList;return b.contains('perf-performance')&&b.contains('perf-gpu')&&window.innerWidth>=1300&&window.innerHeight>=880&&window.innerWidth>=window.innerHeight;}
+  function fitLayout(){var on=layoutWide();if(on===layoutWideOn)return;layoutWideOn=on;document.body.classList.toggle('perf-wide',on);window.dispatchEvent(new CustomEvent('cnc-layout-change',{detail:{wide:on}}));}
+  window.cncLayout={wide:function(){return layoutWideOn;}};
+  window.addEventListener('resize',fitLayout);window.addEventListener('cnc-profile-change',fitLayout);window.addEventListener('cnc-gpu-change',fitLayout);fitLayout();
   var openedSheet=null,sheetReturn=null,sheetRestore=null;
   // Pause / Arrêter of the strip stay usable over a sheet (strip-guard.js, U5): the sheet
   // starts below the strip and makes the rest inert; without the guard, everything else.
@@ -102,7 +111,7 @@
   document.querySelector('.library-detail').appendChild(tools);
   var upload=sheet('ks-upload',uiLocale.t('Ajouter un fichier à la bibliothèque'));
   var uploadBlock=document.getElementById('library-upload');uploadBlock.open=true;uploadBlock.querySelector('summary').hidden=true;upload.content.appendChild(uploadBlock);
-  var uploadButton=document.createElement('button');uploadButton.type='button';uploadButton.className='ks-upload-button';uploadButton.textContent=uiLocale.t('＋ Ajouter un fichier');uploadButton.addEventListener('click',upload.open);document.querySelector('.library-list-panel').appendChild(uploadButton);
+  var uploadButton=document.createElement('button');uploadButton.type='button';uploadButton.className='ks-upload-button';uploadButton.textContent=uiLocale.t('+ Ajouter un fichier');uploadButton.addEventListener('click',upload.open);document.querySelector('.library-list-panel').appendChild(uploadButton);
   var refresh=document.getElementById('library-refresh');document.querySelector('.library-list-title').appendChild(refresh);document.querySelector('.library-header').hidden=true;
   document.getElementById('job-load').textContent=uiLocale.t('Charger et ouvrir le Suivi');
   document.querySelector('.library-execution h2').textContent=simulation?uiLocale.t('Travail simulé'):uiLocale.t('Exécution sur la machine');
@@ -234,6 +243,20 @@
     setText(toast,whyFor(hit));toast.hidden=false;
     if(toastTimer!==null)clearTimeout(toastTimer);toastTimer=setTimeout(function(){toast.hidden=true;toastTimer=null;},4000);
   });
+  // Inspection mode of Suivi (responsive.css, body.t-inspect): the path enlarged, the details
+  // panel folded. A view preference of this page only; kept across resizes and rotations.
+  var metrics=document.querySelector('#screen-home .job-art');
+  if(metrics){
+    var inspectRow=document.createElement('div');inspectRow.className='home-inspect-row';
+    var inspect=document.createElement('button');inspect.type='button';inspect.id='t-inspect';inspect.className='t-inspect-toggle';inspect.setAttribute('aria-pressed','false');
+    var inspectLabel=function(on){inspect.textContent=on?uiLocale.t('Afficher les détails'):uiLocale.t('Agrandir le tracé');};inspectLabel(false);
+    inspect.addEventListener('click',function(){
+      var on=!document.body.classList.contains('t-inspect');
+      document.body.classList.toggle('t-inspect',on);inspect.setAttribute('aria-pressed',String(on));inspectLabel(on);
+      window.dispatchEvent(new Event('resize'));
+    });
+    inspectRow.appendChild(inspect);metrics.appendChild(inspectRow);
+  }
   // Shared with later modules (macros): sheets with focus trapping and navigation.
   window.cncShell={sheet:sheet,closeSheet:closeSheet,go:go,preparationActions:preparationActions};
   go('menu',true);

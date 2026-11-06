@@ -47,7 +47,8 @@ export const getJob = authorized((req, res) => {
 // (`clientId`, kept in its localStorage) and its label. Never the body alone.
 const text = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 export const actorOf = (req) => {
-  const user = text(req.user.name, 60) || text(req.user.id, 60);
+  const session = req.user && typeof req.user === 'object' ? req.user : {};
+  const user = text(session.name, 60) || (session.id === undefined || session.id === null ? '' : text(String(session.id), 60));
   const body = req.body || {};
   const query = req.query || {};
   const clientId = text(body.clientId, 80) || text(query.clientId, 80);
@@ -77,7 +78,9 @@ export const postJob = authorized((req, res) => {
       // message, so a client can translate it; the French message is unchanged.
       const coded = typeof err.code === 'string' && /^ETOUCH_[A-Z0-9_]+$/.test(err.code)
         ? { code: err.code, ...(err.params && typeof err.params === 'object' ? { params: err.params } : {}) } : {};
-      res.status(err.status || ERR_BAD_REQUEST).send({ message: err.message, ...control, ...coded });
+      // Coded reasons behind a refusal ({code, params, message}, like a program check's codedReasons).
+      const reasons = Array.isArray(err.reasons) ? { reasons: err.reasons } : {};
+      res.status(err.status || ERR_BAD_REQUEST).send({ message: err.message, ...control, ...coded, ...reasons });
     });
 });
 
@@ -158,6 +161,29 @@ export const postBacklight = authorized((req, res) => {
       res.status(ERR_INTERNAL_SERVER_ERROR).send({ message: 'Luminosité non modifiée.' });
     }
   }
+});
+
+// Wi-Fi of the computer running CNCjs (Réglages → Système). The password goes
+// to nmcli only: it is never logged nor sent back.
+export const getWifi = authorized((req, res) => {
+  res.set('Cache-Control', 'no-store');
+  touch.wifiStatus()
+    .then((data) => res.send(data))
+    .catch((err) => res.status(err.status || ERR_INTERNAL_SERVER_ERROR).send({ message: err.status ? err.message : 'Wi-Fi indisponible.' }));
+});
+
+export const postWifi = authorized((req, res) => {
+  const body = req.body || {};
+  res.set('Cache-Control', 'no-store');
+  touch.wifiAction({ action: body.action, ssid: body.ssid, password: body.password, hidden: body.hidden === true }, actorOf(req))
+    .then((data) => {
+      log.info(`wifi ${body.action}${body.action === 'connect' || body.action === 'forget' ? ': ' + String(body.ssid || '').slice(0, 32) : ''}`);
+      res.send(data);
+    })
+    .catch((err) => {
+      log.warn(`wifi ${body.action} refused: ${err.message}`);
+      res.status(err.status || ERR_INTERNAL_SERVER_ERROR).send({ message: err.status ? err.message : 'Action Wi-Fi impossible.' });
+    });
 });
 
 // Project sheets of the shared library (F3) and the provenance of compensated

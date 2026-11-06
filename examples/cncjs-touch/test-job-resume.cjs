@@ -25,7 +25,7 @@ assert.equal(R.planText(plan),R.planText(Object.assign({},plan,{notes:[]})),'no 
 // Every phrase used by the module is in the FR/EN/ES catalog.
 const source=fs.readFileSync(__dirname+'/touch/job-resume.js','utf8');
 const phrases=[...source.matchAll(/\bt\('((?:[^'\\]|\\.)*)'\)/g)].map(m=>m[1]).concat([...source.matchAll(/el\('[a-z]+','[^']*','[^']*','((?:[^'\\]|\\.)*)'\)/g)].map(m=>m[1]));
-const catalog={window:{}};vm.runInNewContext(fs.readFileSync(__dirname+'/touch/i18n-messages.js','utf8'),catalog);
+const catalog={window:{}};['i18n-messages.js','i18n-messages-profiles.js'].forEach(n=>vm.runInNewContext(fs.readFileSync(__dirname+'/touch/'+n,'utf8'),catalog));
 const keys=new Set(catalog.window.CNCTouchMessages.map(r=>r[0].trim().replace(/\s+/g,' ')));
 for(const p of new Set(phrases))assert(keys.has(p.trim().replace(/\s+/g,' ')),'missing translation: '+p);
 // Plate probe texts.
@@ -42,7 +42,7 @@ const stored=new Map();
 const window={cncLibrarySelection:{file:'a.nc',name:'a.nc'},addEventListener:(n,f)=>(listeners[n]=listeners[n]||[]).push(f),
   cncJobControls:{resumePlan:(f,l)=>{calls.push(['plan',f,l]);return planResult;},loadFrom:(f,l)=>{calls.push(['load',f,l]);return Promise.resolve({});},spindleStop:()=>{calls.push(['m5']);return Promise.resolve({});},prepareCommand:(op,extra)=>{calls.push(['prepare',op,extra]);}}};
 vm.runInNewContext(source,{window,document,localStorage:{getItem:k=>stored.has(k)?stored.get(k):null,setItem:(k,v)=>stored.set(k,v)}});
-const ids=parent.children.map(c=>c.id);assert.deepEqual(ids,['home-job-ready','home-program-pause','home-resume-line','home-resume-panel','home-plate']);
+const ids=parent.children.map(c=>c.id);assert.deepEqual(ids,['home-job-ready','home-program-pause','home-resume-line','home-resume-panel','home-plate','home-frame']);
 const byId=id=>parent.querySelectorAll('*').find(c=>c.id===id);
 const status=machine=>listeners['cnc-job-status'].forEach(f=>f({detail:{machine,simulation:false}}));
 const idle={fresh:true,workflow:'idle',canLoad:true,stoppedAtLine:200,stoppedFile:'a.nc',programPause:null};

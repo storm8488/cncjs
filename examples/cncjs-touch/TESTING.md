@@ -26,6 +26,18 @@ An optional report can be written outside the source tree:
 node verify-project.cjs --report /absolute/path/to/offline-report.json
 ```
 
+## Performance UI on a hardware GPU (2026-11-06)
+
+Branch `perf-ui/integration` (lots V, D, O of [PERFORMANCE-UI-BRIEF.md](PERFORMANCE-UI-BRIEF.md), merged and reviewed). On the development PC (Node 26.13): `node verify-project.cjs` 121/121, `npx jest src/server/services/touch` 857/857, `node browser-run.cjs --strict --browser "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"` 0 violation (windows 1366 × 768, 1366 × 911 Éco and wide, 1728 × 1152 wide, and the earlier list). New tests: `test-preview-3d-gpu.cjs`, `test-preview-3d-live.cjs` (marker never past the last report nor the last acknowledged line, 1 000 generated report sequences), `test-preview-3d-overlays.cjs`, `test-responsive-wide.cjs`, `test-origin-preview.cjs`, and the reviewer's `test-scenario-perf-safety.cjs` (nothing sent through a whole live view, no drawing in the status handler, release in Éco) and `test-scenario-perf-defects.cjs` (full-geometry read cancelled when a job starts; kept geometry released for another program).
+
+`browser-run.cjs` on Windows: Edge with an update pending hands the session to a new process and exits 0; the harness now waits for its DevTools port instead of failing with « browser exited early ». Each run may still leave headless Edge processes (profiles `cnc-browser-run-*` in `%TEMP%`): stop them afterwards.
+
+Device figures (Surface Pro 3, no controller) are in [PROFILES.md](PROFILES.md), « Performance on a hardware GPU ». To measure again: publish the pages under `/touch-next/`, open a second Chromium with `--remote-debugging-port` on the tablet's display (not `--headless`, which falls back to SwiftShader), open Suivi or Fichiers on a program, then `node measure-preview-gl-tablet.cjs --port <port> --seconds 10 --paint 100 --out m.json` on the tablet (Node 22). Its gesture (M1) now generates one move per animation frame in the page; the previous version sent one CDP event per round trip and could not show more than about 20 frames/s.
+
+## Machine type and tablet performance (2026-11)
+
+Commands, results and PC measurements are in [PROFILES.md](PROFILES.md), "What was tested"; the device and machine procedure is in its last section. Nothing was run on a machine, a laser, the Surface RT or a Surface Pro 3.
+
 ## Audit 2026-10 (2026-10-29/30)
 
 The 31-item audit (see [AUDIT-2026-10.md](AUDIT-2026-10.md)). Every figure in this section comes from the development PC: Windows 11, Node.js 24.20.0, Chrome 156 headless driven through the DevTools protocol. None is a Surface RT measurement: for Suivi during a job the tablet spends about 25 times more main-thread time than this PC, so even the 4× CPU throttling runs are far faster than the tablet. Pixel sizes are comparable; timings and memory are indications only.
@@ -269,7 +281,7 @@ Not tested on the real machine: a real contact (steps 2 to 5 ran only against th
 **Resume from a line** (`src/server/services/touch/resume.js`, Suivi → "Reprendre à une ligne…", `touch/job-resume.js`). The server replays the program's state up to the chosen line and loads a rebuilt program:
 - State replayed: units, plane, work offset, motion mode, feed, plunge feed (feed of the last cutting move down in Z), spindle and speed, coolant, tool, and the work position. `G91` sections are followed.
 - Preamble: modes with `G90`, rapid to the clearance height (highest Z seen before the line), rapid over the XY start, spindle back on with a 3 s dwell, coolant, plunge at the plunge feed, then the cutting feed. A first line that relies on the modal motion (`X10 Y5` after `G1`) gets it back.
-- Refused instead of guessed: `G10`/`G92` before the line, `G93`, a resume inside `G91`, a position unknown since a `G53`/`G28`/`G30` move, unknown clearance, feed or spindle speed.
+- Refused instead of guessed: `G10`/`G92` before the line, `G93`, a resume inside `G91`, a position unknown since a `G53`/`G28`/`G30` move or a probe, unknown clearance, feed or spindle speed; any CNCjs `[expression]` or `/` in the file; `G43.1`, `M2`/`M30` or a `G49` with an axis word before the line; a program that does not choose `G90`/`G91` before its first move, or its plane before an arc. A program that never chooses `G94` is resumed like one that never chooses its units or its work offset: the board keeps its own feed mode (`G94` after power-up, a reset, `M2` or `M30`) and the plan says so (FreeCAD's grbl post and many hand-written files omit `G94`). A `G49` seen before the line is repeated by the preamble; the program's `S` and coolant (`M9`, then `M7`/`M8`) are restored even when the spindle is stopped at the line.
 - Lines are numbered like the CNCjs sender (non-empty lines, comment lines included). After a stop, the suggested line is the last acknowledged one minus 15, since Grbl plans moves ahead of execution. The line is checked first (`resumePlan`, nothing loaded), then loaded (`load` with `fromLine`), and the normal start confirmation says it is a resume and which tool is expected.
 
 **Program pauses.** CNCjs comments `M6` out and pauses; `M0`/`M1` pause too. Such a pause could only be resumed in CNCjs before; it can now be resumed from the touch screen once the machine has stopped (Idle or Hold, nothing queued).

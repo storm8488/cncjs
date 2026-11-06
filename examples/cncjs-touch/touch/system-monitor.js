@@ -21,7 +21,9 @@
   panel.insertBefore(tabs,intro.nextSibling||null);
 
   var section=el('div','card wide ks-system');section.id='ks-system';section.setAttribute('role','tabpanel');
-  var head=el('div','ks-system-head'),title=el('h2','',t('Ordinateur du serveur CNCjs')),host=el('span','ks-readonly ks-system-host','');
+  // Scope (PROFILES-CONTRACT.md §1): every figure here is the CNCjs host's, never this tablet's.
+  var head=el('div','ks-system-head'),title=el('h2','',t('Ordinateur du serveur CNCjs')+' '),host=el('span','ks-readonly ks-system-host','');
+  var scope=el('span','ks-scope',t('Serveur CNCjs'));scope.setAttribute('data-scope','server');title.appendChild(scope);
   head.appendChild(title);head.appendChild(host);section.appendChild(head);
   var status=el('p','ks-system-status','');status.setAttribute('role','status');section.appendChild(status);
 
@@ -52,7 +54,7 @@
   var historyNote=el('p','ks-system-note','');historyBox.appendChild(historyNote);grid.appendChild(historyBox);
   var net=tile(t('Réseau')),server=tile(t('Serveur CNCjs'));
   var memBar=bar();mem.box.insertBefore(memBar.box,mem.note);
-  var foot=el('p','ks-help',t('Mesures réelles de l’ordinateur qui exécute CNCjs, actualisées toutes les 2 s tant que cet onglet est affiché. Aucune commande n’est envoyée à la machine.'));
+  var foot=el('p','ks-help',t('Mesures réelles de l’ordinateur qui exécute CNCjs (serveur CNCjs), pas de cette tablette sauf si CNCjs tourne dessus. Actualisées toutes les 2 s tant que cet onglet est affiché. Aucune commande n’est envoyée à la machine.'));
   section.appendChild(foot);
   panel.appendChild(section);
 

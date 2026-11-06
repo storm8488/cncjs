@@ -28,7 +28,12 @@
   var freshText=el('span','','t-fresh-text');fresh.appendChild(freshText);fresh.title=uiLocale.t('Âge du dernier rapport machine');
   var vitals=el('div','t-vitals');
   function vital(label,id,extra){var box=el('div','t-vital'+(extra||''));var l=el('span');l.textContent=label;var b=el('b','',id);b.textContent='—';box.appendChild(l);box.appendChild(b);vitals.appendChild(box);return b;}
-  var spindle=vital(uiLocale.t('Broche'),'t-spindle'),feed=vital(uiLocale.t('Avance'),'t-feed'),file=vital(uiLocale.t('Fichier'),'t-file',' t-vital--file');
+  var spindle=vital(uiLocale.t('Broche'),'t-spindle'),feed=vital(uiLocale.t('Avance'),'t-feed');
+  // The target machine as the server names it (label · CNC / Laser), PROFILES-CONTRACT.md §2.
+  var target=vital(uiLocale.t('Machine'),'t-machine',' t-vital--machine'),file=vital(uiLocale.t('Fichier'),'t-file',' t-vital--file');
+  var spindleLabel=spindle.previousSibling;
+  // The simulation has no machine record: the cell is not shown there.
+  if(simulation&&target.parentNode)target.parentNode.hidden=true;
   var actions=el('div','t-strip-actions');
   var pause=el('button','t-btn t-btn--warn','t-pause');pause.type='button';pause.textContent=uiLocale.t('Pause');pause.hidden=true;
   var stop=el('button','t-btn t-btn--danger','t-stop');stop.type='button';stop.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>';
@@ -152,7 +157,12 @@
     text(freshText,simulation&&m?uiLocale.t('simulé'):!known?'—':age<1000?'< 1 s':age<60000?Math.ceil(age/1000)+' s':Math.ceil(age/60000)+' min');
     attr(fresh,'data-stale',String(!m||(!simulation&&(!known||age>2500||!m.fresh))));
     var live=!!(m&&m.fresh);
-    text(spindle,live&&finite(m.spindleSpeed)?number(m.spindleSpeed)+uiLocale.t(' tr/min'):'—');
+    // Laser: the S value is a set point (« consigne S »), never a measured power.
+    var p=m&&m.machineProfile&&typeof m.machineProfile==='object'?m.machineProfile:null,laser=!!(p&&p.kind==='laser');
+    text(spindleLabel,laser?uiLocale.t('Consigne S'):uiLocale.t('Broche'));
+    text(spindle,live&&finite(m.spindleSpeed)?(laser?'S '+number(m.spindleSpeed):number(m.spindleSpeed)+uiLocale.t(' tr/min')):'—');
+    text(target,!m?'—':p?(p.label||uiLocale.t('sans nom'))+' · '+(laser?uiLocale.t('Laser'):p.kind==='cnc'?uiLocale.t('CNC'):uiLocale.t('non confirmé')):uiLocale.t('non indiqué'));
+    attr(target.parentNode,'data-kind',p&&p.kind?p.kind:'unknown');
     text(feed,live&&finite(m.feedrate)?number(m.feedrate)+' mm/min':'—');
     text(file,m&&m.name?(m.originalName||m.name):'—');
     // Stop and Pause need a recent machine state only: the server accepts them without the

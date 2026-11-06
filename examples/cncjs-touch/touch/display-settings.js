@@ -10,7 +10,11 @@
   }
   // Réglages is the one screen that scrolls rather than shrinking (viewport-fit.js).
   panel.setAttribute('data-fit', 'scroll');
-  panel.innerHTML = uiLocale.html('<div class="card wide ks-panel-intro"><div><h2>Votre écran</h2><p>Préférences conservées dans ce navigateur.</p></div><span class="ks-readonly" id="display-resolution"></span></div>') +
+  // Scope of each row (PROFILES-CONTRACT.md §1): « Cette tablette » (this browser only) or
+  // « Serveur CNCjs » (the computer running CNCjs, shared by every device).
+  panel.innerHTML = uiLocale.html('<div class="card wide ks-panel-intro"><div><h2>Votre écran</h2><p>Préférences conservées dans ce navigateur, sur cet appareil uniquement.</p></div><span class="ks-readonly" id="display-resolution"></span></div>') +
+    uiLocale.html('<div class="card ks-display-card ks-profile-card" id="ks-machine-kind-card"><h2>Type de machine <span class="ks-scope" data-scope="server">Serveur CNCjs</span></h2><p id="profile-machine-target">Machine : —</p><div class="ks-display-choices" role="group" aria-label="Type de machine"><button type="button" data-machine-kind="cnc" aria-pressed="false">CNC</button><button type="button" data-machine-kind="laser" aria-pressed="false">Laser</button></div><p class="ks-help">Enregistré par le serveur CNCjs pour cette machine et partagé par tous les appareils. Seul l’appareil qui pilote peut le changer, machine au repos.</p><p id="profile-machine-unconfirmed" class="t-notice" data-tone="warn" role="status" hidden></p><p id="profile-machine-status" role="status"></p></div>') +
+    uiLocale.html('<div class="card ks-display-card ks-profile-card" id="ks-performance-card"><h2>Performances de cette tablette <span class="ks-scope" data-scope="tablet">Cette tablette</span></h2><p>Ce choix ne concerne que ce navigateur, sur cet appareil. Il ne change rien sur la machine ni sur les autres appareils, et ne recharge pas la page.</p><div class="ks-display-choices" role="group" aria-label="Performances de cette tablette"><button type="button" data-performance="eco" aria-pressed="true">Éco</button><button type="button" data-performance="performance" aria-pressed="false">Performance</button></div><p class="ks-help">Éco : aperçu simple, pour les tablettes lentes. Performance : vues avancées chargées à la demande.</p><p id="profile-performance-status" role="status"></p></div>') +
     uiLocale.html('<div class="card ks-display-card"><h2>Taille du texte</h2><p>Choisissez le confort de lecture.</p><div class="ks-display-choices" role="group" aria-label="Taille du texte"><button type="button" data-display-size="standard" aria-pressed="true"><span class="ks-text-sample">Aa</span>Standard</button><button type="button" data-display-size="large" aria-pressed="false"><span class="ks-text-sample ks-text-large">Aa</span>Agrandi</button></div></div>') +
     uiLocale.html('<div class="card ks-display-card"><h2>Thème</h2><p>Sombre pour l’atelier, clair à fort contraste pour la lumière du jour.</p><div class="ks-display-choices" role="group" aria-label="Thème"><button type="button" data-display-theme="dark" aria-pressed="true"><span class="ks-theme-sample ks-theme-dark">Aa</span>Sombre</button><button type="button" data-display-theme="light" aria-pressed="false"><span class="ks-theme-sample ks-theme-light">Aa</span>Clair</button></div></div>') +
     uiLocale.html('<div class="card ks-display-card"><h2>Suivi du travail réel</h2><p>Coordonnées machine en plus des coordonnées de travail.</p><button type="button" id="display-machine-toggle" class="ks-display-toggle" aria-pressed="true"><span>Coordonnées machine</span><b id="display-machine-state">Affichées</b></button><p class="ks-help">Ce choix concerne le suivi réel. Les positions restent disponibles dans Déplacer / Origine.</p></div>') +
@@ -120,4 +124,82 @@
   var entry = document.createElement('button');entry.type = 'button';entry.id = 'ks-machine-display';entry.className = 'ks-secondary';entry.textContent = uiLocale.t('Réglages d’affichage →');
   document.querySelector('.ks-machine-overview').appendChild(entry);
   apply();screenState();sleepStatus();
+})();
+/* Réglages → « Type de machine » (server, per machine) and « Performances de cette tablette »
+ * (this browser only), PROFILES-CONTRACT.md §1 and §5. The machine kind is read from the
+ * server's machineProfile and changed only through cncJobControls.setMachineKind (the job POST
+ * path: pilot, generation and refusals as for every machine action): one tap per kind, no name
+ * and no confirmation panel. The performance profile is applied and saved
+ * here at once: no reload, no request, no command. */
+(function () {
+  'use strict';
+  var uiLocale=window.cncI18n||{t:function(s){return s;}};
+  var t=uiLocale.t,profiles=window.cncProfile,card=document.getElementById('ks-machine-kind-card');
+  if(!profiles||!card||typeof card.querySelectorAll!=='function')return;
+  var $=function(id){return document.getElementById(id);};
+  function set(n,v){if(n&&n.textContent!==v)n.textContent=v;}
+  function prop(n,k,v){if(n&&n[k]!==v)n[k]=v;}
+  function attr(n,k,v){if(n&&n.getAttribute(k)!==v)n.setAttribute(k,v);}
+  var kinds=card.querySelectorAll('[data-machine-kind]'),perfCard=$('ks-performance-card');
+  var perfs=perfCard&&typeof perfCard.querySelectorAll==='function'?perfCard.querySelectorAll('[data-performance]'):[];
+  var KIND_WORDS={cnc:t('CNC'),laser:t('Laser')};
+  var MATCH_WORDS={signature:t('reconnue par ses réglages'),none:t('pas encore associée'),ambiguous:t('plusieurs fiches correspondent'),unknown:t('réglages $$ pas encore lus')};
+  var machine=null,sending=false;
+  // The server's reason, translated when it is a catalogue phrase.
+  function reasonOf(p){
+    if(!p)return t('Type de machine non transmis par le serveur CNCjs.');
+    return p.changeReason?(uiLocale.message?uiLocale.message(p.changeReason):p.changeReason):t('Changement impossible dans l’état actuel de la machine.');
+  }
+  function target(p){
+    if(!p)return t('Machine : aucune information du serveur CNCjs.');
+    return t('Machine : ')+(p.kind?KIND_WORDS[p.kind]:t('type non choisi'))+(p.portHint?' · '+p.portHint:'')+(p.simulated?' · '+t('simulation : cette page seulement, rien sur le serveur'):p.match==='unknown'||p.match==='ambiguous'?' · '+MATCH_WORDS[p.match]:'');
+  }
+  // Coded issues (ETOUCH_MACHINE_*: incoherent $32…), translated by the tablet's catalogue.
+  function issuesText(p){
+    var list=p&&Array.isArray(p.issues)?p.issues:[];
+    return list.map(function(i){return i&&i.code&&uiLocale.format?uiLocale.format(i.code,i.params||{},''):'';}).filter(Boolean).join(' ');
+  }
+  function renderMachine(){
+    var p=profiles.machine(),kind=profiles.kind(),can=!!(p&&p.canChange&&machine&&!sending);
+    set($('profile-machine-target'),target(p));
+    var why=can?'':sending?t('Demande envoyée…'):!machine?t('Aucune machine connectée.'):reasonOf(p);
+    Array.prototype.forEach.call(kinds,function(b){
+      var k=b.getAttribute('data-machine-kind');
+      attr(b,'aria-pressed',String(kind===k));prop(b,'disabled',!can);
+      if(why)attr(b,'title',why);else if(b.removeAttribute)b.removeAttribute('title');
+    });
+    // Unknown kind: the CNC interface stays, with a visible prompt to choose the type.
+    var unknown=!!machine&&kind===null,note=$('profile-machine-unconfirmed');
+    var text=unknown?t('Type de machine non confirmé : l’interface CNC est utilisée. Choisissez CNC ou Laser pour cette machine.'):'';
+    var issues=issuesText(p);if(issues)text=(text?text+' ':'')+issues;
+    set(note,text);prop(note,'hidden',!text);
+  }
+  // A plain switch: one tap sends the kind (the server still checks pilot, rest and $$); no name asked.
+  function choose(kind){
+    var c=window.cncJobControls,p=profiles.machine();
+    if(!p||!p.canChange||!machine||sending||profiles.kind()===kind)return;
+    if(!c||typeof c.setMachineKind!=='function'){set($('profile-machine-status'),t('Commandes indisponibles.'));return;}
+    var simulated=!!p.simulated;
+    sending=true;set($('profile-machine-status'),t('Demande envoyée…'));renderMachine();
+    c.setMachineKind(kind,p.label||KIND_WORDS[kind]).then(function(){sending=false;set($('profile-machine-status'),simulated?t('Type simulé appliqué à cette page : ')+KIND_WORDS[kind]+t('. Rien n’est envoyé au serveur CNCjs.'):t('Type enregistré : ')+KIND_WORDS[kind]+'.');renderMachine();},
+      function(e){sending=false;set($('profile-machine-status'),e&&e.message?e.message:t('Refus du serveur sans détail.'));renderMachine();});
+  }
+  Array.prototype.forEach.call(kinds,function(b){b.addEventListener('click',function(){
+    var k=b.getAttribute('data-machine-kind');if(k!=='cnc'&&k!=='laser')return;
+    if(b.disabled){set($('profile-machine-status'),b.getAttribute('title')||'');return;}
+    choose(k);
+  });});
+  function renderPerformance(){
+    var p=profiles.performance();
+    Array.prototype.forEach.call(perfs,function(b){attr(b,'aria-pressed',String(b.getAttribute('data-performance')===p));});
+  }
+  Array.prototype.forEach.call(perfs,function(b){b.addEventListener('click',function(){
+    var r=profiles.setPerformance(b.getAttribute('data-performance'));
+    set($('profile-performance-status'),r.message||'');renderPerformance();
+  });});
+  if(profiles.storage&&profiles.storage()!=='ok'&&profiles.storage()!=='absent')set($('profile-performance-status'),t('Valeur enregistrée illisible : Éco appliqué. Elle sera remplacée à votre prochain choix.'));
+  window.addEventListener('cnc-profile-change',function(){renderMachine();renderPerformance();});
+  window.addEventListener('cnc-job-status',function(e){var d=e&&e.detail||{};machine=d.machine||null;renderMachine();});
+  renderMachine();renderPerformance();
+  window.cncProfileSettings={choose:choose,render:renderMachine};
 })();

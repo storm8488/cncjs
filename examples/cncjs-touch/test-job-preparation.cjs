@@ -81,7 +81,7 @@ const source=fs.readFileSync(__dirname+'/touch/job-preparation.js','utf8');
 assert(!/cncJobControls|XMLHttpRequest|fetch\(/.test(source),'the sheet never commands the machine');
 // Every phrase is in the FR/EN/ES catalog; the script loads after touch-shell.js and macros.js on both pages.
 const phrases=[...source.matchAll(/\bt\('((?:[^'\\]|\\.)*)'\)/g)].map(m=>m[1]);
-const catalog={window:{}};vm.runInNewContext(fs.readFileSync(__dirname+'/touch/i18n-messages.js','utf8'),catalog);
+const catalog={window:{}};['i18n-messages.js','i18n-messages-profiles.js'].forEach(n=>vm.runInNewContext(fs.readFileSync(__dirname+'/touch/'+n,'utf8'),catalog));
 const keys=new Set(catalog.window.CNCTouchMessages.map(r=>r[0].trim().replace(/\s+/g,' ')));
 for(const p of new Set(phrases))if(/[a-zà-ÿ]{2}/i.test(p))assert(keys.has(p.trim().replace(/\s+/g,' ')),'missing translation: '+p);
 for(const name of ['index.html','simulation.html']){const html=fs.readFileSync(__dirname+'/touch/'+name,'utf8');assert(html.indexOf('job-preparation.js')>html.indexOf('touch-shell.js')&&html.indexOf('job-preparation.js')>html.indexOf('macros.js'),name);}

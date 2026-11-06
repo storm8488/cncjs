@@ -4,10 +4,15 @@
   if(!main)return;
   function fit(){
     pending=false;if(disposed)return;
-    var vh=window.innerHeight,vw=window.innerWidth,top=0;
+    var vh=window.innerHeight,vw=window.innerWidth,top=0,responsive=responsiveLayout();
+    // A virtual keyboard shrinks the visual viewport only (pinch zoom aside): the room to fit is
+    // what stays visible above it.
+    var vv=responsive&&window.visualViewport;if(vv&&vv.height>0&&Math.abs((vv.scale||1)-1)<0.01&&vv.height<vh)vh=Math.floor(vv.height);
     // #notice lies over the screen (ui-2027.css): it never changes the room to fit.
     ['status-bar','simulation-banner','real-banner'].forEach(function(id){var el=document.getElementById(id);if(el&&!el.hidden)top=Math.max(top,el.getBoundingClientRect().bottom);});
-    var nav=document.getElementById('tabbar'),shell=document.body.classList.contains('ks-ui'),bottom=shell?0:nav?nav.getBoundingClientRect().height:0;
+    // The rail lies along the bottom in portrait (responsive.css): its height is taken from the room.
+    var nav=document.getElementById('tabbar'),shell=document.body.classList.contains('ks-ui'),navRect=nav?nav.getBoundingClientRect():null;
+    var railBottom=shell&&responsive&&navRect&&navRect.width>=vw-2&&navRect.top>top?navRect.height:0,bottom=shell?railBottom:navRect?navRect.height:0;
     var viewHeight=Math.max(100,vh-top-bottom-16)+'px';
     var screen=main.querySelector('.screen.active');
     var w=Math.max(1,main.clientWidth-(shell?32:16)),h=Math.max(1,vh-Math.ceil(top)-Math.ceil(bottom)-(shell?32:16));
@@ -15,7 +20,7 @@
     // A screen marked data-fit="scroll" (Réglages) keeps its full size and
     // scrolls vertically instead of being shrunk to fit.
     var scroll=scrolls(screen);
-    if(screen&&!cached&&!scroll){
+    if(screen&&!cached&&!scroll&&!responsive){
       var saved=recall(screen,key);
       if(saved){
         // A scale remembered from an earlier page load is applied at once, with
@@ -41,14 +46,15 @@
     var fits=cached&&cached.key===key&&!activated&&sh*cached.scale<=h+1&&sw*cached.scale<=w+1;
     var dialog=document.getElementById('job-dialog');
     var card=dialog&&!dialog.hidden&&dialog.querySelector('.job-dialog-card');
-    var modalScale=card?Math.min(1,(vh-24)/Math.max(1,card.scrollHeight),(vw-24)/Math.max(1,card.scrollWidth)):1;
+    // Responsive layout (responsive.css): the card scrolls inside its own box instead of shrinking.
+    var modalScale=card&&!responsive?Math.min(1,(vh-24)/Math.max(1,card.scrollHeight),(vw-24)/Math.max(1,card.scrollWidth)):1;
     // All layout reads above precede writes. A changed logical width is measured
     // in the following animation frame, never synchronously after writing it.
     function style(el,k,value){if(el.style[k]!==value)el.style[k]=value;}
     style(main,'top',Math.ceil(top)+'px');style(main,'bottom',Math.ceil(bottom)+'px');
-    if(shell&&nav)style(nav,'top',Math.ceil(top)+'px');
+    if(shell&&nav&&!railBottom)style(nav,'top',Math.ceil(top)+'px');
     if(main._viewHeight!==viewHeight){document.documentElement.style.setProperty('--view-height',viewHeight);main._viewHeight=viewHeight;}
-    if(card)style(card,'transform','scale('+modalScale+')');
+    if(card)style(card,'transform',responsive?'':'scale('+modalScale+')');
     if(screen!==observed){
       if(screenObserver.disconnect)screenObserver.disconnect();
       observed=screen;
@@ -63,6 +69,26 @@
       // Opening the screen starts at the top; later refits keep the reading position.
       if(activated){main.scrollTop=0;}
       main.scrollLeft=0;
+      return;
+    }
+    // Responsive layout (responsive.css): never shrunk below scale 1. The CSS lays the screen
+    // out for the window; content that is still taller (zoom, large text, a keyboard) makes the
+    // screen grow (data-fit-overflow) and main scroll, with Pause / Arrêter fixed in the strip.
+    if(responsive&&screen){
+      style(screen,'transform','none');style(screen,'width','');reveal(screen);
+      var entry=layouts.get(screen),renew=activated||!entry||entry.key!==key||!entry.responsive;
+      var over=screen.getAttribute('data-fit-overflow')==='true';
+      if(renew&&over){
+        // Measured again at the window's own layout, in the next frame (reads before writes).
+        screen.removeAttribute('data-fit-overflow');style(main,'overflowY','');
+        layouts.set(screen,{key:key,responsive:true});if(activated){main.scrollTop=0;activation=true;}
+        pending=true;frame=requestAnimationFrame(fit);return;
+      }
+      layouts.set(screen,{key:key,responsive:true});
+      if(!over&&(sh>h+1||sw>w+1)){screen.setAttribute('data-fit-overflow','true');over=true;stats.measurements++;}
+      style(main,'overflowY',over?'auto':'');
+      if(activated)main.scrollTop=0;
+      main.scrollLeft=0;ready();
       return;
     }
     if(measuring&&measuring.screen===screen&&measuring.key===key&&!activated){
@@ -106,6 +132,11 @@
     main.scrollTop=0;main.scrollLeft=0;
   }
   function scrolls(el){return !!el&&typeof el.getAttribute==='function'&&el.getAttribute('data-fit')==='scroll';}
+  // responsive.css declares --t-responsive: 1 on the root; without it (older bundle, tests) the
+  // screens are still shrunk to fit as before.
+  function responsiveLayout(){
+    try{return typeof window.getComputedStyle==='function'&&String(window.getComputedStyle(document.documentElement).getPropertyValue('--t-responsive')).trim()==='1';}catch(_){return false;}
+  }
   function reveal(screen){if(screen._fitHidden){screen._fitHidden=false;screen.style.visibility='';}}
   // Counters for the on-device perf report: full measurements, and how many hid the screen.
   var stats={measurements:0,hidden:0};

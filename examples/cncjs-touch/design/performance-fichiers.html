@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fichiers poste large</title>
+<!-- Mockup of the Fichiers screen, Performance profile with hardware WebGL, wide layout (body.perf-wide), a file selected, machine at rest.
+     Self-contained mockup: no external script, style sheet, font or image; open it as is from
+     /touch-next/design/. Values copied from touch/design-tokens.css and touch/ui-2027.css. -->
+<style>
+/* Design tokens copied from touch/design-tokens.css (dark workshop theme, UI 2027).
+ * Copied on purpose: this page must open on its own from /touch-next/design/. */
+:root{
+  color-scheme:dark;
+  --bg:#0e1417;--surface:#182028;--surface-2:#222d36;--surface-3:#2c3942;--line:#34434d;--line-strong:#4a5b66;
+  --fg:#eef3f6;--mute:#aab8c1;--faint:#87969f;
+  --ok:#2fbf6b;--ok-text:#5fe39a;--ok-soft:#133523;--on-ok:#06130b;
+  --warn:#f0b13a;--warn-text:#ffc857;--warn-soft:#3a2b0b;--on-warn:#1a1200;
+  --danger:#a51d19;--danger-text:#ff8a80;--danger-soft:#3d1512;--on-danger:#ffffff;
+  --info:#3b8fe6;--info-text:#7cbcff;--info-soft:#102a44;--on-info:#06111c;
+  --disabled-fg:#8a98a1;--disabled-bg:#1b242b;--disabled-stripe:rgba(255,255,255,.045);
+  --accent:#8ecbff;--focus:#ffd166;--shadow:0 2px 6px rgba(0,0,0,.35);
+  --font:"Segoe UI",system-ui,-apple-system,Roboto,"Helvetica Neue",Arial,sans-serif;--font-num:var(--font);
+  --fs-14:14px;--fs-16:16px;--fs-18:18px;--fs-20:20px;--fs-24:24px;--fs-28:28px;--fs-36:36px;--fs-48:48px;--fs-64:64px;
+  --lh-tight:1.1;--lh:1.35;
+  --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:20px;--sp-6:24px;--sp-8:32px;
+  --r-s:6px;--r-m:10px;--r-l:14px;--r-pill:999px;
+  --tap:48px;--tap-primary:64px;--tap-gap:12px;--tap-jog:96px;
+  --statusbar-h:72px;--rail-w:88px;
+  /* 3D canvas colours (touch/toolpath-3d.js, touch/preview-gl.js): fixed dark canvas in both themes. */
+  --gl-bg:#101820;--gl-rapid:#50636f;--gl-done:#ffc857;--gl-pass:#eef3f6;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:#05080a;color:var(--fg);font:16px/1.35 var(--font)}
+button{font-family:inherit}
+
+/* ---- Mockup chrome (not part of the interface) ---- */
+.mk-bar{position:sticky;top:0;z-index:30;display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:8px 16px;background:#11181d;border-bottom:1px solid var(--line)}
+.mk-bar h1{margin:0 auto 0 0;font:700 20px/1.2 var(--font)}
+.mk-bar h1 small{display:block;font:400 16px/1.3 var(--font);color:var(--mute)}
+.mk-seg{display:inline-flex;gap:4px;padding:3px;background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m)}
+.mk-seg button{min-height:48px;padding:0 14px;font:600 16px/1 var(--font);color:var(--mute);background:transparent;border:0;border-radius:7px;cursor:pointer}
+.mk-seg button[aria-pressed="true"]{background:var(--accent);color:var(--bg)}
+.mk-btn{min-height:48px;padding:0 14px;font:600 16px/1 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m);cursor:pointer}
+.mk-btn[aria-pressed="true"]{background:var(--info);color:var(--on-info);border-color:transparent}
+.mk-nav a{color:var(--info-text);font-size:16px;margin-right:12px}
+.mk-summary{font:600 16px/1.2 var(--font);color:var(--mute)}
+.mk-summary[data-bad="true"]{color:var(--danger-text)}
+.mk-stage{padding:16px;overflow:hidden}
+.mk-frame{position:relative;width:var(--fw,1366px);height:var(--fh,911px);transform-origin:0 0;background:var(--bg);overflow:hidden;outline:1px solid var(--line-strong)}
+.mk-notes{max-width:1100px;margin:0 16px 32px;color:var(--mute);font-size:16px}
+.mk-notes h2{color:var(--fg);font-size:20px;margin:24px 0 8px}
+.mk-notes li{margin-bottom:6px}
+.mk-notes code{color:var(--fg)}
+body.mk-full .mk-bar,body.mk-full .mk-notes{display:none}
+body.mk-full .mk-stage{padding:0}
+body.mk-full .mk-frame{outline:0}
+.mk-exit{display:none;position:fixed;left:8px;bottom:8px;z-index:40;width:72px;min-height:48px;font:600 16px/1.1 var(--font);color:var(--fg);background:rgba(34,45,54,.92);border:1px dashed var(--line-strong);border-radius:var(--r-m);cursor:pointer}
+body.mk-full .mk-exit{display:block}
+/* Tap-target annotations: drawn over the frame, outside the interface's own layout. */
+.mk-annot-layer{position:absolute;inset:0;z-index:50;pointer-events:none}
+.mk-badge{position:absolute;transform:translate(-100%,-50%);padding:1px 5px;border-radius:4px;font:700 13px/1.2 var(--font);white-space:nowrap;background:#0b3d1f;color:#9ff5c0;border:1px solid #2fbf6b;box-shadow:0 1px 3px rgba(0,0,0,.6)}
+.mk-badge[data-ok="false"]{background:#4a0f0c;color:#ffd0cb;border-color:#ff8a80}
+.mk-badge[data-kind="96"]{background:#102a44;color:#cfe6ff;border-color:#7cbcff}
+body.mk-annot [data-tap]{outline:2px dashed rgba(124,188,255,.55);outline-offset:1px}
+body.mk-annot .mk-small-text{outline:2px solid #ff8a80!important}
+
+/* ---- Interface shell (status strip at the top, rail on the left, as touch/ui-2027.css) ---- */
+.app{display:grid;grid-template-columns:var(--rail-w) minmax(0,1fr);grid-template-rows:var(--statusbar-h) minmax(0,1fr);width:100%;height:100%;font:var(--fs-18)/var(--lh) var(--font)}
+.strip{grid-column:1/-1;display:grid;grid-template-columns:auto auto minmax(0,1fr) auto auto;align-items:center;gap:var(--sp-4);padding:0 var(--sp-4);background:var(--surface);border-bottom:1px solid var(--line)}
+.t-state{display:inline-flex;align-items:center;gap:var(--sp-3);min-width:200px;height:52px;padding:0 var(--sp-4);border-left:6px solid var(--faint);border-radius:var(--r-m);font:700 var(--fs-28)/1 var(--font);letter-spacing:.02em}
+.t-state svg{width:28px;height:28px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.t-state[data-tone="run"]{color:var(--info-text);background:var(--info-soft);border-left-color:var(--info)}
+.t-state[data-tone="ok"]{color:var(--ok-text);background:var(--ok-soft);border-left-color:var(--ok)}
+.t-fresh{display:inline-flex;align-items:center;gap:var(--sp-2);font:var(--fs-16)/1 var(--font-num);color:var(--mute);white-space:nowrap}
+.t-fresh i{width:10px;height:10px;border-radius:50%;background:var(--ok)}
+.t-vitals{display:flex;gap:var(--sp-5);align-items:center;min-width:0;overflow:hidden}
+.t-vital{display:flex;flex-direction:column;gap:2px;min-width:0}
+.t-vital span{font:var(--fs-16)/1 var(--font);color:var(--mute);letter-spacing:.04em;text-transform:uppercase;white-space:nowrap}
+.t-vital b{font:600 var(--fs-20)/1.1 var(--font-num);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t-vital--file{flex:1 1 auto;min-width:0}
+.strip-actions{display:flex;gap:var(--tap-gap)}
+.strip-actions .btn{min-height:52px}
+.strip-actions .btn.danger{min-width:140px;font-size:var(--fs-20)}
+.strip-slot{display:flex;align-items:center;justify-content:center;max-width:230px;min-height:52px;padding:0 var(--sp-3);border:1px dashed var(--line-strong);border-radius:var(--r-m);color:var(--mute);font-size:var(--fs-16);text-align:center;line-height:1.2}
+.strip-right{display:flex;align-items:center;gap:var(--sp-3);white-space:nowrap}
+.real-tag{font:600 var(--fs-16)/1 var(--font);letter-spacing:.08em;color:var(--danger-text);border:1px solid var(--danger);border-radius:var(--r-s);padding:var(--sp-2) var(--sp-3)}
+.clock{font-size:var(--fs-20)}
+.rail{grid-row:2;display:flex;flex-direction:column;gap:var(--sp-2);padding:var(--sp-2);background:var(--bg);border-right:1px solid var(--line)}
+.nav{min-height:76px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--sp-1);padding:var(--sp-2) 2px;color:var(--mute);background:transparent;border:0;border-radius:var(--r-m);font:500 var(--fs-16)/1.1 var(--font)}
+.nav svg{width:28px;height:28px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.nav.on{background:var(--surface-2);color:var(--fg);box-shadow:inset 4px 0 0 var(--accent)}
+.app>main{grid-row:2;grid-column:2;min-width:0;min-height:0;padding:var(--sp-4);display:grid;gap:var(--sp-4);overflow:hidden}
+
+/* ---- Components (as touch/ui-2027.css) ---- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--sp-2);min-height:var(--tap);padding:0 var(--sp-4);font:600 var(--fs-18)/1.1 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m);white-space:nowrap;cursor:pointer}
+.btn svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.btn.primary{min-height:var(--tap-primary);background:var(--ok);color:var(--on-ok);border-color:transparent;font-size:var(--fs-24)}
+.btn.warn{background:var(--warn);color:var(--on-warn);border-color:transparent}
+.btn.danger{background:var(--danger);color:var(--on-danger);border-color:transparent}
+.btn.ghost{background:transparent}
+.btn.lg{min-height:var(--tap-primary);font-size:var(--fs-24)}
+.btn:disabled{color:var(--disabled-fg);background:var(--disabled-bg);border-color:var(--line);background-image:repeating-linear-gradient(135deg,var(--disabled-stripe) 0 6px,transparent 6px 14px);cursor:default}
+.btn[aria-pressed="true"]{background:var(--info);color:var(--on-info);border-color:transparent}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:var(--sp-3) var(--sp-4);min-width:0;min-height:0}
+.label{margin:0;font:600 var(--fs-16)/1.1 var(--font);color:var(--mute);letter-spacing:.06em;text-transform:uppercase}
+.help{margin:0;font-size:var(--fs-16);color:var(--mute);line-height:var(--lh)}
+.notice{margin:0;padding:var(--sp-2) var(--sp-3);border-left:6px solid var(--info);border-radius:var(--r-m);background:var(--info-soft);color:var(--fg);font-size:var(--fs-18)}
+.notice[data-tone="ok"]{border-left-color:var(--ok);background:var(--ok-soft)}
+.notice[data-tone="warn"]{border-left-color:var(--warn);background:var(--warn-soft)}
+.notice[data-tone="danger"]{border-left-color:var(--danger);background:var(--danger-soft)}
+.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* ---- 3D view frame (inline view of touch/preview-gl.js) ---- */
+.view{position:relative;min-height:0;min-width:0;background:var(--gl-bg);border:1px solid var(--line);border-radius:var(--r-l);overflow:hidden}
+.view>svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+.view-tools{position:absolute;left:8px;top:8px;display:flex;gap:var(--sp-2);padding:2px;background:rgba(14,20,23,.88);border-radius:var(--r-s)}
+.view-tools .btn,.view-corner .btn{min-height:48px;font-size:var(--fs-16);padding:0 var(--sp-3)}
+.view-corner{position:absolute;right:8px;top:8px;display:flex;gap:var(--sp-2)}
+.view-tag{position:absolute;left:8px;bottom:8px;padding:var(--sp-1) var(--sp-2);border-radius:var(--r-s);background:rgba(14,20,23,.88);color:var(--mute);font-size:var(--fs-16)}
+/* ---- Page-specific layout ---- */
+.files{grid-template-columns:clamp(440px,34vw,560px) minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
+[data-size="1366"] .files{grid-template-columns:464px minmax(0,1fr)}
+[data-size="1728"] .files{grid-template-columns:560px minmax(0,1fr)}
+.list-panel{display:flex;flex-direction:column;gap:var(--sp-2)}
+.search{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:var(--tap-gap);align-items:center}
+.search input{min-height:56px;min-width:0;font:var(--fs-20)/1 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m);padding:0 var(--sp-4)}
+.count{font:600 var(--fs-16)/1 var(--font-num);color:var(--mute);background:var(--surface-2);border-radius:var(--r-pill);padding:var(--sp-2) var(--sp-3)}
+.add{min-height:56px;background:var(--info);color:var(--on-info);border-color:transparent}
+.list{flex:1 1 auto;min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:var(--sp-2)}
+.file{display:grid;grid-template-columns:96px minmax(0,1fr) auto;align-items:center;gap:var(--sp-4);min-height:92px;padding:var(--sp-2) var(--sp-4) var(--sp-2) var(--sp-2);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);color:var(--fg);text-align:left;font:var(--fs-18)/var(--lh) var(--font);cursor:pointer}
+.file[aria-pressed="true"]{border-color:var(--accent);box-shadow:inset 6px 0 0 var(--accent);background:var(--surface-2)}
+.thumb{width:96px;height:72px;border-radius:var(--r-s);background:var(--gl-bg);border:1px solid var(--line);display:flex;align-items:center;justify-content:center}
+.thumb svg{width:84px;height:60px;fill:none;stroke:#55d6ed;stroke-width:1.5}
+.file-text{min-width:0}
+.file strong{display:block;font-size:var(--fs-20);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-text>span{display:block;color:var(--mute);font-size:var(--fs-16)}
+.file-end{display:flex;flex-direction:column;align-items:flex-end;gap:var(--sp-1)}
+.dur{font:600 var(--fs-18)/1 var(--font-num)}
+.chip{font:600 var(--fs-16)/1 var(--font);color:var(--ok-text);background:var(--ok-soft);border-radius:var(--r-pill);padding:var(--sp-1) var(--sp-3)}
+.pages{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3)}
+.pages .btn{min-width:140px}
+.detail{display:flex;flex-direction:column;gap:var(--sp-2);min-height:0;min-width:0}
+.name{margin:0;font:600 var(--fs-24)/1.1 var(--font)}
+.detail .view{flex:1 1 auto;min-height:420px}
+.dims{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-3)}
+.dims div{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);padding:var(--sp-2) var(--sp-3)}
+.dims span{display:block;color:var(--mute);font-size:var(--fs-16)}
+.dims b{font:600 var(--fs-24)/1.2 var(--font-num)}
+.tools{display:flex;flex-wrap:wrap;gap:var(--tap-gap)}
+.load{width:100%}
+</style>
+</head>
+<body>
+<header class="mk-bar">
+  <h1>Fichiers — poste large, fichier sélectionné<small>Profil Performance, GPU matériel, fenêtre ≥ 1300 × 880. Liste et grand aperçu 3D (lot D pour la mise en page, lot V pour la vue). Machine au repos, rien de chargé.</small></h1>
+  <div class="mk-seg" role="group" aria-label="Taille de la fenêtre"><button type="button" data-mk-size="1366" aria-pressed="true">1366 × 911 (échelle 1,58)</button><button type="button" data-mk-size="1728" aria-pressed="false">1728 × 1152 (échelle 1,25)</button></div>
+  
+  <button type="button" class="mk-btn" id="mk-annot" aria-pressed="false">Annoter les cibles</button>
+  <button type="button" class="mk-btn" id="mk-full">Taille réelle</button>
+  <span class="mk-summary" id="mk-summary" role="status"></span>
+  <span class="mk-summary" id="mk-scale"></span>
+  <nav class="mk-nav"><a href="performance-suivi.html">Suivi</a><a href="performance-fichiers.html">Fichiers</a><a href="performance-preparer.html">Préparer</a></nav>
+</header>
+<div class="mk-stage" id="mk-stage"><div class="mk-frame" id="mk-frame" data-size="1366">
+<div class="app">
+<header class="strip">
+  <span class="t-state" data-tone="ok"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12l5 5L20 6"/></svg>REPOS</span>
+  <span class="t-fresh"><i></i>0,2 s</span>
+  <div class="t-vitals"><div class="t-vital"><span>Broche</span><b class="num">0 tr/min</b></div><div class="t-vital"><span>Avance</span><b class="num">—</b></div><div class="t-vital"><span>Machine</span><b>Fraiseuse · CNC</b></div><div class="t-vital t-vital--file"><span>Fichier</span><b>Aucun fichier chargé</b></div></div>
+  <div class="strip-slot">Pause · Arrêter : ici pendant un travail</div>
+  <div class="strip-right"><span class="real-tag">MACHINE RÉELLE</span><span class="clock num">14:48</span></div>
+</header>
+<nav class="rail" aria-label="Écrans"><button type="button" class="nav" data-tap="48"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg><span>Menu</span></button><button type="button" class="nav" data-tap="48"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/></svg><span>Préparer</span></button><button type="button" class="nav on" data-tap="48" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h6l2 2h10v10H3z"/></svg><span>Fichiers</span></button><button type="button" class="nav" data-tap="48"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4M6 13l3-4 3 3 4-5 2 3"/></svg><span>Suivi</span></button><button type="button" class="nav" data-tap="48"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg><span>Machine</span></button><button type="button" class="nav" data-tap="48"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>Journal</span></button><button type="button" class="nav" data-tap="48"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.5"/><circle cx="15" cy="17" r="2.5"/></svg><span>Réglages</span></button></nav>
+<main class="files">
+  <section class="card list-panel" aria-label="Bibliothèque">
+    <div class="search"><input type="search" value="" placeholder="Rechercher" aria-label="Rechercher un fichier" data-tap="48"><span class="count num">12</span><button type="button" class="btn add" data-tap="48">+ Ajouter un fichier</button></div>
+    <p class="help">12 fichiers · dossier partagé CNCjs</p>
+    <div class="list">
+      <button type="button" class="file" data-tap="48" aria-pressed="true"><span class="thumb"><svg viewBox="0 0 84 60" aria-hidden="true"><path d="M8 8h68v44H8zM20 18h44M20 26h44M20 34h44M20 42h44"/></svg></span><span class="file-text"><strong>plateau-poche-v2.nc</strong><span>120 × 80 mm · 412 Ko · 4 nov.</span></span><span class="file-end"><span class="dur num">18 min</span></span></button>
+      <button type="button" class="file" data-tap="48" aria-pressed="false"><span class="thumb"><svg viewBox="0 0 84 60" aria-hidden="true"><path d="M10 10h64v40H10zM30 30a10 10 0 1 0 20 0a10 10 0 1 0-20 0"/></svg></span><span class="file-text"><strong>support-moteur-v3.nc</strong><span>400 × 300 mm · 1,2 Mo · 2 nov.</span></span><span class="file-end"><span class="dur num">42 min</span></span></button>
+      <button type="button" class="file" data-tap="48" aria-pressed="false"><span class="thumb"><svg viewBox="0 0 84 60" aria-hidden="true"><path d="M14 10v40h40v-10H24V10z"/></svg></span><span class="file-text"><strong>equerre-alu-6mm.nc</strong><span>90 × 90 mm · 96 Ko · 30 oct.</span></span><span class="file-end"><span class="dur num">7 min</span></span></button>
+      <button type="button" class="file" data-tap="48" aria-pressed="false"><span class="thumb"><svg viewBox="0 0 84 60" aria-hidden="true"><path d="M10 40q14-30 28 0t28 0M10 20h64"/></svg></span><span class="file-text"><strong>gravure-logo.nc</strong><span>150 × 60 mm · 2,8 Mo · 28 oct.</span></span><span class="file-end"><span class="dur num">1 h 12 min</span></span></button>
+      <button type="button" class="file" data-tap="48" aria-pressed="false"><span class="thumb"><svg viewBox="0 0 84 60" aria-hidden="true"><path d="M8 12h68M8 20h68M8 28h68M8 36h68M8 44h68"/></svg></span><span class="file-text"><strong>surfacage-martyr.nc</strong><span>600 × 400 mm · 210 Ko · 21 oct.</span></span><span class="file-end"><span class="dur num">25 min</span></span></button>
+      <button type="button" class="file" data-tap="48" aria-pressed="false"><span class="thumb"><svg viewBox="0 0 84 60" aria-hidden="true"><path d="M10 14h20v-4h24v4h20v36H10z"/></svg></span><span class="file-text"><strong>boite-tenon.nc</strong><span>220 × 140 mm · 640 Ko · 18 oct.</span></span><span class="file-end"><span class="dur num">31 min</span></span></button>
+    </div>
+    <div class="pages"><button type="button" class="btn" data-tap="48" disabled>← Précédent</button><span class="help num">Page 1 / 2</span><button type="button" class="btn" data-tap="48">Suivant →</button></div>
+  </section>
+  <section class="detail" aria-label="Fichier sélectionné">
+    <span class="label">Sélectionné</span>
+    <h2 class="name">plateau-poche-v2.nc</h2>
+    <p class="help">412 Ko · envoyé le 4 nov. 2026 · aperçu vérifié par le serveur · 20 030 lignes</p>
+    <div class="view" id="view">
+      <svg aria-hidden="true"></svg>
+      <div class="view-tools"><button type="button" class="btn" data-tap="48">Vues</button></div>
+      <div class="view-corner"><button type="button" class="btn" data-tap="48">Agrandir</button></div>
+      <span class="view-tag">Z ×1 · géométrie complète</span>
+    </div>
+    <div class="dims num"><div><span>X</span><b>120,0 mm</b></div><div><span>Y</span><b>80,0 mm</b></div><div><span>Z</span><b>−12,0 → 10,0</b></div></div>
+    <p class="help">Selon les mouvements (sans accélérations) : ≈ 18 min · durées inconnues : changement d’outil M6 (l. 812)</p>
+    <div class="tools"><button type="button" class="btn ghost" data-tap="48">Préparer le travail…</button><button type="button" class="btn ghost" data-tap="48">Détails de l’aperçu</button><button type="button" class="btn ghost" data-tap="48">Favori</button></div>
+    <button type="button" class="btn primary load" data-tap="64">Charger et ouvrir le Suivi</button>
+  </section>
+</main>
+</div>
+</div></div>
+<button type="button" class="mk-exit" id="mk-exit">Quitter la taille réelle</button>
+<section class="mk-notes">
+<h2>Ce qu'il faut regarder</h2>
+<ul>
+<li><b>Grand aperçu 3D.</b> La vue 3D inline existante (« Vues », « Agrandir », un doigt pour tourner, deux pour zoomer), plus grande : environ 766 × 480 px à 1366 × 911, 1032 × 700 px à 1728 × 1152. Rendu GPU (lot V) : DPR jusqu'à 2, anticrénelage, coupes 2 px et rapides 1 px, géométrie complète quand elle tient (question Q7), fondu de profondeur.</li>
+<li><b>Liste.</b> Lignes de 92 px inchangées (environ six visibles), recherche, « + Ajouter un fichier », pages. Largeur 464 px à 1366, 560 px à 1728.</li>
+<li><b>Une seule action primaire</b> : « Charger et ouvrir le Suivi » (64 px). Démarrer, Pause, Reprendre et Arrêter ne sont pas dans cet écran (règle UI 2027) ; pendant un travail, Pause et Arrêter sont dans le bandeau d'état, à la place marquée en pointillés.</li>
+<li><b>Estimation.</b> La ligne « Selon les mouvements » existante, avec ses durées inconnues.</li>
+<li><b>Vérification.</b> « Annoter les cibles » mesure chaque cible dans le cadre (px CSS) ; « Taille réelle » masque cet en-tête.</li>
+</ul>
+</section>
+<script>
+/* Mockup helpers (not interface code): frame size selector (1366 x 911 or 1728 x 1152 CSS px),
+ * scale-to-fit of the frame in the real window, full-size mode, tap-target and text-size
+ * annotations, and a fake 3D toolpath drawn in inline SVG (isometric projection, same depth
+ * colours as touch/toolpath-3d.js). No network, no storage, no external script. */
+(function () {
+  'use strict';
+  var SIZES = { '1366': [1366, 911], '1728': [1728, 1152] };
+  var frame = document.getElementById('mk-frame'), stage = document.getElementById('mk-stage');
+  var size = /1728/.test(location.hash) ? '1728' : '1366', scale = 1, scenes = [];
+
+  function fit() {
+    var w = SIZES[size][0], h = SIZES[size][1], full = document.body.classList.contains('mk-full');
+    var pad = full ? 0 : 32, top = full ? 0 : stage.getBoundingClientRect().top + window.scrollY;
+    var availW = Math.max(200, window.innerWidth - pad), availH = Math.max(200, window.innerHeight - (full ? 0 : document.querySelector('.mk-bar').offsetHeight) - pad);
+    scale = Math.min(1, availW / w, availH / h);
+    frame.style.transform = scale === 1 ? 'none' : 'scale(' + scale + ')';
+    stage.style.height = Math.ceil(h * scale + pad) + 'px';
+    var out = document.getElementById('mk-scale'); if (out) out.textContent = 'échelle de la maquette ' + scale.toFixed(2).replace('.', ',') + (scale === 1 ? ' (taille réelle)' : '');
+    void top;
+  }
+  function setSize(next) {
+    size = SIZES[next] ? next : '1366';
+    frame.style.setProperty('--fw', SIZES[size][0] + 'px'); frame.style.setProperty('--fh', SIZES[size][1] + 'px');
+    frame.setAttribute('data-size', size);
+    document.querySelectorAll('[data-mk-size]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-mk-size') === size)); });
+    fit(); redraw(); annotate();
+  }
+  function redraw() { scenes.forEach(function (s) { s(); }); }
+
+  // ---- Annotations: every [data-tap] target measured in frame (CSS) pixels ----
+  function annotate() {
+    var layer = frame.querySelector('.mk-annot-layer');
+    if (!layer) { layer = document.createElement('div'); layer.className = 'mk-annot-layer'; frame.appendChild(layer); }
+    layer.textContent = '';
+    var on = document.body.classList.contains('mk-annot'), fr = frame.getBoundingClientRect(), good = 0, bad = 0, small = 0;
+    frame.querySelectorAll('[data-tap]').forEach(function (el) {
+      if (!el.getClientRects().length) return;
+      var r = el.getBoundingClientRect(), need = Number(el.getAttribute('data-tap'));
+      var w = r.width / scale, h = r.height / scale, min = Math.round(Math.min(w, h)), ok = min >= need;
+      if (ok) good++; else bad++;
+      if (!on) return;
+      var b = document.createElement('span'); b.className = 'mk-badge'; b.setAttribute('data-ok', String(ok)); b.setAttribute('data-kind', String(need));
+      b.textContent = (ok ? need + ' ✓' : need + ' ✗ ' + min);
+      b.style.left = ((r.right - fr.left) / scale - 2) + 'px'; b.style.top = ((r.top - fr.top) / scale + 2) + 'px';
+      layer.appendChild(b);
+    });
+    // Useful text under 16 px (the badges themselves are not interface text).
+    frame.querySelectorAll('.mk-small-text').forEach(function (el) { el.classList.remove('mk-small-text'); });
+    frame.querySelectorAll('.app *').forEach(function (el) {
+      if (el.closest('svg')) return;
+      var text = Array.prototype.some.call(el.childNodes, function (n) { return n.nodeType === 3 && n.data.trim(); });
+      if (!text || !el.getClientRects().length) return;
+      if (parseFloat(getComputedStyle(el).fontSize) < 16) { small++; el.classList.add('mk-small-text'); }
+    });
+    var sum = document.getElementById('mk-summary');
+    if (sum) { sum.textContent = 'Cibles : ' + good + ' conformes, ' + bad + ' en défaut · textes < 16 px : ' + small; sum.setAttribute('data-bad', String(bad + small > 0)); }
+  }
+
+  // ---- Fake 3D scene in SVG ----
+  var DEG = Math.PI / 180;
+  var DEPTH = (function () {
+    var stops = [[195, 166, 255], [255, 99, 184], [255, 59, 59]], out = [];
+    for (var i = 0; i < 8; i++) {
+      var t = (i + 0.5) / 8 * 2, k = Math.min(1, Math.floor(t)), f = t - k, a = stops[k], b = stops[k + 1], hex = '#';
+      for (var c = 0; c < 3; c++) hex += ('0' + Math.round(a[c] + (b[c] - a[c]) * f).toString(16)).slice(-2);
+      out.push(hex);
+    }
+    return out;
+  })();
+  function depthColour(z, zmin) {
+    if (!(zmin < 0) || !(z < -1e-6)) return '#55d6ed';
+    var i = Math.floor(z / zmin * DEPTH.length);
+    return DEPTH[i < 0 ? 0 : i >= DEPTH.length ? DEPTH.length - 1 : i];
+  }
+  // A small pocketing program in work coordinates (mm): four depth levels, each a raster pocket
+  // then the outer contour with rounded corners; rapids between them.
+  function program() {
+    var pts = [], depths = [-3, -6, -9, -12];
+    function p(x, y, z, rapid) { pts.push({ x: x, y: y, z: z, r: rapid ? 1 : 0 }); }
+    p(0, 0, 10, 1);
+    depths.forEach(function (d) {
+      p(30, 22, 3, 1); p(30, 22, d, 0);
+      for (var y = 22, i = 0; y <= 58; y += 4, i++) { var xa = i % 2 ? 90 : 30, xb = i % 2 ? 30 : 90; p(xa, y, d, 0); p(xb, y, d, 0); if (y + 4 <= 58) p(xb, y + 4, d, 0); }
+      p(pts[pts.length - 1].x, pts[pts.length - 1].y, 3, 1);
+      var r = 8, x0 = 6, y0 = 6, x1 = 114, y1 = 74;
+      p(x0 + r, y0, 3, 1); p(x0 + r, y0, d, 0);
+      function arc(cx, cy, a0) { for (var k = 1; k <= 6; k++) { var a = (a0 + k * 15) * DEG; p(cx + r * Math.cos(a), cy + r * Math.sin(a), d, 0); } }
+      p(x1 - r, y0, d, 0); arc(x1 - r, y0 + r, 270);
+      p(x1, y1 - r, d, 0); arc(x1 - r, y1 - r, 0);
+      p(x0 + r, y1, d, 0); arc(x0 + r, y1 - r, 90);
+      p(x0, y0 + r, d, 0); arc(x0 + r, y0 + r, 180);
+      p(x0 + r, y0, 3, 1);
+    });
+    p(0, 0, 10, 1);
+    return pts;
+  }
+  function basis(yaw, pitch) {
+    var a = yaw * DEG, e = pitch * DEG;
+    return { r: [Math.cos(a), Math.sin(a), 0], u: [-Math.sin(a) * Math.sin(e), Math.cos(a) * Math.sin(e), Math.cos(e)], f: [Math.sin(a) * Math.cos(e), -Math.cos(a) * Math.cos(e), Math.sin(e)] };
+  }
+  // scene: { yaw, pitch, items: [{ a:[x,y,z], b:[x,y,z], colour, width, opacity }], dots: [{ at, kind }], fit: [[x,y,z], ...] }
+  function drawScene(svg, scene) {
+    var w = svg.parentNode.offsetWidth || 600, h = svg.parentNode.offsetHeight || 400, B = basis(scene.yaw, scene.pitch);
+    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    function proj(p) { return [B.r[0] * p[0] + B.r[1] * p[1] + B.r[2] * p[2], -(B.u[0] * p[0] + B.u[1] * p[1] + B.u[2] * p[2])]; }
+    var r0 = Infinity, r1 = -Infinity, u0 = Infinity, u1 = -Infinity;
+    scene.fit.forEach(function (p) { var s = proj(p); r0 = Math.min(r0, s[0]); r1 = Math.max(r1, s[0]); u0 = Math.min(u0, s[1]); u1 = Math.max(u1, s[1]); });
+    var padTop = scene.padTop || 72, padBottom = scene.padBottom || 48, k = 0.9 * Math.min(w / (r1 - r0), (h - padTop - padBottom) / (u1 - u0));
+    var ox = w / 2 - k * (r0 + r1) / 2, oy = padTop + (h - padTop - padBottom) / 2 - k * (u0 + u1) / 2;
+    function scr(p) { var s = proj(p); return (ox + k * s[0]).toFixed(1) + ' ' + (oy + k * s[1]).toFixed(1); }
+    // Depth fade: farther segments drawn closer to the background (opacity buckets).
+    var depths = scene.items.map(function (it) { return B.f[0] * it.a[0] + B.f[1] * it.a[1] + B.f[2] * it.a[2]; });
+    var dmin = Math.min.apply(null, depths), dmax = Math.max.apply(null, depths), groups = {}, order = [];
+    scene.items.forEach(function (it, i) {
+      var fade = scene.fade === false || dmax === dmin ? 0 : Math.round((depths[i] - dmin) / (dmax - dmin) * 3) / 3;
+      var key = it.colour + '|' + it.width + '|' + (it.opacity || 1) + '|' + fade + '|' + (it.layer || 0);
+      if (!groups[key]) { groups[key] = { it: it, fade: fade, d: [] }; order.push(key); }
+      groups[key].d.push('M' + scr(it.a) + 'L' + scr(it.b));
+    });
+    order.sort(function (a, b) { return (groups[a].it.layer || 0) - (groups[b].it.layer || 0); });
+    var out = '';
+    order.forEach(function (key) {
+      var g = groups[key], op = (g.it.opacity || 1) * (1 - 0.45 * g.fade);
+      out += '<path fill="none" stroke="' + g.it.colour + '" stroke-width="' + g.it.width + '" stroke-linecap="round" stroke-linejoin="round" opacity="' + op.toFixed(2) + '" d="' + g.d.join('') + '"/>';
+    });
+    (scene.dots || []).forEach(function (d) {
+      var s = scr(d.at).split(' ');
+      if (d.kind === 'tool') out += '<circle cx="' + s[0] + '" cy="' + s[1] + '" r="10" fill="#111" /><circle cx="' + s[0] + '" cy="' + s[1] + '" r="8" fill="#8ecbff" stroke="#fff" stroke-width="2"/>';
+      if (d.kind === 'origin') {
+        var L = 24;
+        [[1, 0, 0, '#ff7a7a'], [0, 1, 0, '#5fe39a'], [0, 0, 1, '#7cbcff']].forEach(function (ax) {
+          var e = proj([ax[0], ax[1], ax[2]]), n = Math.sqrt(e[0] * e[0] + e[1] * e[1]) || 1;
+          out += '<path stroke="' + ax[3] + '" stroke-width="3" stroke-linecap="round" d="M' + s[0] + ' ' + s[1] + 'l' + (e[0] / n * L).toFixed(1) + ' ' + (e[1] / n * L).toFixed(1) + '"/>';
+        });
+        out += '<circle cx="' + s[0] + '" cy="' + s[1] + '" r="5" fill="none" stroke="#7cbcff" stroke-width="2"/>';
+      }
+    });
+    svg.innerHTML = out;
+  }
+  function boxEdges(min, max) {
+    var c = [], e = [[0, 1], [1, 3], [3, 2], [2, 0], [4, 5], [5, 7], [7, 6], [6, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
+    for (var i = 0; i < 8; i++) c.push([i & 1 ? max[0] : min[0], i & 2 ? max[1] : min[1], i & 4 ? max[2] : min[2]]);
+    return e.map(function (p) { return [c[p[0]], c[p[1]]]; });
+  }
+
+  window.MK = {
+    program: program, depthColour: depthColour, drawScene: drawScene, boxEdges: boxEdges,
+    scene: function (fn) { scenes.push(fn); fn(); }, annotate: annotate
+  };
+
+  document.querySelectorAll('[data-mk-size]').forEach(function (b) { b.addEventListener('click', function () { setSize(b.getAttribute('data-mk-size')); }); });
+  var annot = document.getElementById('mk-annot');
+  if (annot) annot.addEventListener('click', function () { var on = !document.body.classList.contains('mk-annot'); document.body.classList.toggle('mk-annot', on); annot.setAttribute('aria-pressed', String(on)); annotate(); });
+  var full = document.getElementById('mk-full'), exit = document.getElementById('mk-exit');
+  function setFull(on) { document.body.classList.toggle('mk-full', on); fit(); annotate(); window.scrollTo(0, 0); }
+  if (full) full.addEventListener('click', function () { setFull(true); });
+  if (exit) exit.addEventListener('click', function () { setFull(false); });
+  window.addEventListener('resize', function () { fit(); redraw(); annotate(); });
+  window.MKSetSize = setSize;
+  // Hash flags for screenshots and links: #1728, #full, #annot, #v2 (e.g. performance-suivi.html#1728-full-v2).
+  document.addEventListener('DOMContentLoaded', function () {
+    var h = location.hash;
+    if (/annot/.test(h) && annot) annot.click();
+    if (/v2/.test(h)) { var v = document.querySelector('[data-mk-variant="2"]'); if (v) v.click(); }
+    if (/full/.test(h)) document.body.classList.add('mk-full');
+    setSize(size);
+  });
+})();
+</script>
+<script>
+(function () {
+  'use strict';
+  var pts = MK.program(), zmin = -12, n = pts.length, svg = document.querySelector('#view svg');
+  MK.scene(function () {
+    var items = [];
+    for (var i = 1; i < n; i++) {
+      var p = pts[i - 1], q = pts[i], A = [p.x, p.y, p.z], B = [q.x, q.y, q.z];
+      if (q.r) items.push({ a: A, b: B, colour: '#50636f', width: 1, layer: 0 });
+      else items.push({ a: A, b: B, colour: MK.depthColour(Math.min(p.z, q.z), zmin), width: 2, layer: 1 });
+    }
+    MK.drawScene(svg, { yaw: 30, pitch: 40, items: items, dots: [], fit: [[0, 0, -12], [120, 80, 10]] });
+  });
+})();
+</script>
+</body>
+</html>

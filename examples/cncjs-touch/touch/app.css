@@ -296,15 +296,16 @@ body {
 .coords.small b {
   font-size: 32px;
 }
+/* Theme colours (design-tokens.css), so a plain button follows the light theme too. */
 button {
-  background: #263747;
+  background: var(--surface-2);
   color: var(--fg);
-  border: 1px solid #486077;
+  border: 1px solid var(--line-strong);
   border-radius: 10px;
   min-height: 60px;
 }
 button:active:not(:disabled) {
-  background: #355773;
+  background: var(--line);
 }
 button:disabled {
   opacity: 0.4;

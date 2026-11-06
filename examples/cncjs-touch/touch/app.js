@@ -38,12 +38,97 @@
   var token = saved.state && saved.state.session &&
               saved.state.session.token;
 
+  // CNCjs tokens expire after 30 days (accessTokenLifetime). Without CNCjs users the server
+  // hands out a fresh one on /api/signin, so a kiosk renews it here instead of needing the
+  // main app opened again. With users, the server only returns the same token: nothing changes.
+  function storedToken() { try { return JSON.parse(localStorage.getItem('cnc')).state.session.token || ''; } catch (_) { return ''; } }
+  // done: a new token was stored. refused(users): no new token from this answer; users is true when
+  // /signin refused it (only CNCjs with user accounts does): the operator must sign in again.
+  function renewSession(done, refused) {
+    var x = new XMLHttpRequest(), sent = storedToken();
+    x.open('POST', (store ? store.get().apiBase : '/api') + '/signin');
+    x.timeout = 15000;
+    x.setRequestHeader('Content-Type', 'application/json');
+    x.onload = function () {
+      var r = null; try { r = JSON.parse(x.responseText); } catch (_) {}
+      // Another tab changed the session meanwhile (D-7): this older answer must not replace it.
+      if (storedToken() !== sent) { if (refused) refused(false); return; }
+      if (x.status !== 200 || !r || !r.token || r.token === sent) { if (refused) refused(x.status !== 200); return; }
+      try {
+        var d = JSON.parse(localStorage.getItem('cnc') || '{}');
+        d.state = d.state || {};
+        d.state.session = { enabled: !!r.enabled, token: r.token, name: r.name || '' };
+        localStorage.setItem('cnc', JSON.stringify(d));
+      } catch (_) { if (refused) refused(false); return; }
+      if (done) done();
+    };
+    // No answer (error, timeout, abort): the caller is always released.
+    x.onerror = x.ontimeout = x.onabort = function () { if (refused) refused(false); };
+    x.send(JSON.stringify(sent ? { token: sent } : {}));
+  }
+  // Reload with the new token at most once a minute, so a refused token cannot loop.
+  // Returns false when the guard holds the reload back: the page then goes on with the new token.
+  function reloadOnce() {
+    var last = 0; try { last = Number(sessionStorage.getItem('cnc-touch-renewed')) || 0; } catch (_) {}
+    if (Date.now() - last < 60000) { if (typeof CustomEvent === 'function' && window.dispatchEvent) window.dispatchEvent(new CustomEvent('cnc-session-renewed')); return false; }
+    try { sessionStorage.setItem('cnc-touch-renewed', String(Date.now())); } catch (_) {}
+    location.reload();
+    return true;
+  }
+  var started = false, renewing = false, lastRenewal = null, sessionNotice = '';
+  function elapsed() { var p = window.performance; return p && typeof p.now === 'function' ? p.now() : Date.now(); }
+  // One renewal attempt a minute at most, for the whole page (load, refused socket, refused
+  // requests): with CNCjs users and an expired session, every refusal would otherwise ask again.
+  // The time of the last attempt is also kept for the tab (sessionStorage), so the page that a
+  // renewal reloads does not ask again at once. Returns the milliseconds left to wait (0: sent).
+  function wait() {
+    var now = elapsed(), left = lastRenewal !== null && now - lastRenewal >= 0 && now - lastRenewal < 60000 ? 60000 - (now - lastRenewal) : 0;
+    var last = 0; try { last = Number(sessionStorage.getItem('cnc-touch-signin')) || 0; } catch (_) {}
+    if (last && Date.now() - last >= 0 && Date.now() - last < 60000) left = Math.max(left, 60000 - (Date.now() - last));
+    return left;
+  }
+  function renew(done) {
+    var left = wait();
+    if (renewing) return 0;
+    if (left > 0) return left;
+    renewing = true; lastRenewal = elapsed();
+    try { sessionStorage.setItem('cnc-touch-signin', String(Date.now())); } catch (_) {}
+    renewSession(function () { renewing = false; if (done) done(); }, function (users) {
+      renewing = false;
+      // Another tab stored a session meanwhile (D-7), or none was needed: a page still waiting for
+      // a token starts with the stored one.
+      if (!started && storedToken()) {
+        token = storedToken(); init();
+        if (typeof CustomEvent === 'function' && window.dispatchEvent) window.dispatchEvent(new CustomEvent('cnc-session-renewed'));
+      }
+      if (!users) return;
+      sessionNotice = uiLocale.t('Session CNCjs refusée : ouvrez CNCjs à la racine du même serveur, reconnectez-vous, puis rechargez /touch/.');
+      notice(sessionNotice);
+    });
+    return 0;
+  }
+  // A page with a token simply waits for the next renewal; one without a token (reloaded within the
+  // minute after an attempt) tries again once the minute has passed.
+  function first() {
+    var left = renew(token ? null : function () { if (!reloadOnce() && !started) { token = storedToken(); init(); } });
+    if (left > 0 && !token) setTimeout(first, left);
+  }
+  first();
+  setInterval(function () { renew(null); }, 12 * 3600 * 1000);
+
+  // A request refused for its session (job-stream.js, job-controls.js: HTTP 401, or 403 without a
+  // JSON body): renewed (one reload), or the operator is asked to sign in again (CNCjs users).
+  window.addEventListener('cnc-session-refused', function () { renew(reloadOnce); });
+
   if (!token) {
     badge('st-server', uiLocale.t('Serveur : authentification requise'), 'warn');
     notice(uiLocale.t("Ouvrez CNCjs à la racine du même serveur, connectez-vous, puis rechargez /touch/."));
     return;
   }
-
+  init();
+  function init() {
+  started = true;
+  notice('');
   var socket = compact ? null : io.connect(location.origin, {
     reconnection: true,
     query: 'token=' + encodeURIComponent(token)
@@ -51,6 +136,9 @@
   function on(name,fn){if(!socket)return;socket.on(name,fn);disposers.push(function(){if(socket.off)socket.off(name,fn);else if(socket.removeListener)socket.removeListener(name,fn);});}
 
   function authError(err) {
+    // The socket keeps the token it was opened with: an expired one is refused on reconnect.
+    var text = err && (err.message || err.description || err.type) || String(err);
+    if (/jwt|token|unauthori/i.test(text)) renew(reloadOnce);
     badge('st-server', uiLocale.t('Serveur : connexion refusée'), 'err');
     notice(uiLocale.t('Erreur CNCjs : ') + (
       err && (err.message || err.description) || String(err)
@@ -106,16 +194,17 @@
   }
   if (store) disposers.push(store.subscribe(function (state) {
     if(compact)badge('st-server',state.transportConnected?uiLocale.t('Serveur : suivi connecté'):uiLocale.t('Serveur : suivi indisponible'),state.transportConnected?'ok':'warn');
+    if(state.transportConnected)sessionNotice='';
     var machine = state.machine;
     if (!machine || !machine.fresh) {
       clearCoords();
       badge('st-ctrl', machine ? uiLocale.t('Contrôleur : ')+machine.port : uiLocale.t('Contrôleur : aucun sélectionné'), 'warn');
       badge('st-state', uiLocale.t('État : données indisponibles'), 'warn');
-      notice(state.transportReason || (machine ? uiLocale.t('Rapport machine périmé.') : uiLocale.t('Choisissez le contrôleur dans Fichiers.')));
+      notice(sessionNotice || state.transportReason || (machine ? uiLocale.t('Rapport machine périmé.') : uiLocale.t('Choisissez le contrôleur dans Fichiers.')));
       return;
     }
     receive(machine.type, {status:{activeState:machine.activeState,wpos:machine.coordinates&&machine.coordinates.wpos,mpos:machine.coordinates&&machine.coordinates.mpos}},machine.port);
-    notice(state.transportReason||'');
+    notice(sessionNotice||state.transportReason||'');
   }));
   window.cncConnection = {dispose:function(){
     clearCoords();
@@ -141,6 +230,7 @@
     bind(tabs[k],'click', function () {
       showScreen(this.getAttribute('data-screen'));
     });
+  }
   }
 })();
 

@@ -63,7 +63,7 @@
     // simulation page does not see a real job, and a homing or a jog is not a
     // job for CNCjs. Every connected controller must be fresh and at rest.
     request('GET',apiBase()+'/touch-job',undefined,true,function(code,data){
-      var reason=code!==200||!data||!Array.isArray(data.controllers)?t('État de la machine illisible : commande non lancée.'):restless(data.controllers);
+      var reason=code===401||(code===403&&!data)?t('Session CNCjs requise : ouvrez CNCjs et connectez-vous.'):code!==200||!data||!Array.isArray(data.controllers)?t('État de la machine illisible : commande non lancée.'):restless(data.controllers);
       if(reason){busy=false;set(status,reason);paint();return;}
       send(command);
     });
@@ -81,10 +81,14 @@
   }
   function send(command){
     set(status,t('Envoi de « ')+command.title+t(' »…'));
-    request('POST',apiBase()+'/commands/run/'+encodeURIComponent(command.id),{},true,function(code,data){
+    // This device's identity (job-controls.js, F5): the server compares it with who pilots the machine.
+    var c=window.cncJobControls,body={},id=c&&typeof c.clientId==='function'?c.clientId():'';
+    if(id){body.clientId=id;body.clientLabel=typeof c.clientLabel==='function'?c.clientLabel():'';}
+    request('POST',apiBase()+'/commands/run/'+encodeURIComponent(command.id),body,true,function(code,data){
       busy=false;
       if(code===200&&data&&data.taskId)set(status,t('« ')+command.title+t(' » lancée sur l’ordinateur du serveur.'));
-      else if(code===401)set(status,t('Session CNCjs requise : ouvrez CNCjs et connectez-vous.'));
+      // 401, or CNCjs' plain-text 403 (« Forbidden Access »): the session is refused, not the command.
+      else if(code===401||(code===403&&!data))set(status,t('Session CNCjs requise : ouvrez CNCjs et connectez-vous.'));
       // 403: disabled in CNCjs; 409: refused by the server's own machine check (its message says why).
       else if((code===403||code===409)&&data&&typeof data.message==='string'&&data.message)set(status,data.message);
       else if(code===403)set(status,t('Commande désactivée dans CNCjs.'));

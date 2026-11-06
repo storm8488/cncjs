@@ -431,6 +431,15 @@
       return parts.join(' · ');
     },
     revision: function () { return indexRevision; },
+    // For the previews (preview-gl.js, the resume preview): the stock of the selected file's sheet,
+    // only for the current version of that file. Indicative: its placement on the machine is not known.
+    stock: function (file) {
+      var e = current && current.version === 'current' && current.entry;
+      if (!e || !e.stock || (file && file !== selected)) return null;
+      var s = e.stock, out = {};
+      ['x', 'y', 'z'].forEach(function (a) { out[a] = typeof s[a] === 'number' && isFinite(s[a]) && s[a] > 0 ? s[a] : null; });
+      return out.x && out.y ? out : null;
+    },
     refresh: refreshIndex,
     reload: function () { return load(selected); }
   };

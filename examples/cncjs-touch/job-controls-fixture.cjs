@@ -7,7 +7,8 @@
 const fs = require('fs'), vm = require('vm'), path = require('path');
 function load(options = {}) {
   let now = options.now || 1700000000000, created = 0;
-  const nodes = {}, requests = [], listeners = {}, events = [], intervals = new Map();
+  const nodes = {}, requests = [], listeners = {}, events = [], intervals = new Map(), periods = new Map(), reloads = [];
+  let timerId = 0;
   const storage = options.storage || new Map([['cnc', JSON.stringify({ state: { session: { token: 'offline-fixture' } } })]]);
   const doc = { hidden: false, activeElement: null };
   function element(id, tag) {
@@ -36,17 +37,21 @@ function load(options = {}) {
     addEventListener(n, f) { (listeners['doc:' + n] || (listeners['doc:' + n] = [])).push(f); },
     removeEventListener(n, f) { listeners['doc:' + n] = (listeners['doc:' + n] || []).filter((x) => x !== f); } });
   function XHR() { this.responseText = ''; this.status = 0; this.headers = {}; this.open = (method, url) => { this.method = method; this.url = url; }; this.setRequestHeader = (k, v) => { this.headers[k] = v; }; this.send = (b) => { this.body = b && JSON.parse(b); requests.push(this); }; this.abort = () => { this.aborted = true; }; }
-  const window = { location: { pathname: '/cnc/touch/' }, navigator: { onLine: true, maxTouchPoints: options.touchPoints === undefined ? 5 : options.touchPoints }, XMLHttpRequest: XHR,
-    setInterval(fn) { intervals.set(intervals.size + 1, fn); return intervals.size; }, clearInterval(id) { intervals.delete(id); },
+  const window = { location: { pathname: '/cnc/touch/', hostname: options.hostname || '' }, performance: options.performance, navigator: { onLine: options.onLine !== false, maxTouchPoints: options.touchPoints === undefined ? 5 : options.touchPoints }, XMLHttpRequest: XHR,
+    setInterval(fn, ms) { const id = ++timerId; intervals.set(id, fn); periods.set(id, ms); return id; }, clearInterval(id) { intervals.delete(id); periods.delete(id); },
     addEventListener(n, f) { (listeners[n] || (listeners[n] = [])).push(f); }, removeEventListener(n, f) { listeners[n] = (listeners[n] || []).filter((x) => x !== f); },
     dispatchEvent(e) { events.push(e); (listeners[e.type] || []).slice().forEach((f) => f(e)); } };
   const localStorage = options.localStorage || { getItem: (k) => (storage.has(k) ? storage.get(k) : null), setItem: (k, v) => storage.set(k, String(v)) };
-  const context = { window, document: doc, XMLHttpRequest: XHR, localStorage, CustomEvent: function (type, o) { this.type = type; this.detail = o.detail; },
+  // options.app: app.js is loaded too (between job-stream.js and job-controls.js, as in index.html).
+  const session = new Map();
+  const context = { window, document: doc, XMLHttpRequest: XHR, localStorage,
+    sessionStorage: { getItem: (k) => (session.has(k) ? session.get(k) : null), setItem: (k, v) => session.set(k, String(v)) },
+    location: { origin: 'http://192.168.1.29:8000', reload: () => reloads.push(now) }, CustomEvent: function (type, o) { this.type = type; this.detail = o.detail; },
     Date: class extends Date { static now() { return now; } }, Math, Promise, JSON, setInterval: window.setInterval, clearInterval: window.clearInterval };
   vm.createContext(context);
   // options.language ('en' / 'es'): the page's catalog and cncI18n are loaded first, as in index.html.
   if (options.language) { storage.set('cncjs-touch-language-v1', options.language); doc.documentElement = {}; doc.title = ''; }
-  for (const file of (options.language ? ['i18n-messages.js', 'i18n.js'] : []).concat(['cnc-state.js', 'job-stream.js', 'program-check-view.js', 'job-controls.js'])) vm.runInContext(fs.readFileSync(path.join(__dirname, 'touch', file), 'utf8'), context);
+  for (const file of (options.language ? ['i18n-messages.js', 'i18n.js'] : []).concat(['cnc-state.js', 'job-stream.js'], options.app ? ['app.js'] : [], ['program-check-view.js', 'job-controls.js'])) vm.runInContext(fs.readFileSync(path.join(__dirname, 'touch', file), 'utf8'), context);
   const isStream = (url) => /\/touch-events(\?clientId=[^&]+)?$/.test(url);
   const flush = () => new Promise(setImmediate);
   function answer(xhr, data, status = 200) { xhr.status = status; xhr.responseText = JSON.stringify(data); xhr.onload(); }
@@ -70,6 +75,8 @@ function load(options = {}) {
   const lastStatus = () => events.filter((e) => e.type === 'cnc-job-status').at(-1).detail;
   const key = (k, extra = {}) => { let prevented = false; (listeners['doc:keydown'] || []).slice().forEach((f) => f(Object.assign({ key: k, preventDefault() { prevented = true; }, stopImmediatePropagation() {} }, extra))); return prevented; };
   return { window, document: doc, el, nodes, requests, storage, events, listeners, flush, answer, machine, push, connect, posts, lastStatus, key, isStream,
-    controls: () => window.cncJobControls, advance(ms) { now += ms; }, tick() { Array.from(intervals.values()).forEach((fn) => fn()); } };
+    controls: () => window.cncJobControls, reloads, advance(ms) { now += ms; },
+    // One second of the page: the 1 s loops (a 12 h timer of app.js is not run).
+    tick() { Array.from(intervals.keys()).filter((id) => !(periods.get(id) > 1000)).forEach((id) => intervals.get(id)()); } };
 }
 module.exports = { load };

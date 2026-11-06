@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
   var source = typeof document !== 'undefined' && document.currentScript && document.currentScript.src;
-  var workerURL = source ? source.split(/[?#]/)[0].replace(/[^/]*$/, 'library-preview-worker.js?v=worker31f') : 'library-preview-worker.js?v=worker31f';
+  var workerURL = source ? source.split(/[?#]/)[0].replace(/[^/]*$/, 'library-preview-worker.js?v=prof1') : 'library-preview-worker.js?v=prof1';
   var generation = 0;
   // Floats per drawn segment: x, y, xx, yy, mode, deepest Z of the segment.
   var STRIDE = 6;
@@ -277,6 +277,71 @@
     });
   }
   function toolpath3d() { return root.CNCToolpath3D || null; }
+  function validEstimate(e) {
+    return e && typeof e === 'object' && e.version === 1 && typeof e.seconds === 'number' && isFinite(e.seconds) && typeof e.known === 'boolean' && Array.isArray(e.unknowns) && e.unknowns.length <= 100 ? e : null;
+  }
+  function validLaser(l) {
+    return l && typeof l === 'object' && typeof l.sMax === 'number' && isFinite(l.sMax) && typeof l.hasM4 === 'boolean' && typeof l.emittingLength === 'number' && typeof l.travelLength === 'number' ? l : null;
+  }
+  // Reading a stored preview of any version (1: image and trail; 2: depth and path3d; 3: estimate
+  // and laser summary). Nothing is assumed for a missing field: `issues` names what the stored
+  // data cannot tell (no fingerprint, G28/G30 returns with unknown axes, a relative start,
+  // another work offset, decimated geometry), for the views to say so.
+  function normalize(meta) {
+    var p = meta && meta.preview, out = { version: 0, image: false, trail: false, depth: false, path3d: false, estimate: null, laser: null, issues: [] };
+    if (!p || typeof p !== 'object') { out.issues.push('no-preview'); return out; }
+    out.image = typeof p.image === 'string' && /^data:image\/png;base64,/.test(p.image);
+    out.trail = Array.isArray(p.trail) && p.trail.length >= 6 && p.trail.length % 3 === 0;
+    out.depth = Array.isArray(p.zBounds) && p.zBounds.length === 2;
+    out.path3d = !!validPath(p.path3d);
+    out.estimate = validEstimate(p.estimate);
+    out.laser = validLaser(p.laser);
+    out.version = typeof p.version === 'number' ? p.version : out.depth || out.path3d ? 2 : 1;
+    if (out.version > 3) out.issues.push('newer-version');
+    if (!meta.fingerprint) out.issues.push('no-fingerprint');
+    var proj = p.projection;
+    if (!proj || proj.version !== 1) out.issues.push('no-projection');
+    else {
+      if (proj.returns) out.issues.push('unknown-frame');
+      if (proj.relativeStart) out.issues.push('relative-start');
+      if (proj.wcs && proj.wcs !== 'G54') out.issues.push('other-wcs');
+    }
+    if (out.path3d && p.path3d.decimated) out.issues.push('decimated');
+    if (!out.path3d) out.issues.push('no-path3d');
+    if (out.version >= 3 && !out.estimate) out.issues.push('no-estimate');
+    return out;
+  }
+  // ---- Export and import of a preview between two servers (file download / upload) ----
+  // Only the preview of one program travels, bound to its fingerprint: never machine settings,
+  // controller state or a command. Light data only (advanced data is recomputed on demand).
+  var EXPORT_FORMAT = 'cncjs-touch-preview', PREVIEW_FIELDS = ['version', 'image', 'thumbnail', 'segments', 'bounds', 'projection', 'trail', 'lines', 'note', 'zBounds', 'trailZ', 'path3d', 'estimate', 'laser'];
+  function pick(p) {
+    var out = {};
+    PREVIEW_FIELDS.forEach(function (k) { if (p && p[k] !== undefined) out[k] = p[k]; });
+    return out;
+  }
+  function exportPreview(meta) {
+    if (!meta || !meta.preview || typeof meta.fingerprint !== 'string' || !meta.fingerprint) throw new Error('Aperçu sans empreinte : export impossible.');
+    return { format: EXPORT_FORMAT, version: 1, exportedAt: new Date().toISOString(), fingerprint: meta.fingerprint,
+      originalName: typeof meta.originalName === 'string' ? meta.originalName : '', size: typeof meta.size === 'number' ? meta.size : null, preview: pick(meta.preview) };
+  }
+  function fp(v) { return String(v || '').toLowerCase().replace(/^sha256:/, ''); }
+  // Checks an exported file against the program on this server (its fingerprint, from the server).
+  function importPreview(text, fingerprint) {
+    if (typeof text !== 'string' || text.length > 8 * 1048576) throw new Error('Fichier d’aperçu trop volumineux.');
+    var v; try { v = JSON.parse(text); } catch (_) { throw new Error('Fichier d’aperçu illisible.'); }
+    if (!v || v.format !== EXPORT_FORMAT) throw new Error('Ce fichier n’est pas un aperçu CNCjs Touch exporté.');
+    if (v.version !== 1) throw new Error('Version d’export non prise en charge.');
+    if (!fingerprint || fp(v.fingerprint) !== fp(fingerprint)) throw new Error('Aperçu d’un autre fichier (empreinte différente) : non importé.');
+    var p = pick(v.preview);
+    if (typeof p.image !== 'string' || p.image.length > 2500000 || !/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(p.image)) throw new Error('Image de l’aperçu invalide.');
+    if (p.thumbnail !== undefined && (typeof p.thumbnail !== 'string' || p.thumbnail.length > 120000 || !/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(p.thumbnail))) delete p.thumbnail;
+    if (p.path3d !== undefined && !validPath(p.path3d)) delete p.path3d;
+    if (p.estimate !== undefined && !validEstimate(p.estimate)) delete p.estimate;
+    if (p.laser !== undefined && !validLaser(p.laser)) delete p.laser;
+    if (!p.projection || p.projection.version !== 1) throw new Error('Projection de l’aperçu absente : non importé.');
+    return p;
+  }
   function painter(canvas) {
     var ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Canvas indisponible');
@@ -313,6 +378,7 @@
     return new Promise(function (resolve, reject) {
       var id = ++generation, worker = null, timer = null, startup = null, drawing = null, reader = null;
       var finished = false, ready = false, fallback = false, output, result, input = 0, sequence = 0, drawn = 0, queue = [], localResume = null, path3d = null;
+      var estimate = null, laser = null;
       var lastProgress = '';
       function report(message) { if (!finished && message !== lastProgress) { lastProgress = message; progress(message); } }
       function stopped() { return finished || !!(cancelled && cancelled()); }
@@ -345,6 +411,10 @@
         if (Array.isArray(result.zBounds)) value.zBounds = result.zBounds;
         if (Array.isArray(result.trailZ) && result.trailZ.length * 3 === result.trail.length) value.trailZ = result.trailZ;
         if (path3d) value.path3d = path3d;
+        // Version 3: motion-based estimate and laser summary (contract §6), both optional.
+        value.version = 3;
+        if (estimate) value.estimate = estimate;
+        if (laser) value.laser = laser;
         var deep = !!(value.zBounds && value.zBounds[0] < 0);
         value.note = 'Projection XY indicative — G1/G2/G3 ' + (deep ? 'cyan au-dessus de Z0, du violet (peu profond) au rouge (le plus profond) sous Z0' : 'bleu') + ', G0 gris. Arcs interpolés à 0,02 mm. Départ supposé X0 Y0' + (result.relativeZ ? ', Z relatif au point de départ' : ' Z0') + ', mm, absolu et centres I/J relatifs. Puissance laser non simulée.' + (notes.length ? ' ' + notes.join(' ') : '') +
             (fallback ? ' Calcul local de secours : réactivité à vérifier sur cet appareil.' : '') +
@@ -421,6 +491,9 @@
             if (used === data.length) flush();
           }, stopped, null, pressure, builder && builder.move).then(function () {
             if (builder) path3d = builder.finish(result.lines);
+            // In the page only for a small text: the estimate is one synchronous pass.
+            var ME = root.CNCMotionEstimate;
+            if (ME && text.length <= 2 * 1048576) { try { estimate = ME.estimate(text, { laser: true }); laser = estimate.laser; delete estimate.laser; } catch (_) { estimate = laser = null; } }
             flush(); return pressure();
           }).then(encode);
         }).catch(function (error) { finish(error); });
@@ -493,6 +566,7 @@
             } else if (message.type === 'done') {
               if (!result || queue.length || drawn !== result.count) throw new Error('Parcours incomplet');
               path3d = validPath(message.path3d);
+              estimate = validEstimate(message.estimate); laser = validLaser(message.laser);
               worker.terminate(); worker = null; encode();
             } else if (message.type === 'error') finish(new Error(message.message || 'Aperçu indisponible'));
           } catch (error) { finish(error); }
@@ -553,7 +627,7 @@
     return apply(s, col);
   }
   function apply(s, col) { NOTE_TEXT.forEach(function (row) { s = s.replace(row[0], row[col]); }); return s; }
-  var api = { scan: scan, render: render, localize: localize,
+  var api = { scan: scan, render: render, localize: localize, normalize: normalize, exportPreview: exportPreview, importPreview: importPreview, validEstimate: validEstimate, validLaser: validLaser,
     renderResponse: function (blob, canvas, cancelled, progress) { return render(null, canvas, cancelled, progress, blob); } };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CNCLibraryPreview = api;

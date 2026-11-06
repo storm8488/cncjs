@@ -4,7 +4,11 @@
   var panel = document.querySelector('.library-execution');
   if (!panel) return;
   var simulation=window.cncJobSimulation;
-  var networkOffline=!simulation&&!!(window.navigator&&window.navigator.onLine===false);
+  // The browser's offline flag is only a hint (B-4): it never stops a request nor disables Pause /
+  // Arrêter (the kiosk on localhost, a misread link); real request failures decide. Shown as a warning.
+  var browserOffline=!simulation&&!!(window.navigator&&window.navigator.onLine===false);
+  // While the session is refused, the fallback state read waits a minute between attempts (B-3).
+  var refusedUntil=0;
   panel.innerHTML = uiLocale.html('<h2>Exécution sur la machine</h2>') +
     uiLocale.html('<label for="job-port">Contrôleur CNCjs</label><select id="job-port"><option value="">Aucune machine connectée</option></select>') +
     uiLocale.html('<p id="job-state" role="status">Lecture de l’état…</p>') +
@@ -113,6 +117,12 @@
     }
     return p;
   }
+  // The machine the commands go to, as the server names it: label and kind (unknown kind: CNC).
+  function targetText(m){
+    var p=m&&m.machineProfile&&typeof m.machineProfile==='object'?m.machineProfile:null;
+    var kind=p&&p.kind==='laser'?uiLocale.t('Laser'):p&&p.kind==='cnc'?uiLocale.t('CNC'):uiLocale.t('type non confirmé');
+    return uiLocale.t('Machine : ')+(p&&p.label?'« '+p.label+' »':uiLocale.t('sans nom'))+' ('+kind+')';
+  }
   // A refusal because another device pilots the port (HTTP 409, code ECONTROL): who, and what to do next.
   function controlRefusal(data){
     var e=new Error(data.owner?uiLocale.t('Refusé : pilotage attribué à « ')+ownerName(data.owner)+uiLocale.t(' ». Pause et Arrêter restent possibles. Pour agir ici, touchez Pilote dans le bandeau et prenez le pilotage avec un motif, ou attendez sa libération.'):String(data.message||uiLocale.t('Refusé : la machine est pilotée par un autre appareil.')));
@@ -122,18 +132,16 @@
   // values; otherwise the server's French message (translated when it is a catalog phrase).
   function serverRefusal(data,status){
     var fallback=data&&typeof data.message==='string'&&data.message?data.message:uiLocale.t('Commandes indisponibles (HTTP ')+status+').';
-    var e=new Error(data&&data.code&&uiLocale.format?uiLocale.format(data.code,data.params,fallback):fallback);
+    // Coded reasons behind the refusal (laser framing refused by the travel check: {code, params,
+    // message}, like a program check's codedReasons), 3 at most, in the interface language.
+    var why=data&&Array.isArray(data.reasons)?data.reasons.filter(function(r){return r&&typeof r==='object'&&typeof r.message==='string'&&r.message;}).slice(0,3).map(function(r){
+      var m=r.message.slice(0,300);return uiLocale.format?uiLocale.format(r.code,r.params,m):m;}):[];
+    var e=new Error((data&&data.code&&uiLocale.format?uiLocale.format(data.code,data.params,fallback):fallback)+(why.length?' '+why.join(' '):''));
     if(data&&typeof data.code==='string'){e.code=data.code;e.params=data.params||null;}
     return e;
   }
-  function jogStop(body){return !!(body&&body.action==='motion'&&body.operation==='jog-stop');}
-  // Commands that only bring the machine to rest: attempted even without a recent state.
-  function halting(body){return jogStop(body)||!!(body&&(body.action==='pause'||body.action==='stop'));}
   function api(method,body) {
     if(simulation) return simulation.request(method,body);
-    // A jog stop (F1), Pause and Stop are always attempted: the browser's offline flag may be
-    // wrong, and they cost nothing.
-    if(networkOffline&&!halting(body))return Promise.reject(new Error(uiLocale.t('Réseau indisponible. Suivi suspendu ; aucune commande ne sera relancée automatiquement.')));
     if(document.body && document.body.getAttribute('data-simulation')==='true') return Promise.reject(new Error(uiLocale.t('Simulateur indisponible. Rechargez la page.')));
     return new Promise(function(resolve,reject) {
       var credential=token();
@@ -143,8 +151,11 @@
       xhr.setRequestHeader('Authorization','Bearer '+credential);
       function done(){var i=requests.indexOf(xhr);if(i>=0)requests.splice(i,1);}
       if(body) xhr.setRequestHeader('Content-Type','application/json');
-      xhr.onload=function(){done();var data;try{data=JSON.parse(xhr.responseText);}catch(_){data={};}
+      xhr.onload=function(){done();var data,raw=false;try{data=JSON.parse(xhr.responseText);}catch(_){data={};raw=true;}
         if(xhr.status>=200&&xhr.status<300) resolve(data);
+        // Session refused (401, or CNCjs' plain-text 403 « Forbidden Access »): not a refusal of the
+        // command; app.js renews the session (or asks to sign in again) and the stream rechecks it.
+        else if(xhr.status===401||(xhr.status===403&&(raw||!data||typeof data!=='object'))){sessionRefused();reject(raw||!data||typeof data.message!=='string'||!data.message?new Error(uiLocale.t('Session CNCjs expirée.')):serverRefusal(data,xhr.status));}
         else if(data&&data.code==='ECONTROL')reject(controlRefusal(data));
         else reject(serverRefusal(data,xhr.status));};
       // No answer is not a refusal: the command may have been applied (the next state says).
@@ -155,6 +166,7 @@
       xhr.send(payload?JSON.stringify(payload):null);
     });
   }
+  function sessionRefused(){refusedUntil=elapsedClock()+60000;if(stream&&stream.refused)stream.refused();window.dispatchEvent(new CustomEvent('cnc-session-refused',{detail:null}));}
   function dismiss(restore) {
     confirmation++;ticket=null;prop('job-dialog','hidden',true);prop('job-check','checked',false);prop('job-confirm','disabled',true);
     dialogBackground.forEach(function(entry){if(entry.restore)entry.restore();else entry.node.inert=entry.inert;});dialogBackground=[];
@@ -173,7 +185,9 @@
     unlock:[uiLocale.t('Le déverrouillage ($X) lève l’alarme sans aucun mouvement. La position peut être fausse : refaites la prise d’origine avant de travailler.'),uiLocale.t('Je suis devant la machine et la cause de l’alarme est réglée.')],
     home:[uiLocale.t('La prise d’origine ($H) déplace chaque axe jusqu’à ses capteurs. Dégagez la zone de travail.'),uiLocale.t('Je suis devant la machine et la zone est dégagée.')],
     spindle:[uiLocale.t('Le test fait tourner la broche. Tenez mains et objets à distance de l’outil.'),uiLocale.t('Je suis devant la machine et l’outil peut tourner.')],
-    zeroZ:[uiLocale.t('Le palpage descend Z jusqu’au contact avec la plaque. Vérifiez la plaque et la pince.'),uiLocale.t('Je suis devant la machine, la plaque et la pince sont en place.')]
+    zeroZ:[uiLocale.t('Le palpage descend Z jusqu’au contact avec la plaque. Vérifiez la plaque et la pince.'),uiLocale.t('Je suis devant la machine, la plaque et la pince sont en place.')],
+    // Laser framing (PROFILES-CONTRACT.md §4): XY moves around the program, M5 first, never emits.
+    frame:[uiLocale.t('Le cadrage déplace la tête en XY autour du programme chargé, à la hauteur actuelle, laser éteint (M5 envoyé d’abord). Arrêter interrompt le mouvement.'),uiLocale.t('Je suis devant la machine et la zone est dégagée.')]
   };
   function inStrip(node){return !!(node&&typeof node.closest==='function'&&node.closest('#real-banner,#simulation-banner'));}
   function stripKept(){return STRIP_STOPS.map($).filter(inStrip);}
@@ -252,9 +266,12 @@
   // Whether the machine state still allows what a ticket was issued for.
   // Commissioning commands confirmed through the same dialog (no loaded program involved).
   var COMMANDS={unlock:'canUnlock',home:'canHome',spindle:'canSpindleTest',zeroZ:'canZeroZ'};
-  function standalone(operation){return operation==='macro'||Object.prototype.hasOwnProperty.call(COMMANDS,operation);}
+  // Laser framing: a ticket of the machine action (frame-prepare, then frame with its nonce).
+  function laserFrame(state){var c=state&&state.machineProfile&&state.machineProfile.capabilities;return !!(c&&c.laserFrame&&c.laserFrame.supported===true);}
+  function standalone(operation){return operation==='macro'||operation==='frame'||Object.prototype.hasOwnProperty.call(COMMANDS,operation);}
   function ticketAllowed(t,state){
     if(t.operation==='macro')return !!state.canMacro;
+    if(t.operation==='frame')return laserFrame(state)&&state.revision===t.revision;
     if(Object.prototype.hasOwnProperty.call(COMMANDS,t.operation))return !!state[COMMANDS[t.operation]];
     if(state.revision!==t.revision)return false;
     return t.operation==='start'?!!state.canStart:!!state.canResume;
@@ -279,7 +296,7 @@
     render();
     // The state by HTTP at once rather than at the next tick of the 1 s loop (Pause / Arrêter
     // stay offered meanwhile through `halt`).
-    if(!rotating&&!simulation&&!networkOffline&&!disposed){nextPoll=0;poll(true);}
+    if(!rotating&&!simulation&&!disposed){nextPoll=0;poll(true);}
   }
   function projected(){
     if(!latestMachine)return null;
@@ -307,7 +324,7 @@
     if(online&&current.fresh!==false)halt=haltOf(current);
     var lost=!online&&halt&&!simulation?halt:null;
     var detail={machine:online?current:null,observedAt:lastSeen,transportConnected:transportConnected,simulation:!!simulation,busy:busy,feedback:$('job-feedback').textContent,feedbackState:feedbackState,systemCommand:command,pilot:pilot,halt:lost};
-    if(store)store.set({machine:detail.machine,controllerId:detail.machine?detail.machine.port:null,transportConnected:transportConnected,transportReason:grace?'':streamReason,systemCommand:command});
+    if(store)store.set({machine:detail.machine,controllerId:detail.machine?detail.machine.port:null,transportConnected:transportConnected,transportReason:grace?'':(streamReason||(browserOffline?uiLocale.t('Le navigateur signale le réseau coupé : le suivi continue tant que CNCjs répond.'):'')),systemCommand:command});
     var line=command?uiLocale.t('Commande système en cours : ')+command.title:'';
     if(systemLine.textContent!==line)systemLine.textContent=line;if(systemLine.hidden!==!line)systemLine.hidden=!line;
     var signature=JSON.stringify(detail);
@@ -385,7 +402,7 @@
     if(feedbackReached){feedbackExpect=null;feedbackReached=false;text('job-feedback','');setFeedbackState('');}
   }
   function apply(data,transit) {
-      if(disposed||networkOffline)return;
+      if(disposed)return;
       if(!data||!Array.isArray(data.controllers)||(!simulation&&compact&&
         (data.version!==undefined||data.epoch!==undefined)&&!window.CNCJobStream.validSnapshot(data,false))){
         var invalid=uiLocale.t('Réponse de suivi invalide.');
@@ -419,18 +436,19 @@
       render();
   }
   function poll(force) {
-    if(disposed||networkOffline||polling)return;
-    if(!force&&!simulation&&(stream&&stream.alive()||Date.now()<nextPoll))return;
+    if(disposed||polling)return;
+    if(!force&&!simulation&&elapsedClock()<refusedUntil&&elapsedClock()>=refusedUntil-60000)return;
+    if(!force&&!simulation&&(stream&&stream.alive()||elapsedClock()<nextPoll))return;
     // Without the stream, a job (or anything Stop can end) is read every 2 s, so Stop and
     // Pause, which need a state younger than 3 s, stay usable between two reads.
     var active=!!(latestMachine&&(latestMachine.workflow!=='idle'||latestMachine.canStop));
     // With a server that has the event stream (protocol seen), these reads are the fallback while
     // it is down: every 2 s too (a legacy server stays at 10 s at rest), so the state stays shown (younger than 3 s) until the stream returns (N3).
-    polling=true;nextPoll=Date.now()+(active||(compact&&!simulation&&protocolReady)?2000:10000);
-    var id=++requestSequence, ownGeneration=generation, ownMutation=mutation, started=Date.now();
+    polling=true;nextPoll=elapsedClock()+(active||(compact&&!simulation&&protocolReady)?2000:10000);
+    var id=++requestSequence, ownGeneration=generation, ownMutation=mutation, started=elapsedClock();
     api('GET').then(function(data){
       if(disposed||ownGeneration!==generation||ownMutation!==mutation||id<appliedRequest)return;
-      appliedRequest=id;apply(data,Date.now()-started);
+      refusedUntil=0;appliedRequest=id;apply(data,elapsedClock()-started);
     }).catch(function(e){if(ownGeneration===generation&&ownMutation===mutation){unavailable(e.message);text('job-state',e.message);}}).then(function(){
       polling=false;
       // The answer may be the first to show a job: the next read comes 2 s after this one.
@@ -443,7 +461,7 @@
       return api('POST',target);
     }
     if(!current || Date.now()-lastSeen>=3000)return Promise.reject(new Error('État indisponible.'));
-    if(!simulation&&(['prepare','start','resume','macro','override','unlock','home','spindle','readSettings','set-origin'].indexOf(action)>=0||(action==='motion'&&!(extra&&extra.operation==='jog-stop')))&&(!current.generation||!transportId||!stream||!stream.alive()))return Promise.reject(new Error(uiLocale.t('Suivi continu interrompu. Nouvelle confirmation requise.')));
+    if(!simulation&&(['prepare','start','resume','macro','override','unlock','home','spindle','readSettings','set-origin','machine'].indexOf(action)>=0||(action==='motion'&&!(extra&&extra.operation==='jog-stop')))&&(!current.generation||!transportId||!stream||!stream.alive()))return Promise.reject(new Error(uiLocale.t('Suivi continu interrompu. Nouvelle confirmation requise.')));
     var body={action:action,port:current.port};
     if(current.generation)body.generation=current.generation;
     if(transportId)body.transportId=transportId;
@@ -474,7 +492,7 @@
     // Commands with parameters (the plate probe: thickness and search distance).
     if(standalone(operation)&&operation!=='macro'&&extra)Object.keys(extra).forEach(function(k){request[k]=extra[k];});
     preparing++;
-    command('prepare',request).then(function(data){
+    (operation==='frame'?command('machine',{operation:'frame-prepare'}):command('prepare',request)).then(function(data){
       preparing--;
       if(ownGeneration!==generation||ownConfirmation!==confirmation||document.hidden||!current||current.port!==port||(!standalone(operation)&&current.revision!==revision))return;
       until=started+Math.min(15,Number(data.expiresIn)||0)*1000;
@@ -492,8 +510,9 @@
       if(keep.length&&$('job-dialog').style){$('job-dialog').style.top='var(--statusbar-h,0px)';var card=$('job-dialog').querySelector&&$('job-dialog').querySelector('.job-dialog-card');if(card&&card.style)card.style.maxHeight='calc(100vh - var(--statusbar-h,0px) - 48px)';}
       // What this operation does, and what the operator confirms (N4: an unlock moves nothing).
       if(!simulation){var words=DIALOG_TEXT[operation]||DIALOG_TEXT.start;if($('job-warning'))$('job-warning').textContent=words[0];if($('job-check-text'))$('job-check-text').textContent=words[1];}
-      $('job-dialog-title').textContent=({start:uiLocale.t('Confirmer le démarrage'),macro:uiLocale.t('Exécuter la macro'),unlock:uiLocale.t('Déverrouiller la machine'),home:uiLocale.t('Lancer la prise d’origine'),spindle:uiLocale.t('Démarrer la broche'),zeroZ:uiLocale.t('Régler le zéro Z avec la plaque')})[operation]||uiLocale.t('Confirmer la reprise');
-      $('job-dialog-file').textContent=data.name+' · '+port;
+      $('job-dialog-title').textContent=({start:uiLocale.t('Confirmer le démarrage'),macro:uiLocale.t('Exécuter la macro'),unlock:uiLocale.t('Déverrouiller la machine'),home:uiLocale.t('Lancer la prise d’origine'),spindle:uiLocale.t('Démarrer la broche'),zeroZ:uiLocale.t('Régler le zéro Z avec la plaque'),frame:uiLocale.t('Cadrer le programme (laser éteint)')})[operation]||uiLocale.t('Confirmer la reprise');
+      // The target machine (label and kind, from the server's profile) and the piloting device.
+      $('job-dialog-file').textContent=(data.name||current.originalName||current.name||'')+' · '+port+(simulation?'':' · '+targetText(current)+' · '+uiLocale.t('Pilote : ')+(pilot.value||'—'));
       // Start of a real job: the server's travel pre-check of this exact program (F2), joined to the
       // ticket; unknown is never shown as a green light. Without it (older server), the client's
       // XY estimate from the preview of this program version.
@@ -524,7 +543,7 @@
   bind($('job-confirm'),'click',function(){
     if(!confirmable()){dismiss();return;}
     if(!$('job-check').checked)return;
-    var t=ticket;dismiss();command(t.operation,{nonce:t.nonce}).then(function(){
+    var t=ticket;dismiss();(t.operation==='frame'?command('machine',{operation:'frame',nonce:t.nonce}):command(t.operation,{nonce:t.nonce})).then(function(){
       // Tells the commissioning assistant which confirmed command the server accepted.
       if(Object.prototype.hasOwnProperty.call(COMMANDS,t.operation))window.dispatchEvent(new CustomEvent('cnc-command-sent',{detail:t.operation}));
     }).catch(function(){});
@@ -577,12 +596,14 @@
   }
   bind(document,'visibilitychange',function(){if(document.hidden){observationSuspended=true;dismiss(false);closePilot(false);}else resumeObservation();});
   function network(online){
-    if(simulation||disposed||networkOffline===!online)return;
-    networkOffline=!online;
+    if(simulation||disposed)return;
+    browserOffline=!online;
     if(stream)stream.setOnline(online);
-    else unavailable(uiLocale.t(online?'Réseau rétabli. Vérification du suivi ; nouvelle confirmation requise.':'Réseau indisponible. Suivi suspendu ; aucune commande ne sera relancée automatiquement.'));
     if(online){nextPoll=0;poll(true);}
+    render();
   }
+  // New token stored without a reload (app.js, reload guard): the stream checks it at once.
+  bind(window,'cnc-session-renewed',function(){if(disposed||simulation)return;refusedUntil=0;if(stream)stream.reconnect(undefined,true);nextPoll=0;poll(true);});
   bind(window,'offline',function(){network(false);});
   bind(window,'online',function(){network(true);});
   // Seconds left in words, and the bar's remaining fraction of the ticket window (15 s at most).
@@ -595,7 +616,8 @@
   if(compact&&!simulation){
     stream=window.CNCJobStream.create({apiBase:store.get().apiBase,token:token,clientId:clientId,
       onSnapshot:function(data){transportId=data.transportId;streamReason='';renewing=0;apply(data,data.transitMs);},
-      onDisconnect:function(reason,rotating){unavailable(reason,rotating);},onStatus:function(reason){streamReason=reason;render();}});
+      onDisconnect:function(reason,rotating){unavailable(reason,rotating);},onStatus:function(reason){streamReason=reason;render();},
+      onRefused:function(){window.dispatchEvent(new CustomEvent('cnc-session-refused',{detail:null}));}});
   }
   if(!simulation&&!compact&&window.cncSocket){
     ['disconnect','connect_error','error'].forEach(function(name){var fn=function(){if(stream)stream.reconnect();else unavailable(uiLocale.t('Connexion interrompue. Nouvelle confirmation requise.'));};window.cncSocket.on(name,fn);bindings.push(function(){if(window.cncSocket.off)window.cncSocket.off(name,fn);});});
@@ -612,6 +634,20 @@
     // Closes an open confirmation and drops a prepare still on its way.
     cancel:function(){dismiss(false);},
     prepareCommand:function(operation,extra){if(Object.prototype.hasOwnProperty.call(COMMANDS,operation))prepare(operation,extra);},
+    // Laser framing (frame-prepare → confirmation → frame); offered only when the server says so.
+    prepareFrame:function(){if(simulation||!current||!laserFrame(current))return false;prepare('frame');return true;},
+    // Machine kind (PROFILES-CONTRACT.md §2): written in .cncrc by the server, nothing sent to the
+    // controller. Same path as every machine action: pilot, generation, stream, refusals.
+    setMachineKind:function(kind,label){
+      if(busy||!current)return Promise.reject(new Error(uiLocale.t('Opération en cours…')));
+      if(kind!=='cnc'&&kind!=='laser')return Promise.reject(new Error(uiLocale.t('Type de machine inconnu.')));
+      return command('machine',{operation:'set-kind',kind:kind,label:String(label||'').slice(0,60)});
+    },
+    forgetMachine:function(){
+      if(busy||!current)return Promise.reject(new Error(uiLocale.t('Opération en cours…')));
+      return command('machine',{operation:'forget'});
+    },
+    targetText:function(){return targetText(current);},
     spindleStop:function(){if(!current)return Promise.reject(new Error(uiLocale.t('État indisponible.')));return command('spindleStop');},
     // Resume from a line: what would be sent (nothing loaded), then the load itself.
     resumePlan:function(file,line){if(!current)return Promise.reject(new Error(uiLocale.t('État indisponible.')));return run('resumePlan',{file:file,line:line});},
@@ -620,7 +656,7 @@
     // Full $$ list and firmware banner, read-only.
     settings:function(){if(!current)return Promise.reject(new Error(uiLocale.t('État indisponible.')));return run('settings');},
     // Attribution of control (F5): this device's identity, who pilots now, the pilot dialog.
-    clientId:function(){return clientId;},pilot:function(){return pilot;},openPilot:openPilot,closePilot:closePilot,
+    clientId:function(){return clientId;},clientLabel:function(){return clientLabel;},pilot:function(){return pilot;},openPilot:openPilot,closePilot:closePilot,
     // Real moves (F1, experimental; real-motion.js): jog, jog-start and jog-keepalive need a fresh
     // state, the open stream and the generation (run). jog-stop is never held back by the client:
     // it goes out even with a lost stream or an old state, to the port given or the last one shown.

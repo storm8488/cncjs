@@ -23,11 +23,20 @@
   }
   // XHR progress supports Authorization headers and older Chromium without ReadableStream.
   function create(options) {
-    var locale=root.cncI18n||{t:function(s){return s;}}, offline=!!(root.navigator&&root.navigator.onLine===false);
-    var offlineReason=locale.t('Réseau indisponible. Suivi suspendu ; aucune commande ne sera relancée automatiquement.');
-    var xhr = null, generation = 0, disposed = false, available = false, retryAt = 0, healthAt = 0, lastMessage = 0, openedAt = 0;
-    var token = options.token, clock = options.clock || Date.now, timer = options.timer || root;
+    // navigator.onLine is never trusted to stop requests (B-4): the kiosk page on localhost, or a
+    // tablet whose Chromium misreads its link, may be « offline » while CNCjs answers. Only real
+    // request failures decide; the page shows the browser's flag as a warning (job-controls.js).
     var XHR = options.XMLHttpRequest || root.XMLHttpRequest, base = options.apiBase || '/api';
+    var locale=root.cncI18n||{t:function(s){return s;}};
+    var xhr = null, generation = 0, disposed = false, available = false, retryAt = 0, healthAt = 0, lastMessage = 0, openedAt = 0;
+    // Delays (retry, health, silence) on the monotonic clock: a wall clock set back (NTP at boot)
+    // must not freeze the recovery. Transit is measured on the wall clock, against the server's sentAt.
+    var perf = root.performance, monotonic = perf && typeof perf.now === 'function' ? function () { return perf.now(); } : Date.now;
+    var token = options.token, clock = options.clock || monotonic, wall = options.clock || Date.now, timer = options.timer || root;
+    // Last session refusal of the health check: while recent, the page's own refusals do not
+    // bring the check forward (one check a minute while the session is refused).
+    var refusedAt = null;
+    function recentlyRefused(){return refusedAt!==null&&clock()-refusedAt>=0&&clock()-refusedAt<60000;}
     function close(reason, delay, rotating) {
       generation++; var old = xhr; xhr = null; lastMessage = 0;
       if (old) { old.onload = old.onerror = old.ontimeout = old.onprogress = null; old.abort(); }
@@ -35,7 +44,7 @@
       options.onDisconnect(locale.t(reason), !!rotating);
     }
     function open() {
-      if (disposed || offline || xhr || !available || clock() < retryAt) return;
+      if (disposed || xhr || !available || clock() < retryAt || !token()) return;
       var id = ++generation, cursor = 0, rotate = false, clockOffset = null, sequence = 0, epoch = '', transport = '';
       xhr = new XHR(); var request = xhr; openedAt = clock();
       // The stream carries this device's presence (F5): its control lease lives while it is open.
@@ -56,14 +65,21 @@
             sequence=packet.sequence;epoch=packet.epoch;transport=packet.transportId;
             // Conservative lower bound on clock skew: include the initial request's
             // server/network delay rather than treating buffered packets as fresh.
-            if (clockOffset === null) clockOffset = openedAt - packet.sentAt;
-            packet.transitMs = Math.max(0, clock() - packet.sentAt - clockOffset);
+            // The wall time of the opening is taken now, from the monotonic time elapsed since:
+            // a wall-clock step between the opening and this packet cannot bias it. A transit is
+            // never longer than the stream has been open (a later client-side step).
+            var sinceOpen = Math.max(0, clock() - openedAt);
+            if (clockOffset === null) clockOffset = wall() - sinceOpen - packet.sentAt;
+            packet.transitMs = Math.max(0, Math.min(sinceOpen, wall() - packet.sentAt - clockOffset));
             lastMessage = clock(); options.onSnapshot(packet);
           } catch (_) { close('Réponse de suivi invalide.'); return; }
         }
       };
       request.onload = function () {
         if (id !== generation) return;
+        // Session refused (CNCjs answers 403 « Forbidden Access » in plain text, or 401): the health
+        // check runs again at once; its refusal asks app.js for a renewal (onRefused).
+        if (request.status === 401 || request.status === 403) { available = false; if (!recentlyRefused()) healthAt = 0; close('Session CNCjs expirée.'); return; }
         request.onprogress();
         if (id !== generation) return;
         close(rotate ? 'Renouvellement du suivi…' : 'Flux interrompu. Secours toutes les 10 s.', rotate ? 0 : 30000, rotate);
@@ -75,41 +91,48 @@
     var healthRequest = null;
     function cancelHealth(){var old=healthRequest;healthRequest=null;if(old){old.onload=old.onerror=old.ontimeout=null;old.abort();}}
     function health() {
-      if (disposed || offline || healthRequest || clock() < healthAt) return;
+      if (disposed || healthRequest || clock() < healthAt) return;
       healthAt = clock() + 60000;
+      // No session yet (first start, expired token): nothing to send, app.js renews it and reloads.
+      if (!token()) { available = false; options.onStatus(locale.t('Session CNCjs requise.')); return; }
       var request = healthRequest = new XHR();
       request.open('GET',base+'/custom/health',true); request.timeout=5000;
       request.setRequestHeader('Authorization','Bearer '+token());
       function fail(message) { healthRequest=null; available=false; options.onStatus(locale.t(message)); }
       request.onload=function(){
-        if(disposed||offline||healthRequest!==request)return;
+        if(disposed||healthRequest!==request)return;
         healthRequest=null;
         try {
           var result=JSON.parse(request.responseText);
           if(request.status!==200 || result.loaded!==true || result.protocol!==1) throw Error('unavailable');
-          available=true; options.onStatus(''); open();
-        } catch (_) { fail(request.status===401||request.status===403?'Session CNCjs expirée.': 'Module de suivi absent ou incompatible. Secours toutes les 10 s ; actions bloquées si état ancien.'); }
+          available=true; refusedAt=null; options.onStatus(''); open();
+        } catch (_) {
+          var refused=request.status===401||request.status===403;
+          fail(refused?'Session CNCjs expirée.': 'Module de suivi absent ou incompatible. Secours toutes les 10 s ; actions bloquées si état ancien.');
+          if(refused){refusedAt=clock();if(options.onRefused)options.onRefused();}
+        }
       };
-      request.onerror=request.ontimeout=function(){if(!disposed&&!offline&&healthRequest===request)fail('Santé du suivi indisponible. Secours toutes les 10 s.');};
+      request.onerror=request.ontimeout=function(){if(!disposed&&healthRequest===request)fail('Santé du suivi indisponible. Secours toutes les 10 s.');};
       request.send();
     }
     function tick() {
-      if (disposed || offline) return;
+      if (disposed) return;
       if (xhr && clock() - (lastMessage || openedAt) >= 3000) close('Flux muet ou tamponné. État indisponible ; secours toutes les 10 s.');
       if (!available) health(); else open();
     }
+    // The browser says the network is back: a lost stream is tried again at once. « Offline » changes nothing.
     function setOnline(value){
-      if(disposed||offline===!value)return;
-      offline=!value;available=false;cancelHealth();
-      close(offline?offlineReason:locale.t('Réseau rétabli. Vérification du suivi ; nouvelle confirmation requise.'),0);
-      if(!offline){healthAt=0;health();}
+      if(disposed||!value||xhr)return;
+      retryAt=0;if(!available){if(!recentlyRefused())healthAt=0;health();}else open();
     }
-    var interval=timer.setInterval(tick,1000); if(offline)options.onDisconnect(offlineReason);else health();
-    return {alive:function(){return !offline&&!!lastMessage && clock()-lastMessage>=0&&clock()-lastMessage<3000;},
+    var interval=timer.setInterval(tick,1000); health();
+    return {alive:function(){return !!lastMessage && clock()-lastMessage>=0&&clock()-lastMessage<3000;},
       setOnline:setOnline,
+      // A request of the page was refused for its session: the health check runs again at once.
+      refused:function(){if(disposed)return;available=false;if(!recentlyRefused())healthAt=0;},
       reconnect:function(reason, immediate){
         if(disposed)return;
-        close(offline?offlineReason:reason||'Connexion interrompue. Nouvelle confirmation requise.',immediate?0:30000);
+        close(reason||'Connexion interrompue. Nouvelle confirmation requise.',immediate?0:30000);
         if(immediate){if(available)open();else{healthAt=0;health();}}
       },
       dispose:function(){if(disposed)return;disposed=true;timer.clearInterval(interval);close('Suivi fermé.');cancelHealth();}

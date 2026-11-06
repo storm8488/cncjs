@@ -17,6 +17,12 @@ import { performance } from 'perf_hooks';
 // After its last presence vanished, a lease survives this long.
 export const GRACE_MS = 60000;
 
+// An owner back within that grace was never absent: the planned rotation of
+// its stream (every 60 s), a page reload or a network blip reattaches well
+// within it, and none is worth an event in the durable history (bug hunt
+// B-1). The lease is "not present" meanwhile; 'absent' is told only when the
+// grace ends, right before 'expired'.
+
 // A lease whose owner did nothing for this long, while the machine is at
 // rest (no job, load, probe, homing, jog or pending confirmation), is
 // released: an idle kiosk must not lock the PC out indefinitely. The port
@@ -75,7 +81,8 @@ export const describeOwner = (owner) => {
 };
 
 export const createControl = ({ now = Date.now, elapsed = () => performance.now(), graceMs = GRACE_MS, idleMs = IDLE_MS, isAdmin = () => false, onEvent } = {}) => {
-  // port → { who, key, since, graceEnd (elapsed() when the lease ends, null while present) }
+  // port → { who, key, since, graceEnd (elapsed() when the lease ends, null
+  // while present), absent (the owner's presence vanished, not merely never seen) }
   const leases = new Map();
   // key → Set of presence handles (transport ids, socket ids)
   const present = new Map();
@@ -121,6 +128,11 @@ export const createControl = ({ now = Date.now, elapsed = () => performance.now(
     const expired = [];
     for (const [port, lease] of leases) {
       if (lease.graceEnd !== null && elapsed() >= lease.graceEnd) {
+        // An owner whose presence vanished is told absent now, not when it
+        // vanished: back before this, it was never absent.
+        if (lease.absent) {
+          expired.push(emit('absent', port, lease));
+        }
         leases.delete(port);
         expired.push(emit('expired', port, null, { previous: publicOwner({ ...lease, graceEnd: lease.graceEnd }) }));
       } else if (typeof busy === 'function') {
@@ -172,7 +184,7 @@ export const createControl = ({ now = Date.now, elapsed = () => performance.now(
       throw refusal(port, lease);
     }
     if (!lease) {
-      lease = { who: actor, key, since: now(), graceEnd: null, active: elapsed() };
+      lease = { who: actor, key, since: now(), graceEnd: null, active: elapsed(), absent: false };
       leases.set(port, lease);
       renew(lease);
       emit('claim', port, lease);
@@ -212,7 +224,7 @@ export const createControl = ({ now = Date.now, elapsed = () => performance.now(
       throw conflict('Prise de pilotage refusée : indiquez un motif (3 caractères au moins). Pilotage actuel : ' + describeOwner(publicOwner(lease)) + '.', publicOwner(lease));
     }
     const previous = publicOwner(lease);
-    const next = { who: actor, key: keyOf(actor), since: now(), graceEnd: null, active: elapsed() };
+    const next = { who: actor, key: keyOf(actor), since: now(), graceEnd: null, active: elapsed(), absent: false };
     leases.set(port, next);
     renew(next);
     emit('takeover', port, next, { previous, reason: why, admin: isAdmin(actor) });
@@ -252,10 +264,11 @@ export const createControl = ({ now = Date.now, elapsed = () => performance.now(
       present.set(key, new Set());
     }
     present.get(key).add(handle);
-    for (const [port, lease] of leases) {
+    for (const lease of leases.values()) {
       if (lease.key === key && lease.graceEnd !== null) {
+        // Back within the grace: nothing happened worth recording.
         lease.graceEnd = null;
-        emit('restored', port, lease);
+        lease.absent = false;
       }
     }
   };
@@ -272,10 +285,10 @@ export const createControl = ({ now = Date.now, elapsed = () => performance.now(
       return;
     }
     present.delete(key);
-    for (const [port, lease] of leases) {
+    for (const lease of leases.values()) {
       if (lease.key === key && lease.graceEnd === null) {
         lease.graceEnd = elapsed() + graceMs;
-        emit('absent', port, lease);
+        lease.absent = true;
       }
     }
   };

@@ -52,10 +52,15 @@ s=setup();choose(s,'es');s.events.pagehide({persisted:true});assert(s.events['cn
 for(const name of ['index.html','simulation.html']){const html=fs.readFileSync(path.join(__dirname,'touch',name),'utf8');assert(html.indexOf('i18n-messages.js')<html.indexOf('i18n.js'));assert(html.indexOf('i18n.js')<html.indexOf('cnc-state.js'));assert(html.indexOf('language-settings.js')>html.indexOf('touch-shell.js'));}
 // Every literal passed to t() in the page scripts has a catalog row (a missing row stays French in EN/ES).
 {
- const sandbox={window:{}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'touch','i18n-messages.js'),'utf8'),sandbox);
- const known=new Set(sandbox.window.CNCTouchMessages.map(r=>r[0].trim().replace(/\s+/g,' ')));
+ // Every catalog: i18n-messages.js and the per-lot i18n-messages-*.js loaded after it, no key twice across them.
+ // i18n-messages.js first: it assigns the array the others push into.
+ const catalogs=['i18n-messages.js'].concat(fs.readdirSync(path.join(__dirname,'touch')).filter(n=>/^i18n-messages-[a-z]+\.js$/.test(n)));
+ const sandbox={window:{}};catalogs.forEach(n=>vm.runInNewContext(fs.readFileSync(path.join(__dirname,'touch',n),'utf8'),sandbox));
+ const known=new Set();
+ sandbox.window.CNCTouchMessages.forEach(row=>{const key=row[0].trim().replace(/\s+/g,' ');assert(!known.has(key),'duplicate across catalogs: '+row[0]);assert.equal(row.length,3);known.add(key);});
+ for(const name of ['index.html','simulation.html']){const html=fs.readFileSync(path.join(__dirname,'touch',name),'utf8');catalogs.forEach(n=>{assert(html.indexOf(n+'?')>0,name+' loads '+n);assert(html.indexOf(n+'?')<html.indexOf('i18n.js?'),name+': '+n+' before i18n.js');});}
  const missing=[];
- for(const file of fs.readdirSync(path.join(__dirname,'touch')).filter(n=>n.endsWith('.js')&&!/^(i18n|i18n-messages|startup)\.js$/.test(n))){
+ for(const file of fs.readdirSync(path.join(__dirname,'touch')).filter(n=>n.endsWith('.js')&&!/^(i18n|i18n-messages(-[a-z]+)?|startup)\.js$/.test(n))){
   const src=fs.readFileSync(path.join(__dirname,'touch',file),'utf8');
   for(const m of src.matchAll(/\bt\('((?:[^'\\]|\\.)*)'\)/g)){const v=m[1].replace(/\\n/g," ").replace(/\\'/g,"'").trim().replace(/\s+/g,' ');if(v&&/[a-zà-ÿ]{2}/i.test(v)&&!known.has(v)&&v!=='Idle ✓')missing.push(file+': '+v);}
  }

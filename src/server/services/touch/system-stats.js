@@ -114,7 +114,8 @@ export const createSystemStats = ({
     const raw = Number(readText(zone.file));
     // sysfs reports millidegrees; a few drivers report whole degrees.
     const celsius = Math.abs(raw) > 1000 ? raw / 1000 : raw;
-    return Number.isFinite(celsius) ? { name: zone.name, celsius: round1(celsius) } : null;
+    // The Surface Pro 3 firmware reports an acpitz zone at -268 °C: keep plausible readings only.
+    return Number.isFinite(celsius) && celsius >= -40 && celsius <= 150 ? { name: zone.name, celsius: round1(celsius) } : null;
   }).filter(Boolean);
 
   const power = () => {
