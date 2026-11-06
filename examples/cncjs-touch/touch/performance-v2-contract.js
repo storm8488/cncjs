@@ -2,6 +2,21 @@
  *
  * BOOT / SESSION (tablet-profile.js owns this part, available even in Eco)
  *   window.cncV2.version = 1
+ *   reportAge(machine) -> {known:boolean, fresh:boolean, ageMs:number|null}
+ *   Sole v2 report-freshness source, present in the baseline facade and with stubs.
+ *   Identity is [port,generation,statusObservedAt]; a nonnumeric/nonfinite report
+ *   stamp is unknown (never fresh), even when transport observedAt is available.
+ *   Age = statusAgeMs at first arrival + elapsed performance.now(); missing age or
+ *   monotone time is unknown. Fresh requires known age <= 2500 and m.fresh === true.
+ *   First arrivals are retained per [port,generation], including selection changes,
+ *   missing snapshots and civil-clock rollback. The table holds 64 controllers;
+ *   it never evicts during a page session. At capacity, untracked controllers stay
+ *   unknown until a new page; tracked controllers can still receive new reports.
+ *   Only accepted cnc-job-status events register arrivals. reportAge is read-only;
+ *   an unseen or superseded report is unknown and cannot replace a stored clock.
+ *   No Date.now subtraction, transport fallback or separate presenter age clock.
+ *   Exception: the existing accepted SIMULATION / simulated / canChange model on
+ *   the simulation page keeps its transport-arrival age without invented telemetry.
  *   preference() -> {version:1, enabled:Boolean, storage:absent|ok|invalid|unreadable}
  *   setPreference(Boolean) -> {ok, persisted, message}; never reloads or commands.
  *   Storage: cncjs-touch-performance-ui-v2 = {"version":1,"enabled":true|false}.
@@ -20,9 +35,8 @@
  *   Lock or document hidden during bootstrap cancels its pending resource and
  *   latches cancellation until the next page opening. A bootstrap not yet started
  *   may begin at safe Idle after unlock/visibility; a ready page retains caches.
- *   safeIdle ages each report from its first monotone arrival and initial age;
- *   duplicate server statusObservedAt (or transport observedAt when absent) never
- *   renews it, including civil-clock rollback and temporary missing snapshots.
+ *   safeIdle and lifecycle read leases use reportAge(), as do v2 presenters;
+ *   duplicate statusObservedAt never renews a controller's first monotone arrival.
  *   The simulation page uses the existing explicitly simulated Idle/canChange model;
  *   it does not invent missing Grbl age, coordinates, fingerprint or spindle reports.
  *   Eco/lost GPU stop resources at once; the old layout returns only at known Idle.

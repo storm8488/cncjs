@@ -298,8 +298,8 @@
     var n = s.nodes;
     setText(n.file, parts.file || '');
     setHidden(n.legend, !parts.legend);
-    setText(n.verdict, parts.verdict ? parts.verdict.text : ''); if (parts.verdict) setTone(n.verdict, parts.verdict.tone);
-    setText(n.current, parts.current ? parts.current.text : ''); if (parts.current) setTone(n.current, parts.current.tone);
+    setText(n.verdict, parts.verdict ? parts.verdict.text : ''); setTone(n.verdict, parts.verdict ? parts.verdict.tone : 'neutral');
+    setText(n.current, parts.current ? parts.current.text : ''); setTone(n.current, parts.current ? parts.current.tone : 'neutral');
     setText(n.state, parts.state || '');
     setHidden(n.view, !s.handle);
   }
@@ -309,7 +309,13 @@
     var m = s.machine, ph = phase(m), reason = s.failure || unavailable();
     activateV2();
     cancelUnavailable();
-    if (s.v2 && (!v2() || doc.hidden || s.locked || locked() || !s.screenActive || s.closedBy === 'pagehide')) { closeView(); return; }
+    if (s.v2 && (!v2() || doc.hidden || s.locked || locked() || !s.screenActive || s.closedBy === 'pagehide')) {
+      closeView();
+      // Preparation can retain the card while the layout is held. A closed
+      // scene must not leave its previous placement looking verified.
+      show({ file: s.file, verdict: { tone: 'neutral', text: t('Vérification suspendue : non suivi') } });
+      return;
+    }
     if (s.v2 && ph === 'idle' && (!v2() || (root.cncV2.state && !root.cncV2.state().safeIdle) ||
         m.activeState !== 'Idle' || num(m.statusAgeMs) === null || m.statusAgeMs < 0 || m.statusAgeMs > 2500)) ph = 'stale';
     if (reason) { closeView(); show({ state: t('Vue 3D indisponible : ') + reason + t('. Le contrôle de course reste au chargement et au démarrage.') }); return; }

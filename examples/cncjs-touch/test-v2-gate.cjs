@@ -55,11 +55,12 @@ function page(options = {}) {
   const emit = (type,detail) => window.dispatchEvent(new CustomEvent(type,{detail}));
   function frame() { const batch = [...frames.values()]; frames.clear(); batch.forEach(f => f(mono)); }
   function status(patch = {}, detail = {}) {
+    report++;
     const machine = patch === null ? null : Object.assign({port: 'A', generation: 'g1', revision: 1,
       name: 'piece.nc', fingerprint: 'sha256:a', machineProfile: {kind: options.kind || 'cnc'},
-      activeState: 'Idle', workflow: 'idle', fresh: true, statusAgeMs: 0, canStop: false,
+      activeState: 'Idle', workflow: 'idle', fresh: true, statusAgeMs: 0, statusObservedAt: report, canStop: false,
       loading: false, homing: false, spindleSpeed: 0, motion: {jog: false, cancelling: false}}, patch);
-    emit('cnc-job-status', Object.assign({machine, observedAt: ++report, simulation: !!options.simulation, busy: false, transportConnected: true}, detail));
+    emit('cnc-job-status', Object.assign({machine, observedAt: report, simulation: !!options.simulation, busy: false, transportConnected: true}, detail));
   }
   function respond(r) {
     r.done = true;
@@ -270,39 +271,43 @@ async function repeatedReportClock() {
     }
     if(life)life.dispose();p.emit('pagehide');
   }
-  for(const serverStamp of [false,true]){
-    const p=page(), detail={observedAt:10000}, patch=serverStamp?{statusObservedAt:5000}:{};
+  {
+    const p=page(), detail={observedAt:10000}, patch={statusObservedAt:5000};
     p.status({...patch,statusAgeMs:500},detail);p.frame();await p.complete();
     p.advance(2000);
     // A new transport envelope carrying the same server report must not renew it.
-    p.status({...patch,statusAgeMs:0},serverStamp?{observedAt:9000}:detail);
+    p.status({...patch,statusAgeMs:0},{observedAt:9000});
     assert(p.api.state().safeIdle,'exactly 2500 ms stays fresh');
     p.advance(1);assert.equal(p.api.state().safeIdle,false,'the initial 500 ms age cannot decrease');
-    p.status({...patch,statusAgeMs:0},serverStamp?{observedAt:9001}:detail);
+    p.status({...patch,statusAgeMs:0},{observedAt:9001});
     assert.equal(p.api.state().safeIdle,false);
     p.emit('pagehide');
   }
   for(const missing of ['snapshot','timestamps']){
     const p=page(), detail={observedAt:10000};
-    p.status({},missing==='timestamps'?{observedAt:undefined}:detail);p.frame();await p.complete();
+    p.status({statusObservedAt:5000},detail);p.frame();await p.complete();
     p.advance(2501);
     if(missing==='snapshot')p.status(null,detail);
-    p.status({},missing==='timestamps'?{observedAt:undefined}:detail);
+    else p.status({statusObservedAt:undefined},{observedAt:undefined});
+    p.status({statusObservedAt:5000},detail);
     assert.equal(p.api.state().safeIdle,false,'missing '+missing+' cannot renew the old report');
     assert.equal(p.api.lifecycle.scope(null).token(),null);p.emit('pagehide');
   }
   const incomplete=page();incomplete.status({statusObservedAt:5000},{observedAt:10000});
   incomplete.frame();await incomplete.complete();incomplete.advance(2501);
-  incomplete.status({}, {observedAt:9000});
+  incomplete.status({statusObservedAt:undefined}, {observedAt:9000});
   assert.equal(incomplete.api.state().safeIdle,false,'omitting a known server stamp is not evidence of a new report');
   incomplete.status({statusObservedAt:5000},{observedAt:9001});
   assert.equal(incomplete.api.state().safeIdle,false,'restoring the same stamp preserves its initial age');
   incomplete.emit('pagehide');
-  for(const learned of [{patch:{},detail:{observedAt:10000}},
-    {patch:{statusObservedAt:5000},detail:{observedAt:undefined}}]){
-    const p=page();p.status({}, {observedAt:undefined});p.frame();await p.complete();p.advance(2501);
-    p.status(learned.patch,learned.detail);
-    assert.equal(p.api.state().safeIdle,false,'learning missing provenance alone cannot renew an expired report');
+  for(const stamp of [undefined,null,'5000',NaN,Infinity]){
+    const p=page();p.status({statusObservedAt:stamp}, {observedAt:10000});p.frame();await p.complete();
+    assert.equal(p.api.state().safeIdle,false,'a real controller without a numeric report identity is unknown');
+    assert.equal(p.requests.length,0,'transport timestamps alone cannot bootstrap v2');
+    p.advance(2501);p.status({statusObservedAt:stamp},{observedAt:9000});p.frame();await p.complete();
+    assert.equal(p.api.state().safeIdle,false);assert.equal(p.requests.length,0);
+    p.status({statusObservedAt:5000});p.frame();await p.complete();
+    assert(p.api.state().safeIdle && p.api.state().ready,'a first identified report can activate at known Idle');
     p.emit('pagehide');
   }
   console.log('PASS v2 monotone report: real job-controls 10000 -> +2501 -> civil 9000, read leases refused, delayed GPU and initial report age.');

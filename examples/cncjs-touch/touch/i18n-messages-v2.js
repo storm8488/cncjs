@@ -9,6 +9,7 @@
   ["Géométrie inconnue", "Unknown geometry", "Geometría desconocida"],
   ["Séquence estimée", "Estimated sequence", "Secuencia estimada"],
   ["Source inconnue", "Unknown source", "Origen desconocido"],
+  ["Vérification suspendue : non suivi", "Verification suspended: not monitored", "Verificación suspendida: sin seguimiento"],
   ["Aucun événement conservé", "No retained events", "No hay eventos conservados"],
   ["Rendu allégé", "Reduced rendering detail", "Renderizado simplificado"],
   ["Arrêter le rendu 3D", "Stop 3D rendering", "Detener el renderizado 3D"]

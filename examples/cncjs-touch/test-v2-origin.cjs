@@ -7,6 +7,64 @@ const pview = () => preview([0, 0, 60, 70]);
 const state = (patch = {}) => machine(-350, -250, 12, 30, {}, { port: 'A', generation: 'g1', fingerprint: 'sha256:aa', statusAgeMs: 0, ...patch });
 
 async function reviewOriginFixes() {
+  // Review 3: preparation deliberately retains its card when v2 closes during
+  // a job. Closing before the pending origin frame must neutralise its verdict.
+  for (const close of ['eco', 'gpu', 'preference']) {
+    for (const language of ['fr', 'en', 'es']) {
+      const p = page(), ui = originPage();
+      p.values.set('cncjs-touch-language-v1', language); p.run('i18n.js');
+      p.status(state()); p.frame(); await p.complete();
+      for (const key of ['body', 'head', 'createElement', 'createTextNode', 'getElementById', 'querySelector']) p.document[key] = ui.document[key];
+      const content = ui.document.createElement('div'); ui.screen.appendChild(content);
+      p.window.cncShell = {
+        preparationActions: ui.document.createElement('div'),
+        sheet: () => ({ content: ui.document.createElement('div'), open() {} }),
+        v2Mounts: () => ({ prepare: { screen: 'jog', root: ui.screen, content, origin: content } })
+      };
+      p.window.CNCPreviewGL = ui.win.CNCPreviewGL;
+      p.window.cncState = { get: () => ({ machine: state() }) };
+      let reads = 0;
+      p.window.cncDashboardView = { loadedPreview() { reads++; return Promise.resolve(pview()); } };
+      p.run('travel-check.js'); p.run('origin-preview.js');
+      // These modules are already installed; the fixture provides no real loader.
+      p.window.cncProfile.loadAdvanced = () => Promise.resolve();
+      p.emit('cnc-screen-change', 'jog'); p.run('job-preparation.js');
+      const flush = async () => { for (let i = 0; i < 5; i++) { await new Promise(setImmediate); p.frame(); } };
+      p.status(state()); await flush();
+      const card = ui.document.getElementById('op-card');
+      const find = cls => card.all().find(n => n.classList.contains(cls));
+      const verdict = find('op-verdict'), current = find('op-current');
+      assert.equal(verdict.getAttribute('data-tone'), 'ok', 'fixture begins with an in-travel placement');
+      assert(!verdict.hidden); assert.equal(ui.opened.length, 1);
+      p.status(state({ activeState: 'Run', workflow: 'running' }));
+      if (close === 'eco') p.window.cncProfile.setPerformance('eco');
+      if (close === 'gpu') { p.gpu.lost = true; p.emit('cnc-gpu-change'); }
+      if (close === 'preference') p.api.setPreference(false);
+      assert.equal(verdict.getAttribute('data-tone'), 'ok', 'status and gate handlers do not render');
+      const suspended = { fr: 'Vérification suspendue : non suivi', en: 'Verification suspended: not monitored', es: 'Verificación suspendida: sin seguimiento' }[language];
+      function neutral(label) {
+        assert.equal(p.api.gate(), false, label + ': v2 remains closed');
+        assert.equal(card.parentNode, ui.screen, label + ': preparation keeps the card');
+        assert.equal(verdict.getAttribute('data-tone'), 'neutral', label + ': old green verdict is cleared');
+        assert.equal(verdict.textContent, suspended, label + ': explicit translated suspension');
+        assert.equal(verdict.hidden, false);
+        assert(current.hidden); assert.notEqual(current.getAttribute('data-tone'), 'ok');
+        assert(find('op-view').hidden); assert.equal(ui.opened.length, 1, label + ': scene never reopens');
+      }
+      await flush();
+      assert(p.api.state().holdLayout); neutral(close + '/' + language);
+      const closedReads = reads;
+      p.status(state({ activeState: 'Alarm' })); await flush(); neutral('later alarm');
+      // Even a later eligible profile/GPU and an Idle report cannot reopen a
+      // session that L0 latched closed. Inspect the existing nodes if unmounted.
+      p.gpu.lost = false; p.emit('cnc-gpu-change');
+      if (close === 'eco') p.window.cncProfile.setPerformance('performance');
+      p.status(state()); await flush();
+      assert.equal(verdict.textContent, suspended); assert.equal(verdict.getAttribute('data-tone'), 'neutral');
+      assert.equal(ui.opened.length, 1); assert.equal(reads, closedReads, 'no new program read after closure');
+      p.window.CNCOriginPreview.unmount(); p.emit('pagehide');
+    }
+  }
   // Real bootstrap, lifecycle contract, travel checker and origin consumer. Only
   // DOM/GPU and the deferred L4 response/cancellation boundary are simulated.
   for (const cancellation of ['cancel', 'abort', 'dashboard', 'none']) {

@@ -141,22 +141,60 @@
     }catch(_){return {enabled:false,storage:'unreadable'};}
   }
   var v2Preference=v2Read(),v2Session=v2Preference.enabled,v2Blocked=false,v2Stopped=false;
-  var v2Detail=null,v2Arrival=null,v2Started=false,v2Ready=false,v2Layout=false,v2Frame=0,v2Sent='',v2Reason='waiting';
-  var v2ReportContext=null,v2ReportServer=null,v2ReportTransport=null,v2ReportAge=null;
+  var v2Detail=null,v2Started=false,v2Ready=false,v2Layout=false,v2Frame=0,v2Sent='',v2Reason='waiting';
+  // Keep controller provenance across selection changes for this entire page. Do
+  // not evict: recreating an evicted report's arrival would make old data fresh.
+  var v2Reports=Object.create(null),v2ReportCount=0,V2_REPORT_LIMIT=64;
   var v2Ended=false,v2Locked=false,v2StorageFailed=false;
   var v2Bootstrap=null;
   function v2Now(){return window.performance&&typeof window.performance.now==='function'?window.performance.now():null;}
   function v2Number(n){return typeof n==='number'&&isFinite(n)&&n>=0;}
+  function v2ReportStamp(m){return typeof m.statusObservedAt==='number'&&isFinite(m.statusObservedAt)?m.statusObservedAt:null;}
+  function v2Virtual(m){return !!(v2Detail&&v2Detail.simulation===true&&m&&m.port==='SIMULATION'&&m.machineProfile&&
+    m.machineProfile.simulated===true&&m.machineProfile.canChange===true);}
+  function v2RememberReport(m){
+    var now=v2Now();
+    if(!m||!v2Number(now))return;
+    var virtual=v2Virtual(m),server=v2ReportStamp(m);
+    // Transport envelopes and new JS objects cannot identify real controller
+    // reports. Only the explicitly accepted virtual model keeps its old fallback.
+    if(!virtual&&server===null)return;
+    var context=JSON.stringify([m.port,m.generation]),record=v2Reports[context];
+    var transport=virtual&&v2Detail&&v2Number(v2Detail.observedAt)?v2Detail.observedAt:null;
+    var changed=!record||(server!==null&&record.server!==null?server!==record.server:
+      virtual&&record.server===null&&transport!==null&&record.transport!==null&&transport!==record.transport);
+    if(!record){
+      if(v2ReportCount>=V2_REPORT_LIMIT)return;
+      v2ReportCount++;
+    }
+    if(changed){
+      record={server:server,transport:transport,arrival:now,virtual:virtual,age:virtual?0:v2Number(m.statusAgeMs)?m.statusAgeMs:null};
+      v2Reports[context]=record;
+    }
+    if(virtual){
+      if(server!==null)record.server=server;
+      if(transport!==null)record.transport=transport;
+    }
+  }
+  function v2ReportAge(m){
+    var unknown={known:false,fresh:false,ageMs:null},now=v2Now();
+    if(!m||!v2Number(now))return unknown;
+    var virtual=v2Virtual(m),server=v2ReportStamp(m),record=v2Reports[JSON.stringify([m.port,m.generation])];
+    // Consultation never creates/replaces an arrival: a consumer may still hold
+    // an older snapshot after the status handler has observed a newer report.
+    if(!record||record.virtual!==virtual||(!virtual&&server===null)||
+      (server!==null&&record.server!==server))return unknown;
+    if(!v2Number(record.age)||now<record.arrival||!virtual&&!v2Number(m.statusAgeMs))return unknown;
+    var age=record.age+now-record.arrival;
+    return {known:true,fresh:m.fresh===true&&age<=2500,ageMs:age};
+  }
   function v2Idle(){
-    var d=v2Detail,m=d&&d.machine,now=v2Now();
-    if(!m||!v2Number(now)||!v2Number(v2Arrival)||now<v2Arrival)return false;
+    var d=v2Detail,m=d&&d.machine;
+    if(!v2ReportAge(m).fresh)return false;
     // The existing virtual model has no Grbl age or spindle telemetry. Its explicit
     // simulated Idle/canChange state is sufficient on the simulation page only;
     // missing real telemetry remains unknown and is never replaced by zero.
-    var virtual=d.simulation===true&&m.port==='SIMULATION'&&m.machineProfile&&
-      m.machineProfile.simulated===true&&m.machineProfile.canChange===true&&now-v2Arrival<=2500;
-    var report=v2Number(m.statusAgeMs)&&v2Number(v2ReportAge)&&v2ReportAge+now-v2Arrival<=2500&&m.spindleSpeed===0;
-    return m.fresh===true&&(virtual||report)&&
+    return (v2Virtual(m)||m.spindleSpeed===0)&&
       m.activeState==='Idle'&&m.workflow==='idle'&&!d.busy&&!d.halt&&!d.systemCommand&&
       (d.simulation===true||d.transportConnected===true)&&!m.canStop&&!m.loading&&!m.homing&&!m.probing&&!m.probeBusy&&
       !(m.motion&&(m.motion.jog||m.motion.cancelling));
@@ -261,38 +299,17 @@
     var sim=document.body&&document.body.getAttribute&&document.body.getAttribute('data-simulation')==='true';
     if(!!d.simulation!==!!sim)return;
     var m=d.machine;
-    // Local re-renders reuse observedAt; the server report stamp is stronger when
-    // present (a new transport snapshot can contain the same controller report).
-    // Compare identity, not timestamp order: civil clocks may move backwards.
-    // Without either stamp, a new object alone cannot prove a new report.
-    if(m){
-      var context=JSON.stringify([m.port,m.generation]);
-      var server=v2Number(m.statusObservedAt)?m.statusObservedAt:null,transport=v2Number(d.observedAt)?d.observedAt:null;
-      var changed=context!==v2ReportContext;
-      if(changed){v2ReportContext=context;v2ReportServer=null;v2ReportTransport=null;}
-      else if(server!==null&&v2ReportServer!==null)changed=server!==v2ReportServer;
-      else if(v2ReportServer===null&&transport!==null&&v2ReportTransport!==null)changed=transport!==v2ReportTransport;
-      // Losing a known stamp, or merely learning it on an otherwise unchanged
-      // envelope, proves no new arrival. Retain its provenance across omissions.
-      if(server!==null)v2ReportServer=server;
-      if(transport!==null)v2ReportTransport=transport;
-      var now=v2Now(),age=v2Number(m.statusAgeMs)?m.statusAgeMs:null;
-      if(changed){v2Arrival=now;v2ReportAge=age;}
-      else if(v2Number(age)&&v2Number(v2ReportAge)&&v2Number(now)&&v2Number(v2Arrival)&&now>=v2Arrival){
-        // A duplicate may increase the known age, never decrease its monotone age.
-        v2ReportAge=Math.max(v2ReportAge,age-(now-v2Arrival));
-      }
-    }
-    // Keep the report clock across temporary missing snapshots. Reappearing data
-    // with the same identity is still the old report, not a fresh arrival.
     v2Detail=d;
+    // Establish first arrival even while v2 is unavailable. All consumers, safe
+    // Idle and read leases use this same clock; missing snapshots never clear it.
+    v2RememberReport(m);
     // Latch every observed activity, even if it stops before the first RAF. Missing
     // telemetry is still allowed to wait for a known Idle on this page opening.
     if(!v2Layout&&((m&&(m.workflow&&m.workflow!=='idle'||m.activeState&&m.activeState!=='Idle'||m.canStop||m.loading||m.homing||
       m.probing||m.probeBusy||v2Number(m.spindleSpeed)&&m.spindleSpeed>0||m.motion&&(m.motion.jog||m.motion.cancelling)))||d.busy||d.halt||d.systemCommand))v2Blocked=true;
     v2Refresh();
   }
-  window.cncV2={version:1,gate:v2Gate,state:v2State,
+  window.cncV2={version:1,gate:v2Gate,state:v2State,reportAge:v2ReportAge,
     preference:function(){return {version:1,enabled:v2Preference.enabled,storage:v2Preference.storage};},
     setPreference:v2SetPreference,message:v2Message};
   window.addEventListener('cnc-job-status',v2Observe);
