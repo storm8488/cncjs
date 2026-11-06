@@ -292,6 +292,41 @@ function dashboard(options = {}) {
     assert.equal(reads.length, 2, 'no new read after the state came back (' + reads.length + ' read)');
   });
 
+  await scenario('D-3 the origin card asks again after A -> B -> A batched with fresh states', async () => {
+    // origin-preview.js with stubs of its neighbours (as test-origin-preview.cjs, reduced).
+    const listeners = {}, frames = [], reads = [];
+    const el = (tag) => { const n = { tagName: tag, children: [], hidden: false, attributes: {}, className: '', textContent: '', parentNode: null,
+      appendChild(c) { c.parentNode = n; n.children.push(c); return c; }, removeChild(c) { n.children.splice(n.children.indexOf(c), 1); c.parentNode = null; return c; },
+      setAttribute(k, v) { n.attributes[k] = String(v); }, getAttribute(k) { return k in n.attributes ? n.attributes[k] : null; } };
+      n.classList = { contains: c => n.className.split(' ').includes(c), add() {}, remove() {} }; return n; };
+    const document = { head: el('head'), body: el('body'), createElement: el, createTextNode: t => ({ textContent: t }), getElementById: () => null };
+    const win = { document, addEventListener: (t, f) => { (listeners[t] = listeners[t] || []).push(f); }, removeEventListener() {},
+      requestAnimationFrame: f => { frames.push(f); return frames.length; }, cancelAnimationFrame() {}, setTimeout, clearTimeout, Promise, JSON, Math, Object, Array, String, Number, isFinite };
+    win.window = win;
+    win.cncProfile = { performance: () => 'performance', kind: () => 'cnc' };
+    win.cncLayout = { wide: () => true };
+    win.CNCTravelCheck = require('./touch/travel-check.js');
+    win.CNCPreviewGL = { open: () => ({ setOverlays() {}, close() {} }), checkOverlays: () => ({ accepted: [], refused: [] }), active: () => false };
+    let answer = null, first = null;
+    win.cncDashboardView = { loadedPreview: () => { reads.push(1); return reads.length === 1 ? new Promise(r => { first = r; }) : Promise.resolve(answer); } };
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'touch', 'origin-preview.js'), 'utf8'), win);
+    const screen = el('section'); screen.className = 'screen active';
+    win.CNCOriginPreview.mount(screen);
+    const status = m => (listeners['cnc-job-status'] || []).forEach(f => f({ detail: { machine: m } }));
+    const flush = async () => { for (let k = 0; k < 4; k++) { await tick(2); frames.splice(0).forEach(f => f(0)); } };
+    const idle = { fresh: true, activeState: 'Idle', workflow: 'idle', name: 'a.nc', revision: 1, settings: { $22: 1, $130: 400, $131: 300 },
+      operator: { wcs: 'G54', reportUnits: 'mm' }, coordinates: { mpos: { x: -100, y: -100, z: 0 }, wpos: { x: 0, y: 0, z: 0 } } };
+    status(idle); await flush();
+    assert.equal(reads.length, 1);
+    // The state is lost while the read is answered null (loadedPreview() has no machine then).
+    // Page in the background: program B (fresh state), A's answer null, A again, all before the next animation frame.
+    answer = { file: 'a.nc', fingerprint: 'sha256:aa', path3d: 'P', zBounds: [0, 0], projection: { units: 'mm', bounds: [0, 0, 10, 10] } };
+    status({ ...idle, name: 'b.nc', revision: 7 }); first(null); await tick(3); status(idle);
+    await flush();
+    win.CNCOriginPreview.unmount();
+    assert.equal(reads.length, 2, 'no new read after the state came back (' + reads.length + ' read)');
+  });
+
   await scenario('D-6 resumed job without a preview: acknowledged line in the original file', async () => {
     const d = dashboard({ screens: ['home'], wide: true });
     d.status({ port: 'P', name: 'big.nc', revision: 1, fresh: true, workflow: 'running', activeState: 'Run', total: 206, received: 7,
