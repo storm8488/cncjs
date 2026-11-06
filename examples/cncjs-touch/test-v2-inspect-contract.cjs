@@ -8,8 +8,8 @@ async function setup() {
   const idle = new Map(); let serial = 0;
   p.window.requestIdleCallback = fn => {idle.set(++serial, fn); return serial;};
   p.window.cancelIdleCallback = id => idle.delete(id);
-  p.run('performance-inspect.js');
   p.inspect = p.api.use('inspect'); p.idle = idle;
+  assert(!p.inspect.stub, 'bootstrap installs the real inspect provider');
   p.flush = () => {let limit = 10000; while (idle.size && limit--) {const [id, fn] = idle.entries().next().value; idle.delete(id); fn({timeRemaining: () => 10});} assert(limit > 0);};
   p.attach = n => {
     const g = geometry(n); g.identity = p.api.identity.create({role: 'loaded', file: 'piece.nc', fingerprint: 'sha256:a', controller: 'A', generation: 'g1', revision: 1});

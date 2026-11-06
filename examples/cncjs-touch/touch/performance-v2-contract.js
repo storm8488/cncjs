@@ -21,7 +21,11 @@
  *   it does not invent missing Grbl age, coordinates, fingerprint or spindle reports.
  *   Eco/lost GPU stop resources at once; the old layout returns only at known Idle.
  *   Changing the preference off stops resources but retains this page's layout.
- *   `ready` means the L0 catalogue/contract loaded, NOT that later lots are present.
+ *   `ready` means the catalogue, contract and L1/L2/L3 bootstrap modules loaded:
+ *   inspect, sequences, observation and journal replace their stubs. Geometry is
+ *   installed from the existing preview-inspect module by sequences; placement
+ *   is installed by origin-preview on demand (never on the simulation page).
+ *   L4/L5/L6 presenters remain stubs until their modules are integrated.
  *
  * EVENTS (window CustomEvent; state/model handlers must not render)
  *   cnc-v2-change: detail = state() above; read gate() again before asynchronous work.

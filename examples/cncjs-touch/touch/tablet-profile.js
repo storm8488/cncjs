@@ -12,7 +12,7 @@
   var t=uiLocale.t;
   var KEY='cncjs-touch-performance-v1',PROFILES=['eco','performance'];
   // Cache key of the advanced scripts (they are not in the pages, so the pages' ?v= does not reach them).
-  var ADVANCED_VERSION='v2l01';
+  var ADVANCED_VERSION='v2b';
   function read(){
     // Any failure (storage blocked, bad JSON, unknown value, other version) reads as eco.
     try{
@@ -105,7 +105,22 @@
     for(var i=0;i<list.length;i++)if(typeof list[i]!=='string'||!/^[a-z0-9][a-z0-9-]*\.js$/.test(list[i]))return Promise.reject(new Error(t('Nom de module avancé invalide.')));
     // Check the complete batch before requesting even its first item.
     for(var j=0;j<list.length;j++)if(v2File(list[j])&&(!v2Gate()||!v2Idle()))return Promise.reject(new Error('v2-gate-closed'));
-    return Promise.all(list.map(loadOne));
+    // preview-gl is also the existing GPU probe: it MUST remain loadable before
+    // v2 starts. Once v2 starts, even a cached/in-flight renderer waits for the
+    // real inspect provider. Check both sides of the asynchronous load.
+    function sceneReady(next){
+      if(v2Started&&(list.indexOf('preview-gl.js')>=0||list.indexOf('origin-preview.js')>=0)){
+        if(!v2Gate())return Promise.reject(new Error('v2-gate-closed'));
+        if(!v2Ready)return v2Bootstrap.then(function(){
+          if(!v2Gate())throw new Error('v2-gate-closed');
+          return next();
+        });
+      }
+      return next();
+    }
+    return sceneReady(function(){return Promise.all(list.map(loadOne)).then(function(result){
+      return sceneReady(function(){return result;});
+    });});
   }
   // ---- Performance v2 bootstrap. Only this small gate lives in the baseline bundle. ----
   // A session is one page opening. The preference is captured ONCE here. A user change
@@ -124,6 +139,7 @@
   var v2Preference=v2Read(),v2Session=v2Preference.enabled,v2Blocked=false,v2Stopped=false;
   var v2Detail=null,v2Arrival=null,v2Started=false,v2Ready=false,v2Layout=false,v2Frame=0,v2Sent='',v2Reason='waiting';
   var v2Ended=false,v2Locked=false,v2StorageFailed=false;
+  var v2Bootstrap=null;
   function v2Now(){return window.performance&&typeof window.performance.now==='function'?window.performance.now():null;}
   function v2Number(n){return typeof n==='number'&&isFinite(n)&&n>=0;}
   function v2Idle(){
@@ -203,16 +219,30 @@
       v2Reason='ready';v2Publish();return;
     }
     if(v2Started)return;
-    v2Started=true;v2Reason='loading';v2Publish();
-    // L0 ships stubs only. L0 integration adds L1/L2/L3 files here after they exist;
-    // later code MUST still use loadAdvanced (including direct calls from a lot).
-    loadAdvanced('i18n-messages-v2.js').then(function(){
+    v2Started=true;v2Reason='loading';
+    // Serial requests: catalogue, contract, L1 inspection, L2 sequences (which
+    // installs the existing geometry provider), then L3 observations and journal.
+    // Placement remains owned by the on-demand origin module, never on simulation.
+    // Install the barrier BEFORE publishing loading: listeners may synchronously
+    // ask for an already cached renderer. Every next request rechecks the gate.
+    v2Bootstrap=loadAdvanced('i18n-messages-v2.js');
+    ['performance-v2-contract.js','performance-inspect.js','performance-sequences.js',
+      'performance-observation.js','performance-journal-context.js'].forEach(function(file){
+      v2Bootstrap=v2Bootstrap.then(function(){return loadAdvanced(file);});
+    });
+    v2Bootstrap=v2Bootstrap.then(function(){
       if(!v2Gate()||!v2Idle())throw new Error('v2-gate-closed');
-      return loadAdvanced('performance-v2-contract.js');
-    }).then(function(){
-      if(!v2Gate()||!v2Idle())throw new Error('v2-gate-closed');
+      var api=window.cncV2;
+      if(typeof api.use!=='function'||['inspect','sequences','observation','journal'].some(function(slot){
+        return api.use(slot).stub===true;
+      }))throw new Error('v2-provider-unavailable');
       v2Ready=true;v2Refresh();
-    }).catch(function(){v2Stopped=true;v2Reason='bootstrap-unavailable';v2CancelLoads();v2Publish();});
+    });
+    v2Bootstrap.catch(function(){v2Stopped=true;v2Reason='bootstrap-unavailable';v2CancelLoads();v2Publish();});
+    // An existing v1 scene cannot acquire v2 inspection retroactively. Close it in
+    // this RAF, then let the normal view listener reopen it after the barrier.
+    if(window.CNCPreviewGL&&typeof window.CNCPreviewGL.close==='function')window.CNCPreviewGL.close('v2-bootstrap');
+    v2Publish();
   }
   function v2Observe(e){
     var d=e&&e.detail;if(!d)return;

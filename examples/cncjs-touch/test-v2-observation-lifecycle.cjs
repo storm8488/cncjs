@@ -5,20 +5,21 @@ const {setup, cases} = require('./test-v2-observation.cjs');
 async function tests() {
   await cases([
     ['late script after screen lock cannot sample or calculate', async () => {
-      const p = page(); p.status(); p.frame(); await p.complete();
+      const p = page(); p.status(); p.frame(); await p.step(); await p.step();
       p.window.cncShell = {screen: () => 'home'}; p.emit('cnc-screen-change', 'home');
       p.emit('cnc-screen-lock', true); p.window.cncScreenLock = {locked: () => true};
-      p.run('performance-observation.js'); const o = p.api.use('observation');
+      assert(p.api.use('observation').stub, 'lock precedes observation installation');
+      await p.complete(); const o = p.api.use('observation');
       assert.equal(o.chart(), null, 'lock existed before script loaded');
       p.emit('cnc-screen-lock', false); assert(o.chart());
     }],
     ['lock and hidden document pause the chart and terminal cleanup removes listeners', async () => {
-      const p = page(); p.status(); p.frame(); await p.complete();
+      const p = page(); p.status(); p.frame(); await p.step(); await p.step();
       p.window.cncShell = {screen: () => 'home'}; p.emit('cnc-screen-change', 'home');
       const listeners = new Map();
       p.document.addEventListener = (type, fn) => listeners.set(type, fn);
       p.document.removeEventListener = (type, fn) => { if (listeners.get(type) === fn) listeners.delete(type); };
-      p.run('performance-observation.js'); const o = p.api.use('observation'); assert(o.chart());
+      await p.complete(); const o = p.api.use('observation'); assert(o.chart());
       p.document.hidden = true; listeners.get('visibilitychange')(); p.advance(1000); assert.equal(o.chart(), null);
       p.document.hidden = false; listeners.get('visibilitychange')(); assert(o.chart());
       p.emit('cnc-screen-lock', true); p.advance(1000); assert.equal(o.chart(), null);

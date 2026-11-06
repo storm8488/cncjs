@@ -12,6 +12,7 @@ async function fixture(options) {
 }
 (async () => {
   const {p, identity, provider} = await fixture();
+  const requests = p.requests.length;
   assert(!provider.stub, 'real provider replaces the L0 stub');
   const prepared = ME.sequences('(operation: Poche)\nG54\nG1 X1 F100\nG1 X2\nM0\nG0 Z2\nG1 X3\nT2\nM6');
   provider.update({identity,geometryKey:'geo:1',prepared});
@@ -51,7 +52,7 @@ async function fixture(options) {
   assert.equal(provider.upcoming(),null,'upcoming does not skip across unsupported control flow');
   p.status({fingerprint:'changed',revision:2}); assert.equal(provider.snapshot().available,false); assert.equal(provider.snapshot().items.length,0);
   provider.update({identity,geometryKey:'old',prepared}); assert.equal(provider.snapshot().available,false,'late result from another revision cannot publish');
-  assert.equal(p.requests.filter(r => r.kind !== 'data' || !r.url.includes('i18n')).length,1,'provider issues no requests');
+  assert.equal(p.requests.length,requests,'provider issues no requests after bootstrap');
   for (const [event, detail] of [['cnc-screen-lock',true],['doc:visibilitychange',null],['pagehide',{}]]) {
     const f = await fixture(); f.provider.update({identity:f.identity,geometryKey:'g',prepared});
     if(event === 'doc:visibilitychange') { f.p.document.hidden=true; f.provider.cancel('document-hidden'); }
@@ -61,11 +62,12 @@ async function fixture(options) {
   }
   const eco = await fixture(); eco.p.window.cncProfile.setPerformance('eco'); assert(eco.p.api.use('sequences').stub);
   const off = await fixture({profile:'eco'}); assert(!off.p.api.use || off.provider.stub, 'ineligible profiles never install a provider');
-  const late = page(); late.status(); late.frame(); await late.complete();
+  const late = page(); late.status(); late.frame(); await late.step(); await late.step();
   const loadedId = late.api.identity.create({role:'loaded',file:'piece.nc',fingerprint:'sha256:a',controller:'A',generation:'g1',revision:1});
   const borrowed = {identity:loadedId,geometryKey:'borrowed',prepared};
   late.api.register('geometry',{snapshot:()=>({version:1,available:true,geometryKey:'borrowed',wcs:'G54'}),prepared:()=>borrowed,update(){},cancel(){},dispose(){}});
-  late.run('performance-sequences.js');
+  assert(late.api.use('sequences').stub, 'geometry exists before the sequences provider loads');
+  await late.complete();
   assert.equal(late.api.use('sequences').snapshot().geometryKey,'borrowed','late-loaded provider adopts existing idle worker metadata');
   const borrowedItems = late.api.use('sequences').snapshot().items;
   late.api.notify('geometry'); assert.equal(late.api.use('sequences').snapshot().items,borrowedItems,'same geometry is not cloned again after its data notification');
