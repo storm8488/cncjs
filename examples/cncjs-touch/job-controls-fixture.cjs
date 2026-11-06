@@ -36,7 +36,7 @@ function load(options = {}) {
     addEventListener(n, f) { (listeners['doc:' + n] || (listeners['doc:' + n] = [])).push(f); },
     removeEventListener(n, f) { listeners['doc:' + n] = (listeners['doc:' + n] || []).filter((x) => x !== f); } });
   function XHR() { this.responseText = ''; this.status = 0; this.headers = {}; this.open = (method, url) => { this.method = method; this.url = url; }; this.setRequestHeader = (k, v) => { this.headers[k] = v; }; this.send = (b) => { this.body = b && JSON.parse(b); requests.push(this); }; this.abort = () => { this.aborted = true; }; }
-  const window = { location: { pathname: '/cnc/touch/' }, navigator: { onLine: true, maxTouchPoints: options.touchPoints === undefined ? 5 : options.touchPoints }, XMLHttpRequest: XHR,
+  const window = { location: { pathname: '/cnc/touch/', hostname: options.hostname || '' }, performance: options.performance, navigator: { onLine: options.onLine !== false, maxTouchPoints: options.touchPoints === undefined ? 5 : options.touchPoints }, XMLHttpRequest: XHR,
     setInterval(fn) { intervals.set(intervals.size + 1, fn); return intervals.size; }, clearInterval(id) { intervals.delete(id); },
     addEventListener(n, f) { (listeners[n] || (listeners[n] = [])).push(f); }, removeEventListener(n, f) { listeners[n] = (listeners[n] || []).filter((x) => x !== f); },
     dispatchEvent(e) { events.push(e); (listeners[e.type] || []).slice().forEach((f) => f(e)); } };

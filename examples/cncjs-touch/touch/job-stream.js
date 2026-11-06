@@ -21,13 +21,25 @@
       return !c.fresh||(c.statusAgeMs!==null&&c.statusObservedAt!==null);
     });
   }
+  // Whether the API answers on this computer (kiosk: http://localhost:8000/touch/). Chromium sets
+  // navigator.onLine to false when only the loopback interface is up (Wi-Fi off or changing), yet
+  // the local server still answers: the flag is then ignored, never trusted to stop Pause / Arrêter.
+  function loopback(base){
+    var host='';
+    try{host=/^[a-z][a-z0-9+.-]*:\/\//i.test(String(base))?new URL(String(base)).hostname:(root.location&&root.location.hostname)||'';}catch(_){host='';}
+    host=String(host).toLowerCase().replace(/^\[|\]$/g,'');
+    return host==='localhost'||/\.localhost$/.test(host)||/^127\.\d+\.\d+\.\d+$/.test(host)||host==='::1';
+  }
   // XHR progress supports Authorization headers and older Chromium without ReadableStream.
   function create(options) {
-    var locale=root.cncI18n||{t:function(s){return s;}}, offline=!!(root.navigator&&root.navigator.onLine===false);
+    var XHR = options.XMLHttpRequest || root.XMLHttpRequest, base = options.apiBase || '/api', local=loopback(base);
+    var locale=root.cncI18n||{t:function(s){return s;}}, offline=!local&&!!(root.navigator&&root.navigator.onLine===false);
     var offlineReason=locale.t('Réseau indisponible. Suivi suspendu ; aucune commande ne sera relancée automatiquement.');
     var xhr = null, generation = 0, disposed = false, available = false, retryAt = 0, healthAt = 0, lastMessage = 0, openedAt = 0;
-    var token = options.token, clock = options.clock || Date.now, timer = options.timer || root;
-    var XHR = options.XMLHttpRequest || root.XMLHttpRequest, base = options.apiBase || '/api';
+    // Delays (retry, health, silence) on the monotonic clock: a wall clock set back (NTP at boot)
+    // must not freeze the recovery. Only differences of this clock are used, also for transitMs.
+    var perf = root.performance, monotonic = perf && typeof perf.now === 'function' ? function () { return perf.now(); } : Date.now;
+    var token = options.token, clock = options.clock || monotonic, timer = options.timer || root;
     function close(reason, delay, rotating) {
       generation++; var old = xhr; xhr = null; lastMessage = 0;
       if (old) { old.onload = old.onerror = old.ontimeout = old.onprogress = null; old.abort(); }
@@ -64,6 +76,9 @@
       };
       request.onload = function () {
         if (id !== generation) return;
+        // Session refused (CNCjs answers 403 « Forbidden Access » in plain text, or 401): the health
+        // check runs again at once; its refusal asks app.js for a renewal (onRefused).
+        if (request.status === 401 || request.status === 403) { available = false; healthAt = 0; close('Session CNCjs expirée.'); return; }
         request.onprogress();
         if (id !== generation) return;
         close(rotate ? 'Renouvellement du suivi…' : 'Flux interrompu. Secours toutes les 10 s.', rotate ? 0 : 30000, rotate);
@@ -90,7 +105,11 @@
           var result=JSON.parse(request.responseText);
           if(request.status!==200 || result.loaded!==true || result.protocol!==1) throw Error('unavailable');
           available=true; options.onStatus(''); open();
-        } catch (_) { fail(request.status===401||request.status===403?'Session CNCjs expirée.': 'Module de suivi absent ou incompatible. Secours toutes les 10 s ; actions bloquées si état ancien.'); }
+        } catch (_) {
+          var refused=request.status===401||request.status===403;
+          fail(refused?'Session CNCjs expirée.': 'Module de suivi absent ou incompatible. Secours toutes les 10 s ; actions bloquées si état ancien.');
+          if(refused&&options.onRefused)options.onRefused();
+        }
       };
       request.onerror=request.ontimeout=function(){if(!disposed&&!offline&&healthRequest===request)fail('Santé du suivi indisponible. Secours toutes les 10 s.');};
       request.send();
@@ -101,7 +120,7 @@
       if (!available) health(); else open();
     }
     function setOnline(value){
-      if(disposed||offline===!value)return;
+      if(disposed||local||offline===!value)return;
       offline=!value;available=false;cancelHealth();
       close(offline?offlineReason:locale.t('Réseau rétabli. Vérification du suivi ; nouvelle confirmation requise.'),0);
       if(!offline){healthAt=0;health();}
@@ -109,6 +128,8 @@
     var interval=timer.setInterval(tick,1000); if(offline)options.onDisconnect(offlineReason);else health();
     return {alive:function(){return !offline&&!!lastMessage && clock()-lastMessage>=0&&clock()-lastMessage<3000;},
       setOnline:setOnline,
+      // A request of the page was refused for its session: the health check runs again at once.
+      refused:function(){if(disposed)return;available=false;healthAt=0;},
       reconnect:function(reason, immediate){
         if(disposed)return;
         close(offline?offlineReason:reason||'Connexion interrompue. Nouvelle confirmation requise.',immediate?0:30000);
@@ -117,5 +138,5 @@
       dispose:function(){if(disposed)return;disposed=true;timer.clearInterval(interval);close('Suivi fermé.');cancelHealth();}
     };
   }
-  root.CNCJobStream = {create:create,validSnapshot:validSnapshot};
+  root.CNCJobStream = {create:create,validSnapshot:validSnapshot,loopback:loopback};
 })(typeof window === 'undefined' ? globalThis : window);

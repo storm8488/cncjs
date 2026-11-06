@@ -19,8 +19,18 @@
   function machine() { try { return window.cncState.get().machine; } catch (_) { return null; } }
   function jobActive() { var m = machine(); return !!(m && m.workflow && m.workflow !== 'idle'); }
   function shown() { return !document.hidden && panel.classList.contains('active') && panel.getAttribute('data-settings-tab') === 'system'; }
+  // This device's identity (job-controls.js, F5): the server compares it with who pilots the machine,
+  // so the tablet that pilots may change its own network.
+  function named(body) {
+    var c = window.cncJobControls, id = c && typeof c.clientId === 'function' ? c.clientId() : '';
+    if (!body || !id) return body;
+    var copy = {}; Object.keys(body).forEach(function (k) { copy[k] = body[k]; });
+    copy.clientId = id; copy.clientLabel = typeof c.clientLabel === 'function' ? c.clientLabel() : '';
+    return copy;
+  }
   function request(method, body, timeout, done) {
     var c = token(); if (!c) { done(401, { message: t('Session CNCjs requise.') }); return; }
+    body = named(body);
     var x = new XMLHttpRequest(); x.open(method, apiBase() + '/touch-wifi', true); x.timeout = timeout;
     x.setRequestHeader('Authorization', 'Bearer ' + c);
     if (body !== undefined) x.setRequestHeader('Content-Type', 'application/json');
@@ -100,7 +110,8 @@
     Array.prototype.forEach.call(keyboard.querySelectorAll('button'), function (b) { b.disabled = blocked; });
     if (jobActive() && !busy) set(status, t('Travail en cours : réseau Wi-Fi non modifiable.'));
   }
-  function message(code, data, fallback) { return data && data.message ? data.message : code === 0 ? t('Serveur CNCjs injoignable.') : fallback; }
+  // 401, or CNCjs' plain-text 403 (« Forbidden Access »): the session is refused, not the action.
+  function message(code, data, fallback) { return data && data.message ? data.message : code === 0 ? t('Serveur CNCjs injoignable.') : code === 401 || (code === 403 && !data) ? t('Session CNCjs requise : ouvrez CNCjs et connectez-vous.') : fallback; }
   function showCurrent(data) {
     if (!data || data.available === false) { set(current, data && data.reason ? data.reason : t('Wi-Fi indisponible.')); return; }
     set(current, data.ssid ? t('Connecté à « ') + data.ssid + ' »' + (data.signal !== null && data.signal !== undefined ? ' · ' + data.signal + ' %' : '') : t('Aucun réseau Wi-Fi connecté.'));

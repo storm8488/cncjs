@@ -189,5 +189,6 @@
 [" (rapides non comptés)"," (rapids not counted)"," (rápidos no contados)"],
 ["Durées inconnues à venir : ","Unknown durations ahead: ","Duraciones desconocidas por venir: "],
 ["Avance réelle, dernière minute","Actual feed, last minute","Avance real, último minuto"],
-[" · 0 à "," · 0 to "," · 0 a "]
+[" · 0 à "," · 0 to "," · 0 a "],
+['Session CNCjs refusée : ouvrez CNCjs à la racine du même serveur, reconnectez-vous, puis rechargez /touch/.','CNCjs session refused: open CNCjs at the root of the same server, sign in again, then reload /touch/.','Sesión CNCjs rechazada: abra CNCjs en la raíz del mismo servidor, vuelva a iniciar sesión y recargue /touch/.']
 );
