@@ -12,7 +12,7 @@
   var t=uiLocale.t;
   var KEY='cncjs-touch-performance-v1',PROFILES=['eco','performance'];
   // Cache key of the advanced scripts (they are not in the pages, so the pages' ?v= does not reach them).
-  var ADVANCED_VERSION='fix4';
+  var ADVANCED_VERSION='v2l01';
   function read(){
     // Any failure (storage blocked, bad JSON, unknown value, other version) reads as eco.
     try{
@@ -46,7 +46,7 @@
     }catch(_){persisted=false;}
     if(persisted)storage='ok';
     var changed=p!==performance;performance=p;
-    if(changed)fire(previous);
+    if(changed){v2Refresh();fire(previous);}
     return {ok:true,persisted:persisted,profile:performance,message:persisted?t('Enregistré dans ce navigateur uniquement.'):t('Appliqué à cette page ; mémorisation indisponible dans ce navigateur.')};
   }
   // The last profile the server sent, kept while the machine is momentarily unknown (state lost);
@@ -70,13 +70,31 @@
     return {supported:false,reason:profile?t('Fonction non indiquée par le serveur CNCjs.'):t('Type de machine non transmis par le serveur CNCjs.'),code:''};
   }
   // Advanced scripts (lot C: preview-gl.js…), each injected once, only in Performance.
-  var loading={};
+  var loading={},v2PendingLoads={};
+  function v2File(file){return /^performance-.*\.(js|css)$/.test(file)||file==='i18n-messages-v2.js';}
   function loadOne(file){
     if(Object.prototype.hasOwnProperty.call(loading,file))return loading[file];
     var promise=new Promise(function(resolve,reject){
+      if(file==='i18n-messages-v2.js'){
+        // Despite its historical .js suffix this is JSON DATA. Never a script or eval.
+        var xhr=new window.XMLHttpRequest();
+        function failed(){delete loading[file];delete v2PendingLoads[file];reject(new Error('v2-catalog-unavailable'));}
+        xhr.open('GET',file+'?v='+ADVANCED_VERSION,true);xhr.timeout=15000;
+        xhr.onload=function(){
+          if(!v2Gate()){failed();return;}
+          try{
+            if(xhr.status!==200)throw new Error('catalog-http');
+            window.cncI18n.registerCatalog('performance-v2',JSON.parse(xhr.responseText));
+            delete v2PendingLoads[file];resolve(file);
+          }catch(_){failed();}
+        };
+        xhr.onerror=xhr.ontimeout=xhr.onabort=failed;
+        v2PendingLoads[file]=function(){xhr.abort();};xhr.send();return;
+      }
       var s=document.createElement('script');s.src=file+'?v='+ADVANCED_VERSION;s.async=false;
-      s.onload=function(){resolve(file);};
-      s.onerror=function(){delete loading[file];if(s.parentNode)s.parentNode.removeChild(s);reject(new Error(t('Module avancé introuvable : ')+file));};
+      s.onload=function(){delete v2PendingLoads[file];if(v2File(file)&&!v2Gate()){delete loading[file];reject(new Error('v2-gate-closed'));return;}resolve(file);};
+      s.onerror=function(){delete loading[file];delete v2PendingLoads[file];if(s.parentNode)s.parentNode.removeChild(s);reject(new Error(t('Module avancé introuvable : ')+file));};
+      if(v2File(file))v2PendingLoads[file]=s.onerror;
       (document.head||document.body).appendChild(s);
     });
     loading[file]=promise;return promise;
@@ -85,8 +103,140 @@
     if(performance!=='performance')return Promise.reject(new Error(t('Profil Éco : vues avancées désactivées sur cette tablette.')));
     var list=Array.isArray(files)?files:[files];
     for(var i=0;i<list.length;i++)if(typeof list[i]!=='string'||!/^[a-z0-9][a-z0-9-]*\.js$/.test(list[i]))return Promise.reject(new Error(t('Nom de module avancé invalide.')));
+    // Check the complete batch before requesting even its first item.
+    for(var j=0;j<list.length;j++)if(v2File(list[j])&&(!v2Gate()||!v2Idle()))return Promise.reject(new Error('v2-gate-closed'));
     return Promise.all(list.map(loadOne));
   }
+  // ---- Performance v2 bootstrap. Only this small gate lives in the baseline bundle. ----
+  // A session is one page opening. The preference is captured ONCE here. A user change
+  // only affects the next page, with no reload. An initially busy session cannot enable
+  // v2 later when its job finishes. Unknown initial state waits for a fresh Idle report.
+  var V2_KEY='cncjs-touch-performance-ui-v2';
+  function v2Read(){
+    try{
+      var raw=window.localStorage.getItem(V2_KEY);
+      if(raw===null||raw===undefined)return {enabled:false,storage:'absent'};
+      var value=JSON.parse(raw);
+      if(value&&value.version===1&&typeof value.enabled==='boolean')return {enabled:value.enabled,storage:'ok'};
+      return {enabled:false,storage:'invalid'};
+    }catch(_){return {enabled:false,storage:'unreadable'};}
+  }
+  var v2Preference=v2Read(),v2Session=v2Preference.enabled,v2Blocked=false,v2Stopped=false;
+  var v2Detail=null,v2Arrival=null,v2Started=false,v2Ready=false,v2Layout=false,v2Frame=0,v2Sent='',v2Reason='waiting';
+  var v2Ended=false,v2Locked=false,v2StorageFailed=false;
+  function v2Now(){return window.performance&&typeof window.performance.now==='function'?window.performance.now():null;}
+  function v2Number(n){return typeof n==='number'&&isFinite(n)&&n>=0;}
+  function v2Idle(){
+    var d=v2Detail,m=d&&d.machine,now=v2Now();
+    if(!m||!v2Number(now)||!v2Number(v2Arrival)||now<v2Arrival)return false;
+    // The existing virtual model has no Grbl age or spindle telemetry. Its explicit
+    // simulated Idle/canChange state is sufficient on the simulation page only;
+    // missing real telemetry remains unknown and is never replaced by zero.
+    var virtual=d.simulation===true&&m.port==='SIMULATION'&&m.machineProfile&&
+      m.machineProfile.simulated===true&&m.machineProfile.canChange===true&&now-v2Arrival<=2500;
+    var report=v2Number(m.statusAgeMs)&&m.statusAgeMs+now-v2Arrival<=2500&&m.spindleSpeed===0;
+    return m.fresh===true&&(virtual||report)&&
+      m.activeState==='Idle'&&m.workflow==='idle'&&!d.busy&&!d.halt&&!d.systemCommand&&
+      (d.simulation===true||d.transportConnected===true)&&!m.canStop&&!m.loading&&!m.homing&&!m.probing&&!m.probeBusy&&
+      !(m.motion&&(m.motion.jog||m.motion.cancelling));
+  }
+  function v2Eligible(){
+    var g=window.cncGpu&&window.cncGpu.state?window.cncGpu.state():null;
+    return performance==='performance'&&kind==='cnc'&&!!g&&g.checked===true&&g.hardware===true&&!g.lost&&
+      !!window.cncLayout&&window.cncLayout.wide()===true&&(!window.cncLayout.admissible||window.cncLayout.admissible()===true);
+  }
+  function v2Gate(){return v2Session&&v2Started&&!v2Blocked&&!v2Stopped&&!v2Ended&&v2Eligible();}
+  function v2ProgramKey(){var m=v2Detail&&v2Detail.machine;return m?JSON.stringify([m.port,m.generation,m.revision,m.name,m.fingerprint]):null;}
+  function v2State(){return {version:1,enabled:v2Preference.enabled,sessionEnabled:v2Session,
+    eligible:v2Eligible(),open:v2Gate(),ready:v2Ready,layout:v2Layout,safeIdle:v2Idle(),
+    holdLayout:v2Layout&&!v2Idle(),pending:v2Preference.enabled!==v2Session||v2Blocked||v2Stopped,
+    reason:v2Reason,programKey:v2ProgramKey()};}
+  function v2Message(){
+    // Bootstrap text is embedded: settings must work in Eco without requesting a catalogue.
+    // Kept identical to the deferred catalogue by test-v2-i18n.cjs.
+    var lang=window.cncI18n&&window.cncI18n.language;
+    if(v2StorageFailed)return lang==='en'?'Change not saved: browser storage unavailable.':lang==='es'?'Cambio no guardado: almacenamiento del navegador no disponible.':'Changement non enregistré : stockage du navigateur indisponible.';
+    return lang==='en'?'Change prepared for the next idle session':lang==='es'?'Cambio preparado para la próxima sesión en reposo':'Changement préparé pour la prochaine session au repos';
+  }
+  function v2SetPreference(enabled){
+    if(typeof enabled!=='boolean')return {ok:false,persisted:false,message:v2Message()};
+    var persisted=false;
+    try{var raw=JSON.stringify({version:1,enabled:enabled});window.localStorage.setItem(V2_KEY,raw);persisted=window.localStorage.getItem(V2_KEY)===raw;}catch(_){}
+    v2StorageFailed=!persisted;
+    if(persisted)v2Preference={enabled:enabled,storage:'ok'};
+    // Even if persistence fails, an explicit stop releases this page's resources.
+    if(!enabled&&v2Session){v2Stopped=true;v2Reason='preference';}
+    v2Refresh();return {ok:true,persisted:persisted,message:v2Message()};
+  }
+  function v2Publish(){
+    if(!v2Session&&!v2Preference.enabled&&!v2Layout)return;
+    if(!v2Started&&!v2Layout&&!v2Eligible()&&v2Preference.enabled===v2Session)return;
+    var state=v2State(),signature=JSON.stringify(state);
+    if(signature===v2Sent)return;v2Sent=signature;
+    window.dispatchEvent(new CustomEvent('cnc-v2-change',{detail:state}));
+  }
+  function v2CancelLoads(){Object.keys(v2PendingLoads).forEach(function(file){var cancel=v2PendingLoads[file];delete v2PendingLoads[file];cancel();});}
+  function v2Refresh(){
+    if(v2Started&&!v2Eligible()){
+      v2Stopped=true;v2Reason=performance==='eco'?'eco':kind!=='cnc'?'machine-kind':'gpu-or-layout';
+    }
+    if(v2Started&&!v2Ready&&!v2Idle()){v2Blocked=true;v2Reason='unsafe-bootstrap';}
+    if(!v2Gate())v2CancelLoads();
+    v2Publish();
+    // No new timer, frame or DOM mutation on RT/Eco or with an absent preference.
+    if(v2Ended||v2Frame||!window.requestAnimationFrame)return;
+    if(!v2Layout&&(!v2Session||v2Blocked||v2Stopped||!v2Eligible()||!v2Idle()||document.hidden||v2Locked))return;
+    v2Frame=window.requestAnimationFrame(v2Apply);
+  }
+  function v2Apply(){
+    v2Frame=0;if(v2Ended)return;
+    if(v2Layout){
+      // Preference reversal waits for the next page. Capability loss may return to the
+      // old layout at rest, never in unknown/Run/Hold/Alarm. Resources already stopped.
+      if(!v2Eligible()&&v2Idle()){v2Layout=false;document.body.classList.toggle('perf-v2',false);v2Publish();}
+      return;
+    }
+    if(!v2Session||v2Blocked||v2Stopped||!v2Eligible()||!v2Idle()||document.hidden||v2Locked)return;
+    if(v2Ready){
+      v2Layout=true;document.body.classList.toggle('perf-v2',true);
+      if(window.cncShell&&window.cncShell.v2Mounts)window.cncShell.v2Mounts(true);
+      v2Reason='ready';v2Publish();return;
+    }
+    if(v2Started)return;
+    v2Started=true;v2Reason='loading';v2Publish();
+    // L0 ships stubs only. L0 integration adds L1/L2/L3 files here after they exist;
+    // later code MUST still use loadAdvanced (including direct calls from a lot).
+    loadAdvanced('i18n-messages-v2.js').then(function(){
+      if(!v2Gate()||!v2Idle())throw new Error('v2-gate-closed');
+      return loadAdvanced('performance-v2-contract.js');
+    }).then(function(){
+      if(!v2Gate()||!v2Idle())throw new Error('v2-gate-closed');
+      v2Ready=true;v2Refresh();
+    }).catch(function(){v2Stopped=true;v2Reason='bootstrap-unavailable';v2CancelLoads();v2Publish();});
+  }
+  function v2Observe(e){
+    var d=e&&e.detail;if(!d)return;
+    var sim=document.body&&document.body.getAttribute&&document.body.getAttribute('data-simulation')==='true';
+    if(!!d.simulation!==!!sim)return;
+    v2Detail=d;v2Arrival=v2Now();
+    var m=d.machine;
+    if(!v2Layout&&((m&&(m.workflow&&m.workflow!=='idle'||m.activeState&&m.activeState!=='Idle'||m.canStop||m.loading||m.homing))||d.busy||d.halt||d.systemCommand))v2Blocked=true;
+    v2Refresh();
+  }
+  window.cncV2={version:1,gate:v2Gate,state:v2State,
+    preference:function(){return {version:1,enabled:v2Preference.enabled,storage:v2Preference.storage};},
+    setPreference:v2SetPreference,message:v2Message};
+  window.addEventListener('cnc-job-status',v2Observe);
+  window.addEventListener('cnc-gpu-change',v2Refresh);
+  window.addEventListener('cnc-layout-change',v2Refresh);
+  window.addEventListener('resize',v2Refresh);
+  window.addEventListener('cnc-profile-change',v2Refresh);
+  window.addEventListener('cnc-screen-lock',function(e){v2Locked=!!e.detail;v2Refresh();});
+  window.addEventListener('pagehide',function(){
+    v2Ended=true;v2Reason='pagehide';v2CancelLoads();
+    if(v2Frame&&window.cancelAnimationFrame)window.cancelAnimationFrame(v2Frame);v2Frame=0;v2Publish();
+  });
+  document.addEventListener('visibilitychange',v2Refresh);
   window.addEventListener('cnc-job-status',observe);
   window.cncProfile={
     performance:function(){return performance;},

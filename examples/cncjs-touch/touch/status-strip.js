@@ -190,10 +190,27 @@
     prop(pilot,'hidden',simulation);
   }
   var disposed=false;
+  var v2MessageFrame=0,v2PendingMessage=null;
+  function v2PreferenceChanged(){
+    var v=window.cncV2,s=v&&v.state();
+    if(!s||(!v2PendingMessage&&!(s.pending&&(s.enabled!==s.sessionEnabled||s.reason==='preference')))||v2MessageFrame||!window.requestAnimationFrame)return;
+    v2MessageFrame=window.requestAnimationFrame(function(){
+      v2MessageFrame=0;if(disposed)return;
+      var v=window.cncV2,s=v&&v.state(),show=!!(s&&s.pending&&(s.enabled!==s.sessionEnabled||s.reason==='preference'));
+      if(!show&&!v2PendingMessage)return;
+      if(!v2PendingMessage){v2PendingMessage=el('p','','t-v2-pending');v2PendingMessage.setAttribute('role','status');messages.appendChild(v2PendingMessage);}
+      text(v2PendingMessage,v.message());prop(v2PendingMessage,'hidden',!show);syncMessages();
+    });
+  }
+  window.addEventListener('cnc-v2-change',v2PreferenceChanged);
   function onStatus(e){if(disposed||!e.detail||!!e.detail.simulation!==simulation)return;render(e.detail);}
   window.addEventListener('cnc-job-status',onStatus);
-  function leave(e){if(e&&e.persisted)return;disposed=true;close();if(messageObserver)messageObserver.disconnect();window.removeEventListener('cnc-job-status',onStatus);window.removeEventListener('pagehide',leave);}
+  function leave(e){if(e&&e.persisted)return;disposed=true;close();if(messageObserver)messageObserver.disconnect();if(v2MessageFrame&&window.cancelAnimationFrame)window.cancelAnimationFrame(v2MessageFrame);window.removeEventListener('cnc-v2-change',v2PreferenceChanged);window.removeEventListener('cnc-job-status',onStatus);window.removeEventListener('pagehide',leave);}
   window.addEventListener('pagehide',leave);
   render({machine:null,transportConnected:false});
-  window.cncStatusStrip={render:render,describe:describe,syncMessages:syncMessages,toggleMessages:toggle};
+  // V2 presenters borrow the existing context/messages cells only. No new cell,
+  // reparenting or access to the action relays is introduced by the mount contract.
+  var v2MountPoints=Object.freeze({context:vitals,messages:messages});
+  window.cncStatusStrip={render:render,describe:describe,syncMessages:syncMessages,toggleMessages:toggle,
+    v2Mounts:function(){return v2MountPoints;}};
 })();

@@ -61,9 +61,38 @@
   // perf-gpu, so the layout never moves during a job (Q4).
   var layoutWideOn=false;
   function layoutWide(){var b=document.body.classList;return b.contains('perf-performance')&&b.contains('perf-gpu')&&window.innerWidth>=1300&&window.innerHeight>=880&&window.innerWidth>=window.innerHeight;}
-  function fitLayout(){var on=layoutWide();if(on===layoutWideOn)return;layoutWideOn=on;document.body.classList.toggle('perf-wide',on);window.dispatchEvent(new CustomEvent('cnc-layout-change',{detail:{wide:on}}));}
-  window.cncLayout={wide:function(){return layoutWideOn;}};
+  function fitLayout(){
+    // V2 resources may stop immediately, but the wide grid must not move under a
+    // finger in Run/Hold/Alarm or with an unknown report. The RT/v1 path is unchanged.
+    if(window.cncV2&&window.cncV2.state().holdLayout)return;
+    var on=layoutWide();if(on===layoutWideOn)return;layoutWideOn=on;document.body.classList.toggle('perf-wide',on);window.dispatchEvent(new CustomEvent('cnc-layout-change',{detail:{wide:on}}));
+  }
+  window.cncLayout={wide:function(){return layoutWideOn;},admissible:layoutWide};
+  var v2LayoutFrame=0;
+  window.addEventListener('cnc-v2-change',function(){
+    if(v2LayoutFrame||!window.requestAnimationFrame)return;
+    v2LayoutFrame=window.requestAnimationFrame(function(){v2LayoutFrame=0;fitLayout();});
+  });
   window.addEventListener('resize',fitLayout);window.addEventListener('cnc-profile-change',fitLayout);window.addEventListener('cnc-gpu-change',fitLayout);fitLayout();
+  // BEGIN V2 MOUNTS
+  // Empty, hidden slots, created only by the safe bootstrap RAF. Nothing is moved;
+  // L4/L5/L6 own the contents and unhide them when their presenter is ready.
+  var v2Slots=null;
+  function v2Mounts(build){
+    if(v2Slots)return v2Slots;
+    var v=window.cncV2;
+    if(build!==true||!v||!v.state().layout||!v.state().safeIdle)return {};
+    v2Slots={};
+    ['home','files','prepare','machine','history','settings'].forEach(function(name){
+      var screen=name==='prepare'?'jog':name,root=document.getElementById('screen-'+screen);
+      if(!root)return;
+      var content=document.createElement('div');content.id='perf-v2-'+name;content.hidden=true;
+      content.setAttribute('data-v2-mount',name);root.appendChild(content);
+      v2Slots[name]=Object.freeze({screen:screen,root:root,content:content,origin:name==='prepare'&&!simulation?content:null});
+    });
+    return Object.freeze(v2Slots);
+  }
+  // END V2 MOUNTS
   var openedSheet=null,sheetReturn=null,sheetRestore=null;
   // Pause / Arrêter of the strip stay usable over a sheet (strip-guard.js, U5): the sheet
   // starts below the strip and makes the rest inert; without the guard, everything else.
@@ -258,6 +287,6 @@
     inspectRow.appendChild(inspect);metrics.appendChild(inspectRow);
   }
   // Shared with later modules (macros): sheets with focus trapping and navigation.
-  window.cncShell={sheet:sheet,closeSheet:closeSheet,go:go,preparationActions:preparationActions};
+  window.cncShell={sheet:sheet,closeSheet:closeSheet,go:go,preparationActions:preparationActions,v2Mounts:v2Mounts,screen:function(){return active;}};
   go('menu',true);
 })();

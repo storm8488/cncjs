@@ -5,6 +5,19 @@
   // Rows are found by their trimmed text: a phrase written with its outer
   // spaces (' tr/min', 'Confirmer : ') keeps the caller's spaces around it.
   (window.CNCTouchMessages||[]).forEach(function(row){messages[row[0].trim().replace(/\s+/g,' ')]=row;});
+  // Deferred DATA catalogues. The caller parses JSON; no script, eval, DOM scan or
+  // network work here. Validate the entire batch before changing any translation.
+  function registerCatalog(name,rows){
+    if(typeof name!=='string'||!name||!Array.isArray(rows))throw new Error('Invalid catalogue');
+    var batch=Object.create(null);
+    rows.forEach(function(row){
+      if(!Array.isArray(row)||row.length!==3||row.some(function(s){return typeof s!=='string'||!s.trim();}))throw new Error('Invalid catalogue row');
+      var k=row[0].trim().replace(/\s+/g,' '),previous=batch[k]||messages[k];
+      if(previous&&JSON.stringify(previous)!==JSON.stringify(row))throw new Error('Conflicting catalogue row');
+      batch[k]=row.slice();
+    });
+    Object.keys(batch).forEach(function(k){messages[k]=batch[k];});return true;
+  }
   function text(value) {
     if(typeof value!=='string'||language==='fr')return value;
     var parts=/^(\s*)([\s\S]*?)(\s*)$/.exec(value), row=messages[parts[2].replace(/\s+/g,' ')];
@@ -65,7 +78,7 @@
     for(var child=node.firstChild;child;child=child.nextSibling)staticText(child);
   }
   function save(value){if(['fr','en','es'].indexOf(value)<0)return false;try{localStorage.setItem(key,value);return localStorage.getItem(key)===value;}catch(_){return false;}}
-  window.cncI18n={t:text,message:message,format:format,html:html,language:language,locale:{fr:'fr-FR',en:'en-GB',es:'es-ES'}[language],save:save};
+  window.cncI18n={t:text,message:message,format:format,html:html,language:language,locale:{fr:'fr-FR',en:'en-GB',es:'es-ES'}[language],save:save,registerCatalog:registerCatalog};
   document.documentElement.lang=language;
   document.title=text(document.title);
   if(document.body)staticText(document.body);
