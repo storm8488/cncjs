@@ -8,11 +8,14 @@
 const fs = require('fs'), vm = require('vm'), assert = require('assert').strict;
 const source = fs.readFileSync(__dirname + '/touch/app.js', 'utf8');
 
-function run({ stored, renewedAgo, compact } = {}) {
+// shared: {storage, session, wall} kept by the next page of the same tab (a reload); the
+// monotonic clock (performance.now) restarts with each page, the wall clock goes on.
+function run({ stored, renewedAgo, compact, shared } = {}) {
   const { document, node } = require('./dom-fixture.cjs').createDOM(['menu']);
-  const storage = {}, session = {}, requests = [], listeners = {};
+  const tab = shared || { storage: {}, session: {}, wall: { now: 1.7e12 } };
+  const storage = tab.storage, session = tab.session, requests = [], listeners = {};
   if (stored !== undefined) storage.cnc = JSON.stringify(stored);
-  if (renewedAgo !== undefined) session['cnc-touch-renewed'] = String(Date.now() - renewedAgo);
+  if (renewedAgo !== undefined) session['cnc-touch-renewed'] = String(tab.wall.now - renewedAgo);
   let reloads = 0, sockets = 0, subscriptions = 0;
   class XMLHttpRequest {
     open(method, url) { this.method = method; this.url = url; }
@@ -23,7 +26,8 @@ function run({ stored, renewedAgo, compact } = {}) {
   const io = { connect(origin, options) { sockets++; return { options, on() {}, emit() {} }; } };
   let state = { apiBase: '/api', transportConnected: false, transportReason: '', machine: null }, subscribers = [];
   const store = { get: () => state, set(p) { state = Object.assign({}, state, p); subscribers.forEach((f) => f(state)); }, subscribe(f) { subscriptions++; subscribers.push(f); f(state); return () => {}; } };
-  const clock = { mono: 0 }, timers = [];
+  const clock = { mono: 0 }, timers = [], timeouts = [];
+  class FakeDate extends Date { static now() { return tab.wall.now; } }
   const window = { performance: { now: () => clock.mono }, addEventListener(n, f) { (listeners[n] || (listeners[n] = [])).push(f); }, removeEventListener() {},
     dispatchEvent(e) { (listeners[e.type] || []).slice().forEach((f) => f(e)); } };
   if (compact) { window.cncState = store; window.CNCJobStream = {}; }
@@ -32,10 +36,10 @@ function run({ stored, renewedAgo, compact } = {}) {
     localStorage: { getItem: (k) => (k in storage ? storage[k] : null), setItem: (k, v) => { storage[k] = String(v); } },
     sessionStorage: { getItem: (k) => (k in session ? session[k] : null), setItem: (k, v) => { session[k] = String(v); } },
     location: { origin: 'http://localhost:8000', reload: () => { reloads++; } },
-    setInterval: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, setTimeout: () => 0, clearTimeout() {}, clearInterval() {}, requestAnimationFrame: () => 0, Date
+    setInterval: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, setTimeout: (fn, ms) => { timeouts.push({ fn, ms }); return timeouts.length; }, clearTimeout() {}, clearInterval() {}, requestAnimationFrame: () => 0, Date: FakeDate
   };
   vm.runInNewContext(source, context);
-  return { storage, requests, window, store, node, listeners, timers, advance(ms) { clock.mono += ms; },
+  return { tab, storage, requests, window, store, node, listeners, timers, timeouts, advance(ms) { clock.mono += ms; tab.wall.now += ms; },
     get reloads() { return reloads; }, get sockets() { return sockets; }, get subscriptions() { return subscriptions; },
     token: () => JSON.parse(storage.cnc).state.session.token, last: () => requests[requests.length - 1] };
 }
@@ -151,4 +155,28 @@ for (const end of ['ontimeout', 'onerror', 'onabort']) {
   r.window.dispatchEvent({ type: 'cnc-session-refused' });
   assert.equal(r.requests.length, 2, end + ': the next refusal a minute later renews again');
 }
+
+// The once-a-minute limit survives the reload it triggers (two pages of one tab sharing storage).
+r = run({ stored: { state: { session: { enabled: false, token: 'old', name: '' } } }, compact: true });
+r.requests[0].answer(200, { enabled: false, token: 'new', name: '' });      // t = 0
+r.advance(60000);
+r.window.dispatchEvent({ type: 'cnc-session-refused' });
+r.last().answer(200, { enabled: false, token: 'newer', name: '' });
+assert.equal(r.reloads, 1, 'renewed at t = 60 s, the page reloads');
+r.advance(1);
+let next = run({ compact: true, shared: r.tab });
+assert.equal(next.requests.length, 0, 'the reloaded page (with a token) does not ask again 1 ms later');
+next.advance(60000);
+next.window.dispatchEvent({ type: 'cnc-session-refused' });
+assert.equal(next.requests.length, 1, 'a minute later it may');
+// A page without a token, loaded within the minute after an attempt: it waits the remaining time.
+r = run({ compact: true });
+r.requests[0].answer(500, { msg: 'down' });
+r.advance(20000);
+next = run({ compact: true, shared: r.tab });
+assert.equal(next.requests.length, 0, 'no token, 20 s after the last attempt: waits');
+const wait = next.timeouts.at(-1);
+assert.ok(wait && wait.ms >= 39000 && wait.ms <= 40000, 'waits the remaining 40 s (' + (wait && wait.ms) + ')');
+next.advance(wait.ms); wait.fn();
+assert.equal(next.requests.length, 1, 'then tries');
 console.log('PASS');
