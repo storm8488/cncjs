@@ -60,3 +60,9 @@
   --shadow:0 2px 6px rgba(0,0,0,.18);
 }
 @media(prefers-reduced-motion:reduce){:root{--motion:0ms}}
+
+/* Police de la v2 : la Surface (Debian) n'a pas Segoe UI et system-ui s'y résout en DejaVu Sans, trop
+ * large pour cette grille (courbe coupée, « Démarrer… » sur deux lignes, ±10 % hors des boutons).
+ * Arial / Liberation Sans (même métrique, installée sur Debian) passent avant system-ui. Sous perf-v2
+ * seulement : la v1 et la RT gardent la pile système vérifiée avec Verdana. */
+body.ks-ui.perf-wide.perf-v2{--font:"Segoe UI",Arial,"Liberation Sans",Roboto,"Helvetica Neue",system-ui,sans-serif;--font-num:var(--font)}

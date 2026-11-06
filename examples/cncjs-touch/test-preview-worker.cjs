@@ -34,7 +34,7 @@ function setup(options = {}) {
   const metrics = { inputBytes: 0, geometryBytes: 0, outstanding: 0, peak: 0, transfers: 0, responseBlobs: 0 };
   class BrowserWorker {
     constructor(url) {
-      assert.match(url, /library-preview-worker\.js\?v=v2h$/);
+      assert.match(url, /library-preview-worker\.js\?v=v2i$/);
       if (options.constructorFailure) throw Error('CSP denied');
       this.terminated = false;
       this.thread = new Worker(harness, { eval: true, workerData: { directory: path.join(__dirname, 'touch'), readerMode: options.readerMode } });
