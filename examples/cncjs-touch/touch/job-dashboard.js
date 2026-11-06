@@ -536,7 +536,7 @@
   ];
   function say(fr){var l=uiLocale.language,i=l==='en'?1:l==='es'?2:0;for(var k=0;k<V2_MESSAGES.length;k++)if(V2_MESSAGES[k][0]===fr)return V2_MESSAGES[k][i];return fr;}
   var v2={built:false,arrangeFrame:null,frame:null,timer:null,rows:null,rowHost:null,timeHost:null,more:null,band:null,sequence:null,position:null,axis:null,paths:{},
-    key:null,id:null,last:null,markers:[],serial:0,chart:null,estimate:{seconds:null,source:null,unknowns:[]}};
+    key:null,id:null,last:null,reports:[],markers:[],serial:0,chart:null,estimate:{seconds:null,source:null,unknowns:[]}};
   function v2Body(){var b=document.body;return !!(b&&b.classList&&typeof b.classList.contains==='function'&&b.classList.contains('perf-v2'));}
   function v2Held(){try{var s=window.cncV2&&typeof window.cncV2.state==='function'?window.cncV2.state():null;return !!(s&&s.holdLayout);}catch(_){return false;}}
   function v2Use(slot){try{var v=window.cncV2;return v&&typeof v.use==='function'?v.use(slot):null;}catch(_){return null;}}
@@ -633,20 +633,23 @@
     if(!o||o.stub||typeof o.reset!=='function'||!v||!v.identity||!v.time||!m||!m.name)return;
     var id=v.identity.create({role:'loaded',file:m.name,fingerprint:m.fingerprint,controller:m.port,generation:m.generation,revision:m.revision});
     if(!id.jobKey)return;
-    if(v2.key!==id.jobKey||!o.snapshot().identity){v2.key=id.jobKey;v2.id=id;v2.last=null;v2.markers=[];v2.report=null;o.reset(id);}
-    // A report gets a monotone arrival only when it is a new one (another server observation time). The
-    // same report re-projected later (job-controls.js recomputes its age with Date.now(), which a clock
-    // change can lower) keeps its first stamp and age: it can turn stale, never fresh again.
-    var reportKey=finiteNumber(m.statusObservedAt)?JSON.stringify([m.port,m.generation,m.statusObservedAt]):null,same=!!(reportKey&&v2.report&&v2.report.key===reportKey);
-    var time=same?v2.report.time:v.time.stamp({serverTime:m.statusObservedAt,serverSource:'status'}),at=time.arrivalMonoMs;
-    var age=same?v2.report.age:finiteNumber(m.statusAgeMs)&&m.statusAgeMs>=0?m.statusAgeMs:null,op=m.operator&&typeof m.operator==='object'?m.operator:{};
-    var fresh=same?v2.report.fresh:m.fresh===true&&age!==null&&age<=2500;
-    if(!same)v2.report=reportKey?{key:reportKey,time:time,age:age,fresh:fresh}:null;
+    if(v2.key!==id.jobKey||!o.snapshot().identity){v2.key=id.jobKey;v2.id=id;v2.last=null;v2.markers=[];o.reset(id);}
+    // Freshness has one source, the L0 contract cncV2.reportAge(machine) (monotone, per [port, generation,
+    // statusObservedAt]); absent or failing, the report is unknown, never m.fresh. A report gets a monotone
+    // arrival only the first time it is seen: the same report re-projected later (job-controls.js recomputes
+    // its age with Date.now(), which a clock change can lower), even after A -> B -> A, keeps its first stamp
+    // and age. The memory survives identity changes and is bounded.
+    var r=v2ReportAge(m),reportKey=finiteNumber(m.statusObservedAt)?JSON.stringify([m.port,m.generation,m.statusObservedAt]):null,memo=null;
+    if(reportKey)for(var k=0;k<v2.reports.length;k++)if(v2.reports[k].key===reportKey){memo=v2.reports[k];break;}
+    var same=!!memo,time=same?memo.time:v.time.stamp({serverTime:m.statusObservedAt,serverSource:'status'}),at=time.arrivalMonoMs;
+    var age=same?memo.age:r.known?r.ageMs:null,op=m.operator&&typeof m.operator==='object'?m.operator:{};
+    var fresh=r.known&&r.fresh&&age!==null;
+    if(!same&&reportKey){v2.reports.push({key:reportKey,time:time,age:age});if(v2.reports.length>32)v2.reports.shift();}
     var units=op.reportUnits==='mm'||op.reportUnits==='in'?op.reportUnits:null,w=m.coordinates&&m.coordinates.wpos,pos=null;
     if(w){var x=v2Number(w.x),y=v2Number(w.y),z=v2Number(w.z);if(x!==null&&y!==null&&z!==null)pos={x:x,y:y,z:z};}
-    var valid=m.fresh&&finiteNumber(m.total)&&m.total>0&&finiteNumber(m.received)&&m.received>=0&&m.received<=m.total;
+    var valid=fresh&&finiteNumber(m.total)&&m.total>0&&finiteNumber(m.received)&&m.received>=0&&m.received<=m.total;
     var total=valid?linesTotal(m):null,line=valid?Math.floor(acknowledgedLine(m,total)):null;
-    var ov=m.fresh===true&&m.overrides&&typeof m.overrides==='object'?m.overrides:null,last=v2.last;
+    var ov=fresh&&m.overrides&&typeof m.overrides==='object'?m.overrides:null,last=v2.last;
     function mark(kind,value,code,params){
       v2.markers.push({id:'report:'+(++v2.serial),kind:kind,identity:id,time:time,interval:{fromMonoMs:last.at,toMonoMs:at},value:value,source:'report',code:code,params:params});
       if(v2.markers.length>100)v2.markers.shift();
@@ -658,8 +661,8 @@
     }
     if(ov&&age!==null&&finiteNumber(at))v2.last={ov:{feed:ov.feed,spindle:ov.spindle,rapid:ov.rapid},workflow:m.workflow,at:at};
     var feed=units&&finiteNumber(m.feedrate)?Math.round((units==='in'?m.feedrate*25.4:m.feedrate)*10)/10:null,est=v2.estimate;
-    o.update({version:1,available:age!==null,identity:id,time:time,
-      report:{freshness:age===null?'unknown':fresh?'fresh':'stale',ageMs:age,wcs:typeof op.wcs==='string'&&op.wcs?op.wcs:null,units:units,position:pos,
+    o.update({version:1,available:r.known&&age!==null,identity:id,time:time,
+      report:{freshness:!r.known||age===null?'unknown':fresh?'fresh':'stale',ageMs:age,wcs:typeof op.wcs==='string'&&op.wcs?op.wcs:null,units:units,position:pos,
         feedMmMin:feed,spindleS:finiteNumber(m.spindleSpeed)?m.spindleSpeed:null},
       acknowledgement:{line:line,total:total,meaning:'accepted-not-machined'},
       estimate:{seconds:est.seconds,source:est.source,estimated:true,unknowns:est.unknowns.slice()},markers:v2.markers});
@@ -667,6 +670,12 @@
     if(same)return;
     if(v2.timer!==null&&typeof window.clearTimeout==='function')window.clearTimeout(v2.timer);v2.timer=null;
     if(age!==null&&age<=2500&&typeof window.setTimeout==='function')v2.timer=window.setTimeout(function(){v2.timer=null;requestV2();},2550-age);
+  }
+  function v2ReportAge(m){
+    var v=window.cncV2;
+    try{var r=v&&typeof v.reportAge==='function'?v.reportAge(m):null;
+      if(r&&r.known===true&&typeof r.fresh==='boolean')return {known:true,fresh:r.fresh,ageMs:finiteNumber(r.ageMs)&&r.ageMs>=0?r.ageMs:null};}catch(_){}
+    return {known:false,fresh:false,ageMs:null};
   }
   function requestV2(){
     if(!zones.v2||v2.frame!==null||!visible('home')||typeof window.requestAnimationFrame!=='function')return;
