@@ -47,6 +47,7 @@
   function renewSession(done, refused) {
     var x = new XMLHttpRequest(), sent = storedToken();
     x.open('POST', (store ? store.get().apiBase : '/api') + '/signin');
+    x.timeout = 15000;
     x.setRequestHeader('Content-Type', 'application/json');
     x.onload = function () {
       var r = null; try { r = JSON.parse(x.responseText); } catch (_) {}
@@ -61,7 +62,8 @@
       } catch (_) { if (refused) refused(false); return; }
       if (done) done();
     };
-    if (refused) x.onerror = x.ontimeout = function () { refused(false); };
+    // No answer (error, timeout, abort): the caller is always released.
+    x.onerror = x.ontimeout = x.onabort = function () { if (refused) refused(false); };
     x.send(JSON.stringify(sent ? { token: sent } : {}));
   }
   // Reload with the new token at most once a minute, so a refused token cannot loop.
@@ -85,14 +87,17 @@
       renewing = false;
       // Another tab stored a session meanwhile (D-7), or none was needed: a page still waiting for
       // a token starts with the stored one.
-      if (!started && storedToken()) { token = storedToken(); init(); }
+      if (!started && storedToken()) {
+        token = storedToken(); init();
+        if (typeof CustomEvent === 'function' && window.dispatchEvent) window.dispatchEvent(new CustomEvent('cnc-session-renewed'));
+      }
       if (!users) return;
       sessionNotice = uiLocale.t('Session CNCjs refusée : ouvrez CNCjs à la racine du même serveur, reconnectez-vous, puis rechargez /touch/.');
       notice(sessionNotice);
     });
   }
   renew(token ? null : function () { if (!reloadOnce() && !started) { token = storedToken(); init(); } });
-  setInterval(function () { renewSession(null); }, 12 * 3600 * 1000);
+  setInterval(function () { renew(null); }, 12 * 3600 * 1000);
 
   // A request refused for its session (job-stream.js, job-controls.js: HTTP 401, or 403 without a
   // JSON body): renewed (one reload), or the operator is asked to sign in again (CNCjs users).

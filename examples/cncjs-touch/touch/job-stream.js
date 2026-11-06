@@ -28,7 +28,7 @@
     // request failures decide; the page shows the browser's flag as a warning (job-controls.js).
     var XHR = options.XMLHttpRequest || root.XMLHttpRequest, base = options.apiBase || '/api';
     var locale=root.cncI18n||{t:function(s){return s;}};
-    var xhr = null, generation = 0, disposed = false, available = false, retryAt = 0, healthAt = 0, lastMessage = 0, openedAt = 0, openedWall = 0;
+    var xhr = null, generation = 0, disposed = false, available = false, retryAt = 0, healthAt = 0, lastMessage = 0, openedAt = 0;
     // Delays (retry, health, silence) on the monotonic clock: a wall clock set back (NTP at boot)
     // must not freeze the recovery. Transit is measured on the wall clock, against the server's sentAt.
     var perf = root.performance, monotonic = perf && typeof perf.now === 'function' ? function () { return perf.now(); } : Date.now;
@@ -46,7 +46,7 @@
     function open() {
       if (disposed || xhr || !available || clock() < retryAt || !token()) return;
       var id = ++generation, cursor = 0, rotate = false, clockOffset = null, sequence = 0, epoch = '', transport = '';
-      xhr = new XHR(); var request = xhr; openedAt = clock(); openedWall = wall();
+      xhr = new XHR(); var request = xhr; openedAt = clock();
       // The stream carries this device's presence (F5): its control lease lives while it is open.
       request.open('GET', base+'/touch-events'+(options.clientId?'?clientId='+encodeURIComponent(options.clientId):''), true); request.timeout = 90000; // > server lifetime + confirmation grace (80 s)
       request.setRequestHeader('Authorization','Bearer '+token());
@@ -65,8 +65,12 @@
             sequence=packet.sequence;epoch=packet.epoch;transport=packet.transportId;
             // Conservative lower bound on clock skew: include the initial request's
             // server/network delay rather than treating buffered packets as fresh.
-            if (clockOffset === null) clockOffset = openedWall - packet.sentAt;
-            packet.transitMs = Math.max(0, wall() - packet.sentAt - clockOffset);
+            // The wall time of the opening is taken now, from the monotonic time elapsed since:
+            // a wall-clock step between the opening and this packet cannot bias it. A transit is
+            // never longer than the stream has been open (a later client-side step).
+            var sinceOpen = Math.max(0, clock() - openedAt);
+            if (clockOffset === null) clockOffset = wall() - sinceOpen - packet.sentAt;
+            packet.transitMs = Math.max(0, Math.min(sinceOpen, wall() - packet.sentAt - clockOffset));
             lastMessage = clock(); options.onSnapshot(packet);
           } catch (_) { close('Réponse de suivi invalide.'); return; }
         }
