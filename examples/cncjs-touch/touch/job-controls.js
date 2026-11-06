@@ -132,7 +132,11 @@
   // values; otherwise the server's French message (translated when it is a catalog phrase).
   function serverRefusal(data,status){
     var fallback=data&&typeof data.message==='string'&&data.message?data.message:uiLocale.t('Commandes indisponibles (HTTP ')+status+').';
-    var e=new Error(data&&data.code&&uiLocale.format?uiLocale.format(data.code,data.params,fallback):fallback);
+    // Coded reasons behind the refusal (laser framing refused by the travel check: {code, params,
+    // message}, like a program check's codedReasons), 3 at most, in the interface language.
+    var why=data&&Array.isArray(data.reasons)?data.reasons.filter(function(r){return r&&typeof r==='object'&&typeof r.message==='string'&&r.message;}).slice(0,3).map(function(r){
+      var m=r.message.slice(0,300);return uiLocale.format?uiLocale.format(r.code,r.params,m):m;}):[];
+    var e=new Error((data&&data.code&&uiLocale.format?uiLocale.format(data.code,data.params,fallback):fallback)+(why.length?' '+why.join(' '):''));
     if(data&&typeof data.code==='string'){e.code=data.code;e.params=data.params||null;}
     return e;
   }
