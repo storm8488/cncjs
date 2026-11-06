@@ -42,8 +42,9 @@ async function suivi(options = {}) {
   vm.runInContext(read('job-dashboard.js'), p.context, {filename: 'job-dashboard.js'});
   const kids = (n) => n.children.map((c) => c.id || c.className || c.tagName);
   const shape = () => JSON.stringify([board, left, metrics, ov].map(kids).concat(metrics.children.filter((c) => c.id && c.id.indexOf('home-zone') === 0).map(kids)));
+  let observed = 0; // every report the server sends has its own observation time
   const machine = (patch = {}) => Object.assign({port: 'A', generation: 'g1', revision: 1, name: 'piece.nc', fingerprint: 'sha256:a', originalName: 'Pièce 01.nc',
-    machineProfile: {kind: 'cnc'}, activeState: 'Idle', workflow: 'idle', fresh: true, statusAgeMs: 0, statusObservedAt: 5000, canStop: false, loading: false, homing: false,
+    machineProfile: {kind: 'cnc'}, activeState: 'Idle', workflow: 'idle', fresh: true, statusAgeMs: 0, statusObservedAt: 5000 + (++observed), canStop: false, loading: false, homing: false,
     spindleSpeed: 0, motion: {jog: false, cancelling: false}, total: 1000, received: 0, canPause: false, canOverride: false,
     operator: {reportUnits: 'mm', wcs: 'G54'}, coordinates: {wpos: {x: '1.000', y: 2, z: '-0.500'}}}, patch);
   const send = (patch, detail = {}) => p.emit('cnc-job-status', Object.assign({machine: patch === null ? null : machine(patch), simulation: false, busy: false, transportConnected: true}, detail));
@@ -145,6 +146,19 @@ async function cases(entries) {
       assert.equal(s.board.getAttribute('data-v2-report'), 'stale'); assert.equal(s.node('home-v2-position').getAttribute('data-state'), 'stale');
       s.running({statusAgeMs: 3000, fresh: false}); s.p.frame(); assert.match(s.text('home-v2-age'), /^Rapport périmé/);
       s.send(null); s.p.frame(); assert.match(s.text('home-v2-age'), /^Rapport périmé|^Rapport inconnu/);
+    }],
+    ['the same report refreshed (civil clock set back, age recomputed lower) never becomes fresh again', async () => {
+      const s = await suivi(); s.send(); s.layout(true); s.p.frame();
+      s.running({statusObservedAt: 10000, statusAgeMs: 0}); s.p.frame(); assert.match(s.text('home-v2-age'), /^Rapport frais/);
+      s.p.advance(2501); s.running({statusObservedAt: 10000, statusAgeMs: 2501, fresh: false}); s.p.frame();
+      assert.match(s.text('home-v2-age'), /^Rapport périmé/);
+      // job-controls.js re-projects the same report with Date.now(): its age drops after a clock change.
+      s.p.advance(1); s.running({statusObservedAt: 10000, statusAgeMs: 0, fresh: true}); s.p.frame();
+      assert.match(s.text('home-v2-age'), /^Rapport périmé/, 'same report: no new arrival, no younger age');
+      assert.equal(s.obs().snapshot().report.freshness, 'stale');
+      // A really new report (another observation time) is fresh.
+      s.p.advance(250); s.running({statusObservedAt: 10300, statusAgeMs: 0}); s.p.frame();
+      assert.match(s.text('home-v2-age'), /^Rapport frais/);
     }],
     ['feed curve: drawn from chart() in a frame, gaps and reported markers, never while hidden', async () => {
       const s = await suivi(); s.send(); s.layout(true); s.p.frame();
