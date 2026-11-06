@@ -16,16 +16,44 @@ async function pathOf(code) {
   return { encoded, path: T3.decode(encoded) };
 }
 function storage() { const m = new Map(); return { getItem: k => m.has(k) ? m.get(k) : null, setItem: (k, v) => m.set(k, String(v)), map: m }; }
+function circleExportError(geometry, line, radius, center = [0,0], axes = [0,1]) {
+  const positions = geometry.buffers.positions, lines = geometry.buffers.sourceLines;
+  assert(positions instanceof Float32Array, 'measure the published Float32 positions');
+  let maximum = 0;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i] !== line) continue;
+    for (const t of [0,0.25,0.5,0.75,1]) {
+      const xy = axes.map((axis, k) => positions[i*6+axis]*(1-t) + positions[i*6+3+axis]*t - center[k]);
+      maximum = Math.max(maximum, Math.abs(Math.hypot(...xy) - radius));
+    }
+  }
+  assert(maximum <= geometry.toleranceMm, 'exported circle error ' + maximum + ' exceeds tolerance ' + geometry.toleranceMm);
+  return maximum;
+}
 
 (async () => {
   const largeCircle = 'G21 G90 G54\nG0 X100000 Y0\nG2 X100000 Y0 I-100000 J0 F100';
   const capped = PI.buildV2Geometry(largeCircle);
   const effectiveSagitta = 100000 * (1 - Math.cos(Math.PI / 4096));
   assert.equal(capped.segmentCount, 4097, '4096 arc subdivisions plus the initial rapid');
-  assert(Math.abs(capped.toleranceMm - effectiveSagitta) < 1e-7, 'v2 reports the capped arc sagitta, not the requested 0.01 mm');
+  const largeError = circleExportError(capped, 3, 100000);
+  assert(largeError > effectiveSagitta, 'Float32 export adds error beyond the analytic sagitta');
+  assert(capped.toleranceMm >= effectiveSagitta && capped.toleranceMm <= effectiveSagitta + 0.006, 'v2 bounds the capped arc and Float32 error without excessive inflation');
   const severalArcs = PI.buildV2Geometry(largeCircle + '\nG0 X200000 Y0\nG3 X200000 Y0 I-200000 J0\nG0 X10 Y0\nG2 X10 Y0 I-10 J0');
-  assert(Math.abs(severalArcs.toleranceMm - 2 * effectiveSagitta) < 1e-7, 'reported tolerance is the maximum over all arcs');
+  assert(severalArcs.toleranceMm >= 2 * effectiveSagitta && severalArcs.toleranceMm <= 2 * effectiveSagitta + 0.012, 'reported tolerance bounds the largest arc and its Float32 error');
+  for (const [line,radius] of [[3,100000],[5,200000],[7,10]]) circleExportError(severalArcs,line,radius);
   assert.equal(PI.buildV2Geometry('G21 G90 G54\nG0 X10 Y0\nG2 X10 Y0 I-10 J0 F100').toleranceMm, 0.01, 'ordinary geometry retains its requested tolerance');
+  // Translation and all three arc planes must account for absolute-coordinate
+  // rounding; the same radius has coarser Float32 positions far from the origin.
+  for (const [plane,axes,start,offset] of [[17,[0,1],'X1100000.03 Y1000000.03 Z0','I-100000 J0'],[18,[2,0],'Z1100000.03 X1000000.03 Y0','K-100000 I0'],[19,[1,2],'Y1100000.03 Z1000000.03 X0','J-100000 K0']]) {
+    const translated = PI.buildV2Geometry('G21 G90 G54 G'+plane+'\nG0 '+start+'\nG2 '+start+' '+offset+' F100');
+    assert.equal(translated.quality,'full');
+    circleExportError(translated,3,100000,[1000000.03,1000000.03],axes);
+  }
+  const straight = PI.buildV2Geometry('G21 G90 G54\nG1 X1000000.03 Y1000000.03 Z1000000.03 F100');
+  const endpointError = Math.hypot(...Array.from(straight.buffers.positions.slice(3),value=>value-1000000.03));
+  assert(endpointError > 0.01, 'straight-line fixture exceeds the old floor');
+  assert(endpointError <= straight.toleranceMm, 'straight segments include 3D Float32 error');
   // L2 v2: independent segments never join two known islands across G53.
   const islands = PI.buildV2Geometry('G90 G21\nG1 X10 Y0 Z0 F100\nG53 G0 X-100\nG0 X20 Y0 Z0\nG1 X30');
   assert.equal(islands.segmentCount, 2);

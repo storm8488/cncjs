@@ -10,7 +10,7 @@ async function reviewOriginFixes() {
   // Real bootstrap, lifecycle contract, travel checker and origin consumer. Only
   // DOM/GPU and the deferred L4 response/cancellation boundary are simulated.
   for (const cancellation of ['cancel', 'abort', 'dashboard', 'none']) {
-    for (const transition of ['run', 'eco', 'pagehide', 'unmount']) {
+    for (const transition of ['run', 'eco', 'pagehide', 'unmount', 'screen', 'lock', 'hidden', 'spindle', 'jog', 'cancelling', 'probing', 'probeBusy', 'elapsed']) {
       const p = page(), ui = originPage(), reads = [];
       p.status(state()); p.frame(); await p.complete();
       for (const key of ['body', 'head', 'createElement', 'createTextNode', 'getElementById']) p.document[key] = ui.document[key];
@@ -33,6 +33,19 @@ async function reviewOriginFixes() {
       if (transition === 'eco') p.window.cncProfile.setPerformance('eco');
       if (transition === 'pagehide') p.emit('pagehide');
       if (transition === 'unmount') p.window.CNCOriginPreview.unmount();
+      if (transition === 'screen') { ui.screen.classList.remove('active'); p.emit('cnc-screen-change', 'home'); }
+      if (transition === 'lock') p.emit('cnc-screen-lock', true);
+      if (transition === 'hidden') { p.document.hidden = true; p.emit('doc:visibilitychange'); }
+      if (transition === 'spindle') p.status(state({ spindleSpeed: 12000 }));
+      if (transition === 'jog') p.status(state({ motion: { jog: true } }));
+      if (transition === 'cancelling') p.status(state({ motion: { cancelling: true } }));
+      if (transition === 'probing') p.status(state({ probing: true }));
+      if (transition === 'probeBusy') p.status(state({ probeBusy: true }));
+      if (transition === 'elapsed') {
+        p.advance(2501); // No status event or paint: the response sees expiry itself.
+        assert.equal(p.api.state().safeIdle, false);
+        reads[0].resolve(pview()); await new Promise(setImmediate);
+      }
       assert.equal(reads[0].cancelled, cancellation === 'none' ? 0 : 1, transition + ': pending L4 preview is cancelled immediately through ' + cancellation);
       if (transition === 'run') {
         p.status(state()); p.frame();
@@ -48,6 +61,149 @@ async function reviewOriginFixes() {
       p.window.CNCOriginPreview.unmount();
       assert.equal(reads[0].cancelled, cancellation === 'none' ? 0 : 1, 'cancellation is idempotent');
     }
+  }
+  // The origin consumer also invalidates locally. A missed lifecycle callback,
+  // or an L4 implementation without cancellation, must not revive an old answer
+  // when the operator comes back before that answer arrives.
+  for (const cancellation of [true, false]) {
+    for (const transition of ['unmount', 'screen', 'lock', 'hidden', 'unsafe-status', 'unsafe-gate']) {
+      const ui = originPage(), w = ui.win, reads = [];
+      let safeIdle = true, isLocked = false;
+      w.cncV2 = { gate: () => true, state: () => ({ safeIdle }) };
+      w.cncScreenLock = { locked: () => isLocked };
+      ui.document.addEventListener = (name, fn) => w.addEventListener('doc:' + name, fn);
+      ui.document.removeEventListener = (name, fn) => w.removeEventListener('doc:' + name, fn);
+      const emit = (type, detail) => w.dispatchEvent(new w.CustomEvent(type, { detail }));
+      w.cncDashboardView.loadedPreview = () => {
+        const read = { cancelled: 0 };
+        read.promise = new Promise(resolve => { read.resolve = resolve; });
+        reads.push(read); return read.promise;
+      };
+      if (cancellation) w.cncDashboardView.cancelLoadedPreview = promise => {
+        const read = reads.find(r => r.promise === promise);
+        assert(read, 'L4 cancellation targets the exact pending promise'); read.cancelled++;
+      };
+      w.CNCOriginPreview.mount(ui.screen); ui.status(state()); await ui.flush();
+      assert.equal(reads.length, 1);
+      if (transition === 'unmount') w.CNCOriginPreview.unmount();
+      if (transition === 'screen') { ui.screen.classList.remove('active'); emit('cnc-screen-change', 'home'); }
+      if (transition === 'lock') { isLocked = true; emit('cnc-screen-lock', true); }
+      if (transition === 'hidden') { ui.document.hidden = true; emit('doc:visibilitychange'); }
+      if (transition === 'unsafe-status') { safeIdle = false; ui.status(state({ spindleSpeed: 12000 })); }
+      if (transition === 'unsafe-gate') { safeIdle = false; emit('cnc-v2-change'); }
+      assert.equal(reads[0].cancelled, cancellation ? 1 : 0, transition + ': immediate local cancellation');
+      // Return to the same program before delivering the superseded response.
+      safeIdle = true; isLocked = false; ui.document.hidden = false; ui.screen.classList.add('active');
+      if (transition === 'unmount') w.CNCOriginPreview.mount(ui.screen);
+      if (transition === 'screen') emit('cnc-screen-change', 'jog');
+      if (transition === 'lock') emit('cnc-screen-lock', false);
+      if (transition === 'hidden') emit('doc:visibilitychange');
+      ui.status(state()); await ui.flush();
+      assert.equal(reads.length, 2, transition + ': return requests fresh metadata');
+      reads[0].resolve(pview()); await ui.flush();
+      assert.equal(ui.opened.length, 0, transition + ': old response unused after return');
+      assert.equal(reads[1].cancelled, 0, 'old response leaves the new request intact');
+      reads[1].resolve(pview()); await ui.flush();
+      assert.equal(ui.opened.length, 1, transition + ': current response remains usable');
+      w.CNCOriginPreview.unmount();
+      assert.equal(reads[0].cancelled, cancellation ? 1 : 0, 'cancelled once');
+    }
+  }
+  // An origin card can exist before the deferred bootstrap opens v2. Promotion
+  // installs its lifecycle exactly once, rather than only changing a boolean.
+  for (const transition of ['screen', 'hidden', 'lock', 'unsafe-status', 'unsafe-gate', 'pagehide']) {
+    const ui = originPage(), w = ui.win, reads = [];
+    let gate = false, safeIdle = false, isLocked = false, scopes = 0, disposals = 0;
+    w.cncV2 = { gate: () => gate, state: () => ({ safeIdle }) };
+    w.cncScreenLock = { locked: () => isLocked };
+    ui.document.addEventListener = (name, fn) => w.addEventListener('doc:' + name, fn);
+    ui.document.removeEventListener = (name, fn) => w.removeEventListener('doc:' + name, fn);
+    const emit = (type, detail) => w.dispatchEvent(new w.CustomEvent(type, { detail }));
+    w.cncDashboardView.loadedPreview = () => {
+      const read = { cancelled: 0 };
+      read.promise = new Promise(resolve => { read.resolve = resolve; });
+      reads.push(read); return read.promise;
+    };
+    w.cncDashboardView.cancelLoadedPreview = promise => { reads.find(r => r.promise === promise).cancelled++; };
+    w.CNCOriginPreview.mount(ui.screen); ui.status(state({ fresh: false })); await ui.flush();
+    assert.equal(reads.length, 0); assert.equal(scopes, 0);
+    gate = true; safeIdle = true;
+    w.cncV2.lifecycle = { scope(screen, slot) {
+      assert.equal(screen, 'prepare'); assert.equal(slot, 'placement'); scopes++;
+      const token = {};
+      return { token: () => safeIdle ? token : null, valid: t => t === token && safeIdle,
+        track: () => () => {}, dispose: () => { disposals++; } };
+    } };
+    ui.status(state()); await ui.flush();
+    assert.equal(reads.length, 1); assert.equal(scopes, 1, 'promotion acquires the card read scope');
+    emit('cnc-v2-change'); ui.status(state()); await ui.flush();
+    assert.equal(scopes, 1, 'promotion is idempotent');
+    if (transition === 'screen') { ui.screen.classList.remove('active'); emit('cnc-screen-change', 'home'); }
+    if (transition === 'hidden') { ui.document.hidden = true; emit('doc:visibilitychange'); }
+    if (transition === 'lock') { isLocked = true; emit('cnc-screen-lock', true); }
+    if (transition === 'unsafe-status') { safeIdle = false; ui.status(state({ spindleSpeed: 12000 })); }
+    if (transition === 'unsafe-gate') { safeIdle = false; emit('cnc-v2-change'); }
+    if (transition === 'pagehide') emit('pagehide');
+    assert.equal(reads[0].cancelled, 1, transition + ': promoted card cancels immediately');
+    safeIdle = true; isLocked = false; ui.document.hidden = false; ui.screen.classList.add('active');
+    emit('cnc-screen-change', 'jog'); emit('cnc-screen-lock', false); emit('doc:visibilitychange');
+    ui.status(state()); await ui.flush();
+    reads[0].resolve(pview()); await ui.flush();
+    assert.equal(ui.opened.length, 0, transition + ': promotion never revives an invalidated read');
+    if (transition !== 'pagehide') {
+      assert.equal(reads.length, 2); reads[1].resolve(pview()); await ui.flush();
+      assert.equal(ui.opened.length, 1, 'new read survives the late reply');
+    } else assert.equal(reads.length, 1, 'pagehide cannot restart a read');
+    w.CNCOriginPreview.unmount(); assert.equal(scopes, 1); assert.equal(disposals, 1);
+  }
+  // A v1 read may already be pending when v2 opens, before the contract module
+  // arrives. It cannot acquire a retroactive lease or prevent the v2 retry.
+  {
+    const ui = originPage(), w = ui.win, reads = [];
+    let gate = false, scopes = 0, disposals = 0;
+    w.cncV2 = { gate: () => gate, state: () => ({ safeIdle: true }) };
+    w.cncDashboardView.loadedPreview = () => {
+      const read = { cancelled: 0 }; read.promise = new Promise(resolve => { read.resolve = resolve; });
+      reads.push(read); return read.promise;
+    };
+    w.cncDashboardView.cancelLoadedPreview = promise => { reads.find(r => r.promise === promise).cancelled++; };
+    const emit = () => w.dispatchEvent(new w.CustomEvent('cnc-v2-change'));
+    w.CNCOriginPreview.mount(ui.screen); ui.status(state()); await ui.flush(); assert.equal(reads.length, 1);
+    gate = true; emit();
+    assert.equal(reads[0].cancelled, 1, 'promotion revokes the v1 read immediately');
+    w.cncV2.lifecycle = { scope() {
+      scopes++; const token = {};
+      return { token: () => token, valid: t => t === token, track: () => () => {}, dispose: () => { disposals++; } };
+    } };
+    emit(); await ui.flush(); assert.equal(scopes, 1); assert.equal(reads.length, 2);
+    reads[0].resolve(pview()); await ui.flush(); assert.equal(ui.opened.length, 0);
+    reads[1].resolve(pview()); await ui.flush(); assert.equal(ui.opened.length, 1);
+    emit(); ui.status(state()); await ui.flush(); assert.equal(scopes, 1);
+    w.CNCOriginPreview.unmount(); assert.equal(disposals, 1);
+  }
+  // Without L4 cancellation, its cache can return the very same pending promise
+  // after a screen return or remount. A new local callback cannot redeem it.
+  for (const transition of ['screen', 'unmount']) {
+    const ui = originPage(), w = ui.win;
+    let calls = 0, resolveOld, resolveNew;
+    let cached = new Promise(resolve => { resolveOld = resolve; });
+    w.cncV2 = { gate: () => true, state: () => ({ safeIdle: true }) };
+    w.cncDashboardView.loadedPreview = () => { calls++; return cached; };
+    const emit = (type, detail) => w.dispatchEvent(new w.CustomEvent(type, { detail }));
+    w.CNCOriginPreview.mount(ui.screen); ui.status(state()); await ui.flush(); assert.equal(calls, 1);
+    if (transition === 'screen') {
+      ui.screen.classList.remove('active'); emit('cnc-screen-change', 'home');
+      ui.screen.classList.add('active'); emit('cnc-screen-change', 'jog');
+    } else { w.CNCOriginPreview.unmount(); w.CNCOriginPreview.mount(ui.screen); }
+    ui.status(state()); await ui.flush(); assert.equal(calls, 2);
+    resolveOld(pview()); await ui.flush();
+    assert.equal(ui.opened.length, 0, transition + ': a shared invalidated promise cannot be reused');
+    for (let i = 0; i < 3; i++) { ui.status(state()); await ui.flush(); }
+    assert.equal(calls, 2, 'rejected cached promise causes no read or animation loop');
+    cached = new Promise(resolve => { resolveNew = resolve; });
+    emit('cnc-library-preview-updated'); await ui.flush(); assert.equal(calls, 3);
+    resolveNew(pview()); await ui.flush(); assert.equal(ui.opened.length, 1, 'a genuinely new promise recovers the preview');
+    w.CNCOriginPreview.unmount();
   }
 }
 module.exports = { reviewOriginFixes };

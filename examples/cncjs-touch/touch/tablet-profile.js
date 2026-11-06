@@ -108,15 +108,15 @@
     var list=Array.isArray(files)?files:[files];
     for(var i=0;i<list.length;i++)if(typeof list[i]!=='string'||(!/^[a-z0-9][a-z0-9-]*\.js$/.test(list[i])&&list[i]!=='performance-v2.css'))return Promise.reject(new Error(t('Nom de module avancé invalide.')));
     // Check the complete batch before requesting even its first item.
-    for(var j=0;j<list.length;j++)if(v2File(list[j])&&(!v2Gate()||!v2Idle()||v2IsLocked()))return Promise.reject(new Error('v2-gate-closed'));
+    for(var j=0;j<list.length;j++)if(v2File(list[j])&&(!v2Gate()||!v2Idle()||v2Suspended()))return Promise.reject(new Error('v2-gate-closed'));
     // preview-gl is also the existing GPU probe: it MUST remain loadable before
     // v2 starts. Once v2 starts, even a cached/in-flight renderer waits for the
     // real inspect provider. Check both sides of the asynchronous load.
     function sceneReady(next){
       if(v2Started&&(list.indexOf('preview-gl.js')>=0||list.indexOf('origin-preview.js')>=0)){
-        if(!v2Gate()||v2IsLocked())return Promise.reject(new Error('v2-gate-closed'));
+        if(!v2Gate()||v2Suspended())return Promise.reject(new Error('v2-gate-closed'));
         if(!v2Ready)return v2Bootstrap.then(function(){
-          if(!v2Gate()||v2IsLocked())throw new Error('v2-gate-closed');
+          if(!v2Gate()||v2Suspended())throw new Error('v2-gate-closed');
           return next();
         });
       }
@@ -142,6 +142,7 @@
   }
   var v2Preference=v2Read(),v2Session=v2Preference.enabled,v2Blocked=false,v2Stopped=false;
   var v2Detail=null,v2Arrival=null,v2Started=false,v2Ready=false,v2Layout=false,v2Frame=0,v2Sent='',v2Reason='waiting';
+  var v2ReportContext=null,v2ReportServer=null,v2ReportTransport=null,v2ReportAge=null;
   var v2Ended=false,v2Locked=false,v2StorageFailed=false;
   var v2Bootstrap=null;
   function v2Now(){return window.performance&&typeof window.performance.now==='function'?window.performance.now():null;}
@@ -154,7 +155,7 @@
     // missing real telemetry remains unknown and is never replaced by zero.
     var virtual=d.simulation===true&&m.port==='SIMULATION'&&m.machineProfile&&
       m.machineProfile.simulated===true&&m.machineProfile.canChange===true&&now-v2Arrival<=2500;
-    var report=v2Number(m.statusAgeMs)&&m.statusAgeMs+now-v2Arrival<=2500&&m.spindleSpeed===0;
+    var report=v2Number(m.statusAgeMs)&&v2Number(v2ReportAge)&&v2ReportAge+now-v2Arrival<=2500&&m.spindleSpeed===0;
     return m.fresh===true&&(virtual||report)&&
       m.activeState==='Idle'&&m.workflow==='idle'&&!d.busy&&!d.halt&&!d.systemCommand&&
       (d.simulation===true||d.transportConnected===true)&&!m.canStop&&!m.loading&&!m.homing&&!m.probing&&!m.probeBusy&&
@@ -166,9 +167,10 @@
       !!window.cncLayout&&window.cncLayout.wide()===true&&(!window.cncLayout.admissible||window.cncLayout.admissible()===true);
   }
   function v2IsLocked(){return v2Locked||!!(window.cncScreenLock&&typeof window.cncScreenLock.locked==='function'&&window.cncScreenLock.locked());}
-  // Before readiness a lock revokes the bootstrap, including its pending request.
+  function v2Suspended(){return document.hidden||v2IsLocked();}
+  // Before readiness a lock/hidden document revokes the bootstrap until next opening.
   // After readiness the contract suspends reads/rendering while retaining caches.
-  function v2Gate(){return v2Session&&v2Started&&!v2Blocked&&!v2Stopped&&!v2Ended&&(v2Ready||!v2IsLocked())&&v2Eligible();}
+  function v2Gate(){return v2Session&&v2Started&&!v2Blocked&&!v2Stopped&&!v2Ended&&(v2Ready||!v2Suspended())&&v2Eligible();}
   function v2ProgramKey(){var m=v2Detail&&v2Detail.machine;return m?JSON.stringify([m.port,m.generation,m.revision,m.name,m.fingerprint]):null;}
   function v2State(){return {version:1,enabled:v2Preference.enabled,sessionEnabled:v2Session,
     eligible:v2Eligible(),open:v2Gate(),ready:v2Ready,layout:v2Layout,safeIdle:v2Idle(),
@@ -204,6 +206,9 @@
       v2Stopped=true;v2Reason=performance==='eco'?'eco':kind!=='cnc'?'machine-kind':'gpu-or-layout';
     }
     if(v2Started&&!v2Ready&&!v2Idle()){v2Blocked=true;v2Reason='unsafe-bootstrap';}
+    // Latch synchronously: visibility/unlock can return before a rejected resource
+    // promise runs its catch, and must not reopen an already cancelled bootstrap.
+    if(v2Started&&!v2Ready&&v2Suspended()){v2Stopped=true;v2Reason='bootstrap-suspended';}
     if(!v2Gate())v2CancelLoads();
     v2Publish();
     // No new timer, frame or DOM mutation on RT/Eco or with an absent preference.
@@ -255,8 +260,32 @@
     var d=e&&e.detail;if(!d)return;
     var sim=document.body&&document.body.getAttribute&&document.body.getAttribute('data-simulation')==='true';
     if(!!d.simulation!==!!sim)return;
-    v2Detail=d;v2Arrival=v2Now();
     var m=d.machine;
+    // Local re-renders reuse observedAt; the server report stamp is stronger when
+    // present (a new transport snapshot can contain the same controller report).
+    // Compare identity, not timestamp order: civil clocks may move backwards.
+    // Without either stamp, a new object alone cannot prove a new report.
+    if(m){
+      var context=JSON.stringify([m.port,m.generation]);
+      var server=v2Number(m.statusObservedAt)?m.statusObservedAt:null,transport=v2Number(d.observedAt)?d.observedAt:null;
+      var changed=context!==v2ReportContext;
+      if(changed){v2ReportContext=context;v2ReportServer=null;v2ReportTransport=null;}
+      else if(server!==null&&v2ReportServer!==null)changed=server!==v2ReportServer;
+      else if(v2ReportServer===null&&transport!==null&&v2ReportTransport!==null)changed=transport!==v2ReportTransport;
+      // Losing a known stamp, or merely learning it on an otherwise unchanged
+      // envelope, proves no new arrival. Retain its provenance across omissions.
+      if(server!==null)v2ReportServer=server;
+      if(transport!==null)v2ReportTransport=transport;
+      var now=v2Now(),age=v2Number(m.statusAgeMs)?m.statusAgeMs:null;
+      if(changed){v2Arrival=now;v2ReportAge=age;}
+      else if(v2Number(age)&&v2Number(v2ReportAge)&&v2Number(now)&&v2Number(v2Arrival)&&now>=v2Arrival){
+        // A duplicate may increase the known age, never decrease its monotone age.
+        v2ReportAge=Math.max(v2ReportAge,age-(now-v2Arrival));
+      }
+    }
+    // Keep the report clock across temporary missing snapshots. Reappearing data
+    // with the same identity is still the old report, not a fresh arrival.
+    v2Detail=d;
     // Latch every observed activity, even if it stops before the first RAF. Missing
     // telemetry is still allowed to wait for a known Idle on this page opening.
     if(!v2Layout&&((m&&(m.workflow&&m.workflow!=='idle'||m.activeState&&m.activeState!=='Idle'||m.canStop||m.loading||m.homing||

@@ -12,7 +12,7 @@ function page(options = {}) {
     ['cncjs-touch-performance-v1', JSON.stringify({version: 1, profile: options.profile || 'performance'})],
     [KEY, options.raw === undefined ? JSON.stringify({version: 1, enabled: true}) : options.raw]
   ]);
-  let mono = 100, seq = 0;
+  let mono = 100, seq = 0, report = 0;
   const storage = {getItem(k) { if (options.readFail) throw Error('blocked'); return values.has(k) ? values.get(k) : null; },
     setItem(k,v) { if (options.writeFail) throw Error('blocked'); values.set(k,v); }};
   function element(tag) { return {tagName: tag.toUpperCase(), children: [], style: {}, hidden: false,
@@ -25,7 +25,8 @@ function page(options = {}) {
   const document = {body, head: element('head'), hidden: false, documentElement: {}, title: '',
     createElement: element, querySelectorAll: () => [], getElementById: () => null,
     addEventListener(n,f) { (listeners['doc:'+n] ||= []).push(f); },
-    removeEventListener(n,f) { listeners['doc:'+n] = (listeners['doc:'+n] || []).filter(x => x !== f); }};
+    removeEventListener(n,f) { listeners['doc:'+n] = (listeners['doc:'+n] || []).filter(x => x !== f); },
+    dispatchEvent(e) { (listeners['doc:'+e.type] || []).slice().forEach(f => f(e)); }};
   // Baseline sheets are already in the head before the deferred bootstrap runs.
   const responsive = element('link'); responsive.rel = 'stylesheet'; responsive.href = 'responsive.css?v=v2d';
   document.head.children.push(responsive); responsive.parentNode = document.head;
@@ -58,7 +59,7 @@ function page(options = {}) {
       name: 'piece.nc', fingerprint: 'sha256:a', machineProfile: {kind: options.kind || 'cnc'},
       activeState: 'Idle', workflow: 'idle', fresh: true, statusAgeMs: 0, canStop: false,
       loading: false, homing: false, spindleSpeed: 0, motion: {jog: false, cancelling: false}}, patch);
-    emit('cnc-job-status', Object.assign({machine, simulation: !!options.simulation, busy: false, transportConnected: true}, detail));
+    emit('cnc-job-status', Object.assign({machine, observedAt: ++report, simulation: !!options.simulation, busy: false, transportConnected: true}, detail));
   }
   function respond(r) {
     r.done = true;
@@ -80,6 +81,8 @@ function page(options = {}) {
     advance(ms) { mono += ms; }, frames, get api() { return window.cncV2; }};
 }
 async function tests() {
+  await repeatedReportClock();
+  await hiddenBootstrap();
   const p = page();
   assert(p.api, 'L0 exposes the small gate facade without loading any v2 file');
   assert.equal(p.api.version, 1); assert.equal(p.requests.length, 0);
@@ -208,5 +211,122 @@ async function tests() {
   sim.frame();await sim.complete();assert(sim.api.gate(),'actual virtual Idle is usable without inventing a machine report age');
   console.log('PASS v2 gate: real providers and guarded CSS after responsive, cache v2d, probe/scene barrier, cancellation at every stage, RT/software/Eco/laser zero requests, frozen busy layout.');
 }
-module.exports={page,read,tick,KEY,BOOTSTRAP};
+
+async function repeatedReportClock() {
+  for (const delayedGpu of [false,true]) {
+    const p=page({gpu:!delayedGpu}), nodes={}, pending=[], intervals=[];
+    let civil=10000;
+    class Clock extends Date { static now() { return civil; } }
+    // The unmodified job-controls transport/projection runs against a minimal DOM,
+    // as in test-job-display. Only response delivery and both clocks are controlled.
+    const element=id=>nodes[id]||(nodes[id]={value:'',textContent:'',style:{},addEventListener(){},
+      removeEventListener(){},appendChild(){},insertBefore(){},setAttribute(){},focus(){}});
+    p.document.getElementById=element;
+    p.document.querySelector=()=>element('panel');
+    const create=p.document.createElement;
+    p.document.createElement=tag=>Object.assign(create(tag),{addEventListener(){},focus(){}});
+    p.context.Date=Clock;
+    p.context.setInterval=f=>{intervals.push(f);return intervals.length;};
+    p.context.clearInterval=()=>{};
+    p.context.XMLHttpRequest=function(){
+      this.open=method=>assert.equal(method,'GET','no machine command');
+      this.setRequestHeader=()=>{};
+      this.abort=()=>{};
+      this.send=()=>pending.push(this);
+    };
+    p.values.set('cnc',JSON.stringify({state:{session:{token:'fixture'}}}));
+    p.run('job-controls.js');
+    assert.equal(pending.length,1);
+    const response=pending.shift();
+    response.status=200;
+    response.responseText=JSON.stringify({controllers:[{port:'A',generation:'g1',revision:1,
+      type:'Grbl',name:'piece.nc',fingerprint:'sha256:a',machineProfile:{kind:'cnc'},
+      activeState:'Idle',workflow:'idle',fresh:true,statusAgeMs:0,statusObservedAt:5000,
+      spindleSpeed:0,canStop:false,loading:false,homing:false,motion:{jog:false,cancelling:false}}]});
+    response.onload(); await tick(); p.frame(); await p.complete();
+    assert(p.api.state().safeIdle);
+    const life=delayedGpu?null:p.api.lifecycle.scope(null);
+    if(life)assert(life.token());
+    p.advance(2501);civil=12501;intervals[0]();p.frame();
+    assert.equal(p.api.state().safeIdle,false,'original report expires at 2501 ms');
+    if(life)assert.equal(life.token(),null);
+    p.advance(1);civil=9000;intervals[0]();p.frame();await p.complete();
+    const last=p.events.filter(e=>e.type==='cnc-job-status').pop().detail;
+    assert.equal(last.observedAt,10000);
+    // The real v1 projection supplies these values. No fixture makes it stale;
+    // a later upstream fix may also keep it stale without changing this contract.
+    assert.equal(p.api.state().safeIdle,false,'civil rollback cannot renew the same report');
+    if(life)assert.equal(life.token(),null,'the real contract still refuses its read lease');
+    if(delayedGpu){
+      p.gpu.hardware=true;p.emit('cnc-gpu-change');p.frame();await p.complete();
+      assert.equal(p.requests.length,0,'GPU becoming available cannot bootstrap on a revived v1 report');
+      assert.equal(p.api.state().open,false);assert.equal(p.api.state().ready,false);assert.equal(p.api.state().layout,false);
+      // A genuinely new report may start a session that never began its bootstrap.
+      p.advance(1);civil=9001;p.window.cncJobControls.refresh();
+      const fresh=pending.shift();assert(fresh);fresh.status=200;
+      const updated=JSON.parse(response.responseText);updated.controllers[0].statusObservedAt=4999;
+      fresh.responseText=JSON.stringify(updated);fresh.onload();await tick();p.frame();await p.complete();
+      assert(p.api.state().safeIdle && p.api.state().ready && p.api.lifecycle.scope(null).token());
+    }
+    if(life)life.dispose();p.emit('pagehide');
+  }
+  for(const serverStamp of [false,true]){
+    const p=page(), detail={observedAt:10000}, patch=serverStamp?{statusObservedAt:5000}:{};
+    p.status({...patch,statusAgeMs:500},detail);p.frame();await p.complete();
+    p.advance(2000);
+    // A new transport envelope carrying the same server report must not renew it.
+    p.status({...patch,statusAgeMs:0},serverStamp?{observedAt:9000}:detail);
+    assert(p.api.state().safeIdle,'exactly 2500 ms stays fresh');
+    p.advance(1);assert.equal(p.api.state().safeIdle,false,'the initial 500 ms age cannot decrease');
+    p.status({...patch,statusAgeMs:0},serverStamp?{observedAt:9001}:detail);
+    assert.equal(p.api.state().safeIdle,false);
+    p.emit('pagehide');
+  }
+  for(const missing of ['snapshot','timestamps']){
+    const p=page(), detail={observedAt:10000};
+    p.status({},missing==='timestamps'?{observedAt:undefined}:detail);p.frame();await p.complete();
+    p.advance(2501);
+    if(missing==='snapshot')p.status(null,detail);
+    p.status({},missing==='timestamps'?{observedAt:undefined}:detail);
+    assert.equal(p.api.state().safeIdle,false,'missing '+missing+' cannot renew the old report');
+    assert.equal(p.api.lifecycle.scope(null).token(),null);p.emit('pagehide');
+  }
+  const incomplete=page();incomplete.status({statusObservedAt:5000},{observedAt:10000});
+  incomplete.frame();await incomplete.complete();incomplete.advance(2501);
+  incomplete.status({}, {observedAt:9000});
+  assert.equal(incomplete.api.state().safeIdle,false,'omitting a known server stamp is not evidence of a new report');
+  incomplete.status({statusObservedAt:5000},{observedAt:9001});
+  assert.equal(incomplete.api.state().safeIdle,false,'restoring the same stamp preserves its initial age');
+  incomplete.emit('pagehide');
+  for(const learned of [{patch:{},detail:{observedAt:10000}},
+    {patch:{statusObservedAt:5000},detail:{observedAt:undefined}}]){
+    const p=page();p.status({}, {observedAt:undefined});p.frame();await p.complete();p.advance(2501);
+    p.status(learned.patch,learned.detail);
+    assert.equal(p.api.state().safeIdle,false,'learning missing provenance alone cannot renew an expired report');
+    p.emit('pagehide');
+  }
+  console.log('PASS v2 monotone report: real job-controls 10000 -> +2501 -> civil 9000, read leases refused, delayed GPU and initial report age.');
+}
+
+async function hiddenBootstrap() {
+  const initial=page();initial.document.hidden=true;initial.status();initial.frame();await initial.complete();
+  assert.equal(initial.requests.length,0);
+  initial.document.hidden=false;initial.document.dispatchEvent({type:'visibilitychange'});initial.frame();await initial.complete();
+  assert(initial.api.state().ready,'an untouched bootstrap may start after becoming visible');initial.emit('pagehide');
+  for(let stage=0;stage<BOOTSTRAP.length;stage++){
+    const p=page();p.status();p.frame();for(let n=0;n<stage;n++)await p.step();
+    const pending=p.requests[stage];p.document.hidden=true;p.document.dispatchEvent({type:'visibilitychange'});
+    assert.equal(p.api.gate(),false,'hidden closes incomplete bootstrap at '+BOOTSTRAP[stage]);
+    assert(pending.kind==='data'?pending.node.aborted:!pending.node.parentNode,'hidden cancels pending resource');
+    // Returning visible before the rejection microtask cannot reopen the bootstrap.
+    p.document.hidden=false;p.document.dispatchEvent({type:'visibilitychange'});
+    assert.equal(p.api.gate(),false,'cancellation is latched until next page opening');
+    p.respond(pending);await p.complete();
+    assert.equal(p.requests.length,stage+1);assert.equal(p.api.state().ready,false);assert.equal(p.api.state().layout,false);
+    const next=page({values:p.values});next.status();next.frame();await next.complete();assert(next.api.state().ready);
+    next.emit('pagehide');p.emit('pagehide');
+  }
+  console.log('PASS v2 hidden bootstrap: all seven boundaries cancelled, late execution ignored, next-opening restart only.');
+}
+module.exports={page,read,tick,KEY,BOOTSTRAP,repeatedReportClock,hiddenBootstrap};
 if(require.main===module) tests().catch(e=>{console.error(e);process.exitCode=1;});

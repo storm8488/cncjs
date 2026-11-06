@@ -17,6 +17,12 @@
  *              AND cncLayout.wide(). No probe or URL override is introduced.
  *   Bootstrap and CSS/mount mutations run in RAF and recheck fresh Idle. Resource
  *   revocation is synchronous. body.perf-v2 follows layout, NOT permission to render.
+ *   Lock or document hidden during bootstrap cancels its pending resource and
+ *   latches cancellation until the next page opening. A bootstrap not yet started
+ *   may begin at safe Idle after unlock/visibility; a ready page retains caches.
+ *   safeIdle ages each report from its first monotone arrival and initial age;
+ *   duplicate server statusObservedAt (or transport observedAt when absent) never
+ *   renews it, including civil-clock rollback and temporary missing snapshots.
  *   The simulation page uses the existing explicitly simulated Idle/canChange model;
  *   it does not invent missing Grbl age, coordinates, fingerprint or spindle reports.
  *   Eco/lost GPU stop resources at once; the old layout returns only at known Idle.
@@ -67,6 +73,8 @@
  *    passes:[{id,firstSegment,endSegment,firstLine,lastLine}],
  *    memory:{owner:'L2',mode:'borrowed-readonly',transferables:[]}}.
  *   Positions contain XYZ start/end for every segment, millimetres in program WCS.
+ *   toleranceMm bounds arc subdivision plus XYZ rounding in the exported Float32
+ *   positions; it describes nominal geometry, never physical machining accuracy.
  *   Segment indexes/ranges are 0-based, endSegment exclusive; sourceLines are 1-based
  *   original program lines, 0 means unknown. Full and simplified share these units.
  *   geometryKey includes identity.key, geometry version, quality, tolerance and filters.

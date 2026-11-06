@@ -379,18 +379,27 @@
     options = options || {};
     var cap = finite(options.cap) && options.cap > 0 ? Math.min(GEOMETRY_CAP,Math.floor(options.cap)) : GEOMETRY_CAP;
     var size = Math.min(4096,cap), n = 0, count = 0, overflow = false, broken = false, omit = false, endLine = null;
-    var tolerance = ARC_TOLERANCE;
+    var tolerance = 0, rounding = 0;
     var P = new Float32Array(size*6), L = new Uint32Array(size), I = new Uint32Array(size), passes = [], pass = null, wcs = null, moved = false, relative = false;
     var seq = ME.createSequenceCollector ? ME.createSequenceCollector() : null;
     function segment(ax,ay,az,bx,by,bz,rapid,line) {
-      if (![ax,ay,az,bx,by,bz].every(function (p) { return finite(p) && finite(Math.fround(p)); })) { omit=true; broken=true; pass=null; return; }
+      var coordinates = [ax,ay,az,bx,by,bz];
+      if (!coordinates.every(function (p) { return finite(p) && finite(Math.fround(p)); })) { omit=true; broken=true; pass=null; return; }
       count++;
       if (count > cap) { overflow = true; return; }
       if (n === size) {
         size = Math.min(cap,size*2); var p = new Float32Array(size*6), l = new Uint32Array(size), ids = new Uint32Array(size);
         p.set(P); l.set(L); ids.set(I); P=p; L=l; I=ids;
       }
-      P.set([ax,ay,az,bx,by,bz],n*6); L[n]=line;
+      P.set(coordinates,n*6); L[n]=line;
+      // A point on the exported segment is a convex combination of its rounded
+      // endpoints, so its displacement is bounded by the larger endpoint error.
+      // Adding the largest 3D displacement to the analytic arc sagitta also
+      // covers translated arcs, helices and straight segments in Float32.
+      for (var endpoint=0;endpoint<6;endpoint+=3) {
+        var dx=P[n*6+endpoint]-coordinates[endpoint], dy=P[n*6+endpoint+1]-coordinates[endpoint+1], dz=P[n*6+endpoint+2]-coordinates[endpoint+2];
+        rounding=Math.max(rounding,Math.sqrt(dx*dx+dy*dy+dz*dz));
+      }
       if (rapid) pass=null;
       else {
         if (!pass) { pass={id:passes.length+1,firstSegment:n,endSegment:n,firstLine:line,lastLine:line}; passes.push(pass); }
@@ -422,7 +431,7 @@
       if (kind === 'end') endLine=line;
     });
     interp.text(String(text || ''));
-    return {tooLong:overflow,segmentCount:count,quality:overflow || omit ? 'unknown' : broken ? 'simplified' : 'full',wcs:wcs,toleranceMm:tolerance,
+    return {tooLong:overflow,segmentCount:count,quality:overflow || omit ? 'unknown' : broken ? 'simplified' : 'full',wcs:wcs,toleranceMm:Math.max(ARC_TOLERANCE,tolerance+rounding),
       buffers:overflow ? null : {positions:P.slice(0,n*6),sourceLines:L.slice(0,n),passIds:I.slice(0,n)},passes:overflow ? [] : passes,
       sequences:seq ? seq.finish(interp.state().line) : null};
   }

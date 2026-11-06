@@ -123,8 +123,23 @@ function effectiveArcTolerance() {
   const geometry = require('./touch/preview-inspect.js').buildV2Geometry(
     'G21 G90 G54\nG0 X100000 Y0\nG2 X100000 Y0 I-100000 J0 F100');
   assert.equal(geometry.segmentCount,4097);
-  assert(Math.abs(geometry.toleranceMm - 100000*(1-Math.cos(Math.PI/4096))) < 1e-7,
-    'the 4096-step cap must expose its effective sagitta');
+  const analyticalSagitta = 100000*(1-Math.cos(Math.PI/4096));
+  assert(geometry.toleranceMm >= analyticalSagitta,
+    'the 4096-step cap must still expose at least its effective sagitta');
+  assert(geometry.buffers.positions instanceof Float32Array);
+  const positions = geometry.buffers.positions;
+  let maxExportedError = 0;
+  // Skip the first rapid; inspect the endpoints and midpoints of every exported
+  // chord of the 100 m circle, including the actual Float32 rounding.
+  for (let offset=6; offset<positions.length; offset+=6) {
+    for (const t of [0,0.5,1]) {
+      const x = positions[offset]*(1-t)+positions[offset+3]*t;
+      const y = positions[offset+1]*(1-t)+positions[offset+4]*t;
+      maxExportedError = Math.max(maxExportedError,Math.abs(100000-Math.hypot(x,y)));
+    }
+  }
+  assert(geometry.toleranceMm >= maxExportedError,
+    'announced tolerance '+geometry.toleranceMm+' must include exported Float32 error '+maxExportedError);
 }
 
 async function tests() {
