@@ -91,7 +91,7 @@ async function dropAndReconnect(f, epoch) {
   {
     const f = await connected(RUNNING);
     (f.listeners.offline || []).forEach((fn) => fn({})); await f.flush();
-    assert(f.lastStatus().halt, 'offline: the target is kept');
+    assert(f.lastStatus().machine || f.lastStatus().halt, 'offline: the target is kept (B-4: the flag alone keeps the state)');
     assert.equal(f.el('job-stop').disabled, false, 'offline: Arrêter stays enabled');
     const n = f.posts().length; f.el('job-stop').click(); await f.flush();
     assert.equal(f.posts().length, n + 1, 'offline: Arrêter is still attempted');

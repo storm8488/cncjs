@@ -236,10 +236,12 @@ function choice(f, value) { return findAll(f.el('real-motion'), (n) => n.getAttr
     assert.equal(f.lastStatus().transportConnected, true, 'the stream is back'); assert.equal(f.el('real-motion-yp').disabled, false);
     assert.equal(f.motion('jog-keepalive').length, 0);
     f.el('real-motion-yp').fire('pointerup'); await f.flush(); assert.equal(f.motion('jog-stop').length, 1);
-    // Offline flag: a jog stop still goes out (the browser may be wrong).
+    // Offline flag: only a hint (B-4), the stream still answers: the jog goes on, and its stop still goes out.
     f.advance(400); down(f.el('real-motion-yp')); await f.flush();
     const s2 = f.motion('jog-start').at(-1); f.answer(s2, { jogId: 'j6b', keepalivePeriodMs: 100 }); await f.flush();
     f.fireWindow('offline'); await f.flush();
+    assert(!f.motion('jog-stop').some((r) => r.body.jogId === 'j6b'), 'the offline flag alone does not stop the jog');
+    f.el('real-motion-yp').fire('pointerup'); await f.flush();
     assert(f.motion('jog-stop').some((r) => r.body.jogId === 'j6b'), 'jog-stop sent although offline');
   }
   // 7. A refused keepalive (409): no more keepalives, the message shown, a stop sent.

@@ -4,9 +4,11 @@
   var panel = document.querySelector('.library-execution');
   if (!panel) return;
   var simulation=window.cncJobSimulation;
-  // API on this computer (kiosk on localhost): the browser's offline flag says nothing about it (job-stream.js).
-  var localApi=!simulation&&!!(window.CNCJobStream&&window.CNCJobStream.loopback&&window.CNCJobStream.loopback(window.cncState?window.cncState.get().apiBase:'/api'));
-  var networkOffline=!simulation&&!localApi&&!!(window.navigator&&window.navigator.onLine===false);
+  // The browser's offline flag is only a hint (B-4): it never stops a request nor disables Pause /
+  // Arrêter (the kiosk on localhost, a misread link); real request failures decide. Shown as a warning.
+  var browserOffline=!simulation&&!!(window.navigator&&window.navigator.onLine===false);
+  // While the session is refused, the fallback state read waits a minute between attempts (B-3).
+  var refusedUntil=0;
   panel.innerHTML = uiLocale.html('<h2>Exécution sur la machine</h2>') +
     uiLocale.html('<label for="job-port">Contrôleur CNCjs</label><select id="job-port"><option value="">Aucune machine connectée</option></select>') +
     uiLocale.html('<p id="job-state" role="status">Lecture de l’état…</p>') +
@@ -130,18 +132,16 @@
   // values; otherwise the server's French message (translated when it is a catalog phrase).
   function serverRefusal(data,status){
     var fallback=data&&typeof data.message==='string'&&data.message?data.message:uiLocale.t('Commandes indisponibles (HTTP ')+status+').';
-    var e=new Error(data&&data.code&&uiLocale.format?uiLocale.format(data.code,data.params,fallback):fallback);
+    // Coded reasons behind the refusal (laser framing refused by the travel check: {code, params,
+    // message}, like a program check's codedReasons), 3 at most, in the interface language.
+    var why=data&&Array.isArray(data.reasons)?data.reasons.filter(function(r){return r&&typeof r==='object'&&typeof r.message==='string'&&r.message;}).slice(0,3).map(function(r){
+      var m=r.message.slice(0,300);return uiLocale.format?uiLocale.format(r.code,r.params,m):m;}):[];
+    var e=new Error((data&&data.code&&uiLocale.format?uiLocale.format(data.code,data.params,fallback):fallback)+(why.length?' '+why.join(' '):''));
     if(data&&typeof data.code==='string'){e.code=data.code;e.params=data.params||null;}
     return e;
   }
-  function jogStop(body){return !!(body&&body.action==='motion'&&body.operation==='jog-stop');}
-  // Commands that only bring the machine to rest: attempted even without a recent state.
-  function halting(body){return jogStop(body)||!!(body&&(body.action==='pause'||body.action==='stop'));}
   function api(method,body) {
     if(simulation) return simulation.request(method,body);
-    // A jog stop (F1), Pause and Stop are always attempted: the browser's offline flag may be
-    // wrong, and they cost nothing.
-    if(networkOffline&&!halting(body))return Promise.reject(new Error(uiLocale.t('Réseau indisponible. Suivi suspendu ; aucune commande ne sera relancée automatiquement.')));
     if(document.body && document.body.getAttribute('data-simulation')==='true') return Promise.reject(new Error(uiLocale.t('Simulateur indisponible. Rechargez la page.')));
     return new Promise(function(resolve,reject) {
       var credential=token();
@@ -166,7 +166,7 @@
       xhr.send(payload?JSON.stringify(payload):null);
     });
   }
-  function sessionRefused(){if(stream&&stream.refused)stream.refused();window.dispatchEvent(new CustomEvent('cnc-session-refused',{detail:null}));}
+  function sessionRefused(){refusedUntil=elapsedClock()+60000;if(stream&&stream.refused)stream.refused();window.dispatchEvent(new CustomEvent('cnc-session-refused',{detail:null}));}
   function dismiss(restore) {
     confirmation++;ticket=null;prop('job-dialog','hidden',true);prop('job-check','checked',false);prop('job-confirm','disabled',true);
     dialogBackground.forEach(function(entry){if(entry.restore)entry.restore();else entry.node.inert=entry.inert;});dialogBackground=[];
@@ -296,7 +296,7 @@
     render();
     // The state by HTTP at once rather than at the next tick of the 1 s loop (Pause / Arrêter
     // stay offered meanwhile through `halt`).
-    if(!rotating&&!simulation&&!networkOffline&&!disposed){nextPoll=0;poll(true);}
+    if(!rotating&&!simulation&&!disposed){nextPoll=0;poll(true);}
   }
   function projected(){
     if(!latestMachine)return null;
@@ -324,7 +324,7 @@
     if(online&&current.fresh!==false)halt=haltOf(current);
     var lost=!online&&halt&&!simulation?halt:null;
     var detail={machine:online?current:null,observedAt:lastSeen,transportConnected:transportConnected,simulation:!!simulation,busy:busy,feedback:$('job-feedback').textContent,feedbackState:feedbackState,systemCommand:command,pilot:pilot,halt:lost};
-    if(store)store.set({machine:detail.machine,controllerId:detail.machine?detail.machine.port:null,transportConnected:transportConnected,transportReason:grace?'':streamReason,systemCommand:command});
+    if(store)store.set({machine:detail.machine,controllerId:detail.machine?detail.machine.port:null,transportConnected:transportConnected,transportReason:grace?'':(streamReason||(browserOffline?uiLocale.t('Le navigateur signale le réseau coupé : le suivi continue tant que CNCjs répond.'):'')),systemCommand:command});
     var line=command?uiLocale.t('Commande système en cours : ')+command.title:'';
     if(systemLine.textContent!==line)systemLine.textContent=line;if(systemLine.hidden!==!line)systemLine.hidden=!line;
     var signature=JSON.stringify(detail);
@@ -402,7 +402,7 @@
     if(feedbackReached){feedbackExpect=null;feedbackReached=false;text('job-feedback','');setFeedbackState('');}
   }
   function apply(data,transit) {
-      if(disposed||networkOffline)return;
+      if(disposed)return;
       if(!data||!Array.isArray(data.controllers)||(!simulation&&compact&&
         (data.version!==undefined||data.epoch!==undefined)&&!window.CNCJobStream.validSnapshot(data,false))){
         var invalid=uiLocale.t('Réponse de suivi invalide.');
@@ -436,7 +436,8 @@
       render();
   }
   function poll(force) {
-    if(disposed||networkOffline||polling)return;
+    if(disposed||polling)return;
+    if(!force&&!simulation&&elapsedClock()<refusedUntil&&elapsedClock()>=refusedUntil-60000)return;
     if(!force&&!simulation&&(stream&&stream.alive()||elapsedClock()<nextPoll))return;
     // Without the stream, a job (or anything Stop can end) is read every 2 s, so Stop and
     // Pause, which need a state younger than 3 s, stay usable between two reads.
@@ -447,7 +448,7 @@
     var id=++requestSequence, ownGeneration=generation, ownMutation=mutation, started=elapsedClock();
     api('GET').then(function(data){
       if(disposed||ownGeneration!==generation||ownMutation!==mutation||id<appliedRequest)return;
-      appliedRequest=id;apply(data,elapsedClock()-started);
+      refusedUntil=0;appliedRequest=id;apply(data,elapsedClock()-started);
     }).catch(function(e){if(ownGeneration===generation&&ownMutation===mutation){unavailable(e.message);text('job-state',e.message);}}).then(function(){
       polling=false;
       // The answer may be the first to show a job: the next read comes 2 s after this one.
@@ -595,14 +596,14 @@
   }
   bind(document,'visibilitychange',function(){if(document.hidden){observationSuspended=true;dismiss(false);closePilot(false);}else resumeObservation();});
   function network(online){
-    if(simulation||localApi||disposed||networkOffline===!online)return;
-    networkOffline=!online;
+    if(simulation||disposed)return;
+    browserOffline=!online;
     if(stream)stream.setOnline(online);
-    else unavailable(uiLocale.t(online?'Réseau rétabli. Vérification du suivi ; nouvelle confirmation requise.':'Réseau indisponible. Suivi suspendu ; aucune commande ne sera relancée automatiquement.'));
     if(online){nextPoll=0;poll(true);}
+    render();
   }
   // New token stored without a reload (app.js, reload guard): the stream checks it at once.
-  bind(window,'cnc-session-renewed',function(){if(disposed||simulation)return;if(stream)stream.reconnect(undefined,true);nextPoll=0;poll(true);});
+  bind(window,'cnc-session-renewed',function(){if(disposed||simulation)return;refusedUntil=0;if(stream)stream.reconnect(undefined,true);nextPoll=0;poll(true);});
   bind(window,'offline',function(){network(false);});
   bind(window,'online',function(){network(true);});
   // Seconds left in words, and the bar's remaining fraction of the ticket window (15 s at most).
