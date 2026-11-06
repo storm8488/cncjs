@@ -18,6 +18,43 @@ async function pathOf(code) {
 function storage() { const m = new Map(); return { getItem: k => m.has(k) ? m.get(k) : null, setItem: (k, v) => m.set(k, String(v)), map: m }; }
 
 (async () => {
+  // L2 v2: independent segments never join two known islands across G53.
+  const islands = PI.buildV2Geometry('G90 G21\nG1 X10 Y0 Z0 F100\nG53 G0 X-100\nG0 X20 Y0 Z0\nG1 X30');
+  assert.equal(islands.segmentCount, 2);
+  assert.deepEqual(Array.from(islands.buffers.positions), [0,0,0,10,0,0,20,0,0,30,0,0]);
+  assert(islands.buffers.sourceLines instanceof Uint32Array);
+  assert.deepEqual(Array.from(islands.buffers.sourceLines), [2,5]);
+  assert.equal(islands.passes.length, 2, 'unknown motion breaks a pass');
+  assert.equal(islands.passes[1].firstSegment, 1);
+  const g = PI.buildV2Geometry('G21 G54\nG0 X1\nG1 X2 F100\nG1 Y3\nG0 Z5\nG1 X4');
+  assert.equal(g.wcs, 'G54'); assert.equal(g.segmentCount, 5);
+  assert.deepEqual(Array.from(g.buffers.passIds), [0,1,1,0,2]);
+  assert.deepEqual(g.passes, [{id:1,firstSegment:1,endSegment:3,firstLine:3,lastLine:4},{id:2,firstSegment:4,endSegment:5,firstLine:6,lastLine:6}]);
+  assert.equal(PI.buildV2Geometry('G1 X1 F100\nG1 X2\nG1 X3', {cap:2}).buffers, null);
+  assert.equal(PI.buildV2Geometry('G20 G1 X1 F10').buffers.positions[3], Math.fround(25.4));
+  assert.equal(PI.buildV2Geometry('G54 G1 X1 F100\nG55 G1 X2').wcs, null);
+  const lastMove=PI.buildV2Geometry('G21 G54\nG1 X10 F100 M30\nG1 X20');
+  assert.equal(lastMove.segmentCount,1,'M30 ends after the motion on its own block');
+  assert.equal(lastMove.buffers.positions[3],10);
+  assert.equal(PI.buildV2Geometry('G21 G54\nG1 X10 F100\nM98 P100\nG1 X20').quality,'unknown','unsupported subprogram cannot be a complete geometry');
+  assert.equal(PI.buildV2Geometry('G21 G54 G91\nG1 X10 F100').quality,'unknown','initial relative motion has no known WCS start');
+  assert.equal(PI.buildV2Geometry('G21 G54\nG1 X10 F100 M30\nM98 P1').quality,'full','commands after M30 are not executed');
+  assert.equal(PI.buildV2Geometry('G21 G54\nG1 X9999999999999999999999999999999999999999 F100').quality,'unknown','Float32 overflow cannot reach a renderer');
+  // Explicit declaration identities; no stock from the merely selected file.
+  const identity = {role:'loaded',file:'part.nc',fingerprint:'opaque',key:JSON.stringify(['part.nc','opaque']),jobKey:'job'};
+  const declared = PI.declarations(identity, {
+    project:{identity,stock:{x:40,y:20,z:5},dimensions:[{axis:'x',valueMm:40}]},
+    operator:{identity,clamps:[{x:1,y:2,w:3,d:4,h:5}],dimensions:[{axis:'y',valueMm:20},{axis:'z',valueMm:5}]},
+    program:{identity,bounds:[0,0,-1,30,10,0]}
+  });
+  assert.deepEqual(declared.map(d=>d.source), ['project','project','operator','operator','operator','program']);
+  assert.equal(declared.filter(d=>d.kind==='dimension').length,4);
+  assert(declared.every(d=>d.units==='mm' && d.identity.key===identity.key && Object.isFrozen(d)));
+  assert(declared.find(d=>d.kind==='stock').assumptions.includes('top-z0'));
+  assert.equal(PI.declarations(identity,{project:{identity:{...identity,fingerprint:'old',key:'old'},stock:{x:40,y:20,z:5}}}).length,0);
+  assert.equal(PI.declarations({...identity,key:null},{operator:{identity,stock:{x:40,y:20}}}).length,0);
+  assert.equal(PI.declarations(identity,{operator:{identity,clamps:[null,{x:0,y:0,w:1,d:1,h:Infinity}],dimensions:[{axis:'x',valueMm:NaN}]}}).length,0);
+  assert.equal(PI.declarations(identity,{program:{identity,bounds:[10,0,0,0,5,3]}}).length,0,'invalid bounds do not yield partial dimensions');
   const code = ['G21 G90', '(operation: Ebauche)', 'T1 M6', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G1 X40 F600', 'G1 Y20', 'G0 Z5',
     '(operation: Finition)', 'T2 M6', 'G0 X0 Y0', 'G1 Z-3 F100', 'G1 X40 F400 S12000', 'G0 Z5', 'M30'].join('\n');
   const { encoded, path: p } = await pathOf(code);

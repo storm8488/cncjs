@@ -21,6 +21,9 @@
   var scriptSrc = doc && doc.currentScript && doc.currentScript.src || '', query = /\?[^#]*/.exec(scriptSrc);
   var CSS_HREF = 'origin-preview.css' + (query ? query[0] : '');
   var COLOUR = { ok: 'ok', outside: 'danger', unknown: 'neutral' };
+  var placementProvider = null, comparisonMode = 'both';
+  // This key belongs to L0's deferred JSON catalogue, registered when v2 opens.
+  var unknownSource = 'Source inconnue';
 
   function num(v) { var n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v; return typeof n === 'number' && isFinite(n) ? n : null; }
   // Same format as travel-check.js (one decimal, comma).
@@ -92,6 +95,8 @@
   // The line under the « Origine de travail » step of the guided preparation: the verdict, or ''.
   function hint(m, preview) {
     if (phase(m) !== 'idle' || !preview || !preview.projection || laser(m) || !wide() || !check()) return '';
+    if (v2() && (!check().placementData || check().placementData(preview, m).verdict === 'unknown' ||
+        !m.operator || m.operator.wcs !== 'G54' || m.operator.reportUnits !== 'mm')) return t('Course non vérifiable : ') + t(unknownSource);
     return verdict(preview, m).text;
   }
   // Pure model of the card for a state (tests, and paint() below).
@@ -100,6 +105,90 @@
     if (ph !== 'idle' || !meta) return { phase: ph, overlays: [], verdict: null, current: null };
     var v = verdict(meta, m);
     return { phase: ph, overlays: overlays(meta, m, v.state, stock), verdict: v, current: current(meta, m) };
+  }
+
+  // L2 -> L5/L6, data only. update({machine,preview,declarations}) accepts only
+  // the loaded fingerprint. A declaration never verifies a fixture or a collision.
+  function freeze(value) {
+    if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+    Object.keys(value).forEach(function (k) { freeze(value[k]); }); return Object.freeze(value);
+  }
+  function unknownPlacement(identity) {
+    return { version: 1, available: false, identity: identity || null, current: null, hypothesis: null,
+      travel: { verdict: 'unknown', source: null, marginsMm: null, zVerified: false, collisionsVerified: false }, declarations: [] };
+  }
+  function v2() { return !!root.cncV2 && root.cncV2.gate(); }
+  function declared(list, identity) {
+    var inspect = root.CNCPreviewInspect, inputs = {};
+    if (!inspect || typeof inspect.declarations !== 'function') return [];
+    (Array.isArray(list) ? list.slice(0, 64) : []).forEach(function (d) {
+      if (!d || ['stock', 'clamp', 'dimension'].indexOf(d.kind) < 0 || ['project', 'operator', 'program'].indexOf(d.source) < 0 ||
+          !d.identity || d.identity.key !== identity.key || d.units !== 'mm' || !d.value || typeof d.value !== 'object') return;
+      var input = inputs[d.source] || (inputs[d.source] = { identity: d.identity, clamps: [], dimensions: [] });
+      if (d.kind === 'stock') { if (!input.stock) input.stock = d.value; }
+      else if (d.kind === 'clamp') input.clamps.push(d.value);
+      else input.dimensions.push(d.value);
+    });
+    return inspect.declarations(identity, inputs);
+  }
+  function placement(input, api) {
+    var m = input.machine, meta = input.preview, result = unknownPlacement();
+    if (!m || !meta || meta.file !== m.name || !meta.fingerprint || meta.fingerprint !== m.fingerprint) return result;
+    var id = api.identity.create({ role: 'loaded', file: m.name, fingerprint: m.fingerprint, controller: m.port, generation: m.generation, revision: m.revision });
+    if (!id.jobKey) return result;
+    result.identity = id; result.declarations = declared(input.declarations, id);
+    var p = meta.projection, op = m.operator || {}, co = m.coordinates || {}, mp = co.mpos || {}, wp = co.wpos || {};
+    if (phase(m) !== 'idle' || m.activeState !== 'Idle' || num(m.statusAgeMs) === null || m.statusAgeMs < 0 || m.statusAgeMs > 2500 ||
+        op.reportUnits !== 'mm' || op.wcs !== 'G54' || !p || p.units !== 'mm' || p.relativeStart ||
+        (p.programWcs && p.programWcs !== op.wcs)) return result;
+    if (num(mp.x) === null || num(mp.y) === null || num(wp.x) === null || num(wp.y) === null) return result;
+    var z = num(mp.z) !== null && num(wp.z) !== null ? num(mp.z) - num(wp.z) : null;
+    result.available = true;
+    result.current = { wcs: op.wcs, offsetMm: { x: num(mp.x) - num(wp.x), y: num(mp.y) - num(wp.y), z: z } };
+    result.hypothesis = { axes: ['x', 'y'], deltaMm: { x: num(wp.x), y: num(wp.y) }, zUnchanged: true };
+    if (check() && check().placementData) result.travel = check().placementData(meta, m);
+    return result;
+  }
+  function installPlacement() {
+    var api = root.cncV2;
+    if (placementProvider || !v2() || !api.register || !api.identity || (doc && doc.body && doc.body.getAttribute('data-simulation') === 'true')) return;
+    var life = api.lifecycle.scope(null, 'placement'), value = freeze(unknownPlacement()), ended = false;
+    function reset() { value = freeze(unknownPlacement()); }
+    placementProvider = {
+      snapshot: function () {
+        // safeIdle includes elapsed monotone report age, even with no new event.
+        if (!ended && !api.state().safeIdle && value.available) reset();
+        return value;
+      },
+      update: function (input) {
+        if (ended || !life.token()) { reset(); return value; }
+        input = input || {};
+        var m = input.machine, key = m ? JSON.stringify([m.port, m.generation, m.revision, m.name, m.fingerprint]) : null;
+        if (!key || key !== api.state().programKey) { reset(); return value; }
+        var next = placement(input, api);
+        if (input.declarations === undefined && value.identity && next.identity && value.identity.jobKey === next.identity.jobKey) next.declarations = value.declarations;
+        var changed = JSON.stringify(next) !== JSON.stringify(value);
+        value = freeze(next); if (changed) api.notify('placement'); return value;
+      },
+      cancel: function () { reset(); },
+      dispose: function () { if (ended) return; ended = true; reset(); life.dispose(); }
+    };
+    api.register('placement', placementProvider);
+  }
+  // The base path is hidden in v2, and both placements are ordinary overlays.
+  // setOverlays() changes neither camera nor fit; no program is loaded again.
+  function comparison(mode) {
+    if (['both', 'current', 'hypothesis'].indexOf(mode) >= 0 && v2()) { comparisonMode = mode; schedule(); }
+    return comparisonMode;
+  }
+  function compareOverlays(list, all) {
+    var both = [{ id: 'current', kind: 'program', translate: [0, 0, 0], colour: 'neutral', width: 'thin' }].concat(list);
+    if (all) return both;
+    return both.filter(function (o) {
+      if (comparisonMode === 'hypothesis') return o.id !== 'current';
+      if (comparisonMode === 'current') return ['placed', 'outline', 'stock', 'origin'].indexOf(o.id) < 0;
+      return true;
+    });
   }
 
   // ---- Card in Préparer ----
@@ -126,12 +215,20 @@
     var h = s.handle; s.handle = null; s.closing = true;
     try { h.close('view'); } finally { if (s) s.closing = false; }
   }
-  function programKey(m) { return [m.name, m.revision === undefined ? '' : m.revision, m.fingerprint || ''].join(':'); }
+  function programKey(m) { return v2() ? JSON.stringify([m.port, m.generation, m.revision, m.name, m.fingerprint]) : [m.name, m.revision === undefined ? '' : m.revision, m.fingerprint || ''].join(':'); }
   function requestPreview(key, name) {
-    var own = s, id = ++own.request;
+    var own = s, id = ++own.request, lease = own.life ? own.life.token() : null, release = function () {};
+    if (own.pending) own.pending();
+    if (own.life && !lease) { own.metaKey = ''; return; }
+    if (own.life) release = own.life.track('read', function () {
+      if (own.request === id) { own.request++; own.metaKey = ''; own.pending = null; }
+    });
+    own.pending = release;
     function done(meta) {
-      if (s !== own || own.request !== id || own.metaKey !== key) return;
-      own.meta = meta && typeof meta === 'object' && meta.file === name ? meta : null; schedule();
+      release(); if (own.pending === release) own.pending = null;
+      if (own.life && !own.life.valid(lease)) return;
+      if (s !== own || own.request !== id || own.metaKey !== key || (v2() && (phase(own.machine) !== 'idle' || (root.cncV2.state && !root.cncV2.state().safeIdle)))) return;
+      own.meta = meta && typeof meta === 'object' && meta.file === name && (!v2() || (meta.fingerprint && own.machine && meta.fingerprint === own.machine.fingerprint)) ? meta : null; schedule();
     }
     try { root.cncDashboardView.loadedPreview().then(done, function () { done(null); }); } catch (_) { done(null); }
   }
@@ -147,7 +244,7 @@
     own.closedBy = '';
     // Shown before the view opens in it: the view measures its frame once, at open (a hidden frame gave a 1 x 1 px canvas).
     setHidden(own.view, false);
-    handle = root.CNCPreviewGL.open(own.meta, { container: own.view, live: { tool: true }, pathStyle: 'ghost', fit: 'all', overlays: list,
+    handle = root.CNCPreviewGL.open(own.meta, { container: own.view, live: { tool: true }, pathStyle: v2() ? 'hidden' : 'ghost', fit: 'all', overlays: list,
       onClose: function (reason) {
         if (own.handle === handle) own.handle = null;
         if (!own.closing) own.closedBy = String(reason || '');
@@ -169,6 +266,10 @@
     if (!s) return;
     s.frame = null;
     var m = s.machine, ph = phase(m), reason = s.failure || unavailable();
+    s.v2 = s.v2 || v2();
+    if (s.v2 && (!v2() || doc.hidden || locked())) { closeView(); return; }
+    if (s.v2 && ph === 'idle' && (!v2() || (root.cncV2.state && !root.cncV2.state().safeIdle) ||
+        m.activeState !== 'Idle' || num(m.statusAgeMs) === null || m.statusAgeMs < 0 || m.statusAgeMs > 2500)) ph = 'stale';
     if (reason) { closeView(); show({ state: t('Vue 3D indisponible : ') + reason + t('. Le contrôle de course reste au chargement et au démarrage.') }); return; }
     if (ph === 'stale') {
       // No preview yet (read pending or answered null, loadedPreview() giving null without a state):
@@ -189,17 +290,44 @@
     if (key !== s.metaKey) { closeView(); s.metaKey = key; s.meta = undefined; s.last = []; requestPreview(key, m.name); }
     if (s.meta === undefined) { show({ file: s.file }); return; }
     if (!s.meta) { closeView(); show({ file: s.file, state: t('Aperçu sans parcours 3D : régénérez-le dans Fichiers.') }); return; }
-    var r = model(m, s.meta, stockOf(s.meta));
+    var r = model(m, s.meta, v2() ? null : stockOf(s.meta));
+    if (v2()) {
+      installPlacement();
+      if (placementProvider) {
+        var placed = placementProvider.update({ machine: m, preview: s.meta });
+        var stocks = placed.declarations.filter(function (d) { return d.kind === 'stock'; });
+        if (stocks.length) r = model(m, s.meta, stocks[0].value);
+      }
+      // The legacy verifier defaults an absent $23 to zero. Its rules stay intact;
+      // v2 never presents that missing firmware convention as a green placement.
+      var data = check().placementData && check().placementData(s.meta, m);
+      if (!data || data.verdict === 'unknown') {
+        r.overlays = r.overlays.filter(function (o) { return o.id !== 'travel'; }).map(function (o) {
+          if (o.id === 'outline') o.colour = 'neutral'; return o;
+        });
+        if (r.verdict.state === 'ok' || r.verdict.state === 'outside') r.verdict = { state: 'unknown', tone: 'neutral', text: t('Course non vérifiable : ') + t(unknownSource) };
+        r.current = { tone: 'neutral', text: t('Origine actuelle : ') + t(unknownSource) };
+      }
+      var op = m.operator || {}, projection = s.meta.projection || {};
+      if (op.reportUnits !== 'mm' || op.wcs !== 'G54' || projection.relativeStart ||
+          (projection.programWcs && projection.programWcs !== op.wcs)) r.overlays = [];
+      r.allOverlays = compareOverlays(r.overlays, true);
+      r.overlays = compareOverlays(r.overlays);
+    }
     if (!s.meta.path3d) { closeView(); show({ file: s.file, verdict: r.verdict, current: r.current, state: t('Aperçu sans parcours 3D : régénérez-le dans Fichiers.') }); return; }
     s.last = r.overlays;
     if (s.handle) { var sig = JSON.stringify(r.overlays); if (sig !== s.sent) { s.handle.setOverlays(r.overlays); s.sent = sig; } }
-    else if (canOpen()) openView(r.overlays);
+    else if (canOpen()) {
+      openView(r.allOverlays || r.overlays);
+      if (s.handle && r.allOverlays) { s.handle.setOverlays(r.overlays); s.sent = JSON.stringify(r.overlays); }
+    }
     if (s.failure) { paint(); return; }
     show({ file: s.file, legend: true, verdict: r.verdict, current: r.current });
   }
   function on(target, type, fn) { target.addEventListener(type, fn); s.listeners.push([target, type, fn]); }
   function mount(screen) {
     if (s || !screen || !doc) return;
+    installPlacement(); comparisonMode = 'both';
     if (!doc.getElementById('op-style')) {
       var link = doc.createElement('link'); link.id = 'op-style'; link.rel = 'stylesheet'; link.href = CSS_HREF;
       (doc.head || doc.body).appendChild(link);
@@ -221,10 +349,15 @@
     screen.appendChild(card);
     var machine = null; try { machine = root.cncState.get().machine || null; } catch (_) {}
     s = { screen: screen, card: card, view: view, nodes: { file: file, legend: legend, verdict: verdictNode, current: currentNode, state: state, view: view },
-      listeners: [], frame: null, handle: null, closing: false, closedBy: '', failure: '', machine: machine, meta: undefined, metaKey: '', request: 0, last: [], sent: '', file: '' };
+      listeners: [], frame: null, handle: null, closing: false, closedBy: '', failure: '', machine: machine, meta: undefined, metaKey: '', request: 0, last: [], sent: '', file: '', v2: v2(),
+      life: v2() && root.cncV2.lifecycle ? root.cncV2.lifecycle.scope('prepare', 'placement') : null, pending: null };
     on(root, 'cnc-job-status', function (e) {
       var d = e && e.detail || {}; if (d.simulation) return;
       s.machine = d.machine || null;
+      if (v2() && (phase(s.machine) !== 'idle' || (s.metaKey && programKey(s.machine) !== s.metaKey))) {
+        s.request++;
+        if (!s.meta) s.metaKey = '';
+      }
       // No preview yet (read pending, or answered null) and the state is lost or names another program:
       // that read is not remembered, so the program shown next is asked again, even if it is the same one
       // and even if no frame showed the change. A steady state keeps a genuine null (no read loop).
@@ -234,6 +367,11 @@
     on(root, 'cnc-gpu-change', schedule);
     on(root, 'cnc-library-preview-updated', function () { s.metaKey = ''; schedule(); });
     on(root, 'cnc-screen-lock', schedule);
+    if (s.v2) {
+      on(root, 'cnc-v2-change', schedule);
+      on(root, 'cnc-v2-data', function (e) { if (e.detail && e.detail.slot === 'placement') schedule(); });
+      if (doc.addEventListener) on(doc, 'visibilitychange', schedule);
+    }
     if (doc.body && doc.body.classList) doc.body.classList.add('perf-origin');
     schedule();
   }
@@ -241,6 +379,8 @@
     if (!s) return;
     var own = s;
     closeView();
+    if (own.pending) own.pending();
+    if (own.life) own.life.dispose();
     if (own.frame !== null) { var caf = root.cancelAnimationFrame || root.clearTimeout; try { caf(own.frame); } catch (_) {} }
     own.listeners.forEach(function (l) { l[0].removeEventListener(l[1], l[2]); });
     if (own.card.parentNode) own.card.parentNode.removeChild(own.card);
@@ -248,5 +388,6 @@
     s = null;
     own.listeners = []; own.machine = null; own.meta = null; own.last = []; own.request++;
   }
-  root.CNCOriginPreview = { mount: mount, unmount: unmount, hint: hint, model: model };
+  root.CNCOriginPreview = { mount: mount, unmount: unmount, hint: hint, model: model, comparison: comparison };
+  installPlacement();
 })(typeof window !== 'undefined' ? window : this);

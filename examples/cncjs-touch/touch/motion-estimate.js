@@ -60,7 +60,12 @@
       return true;
     }
     var OPERATION = /^\s*(?:begin\s+operation|operation|op[ée]ration|op)\s*[:=]\s*(.+?)\s*$/i;
-    function commentText(text) { var m = OPERATION.exec(text); if (m) event('operation', m[1].slice(0, 60)); }
+    function commentText(text) {
+      var m = OPERATION.exec(text); if (m) event('operation', m[1].slice(0, 60));
+      // Explicit CAM declaration, never a guess from a diameter or an arbitrary comment.
+      var tool = /^\s*(?:tool|outil|herramienta)\s*[:=]\s*T?\s*(\d+)\s*$/i.exec(text);
+      if (tool) event('tool-comment', Number(tool[1]));
+    }
     function has(list, v) { for (var i = 0; i < list.length; i++) if (Math.abs(list[i] - v) < 1e-6) return true; return false; }
     function emit(mode, bx, by, bz, arc) {
       info.line = sender; info.feed = feed; info.inverse = inverse; info.s = s; info.spindle = spindle;
@@ -103,14 +108,16 @@
         var v = g[i];
         if (v === 0 || v === 1 || v === 2 || v === 3) motion = v;
         else if (v === 80) motion = null;
-        else if (v === 90) absolute = true; else if (v === 91) absolute = false;
+        else if (v === 90) { absolute = true; event('distance', 'G90'); } else if (v === 91) { absolute = false; event('distance', 'G91'); }
         else if (Math.abs(v - 91.1) < 1e-6) arcAbsolute = false; else if (Math.abs(v - 90.1) < 1e-6) arcAbsolute = true;
         else if (v === 20) unit = 25.4; else if (v === 21) unit = 1;
         else if (v === 17 || v === 18 || v === 19) plane = v;
         else if (v === 93) inverse = true; else if (v === 94) inverse = false;
         else if (v === 10 || v === 92 || Math.abs(v - 92.1) < 1e-6) event('frame', v);
         else if (v >= 38 && v < 39) event('probe', v);
-        else if (v === 4 || v === 28 || v === 30 || v === 53 || v === 40 || v === 49 || v === 43.1 || (v >= 54 && v <= 59) || v === 61) { /* handled below or no motion */ }
+        else if (v >= 54 && v <= 59 && v === Math.floor(v)) event('wcs', 'G' + v);
+        else if (v === 49 || v === 43.1) event('length-offset', 'G' + v);
+        else if (v === 4 || v === 28 || v === 30 || v === 53 || v === 40 || v === 61) { /* handled below or no motion */ }
         else event('code', 'G' + v);
       }
       if (w.F !== null) feed = w.F > 0 ? w.F * (inverse ? 1 : unit) : null;
@@ -122,6 +129,7 @@
         else if (mv === 0 || mv === 1) event('pause', 'M' + mv);
         else if (mv === 6) event('toolchange', w.T);
         else if (mv === 2 || mv === 30) { ended = true; event('end', 'M' + mv); }
+        else if (mv !== 7 && mv !== 8 && mv !== 9) event('mcode', 'M' + mv);
       }
       if (dwell) { event('dwell', w.P !== null && w.P >= 0 ? w.P : null); return; }
       var axisWords = w.X !== null || w.Y !== null || w.Z !== null;
@@ -172,6 +180,7 @@
       if (!clean || clean.charAt(0) === '%') return;
       reset();
       if (!tokenize(clean)) {
+        event('syntax', null);
         reset();
         clean.replace(/([A-Z])\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))/gi, function (_, letter, n) { word(letter.toUpperCase(), Number(n)); return ''; });
       }
@@ -225,6 +234,69 @@
   }
 
   function round(v, d) { var k = Math.pow(10, d === undefined ? 3 : d); return Math.round(v * k) / k; }
+
+  // V2 metadata collector, attached to the geometry interpreter IN THE IDLE WORKER.
+  // No text retained, no second parse, no claim that a sender line has been machined.
+  // Original sender numbering (nonempty lines) is also kept after a resume.
+  // At most 10000 records; an unsupported construct makes the following attachment
+  // indeterminate rather than fabricating an operation or an execution position.
+  function createSequenceCollector() {
+    var items = [], current = null, operation = null, operationLine = 0, tool = null, declaredTool = null, wcs = null, initialWcs = null;
+    var groups = 0, endLine = null, uncertainFrom = null, complete = true, last = 0, absolute = true, seenMove = false;
+    function uncertain(line) { uncertainFrom = uncertainFrom === null ? line : Math.min(uncertainFrom, line); }
+    function add(kind, line, label, provenance) {
+      current = null;
+      if (items.length >= 10000) { complete = false; uncertain(line); return null; }
+      var previous = items[items.length - 1];
+      if (previous && previous.lastLine >= line) uncertain(line);
+      current = { id: items.length + 1, firstLine: line, lastLine: line, label: label,
+        provenance: provenance, kind: kind, estimated: true, durationSeconds: null };
+      items.push(current); return current;
+    }
+    function move(mode, ax, ay, az, bx, by, bz, info) {
+      if (endLine !== null && info.line > endLine) return;
+      var line = info.line, kind = mode === 0 ? 'rapid' : 'group'; last = line;
+      if (!seenMove && !absolute) uncertain(line); seenMove = true;
+      if (info.lost) uncertain(line);
+      if (ax === bx && ay === by && az === bz && mode < 2) { if (mode === 0) current = null; return; }
+      if (!current || current.kind !== kind) {
+        if (kind === 'group') groups++;
+        add(kind, line, kind === 'rapid' ? 'Rapide G0' : operation || 'Séquence ' + groups,
+          kind === 'group' && operation ? 'declared' : 'inferred');
+      } else current.lastLine = line;
+    }
+    function event(kind, line, value) {
+      if (endLine !== null && line > endLine) return; last = line;
+      if (kind === 'operation') {
+        if (operationLine === line && operation !== value) uncertain(line);
+        operation = value; operationLine = line; current = null;
+      } else if (kind === 'tool' || kind === 'tool-comment') {
+        var number = typeof value === 'number' && isFinite(value) && value >= 0 && value === Math.floor(value) ? value : null;
+        if (kind === 'tool') tool = number; else declaredTool = number;
+      } else if (kind === 'toolchange') {
+        if (tool !== null && declaredTool !== null && tool !== declaredTool) uncertain(line);
+        var selectedTool = tool === null ? declaredTool : tool;
+        add('tool', line, selectedTool === null ? 'Changement d’outil' : 'Changement d’outil T' + selectedTool, 'declared');
+        current = null; declaredTool = null;
+      } else if (kind === 'pause') {
+        add('pause', line, value === 'M1' ? 'Pause optionnelle M1' : 'Pause M0', 'declared'); current = null;
+      } else if (kind === 'wcs') {
+        if (wcs && wcs !== value) uncertain(line); wcs = value; if (!initialWcs) initialWcs = value;
+      } else if (kind === 'distance') { absolute = value === 'G90';
+      } else if (kind === 'end') { endLine = line; }
+      else if (['code', 'arc-error', 'home', 'probe', 'machine', 'frame', 'length-offset', 'syntax', 'mcode'].indexOf(kind) >= 0) uncertain(line);
+    }
+    return { move: move, event: event, finish: function (totalLines) {
+      var end = typeof totalLines === 'number' ? totalLines : last;
+      return { version: 1, items: items, complete: complete, wcs: initialWcs,
+        ambiguous: uncertainFrom === null ? [] : [{ firstLine: uncertainFrom, lastLine: end }] };
+    } };
+  }
+  function createSequences() {
+    var collector = createSequenceCollector(), interpreter = createInterpreter(collector.move, collector.event);
+    return { line: interpreter.line, text: interpreter.text, finish: function () { return collector.finish(interpreter.state().line); } };
+  }
+  function sequences(text) { var s = createSequences(); s.text(String(text || '')); return s.finish(); }
   // rates: {x, y, z} in mm/min ($110-$112) or null.
   function createEstimator(options) {
     options = options || {};
@@ -360,6 +432,7 @@
   }
 
   var api = { createInterpreter: createInterpreter, createEstimator: createEstimator, estimate: estimate, moveLength: moveLength, arcPoints: arcPoints,
+    createSequenceCollector: createSequenceCollector, createSequences: createSequences, sequences: sequences,
     ratesFrom: ratesFrom, rapidBounds: rapidBounds, total: total, at: at, remaining: remaining, valid: valid };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CNCMotionEstimate = api;

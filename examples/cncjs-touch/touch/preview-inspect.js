@@ -165,6 +165,47 @@
     return { boxes: boxes, notes: notes };
   }
 
+  // V2 declarations are data, never a preparation verdict. Callers supply the
+  // identity of EACH source: CNCProjects.stock() alone follows the selection.
+  // Dimensions: {axis:'x'|'y'|'z',valueMm}, or {fromMm:{x,y,z},toMm:{x,y,z}}.
+  function finite(v) { return typeof v === 'number' && isFinite(v); }
+  function immutable(v) {
+    if (!v || typeof v !== 'object' || Object.isFrozen(v) || ArrayBuffer.isView(v)) return v;
+    Object.keys(v).forEach(function (k) { immutable(v[k]); }); return Object.freeze(v);
+  }
+  function contentIdentity(i) { return !!(i && i.file && typeof i.file === 'string' && i.fingerprint && typeof i.fingerprint === 'string' && i.key === JSON.stringify([i.file, i.fingerprint])); }
+  function declarations(identity, inputs) {
+    if (!contentIdentity(identity) || identity.role !== 'loaded') return [];
+    var out = [], dimensions = 0, id = {};
+    ['version','role','file','fingerprint','controller','generation','revision','key','jobKey'].forEach(function (k) { if (identity[k] !== undefined) id[k] = identity[k]; });
+    function add(kind, source, value, assumptions) { out.push({kind:kind,source:source,identity:id,value:value,units:'mm',assumptions:assumptions}); }
+    function dimension(d, source) {
+      if (!d || dimensions >= 4) return;
+      var v = null;
+      if (['x','y','z'].indexOf(d.axis) >= 0 && finite(d.valueMm) && d.valueMm >= 0) v = {axis:d.axis,valueMm:d.valueMm};
+      else if (d.fromMm && d.toMm && ['x','y','z'].every(function (k) { return finite(d.fromMm[k]) && finite(d.toMm[k]); })) {
+        var a = d.fromMm, b = d.toMm;
+        v = {fromMm:{x:a.x,y:a.y,z:a.z},toMm:{x:b.x,y:b.y,z:b.z},valueMm:Math.hypot(b.x-a.x,b.y-a.y,b.z-a.z)};
+      }
+      if (v && finite(v.valueMm)) { dimensions++; add('dimension',source,v,[source === 'program' ? 'nominal-program' : 'declared-not-measured','no-collision-check']); }
+    }
+    ['project','operator','program'].forEach(function (source) {
+      var s = inputs && inputs[source];
+      if (!s || !contentIdentity(s.identity) || s.identity.key !== identity.key) return;
+      var stock = s.stock;
+      if (source !== 'program' && stock && finite(stock.x) && stock.x > 0 && finite(stock.y) && stock.y > 0) {
+        add('stock',source,{x:stock.x,y:stock.y,z:finite(stock.z) && stock.z > 0 ? stock.z : null},['corner-x0-y0','top-z0','declared-not-measured','no-collision-check']);
+      }
+      if (source !== 'program' && Array.isArray(s.clamps)) s.clamps.slice(0,12).forEach(function (c) {
+        var v = c && clampValue(c); if (v) add('clamp',source,v,['bottom-z0','declared-not-measured','no-collision-check']);
+      });
+      if (Array.isArray(s.dimensions)) s.dimensions.slice(0,4).forEach(function (d) { dimension(d,source); });
+      var b = s.bounds;
+      if (source === 'program' && Array.isArray(b) && b.length === 6 && b.every(finite) && [0,1,2].every(function (k) { return b[k+3] >= b[k]; })) ['x','y','z'].forEach(function (axis,k) { dimension({axis:axis,valueMm:b[k+3]-b[k]},source); });
+    });
+    return immutable(out);
+  }
+
   // ---------- Resume preview ----------
   function sameFingerprint(a, b) { return !!a && !!b && fpKey(a) === fpKey(b); }
   // preview: the server's {version:1, fingerprint, fromLine, preamble, kind}; source: {fingerprint, path}
@@ -330,6 +371,58 @@
   // sender line that reached it and its type (rapid G0 or work). More than `cap` segments: only the
   // count is returned (tooLong), nothing kept. Never sends anything: a drawing, not a measurement.
   var GEOMETRY_CAP = 500000, ARC_TOLERANCE = 0.01;
+  // L0 segment format, built in the worker in the same interpreter pass as the
+  // sequence collector. No bridge is emitted over G53/home/probe/unknown motion.
+  // Lines use the original sender numbering (nonempty source lines, incl. comments).
+  function buildV2Geometry(text, options) {
+    options = options || {};
+    var cap = finite(options.cap) && options.cap > 0 ? Math.min(GEOMETRY_CAP,Math.floor(options.cap)) : GEOMETRY_CAP;
+    var size = Math.min(4096,cap), n = 0, count = 0, overflow = false, broken = false, omit = false, endLine = null;
+    var P = new Float32Array(size*6), L = new Uint32Array(size), I = new Uint32Array(size), passes = [], pass = null, wcs = null, moved = false, relative = false;
+    var seq = ME.createSequenceCollector ? ME.createSequenceCollector() : null;
+    function segment(ax,ay,az,bx,by,bz,rapid,line) {
+      if (![ax,ay,az,bx,by,bz].every(function (p) { return finite(p) && finite(Math.fround(p)); })) { omit=true; broken=true; pass=null; return; }
+      count++;
+      if (count > cap) { overflow = true; return; }
+      if (n === size) {
+        size = Math.min(cap,size*2); var p = new Float32Array(size*6), l = new Uint32Array(size), ids = new Uint32Array(size);
+        p.set(P); l.set(L); ids.set(I); P=p; L=l; I=ids;
+      }
+      P.set([ax,ay,az,bx,by,bz],n*6); L[n]=line;
+      if (rapid) pass=null;
+      else {
+        if (!pass) { pass={id:passes.length+1,firstSegment:n,endSegment:n,firstLine:line,lastLine:line}; passes.push(pass); }
+        pass.endSegment=n+1; pass.lastLine=line; I[n]=pass.id;
+      }
+      n++;
+    }
+    var interp = ME.createInterpreter(function (mode,ax,ay,az,bx,by,bz,info) {
+      if (seq) seq.move(mode,ax,ay,az,bx,by,bz,info);
+      if ((endLine !== null && info.line > endLine) || omit) return;
+      if (!moved && relative) { omit=true; broken=true; return; }
+      moved=true;
+      if (info.lost) { pass=null; broken=true; return; }
+      if (mode >= 2) {
+        var x=ax,y=ay,z=az;
+        ME.arcPoints(mode,ax,ay,az,bx,by,bz,info,ARC_TOLERANCE,function (nx,ny,nz) { segment(x,y,z,nx,ny,nz,false,info.line); x=nx;y=ny;z=nz; });
+      } else segment(ax,ay,az,bx,by,bz,mode===0,info.line);
+    },function (kind,line,value) {
+      if (seq) seq.event(kind,line,value);
+      if (endLine !== null && line > endLine) return;
+      if (kind === 'distance') relative=value==='G91';
+      if (kind === 'wcs') {
+        if (moved && value !== wcs) { wcs=null; omit=true; broken=true; pass=null; }
+        else if (!omit) wcs=value;
+      }
+      if (['frame','length-offset','code','mcode','syntax','arc-error'].indexOf(kind) >= 0) { omit=true; broken=true; pass=null; }
+      if (['home','machine','probe'].indexOf(kind) >= 0) { broken=true; pass=null; }
+      if (kind === 'end') endLine=line;
+    });
+    interp.text(String(text || ''));
+    return {tooLong:overflow,segmentCount:count,quality:overflow || omit ? 'unknown' : broken ? 'simplified' : 'full',wcs:wcs,toleranceMm:ARC_TOLERANCE,
+      buffers:overflow ? null : {positions:P.slice(0,n*6),sourceLines:L.slice(0,n),passIds:I.slice(0,n)},passes:overflow ? [] : passes,
+      sequences:seq ? seq.finish(interp.state().line) : null};
+  }
   function buildGeometry(text, options) {
     options = options || {};
     var cap = options.cap > 0 ? Math.floor(options.cap) : GEOMETRY_CAP, tol = options.tolerance > 0 ? options.tolerance : ARC_TOLERANCE;
@@ -399,6 +492,85 @@
     return { promise: promise, cancel: function () { if (done) return; finish(); rejectNow(new Error(t('Annulé'))); } };
   }
 
+  // L2 owns ONE loaded v2 cache. L1 calls update({identity,meta}) at rest, borrows
+  // snapshot().buffers after cnc-v2-data, and never transfers them. This path
+  // replaces, rather than supplements, preview-gl's v1 fullCache in v2 (L1).
+  // Optional Worker/fetchProgram are offline test adapters, never model fields.
+  // prepared() hands worker metadata to the sequences provider; no source text
+  // survives the worker. installV2() is called by the gated sequences bootstrap.
+  function installV2() {
+    var v = root.cncV2;
+    if (!v || !v.gate() || !v.lifecycle || !v.use('geometry').stub) return v && v.use ? v.use('geometry') : null;
+    var life = v.lifecycle.scope(null,'geometry'), pending = null, disposed = false, prepared = null;
+    function empty() { return immutable({version:1,available:false,identity:null,geometryKey:null,quality:'unknown',toleranceMm:null,segmentCount:null,units:'mm',wcs:null,buffers:null,passes:[],memory:{owner:'L2',mode:'borrowed-readonly',transferables:[]}}); }
+    var model = empty();
+    function match(id) {
+      if (!contentIdentity(id) || id.role !== 'loaded' || !id.jobKey) return false;
+      var canonical = v.identity.create(id);
+      return canonical.jobKey === id.jobKey && JSON.stringify([id.controller,id.generation,id.revision,id.file,id.fingerprint]) === v.state().programKey;
+    }
+    function stop() {
+      if (!pending) return;
+      var task = pending; pending=null;
+      if (task.untrack) task.untrack();
+      if (task.request) { var xhr=task.request; xhr.onload=xhr.onerror=xhr.ontimeout=null; try { xhr.abort(); } catch (_) {} }
+      if (task.worker) { task.worker.onmessage=task.worker.onerror=null; try { task.worker.terminate(); } catch (_) {} }
+    }
+    function clear() { stop(); model=empty(); prepared=null; }
+    function valid(task) { return pending === task && !disposed && life.valid(task.token) && match(task.identity); }
+    function fail(task) { if (pending === task) stop(); }
+    function screen() { stop(); }
+    var provider = {
+      snapshot:function () { return model; },
+      prepared:function () { return prepared; },
+      update:function (input) {
+        var id=input && input.identity, meta=input && input.meta;
+        if (disposed || !v.gate() || !match(id)) return model;
+        if (model.identity && model.identity.jobKey === id.jobKey) return model;
+        if (pending && pending.identity.jobKey === id.jobKey) return model;
+        var token=life.token();
+        if (!token || !meta || meta.file !== id.file || meta.fingerprint !== id.fingerprint) return model;
+        clear();
+        var task={identity:v.identity.create(id),token:token,request:null,worker:null,untrack:null}; pending=task;
+        task.untrack=life.track('read',function () { fail(task); });
+        var fetcher=input.fetchProgram || fetchProgram;
+        // Start only while the lease is valid; recheck before and after all reads.
+        try {
+          if (!valid(task)) { fail(task); return model; }
+          Promise.resolve(fetcher(id.file,function (xhr) { task.request=xhr; })).then(function (res) {
+            if (!valid(task)) { fail(task); return; }
+            task.request=null;
+            if (!res || res.fingerprint !== id.fingerprint) { fail(task); return; }
+            var W=input.Worker || root.Worker;
+            if (typeof W !== 'function') { fail(task); return; }
+            var worker=task.worker=new W(WORKER_URL);
+            worker.onerror=function (e) { if (e && e.preventDefault) e.preventDefault(); fail(task); };
+            worker.onmessage=function (e) {
+              if (!valid(task)) { fail(task); return; }
+              var m=e.data || {}, g=m.geometry;
+              if (m.type !== 'geometry-v2' || !g) { fail(task); return; }
+              var available=!!g.buffers && !g.tooLong && g.segmentCount <= GEOMETRY_CAP && g.quality !== 'unknown';
+              var key=JSON.stringify([id.key,1,g.quality,g.toleranceMm,[]]);
+              model=immutable({version:1,available:available,identity:task.identity,geometryKey:key,quality:available ? g.quality : 'unknown',toleranceMm:g.toleranceMm,segmentCount:available ? g.segmentCount : null,units:'mm',wcs:g.wcs,buffers:available ? g.buffers : null,passes:available ? g.passes : [],memory:{owner:'L2',mode:'borrowed-readonly',transferables:[]}});
+              prepared=immutable({identity:task.identity,geometryKey:key,prepared:g.sequences});
+              stop();
+              v.use('sequences').update(prepared);
+              v.notify('geometry');
+            };
+            worker.postMessage({type:'geometry-v2',id:1,blob:res.blob,cap:GEOMETRY_CAP});
+          }).catch(function () { fail(task); });
+        } catch (_) { fail(task); }
+        return model;
+      },
+      cancel:function (reason) { stop(); if (reason === 'program-changed') clear(); },
+      dispose:function () { if (disposed) return; disposed=true; clear(); life.dispose(); root.removeEventListener('cnc-screen-change',screen); }
+    };
+    v.register('geometry',provider);
+    life.track('cache',clear);
+    root.addEventListener('cnc-screen-change',screen);
+    return provider;
+  }
+
   // ---------- Resume preview in the page ----------
   // show(container, preview, source?): source {fingerprint, path3d} defaults to the program shown in Suivi.
   function show(container, preview, src) {
@@ -433,7 +605,7 @@
   var api = { offers: offers, filterMask: filterMask, nearestSegment: nearestSegment, describe: describe, createSourceIndex: createSourceIndex, stateAt: stateAt,
     clampValue: clampValue, loadClamps: loadClamps, saveClamps: saveClamps, overlayBoxes: overlayBoxes, drawBoxes: drawBoxes,
     resumePlan: resumePlan, drawResume: drawResume, reasonText: reasonText, sameFingerprint: sameFingerprint, fetchProgram: fetchProgram, textOf: textOf, source: source, show: show, hide: hide,
-    buildGeometry: buildGeometry, geometry: geometry, GEOMETRY_CAP: GEOMETRY_CAP };
+    buildGeometry: buildGeometry, buildV2Geometry: buildV2Geometry, declarations: declarations, installV2: installV2, geometry: geometry, GEOMETRY_CAP: GEOMETRY_CAP };
   if (typeof module !== 'undefined' && module.exports) { module.exports = api; return; }
   if (isWorker) {
     // Worker: one program kept, keyed by its fingerprint.
@@ -453,6 +625,12 @@
         } else if (m.type === 'state') {
           if (!current) throw new Error('Aucun fichier chargé');
           root.postMessage({ type: 'state', id: m.id, state: stateAt(current.index, m.line) });
+        } else if (m.type === 'geometry-v2') {
+          textOf(m.blob).then(function (program) {
+            var result=buildV2Geometry(program,{cap:m.cap});
+            var buffers=result.buffers;
+            root.postMessage({type:'geometry-v2',id:m.id,geometry:result},buffers ? [buffers.positions.buffer,buffers.sourceLines.buffer,buffers.passIds.buffer] : []);
+          }).catch(fail);
         } else if (m.type === 'geometry') {
           // The whole program for the GPU view: its own read of the blob, nothing kept in the worker.
           var text = typeof m.blob.text === 'function' ? m.blob.text() : Promise.resolve(new root.FileReaderSync().readAsText(m.blob, 'UTF-8'));
@@ -469,4 +647,5 @@
   }
   root.CNCPreviewInspect = api;
   root.cncResumePreview = { show: show, hide: hide, plan: resumePlan };
+  if (root.cncV2 && root.cncV2.gate() && root.cncV2.lifecycle) installV2();
 })(typeof self !== 'undefined' ? self : typeof window !== 'undefined' ? window : this);
