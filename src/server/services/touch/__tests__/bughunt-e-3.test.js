@@ -75,7 +75,7 @@ describe('E-3 (suite) : les lignes après la première gardent le mode de dépla
   });
 
   test('G2 avant la ligne : reprise refusée (ETOUCH_RESUME_FIRST_LINE), le mode arc ne se rétablit pas sans I/J', () => {
-    const prog = ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G2 X10 Y0 I5 J0', 'G92 X0 Y0', 'X20 Y0 I5 J0', 'M30'].join('\n');
+    const prog = ['G21 G90 G17', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G2 X10 Y0 I5 J0', 'G92 X0 Y0', 'X20 Y0 I5 J0', 'M30'].join('\n');
     let refusal = null;
     try {
       buildResume(prog, 6);
@@ -117,7 +117,7 @@ describe('E-3 (suite) : les lignes après la première gardent le mode de dépla
   });
 
   test('programme en G2, première ligne « G4 P1 » : reprise refusée (ETOUCH_RESUME_FIRST_LINE), plus de contournement', () => {
-    const prog = ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G2 X10 Y0 I5 J0', 'G4 P1', 'X20 Y0 I5 J0', 'M30'].join('\n');
+    const prog = ['G21 G90 G17', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G2 X10 Y0 I5 J0', 'G4 P1', 'X20 Y0 I5 J0', 'M30'].join('\n');
     let refusal = null;
     try {
       buildResume(prog, 6);
@@ -193,6 +193,79 @@ describe('E-3 (4e tour) : G49 avec axe, palpage modal, expressions en ligne de r
     expect(buildResume(prog.replace('G2 X20', 'G17\nG2 X20'), 6).preamble[1]).toBe('G21 G90 G54 G94');
     // Sans arc : rien n'est supposé, le préambule ne nomme aucun plan.
     expect(buildResume(prog.replace('G2 X20 Y0 I5 J0', 'G1 X20'), 6).preamble[1]).toBe('G21 G90 G54 G94');
+  });
+});
+
+// Cinquième tour (revue Codex) : lecture structurellement conforme à Grbl
+// (espaces retirés, texte des expressions ignoré), mode modal suivi pour les
+// arcs, refus de ce qui ne peut pas être connu (G43.1, mode de distance).
+describe('E-3 (5e tour) : lecture comme Grbl, expressions, arcs modaux, G43.1, G90/G91', () => {
+  const P = ['G21 G90 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5'];
+  const refusalOf = (fn) => {
+    try {
+      fn();
+    } catch (err) {
+      return err;
+    }
+    return null;
+  };
+
+  test('« G4 9 Z-100 » est G49 Z-100 pour Grbl : refusé à la ligne 7 comme à la ligne 6', () => {
+    const prog = P.concat(['G4 9 Z-100', 'G4 P1', 'X20']).join('\n');
+    expect(refusalOf(() => buildResume(prog, 7))).toMatchObject({ code: 'ETOUCH_RESUME_G49_AXIS', params: { line: 6 } });
+    expect(refusalOf(() => buildResume(prog, 6))).toMatchObject({ code: 'ETOUCH_RESUME_G49_AXIS', params: { line: 6 } });
+  });
+
+  test('« G9 2 X100 » est G92 X100 : changement d’origine refusé avant la ligne 7 ; « G0 X1 0 » est X10', () => {
+    const g92 = P.concat(['G9 2 X100', 'G4 P1', 'X20']).join('\n');
+    expect(refusalOf(() => buildResume(g92, 7))).toMatchObject({ code: 'ETOUCH_RESUME_ORIGIN_CHANGED', params: { line: 6, from: 7 } });
+    const x10 = P.concat(['G0 X1 0', 'G4 P1', 'X20']).join('\n');
+    const r = buildResume(x10, 7);
+    expect(r.position).toEqual({ X: 10, Y: 0, Z: 5 });
+    expect(r.preamble).toContain('G0 X10 Y0');
+    // Ligne de reprise elle-même espacée : lue de même (G 1 X1 5 → G1 X15, préfixe inutile).
+    expect(buildResume(P.concat(['G 1 X1 5', 'X20']).join('\n'), 6).preamble.at(-1)).toMatch(/^G1 Z5 F100$/);
+  });
+
+  test('le texte d’une expression n’est pas du G-code : « X[\'G2\'.length] » après la reprise n’est pas un arc, « X[\'G17\'.length] » ne choisit pas de plan', () => {
+    const noArc = P.concat(['G1 X10', 'X[\'G2\'.length]', 'M30']).join('\n');
+    expect(buildResume(noArc, 6).preamble.at(-1)).toMatch(/^G1 Z5 F100$/);
+    const fakePlane = P.concat(['G1 X10', 'X[\'G17\'.length]', 'G2 X20 Y0 I5 J0', 'M30']).join('\n');
+    const err = refusalOf(() => buildResume(fakePlane, 6));
+    expect(err).toMatchObject({ code: 'ETOUCH_RESUME_PLANE', params: { from: 6, line: 8 } });
+    expectCatalogMatch(err);
+    // Un mot G valué par une expression après la reprise : mode de déplacement indéterminé, refusé sans plan choisi.
+    const gExpr = P.concat(['G1 X10', 'G[2] X20 Y0 I5 J0', 'M30']).join('\n');
+    expect(refusalOf(() => buildResume(gExpr, 6))).toMatchObject({ code: 'ETOUCH_RESUME_PLANE', params: { from: 6, line: 7 } });
+    // Plan choisi : la même ligne ne gêne plus.
+    expect(buildResume(gExpr.replace('G21 G90 G54', 'G21 G90 G54 G17'), 6).preamble[1]).toBe('G21 G90 G17 G54 G94');
+  });
+
+  test('mode modal suivi après la reprise : « X20 I5 » après « G2 X10 I5 » est un arc, refusé sans plan choisi', () => {
+    const prog = P.concat(['G2 X10 I5', 'X20 I5', 'M30']).join('\n');
+    expect(refusalOf(() => buildResume(prog, 7))).toMatchObject({ code: 'ETOUCH_RESUME_PLANE', params: { from: 7, line: 7 } });
+    // Avec le plan choisi, la ligne d'arc modale reçoit son G2 (comportement existant).
+    const g17 = buildResume(prog.replace('G21 G90 G54', 'G21 G90 G54 G17'), 7);
+    expect(g17.program.split('\n')[g17.preamble.length]).toBe('G2 X20 I5');
+    // Un « G2 » seul après la reprise fixe le mode : la ligne d'axe suivante est un arc, refusée ;
+    // G80 annule le mode entre les deux : plus d'arc, reprise acceptée.
+    expect(refusalOf(() => buildResume(P.concat(['G1 X10', 'G2', 'X20 I5', 'M30']).join('\n'), 6))).toMatchObject({ code: 'ETOUCH_RESUME_PLANE', params: { from: 6, line: 8 } });
+    expect(buildResume(P.concat(['G1 X10', 'G2', 'G80', 'X20', 'M30']).join('\n'), 6).preamble.at(-1)).toMatch(/^G1 Z5 F100$/);
+  });
+
+  test('G43.1 avant la ligne de reprise, même annulé par G49 : refusé (ETOUCH_RESUME_TOOL_OFFSET)', () => {
+    const prog = P.concat(['G43.1 Z10', 'G1 Z-1', 'G49', 'G4 P1', 'X20']).join('\n');
+    const err = refusalOf(() => buildResume(prog, 9));
+    expect(err).toMatchObject({ code: 'ETOUCH_RESUME_TOOL_OFFSET', params: { line: 6, from: 9 } });
+    expectCatalogMatch(err);
+  });
+
+  test('ni G90 ni G91 avant la ligne de reprise : refusé (ETOUCH_RESUME_DISTANCE), la carte a pu rester en G91', () => {
+    const prog = ['G21 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5', 'G1 X10', 'M30'].join('\n');
+    const err = refusalOf(() => buildResume(prog, 6));
+    expect(err).toMatchObject({ code: 'ETOUCH_RESUME_DISTANCE', params: { from: 6 } });
+    expectCatalogMatch(err);
+    expect(buildResume(prog.replace('G21 G54', 'G21 G90 G54'), 6).preamble[1]).toBe('G21 G90 G54 G94');
   });
 });
 
