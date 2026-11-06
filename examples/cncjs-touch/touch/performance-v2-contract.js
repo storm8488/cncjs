@@ -17,7 +17,7 @@
  *   No Date.now subtraction, transport fallback or separate presenter age clock.
  *   Exception: the existing accepted SIMULATION / simulated / canChange model on
  *   the simulation page keeps its transport-arrival age without invented telemetry.
- *   preference() -> {version:1, enabled:Boolean, storage:absent|ok|invalid|unreadable}
+ *   preference() -> {version:1, enabled:Boolean, storage:absent|ok|invalid|unreadable}; absent = ON (v2 default)
  *   setPreference(Boolean) -> {ok, persisted, message}; never reloads or commands.
  *   Storage: cncjs-touch-performance-ui-v2 = {"version":1,"enabled":true|false}.
  *   A session is one page opening, including a restored bfcache page (pagehide ends

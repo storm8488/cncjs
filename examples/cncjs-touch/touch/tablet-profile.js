@@ -12,7 +12,7 @@
   var t=uiLocale.t;
   var KEY='cncjs-touch-performance-v1',PROFILES=['eco','performance'];
   // Cache key of the advanced scripts (they are not in the pages, so the pages' ?v= does not reach them).
-  var ADVANCED_VERSION='v2g';
+  var ADVANCED_VERSION='v2h';
   function read(){
     // Any failure (storage blocked, bad JSON, unknown value, other version) reads as eco.
     try{
@@ -127,14 +127,15 @@
     });});
   }
   // ---- Performance v2 bootstrap. Only this small gate lives in the baseline bundle. ----
-  // A session is one page opening. The preference is captured ONCE here. A user change
+  // v2 is the default: an absent preference is ON; the gate still closes it in Éco, laser,
+  // narrow screen or software GPU (the RT). A session is one page opening. The preference is captured ONCE here. A user change
   // only affects the next page, with no reload. An initially busy session cannot enable
   // v2 later when its job finishes. Unknown initial state waits for a fresh Idle report.
   var V2_KEY='cncjs-touch-performance-ui-v2';
   function v2Read(){
     try{
       var raw=window.localStorage.getItem(V2_KEY);
-      if(raw===null||raw===undefined)return {enabled:false,storage:'absent'};
+      if(raw===null||raw===undefined)return {enabled:true,storage:'absent'};
       var value=JSON.parse(raw);
       if(value&&value.version===1&&typeof value.enabled==='boolean')return {enabled:value.enabled,storage:'ok'};
       return {enabled:false,storage:'invalid'};

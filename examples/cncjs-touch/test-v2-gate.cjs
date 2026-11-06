@@ -6,6 +6,7 @@ const KEY = 'cncjs-touch-performance-ui-v2';
 const BOOTSTRAP = ['i18n-messages-v2.js','performance-v2-contract.js','performance-inspect.js',
   'performance-sequences.js','performance-observation.js','performance-journal-context.js','performance-v2.css'];
 const tick = () => new Promise(setImmediate);
+const OFF = JSON.stringify({version: 1, enabled: false});
 function page(options = {}) {
   const listeners = {}, frames = new Map(), classes = new Set(), requests = [], events = [];
   const values = options.values || new Map([
@@ -28,7 +29,7 @@ function page(options = {}) {
     removeEventListener(n,f) { listeners['doc:'+n] = (listeners['doc:'+n] || []).filter(x => x !== f); },
     dispatchEvent(e) { (listeners['doc:'+e.type] || []).slice().forEach(f => f(e)); }};
   // Baseline sheets are already in the head before the deferred bootstrap runs.
-  const responsive = element('link'); responsive.rel = 'stylesheet'; responsive.href = 'responsive.css?v=v2g';
+  const responsive = element('link'); responsive.rel = 'stylesheet'; responsive.href = 'responsive.css?v=v2h';
   document.head.children.push(responsive); responsive.parentNode = document.head;
   const window = {document, localStorage: storage, performance: {now: () => mono},
     innerWidth: options.width || 1366, innerHeight: options.height || 911,
@@ -91,7 +92,7 @@ async function tests() {
   p.frame(); await p.complete();
   assert(p.api.gate()); assert(p.api.state().ready); assert(p.classes.has('perf-v2'));
   assert.deepEqual(p.requests.map(r => r.url.split('?')[0]), BOOTSTRAP);
-  assert(p.requests.every(r => /\?v=v2g$/.test(r.url)));
+  assert(p.requests.every(r => /\?v=v2h$/.test(r.url)));
   const style = p.requests.find(r => r.url.startsWith('performance-v2.css?')).node;
   assert.equal(style.tagName, 'LINK'); assert.equal(style.rel, 'stylesheet');
   assert(p.document.head.children.indexOf(style) > p.document.head.children.findIndex(n => /^responsive\.css\?/.test(n.href || '')),
@@ -100,7 +101,7 @@ async function tests() {
   await assert.rejects(p.window.cncProfile.loadAdvanced('responsive.css'), 'only the guarded v2 stylesheet is accepted');
   for (const slot of ['inspect','sequences','observation','journal']) assert(!p.api.use(slot).stub, slot+' is installed before ready');
   const count = p.requests.length; p.status(); p.frame(); await p.complete(); assert.equal(p.requests.length,count);
-  for (const options of [{profile:'eco'}, {gpu:false,height:768}, {gpu:false}, {kind:'laser'}, {wide:false}, {raw:null}, {raw:'true'}, {raw:'{"version":2,"enabled":true}'}, {raw:'{"version":1,"enabled":"true"}'}, {readFail:true}]) {
+  for (const options of [{profile:'eco'}, {gpu:false,height:768}, {gpu:false}, {kind:'laser'}, {wide:false}, {raw:'{"version":1,"enabled":false}'}, {raw:'true'}, {raw:'{"version":2,"enabled":true}'}, {raw:'{"version":1,"enabled":"true"}'}, {readFail:true}]) {
     const q=page(options); q.status(); q.frame(); await q.complete();
     assert.equal(q.requests.length,0,JSON.stringify(options)); assert(!q.api.gate()); assert(!q.classes.has('perf-v2'));
     assert.equal(q.frames.size,0,'RT/Eco have no v2 timer or animation');
@@ -114,12 +115,14 @@ async function tests() {
   for (const detail of [{busy:true},{systemCommand:{}},{halt:{canStop:true}},{transportConnected:false}]) {
     const q=page(); q.status({},detail); q.frame(); await q.complete(); assert.equal(q.requests.length,0,'pending/unknown state');
   }
+  // v2 is the default: an absent preference opens the gate (Performance, CNC, wide, hardware GPU).
+  { const d=page({raw:null}); assert.equal(d.api.preference().storage,'absent'); assert(d.api.preference().enabled); d.status(); d.frame(); await d.complete(); assert(d.api.gate(),'absent preference = v2 on'); }
   // Preference is captured for this page, even if the first status has not arrived.
-  const q=page({raw:null}); const changed=q.api.setPreference(true);
+  const q=page({raw:OFF}); const changed=q.api.setPreference(true);
   assert(changed.ok && changed.persisted); assert.equal(changed.message,'Changement préparé pour la prochaine session au repos');
   q.status(); q.frame(); await q.complete(); assert.equal(q.requests.length,0);
   const reload=page({values:q.values}); reload.status(); reload.frame(); await reload.complete(); assert(reload.api.gate());
-  const blocked=page({raw:null,writeFail:true}); const unsaved=blocked.api.setPreference(true); assert.equal(unsaved.persisted,false); assert(!blocked.api.preference().enabled);
+  const blocked=page({raw:OFF,writeFail:true}); const unsaved=blocked.api.setPreference(true); assert.equal(unsaved.persisted,false); assert(!blocked.api.preference().enabled);
   assert.match(unsaved.message,/non enregistré/,'a failed storage write must not claim a prepared next session');
   assert.equal(blocked.api.setPreference('true').ok,false);
   // Busy initial session and asynchronous start never replace the layout at the end of a job.
@@ -138,7 +141,7 @@ async function tests() {
         assert.equal(q.requests.length,n+1,'one bootstrap request at a time');
         assert(!q.api.state().ready); await q.step();
       }
-      const pending=q.requests[stage]; assert.equal(pending.url,BOOTSTRAP[stage]+'?v=v2g');
+      const pending=q.requests[stage]; assert.equal(pending.url,BOOTSTRAP[stage]+'?v=v2h');
       assert(!q.api.state().ready); assert(!q.classes.has('perf-v2'));
       if(close==='eco') q.window.cncProfile.setPerformance('eco');
       if(close==='gpu') { q.gpu.lost=true; q.emit('cnc-gpu-change'); }
@@ -191,7 +194,7 @@ async function tests() {
   // script execution error). Do not expose a ready UI backed by a leftover stub.
   for(const missing of BOOTSTRAP.slice(2).filter(file => file.endsWith('.js'))) {
     const q=page(); q.status(); q.frame();
-    while(q.requests[q.requests.length-1].url!==missing+'?v=v2g') await q.step();
+    while(q.requests[q.requests.length-1].url!==missing+'?v=v2h') await q.step();
     const pending=q.requests[q.requests.length-1]; pending.done=true; pending.node.onload();
     await q.complete();
     assert(!q.api.state().ready,'missing provider '+missing); assert(!q.api.gate()); assert(!q.classes.has('perf-v2'));
@@ -204,13 +207,13 @@ async function tests() {
   eco.status(null); eco.frame(); assert(eco.classes.has('perf-v2')); eco.status(); eco.frame(); assert(!eco.classes.has('perf-v2'));
   const lost=page(); lost.status(); lost.frame(); await lost.complete(); lost.status({workflow:'running'});
   lost.gpu.lost=true; lost.emit('cnc-gpu-change',lost.gpu); assert(!lost.api.gate()); lost.frame(); assert(lost.classes.has('perf-v2'));
-  const external=page({raw:null}); external.values.set(KEY,JSON.stringify({version:1,enabled:true})); external.emit('storage',{key:KEY}); external.status();external.frame();await external.complete();assert.equal(external.requests.length,0,'another tab cannot hot-switch this session');
+  const external=page({raw:OFF}); external.values.set(KEY,JSON.stringify({version:1,enabled:true})); external.emit('storage',{key:KEY}); external.status();external.frame();await external.complete();assert.equal(external.requests.length,0,'another tab cannot hot-switch this session');
   assert(p.events.some(e=>e.type==='cnc-v2-change'));
   const sim=page({simulation:true});sim.values.set('cncjs-touch-sim-kind-v1','{"version":1,"kind":"cnc"}');sim.run('job-simulation.js');
   const snapshot=await sim.window.cncJobSimulation.request('GET');
   sim.emit('cnc-job-status',{simulation:true,machine:snapshot.controllers[0],busy:false,transportConnected:true});
   sim.frame();await sim.complete();assert(sim.api.gate(),'actual virtual Idle is usable without inventing a machine report age');
-  console.log('PASS v2 gate: real providers and guarded CSS after responsive, cache v2g, probe/scene barrier, cancellation at every stage, RT/software/Eco/laser zero requests, frozen busy layout.');
+  console.log('PASS v2 gate: real providers and guarded CSS after responsive, cache v2h, probe/scene barrier, cancellation at every stage, RT/software/Eco/laser zero requests, frozen busy layout.');
 }
 
 async function repeatedReportClock() {
