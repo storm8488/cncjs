@@ -272,16 +272,26 @@ export const modalsBeforeFirstMove = (gcode) => {
   return out;
 };
 
+// G words whose axis words are their own, not a move in the modal motion:
+// a non-modal G10/G28/G30/G92 or G43.1 with a motion word on the same block
+// is error:24 in Grbl 1.1 (gcode.c, axis command conflict), a G38.x with one
+// is error:21 (two words of the motion group). Such a line is complete as
+// written: prefixing it would be refused after the preamble has moved the
+// machine (bug hunt E-3: a resume at the "G28 G91 Z0" of a tool change).
+const OWN_AXIS_WORDS = [10, 28, 30, 92, 43.1, 38.2, 38.3, 38.4, 38.5];
+
 // A first line relying on the modal motion (e.g. "X10 Y5" after G1) gets it back.
 const firstLineOf = (lines, from, s) => {
   const first = lines[from - 1];
   const firstCode = clean(first);
   const hasAxis = /(^|[^A-Z])[XYZIJKR]\s*[-+]?[\d.]/.test(firstCode);
+  const g = words(firstCode).filter(([l]) => l === 'G').map(([, v]) => v);
   // Motion words, compact code included (G90G1X10: the G1 follows a digit).
-  const motion = words(firstCode).filter(([l, v]) => l === 'G' && [0, 1, 2, 3].includes(v)).map(([, v]) => 'G' + v).pop() || null;
+  const motion = g.filter((v) => [0, 1, 2, 3].includes(v)).map((v) => 'G' + v).pop() || null;
+  const modalMove = hasAxis && !g.some((v) => OWN_AXIS_WORDS.includes(v));
   return {
-    text: hasAxis && !motion && s.motion ? s.motion + ' ' + first.trim() : first,
-    motion: motion || (hasAxis ? s.motion : null),
+    text: modalMove && !motion && s.motion ? s.motion + ' ' + first.trim() : first,
+    motion: motion || (modalMove ? s.motion : null),
     xy: /(^|[^A-Z])[XY]\s*[-+]?[\d.]/.test(firstCode)
   };
 };
