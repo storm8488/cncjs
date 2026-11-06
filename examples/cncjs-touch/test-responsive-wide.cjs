@@ -140,7 +140,8 @@ function CustomEvent(type, o) { this.type = type; this.detail = o && o.detail; }
   // The program changes while a read is in flight: the old answer is not given for the new program.
   const f = view.loadedPreview(); assert.equal(requests.length, 5);
   status({ port: 'P', name: 'next.nc', revision: 2, fresh: true, workflow: 'idle' });
-  answer(requests[4].xhr, 'part.nc', {}); assert.equal(await f, null, 'answer for a program no longer loaded: null');
+  assert(requests[4].xhr.aborted && typeof requests[4].xhr.onload !== 'function', 'read for a program no longer loaded: aborted, no late answer');
+  assert.equal(await f, null, 'answer for a program no longer loaded: null');
   // Suivi already read it: its preview is returned, nothing more is requested.
   const g = view.loadedPreview(); assert.equal(requests.length, 6); requests[5].xhr.abort(); assert.equal(await g, null, 'aborted read: null');
   dom.activeScreens.clear(); dom.activeScreens.add('home'); listeners['cnc-screen-change']({ detail: 'home' });

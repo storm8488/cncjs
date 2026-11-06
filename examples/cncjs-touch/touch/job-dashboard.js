@@ -12,7 +12,7 @@
     if(a&&a.textContent!==override)a.textContent=override;
     if(b&&b.textContent!==live)b.textContent=live;
   }
-  window.addEventListener('cnc-profile-change',function(){relabel();});
+  window.addEventListener('cnc-profile-change',function(){relabel();if(typeof loadedProfile==='function')loadedProfile();});
   var home=$('file');if(!home)return;
   // UI 2027: preview and overrides on the left; progress, coordinates, live
   // values and the actions on the right. Démarrer or Reprendre is the one
@@ -313,6 +313,7 @@
   window.addEventListener('cnc-job-status',function(e){machine=e.detail.machine;halt=!machine&&e.detail.halt&&typeof e.detail.halt==='object'?e.detail.halt:null;simulation=e.detail.simulation;busy=!!e.detail.busy;feedback=e.detail.feedback||'';
     // Sent / confirmed / failed / uncertain, mirrored from job-controls.js (ui-2027.css .t-sent).
     var fb=$('home-job-feedback'),state=e.detail.feedbackState||'';if(fb&&typeof fb.setAttribute==='function'&&(!fb.getAttribute||fb.getAttribute('data-state')!==state))fb.setAttribute('data-state',state);
+    loadedStatus();
     if(zones.on){sample(machine);requestCurve();}
     render();
     // Performance v2: facts for the observation model only; its views are written in an animation frame.
@@ -402,6 +403,7 @@
   window.addEventListener('cnc-layout-change',arrange);
   // perf-v2 is set or cleared by tablet-profile.js in its own frame, then announced: arranged in a frame too.
   window.addEventListener('cnc-v2-change',function(){
+    loadedGate();
     if(v2.arrangeFrame!==null||typeof window.requestAnimationFrame!=='function')return;
     if(!zones.on&&!v2Body())return;
     v2.arrangeFrame=window.requestAnimationFrame(function(){v2.arrangeFrame=null;arrange();requestV2();});
@@ -756,19 +758,37 @@
     if(shown&&shown.file===file&&imageKey===file&&!previewFailed&&imageRevision===revision&&ofLoaded(shown,file,revision))return Promise.resolve(shown);
     if(loadedRead&&loadedRead.file===file&&loadedRead.revision===revision)return loadedRead.promise;
     forgetLoaded('');
+    // No sidecar read during a job (or with an unknown state): only what is already shown is given.
+    if(!idleNow())return Promise.resolve(null);
     var token=sessionToken();if(!token)return Promise.resolve(null);
-    var read={file:file,revision:revision,xhr:null,promise:null};loadedRead=read;
+    var read={file:file,revision:revision,xhr:null,promise:null,resolve:null,cancelled:false};loadedRead=read;
     read.promise=new Promise(function(resolve){
-      var xhr=previewXhr(file,token);read.xhr=xhr;
+      var xhr=previewXhr(file,token);read.xhr=xhr;read.resolve=resolve;
       // A result given as null (no preview, no state, another version by now) is never kept: asked again later.
-      function done(meta){read.xhr=null;var result=ofLoaded(meta,file,revision)?meta:null;if(loadedRead===read&&!result)loadedRead=null;resolve(result);}
+      // A cancelled read resolves null once, and its late answer is never given (forgetLoaded).
+      function done(meta){if(read.cancelled)return;read.xhr=null;var result=ofLoaded(meta,file,revision)?meta:null;if(loadedRead===read&&!result)loadedRead=null;resolve(result);}
       xhr.onload=function(){var meta=null;try{var answer=previewAnswer(xhr,file);meta=answer.refused?null:answer.preview;}catch(_){}done(meta);};
       xhr.onerror=xhr.ontimeout=xhr.onabort=function(){done(null);};
       xhr.send(JSON.stringify({file:file+'.cnctouch.json'}));
     });
     return read.promise;
   }
-  function forgetLoaded(file){if(!loadedRead||file&&loadedRead.file!==file)return;var xhr=loadedRead.xhr;loadedRead=null;if(xhr&&typeof xhr.abort==='function')xhr.abort();}
+  // Aborts a pending read (its handlers removed first, so no late answer can arrive) and drops the cache.
+  function forgetLoaded(file){
+    if(!loadedRead||file&&loadedRead.file!==file)return;
+    var read=loadedRead,xhr=read.xhr;loadedRead=null;read.cancelled=true;read.xhr=null;
+    if(xhr){xhr.onload=xhr.onerror=xhr.ontimeout=xhr.onabort=null;if(typeof xhr.abort==='function')xhr.abort();}
+    if(read.resolve)read.resolve(null);
+  }
+  function idleNow(){return !!(machine&&machine.fresh&&(!machine.workflow||machine.workflow==='idle')&&!/^(run|hold|jog|alarm|door|home|check)/i.test(String(machine.activeState||'')));}
+  // Cancelled by its consumer's transitions too: a job starts or the program changes, Éco is chosen, the v2
+  // gate closes (only where v2 was opened), the page is hidden for good.
+  // (Called from the existing cnc-job-status, cnc-profile-change and cnc-v2-change listeners.)
+  // A missing state alone does not abort: the answer then resolves null (no loaded program to match).
+  function loadedStatus(){if(loadedRead&&machine&&(!idleNow()||machine.name!==loadedRead.file||machine.revision!==loadedRead.revision))forgetLoaded('');}
+  function loadedProfile(){var p=window.cncProfile;try{if(loadedRead&&p&&typeof p.performance==='function'&&p.performance()==='eco')forgetLoaded('');}catch(_){}}
+  function loadedGate(){var v=window.cncV2;try{if(loadedRead&&v&&typeof v.gate==='function'&&!v.gate()&&v.state().sessionEnabled)forgetLoaded('');}catch(_){}}
+  window.addEventListener('pagehide',function(){forgetLoaded('');});
   window.cncDashboardView={mount:mount,unmount:unmount,loadedPreview:loadedPreview};
   mount();
   render();
