@@ -32,7 +32,8 @@ const tests = [
  'v2-journal-context',
  'v2-suivi','v2-suivi-style',
  'v2-preparer','v2-preparer-reopen','v2-files',
- 'v2-settings','v2-journal','v2-machine'
+ 'v2-settings','v2-journal','v2-machine',
+ 'performance-v2-safety'
 ].map(name=>'test-'+name+'.cjs');
 // The backend (job service, event stream, motion preflight, probe input) lives in
 // src/server/services/touch and is covered by the root Jest suite (`yarn test`).
@@ -74,7 +75,7 @@ if(fs.existsSync(manifestPath)) check('Intégrité de la sauvegarde',()=>{
 if(!results.some(result=>!result.ok)) {
  check('Syntaxe des scripts',()=>{
   const scripts=fs.readdirSync(path.join(root,'touch')).filter(name=>name.endsWith('.js')).map(name=>'touch/'+name);
-  scripts.push('preview-server.cjs','dom-fixture.cjs','verify-project.cjs','browser-strip.cjs','build-bundle.cjs');
+  scripts.push('preview-server.cjs','dom-fixture.cjs','verify-project.cjs','browser-strip.cjs','build-bundle.cjs','browser-run.cjs','measure-performance-v2.cjs');
   scripts.concat(tests).forEach(file=>run(file,true));
  });
  check('Ressources locales des deux pages',()=>{
