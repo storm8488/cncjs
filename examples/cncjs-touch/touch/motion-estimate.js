@@ -218,7 +218,8 @@
     var dx = bx - ax, dy = by - ay, dz = bz - az;
     return Math.sqrt(dx * dx + dy * dy + dz * dz);
   }
-  // Polyline points of an arc (sagitta <= tolerance mm, at most 5 degrees and 4096 steps): calls point(x, y, z).
+  // Polyline points of an arc (target sagitta in mm, at most 5 degrees and 4096 steps).
+  // Calls point(x, y, z); returns the effective sagitta when the step cap limits precision.
   function arcPoints(mode, ax, ay, az, bx, by, bz, info, tolerance, point) {
     var a = info.arc, r = a.radius, tol = tolerance > 0 ? tolerance : 0.02;
     var step = Math.min(Math.PI / 36, 2 * Math.acos(Math.max(-1, Math.min(1, 1 - tol / r))));
@@ -231,6 +232,9 @@
       var ang = start + a.sweep * n / parts, pa = a.cx + r * Math.cos(ang), pb = a.cy + r * Math.sin(ang), pl = l0 + (l1 - l0) * n / parts;
       if (a.plane === 17) point(pa, pb, pl); else if (a.plane === 18) point(pb, pl, pa); else point(pl, pa, pb);
     }
+    // 1 - cos(angle/2) written without cancellation for very small angles.
+    var halfChord = Math.sin(Math.abs(a.sweep) / (4 * parts));
+    return 2 * r * halfChord * halfChord;
   }
 
   function round(v, d) { var k = Math.pow(10, d === undefined ? 3 : d); return Math.round(v * k) / k; }

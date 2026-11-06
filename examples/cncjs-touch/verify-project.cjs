@@ -25,7 +25,7 @@ const tests = [
  'preview-3d-gpu','preview-3d-live','preview-3d-overlays','responsive-wide','origin-preview','session-renew','job-stream-no-session','scenario-perf-safety','scenario-perf-defects',
  'network-hint','session-backoff','session-refused','settings-identity','session-race','plain-403','monotonic-delays','dashboard-pause-guard','frame-refusal-reasons',
  'bughunt-c-1','bughunt-f3',
- 'v2-gate','v2-contract','v2-i18n','v2-mounts',
+ 'v2-gate','v2-contract','v2-i18n','v2-mounts','v2-review-fixes',
  'v2-inspect','v2-inspect-index','v2-inspect-contract','v2-inspect-scene','v2-inspect-lifecycle','v2-inspect-measure','v2-inspect-style',
  'v2-sequences','v2-sequences-provider','v2-sequences-geometry','v2-origin',
  'v2-observation','v2-observation-history','v2-observation-lifecycle',

@@ -79,5 +79,16 @@ async function fixture() {
   assert.equal(messages.length,1);assert.equal(messages[0].m.type,'geometry-v2');assert.equal(messages[0].b.length,3);
   assert.equal(new Set(messages[0].b).size,3,'one transfer per buffer');
   assert(messages[0].m.geometry.sequences.items.length>0);
+  // The actual worker result and immutable provider retain the effective arc
+  // tolerance; a capped subdivision must not revert to the requested 0.01 mm.
+  const largeCircle='G21 G90 G54\nG0 X100000 Y0\nG2 X100000 Y0 I-100000 J0 F100';
+  worker.onmessage({data:{type:'geometry-v2',id:8,blob:{text:()=>Promise.resolve(JSON.stringify({data:largeCircle}))}}});await tick();
+  const large=messages[1].m.geometry, sagitta=100000*(1-Math.cos(Math.PI/4096));
+  assert(Math.abs(large.toleranceMm-sagitta)<1e-7,'worker exposes effective tolerance');
+  f=await fixture();f.model.update(f.input());f.reads[0].resolve({fingerprint:'sha256:a',blob:{}});await tick();
+  f.workers[0].onmessage({data:messages[1].m});
+  assert.equal(f.model.snapshot().available,true);
+  assert.equal(f.model.snapshot().toleranceMm,large.toleranceMm,'provider preserves the worker tolerance');
+  assert.equal(JSON.parse(f.model.snapshot().geometryKey)[3],large.toleranceMm,'geometry identity includes the effective tolerance');
   console.log('PASS v2 geometry: worker segments and sequences, single immutable cache, strict identities, transfer ownership, no job reads, all cancellation races.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

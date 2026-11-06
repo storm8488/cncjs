@@ -8,6 +8,32 @@ const fs = require('node:fs'), path = require('node:path'), vm = require('node:v
 const ME = require('./touch/motion-estimate.js');
 const close = (a, b, eps = 1e-6, msg) => assert(Math.abs(a - b) <= eps, (msg || '') + ' ' + a + ' ≠ ' + b);
 
+// The subdivision budget may exceed the requested sagitta: report the actual
+// maximum, for either direction and all three planes (including a helix).
+for (const radius of [10, 100000]) for (const direction of [2, 3]) for (const plane of [17, 18, 19]) {
+  const start = plane === 17 ? `X${radius} Y0 Z0` : plane === 18 ? `Z${radius} X0 Y0` : `Y${radius} Z0 X0`;
+  const end = plane === 17 ? `X${radius} Y0 Z5 I-${radius} J0` : plane === 18 ? `Z${radius} X0 Y5 K-${radius} I0` : `Y${radius} Z0 X5 J-${radius} K0`;
+  let result;
+  ME.createInterpreter((mode, ax, ay, az, bx, by, bz, info) => {
+    if (mode < 2) return;
+    const axes = plane === 17 ? [0, 1] : plane === 18 ? [2, 0] : [1, 2];
+    let previous = [ax, ay, az], count = 0, measured = 0;
+    const sagitta = ME.arcPoints(mode, ax, ay, az, bx, by, bz, info, 0.01, (x, y, z) => {
+      const current = [x, y, z]; count++;
+      measured = Math.max(measured, radius - Math.hypot((previous[axes[0]] + current[axes[0]]) / 2, (previous[axes[1]] + current[axes[1]]) / 2));
+      previous = current;
+    });
+    result = {sagitta, measured, count};
+    assert.deepEqual(previous, [bx, by, bz], 'arc endpoint preserved');
+  }).text(`G21 G90 G${plane}\nG0 ${start}\nG${direction} ${end} F100`);
+  assert(result, 'real interpreter emitted the arc');
+  close(result.sagitta, result.measured, 1e-7, `effective sagitta G${plane} G${direction} radius ${radius}`);
+  if (radius === 100000) {
+    assert.equal(result.count, 4096, 'arc work remains bounded');
+    assert(result.sagitta > 0.01, 'the capped arc cannot claim the requested tolerance');
+  } else assert(result.sagitta <= 0.01, 'ordinary arcs still meet the target');
+}
+
 // Straight feed moves and a plunge: length / F.
 let e = ME.estimate('G21 G90\nG0 Z5\nG1 Z-1 F120\nG1 X60 F600\nM30');
 close(e.feedSeconds, 6 / 120 * 60 + 60 / 600 * 60, 0.05, 'plunge 3 s + 6 s');

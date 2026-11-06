@@ -108,15 +108,15 @@
     var list=Array.isArray(files)?files:[files];
     for(var i=0;i<list.length;i++)if(typeof list[i]!=='string'||(!/^[a-z0-9][a-z0-9-]*\.js$/.test(list[i])&&list[i]!=='performance-v2.css'))return Promise.reject(new Error(t('Nom de module avancé invalide.')));
     // Check the complete batch before requesting even its first item.
-    for(var j=0;j<list.length;j++)if(v2File(list[j])&&(!v2Gate()||!v2Idle()))return Promise.reject(new Error('v2-gate-closed'));
+    for(var j=0;j<list.length;j++)if(v2File(list[j])&&(!v2Gate()||!v2Idle()||v2IsLocked()))return Promise.reject(new Error('v2-gate-closed'));
     // preview-gl is also the existing GPU probe: it MUST remain loadable before
     // v2 starts. Once v2 starts, even a cached/in-flight renderer waits for the
     // real inspect provider. Check both sides of the asynchronous load.
     function sceneReady(next){
       if(v2Started&&(list.indexOf('preview-gl.js')>=0||list.indexOf('origin-preview.js')>=0)){
-        if(!v2Gate())return Promise.reject(new Error('v2-gate-closed'));
+        if(!v2Gate()||v2IsLocked())return Promise.reject(new Error('v2-gate-closed'));
         if(!v2Ready)return v2Bootstrap.then(function(){
-          if(!v2Gate())throw new Error('v2-gate-closed');
+          if(!v2Gate()||v2IsLocked())throw new Error('v2-gate-closed');
           return next();
         });
       }
@@ -165,7 +165,10 @@
     return performance==='performance'&&kind==='cnc'&&!!g&&g.checked===true&&g.hardware===true&&!g.lost&&
       !!window.cncLayout&&window.cncLayout.wide()===true&&(!window.cncLayout.admissible||window.cncLayout.admissible()===true);
   }
-  function v2Gate(){return v2Session&&v2Started&&!v2Blocked&&!v2Stopped&&!v2Ended&&v2Eligible();}
+  function v2IsLocked(){return v2Locked||!!(window.cncScreenLock&&typeof window.cncScreenLock.locked==='function'&&window.cncScreenLock.locked());}
+  // Before readiness a lock revokes the bootstrap, including its pending request.
+  // After readiness the contract suspends reads/rendering while retaining caches.
+  function v2Gate(){return v2Session&&v2Started&&!v2Blocked&&!v2Stopped&&!v2Ended&&(v2Ready||!v2IsLocked())&&v2Eligible();}
   function v2ProgramKey(){var m=v2Detail&&v2Detail.machine;return m?JSON.stringify([m.port,m.generation,m.revision,m.name,m.fingerprint]):null;}
   function v2State(){return {version:1,enabled:v2Preference.enabled,sessionEnabled:v2Session,
     eligible:v2Eligible(),open:v2Gate(),ready:v2Ready,layout:v2Layout,safeIdle:v2Idle(),
@@ -205,7 +208,7 @@
     v2Publish();
     // No new timer, frame or DOM mutation on RT/Eco or with an absent preference.
     if(v2Ended||v2Frame||!window.requestAnimationFrame)return;
-    if(!v2Layout&&(!v2Session||v2Blocked||v2Stopped||!v2Eligible()||!v2Idle()||document.hidden||v2Locked))return;
+    if(!v2Layout&&(!v2Session||v2Blocked||v2Stopped||!v2Eligible()||!v2Idle()||document.hidden||v2IsLocked()))return;
     v2Frame=window.requestAnimationFrame(v2Apply);
   }
   function v2Apply(){
@@ -216,7 +219,7 @@
       if(!v2Eligible()&&v2Idle()){v2Layout=false;document.body.classList.toggle('perf-v2',false);v2Publish();}
       return;
     }
-    if(!v2Session||v2Blocked||v2Stopped||!v2Eligible()||!v2Idle()||document.hidden||v2Locked)return;
+    if(!v2Session||v2Blocked||v2Stopped||!v2Eligible()||!v2Idle()||document.hidden||v2IsLocked())return;
     if(v2Ready){
       v2Layout=true;document.body.classList.toggle('perf-v2',true);
       if(window.cncShell&&window.cncShell.v2Mounts)window.cncShell.v2Mounts(true);
@@ -254,7 +257,10 @@
     if(!!d.simulation!==!!sim)return;
     v2Detail=d;v2Arrival=v2Now();
     var m=d.machine;
-    if(!v2Layout&&((m&&(m.workflow&&m.workflow!=='idle'||m.activeState&&m.activeState!=='Idle'||m.canStop||m.loading||m.homing))||d.busy||d.halt||d.systemCommand))v2Blocked=true;
+    // Latch every observed activity, even if it stops before the first RAF. Missing
+    // telemetry is still allowed to wait for a known Idle on this page opening.
+    if(!v2Layout&&((m&&(m.workflow&&m.workflow!=='idle'||m.activeState&&m.activeState!=='Idle'||m.canStop||m.loading||m.homing||
+      m.probing||m.probeBusy||v2Number(m.spindleSpeed)&&m.spindleSpeed>0||m.motion&&(m.motion.jog||m.motion.cancelling)))||d.busy||d.halt||d.systemCommand))v2Blocked=true;
     v2Refresh();
   }
   window.cncV2={version:1,gate:v2Gate,state:v2State,

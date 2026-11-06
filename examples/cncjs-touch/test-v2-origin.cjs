@@ -6,7 +6,54 @@ const TC = require('./touch/travel-check.js');
 const pview = () => preview([0, 0, 60, 70]);
 const state = (patch = {}) => machine(-350, -250, 12, 30, {}, { port: 'A', generation: 'g1', fingerprint: 'sha256:aa', statusAgeMs: 0, ...patch });
 
-(async () => {
+async function reviewOriginFixes() {
+  // Real bootstrap, lifecycle contract, travel checker and origin consumer. Only
+  // DOM/GPU and the deferred L4 response/cancellation boundary are simulated.
+  for (const cancellation of ['cancel', 'abort', 'dashboard', 'none']) {
+    for (const transition of ['run', 'eco', 'pagehide', 'unmount']) {
+      const p = page(), ui = originPage(), reads = [];
+      p.status(state()); p.frame(); await p.complete();
+      for (const key of ['body', 'head', 'createElement', 'createTextNode', 'getElementById']) p.document[key] = ui.document[key];
+      p.window.CNCPreviewGL = ui.win.CNCPreviewGL;
+      p.window.cncState = { get: () => ({ machine: state() }) };
+      p.window.cncDashboardView = { loadedPreview() {
+        const read = { cancelled: 0 };
+        read.promise = new Promise(resolve => { read.resolve = resolve; });
+        if (cancellation === 'cancel' || cancellation === 'abort') read.promise[cancellation] = () => { read.cancelled++; };
+        reads.push(read); return read.promise;
+      } };
+      if (cancellation === 'dashboard') p.window.cncDashboardView.cancelLoadedPreview = promise => {
+        const read = reads.find(r => r.promise === promise);
+        assert(read, 'dashboard cancellation is scoped to the original promise'); read.cancelled++;
+      };
+      p.run('travel-check.js'); p.run('origin-preview.js');
+      p.emit('cnc-screen-change', 'jog'); p.window.CNCOriginPreview.mount(ui.screen); p.frame();
+      assert.equal(reads.length, 1);
+      if (transition === 'run') p.status(state({ workflow: 'running', activeState: 'Run' }));
+      if (transition === 'eco') p.window.cncProfile.setPerformance('eco');
+      if (transition === 'pagehide') p.emit('pagehide');
+      if (transition === 'unmount') p.window.CNCOriginPreview.unmount();
+      assert.equal(reads[0].cancelled, cancellation === 'none' ? 0 : 1, transition + ': pending L4 preview is cancelled immediately through ' + cancellation);
+      if (transition === 'run') {
+        p.status(state()); p.frame();
+        assert.equal(reads.length, 2, 'idle return obtains a new request');
+      }
+      reads[0].resolve(pview()); await new Promise(setImmediate); p.frame();
+      assert.equal(ui.opened.length, 0, transition + ': cancelled preview never opens a scene, even without an L4 cancellation API');
+      if (transition === 'run') {
+        assert.equal(reads[1].cancelled, 0, 'old result cannot cancel the current request');
+        reads[1].resolve(pview()); await new Promise(setImmediate); p.frame();
+        assert.equal(ui.opened.length, 1, 'new result remains consumable after the old result');
+      }
+      p.window.CNCOriginPreview.unmount();
+      assert.equal(reads[0].cancelled, cancellation === 'none' ? 0 : 1, 'cancellation is idempotent');
+    }
+  }
+}
+module.exports = { reviewOriginFixes };
+
+if (require.main === module) (async () => {
+  await reviewOriginFixes();
   for (const language of ['en','es']) {
     const translated=page(); translated.values.set('cncjs-touch-language-v1',language); translated.run('i18n.js');
     translated.status(state()); translated.frame(); await translated.complete();

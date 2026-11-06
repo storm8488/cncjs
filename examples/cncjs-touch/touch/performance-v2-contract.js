@@ -198,7 +198,10 @@
     journal:['L3',{identity:null,interval:null,civilInterval:null,events:[],retained:false}],
     suivi:['L4',{screen:'home',model:null}],files:['L5',{screen:'files',model:null}],prepare:['L5',{screen:'prepare',model:null}],
     machine:['L6',{screen:'machine',model:null}],history:['L6',{screen:'history',model:null}],settings:['L6',{screen:'settings',model:null}]
-  },stubs=Object.create(null),providers=Object.create(null),scopes=[],active=window.cncShell&&window.cncShell.screen?window.cncShell.screen():'menu',locked=false,ended=false,lastIdentity=api.state().programKey,wasIdle=api.state().safeIdle;
+  },stubs=Object.create(null),providers=Object.create(null),scopes=[],active=window.cncShell&&window.cncShell.screen?window.cncShell.screen():'menu',
+    // The lock may have announced while this script was still being fetched.
+    locked=!!(window.cncScreenLock&&typeof window.cncScreenLock.locked==='function'&&window.cncScreenLock.locked()),
+    ended=false,lastIdentity=api.state().programKey,wasIdle=api.state().safeIdle;
   Object.keys(definitions).forEach(function(name){
     var d=definitions[name],empty=freeze(Object.assign({version:1,available:false},d[1]));
     stubs[name]=freeze({owner:d[0],stub:true,snapshot:function(){return empty;},update:function(){return empty;},cancel:function(){},dispose:function(){}});
