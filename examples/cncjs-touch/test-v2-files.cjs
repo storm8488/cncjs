@@ -16,11 +16,12 @@ function libraryPage(options = {}) {
   const sidecar = { 'a.nc': { version: 1, file: 'a.nc', originalName: 'Pièce A.nc', fingerprint: FP, preview: { image: 'data:image/png;base64,AA==', bounds: [0, 0, 228, 148], zBounds: [-18, 5], projection: { units: 'mm', bounds: [0, 0, 228, 148] } } },
     'b.nc': { version: 1, file: 'b.nc', originalName: 'B.nc', preview: { image: 'data:image/png;base64,AA==', bounds: [0, 0, 10, 20] } } };
   const content = element('div', 'perf-v2-files'); content.hidden = true;
-  const v2 = { layout: options.v2 !== false };
+  // L0's single freshness source (cncV2.reportAge): this stub follows the report's fresh flag unless a test overrides it.
+  const v2 = { layout: options.v2 !== false, age: m => ({ known: true, fresh: !!(m && m.fresh), ageMs: 0 }) };
   const window = { addEventListener: (n, f) => { handlers[n] = handlers[n] || []; handlers[n].push(f); }, dispatchEvent() {},
     requestAnimationFrame: f => { frames.push(f); return frames.length; }, cancelAnimationFrame() {},
     cncI18n: { t: s => s, html: s => s, locale: 'fr-FR', language: 'fr', registerCatalog: (name, rows) => { catalogues.push([name, rows]); return true; } } };
-  if (options.contract !== false) window.cncV2 = { gate: () => v2.layout, state: () => ({ layout: v2.layout, safeIdle: true }),
+  if (options.contract !== false) window.cncV2 = { gate: () => v2.layout, state: () => ({ layout: v2.layout, safeIdle: true }), reportAge: m => v2.age(m),
     mounts: { get: name => v2.layout && name === 'files' ? { screen: 'files', root: node('screen-files'), content, origin: null } : null } };
   const ctx = { document, window, CustomEvent: function (type, o) { this.type = type; this.detail = o.detail; },
     localStorage: { getItem: () => JSON.stringify({ state: { session: { token: 'test' } } }) }, setInterval() {}, setTimeout() {},
@@ -92,6 +93,15 @@ function libraryPage(options = {}) {
   // Same name, fingerprint unknown: unknown, not « same ».
   p.status({ name: 'a.nc', revision: 6, fresh: true, workflow: 'idle', activeState: 'Idle' }); p.frame();
   assert.equal(p.find('lv2-match').getAttribute('data-tone'), 'neutral'); assert.match(p.find('lv2-match').textContent, /inconnue/); assert.equal(cell('print', 'load'), 'inconnue');
+  // Review 3 (Codex, defect 3): freshness comes from L0 only. A report still flagged fresh but expired for
+  // L0 (civil clock moved back, no new answer), an unknown age, a missing or throwing reportAge: unavailable.
+  for (const age of [() => ({ known: true, fresh: false, ageMs: 4000 }), () => ({ known: false, fresh: false, ageMs: null }), () => { throw Error('x'); }, null]) {
+    const keep = p.v2.age; if (age) p.v2.age = age; else delete p.window.cncV2.reportAge;
+    p.status({ name: 'a.nc', originalName: 'Pièce A.nc', revision: 6, fresh: true, workflow: 'idle', activeState: 'Idle', fingerprint: FP }); p.frame();
+    assert.equal(p.find('lv2-load-name').textContent, 'État machine indisponible', 'never fresh without L0: ' + String(age));
+    assert.equal(p.find('lv2-load-state').textContent, ''); assert.doesNotMatch(p.find('lv2-match').textContent, /même empreinte/);
+    p.v2.age = keep; p.window.cncV2.reportAge = m => p.v2.age(m);
+  }
   // Nothing loaded.
   p.status({ name: '', fresh: true, workflow: 'idle', activeState: 'Idle' }); p.frame();
   assert.equal(p.find('lv2-load-name').textContent, 'Aucun programme chargé');

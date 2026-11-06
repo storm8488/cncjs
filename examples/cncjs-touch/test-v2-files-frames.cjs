@@ -13,6 +13,8 @@ async function setup(withLibrary) {
   p.window.cncShell = { v2Mounts: () => ({ files: { screen: 'files', root: dom.node('screen-files'), content, origin: null } }) };
   p.status(); p.frame(); await p.complete();
   assert.equal(p.api.state().layout, true, 'v2 layout open'); assert.equal(p.api.gate(), true);
+  // L0's single freshness source (added on v2/fixe); stubbed when this L0 does not have it yet.
+  if (typeof p.api.reportAge !== 'function') p.api.reportAge = m => ({ known: true, fresh: !!(m && m.fresh), ageMs: 0 });
   if (withLibrary) {
     const doc = p.document, addDoc = doc.addEventListener;
     doc.getElementById = dom.node;
@@ -24,7 +26,8 @@ async function setup(withLibrary) {
   }
   // Animation frames requested by one status batch (the batch is drawn, then nothing is pending).
   const batch = () => { p.frame(); p.status(); return p.frames.size; };
-  return { p, content, batch, visibility: hidden => { p.document.hidden = hidden; (docListeners.visibilitychange || []).forEach(f => f({})); } };
+  const show = name => { dom.activeScreens.clear(); dom.activeScreens.add(name); p.emit('cnc-screen-change', name); };
+  return { p, content, batch, show, visibility: hidden => { p.document.hidden = hidden; (docListeners.visibilitychange || []).forEach(f => f({})); } };
 }
 (async () => {
   const runs = [];
@@ -77,5 +80,24 @@ async function setup(withLibrary) {
     held.push(counts);
   }
   assert.deepEqual(held[1], held[0], 'Éco during a job: no frame beyond the L0 baseline after the invalidation ' + JSON.stringify(held));
+  // 4. Review 3 (Codex, defect 5): Fichiers inactive (Run, go to Suivi, Éco): no frame per status beyond
+  //    the L0 baseline; the « non suivi » transition is drawn when Fichiers is shown again.
+  const away = [];
+  for (const withLibrary of [false, true]) {
+    const s = await setup(withLibrary), counts = [], run = { workflow: 'running', activeState: 'Run', canStop: true };
+    s.p.status(run); s.p.frame(); s.p.frame(); s.show('home'); s.p.frame();
+    s.p.window.cncProfile.setPerformance('eco'); s.p.frame(); s.p.frame();
+    const batch = () => { s.p.frame(); s.p.status(run); return s.p.frames.size; };
+    counts.push(batch(), batch(), batch());
+    away.push(counts);
+    if (withLibrary) {
+      const find = id => s.content.querySelectorAll('*').find(e => e.id === id);
+      s.p.frame(); s.show('files'); s.p.frame();
+      assert.equal(find('lv2-load-name').textContent, 'non suivi', 'invalidated at the next show'); assert(!s.content.hidden);
+      const after = []; after.push(batch(), batch());
+      assert(after.every(n => n <= away[0][0]), 'no frame per status after the invalidation ' + JSON.stringify(after));
+    }
+  }
+  assert.deepEqual(away[1], away[0], 'Fichiers inactive: no frame beyond the L0 baseline ' + JSON.stringify(away));
   console.log('PASS v2 files frames: no animation frame after the v2 gate closes, while hidden or after pagehide; pending frame cancelled; same as the L0 baseline.');
 })().catch(e => { console.error(e); process.exitCode = 1; });
