@@ -21,6 +21,8 @@ const fs=require('fs'),vm=require('vm'),assert=require('assert');
  assert(el('home-job-load').disabled&&el('home-job-start').disabled);
  assert(!el('home-job-pause').disabled);assert(!el('home-job-stop').disabled);
  el('home-job-pause').click();await flush();assert.match(el('job-state').textContent,/Hold/);assert(!el('home-job-resume').disabled);
+ // Pause and Reprendre are frozen 600 ms after a tap (A-3): the operator's next tap comes later.
+ await new Promise(r=>setTimeout(r,650));
  el('home-job-resume').click();await flush();assert.equal(el('job-dialog').hidden,false);assert.match(el('job-state').textContent,/Hold/);
  el('job-check').checked=true;el('job-check').handlers.change.call(el('job-check'));el('job-confirm').click();await flush();assert.match(el('job-state').textContent,/Run/);
  el('home-job-stop').click();await flush();assert.match(el('job-state').textContent,/Idle/);assert(el('home-job-stop').disabled);assert.match(el('home-job-feedback').textContent,/arrêté/);

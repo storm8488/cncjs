@@ -24,10 +24,16 @@
   var coordsBox=$('home-coords');
   ['home-work-card','home-machine-card'].forEach(function(id){var card=$(id);if(card&&coordsBox&&typeof coordsBox.appendChild==='function')coordsBox.appendChild(card);});
   if(simulationPage&&coordsBox)coordsBox.insertAdjacentHTML('beforeend',uiLocale.html('<div class="card t-coords-card"><h2>Travail</h2><div class="t-coords"><span class="t-axis">X</span><b id="home-sim-x" class="t-val">—</b><span class="t-unit">mm</span><span class="t-axis">Y</span><b id="home-sim-y" class="t-val">—</b><span class="t-unit">mm</span><span class="t-axis">Z</span><b id="home-sim-z" class="t-val">—</b><span class="t-unit">mm</span></div></div>'));
+  // A tap on Pause or Reprendre freezes both for 600 ms (as on the status strip): Pause becomes
+  // Reprendre… in place, and a double tap must not reach it. Arrêter is never delayed. A clock set
+  // back after a tap does not keep them frozen.
+  var coolUntil=0;
   ['load','start','pause','resume','stop'].forEach(function(action){
     $('home-job-'+action).addEventListener('click',function(){
       var source=$('job-'+action);
-      if(!this.disabled&&source&&!source.disabled)source.click();
+      if(this.disabled||!source||source.disabled)return;
+      if(action==='pause'||action==='resume'){var now=Date.now();if(now>=coolUntil-600&&now<coolUntil)return;coolUntil=now+600;}
+      source.click();
     });
   });
   // Realtime overrides (feed and spindle), active only while a program runs or is held.
