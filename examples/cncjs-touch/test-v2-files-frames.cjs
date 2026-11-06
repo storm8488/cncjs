@@ -55,5 +55,27 @@ async function setup(withLibrary) {
     s.visibility(false); s.p.frame(); s.p.status();
     const again = s.p.frames.size; s.p.emit('pagehide', {}); assert(s.p.frames.size < again, 'pending frame cancelled at pagehide');
   }
+  // 3. Éco during a job: the gate closes, the layout is held. One last frame marks the band « non suivi »
+  //    (rectangle kept), then no frame beyond the L0 baseline.
+  const held = [];
+  for (const withLibrary of [false, true]) {
+    const s = await setup(withLibrary), counts = [], run = { workflow: 'running', activeState: 'Run', canStop: true };
+    s.p.status(run); s.p.frame(); s.p.frame();
+    const find = id => s.content.querySelectorAll('*').find(e => e.id === id);
+    if (withLibrary) assert.equal(find('lv2-load-state').textContent, '▶ En cours', 'live before Éco');
+    s.p.window.cncProfile.setPerformance('eco'); s.p.frame(); s.p.frame();
+    assert(!s.p.api.gate()); assert(s.p.api.state().layout, 'layout held during the job');
+    if (withLibrary) {
+      assert(!s.content.hidden, 'the band keeps its rectangle');
+      assert.equal(find('lv2-load-name').textContent, 'non suivi'); assert.equal(find('lv2-load-state').textContent, '');
+      ['version', 'dims', 'tool', 'print'].forEach(r => assert.equal(find('lv2-' + r + '-load').textContent, '—', r));
+      assert.match(find('lv2-match').textContent, /non suivi/); assert.equal(find('lv2-match').getAttribute('data-tone'), 'neutral');
+      assert.doesNotMatch(s.content.querySelectorAll('*').map(e => e.textContent).join(' '), /En cours|même empreinte/);
+    }
+    const batch = () => { s.p.frame(); s.p.status(run); return s.p.frames.size; };
+    counts.push(batch(), batch());
+    held.push(counts);
+  }
+  assert.deepEqual(held[1], held[0], 'Éco during a job: no frame beyond the L0 baseline after the invalidation ' + JSON.stringify(held));
   console.log('PASS v2 files frames: no animation frame after the v2 gate closes, while hidden or after pagehide; pending frame cancelled; same as the L0 baseline.');
 })().catch(e => { console.error(e); process.exitCode = 1; });
