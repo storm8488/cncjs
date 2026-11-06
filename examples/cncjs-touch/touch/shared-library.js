@@ -667,7 +667,7 @@
     ['Sélection et programme chargé', 'Selection and loaded program', 'Selección y programa cargado'],
     ['Sélection', 'Selection', 'Selección'],
     ['Chargé dans la machine', 'Loaded in the machine', 'Cargado en la máquina'],
-    ['Nom · version', 'Name · version', 'Nombre · versión'],
+    ['Version (date · révision)', 'Version (date · revision)', 'Versión (fecha · revisión)'],
     ['Dimensions (aperçu)', 'Dimensions (preview)', 'Dimensiones (vista previa)'],
     ['Outil · matière déclarés', 'Declared tool · material', 'Herramienta · material declarados'],
     ['Empreinte', 'Fingerprint', 'Huella'],
@@ -687,8 +687,7 @@
     ['La sélection n’est pas le programme chargé.', 'The selection is not the loaded program.', 'La selección no es el programa cargado.'],
     ['Correspondance inconnue : empreinte absente ou non vérifiée.', 'Match unknown: fingerprint missing or not verified.', 'Correspondencia desconocida: huella ausente o no verificada.'],
     ['Programme chargé inconnu : état machine indisponible.', 'Loaded program unknown: machine state unavailable.', 'Programa cargado desconocido: estado de la máquina no disponible.'],
-    ['Rien n’est chargé dans la machine.', 'Nothing is loaded in the machine.', 'No hay nada cargado en la máquina.'],
-    ['Sélectionner ne charge pas ; charger ne démarre pas.', 'Selecting does not load; loading does not start.', 'Seleccionar no carga; cargar no inicia.']
+    ['Rien n’est chargé dans la machine.', 'Nothing is loaded in the machine.', 'No hay nada cargado en la máquina.']
   ];
   var v2f = { built: false, frame: 0, nodes: null, sel: null, catalogue: false };
   function v2FilesMount() { var v = window.cncV2; try { return v && typeof v.state === 'function' && v.state().layout === true && v.mounts ? v.mounts.get('files') : null; } catch (_) { return null; } }
@@ -717,21 +716,22 @@
     var n = {}, root = mount.content;
     function el(tag, cls, text, parent) { var e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; parent.appendChild(e); return e; }
     var box = el('section', 'lv2', '', root); box.setAttribute('aria-label', tv2('Sélection et programme chargé'));
-    var band = el('div', 'lv2-band', '', box);
+    // One compact table: its header row is the band (« Sélection » / « Chargé dans la machine »), so the
+    // detail keeps its preview and « Charger et ouvrir le Suivi » in the frame (D3).
+    var table = el('table', 'lv2-compare', '', box), head = el('thead', '', '', table), headRow = el('tr', '', '', head), body = el('tbody', '', '', table);
+    el('td', '', '', headRow);
     [['sel', tv2('Sélection')], ['load', tv2('Chargé dans la machine')]].forEach(function (c) {
-      var col = el('div', 'lv2-col', '', band); col.setAttribute('data-role', c[0] === 'sel' ? 'selection' : 'loaded');
+      var col = el('th', 'lv2-col', '', headRow); col.setAttribute('scope', 'col'); col.setAttribute('data-role', c[0] === 'sel' ? 'selection' : 'loaded');
       el('span', 'lv2-eyebrow', c[1], col);
       n[c[0] + 'Name'] = el('b', 'lv2-name', '', col); n[c[0] + 'Name'].id = 'lv2-' + c[0] + '-name';
       if (c[0] === 'load') { n.loadState = el('span', 'lv2-state', '', col); n.loadState.id = 'lv2-load-state'; }
     });
-    var table = el('table', 'lv2-compare', '', box), body = el('tbody', '', '', table);
     n.cells = {};
-    [['version', tv2('Nom · version')], ['dims', tv2('Dimensions (aperçu)')], ['tool', tv2('Outil · matière déclarés')], ['print', tv2('Empreinte')]].forEach(function (r) {
+    [['version', tv2('Version (date · révision)')], ['dims', tv2('Dimensions (aperçu)')], ['tool', tv2('Outil · matière déclarés')], ['print', tv2('Empreinte')]].forEach(function (r) {
       var tr = el('tr', '', '', body), th = el('th', '', r[1], tr); th.setAttribute('scope', 'row');
       ['sel', 'load'].forEach(function (c) { var td = el('td', '', '', tr); td.id = 'lv2-' + r[0] + '-' + c; n.cells[r[0] + '-' + c] = td; });
     });
     n.match = el('p', 'lv2-match', '', box); n.match.id = 'lv2-match'; n.match.setAttribute('role', 'status');
-    el('p', 'lv2-note', tv2('Sélectionner ne charge pas ; charger ne démarre pas.'), box);
     v2f.nodes = n;
   }
   function v2FilesRender() {

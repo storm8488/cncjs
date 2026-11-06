@@ -20,24 +20,30 @@
 
 /* Performance v2 · Fichiers (lot L5). Only under body.perf-v2: the band « Sélection » / « Chargé dans la
    machine » (#perf-v2-files, filled by shared-library.js) above the detail, the list on the left over
-   both rows. Colours always doubled by words; text 16 px at least. */
+   both rows. The band is one compact table whose header row names both sides; the detail drops the
+   selection-state and size/date lines the band repeats, and its preview row shrinks down to 64 px
+   (Agrandir) instead of perf-wide's 420 px, so « Charger et ouvrir le Suivi » stays in the frame at
+   1366 × 911 and 1728 × 1152 (D3; budget in test-v2-files.cjs, measured by the browser harness).
+   Detail rows: eyebrow, name, preview, project sheet, file tools (order 5), execution (order 6).
+   Colours always doubled by words; text 16 px at least. */
 body.ks-ui.perf-v2 #screen-files.active,body.ks-ui.perf-v2 #screen-files.kept{grid-template-rows:auto minmax(0,1fr)}
 body.ks-ui.perf-v2 #screen-files .library-list-panel{grid-column:1;grid-row:1/3}
 body.ks-ui.perf-v2 #screen-files #perf-v2-files{grid-column:2;grid-row:1;min-width:0}
 body.ks-ui.perf-v2 #screen-files .library-detail{grid-column:2;grid-row:2}
+body.ks-ui.perf-wide.perf-v2 #screen-files .library-detail{grid-template-rows:auto auto minmax(64px,1fr) auto auto auto}
+body.ks-ui.perf-v2 #screen-files #library-selection-state,body.ks-ui.perf-v2 #screen-files #library-meta{display:none}
 body.ks-ui.perf-v2 #screen-files #perf-v2-files[hidden]{display:none}
-body.perf-v2 #screen-files .lv2{display:flex;flex-direction:column;gap:var(--sp-2);padding:var(--sp-3);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m)}
-body.perf-v2 #screen-files .lv2-band{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-3)}
-body.perf-v2 #screen-files .lv2-col{display:flex;flex-direction:column;gap:2px;min-width:0;padding:var(--sp-2) var(--sp-3);border-radius:var(--r-m);background:var(--surface-2);border-left:6px solid var(--accent)}
+body.perf-v2 #screen-files .lv2{display:flex;flex-direction:column;gap:var(--sp-2);padding:var(--sp-2) var(--sp-3);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m)}
+body.perf-v2 #screen-files .lv2-compare{width:100%;border-collapse:collapse;table-layout:fixed;font-size:var(--fs-16);line-height:1.3;font-variant-numeric:tabular-nums}
+body.perf-v2 #screen-files .lv2-compare th,body.perf-v2 #screen-files .lv2-compare td{padding:var(--sp-1) var(--sp-2);border-bottom:1px solid var(--line);text-align:left;vertical-align:top;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg)}
+body.perf-v2 #screen-files .lv2-compare tbody th{width:30%;font-weight:400;color:var(--mute)}
+body.perf-v2 #screen-files .lv2-compare thead td{width:30%;border-bottom:0}
+body.perf-v2 #screen-files .lv2-col{border-bottom:0;border-left:6px solid var(--accent);background:var(--surface-2)}
 body.perf-v2 #screen-files .lv2-col[data-role="loaded"]{border-left-color:var(--info)}
-body.perf-v2 #screen-files .lv2-eyebrow{font:600 var(--fs-16)/1.2 var(--font);color:var(--mute);letter-spacing:.06em;text-transform:uppercase}
-body.perf-v2 #screen-files .lv2-name{font:600 var(--fs-20)/1.2 var(--font);color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-body.perf-v2 #screen-files .lv2-state{font:600 var(--fs-16)/1.2 var(--font);color:var(--info-text)}
-body.perf-v2 #screen-files .lv2-compare{width:100%;border-collapse:collapse;table-layout:fixed;font-size:var(--fs-16);font-variant-numeric:tabular-nums}
-body.perf-v2 #screen-files .lv2-compare th,body.perf-v2 #screen-files .lv2-compare td{padding:var(--sp-1) var(--sp-2);border-bottom:1px solid var(--line);text-align:left;overflow-wrap:anywhere;color:var(--fg)}
-body.perf-v2 #screen-files .lv2-compare th{width:30%;font-weight:400;color:var(--mute)}
-body.perf-v2 #screen-files .lv2-match{margin:0;padding:var(--sp-2) var(--sp-3);border-left:6px solid var(--faint);border-radius:var(--r-m);background:var(--surface-2);font-size:var(--fs-16);color:var(--fg)}
+body.perf-v2 #screen-files .lv2-eyebrow{display:block;font:600 var(--fs-16)/1.2 var(--font);color:var(--mute);letter-spacing:.06em;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis}
+body.perf-v2 #screen-files .lv2-name{display:inline;font:600 var(--fs-18)/1.2 var(--font);color:var(--fg)}
+body.perf-v2 #screen-files .lv2-state{display:inline;margin-left:var(--sp-2);font:600 var(--fs-16)/1.2 var(--font);color:var(--info-text)}
+body.perf-v2 #screen-files .lv2-match{margin:0;padding:var(--sp-1) var(--sp-3);border-left:6px solid var(--faint);border-radius:var(--r-m);background:var(--surface-2);font-size:var(--fs-16);line-height:1.3;color:var(--fg)}
 body.perf-v2 #screen-files .lv2-match[data-tone="ok"]{border-left-color:var(--ok);background:var(--ok-soft)}
 body.perf-v2 #screen-files .lv2-match[data-tone="warn"]{border-left-color:var(--warn);background:var(--warn-soft)}
 body.perf-v2 #screen-files .lv2-match[hidden]{display:none}
-body.perf-v2 #screen-files .lv2-note{margin:0;font-size:var(--fs-16);color:var(--mute)}
