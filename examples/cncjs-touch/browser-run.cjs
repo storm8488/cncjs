@@ -1233,7 +1233,7 @@ async function v2Gestures(cdp, ctx, report, ids) {
 }
 
 // The real page (index.html through the v2 fixture): idle, running, paused, alarm, stale, lost, then Journal
-// from the curve, Réglages, and the way out of v2. `v1` runs the same steps without the preference: the
+// from the curve, Réglages, and the way out of v2. `v1` runs the same steps with the preference stored off (v2 is the default): the
 // baseline of the requests and of the strip rectangles.
 async function v2RealPass(cdp, fx, w, h, summary, report, v1) {
   const ctx = (v1 ? 'v1 baseline ' : '') + 'real ' + w + 'x' + h, results = [], info = { ctx };
@@ -1242,7 +1242,7 @@ async function v2RealPass(cdp, fx, w, h, summary, report, v1) {
   pageErrors.length = 0;
   try {
     await setViewport(cdp, w, h, 1);
-    await v2Storage(cdp, fx.base, { v2: v1 ? null : { version: 1, enabled: true } });
+    await v2Storage(cdp, fx.base, { v2: v1 ? { version: 1, enabled: false } : { version: 1, enabled: true } });
     const opened = await v2Open(cdp, fx.base + 'index.html?v2=' + w + 'x' + h + (v1 ? '-v1' : ''), !v1);
     info.opened = opened; info.requestsAtOpen = opened.requests;
     if (v1 && (opened.perfV2 || opened.requests.length)) failures.push('v2 ' + ctx + ': v2 resources without the preference (' + JSON.stringify(opened.requests) + ')');
@@ -1512,7 +1512,7 @@ async function v2Closed(cdp, fx, summary) {
       const dom = compare ? await cdp.evaluate(V2_DOM) : null;
       let same = null;
       if (compare) {
-        await v2Storage(cdp, fx.base, Object.assign({}, opts, { v2: null }));
+        await v2Storage(cdp, fx.base, Object.assign({}, opts, { v2: { version: 1, enabled: false } }));
         await v2Open(cdp, fx.base + page + '?v2-closed-ref=' + encodeURIComponent(label), false);
         for (const [name] of SCREENS) await goScreen(cdp, name);
         const ref = await cdp.evaluate(V2_DOM);
