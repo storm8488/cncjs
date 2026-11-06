@@ -8,7 +8,7 @@
 (function (root) {
   'use strict';
   var isWorker = typeof root.importScripts === 'function' && typeof root.document === 'undefined' && typeof module === 'undefined' && !root.CNCAsLibrary;
-  if (typeof root.importScripts === 'function' && !root.CNCMotionEstimate) root.importScripts('motion-estimate.js?v=v2f');
+  if (typeof root.importScripts === 'function' && !root.CNCMotionEstimate) root.importScripts('motion-estimate.js?v=v2g');
   var ME = typeof module !== 'undefined' && module.exports ? require('./motion-estimate.js') : root.CNCMotionEstimate;
   var W = 960, H = 540, BACKGROUND = [16, 24, 32], TRAVEL = [92, 140, 190];
   // Ramp of the S setpoint fraction: dark red, orange, pale yellow.
@@ -116,7 +116,7 @@
   // ---------- Page ----------
   var uiLocale = root.cncI18n || { t: function (s) { return s; }, locale: 'fr-FR' }, t = uiLocale.t;
   var source = root.document && root.document.currentScript && root.document.currentScript.src;
-  var workerURL = (source ? source.split(/[?#]/)[0].replace(/[^/]*$/, '') : '') + 'laser-view.js?v=v2f';
+  var workerURL = (source ? source.split(/[?#]/)[0].replace(/[^/]*$/, '') : '') + 'laser-view.js?v=v2g';
   // Renders the laser view of a previewed program: Promise of {blob (PNG), projection, summary}.
   // meta: {file, fingerprint, projection}; options: {sRef}. The worker ends with the job.
   function render(meta, options) {

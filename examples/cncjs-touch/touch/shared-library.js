@@ -691,23 +691,23 @@
     ['non suivi', 'not followed', 'no seguido'],
     ['Sélection et programme chargé non suivis : l’interface v2 est arrêtée pour cette session. L’état à jour reste dans le bandeau et dans Suivi.', 'Selection and loaded program not followed: the v2 interface is stopped for this session. The current state stays in the status bar and in Monitor.', 'Selección y programa cargado no seguidos: la interfaz v2 está detenida en esta sesión. El estado actual sigue en la barra de estado y en Seguimiento.']
   ];
-  var v2f = { built: false, frame: 0, nodes: null, sel: null, catalogue: false };
+  var v2g = { built: false, frame: 0, nodes: null, sel: null, catalogue: false };
   function v2FilesMount() { var v = window.cncV2; try { return v && typeof v.state === 'function' && v.state().layout === true && v.mounts ? v.mounts.get('files') : null; } catch (_) { return null; } }
   // Outside perf-v2 this returns at once: no frame, no DOM.
   // A frame only while it can draw: v2 mount present, gate open, document visible, page not ended. The
   // one exception is a single frame that hides a band still shown after the v2 layout has gone.
   function v2FilesOpen() { var v = window.cncV2; try { return !!v2FilesMount() && v.gate() === true; } catch (_) { return false; } }
-  function v2FilesCancel() { if (v2f.frame && typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(v2f.frame); v2f.frame = 0; }
+  function v2FilesCancel() { if (v2g.frame && typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(v2g.frame); v2g.frame = 0; }
   function v2FilesSchedule() {
     // Fichiers not shown (or document hidden): no frame; mount() asks again when Fichiers is shown, and the
     // pending transitions (hide, « non suivi ») are drawn then.
-    if (typeof window.requestAnimationFrame !== 'function' || v2f.ended || !visible()) { v2FilesCancel(); return; }
-    var hide = !!v2f.content && !v2f.content.hidden && !v2FilesMount();
-    var unfollow = v2f.built && !v2f.stale && !!v2FilesMount() && !v2FilesOpen();
+    if (typeof window.requestAnimationFrame !== 'function' || v2g.ended || !visible()) { v2FilesCancel(); return; }
+    var hide = !!v2g.content && !v2g.content.hidden && !v2FilesMount();
+    var unfollow = v2g.built && !v2g.stale && !!v2FilesMount() && !v2FilesOpen();
     if (!hide && !unfollow && !v2FilesOpen()) { v2FilesCancel(); return; }
-    if (!v2f.frame) v2f.frame = window.requestAnimationFrame(v2FilesRender);
+    if (!v2g.frame) v2g.frame = window.requestAnimationFrame(v2FilesRender);
   }
-  function v2Selected(info) { v2f.sel = info; v2FilesSchedule(); }
+  function v2Selected(info) { v2g.sel = info; v2FilesSchedule(); }
   function v2Dims(bounds, zBounds) {
     var b = bounds, z = zBounds;
     if (!Array.isArray(b) || b.length !== 4 || !b.every(function (n) { return typeof n === 'number' && isFinite(n); }) || b[2] < b[0] || b[3] < b[1]) return '—';
@@ -729,8 +729,8 @@
     return [d.tool, d.material].filter(Boolean).join(' · ') || tv2('non déclarés');
   }
   function v2FilesBuild(mount) {
-    if (v2f.built) return;
-    v2f.built = true; v2f.content = mount.content;
+    if (v2g.built) return;
+    v2g.built = true; v2g.content = mount.content;
     if (uiLocale.registerCatalog) { try { uiLocale.registerCatalog('performance-v2-files', V2_FILES_MESSAGES); } catch (_) { /* French text stays readable. */ } }
     var n = {}, root = mount.content;
     function el(tag, cls, text, parent) { var e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; parent.appendChild(e); return e; }
@@ -751,7 +751,7 @@
       ['sel', 'load'].forEach(function (c) { var td = el('td', '', '', tr); td.id = 'lv2-' + r[0] + '-' + c; n.cells[r[0] + '-' + c] = td; });
     });
     n.match = el('p', 'lv2-match', '', box); n.match.id = 'lv2-match'; n.match.setAttribute('role', 'status');
-    v2f.nodes = n;
+    v2g.nodes = n;
   }
   // v2 freshness has one source, the L0 contract (monotone age; never fresh without an observed report).
   // Absent, throwing or unknown: the loaded program is « État machine indisponible », never fresh.
@@ -762,23 +762,23 @@
     return !!r && r.known === true && r.fresh === true;
   }
   function v2FilesUnfollowed() {
-    var n = v2f.nodes;
-    v2f.stale = true;
+    var n = v2g.nodes;
+    v2g.stale = true;
     property(n.selName, 'textContent', tv2('non suivi')); property(n.loadName, 'textContent', tv2('non suivi')); property(n.loadState, 'textContent', '');
     Object.keys(n.cells).forEach(function (k) { property(n.cells[k], 'textContent', '—'); });
     property(n.match, 'textContent', tv2('Sélection et programme chargé non suivis : l’interface v2 est arrêtée pour cette session. L’état à jour reste dans le bandeau et dans Suivi.'));
     attribute(n.match, 'data-tone', 'neutral'); property(n.match, 'hidden', false);
   }
   function v2FilesRender() {
-    v2f.frame = 0;
+    v2g.frame = 0;
     var mount = v2FilesMount();
-    if (!mount) { if (v2f.content) property(v2f.content, 'hidden', true); return; }
-    if (v2f.ended || !visible()) return; // Drawn again when Fichiers is shown (mount() schedules it).
+    if (!mount) { if (v2g.content) property(v2g.content, 'hidden', true); return; }
+    if (v2g.ended || !visible()) return; // Drawn again when Fichiers is shown (mount() schedules it).
     // Gate closed with the layout still held (Éco during a job): one last frame keeps the rectangle and
     // marks every value « non suivi » (none is followed any more), then no further frame.
-    if (!v2FilesOpen()) { if (v2f.built && !v2f.stale) v2FilesUnfollowed(); return; }
+    if (!v2FilesOpen()) { if (v2g.built && !v2g.stale) v2FilesUnfollowed(); return; }
     v2FilesBuild(mount);
-    var n = v2f.nodes, sel = v2f.sel, m = machine, put = function (node, text) { property(node, 'textContent', String(text)); };
+    var n = v2g.nodes, sel = v2g.sel, m = machine, put = function (node, text) { property(node, 'textContent', String(text)); };
     property(mount.content, 'hidden', false);
     // Selection: the detail already read (name, version, extents, fingerprint verdict of its preview).
     put(n.selName, sel ? sel.name : tv2('Aucune sélection'));
@@ -806,7 +806,7 @@
   window.addEventListener('cnc-v2-change', v2FilesSchedule);
   // Hidden: a pending frame is dropped (drawn again when visible); pagehide ends the band's frames.
   document.addEventListener('visibilitychange', v2FilesSchedule);
-  window.addEventListener('pagehide', function () { v2f.ended = true; v2FilesCancel(); });
+  window.addEventListener('pagehide', function () { v2g.ended = true; v2FilesCancel(); });
   window.cncLibraryView = {
     mount: mount, unmount: unmount,
     // For projects.js: the programs listed, and the selection of an associated file.
