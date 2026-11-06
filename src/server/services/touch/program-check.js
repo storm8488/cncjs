@@ -560,9 +560,20 @@ export const checkProgram = (analysis, machine = {}) => {
       entry.min = extent.min * scale;
       entry.max = extent.max * scale;
     }
+    // Stock Grbl 1.1 keeps machine positions in [-travel, 0] whatever $23 says
+    // (limits.c); a build with HOMING_FORCE_SET_ORIGIN, or Grbl_ESP32, gives
+    // [0, travel] to an axis homed towards its negative end ($23 bit set). The
+    // report does not tell them apart (motion.js keeps both candidates): such an
+    // axis is not checked, never "inside" or "outside" from a guessed envelope.
     if (travel !== null && travel > 0) {
-      entry.low = Math.floor(mask / (2 ** i)) % 2 === 1 ? 0 : -travel;
-      entry.high = entry.low + travel;
+      if (Math.floor(mask / (2 ** i)) % 2 === 1) {
+        const setting = '$' + (130 + i);
+        const text = 'Sens de prise d’origine inversé ($23) en ' + axis + ' : selon la compilation du firmware, la course va de −' + setting + ' à 0 ou de 0 à ' + setting + ' ; axe non vérifié.';
+        reasons.push(reason('ETOUCH_CHECK_HOMING_DIRECTION', { axis, setting: 130 + i }, text));
+      } else {
+        entry.low = -travel;
+        entry.high = 0;
+      }
     }
     // With a doubtful reference (global), machine coordinates mean nothing:
     // no comparison at all, no false alarm. Otherwise what was followed is

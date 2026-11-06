@@ -76,10 +76,16 @@ export const createHalt = (deps) => {
       }
       const s = controllerStatus(c);
       const state = s.activeState || '';
-      if (/^(Alarm|Door)/.test(state)) {
+      if (/^Alarm/.test(state)) {
         return;
       }
-      if ((state === 'Hold' && Number(s.subState) !== 1) || state === 'Idle' || clock() > deadline) {
+      // The safety door opened during the wait: Grbl keeps the planned blocks of
+      // the stopped program for the next cycle start, so the reset is still due.
+      // Door:0 (closed, ready to resume) and Door:1 (open, at rest) are a hold
+      // completed; Door:2 (retracting) and Door:3 (restoring) are still in motion.
+      const door = /^Door/.test(state);
+      const doorAtRest = door && [0, 1].includes(Number(s.subState));
+      if ((state === 'Hold' && Number(s.subState) !== 1) || doorAtRest || state === 'Idle' || clock() > deadline) {
         c.command('reset');
         return;
       }

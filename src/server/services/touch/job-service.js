@@ -396,8 +396,15 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       c.sender.on('end', r.end);
       // A new run of the loaded program (also started from CNCjs on the PC) starts
       // clean: the end, stop, restart and probe of an earlier run do not apply to it.
+      // It is a started job either way, so its end, errors, alarms and board
+      // restarts are recorded (bug hunt E-4); one started outside the service is
+      // `external`: the PC resumes it, not the tablet (TESTING.md, job follow-up).
       r.run = () => {
         if (r.job) {
+          r.job.started = true;
+          // Started by the service (ownStart, consumed here) or from outside.
+          r.job.external = !r.job.ownStart;
+          r.job.ownStart = false;
           r.job.stopped = false;
           r.job.finishedAt = null;
           r.job.boardRestarted = false;
@@ -607,6 +614,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     record,
     homingActive,
     moving: (c, r) => moves.moving(c, r),
+    spindleOn,
     changed,
     MAX_REPORT_AGE_MS
   });
@@ -664,6 +672,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       const state = controllerStatus(c).activeState;
       if (!j.started || c.workflow.state !== 'paused') {
         throw conflict('La reprise exige une pause simple confirmée par la machine.');
+      }
+      if (j.external) {
+        throw conflict('Travail démarré depuis l’interface CNCjs : reprenez-le depuis le PC.');
       }
       if (kind === 'error') {
         throw conflict('Pause sur une erreur Grbl : arrêtez le travail, corrigez la cause, puis reprenez à une ligne.');
@@ -1526,6 +1537,11 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       // green light, and the operator is told why.
       return sameFileAsLoaded(j).then(() => {
         readyFor(c, 'start', body.revision);
+        // The stream closed meanwhile (rotation, Wi-Fi lost): its confirmations
+        // were revoked, none is issued to it afterwards (bug hunt E-5).
+        if (!transports.has(body.transportId)) {
+          throw conflict('Connexion de suivi interrompue. Confirmez à nouveau.');
+        }
         r.ticket = { nonce, revision: j.revision, operation: 'start', expires: clock() + TICKET_LIFETIME_MS, transportId: body.transportId };
         return ticketOf(j.analysis ? checkProgram(j.analysis, machineForCheck(c, r)) : null);
       });
@@ -1612,6 +1628,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         readyFor(c, a, t.revision);
         j.wcsAtStart = modalWcs(r);
         j.started = true;
+        j.external = false;
+        j.ownStart = true;
         j.startActor = actor || null;
         c.command('gcode:start');
         return { message: 'Démarrage demandé.' };

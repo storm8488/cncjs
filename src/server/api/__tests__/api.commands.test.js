@@ -498,12 +498,39 @@ describe('api.commands: attribution of control (F5) on sensitive host commands',
     run({ ...makeReq('reboot'), user: { id: 'u1', name: 'ana' } }, res);
     expect(res.statusCode).toBe(409);
     expect(res.payload).toEqual({ msg: expect.stringMatching(/Tablette A/), message: expect.stringMatching(/Tablette A/) });
-    expect(touch.refuseSystemCommand).toHaveBeenCalledWith({ kind: 'http', id: 'http:ana', user: 'ana' });
+    expect(touch.refuseSystemCommand).toHaveBeenCalledWith({ kind: 'http', id: 'http:ana', label: '', user: 'ana' });
     expect(touch.reserveSystemCommand).not.toHaveBeenCalled();
     expect(taskRunner.run).not.toHaveBeenCalled();
     // Without a session object: an anonymous HTTP actor.
     run(makeReq('reboot'), makeRes());
-    expect(touch.refuseSystemCommand).toHaveBeenLastCalledWith({ kind: 'http', id: 'http:anonyme', user: '' });
+    expect(touch.refuseSystemCommand).toHaveBeenLastCalledWith({ kind: 'http', id: 'http:anonyme', label: '', user: '' });
+  });
+
+  // Bug hunt B-2 / E-2: the touch page sends clientId/clientLabel in the body
+  // (tablet-actions.js, like job-controls.js); the caller is the same actor as
+  // in api.touch.js, so the piloting tablet is not refused as a stranger.
+  test('a sensitive command from the piloting tablet (clientId in the body) is allowed; another device is refused', () => {
+    touch.isStarted.mockReturnValue(true);
+    const owner = { kind: 'touch', id: 't-abc-1234' };
+    touch.refuseSystemCommand.mockImplementation((actor) => (actor.kind === owner.kind && actor.id === owner.id ? null
+      : { message: 'Pilotage de COM3 attribué à « Tablette 1234 » (tablette) : commande système refusée tant qu’il pilote.', owner }));
+    const user = { id: 'u1', name: 'ana' };
+    let res = makeRes();
+    run({ ...makeReq('reboot'), user, body: { clientId: 't-abc-1234', clientLabel: 'Tablette 1234' } }, res);
+    expect(res.statusCode).toBe(200);
+    expect(touch.refuseSystemCommand).toHaveBeenLastCalledWith({ kind: 'touch', id: 't-abc-1234', label: 'Tablette 1234', user: 'ana' });
+    expect(touch.reserveSystemCommand).toHaveBeenCalledTimes(1);
+    expect(taskRunner.run).toHaveBeenCalledTimes(1);
+    // Another tablet, and the PC (no clientId): refused while the first one pilots.
+    res = makeRes();
+    run({ ...makeReq('reboot'), user, body: { clientId: 't-other-9999', clientLabel: 'Autre' } }, res);
+    expect(res.statusCode).toBe(409);
+    expect(res.payload.message).toMatch(/tant qu’il pilote/);
+    res = makeRes();
+    run({ ...makeReq('reboot'), user }, res);
+    expect(res.statusCode).toBe(409);
+    expect(touch.refuseSystemCommand).toHaveBeenLastCalledWith({ kind: 'http', id: 'http:ana', label: '', user: 'ana' });
+    expect(taskRunner.run).toHaveBeenCalledTimes(1);
   });
 
   test('a harmless command never consults the control policy; the owner itself (allowed) goes on to the reservation', () => {

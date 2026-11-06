@@ -73,6 +73,13 @@ test('E-4 : travail chargé par la tablette, démarré et terminé depuis le PC 
     c.workflow.emit('start');
     c.runner.emit('status');
     expect(recorded.map((e) => e.event)).toEqual(['load', 'start']);
+    // Décision documentée (TESTING.md, job follow-up) conservée : le PC reprend ses travaux, pas la tablette.
+    c.workflow.state = 'paused';
+    c.state.status.activeState = 'Hold';
+    c.runner.emit('status');
+    expect(service.list()[0].resumeReason).toMatch(/démarré depuis l’interface CNCjs/);
+    c.workflow.state = 'running';
+    c.state.status.activeState = 'Run';
     // Toutes les lignes acquittées, le programme se termine : CNCjs rembobine (end) puis repasse idle.
     c.sender.state = { ...c.sender.state, sent: 3, received: 3 };
     c.sender.emit('end');

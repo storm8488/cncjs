@@ -13,19 +13,21 @@ import { controllerStatus } from './motion-preflight.js';
 //   record(c)               the service's record of a controller (seen, probing, loading)
 //   homingActive(r)         a homing cycle sent and not over
 //   moving(c, r)            a jog of the service sent and not over (motion.js)
+//   spindleOn(c)            the spindle turns, or is commanded on
 //   changed()               notifies the stream listeners
 //   MAX_REPORT_AGE_MS       age beyond which a status report is not trusted
 // Returns { reserve({id, title, commands}) → {release()}, current() → the
 // reservation {id, title, since} or null, view() → {title, since} or null, clear() }.
 export const createSystemCommands = (deps) => {
-  const { isDisposed, clock, conflict, controllers, record, homingActive, moving, changed, MAX_REPORT_AGE_MS } = deps;
+  const { isDisposed, clock, conflict, controllers, record, homingActive, moving, spindleOn, changed, MAX_REPORT_AGE_MS } = deps;
 
   // Host command (shutdown, restart…) reserved against the machine: see reserveSystemCommand.
   let systemCommand = null;
 
   // A host command (shutdown, restart, service restart…) is about to run on
   // the computer: refused while any connected controller works, pauses, moves,
-  // homes, probes or loads, or while its report is too old to tell; exclusive
+  // homes, probes or loads, while its spindle turns (no M5 possible until the
+  // service is back), or while its report is too old to tell; exclusive
   // otherwise. Taken synchronously by the API before the task starts, so no
   // start can slip in between; while it holds, available() refuses every
   // action that moves the machine and the stream shows it to the operator.
@@ -74,6 +76,9 @@ export const createSystemCommands = (deps) => {
         // A jog of the touch service sent and not over, even before Grbl reports Jog (F1).
         if (moving && moving(c, r)) {
           throw conflict('Déplacement en cours sur ' + port + ' : commande système refusée.');
+        }
+        if (spindleOn && spindleOn(c)) {
+          throw conflict('La broche tourne sur ' + port + ' : arrêtez-la d’abord (M5), commande système refusée.');
         }
       }
     });

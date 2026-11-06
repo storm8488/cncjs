@@ -10,6 +10,12 @@
 // quand CNCjs met le travail en pause sur l'erreur. Cas réel : reprendre au
 // « G28 G91 Z0 » qui ouvre un bloc de changement d'outil (post Fusion 360).
 // Ces tests ÉCHOUENT sur cbde7cee : c'est la preuve.
+// Correction retenue : la ligne est envoyée telle quelle (ses mots d'axe sont
+// ceux de G10/G28/G30/G92/G43.1/G38.x, pas d'un déplacement modal) plutôt que
+// de refuser la reprise (ETOUCH_RESUME_FIRST_LINE envisagé dans FINDINGS.md) :
+// la ligne est du Grbl complet, exécutée depuis la position que le préambule
+// a rejointe, exactement comme dans le programme ; le cas réel (reprise au
+// bloc de changement d'outil d'un post Fusion 360) reste possible.
 import { buildResume, programLines } from '../resume';
 
 const sentFirst = (r) => r.program.split('\n')[r.preamble.length];

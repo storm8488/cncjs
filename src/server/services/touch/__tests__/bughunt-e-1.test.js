@@ -10,6 +10,13 @@
 //      (ETOUCH_LASER_FRAME_CHECK) sur une machine laser dont X et Y font
 //      leur prise d'origine vers le négatif ($23=3).
 // Ces tests ÉCHOUENT sur cbde7cee : c'est la preuve.
+// Correction retenue (FINDINGS.md, D-1 / E-1) : un axe dont le bit $23 est posé
+// n'est pas vérifié (unknown, ETOUCH_CHECK_HOMING_DIRECTION) — le serveur ne
+// peut pas distinguer Grbl standard ([−$13x, 0]) d'une compilation
+// HOMING_FORCE_SET_ORIGIN ([0, $13x]), et motion.js garde les deux candidats.
+// Le cadrage laser, qui exige X et Y validés, reste donc refusé sur une telle
+// machine : le troisième test ci-dessous prouve que ce refus vient désormais de
+// l'incertitude $23 et non d'un faux « hors course ».
 import { EventEmitter } from 'events';
 import { programCheck } from '../program-check';
 import { createService } from '../job-service';
@@ -35,6 +42,8 @@ describe('E-1 : $23 et le contrôle de course serveur', () => {
     // la tablette (cbde7cee) dit « non vérifiée » ; le serveur ne doit pas dire « hors course ».
     expect(r.axes.X.verdict).not.toBe('outside');
     expect(r.axes.X.reasons.join(' ')).not.toMatch(/Hors course X/);
+    expect(r.axes.X.verdict).toBe('unknown');
+    expect(r.axes.X.codedReasons.map((c) => c.code)).toEqual(['ETOUCH_CHECK_HOMING_DIRECTION']);
   });
 });
 
@@ -42,9 +51,25 @@ describe('E-1 : $23 et le contrôle de course serveur', () => {
 // scenario-profiles.test.js : machine laser, $32=1, déplacements activés,
 // référencée (Home puis Idle), programme chargé, puis frame-prepare.
 const SETTINGS = {
-  $10: '1', $13: '0', $22: '1', $23: '3', $30: '1000', $31: '0', $32: '1',
-  $100: '80', $101: '80', $102: '400', $110: '3000', $111: '3000', $112: '500',
-  $120: '200', $121: '200', $122: '50', $130: '400', $131: '400', $132: '80'
+  $10: '1',
+$13: '0',
+$22: '1',
+$23: '3',
+$30: '1000',
+$31: '0',
+$32: '1',
+  $100: '80',
+$101: '80',
+$102: '400',
+$110: '3000',
+$111: '3000',
+$112: '500',
+  $120: '200',
+$121: '200',
+$122: '50',
+$130: '400',
+$131: '400',
+$132: '80'
 };
 const signature = signatureOf(SETTINGS, '1.1h', '1.1h');
 const LASER = { id: 'm-0123456789ab', label: 'Laser', kind: 'laser', signature, createdAt: 'x', updatedAt: 'x' };
@@ -126,14 +151,22 @@ describe('E-1 (suite) : cadrage laser refusé à tort sur une machine $23=3 (Grb
     expect(state.programCheck.axes.Y.verdict).not.toBe('outside');
   });
 
-  test('frame-prepare doit réussir pour un contour situé dans [-400, 0] en X et Y (reçu : ETOUCH_LASER_FRAME_CHECK)', async () => {
-    const { req } = await laserReady();
+  // Avant la correction, ce test demandait que frame-prepare réussisse (course
+  // [-400, 0] supposée). Correction retenue : X et Y à bit $23 posé ne sont pas
+  // vérifiés, donc le cadrage est refusé — mais pour cette raison-là (axes non
+  // vérifiés, ETOUCH_CHECK_HOMING_DIRECTION), jamais pour un faux « hors course ».
+  test('frame-prepare refusé (ETOUCH_LASER_FRAME_CHECK) parce que X et Y ne sont pas vérifiés ($23=3), et non pour un faux « hors course »', async () => {
+    const { state, req } = await laserReady();
+    const check = state.programCheck;
+    expect([check.axes.X.verdict, check.axes.Y.verdict]).toEqual(['unknown', 'unknown']);
+    expect(check.codedReasons.map((c) => c.code)).toEqual(['ETOUCH_CHECK_HOMING_DIRECTION', 'ETOUCH_CHECK_HOMING_DIRECTION']);
+    expect(check.reasons.join(' ')).not.toMatch(/Hors course/);
     let refusal = null;
     try {
       await req('machine', { operation: 'frame-prepare' });
     } catch (err) {
       refusal = err;
     }
-    expect(refusal && refusal.code).not.toBe('ETOUCH_LASER_FRAME_CHECK');
+    expect(refusal && refusal.code).toBe('ETOUCH_LASER_FRAME_CHECK');
   });
 });

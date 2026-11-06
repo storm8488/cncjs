@@ -47,7 +47,8 @@ export const getJob = authorized((req, res) => {
 // (`clientId`, kept in its localStorage) and its label. Never the body alone.
 const text = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 export const actorOf = (req) => {
-  const user = text(req.user.name, 60) || text(req.user.id, 60);
+  const session = req.user && typeof req.user === 'object' ? req.user : {};
+  const user = text(session.name, 60) || (session.id === undefined || session.id === null ? '' : text(String(session.id), 60));
   const body = req.body || {};
   const query = req.query || {};
   const clientId = text(body.clientId, 80) || text(query.clientId, 80);

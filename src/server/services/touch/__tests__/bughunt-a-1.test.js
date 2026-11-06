@@ -96,4 +96,27 @@ describe('A-1 : porte ouverte pendant la fenêtre d’arrêt', () => {
     await wait(200);
     expect(ctx.c.commands.filter(([n]) => n === 'reset')).toHaveLength(1);
   });
+
+  // Ajouté avec la correction : Door:2 (rétraction) et Door:3 (reprise après
+  // parking) sont encore en mouvement ; l'attente continue, et la limite de 5 s
+  // s'applique comme pour un Run qui ne s'arrête pas.
+  test.each([['Door', 2], ['Door', 3]])('Arrêter, puis %s:%i : pas de réinitialisation en mouvement, puis réinitialisation à la limite de 5 s', async (activeState, subState) => {
+    const ctx = setup();
+    ctx.report();
+    await ctx.req('load', { file: 'test.nc' });
+    ctx.c.workflow.state = 'running';
+    ctx.c.state.status = { activeState: 'Run', subState: 0 };
+    ctx.c.sender.state = { ...ctx.c.sender.state, sent: 3, received: 1 };
+    await ctx.req('stop');
+    expect(ctx.c.commands.at(-1)).toEqual(['feedhold']);
+    ctx.now += 300;
+    ctx.c.state.status = { activeState, subState };
+    ctx.report();
+    await wait(200);
+    expect(ctx.c.commands.filter(([n]) => n === 'reset')).toHaveLength(0);
+    ctx.now += 6000;
+    ctx.report();
+    await wait(200);
+    expect(ctx.c.commands.at(-1)).toEqual(['reset']);
+  });
 });
