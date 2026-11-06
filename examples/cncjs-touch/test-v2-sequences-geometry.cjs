@@ -80,11 +80,19 @@ async function fixture() {
   assert.equal(new Set(messages[0].b).size,3,'one transfer per buffer');
   assert(messages[0].m.geometry.sequences.items.length>0);
   // The actual worker result and immutable provider retain the effective arc
-  // tolerance; a capped subdivision must not revert to the requested 0.01 mm.
+  // tolerance, including Float32 export; a capped subdivision must not revert
+  // to the requested 0.01 mm or to the analytic sagitta alone.
   const largeCircle='G21 G90 G54\nG0 X100000 Y0\nG2 X100000 Y0 I-100000 J0 F100';
   worker.onmessage({data:{type:'geometry-v2',id:8,blob:{text:()=>Promise.resolve(JSON.stringify({data:largeCircle}))}}});await tick();
   const large=messages[1].m.geometry, sagitta=100000*(1-Math.cos(Math.PI/4096));
-  assert(Math.abs(large.toleranceMm-sagitta)<1e-7,'worker exposes effective tolerance');
+  assert(large.toleranceMm>=sagitta && large.toleranceMm<=sagitta+0.006,'worker exposes the capped sagitta plus a bounded Float32 error');
+  let exportedError=0;
+  for(let i=1;i<large.segmentCount;i++) {
+    const p=large.buffers.positions, x=(p[i*6]+p[i*6+3])/2, y=(p[i*6+1]+p[i*6+4])/2;
+    exportedError=Math.max(exportedError,Math.abs(Math.hypot(x,y)-100000));
+  }
+  assert(exportedError>sagitta,'the worker fixture detects Float32 error');
+  assert(exportedError<=large.toleranceMm,'worker tolerance covers its actual exported segments');
   f=await fixture();f.model.update(f.input());f.reads[0].resolve({fingerprint:'sha256:a',blob:{}});await tick();
   f.workers[0].onmessage({data:messages[1].m});
   assert.equal(f.model.snapshot().available,true);

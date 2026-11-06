@@ -21,7 +21,7 @@
   var scriptSrc = doc && doc.currentScript && doc.currentScript.src || '', query = /\?[^#]*/.exec(scriptSrc);
   var CSS_HREF = 'origin-preview.css' + (query ? query[0] : '');
   var COLOUR = { ok: 'ok', outside: 'danger', unknown: 'neutral' };
-  var placementProvider = null, comparisonMode = 'both';
+  var placementProvider = null, comparisonMode = 'both', invalidatedReads = new WeakSet();
   // This key belongs to L0's deferred JSON catalogue, registered when v2 opens.
   var unknownSource = 'Source inconnue';
 
@@ -216,6 +216,11 @@
     try { h.close('view'); } finally { if (s) s.closing = false; }
   }
   function programKey(m) { return v2() ? JSON.stringify([m.port, m.generation, m.revision, m.name, m.fingerprint]) : [m.name, m.revision === undefined ? '' : m.revision, m.fingerprint || ''].join(':'); }
+  function readable(own) {
+    return !own.v2 || (v2() && performance() && !doc.hidden && !own.locked && !locked() && own.screenActive &&
+      own.closedBy !== 'pagehide' && phase(own.machine) === 'idle' && (!root.cncV2.state || root.cncV2.state().safeIdle));
+  }
+  function cancelUnavailable() { if (s && s.pending && !readable(s)) s.pending(); }
   function requestPreview(key, name) {
     var own = s, release = function () {}, response = null, finished = false, cancelled = false, aborted = false;
     var dashboard = root.cncDashboardView;
@@ -226,12 +231,15 @@
     function abortRead() {
       if (!response || aborted) return;
       aborted = true;
+      // L4 may have no abort API and keep returning the same cached promise.
+      // Remember its invalidation across card remounts, without retaining it.
+      if (own.v2 && (typeof response === 'object' || typeof response === 'function')) invalidatedReads.add(response);
       // L4 may expose cancellation on this promise or on its accessor. Passing
       // the original promise prevents cancelling a newer/shared cache entry.
       try {
-        if (typeof response.cancel === 'function') response.cancel();
+        if (typeof dashboard.cancelLoadedPreview === 'function') dashboard.cancelLoadedPreview(response);
+        else if (typeof response.cancel === 'function') response.cancel();
         else if (typeof response.abort === 'function') response.abort();
-        else if (typeof dashboard.cancelLoadedPreview === 'function') dashboard.cancelLoadedPreview(response);
       } catch (_) { /* Local invalidation still rejects every late answer. */ }
     }
     function releaseRead() { release(); if (own.pending === cancel) own.pending = null; }
@@ -246,16 +254,22 @@
     if (finished) return;
     function done(meta) {
       if (finished) return;
+      // Recheck elapsed monotone age too: no status event need arrive while the
+      // read is pending. Invalidate before accepting any part of the answer.
+      if ((own.life && !own.life.valid(lease)) || !readable(own)) { cancel(); return; }
       finished = true; releaseRead();
-      if (own.life && !own.life.valid(lease)) return;
-      if (s !== own || own.request !== id || own.metaKey !== key || (own.v2 && (!v2() || !performance() || doc.hidden || locked() || own.closedBy === 'pagehide' ||
-          phase(own.machine) !== 'idle' || (root.cncV2.state && !root.cncV2.state().safeIdle)))) return;
+      if (s !== own || own.request !== id || own.metaKey !== key) return;
       own.meta = meta && typeof meta === 'object' && meta.file === name && (!v2() || (meta.fingerprint && own.machine && meta.fingerprint === own.machine.fingerprint)) ? meta : null; schedule();
     }
     try {
       response = dashboard.loadedPreview();
       // A synchronous accessor may itself dispatch the event that cancelled us.
       if (cancelled) abortRead();
+      if (own.v2 && invalidatedReads.has(response)) {
+        // Treat this cache entry as a stable absence until its identity changes
+        // or a preview update arrives; retrying it every frame would loop.
+        response.then(function () {}, function () {}); done(null); return;
+      }
       response.then(done, function () { done(null); });
     } catch (_) { done(null); }
   }
@@ -293,8 +307,9 @@
     if (!s) return;
     s.frame = null;
     var m = s.machine, ph = phase(m), reason = s.failure || unavailable();
-    s.v2 = s.v2 || v2();
-    if (s.v2 && (!v2() || doc.hidden || locked())) { closeView(); return; }
+    activateV2();
+    cancelUnavailable();
+    if (s.v2 && (!v2() || doc.hidden || s.locked || locked() || !s.screenActive || s.closedBy === 'pagehide')) { closeView(); return; }
     if (s.v2 && ph === 'idle' && (!v2() || (root.cncV2.state && !root.cncV2.state().safeIdle) ||
         m.activeState !== 'Idle' || num(m.statusAgeMs) === null || m.statusAgeMs < 0 || m.statusAgeMs > 2500)) ph = 'stale';
     if (reason) { closeView(); show({ state: t('Vue 3D indisponible : ') + reason + t('. Le contrôle de course reste au chargement et au démarrage.') }); return; }
@@ -352,6 +367,27 @@
     show({ file: s.file, legend: true, verdict: r.verdict, current: r.current });
   }
   function on(target, type, fn) { target.addEventListener(type, fn); s.listeners.push([target, type, fn]); }
+  function activateV2() {
+    if (!s || !v2()) return;
+    if (!s.v2) {
+      s.v2 = true;
+      // A card mounted by v1 may outlive the deferred v2 bootstrap. Its old read
+      // has no v2 lease: revoke it before installing this card's new lifecycle.
+      if (s.pending) s.pending();
+      s.screenActive = !s.screen.classList || s.screen.classList.contains('active');
+      s.locked = locked();
+      on(root, 'cnc-screen-change', function (e) { s.screenActive = e.detail === 'jog'; cancelUnavailable(); schedule(); });
+      on(root, 'pagehide', function () { s.closedBy = 'pagehide'; if (s.pending) s.pending(); });
+      on(root, 'cnc-v2-data', function (e) { if (e.detail && e.detail.slot === 'placement') schedule(); });
+      if (doc.addEventListener) on(doc, 'visibilitychange', function () { cancelUnavailable(); schedule(); });
+    }
+    // The gate facade can open before the contract script has finished loading.
+    // Acquire one scope as soon as it exists, never retrofit a lease onto a read.
+    if (!s.life && root.cncV2.lifecycle) {
+      if (s.pending) s.pending();
+      s.life = root.cncV2.lifecycle.scope('prepare', 'placement');
+    }
+  }
   function mount(screen) {
     if (s || !screen || !doc) return;
     installPlacement(); comparisonMode = 'both';
@@ -376,12 +412,14 @@
     screen.appendChild(card);
     var machine = null; try { machine = root.cncState.get().machine || null; } catch (_) {}
     s = { screen: screen, card: card, view: view, nodes: { file: file, legend: legend, verdict: verdictNode, current: currentNode, state: state, view: view },
-      listeners: [], frame: null, handle: null, closing: false, closedBy: '', failure: '', machine: machine, meta: undefined, metaKey: '', request: 0, last: [], sent: '', file: '', v2: v2(),
-      life: v2() && root.cncV2.lifecycle ? root.cncV2.lifecycle.scope('prepare', 'placement') : null, pending: null };
+      listeners: [], frame: null, handle: null, closing: false, closedBy: '', failure: '', machine: machine, meta: undefined, metaKey: '', request: 0, last: [], sent: '', file: '', v2: false,
+      screenActive: !screen.classList || screen.classList.contains('active'), locked: locked(),
+      life: null, pending: null };
     on(root, 'cnc-job-status', function (e) {
       var d = e && e.detail || {}; if (d.simulation) return;
       s.machine = d.machine || null;
-      if (s.v2 && (phase(s.machine) !== 'idle' || (s.metaKey && programKey(s.machine) !== s.metaKey))) {
+      activateV2();
+      if (s.v2 && (!readable(s) || (s.metaKey && programKey(s.machine) !== s.metaKey))) {
         if (s.pending) s.pending();
         s.request++;
         if (!s.meta) s.metaKey = '';
@@ -394,13 +432,15 @@
     });
     on(root, 'cnc-gpu-change', schedule);
     on(root, 'cnc-library-preview-updated', function () { s.metaKey = ''; schedule(); });
-    on(root, 'cnc-screen-lock', schedule);
-    if (s.v2) {
-      on(root, 'cnc-v2-change', function () { if (!v2() && s.pending) s.pending(); schedule(); });
-      on(root, 'pagehide', function () { s.closedBy = 'pagehide'; if (s.pending) s.pending(); });
-      on(root, 'cnc-v2-data', function (e) { if (e.detail && e.detail.slot === 'placement') schedule(); });
-      if (doc.addEventListener) on(doc, 'visibilitychange', schedule);
-    }
+    on(root, 'cnc-screen-lock', function (e) {
+      if (s.v2) { s.locked = !!e.detail; cancelUnavailable(); }
+      schedule();
+    });
+    on(root, 'cnc-v2-change', function () {
+      if (!s.v2 && !v2()) return;
+      activateV2(); cancelUnavailable(); schedule();
+    });
+    activateV2();
     if (doc.body && doc.body.classList) doc.body.classList.add('perf-origin');
     schedule();
   }
