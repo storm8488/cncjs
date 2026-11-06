@@ -1307,16 +1307,17 @@ async function v2RealPass(cdp, fx, w, h, summary, report, v1) {
     const idleLayout = await layoutAt();
     info.layout = { idle: idleLayout };
     // M3 in the browser: what the page fetched while the machine was not at rest (the stream, the polling and
-    // the system monitor excluded). A program read, a module, a preview would show here.
-    let seenResources = await cdp.evaluate('performance.getEntriesByType("resource").length');
+    // the system monitor excluded). A program read, a module, a preview would show here. Entries are kept by
+    // their start time, not by their index: the list is sorted by startTime and a long request (the stream)
+    // enters it only when it ends, which shifts the indices and would put an earlier request in this phase.
     info.duringJob = [];
-    const fetchedSince = async (phase) => {
-      const list = await cdp.evaluate('performance.getEntriesByType("resource").slice(' + seenResources + ').map(function(e){return e.name.replace(location.origin,"");})');
-      seenResources += list.length;
+    const fetchedSince = async (phase, since) => {
+      const list = await cdp.evaluate('performance.getEntriesByType("resource").filter(function(e){return e.startTime>=' + since + ';}).map(function(e){return e.name.replace(location.origin,"");})');
       const other = list.filter((n) => !/^\/api\/(touch-events|touch-job|custom\/health|touch-system)(\?|$)/.test(n));
       if (other.length) { info.duringJob.push({ phase, other }); if (!v1) failures.push('v2 ' + ctx + ': fetched while ' + phase + ': ' + other.slice(0, 6).join(', ')); }
     };
     for (const phase of ['running', 'paused', 'alarm', 'stale', 'lost']) {
+      const phaseStart = await cdp.evaluate('performance.now()');
       fx.setPhase(phase);
       const ids = phase === 'paused' ? ['t-resume', 't-stop'] : phase === 'alarm' ? ['t-stop'] : allIds;
       if (phase === 'running') await cdp.waitFor('(function(){var b=document.getElementById("t-pause");return !!b&&!b.hidden;})()', 15000, 'Pause shown');
@@ -1345,7 +1346,7 @@ async function v2RealPass(cdp, fx, w, h, summary, report, v1) {
         if ((phase === 'stale' && !/Figée/.test(band.position || '')) || (phase === 'lost' && !/Figée|Inconnue/.test(band.position || ''))) failures.push('v2 ' + ctx + ': reported position not frozen in ' + phase + ' (« ' + band.position + ' »)');
       }
       for (const [name] of SCREENS) { await goScreen(cdp, name); await v2Hits(cdp, ctx, phase + ' ' + name, ids, report); }
-      await fetchedSince(phase);
+      await fetchedSince(phase, phaseStart);
       // Under a sheet, strip-guard.js keeps Pause and Arrêter usable and makes the rest inert, Reprendre
       // included (v1 design, U5): in a pause, Arrêter is required there and Reprendre is only reported.
       if (!v1 && (phase === 'running' || phase === 'paused' || phase === 'alarm')) await v2Sheets(cdp, ctx, phase, phase === 'paused' ? ['t-stop'] : ids, report);
