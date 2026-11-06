@@ -73,6 +73,19 @@ function libraryPage(options = {}) {
   p.status({ name: 'a.nc', originalName: 'Pièce A.nc', revision: 5, fresh: true, workflow: 'running', activeState: 'Run', fingerprint: FP }); p.frame();
   assert.equal(p.find('lv2-match').getAttribute('data-tone'), 'ok'); assert.match(p.find('lv2-match').textContent, /même empreinte/);
   assert.equal(p.find('lv2-load-state').textContent, '▶ En cours'); assert.equal(cell('dims', 'load'), '228 × 148 × 23 mm');
+  // Review (Codex): a sheet answered « current » for other bytes (file replaced, fingerprint B) while the
+  // preview and the machine still describe A: its tool and material belong to no program shown here.
+  const declared = p.window.CNCProjects.declared;
+  p.window.CNCProjects.declared = file => file === 'a.nc' ? { file, fingerprint: FP2, version: 'current', material: 'ACIER version B', tool: 'Fraise B', stock: null } : null;
+  p.emit('cnc-projects-updated', {}); p.frame();
+  assert.equal(cell('tool', 'sel'), 'fiche d’une autre version', 'sheet of other bytes never shown for the selection');
+  assert.equal(cell('tool', 'load'), 'fiche d’une autre version', 'nor for the loaded program');
+  assert.doesNotMatch(p.content.querySelectorAll('*').map(e => e.textContent).join(' '), /ACIER|Fraise B/);
+  p.window.CNCProjects.declared = file => file === 'a.nc' ? { file, fingerprint: null, version: 'current', material: 'MDF', tool: 'Fraise 6 mm', stock: null } : null;
+  p.emit('cnc-projects-updated', {}); p.frame();
+  assert.equal(cell('tool', 'sel'), 'inconnus', 'a sheet without fingerprint is not bound to the program shown');
+  p.window.CNCProjects.declared = declared; p.emit('cnc-projects-updated', {}); p.frame();
+  assert.equal(cell('tool', 'load'), 'Fraise 6 mm · MDF');
   // Same name, another fingerprint: a different program, never assumed to match.
   p.status({ name: 'a.nc', revision: 6, fresh: true, workflow: 'idle', activeState: 'Idle', fingerprint: FP2 }); p.frame();
   assert.equal(p.find('lv2-match').getAttribute('data-tone'), 'warn'); assert.equal(cell('dims', 'load'), '—');
