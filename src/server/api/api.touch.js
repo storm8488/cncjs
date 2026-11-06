@@ -78,7 +78,9 @@ export const postJob = authorized((req, res) => {
       // message, so a client can translate it; the French message is unchanged.
       const coded = typeof err.code === 'string' && /^ETOUCH_[A-Z0-9_]+$/.test(err.code)
         ? { code: err.code, ...(err.params && typeof err.params === 'object' ? { params: err.params } : {}) } : {};
-      res.status(err.status || ERR_BAD_REQUEST).send({ message: err.message, ...control, ...coded });
+      // Coded reasons behind a refusal ({code, params, message}, like a program check's codedReasons).
+      const reasons = Array.isArray(err.reasons) ? { reasons: err.reasons } : {};
+      res.status(err.status || ERR_BAD_REQUEST).send({ message: err.message, ...control, ...coded, ...reasons });
     });
 });
 

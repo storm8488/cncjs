@@ -23,6 +23,7 @@ import { createService } from '../job-service';
 import { createControl } from '../control';
 import { fingerprint as sha256 } from '../program-identity';
 import { signatureOf } from '../machine-profile';
+import { expectCatalogMatch } from './touch-codes-catalog';
 
 describe('E-1 : $23 et le contrôle de course serveur', () => {
   test('Grbl 1.1 standard, bit X de $23 à 1, MPos X=-350 après $H : un programme X 0→60 (machine -350→-290) n’est pas hors course', () => {
@@ -168,5 +169,14 @@ describe('E-1 (suite) : cadrage laser refusé à tort sur une machine $23=3 (Grb
       refusal = err;
     }
     expect(refusal && refusal.code).toBe('ETOUCH_LASER_FRAME_CHECK');
+    // Second round (revue Codex) : le refus porte les raisons du contrôle pour X
+    // et Y, codées comme les codedReasons d'un contrôle (chacune une ligne du
+    // catalogue), à côté du message : une valeur de gabarit est limitée à 63
+    // caractères, elles ne peuvent pas voyager dedans.
+    expect(refusal.reasons.map((reason) => reason.code)).toEqual(['ETOUCH_CHECK_HOMING_DIRECTION', 'ETOUCH_CHECK_HOMING_DIRECTION']);
+    expect(refusal.reasons.map((reason) => reason.params)).toEqual([{ axis: 'X', setting: 130 }, { axis: 'Y', setting: 131 }]);
+    expect(refusal.reasons.map((reason) => reason.message)).toEqual([check.axes.X.reasons[0], check.axes.Y.reasons[0]]);
+    expectCatalogMatch(refusal);
+    refusal.reasons.forEach(expectCatalogMatch);
   });
 });

@@ -1275,7 +1275,15 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     const a = j.analysis;
     const check = checkProgram(a, machineForCheck(c, r));
     if (check.axes.X.verdict !== 'validated' || check.axes.Y.verdict !== 'validated') {
-      throw machineRefusal('ETOUCH_LASER_FRAME_CHECK');
+      // The check's own reasons for X and Y (an axis homed the other way, an
+      // unverified reference…) travel with the refusal as `reasons`, coded like
+      // a check's codedReasons ({code, params, message}), so the client can
+      // show them in its language (a template value is too short for them).
+      const reasons = ['X', 'Y'].flatMap((axis) => check.axes[axis].codedReasons)
+        .filter((reason, i, all) => all.findIndex((other) => other.message === reason.message) === i);
+      const err = machineRefusal('ETOUCH_LASER_FRAME_CHECK');
+      err.reasons = reasons;
+      throw err;
     }
     if (a.rawUnits || !a.extent.X || !a.extent.Y) {
       throw machineRefusal('ETOUCH_LASER_FRAME_BOUNDS');
