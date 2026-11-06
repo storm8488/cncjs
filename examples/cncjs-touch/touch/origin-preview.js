@@ -225,9 +225,10 @@
     on(root, 'cnc-job-status', function (e) {
       var d = e && e.detail || {}; if (d.simulation) return;
       s.machine = d.machine || null;
-      // State lost with no preview yet (read pending, or answered null for want of a state): asked again
-      // when the state comes back, even for the same program and even if no frame shows the loss.
-      if ((!s.machine || !s.machine.fresh) && !s.meta) s.metaKey = '';
+      // No preview yet (read pending, or answered null) and the state is lost or names another program:
+      // that read is not remembered, so the program shown next is asked again, even if it is the same one
+      // and even if no frame showed the change. A steady state keeps a genuine null (no read loop).
+      if (!s.meta && s.metaKey && (!s.machine || !s.machine.fresh || programKey(s.machine) !== s.metaKey)) s.metaKey = '';
       schedule();
     });
     on(root, 'cnc-gpu-change', schedule);
