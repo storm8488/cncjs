@@ -87,7 +87,9 @@ function timeline(p){
   q.show('history');q.frame();assert.equal(qrows().length,16,'availability back, state, file and workflow');
   // Server history stays read-only, read on demand, labelled as its own source.
   q.window.localStorage.values.set('cnc',JSON.stringify({state:{session:{token:'T'}}}));
+  filter('connection').click();q.frame();
   find(qc,'v2j-source-server').click();q.frame();
+  assert.equal(filter('all').getAttribute('aria-pressed'),'true','a session filter does not survive the switch to the server source');
   const xhr=q.window.sent.at(-1);assert.match(xhr.url,/\/touch-history\?limit=/);
   xhr.status=200;xhr.responseText=JSON.stringify({entries:[{seq:9,event:'start',at:'2026-11-06T10:00:00Z',program:'piece.nc'},{seq:8,event:'alarm',code:2,at:'2026-11-06T09:59:00Z'}],total:2,more:false});xhr.onload();
   q.frame();assert.equal(qrows().length,2);assert.match(text(qlist),/Serveur CNCjs/);assert.match(text(qlist),/Travail démarré/);

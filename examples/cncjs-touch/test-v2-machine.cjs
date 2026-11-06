@@ -55,6 +55,8 @@ const pilot={state:'mine',value:'Cet appareil',sentence:'Piloté par cet apparei
   p.show('machine');p.frame();assert.match(text(condition),/Limite logicielle dépassée/);
   // Released with the gate: static, same rectangle, no new timer.
   p.st.open=false;p.emit('cnc-v2-change',p.base.state());p.timers.clear();p.status({...alarm,activeState:'Idle',alarmCode:null},{pilot});p.frame();
-  assert.match(text(condition),/Limite logicielle dépassée/);assert.equal(p.timers.size,0);assert.equal(content.hidden,false);
+  assert.match(text(condition),/Rapport non suivi/,'released: explicitly not followed');assert(!/Limite logicielle|Rapport frais/.test(text(condition)));
+  assert.equal(p.node('screen-machine').getAttribute('data-v2-presenter'),'off','v1 alarm notice back');
+  assert.equal(p.timers.size,0);assert.equal(content.hidden,false);
   console.log('PASS v2 machine: readable alarm with reported/deduced/missing origin, explanation and next action; freshness with bounded expiry; pilot device; known/unknown parameters with units; no command; hidden and released states; RT unchanged.');
 })().catch(e=>{console.error(e);process.exitCode=1;});
