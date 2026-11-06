@@ -126,3 +126,17 @@ main::-webkit-scrollbar{width:10px}main::-webkit-scrollbar-thumb{background:var(
 .ks-ui #screen-settings .ks-wifi-key--wide{flex-grow:1.6;font-size:var(--fs-16,16px)}
 .ks-ui #screen-settings .ks-wifi-key--space{flex-grow:6;font-size:var(--fs-16,16px)}
 .ks-ui #screen-settings .ks-wifi-key[aria-pressed="true"]{background:var(--info);color:var(--on-info);border-color:var(--info)}
+/* « Interface Performance v2 » entry (display-settings.js): created only where v2 is eligible. */
+.ks-ui #screen-settings #ks-v2-card[hidden]{display:none}
+/* Performance v2 (L6): every rule below is scoped to body.perf-v2; outside it the L6 mounts
+ * never show. Réglages: rendering quality and diagnostic, read on demand. */
+body:not(.perf-v2) #perf-v2-settings,body:not(.perf-v2) #perf-v2-history,body:not(.perf-v2) #perf-v2-machine{display:none!important}
+body.perf-v2 #perf-v2-settings{display:block;margin:0 0 12px}
+body.perf-v2 #perf-v2-settings[hidden]{display:none}
+body.perf-v2 #screen-settings .ks-v2-quality>.ks-v2-diagnostic-tools,body.perf-v2 #screen-settings .ks-v2-quality>.ks-diagnostic-list,body.perf-v2 #screen-settings .ks-v2-quality>.ks-v2-status{grid-column:1/-1}
+body.perf-v2 #screen-settings .ks-v2-diagnostic-tools{display:flex;flex-wrap:wrap;gap:12px}
+body.perf-v2 #screen-settings .ks-v2-diagnostic-tools button{min-height:64px}
+body.perf-v2 #screen-settings .ks-v2-quality .ks-diagnostic-list{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 18px;margin:0;font-size:16px}
+body.perf-v2 #screen-settings .ks-v2-quality .ks-diagnostic-list dt{color:var(--mute)}
+body.perf-v2 #screen-settings .ks-v2-quality .ks-diagnostic-list dd{margin:0;font-variant-numeric:tabular-nums}
+body.perf-v2 #screen-settings .ks-v2-quality .ks-v2-status{font-size:16px}

@@ -60,6 +60,14 @@
     finally { if (lose) try { lose.loseContext(); } catch (_) {} }
     return info;
   }
+  // Performance v2 (L6): the live v2 scene owns the only WebGL context; no second one is
+  // opened. The existing probe's verdict is reported instead (texts: embedded FR/EN/ES).
+  function v2Layout() { return !!(doc.body && doc.body.classList && doc.body.classList.contains('perf-v2')); }
+  function skippedWebgl() {
+    var g = root.cncGpu && root.cncGpu.state ? root.cncGpu.state() : null, known = !!g && g.checked === true;
+    return { available: known && !g.lost, renderer: '', software: known ? !g.hardware : null, drawMs: null, skipped: true };
+  }
+  var SKIPPED = { fr: 'Non mesuré : la vue 3D v2 garde le seul contexte WebGL', en: 'Not measured: the v2 3D view keeps the only WebGL context', es: 'No medido: la vista 3D v2 conserva el único contexto WebGL' };
   function collect() {
     var vv = root.visualViewport, profile = root.cncProfile, p = points(SEGMENTS);
     return {
@@ -75,7 +83,7 @@
       machineKind: profile ? profile.kind() : null,
       capabilities: { worker: typeof root.Worker === 'function', offscreenCanvas: typeof root.OffscreenCanvas === 'function', webgl2: !!root.WebGL2RenderingContext },
       memoryMb: root.performance && root.performance.memory ? round(root.performance.memory.usedJSHeapSize / 1048576) : null,
-      render: { segments: SEGMENTS, canvas2dMs: canvas2d(p), webgl: webgl(p) }
+      render: { segments: SEGMENTS, canvas2dMs: canvas2d(p), webgl: v2Layout() ? skippedWebgl() : webgl(p) }
     };
   }
   function line(label, value) { return '<dt>' + label + '</dt><dd>' + String(value).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }) + '</dd>'; }
@@ -89,7 +97,7 @@
       line(t('Workers · OffscreenCanvas'), (r.capabilities.worker ? t('oui') : t('non')) + ' · ' + (r.capabilities.offscreenCanvas ? t('oui') : t('non'))) +
       line('WebGL', g.available ? (g.renderer || '—') + (g.software ? ' ' + t('(rendu logiciel)') : '') : t('indisponible')) +
       line(t('Tracé 2D de 20 000 segments'), r.render.canvas2dMs === null ? '—' : r.render.canvas2dMs + ' ms') +
-      line(t('Tracé WebGL de 20 000 segments'), g.drawMs === null ? '—' : g.drawMs + ' ms');
+      line(t('Tracé WebGL de 20 000 segments'), g.skipped ? SKIPPED[uiLocale.language] || SKIPPED.fr : g.drawMs === null ? '—' : g.drawMs + ' ms');
     $('profile-diagnostic-export').hidden = false;
   }
   function $(id) { return doc.getElementById(id); }
