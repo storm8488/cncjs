@@ -13,7 +13,7 @@ function createGL(options = {}) {
   const range = options.lineWidthRange || [1, 7.375];
   const gl = {
     VERTEX_SHADER: 1, FRAGMENT_SHADER: 2, COMPILE_STATUS: 3, LINK_STATUS: 4, ARRAY_BUFFER: 5, STATIC_DRAW: 6, COLOR_BUFFER_BIT: 7, FLOAT: 8, LINES: 9, NO_ERROR: 0,
-    DEPTH_BUFFER_BIT: 10, DEPTH_TEST: 11, LEQUAL: 12, ALIASED_LINE_WIDTH_RANGE: 13,
+    DEPTH_BUFFER_BIT: 10, DEPTH_TEST: 11, LEQUAL: 12, ALIASED_LINE_WIDTH_RANGE: 13, SCISSOR_TEST: 14,
     getParameter(p) { return p === 13 ? new Float32Array(range) : null; },
     getContextAttributes() { return { antialias: !!(log.attrs && log.attrs.antialias) && !options.noAntialias, depth: !!(log.attrs && log.attrs.depth) }; },
     lineWidth(w) { log.lineWidth = w; }, enable(c) { if (c === 11) log.depthTest = true; }, disable(c) { if (c === 11) log.depthTest = false; }, depthFunc() {}, clearDepth() {},
@@ -22,7 +22,7 @@ function createGL(options = {}) {
     createProgram() { log.created.program++; return {}; }, attachShader() {}, linkProgram() {}, getProgramParameter() { return true; },
     getAttribLocation(_, n) { return n === 'p' ? 0 : n === 'c' ? 1 : 2; }, getUniformLocation(_, name) { return { name }; },
     createBuffer() { log.created.buffer++; return {}; }, bindBuffer() {}, bufferData(_, data) { log.uploads.push(data.length); log.vertices = data.length / 6; },
-    viewport() {}, clearColor() {}, clear() { log.frames++; }, useProgram() {}, enableVertexAttribArray() {}, vertexAttribPointer() {}, uniformMatrix4fv(_, __, m) { log.matrix = Array.from(m); },
+    viewport() {}, scissor() { log.scissors = (log.scissors || 0) + 1; }, clearColor() {}, clear() { log.frames++; }, useProgram() {}, enableVertexAttribArray() {}, vertexAttribPointer() {}, uniformMatrix4fv(_, __, m) { log.matrix = Array.from(m); },
     drawArrays(mode, first, count) {
       log.draws++; log.drawn = count;
       const u = log.uniforms;
@@ -91,6 +91,8 @@ function createPage(options = {}) {
   // options.gpu: the GPU gate open (cncGpu as preview-3d.js exposes it after a hardware probe); options.clock: performance.now().
   if (options.gpu) win.cncGpu = { state: () => Object.assign({ checked: true, hardware: true, lost: false, renderer: 'stub', webgl2: true, antialias: true, lineWidth: [1, 7.375], maxTextureSize: 16384, reason: '' }, options.gpu === true ? {} : options.gpu), _contextLost() { win.gpuLost = (win.gpuLost || 0) + 1; } };
   if (options.clock) win.performance = { now: options.clock };
+  if (options.v2) win.cncV2 = options.v2;
+  if (options.requestIdleCallback) { win.requestIdleCallback = options.requestIdleCallback; win.cancelIdleCallback = options.cancelIdleCallback || (() => {}); }
   win.window = win; win.self = win;
   vm.createContext(win);
   for (const f of ['toolpath-3d.js', 'motion-estimate.js', 'preview-inspect.js', 'preview-gl.js'].concat(options.toolPosition ? ['tool-position.js'] : [])) vm.runInContext(fs.readFileSync(path.join(__dirname, 'touch', f), 'utf8'), win);
@@ -123,6 +125,81 @@ function byText(root, text) { return findAll(root, n => n.textContent === text)[
 (async () => {
   const code = ['G21 G90', 'T1 M6', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G1 X50 F600', 'G1 Y30', 'G0 Z5', 'T2 M6', 'G0 X10 Y10', 'G1 Z-2 F100', 'G1 X40 F400', 'G0 Z5', 'M30'].join('\n');
   const meta = await metaOf(code);
+
+  // The capability probe also has a single live context: WebGL1 is released before WebGL2.
+  {
+    let contexts = 0, maximum = 0;
+    const document = { createElement() { return { getContext() {
+      contexts++; maximum = Math.max(maximum, contexts); let released = false;
+      return { RENDERER: 1, ALIASED_LINE_WIDTH_RANGE: 2, MAX_TEXTURE_SIZE: 3,
+        getParameter: p => p === 1 ? 'Intel' : p === 2 ? [1, 8] : 4096, getContextAttributes: () => ({ antialias: true }),
+        getExtension: name => name === 'WEBGL_lose_context' ? { loseContext() { if (!released) contexts--; released = true; } } : null };
+    } }; } };
+    const probe = GL.probeGpu(document); assert.equal(probe.hardware, true); assert.equal(contexts, 0);
+    assert.equal(maximum, 1, 'the probe never overlaps its contexts');
+  }
+
+  // v2: local loupe, explicit mode, constant-time prepared passes, bounded diagnostics and release.
+  {
+    const idle = [], seen = []; let selected = null, adapter = null, saved = null, alive = true, safeIdle = true, truncated = false;
+    const provider = {
+      attach(v) { adapter = v; }, detach(r) { seen.push(['detach', r]); adapter = null; },
+      updatePath(p, facts) { seen.push(['path', p.count, facts.identity.key, facts.geometryKey]); },
+      begin() { saved = adapter.camera(); return true; }, end() { adapter.restoreCamera(saved); adapter.setInspection(null); },
+      pick(q) { seen.push(['pick', q.x, q.y]); if (truncated) adapter.setInspection(null); return { ready: true, truncated, candidates: [{ segment: 1, sourceLine: 6, passId: 1, nominalMm: { x: 25, y: 0, z: -1 }, approximate: true, toleranceMm: .1 }] }; },
+      choose(id) { selected = { segment: id, sourceLine: 6, passId: 1, nominalMm: { x: 25, y: 0, z: -1 }, approximate: true, toleranceMm: .1, candidates: [id] }; adapter.setInspection(selected); return selected; },
+      snapshot() { return { selection: selected }; }
+    };
+    const v2 = { gate: () => alive, state: () => ({ safeIdle }), use: () => provider,
+      identity: { create: x => ({ key: JSON.stringify([x.file, x.fingerprint]), ...x }) } };
+    let pg = createPage({ gpu: true, v2, dpr: 2, requestIdleCallback: fn => { idle.push(fn); return idle.length; } });
+    pg.win.cncState = { get: () => ({ machine: { name: meta.file, fingerprint: meta.fingerprint, port: 'P', generation: 'g', revision: 1 } }) };
+    let vv = pg.win.CNCPreviewGL.open(meta, { container: pg.doc.createElement('div'), loaded: true });
+    assert.equal(typeof vv.attachInspector, 'function', 'v2 view connects to L0 inspect provider');
+    pg.runFrames(0);
+    while (idle.length) idle.shift()({ timeRemaining: () => 8 });
+    assert.equal(vv.stats().passes.ready, true, 'pass bounds prepared at idle');
+    assert(seen.some(x => x[0] === 'path' && x[2]), 'borrow decoded geometry with a fingerprint identity');
+    const examine = byClass(vv.dialog, 'pgl-examine')[0]; assert(examine, 'inline Examiner is explicit');
+    const beforeCam = JSON.stringify(vv.camera()); examine.click();
+    vv.canvas.dispatch('pointerdown', { pointerId: 1, pointerType: 'pen', clientX: 350, clientY: 220 });
+    vv.canvas.dispatch('pointercancel', { pointerId: 1, clientX: 350, clientY: 220 });
+    assert(!seen.some(x => x[0] === 'pick'), 'pointercancel does not select');
+    vv.canvas.dispatch('pointerdown', { pointerId: 2, pointerType: 'touch', clientX: 350, clientY: 220 });
+    vv.canvas.dispatch('pointerup', { pointerId: 2, clientX: 350, clientY: 220 });
+    pg.runFrames(16); assert(seen.some(x => x[0] === 'pick'), 'finger selects inline');
+    assert(vv.canvas.glStub.log.scissors > 0, 'loupe reuses the same context with a clipped viewport');
+    assert.equal(byClass(vv.dialog, 'pgl-inspection-crosshair')[0].hidden, false, 'inspection reticle is separate from tool');
+    assert.match(byClass(vv.dialog, 'pgl-inspection-rows')[0].textContent, /nominal.*Ligne 6.*0,1 mm/, 'qualification, source line and known tolerance are explicit');
+    truncated = true;
+    vv.canvas.dispatch('pointerdown', { pointerId: 3, clientX: 350, clientY: 220 }); vv.canvas.dispatch('pointerup', { pointerId: 3, clientX: 350, clientY: 220 }); pg.runFrames(24);
+    assert.equal(byClass(vv.dialog, 'pgl-inspection-crosshair')[0].hidden, true, 'incomplete search cannot choose implicitly');
+    assert.equal(byClass(vv.dialog, 'pgl-candidate').length, 1, 'even a sole candidate from an incomplete search needs explicit choice');
+    byClass(vv.dialog, 'pgl-inspection-return')[0].click(); pg.runFrames(32);
+    assert.equal(JSON.stringify(vv.camera()), beforeCam, 'return restores entire camera');
+    const oldKey = seen.filter(x => x[0] === 'path').slice(-1)[0][3];
+    byClass(vv.dialog, 'pgl-toggle')[0].click();
+    assert.notEqual(seen.filter(x => x[0] === 'path').slice(-1)[0][3], oldKey, 'filter participates in geometry identity');
+    assert.equal(vv.stats().passes.ready, false, 'filter invalidates visible pass ranges');
+    safeIdle = false; while (idle.length) idle.shift()({ timeRemaining: () => 8 });
+    assert.equal(vv.stats().passes.ready, false, 'job cancels preparation, never publishes partial bounds');
+    safeIdle = true; pg.runFrames(40); while (idle.length) idle.shift()({ timeRemaining: () => 8 });
+    assert.equal(vv.stats().passes.ready, true, 'new idle preparation recovers after interruption');
+    assert.equal(vv.setQuality('reduced').mode, 'reduced'); pg.runFrames(48); assert.equal(vv.stats().dpr, 1, 'reduced DPR');
+    const measurement = vv.measure({ frames: 5, budgetMs: 1 });
+    for (let i = 1; i <= 8; i++) pg.runFrames(48 + i * 16);
+    const measured = await measurement; assert.equal(measured.samples, 5); assert.equal(measured.cancelled, false);
+    assert.equal(pg.frames.length, 0, 'no permanent diagnostic frame loop');
+    const pending = vv.measure({ frames: 20 });
+    pg.doc.hidden = true; pg.doc.listeners.visibilitychange.forEach(fn => fn());
+    assert.equal(vv.state().closed, true); assert.equal((await pending).cancelled, true, 'hidden cancels diagnostic');
+    assert(seen.some(x => x[0] === 'detach')); assert.equal(vv.stats().passes.ready, false);
+    assert.equal(vv.canvas.glStub.log.loseContext, true); assert.equal(pg.frames.length, 0);
+    provider.attach = next => { adapter = next; next.setQuality('fixed'); };
+    pg = createPage({ gpu: true, v2 });
+    assert.equal(pg.win.CNCPreviewGL.open(meta, { container: pg.doc.createElement('div') }), null, 'a fixed preference can close synchronously during attach without a later upload');
+    assert.equal(pg.win.CNCPreviewGL.active(), false); assert.equal(pg.frames.length, 0);
+  }
 
   // Camera math: the presets are the fixed views of toolpath-3d.js; CPU projection = GPU matrix.
   for (const view of ['iso', 'front', 'side', 'top']) {
@@ -530,7 +607,7 @@ function byText(root, text) { return findAll(root, n => n.textContent === text)[
     assert.equal(view.state().geometry, 'full'); view.canvas.dispatch('webglcontextlost', {});
     assert.equal(page.listenerCount.value, 0, 'cache dropped on a lost context');
   }
-  console.log('PASS free 3D view: presets and picking match the fixed views, render on change, DPR cap 1.5, ≤ 30 frames/s in gestures, gestures kept in the canvas (no jog reached), ' +
+  console.log('PASS free 3D view: v2 inline inspection/loupe/camera restore, explicit truncated choices, idle pass invalidation, bounded diagnostic and hidden/fixed cleanup; presets and picking match the fixed views, render on change, DPR cap 1.5, ≤ 30 frames/s in gestures, gestures kept in the canvas (no jog reached), ' +
     'inspection simplified then exact, filters, clamps, inline buttons folded behind Vues, Agrandir opens the large free view, released on eco/screen change/context loss, Canvas 2D without WebGL (light while turning), clean fallback without either, never loaded in eco nor script-tagged; ' +
     'GPU gate open: antialiasing and depth asked, DPR ≤ 2, a frame per animation frame in gestures, widths × DPR bounded by the line width range (1 px driver), antialias refusal reported, previous rendering when the gate is closed, everything released at the six closing causes; ' +
     'full geometry: arcs at 0.01 mm, path3d line numbering, cap 500 000 (count only), read once in a worker at rest and only with the gate, kept by fingerprint across screens, dropped in eco / on a lost context / for another version, cancelled on close.');

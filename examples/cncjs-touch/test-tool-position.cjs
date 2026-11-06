@@ -4,7 +4,7 @@
 // change, a resize or a new image; the marker moves with a transform, at the place
 // the left/top formula gave before. Synthetic DOM, no browser.
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
-let now=1e6,reads=0;const frames=[],handlers={};
+let now=1e6,mono=1e6,reads=0,v2=false,expiryDelay=null;const frames=[],handlers={};
 function el(tag){return {tagName:tag,style:{},hidden:false,attributes:{},children:[],textContent:'',
   setAttribute(k,v){this.attributes[k]=v;},appendChild(c){this.children.push(c);c.parentNode=this;return c;},
   addEventListener(n,f){(this.handlers=this.handlers||{})[n]=f;},insertAdjacentElement(){} };}
@@ -16,13 +16,13 @@ const screen=el('section');screen.classList={contains:n=>n==='active'};
 const note=el('p');
 const document={hidden:false,getElementById:id=>id==='home-job-image'?img:id==='screen-home'?screen:note,
   createElement:el,createElementNS:(ns,tag)=>el(tag),addEventListener(){}};
-const root={addEventListener:(n,f)=>handlers[n]=f};
+const root={addEventListener:(n,f)=>handlers[n]=f,performance:{now:()=>mono},cncV2:{gate:()=>v2}};
 vm.runInNewContext(fs.readFileSync(__dirname+'/touch/tool-position.js','utf8'),{window:root,document,Date:{now:()=>now},
-  requestAnimationFrame:f=>{frames.push(f);return frames.length;},cancelAnimationFrame(){},setTimeout:()=>0,clearTimeout(){},Number,Math,Array,isFinite});
+  requestAnimationFrame:f=>{frames.push(f);return frames.length;},cancelAnimationFrame(){},setTimeout:(fn,delay)=>{expiryDelay=delay;return 1;},clearTimeout(){},Number,Math,Array,isFinite});
 const marker=parent.children.find(c=>c.className==='tool-position-marker');
-img.cncPreview={file:'a.nc',projection:{version:1,width:960,height:540,units:'mm',wcs:'G54',bounds:[0,0,100,50]}};
-function report(x,y){handlers['cnc-job-status']({detail:{simulation:false,machine:{fresh:true,name:'a.nc',total:100,received:10,workflow:'running',
-  operator:{reportUnits:'mm',wcs:'G54'},coordinates:{wpos:{x:String(x),y:String(y)}}}}});while(frames.length)frames.shift()();}
+img.cncPreview={file:'a.nc',fingerprint:'sha256:abc',projection:{version:1,width:960,height:540,units:'mm',wcs:'G54',bounds:[0,0,100,50]}};
+function report(x,y,extra){handlers['cnc-job-status']({detail:{simulation:false,machine:Object.assign({fresh:true,name:'a.nc',fingerprint:'sha256:abc',total:100,received:10,workflow:'running',
+  operator:{reportUnits:'mm',wcs:'G54'},coordinates:{wpos:{x:String(x),y:String(y)}}},extra)}});while(frames.length)frames.shift()();}
 // What the left/top formula gave: box in layout px, image drawn at 960x540 ratio.
 function expected(x,y){
   const k=0.8,box={left:20,top:10,width:400,height:225},ratio=Math.min(box.width/960,box.height/540),w=960*ratio,h=540*ratio;
@@ -43,4 +43,17 @@ e=expected(18,14);s=shown();assert(Math.abs(s.left-e.left)<1e-6&&Math.abs(s.top-
 // A screen change or a resize reads the box again at once.
 reads=0;handlers['cnc-screen-change']();while(frames.length)frames.shift()();assert.equal(reads,1);
 reads=0;handlers.resize();while(frames.length)frames.shift()();assert.equal(reads,1);
-console.log('PASS tool position: box read at most once a second, marker moved by transform at the same place, re-read after screen change and resize.');
+// v2: report age includes the server's age and a monotone local elapsed time.
+// An unknown age is never substituted with zero, even when `fresh` is true.
+v2=true;report(20,10,{statusAgeMs:2000});assert.equal(marker.hidden,false);
+assert.equal(expiryDelay,501,'expiry follows the remaining freshness budget');
+mono+=500;now-=100000;handlers.resize();while(frames.length)frames.shift()();assert.equal(marker.hidden,false,'2500 ms inclusive');
+mono++;handlers.resize();while(frames.length)frames.shift()();assert.equal(marker.hidden,true,'wall-clock reversal cannot keep an old report fresh');
+report(20,10);assert.equal(marker.hidden,true,'missing report age remains unknown');
+for(const age of [NaN,Infinity,-1,2501]){report(20,10,{statusAgeMs:age});assert.equal(marker.hidden,true,'invalid/stale report age '+age);}
+report(20,10,{statusAgeMs:0});assert.equal(marker.hidden,false);
+for(const fingerprint of [null,'','sha256:other']){report(20,10,{statusAgeMs:0,fingerprint});assert.equal(marker.hidden,true,'v2 fixed view requires matching known content');}
+report(20,10,{statusAgeMs:0});assert.equal(marker.hidden,false);
+handlers.pagehide({persisted:true});const frameCount=frames.length;handlers['cnc-job-status']({detail:{machine:{fresh:true},simulation:false}});
+assert.equal(frames.length,frameCount,'bfcache pagehide ends v2 marker work');
+console.log('PASS tool position: cached box and transform, v1 retained; v2 monotone combined age, 2500 ms threshold, unknown age and bfcache cleanup.');

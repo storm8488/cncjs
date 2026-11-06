@@ -229,6 +229,43 @@ assert(!view.dialog.children.find(c => /pgl-tools/.test(c.className)).children.s
 assert.equal(view.follow(true), false);
 L.page.runFrames(0); L.status(machine(a1.p, receivedFor(70))); assert.equal(L.page.frames.length, 0, 'no live option: status reports not even listened to'); view.close('test');
 
+// v2 ages include the age already reported by the server; unknown is never zero.
+{
+  const v2 = { gate: () => true, state: () => ({ safeIdle: false }), use: () => ({ stub: true }) };
+  L = livePage({ v2 }); view = L.page.win.CNCPreviewGL.open(meta, { container: L.page.doc.createElement('div'), live: { progress: true, tool: true } });
+  L.status(machine([1, 2, -1], receivedFor(80), { statusAgeMs: 2400 })); L.page.runFrames(0);
+  assert.equal(view.state().live.marker.stale, false);
+  assert.equal(view.state().live.ackLine, -1, 'a name without a matching fingerprint does not prove loaded geometry identity');
+  L.now = 101; L.fireTimers(); L.page.runFrames(101);
+  assert.equal(view.state().live.marker.stale, true, '2400 ms server age expires after 101 ms locally');
+  assert.equal(view.state().live.marker.ageMs, 2501);
+  L.status(machine([3, 4, -1], receivedFor(90), { statusAgeMs: null })); L.page.runFrames(117);
+  assert.equal(view.state().live.marker.stale, true, 'unknown report age cannot refresh the marker');
+  assert.deepEqual(plain(view.state().live.marker.at), [1, 2, -1], 'unknown-age point is not presented as current');
+  L.status(null); L.page.runFrames(133); assert.equal(view.state().live.marker.stale, true, 'missing machine invalidates current state');
+  view.close('test');
+}
+
+// v2: the length of the current pass cannot turn into a per-frame scan.
+{
+  const count = 160001, positions = new Float64Array(count * 3), lines = new Uint32Array(count), idle = [];
+  let rapidReads = 0, safe = true;
+  const rapid = new Proxy(new Uint8Array(count), { get(target, key) { if (/^\d+$/.test(String(key))) rapidReads++; return target[key]; } });
+  for (let i = 0; i < count; i++) { positions[i * 3] = i; positions[i * 3 + 2] = -1; lines[i] = i; }
+  const v2 = { gate: () => true, state: () => ({ safeIdle: safe }), use: () => ({ stub: true }) };
+  L = livePage({ v2, requestIdleCallback: fn => { idle.push(fn); return idle.length; } });
+  L.page.win.CNCToolpath3D.decode = () => ({ count, positions, lines, rapid, bounds: [0, 0, -1, count - 1, 0, -1] });
+  const largeMeta = { file: 'live.nc', fingerprint: 'sha256:11', path3d: { lines: count - 1, tolerance: .01 }, zBounds: [-1, -1] };
+  view = L.page.win.CNCPreviewGL.open(largeMeta, { container: L.page.doc.createElement('div'), live: { progress: true, tool: true } });
+  while (idle.length) idle.shift()({ timeRemaining: () => 8 });
+  assert.equal(view.stats().passes.ready, true); assert(view.stats().passes.maxSliceMs < 50);
+  safe = false; rapidReads = 0;
+  L.status(machine([2, 0, -1], count - 1, { total: count - 1, fingerprint: 'sha256:11' })); L.page.runFrames(0);
+  assert.deepEqual(plain(view.state().live.pass), [1, count - 1], '160k segment pass has precomputed bounds');
+  assert(rapidReads <= 4, 'pass lookup reads a constant number of rapid flags: ' + rapidReads);
+  assert.equal(idle.length, 0, 'no pass preparation during a job'); view.close('test');
+}
+
 // ---- The note under Suivi's frame (tool-position.js reads the live view) ----
 {
   let note = null, nowMs = 1e6; const frames = [], handlers = {};
