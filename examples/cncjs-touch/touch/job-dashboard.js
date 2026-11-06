@@ -565,6 +565,9 @@
     zones.curve.addEventListener('click',v2CurveTap);
     // Time axis, with the events of the minute between its ends.
     v2.axis=el('p','home-v2-curve-axis','home-v2-curve-axis');addSpan(v2.axis,'','','−60 s');addSpan(v2.axis,'home-v2-curve-events','home-v2-curve-events');addSpan(v2.axis,'','','0 s');
+    // Fixed slots of the commands (REFLEXION § 3.10): one scrolling slot for every message that comes and
+    // goes, one action slot of a fixed height where Charger, Démarrer / Pause and Reprendre keep their place.
+    v2.info=el('div','home-v2-info','home-v2-info');v2.actions=el('div','home-v2-actions','home-v2-actions');
     // « Broche / rapides… » and « Détail du temps »: sheets of the shell, under the strip (Pause / Arrêter kept).
     var shell=window.cncShell;
     if(!shell||typeof shell.sheet!=='function')return;
@@ -578,12 +581,22 @@
     var find=typeof overrides.querySelector==='function'?function(s){return overrides.querySelector(s);}:function(){return null;};
     v2.rows=[find('.t-override[data-kind="spindle"]'),find('.t-override[data-kind="rapid"]'),$('home-rapid-note')].filter(Boolean);
   }
-  // Moves the existing elements in (on) or back exactly where the v1 wide layout had them (off).
+  // Moves the existing elements in (on) or back exactly where the v1 wide layout had them (off): the children
+  // of the boxes it rearranges are recorded first and given back in that order.
+  function kidsOf(node){return Array.prototype.slice.call(node.children);}
   function applyV2(on,board,left,tiles,overrides){
-    var art=$('home-job-image').parentNode,second=$('home-gauge-eta-second'),unknown=$('home-gauge-eta-unknown'),note=$('home-override-note');
+    var art=$('home-job-image').parentNode,second=$('home-gauge-eta-second'),unknown=$('home-gauge-eta-unknown');
+    var controls=zones.controls,stop=$('home-job-stop').parentNode,actions=[$('home-job-load'),$('home-job-primary-row'),$('home-job-resume-row')];
     if(art.parentNode!==left)art=left.firstChild;
     if(on){
       if(!v2.built)buildV2(overrides);
+      v2.saved={controls:kidsOf(controls),overrides:kidsOf(overrides),eta:kidsOf(zones.eta)};
+      // Messages (spindle warning, override reason, ready line, resume help, feedback…) in their slot, in order.
+      v2.info.appendChild($('home-spindle-warning'));
+      v2.saved.controls.forEach(function(n){if(n!==stop&&actions.indexOf(n)<0)v2.info.appendChild(n);});
+      v2.info.appendChild($('home-override-note'));
+      actions.forEach(function(n){v2.actions.appendChild(n);});
+      controls.insertBefore(v2.info,stop);controls.insertBefore(v2.actions,stop);
       left.insertBefore(v2.band,art.nextSibling);left.appendChild(v2.sequence);
       // The reported feed and S head the curve card, as in the mockup.
       $('home-coords').appendChild(v2.position);zones.curve.insertBefore(tiles,zones.svg);zones.gauges.appendChild(overrides);
@@ -599,10 +612,11 @@
       if(v2.timer!==null&&typeof window.clearTimeout==='function')window.clearTimeout(v2.timer);v2.timer=null;
       [v2.band,v2.sequence,v2.position,v2.axis,v2.more,v2.paths.gaps,v2.paths.line,v2.paths.marks].forEach(function(n){if(n&&n.parentNode)n.parentNode.removeChild(n);});
       zones.gauges.insertBefore(tiles,zones.curve);zones.gauges.insertBefore(zones.read,zones.curve);
-      if(v2.more){
-        v2.rows.forEach(function(r){if(r.id==='home-rapid-note')overrides.appendChild(r);else overrides.insertBefore(r,note);});
-        zones.eta.appendChild(second);zones.eta.appendChild(unknown);
-      }
+      var saved=v2.saved;
+      saved.overrides.forEach(function(n){overrides.appendChild(n);});saved.eta.forEach(function(n){zones.eta.appendChild(n);});
+      saved.controls.forEach(function(n){controls.appendChild(n);});
+      // Anything another module added to the slots meanwhile stays among the commands, above Arrêter.
+      [v2.info,v2.actions].forEach(function(box){kidsOf(box).forEach(function(n){controls.insertBefore(n,stop);});if(box.parentNode)box.parentNode.removeChild(box);});
       board.removeAttribute('data-v2');board.removeAttribute('data-v2-report');
       // The v1 curve writes its own title again.
       v2.chart=null;curve.max=0;curve.points='';set('home-gauge-curve-title','textContent',uiLocale.t('Avance réelle, dernière minute'));

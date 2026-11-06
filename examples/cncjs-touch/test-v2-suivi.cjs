@@ -84,7 +84,12 @@ async function cases(entries) {
       assert.equal(s.node('home-v2-position').parentNode, s.node('home-coords'), 'position state beside the reported coordinates');
       assert.deepEqual(s.kids(s.node('home-gauge-curve')), ['home-gauge-curve-title', 'home-live-tiles', 'SVG', 'home-v2-curve-axis'], 'reported feed and S head the curve card');
       assert.deepEqual(s.kids(s.node('home-v2-curve-axis')).slice(1, 2), ['home-v2-curve-events']);
-      assert.deepEqual(s.kids(s.ov), ['home-overrides-head', 'home-spindle-warning', 't-override', 'home-override-note', 'home-v2-more', 'home-gauge-overrides'], 'feed row in the column, spindle/rapids in their sheet');
+      assert.deepEqual(s.kids(s.ov), ['home-overrides-head', 't-override', 'home-v2-more', 'home-gauge-overrides'], 'feed row in the column, spindle/rapids in their sheet');
+      // D1: fixed slots. Messages that come and go (spindle warning, override reason, ready line, resume
+      // help, feedback) share one scrolling message slot; the commands have their own fixed action slot.
+      assert.deepEqual(s.kids(s.node('home-zone-controls')), ['home-v2-info', 'home-v2-actions', 'home-stop']);
+      assert.deepEqual(s.kids(s.node('home-v2-actions')), ['home-job-load', 'home-job-primary-row', 'home-job-resume-row']);
+      assert.deepEqual(s.kids(s.node('home-v2-info')), ['home-spindle-warning', 'home-job-note', 'home-job-ready', 'home-job-selection', 'home-job-feedback', 'home-override-note']);
       const sheet = s.node('perf-v2-overrides-sheet-content'), time = s.node('perf-v2-time-sheet-content');
       assert.deepEqual(sheet.children, [s.spindleRow, s.rapidRow, s.node('home-rapid-note')]);
       assert.deepEqual(s.kids(time), ['home-v2-time-note', 'home-gauge-eta-second', 'home-gauge-eta-unknown']);
@@ -189,6 +194,26 @@ async function cases(entries) {
       s.navigate('home'); s.send(); s.p.classes.delete('perf-v2'); s.p.emit('cnc-v2-change', s.p.api.state()); s.p.frame();
       s.node('home-gauge-curve').handlers.click({clientX: 100 + x}); s.p.emit('cnc-v2-journal-return', {view: d.view});
       assert.equal(opened.length, 1); assert.deepEqual(went, ['home']);
+    }],
+    ['D1: the same slots in idle, selection, running, paused, alarm, stale and lost states (structure only moves at rest)', async () => {
+      const s = await suivi(); s.send(); s.layout(true); s.p.frame();
+      const structure = () => JSON.stringify([s.left, s.node('home-zone-gauges'), s.node('home-zone-controls'), s.node('home-v2-actions'), s.node('home-v2-info'), s.ov].map(s.kids));
+      const reference = structure();
+      const states = [
+        () => s.send({canStart: true}),
+        () => s.p.emit('cnc-library-select', {file: 'other.nc', name: 'other.nc'}),
+        () => s.running(),
+        () => s.running({workflow: 'paused', activeState: 'Hold:0', canResume: true, spindleSpeed: 12000}),
+        () => s.send({activeState: 'Alarm', alarmCode: 9}),
+        () => s.running({statusAgeMs: 4000, fresh: false}),
+        () => s.send(null, {halt: {workflow: 'running', canPause: true, canStop: true}}),
+        () => s.send(null)
+      ];
+      for (const [i, state] of states.entries()) {
+        s.p.advance(300); state(); s.p.frame();
+        assert.equal(structure(), reference, 'state ' + i + ': same slots, same order');
+        assert.equal(s.board.getAttribute('data-v2'), 'suivi');
+      }
     }],
     ['holdLayout: no grid change during a job, the old layout returns only at rest', async () => {
       const s = await suivi(); s.send(); s.layout(true); s.p.frame(); const v2 = s.shape();
