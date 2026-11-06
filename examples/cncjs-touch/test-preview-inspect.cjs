@@ -18,6 +18,14 @@ async function pathOf(code) {
 function storage() { const m = new Map(); return { getItem: k => m.has(k) ? m.get(k) : null, setItem: (k, v) => m.set(k, String(v)), map: m }; }
 
 (async () => {
+  const largeCircle = 'G21 G90 G54\nG0 X100000 Y0\nG2 X100000 Y0 I-100000 J0 F100';
+  const capped = PI.buildV2Geometry(largeCircle);
+  const effectiveSagitta = 100000 * (1 - Math.cos(Math.PI / 4096));
+  assert.equal(capped.segmentCount, 4097, '4096 arc subdivisions plus the initial rapid');
+  assert(Math.abs(capped.toleranceMm - effectiveSagitta) < 1e-7, 'v2 reports the capped arc sagitta, not the requested 0.01 mm');
+  const severalArcs = PI.buildV2Geometry(largeCircle + '\nG0 X200000 Y0\nG3 X200000 Y0 I-200000 J0\nG0 X10 Y0\nG2 X10 Y0 I-10 J0');
+  assert(Math.abs(severalArcs.toleranceMm - 2 * effectiveSagitta) < 1e-7, 'reported tolerance is the maximum over all arcs');
+  assert.equal(PI.buildV2Geometry('G21 G90 G54\nG0 X10 Y0\nG2 X10 Y0 I-10 J0 F100').toleranceMm, 0.01, 'ordinary geometry retains its requested tolerance');
   // L2 v2: independent segments never join two known islands across G53.
   const islands = PI.buildV2Geometry('G90 G21\nG1 X10 Y0 Z0 F100\nG53 G0 X-100\nG0 X20 Y0 Z0\nG1 X30');
   assert.equal(islands.segmentCount, 2);

@@ -217,20 +217,47 @@
   }
   function programKey(m) { return v2() ? JSON.stringify([m.port, m.generation, m.revision, m.name, m.fingerprint]) : [m.name, m.revision === undefined ? '' : m.revision, m.fingerprint || ''].join(':'); }
   function requestPreview(key, name) {
-    var own = s, id = ++own.request, lease = own.life ? own.life.token() : null, release = function () {};
+    var own = s, release = function () {}, response = null, finished = false, cancelled = false, aborted = false;
+    var dashboard = root.cncDashboardView;
     if (own.pending) own.pending();
+    own.metaKey = key;
+    var id = ++own.request, lease = own.life ? own.life.token() : null;
     if (own.life && !lease) { own.metaKey = ''; return; }
-    if (own.life) release = own.life.track('read', function () {
-      if (own.request === id) { own.request++; own.metaKey = ''; own.pending = null; }
-    });
-    own.pending = release;
+    function abortRead() {
+      if (!response || aborted) return;
+      aborted = true;
+      // L4 may expose cancellation on this promise or on its accessor. Passing
+      // the original promise prevents cancelling a newer/shared cache entry.
+      try {
+        if (typeof response.cancel === 'function') response.cancel();
+        else if (typeof response.abort === 'function') response.abort();
+        else if (typeof dashboard.cancelLoadedPreview === 'function') dashboard.cancelLoadedPreview(response);
+      } catch (_) { /* Local invalidation still rejects every late answer. */ }
+    }
+    function releaseRead() { release(); if (own.pending === cancel) own.pending = null; }
+    function cancel() {
+      if (finished) return;
+      finished = true; cancelled = true;
+      if (own.request === id) { own.request++; own.metaKey = ''; }
+      releaseRead(); abortRead();
+    }
+    own.pending = cancel;
+    if (own.life) release = own.life.track('read', cancel);
+    if (finished) return;
     function done(meta) {
-      release(); if (own.pending === release) own.pending = null;
+      if (finished) return;
+      finished = true; releaseRead();
       if (own.life && !own.life.valid(lease)) return;
-      if (s !== own || own.request !== id || own.metaKey !== key || (v2() && (phase(own.machine) !== 'idle' || (root.cncV2.state && !root.cncV2.state().safeIdle)))) return;
+      if (s !== own || own.request !== id || own.metaKey !== key || (own.v2 && (!v2() || !performance() || doc.hidden || locked() || own.closedBy === 'pagehide' ||
+          phase(own.machine) !== 'idle' || (root.cncV2.state && !root.cncV2.state().safeIdle)))) return;
       own.meta = meta && typeof meta === 'object' && meta.file === name && (!v2() || (meta.fingerprint && own.machine && meta.fingerprint === own.machine.fingerprint)) ? meta : null; schedule();
     }
-    try { root.cncDashboardView.loadedPreview().then(done, function () { done(null); }); } catch (_) { done(null); }
+    try {
+      response = dashboard.loadedPreview();
+      // A synchronous accessor may itself dispatch the event that cancelled us.
+      if (cancelled) abortRead();
+      response.then(done, function () { done(null); });
+    } catch (_) { done(null); }
   }
   function stockOf(meta) { try { return root.CNCProjects && typeof root.CNCProjects.stock === 'function' ? root.CNCProjects.stock(meta.file) : null; } catch (_) { return null; } }
   function canOpen() {
@@ -354,7 +381,8 @@
     on(root, 'cnc-job-status', function (e) {
       var d = e && e.detail || {}; if (d.simulation) return;
       s.machine = d.machine || null;
-      if (v2() && (phase(s.machine) !== 'idle' || (s.metaKey && programKey(s.machine) !== s.metaKey))) {
+      if (s.v2 && (phase(s.machine) !== 'idle' || (s.metaKey && programKey(s.machine) !== s.metaKey))) {
+        if (s.pending) s.pending();
         s.request++;
         if (!s.meta) s.metaKey = '';
       }
@@ -368,7 +396,8 @@
     on(root, 'cnc-library-preview-updated', function () { s.metaKey = ''; schedule(); });
     on(root, 'cnc-screen-lock', schedule);
     if (s.v2) {
-      on(root, 'cnc-v2-change', schedule);
+      on(root, 'cnc-v2-change', function () { if (!v2() && s.pending) s.pending(); schedule(); });
+      on(root, 'pagehide', function () { s.closedBy = 'pagehide'; if (s.pending) s.pending(); });
       on(root, 'cnc-v2-data', function (e) { if (e.detail && e.detail.slot === 'placement') schedule(); });
       if (doc.addEventListener) on(doc, 'visibilitychange', schedule);
     }

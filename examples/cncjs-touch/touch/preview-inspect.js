@@ -366,7 +366,8 @@
   }
 
   // ---------- Full geometry (Performance UI spec 3.8): the whole program, for the GPU view ----------
-  // Interpreted read-only (CNCMotionEstimate's interpreter), arcs cut at a sagitta of 0.01 mm at most.
+  // Interpreted read-only (CNCMotionEstimate's interpreter), arcs target a sagitta of 0.01 mm.
+  // V2 reports the effective tolerance if the per-arc subdivision budget is reached.
   // Points as in path3d: point 0 is the program start, each other one the end of a move, with the
   // sender line that reached it and its type (rapid G0 or work). More than `cap` segments: only the
   // count is returned (tooLong), nothing kept. Never sends anything: a drawing, not a measurement.
@@ -378,6 +379,7 @@
     options = options || {};
     var cap = finite(options.cap) && options.cap > 0 ? Math.min(GEOMETRY_CAP,Math.floor(options.cap)) : GEOMETRY_CAP;
     var size = Math.min(4096,cap), n = 0, count = 0, overflow = false, broken = false, omit = false, endLine = null;
+    var tolerance = ARC_TOLERANCE;
     var P = new Float32Array(size*6), L = new Uint32Array(size), I = new Uint32Array(size), passes = [], pass = null, wcs = null, moved = false, relative = false;
     var seq = ME.createSequenceCollector ? ME.createSequenceCollector() : null;
     function segment(ax,ay,az,bx,by,bz,rapid,line) {
@@ -404,7 +406,8 @@
       if (info.lost) { pass=null; broken=true; return; }
       if (mode >= 2) {
         var x=ax,y=ay,z=az;
-        ME.arcPoints(mode,ax,ay,az,bx,by,bz,info,ARC_TOLERANCE,function (nx,ny,nz) { segment(x,y,z,nx,ny,nz,false,info.line); x=nx;y=ny;z=nz; });
+        var sagitta = ME.arcPoints(mode,ax,ay,az,bx,by,bz,info,ARC_TOLERANCE,function (nx,ny,nz) { segment(x,y,z,nx,ny,nz,false,info.line); x=nx;y=ny;z=nz; });
+        tolerance = Math.max(tolerance,sagitta);
       } else segment(ax,ay,az,bx,by,bz,mode===0,info.line);
     },function (kind,line,value) {
       if (seq) seq.event(kind,line,value);
@@ -419,7 +422,7 @@
       if (kind === 'end') endLine=line;
     });
     interp.text(String(text || ''));
-    return {tooLong:overflow,segmentCount:count,quality:overflow || omit ? 'unknown' : broken ? 'simplified' : 'full',wcs:wcs,toleranceMm:ARC_TOLERANCE,
+    return {tooLong:overflow,segmentCount:count,quality:overflow || omit ? 'unknown' : broken ? 'simplified' : 'full',wcs:wcs,toleranceMm:tolerance,
       buffers:overflow ? null : {positions:P.slice(0,n*6),sourceLines:L.slice(0,n),passIds:I.slice(0,n)},passes:overflow ? [] : passes,
       sequences:seq ? seq.finish(interp.state().line) : null};
   }
