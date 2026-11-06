@@ -96,7 +96,52 @@
     steps.push(ready);
     return { steps: steps, ready: ready.state === 'ok' && !busy, blocked: blocked, programKey: programKey(c, input.preview), offsetKey: offset, laser: laser };
   }
-  var api = { assess: assess, programKey: programKey, offsetKey: offsetKey };
+  // FR/EN/ES lines of the v2 Préparer presenter below, registered only when it is built (v2 open).
+  var V2_MESSAGES = [
+    ['Comparer les placements', 'Compare placements', 'Comparar colocaciones'],
+    ['Placement · dessus XY', 'Placement · XY top view', 'Colocación · vista superior XY'],
+    ['Les deux', 'Both', 'Ambas'],
+    ['Actuelle', 'Current', 'Actual'],
+    ['Hypothèse XY', 'XY hypothesis', 'Hipótesis XY'],
+    ['Cotes', 'Dimensions', 'Cotas'],
+    ['1 · Programme chargé', '1 · Loaded program', '1 · Programa cargado'],
+    ['Aucun programme chargé', 'No program loaded', 'Ningún programa cargado'],
+    ['révision', 'revision', 'revisión'],
+    ['2 · Origine X Y', '2 · X Y origin', '2 · Origen X Y'],
+    ['À confirmer', 'To confirm', 'Por confirmar'],
+    ['Suspendu', 'Suspended', 'Suspendido'],
+    ['Inconnu', 'Unknown', 'Desconocido'],
+    ['Hypothèse : zéro X Y à la position actuelle de l’outil. Décalage :', 'Hypothesis: X Y zero at the current tool position. Offset:', 'Hipótesis: cero X Y en la posición actual de la herramienta. Desplazamiento:'],
+    ['Décalage X', 'X offset', 'Desplazamiento X'],
+    ['Décalage Y', 'Y offset', 'Desplazamiento Y'],
+    ['Z conserve son origine actuelle.', 'Z keeps its current origin.', 'Z conserva su origen actual.'],
+    ['Dans la course machine en X et Y', 'Within machine travel in X and Y', 'Dentro del recorrido de la máquina en X e Y'],
+    ['Hors course machine en X ou Y', 'Outside machine travel in X or Y', 'Fuera del recorrido de la máquina en X o Y'],
+    ['△ Course machine non vérifiée', '△ Machine travel not verified', '△ Recorrido de la máquina no verificado'],
+    ['Estimation de la tablette ($130–$132), pas le contrôle du serveur. Z et collisions non vérifiés.', 'Tablet estimate ($130–$132), not the server check. Z and collisions not verified.', 'Estimación de la tableta ($130–$132), no el control del servidor. Z y colisiones no verificados.'],
+    ['Données insuffisantes ($23, course, repère ou unités). Z et collisions non vérifiés.', 'Insufficient data ($23, travel, frame or units). Z and collisions not verified.', 'Datos insuficientes ($23, recorrido, sistema o unidades). Z y colisiones no verificados.'],
+    ['Marges', 'Margins', 'Márgenes'],
+    ['Comparaison suspendue : travail en cours.', 'Comparison suspended: job running.', 'Comparación suspendida: trabajo en curso.'],
+    ['Comparaison suspendue : travail en pause.', 'Comparison suspended: job paused.', 'Comparación suspendida: trabajo en pausa.'],
+    ['Comparaison suspendue : alarme.', 'Comparison suspended: alarm.', 'Comparación suspendida: alarma.'],
+    ['Comparaison suspendue : état machine indisponible.', 'Comparison suspended: machine state unavailable.', 'Comparación suspendida: estado de la máquina no disponible.'],
+    ['Aucun programme chargé : rien à comparer.', 'No program loaded: nothing to compare.', 'Ningún programa cargado: nada que comparar.'],
+    ['Brut déclaré', 'Declared stock', 'Bruto declarado'],
+    ['Étendue X', 'X extent', 'Extensión X'],
+    ['Étendue Y', 'Y extent', 'Extensión Y'],
+    ['Profondeur Z', 'Z depth', 'Profundidad Z'],
+    ['Distance', 'Distance', 'Distancia'],
+    ['fiche projet, pas une mesure', 'project sheet, not a measurement', 'ficha de proyecto, no una medida'],
+    ['saisie opérateur, pas une mesure', 'operator entry, not a measurement', 'entrada del operador, no una medida'],
+    ['programme, valeur nominale', 'program, nominal value', 'programa, valor nominal'],
+    ['Aucune cote disponible pour ce programme.', 'No dimension available for this program.', 'Ninguna cota disponible para este programa.'],
+    ['Déplacer l’outil…', 'Move the tool…', 'Mover la herramienta…'],
+    ['Déplacer l’outil', 'Move the tool', 'Mover la herramienta'],
+    ['Revenir à la comparaison', 'Back to the comparison', 'Volver a la comparación'],
+    ['Commandes et vérifications existantes. Toucher le dessin ne déplace jamais l’outil.', 'Existing controls and checks. Touching the drawing never moves the tool.', 'Mandos y verificaciones existentes. Tocar el dibujo nunca mueve la herramienta.'],
+    ['Affichage seul : aucune commande envoyée. Les zéros restent dans les coordonnées, avec leur confirmation.', 'Display only: no command sent. Zeroing stays in the coordinates, with its confirmation.', 'Solo visualización: no se envía ningún comando. Los ceros siguen en las coordenadas, con su confirmación.']
+  ];
+  var api = { assess: assess, programKey: programKey, offsetKey: offsetKey, v2Messages: V2_MESSAGES };
   if (typeof module === 'object' && module.exports) { module.exports = api; return; }
   root.CNCJobPreparation = api;
   var shell = window.cncShell, simulation = document.body.getAttribute('data-simulation') === 'true';
@@ -178,18 +223,236 @@
     var jog = document.getElementById('screen-jog'), P = window.cncProfile, L = window.cncLayout;
     try { return !!(jog && jog.classList.contains('active') && L && L.wide() === true && P && P.performance() === 'performance' && P.kind() !== 'laser'); } catch (_) { return false; }
   }
+  // Performance v2 (cncV2, L0 contract): its layout (body.perf-v2) and its resource gate are distinct.
+  function v2State() { var v = window.cncV2; try { return v && typeof v.state === 'function' && typeof v.gate === 'function' ? { layout: v.state().layout === true, hold: v.state().holdLayout === true, open: v.gate() === true } : null; } catch (_) { return null; } }
+  // A v2 page whose gate has closed (Eco, GPU loss, preference off): no origin is opened again.
+  function v2Closed() { var s = v2State(); return !!s && s.layout && !s.open; }
   function originSync() {
-    if (!originWanted()) { originRequest++; if (originMounted) { originMounted = false; if (window.CNCOriginPreview) window.CNCOriginPreview.unmount(); } return; }
+    if (!originWanted()) {
+      // v2: while the layout is held (Run/Hold/Alarm/unknown), the card keeps its rectangle in Préparer;
+      // origin-preview.js itself stops drawing once the gate is closed (Eco during a job).
+      var held = v2State(), jog = document.getElementById('screen-jog');
+      if (originMounted && held && held.layout && held.hold && jog && jog.classList.contains('active')) return;
+      originRequest++; if (originMounted) { originMounted = false; v2Unmounted(); if (window.CNCOriginPreview) window.CNCOriginPreview.unmount(); } return;
+    }
     if (originMounted) return;
     var request = ++originRequest;
+    if (v2Closed()) return;
     function mount() {
-      if (request !== originRequest || originMounted || !originWanted() || !window.CNCOriginPreview) return;
-      originMounted = true; window.CNCOriginPreview.mount(document.getElementById('screen-jog')); render();
+      if (request !== originRequest || originMounted || !originWanted() || v2Closed() || !window.CNCOriginPreview) return;
+      originMounted = true; window.CNCOriginPreview.mount(document.getElementById('screen-jog')); v2Mounted(); render();
     }
-    // Without preview-gl.js the card still says why the 3D view is missing.
-    window.cncProfile.loadAdvanced(['preview-gl.js', 'origin-preview.js']).then(mount, mount);
+    // Without preview-gl.js the card still says why the 3D view is missing; a refusal because the v2
+    // gate closed is not a missing module: it never mounts (it would reopen a closed v2 session).
+    window.cncProfile.loadAdvanced(['preview-gl.js', 'origin-preview.js']).then(mount, function (error) { if (!(error && error.message === 'v2-gate-closed')) mount(); });
   }
   ['cnc-screen-change', 'cnc-layout-change', 'cnc-profile-change'].forEach(function (name) { window.addEventListener(name, originSync); });
+  // A v2 state change (hold released, gate closed) is applied in a frame, never in its handler.
+  var syncFrame = 0;
+  window.addEventListener('cnc-v2-change', function () { if (!syncFrame && window.requestAnimationFrame) syncFrame = window.requestAnimationFrame(function () { syncFrame = 0; originSync(); if (originMounted && !v2.active) v2Mounted(); }); });
+
+  // ---- Performance v2 · Préparer (lot L5; REFLEXION.md §4 propositions 5–6, §5 « Préparer ») ----
+  // Its lines live in V2_MESSAGES (registered with the v2 presenter), not in the static catalogues.
+  function tv2(s) { return t(s); }
+  // Only under body.perf-v2 (cncV2.state().layout), on the real page (mounts.prepare.origin), once the
+  // visual origin card is mounted. It presents L2's placement model (cncV2.use('placement')) beside the
+  // scene: comparison Les deux / Actuelle / Hypothèse (CNCOriginPreview.comparison, same framing), the
+  // XY offsets only when computable, Z unchanged, the travel verdict as qualified as L2 gives it
+  // (unknown stays unknown), at most four dimensions with their source, and « Déplacer l'outil… », which
+  // shows the existing jog card in its own zone (CSS: 96 px targets, 24 px from the scene).
+  // Nothing here sends, zeroes, moves or ticks: the zero buttons stay in the coordinates card with their
+  // confirmation, and no listener is put on the scene. Every DOM write happens in requestAnimationFrame.
+  var v2 = { built: false, active: false, frame: 0, jog: false, cotes: true, machine: null, nodes: null, life: null, declaredKey: '', reading: false };
+  function v2Layout() { var s = v2State(), v = window.cncV2, mount = null; try { mount = s && s.layout && v.mounts ? v.mounts.get('prepare') : null; } catch (_) {} return mount && mount.origin ? mount : null; }
+  function v2Schedule() { if (v2.active && !v2.frame && window.requestAnimationFrame) v2.frame = window.requestAnimationFrame(v2Render); }
+  function el(tag, cls, text, parent) { var n = document.createElement(tag); if (cls) n.className = cls; if (text) n.textContent = text; if (parent) parent.appendChild(n); return n; }
+  function set(node, text) { text = String(text); if (node.textContent !== text) node.textContent = text; }
+  function hide(node, hidden) { if (node.hidden !== hidden) node.hidden = hidden; }
+  function attr(node, name, value) { if (node.getAttribute(name) !== value) node.setAttribute(name, value); }
+  function locale() { return window.cncI18n && window.cncI18n.locale || 'fr-FR'; }
+  function decimals(v, n) { return Math.abs(v).toLocaleString(locale(), { minimumFractionDigits: n, maximumFractionDigits: n }); }
+  // Signed offset, three decimals: '+18,000'; a missing value is a dash, never zero.
+  function signed(v) { return num(v) === null ? '—' : (v < 0 ? '−' : '+') + decimals(v, 3); }
+  function mm(v) { return num(v) === null ? '—' : (v < 0 ? '−' : '') + decimals(v, 1); }
+  function v2Build(mount) {
+    if (v2.built) return;
+    v2.built = true; v2.content = mount.content;
+    if (window.cncI18n && typeof window.cncI18n.registerCatalog === 'function') { try { window.cncI18n.registerCatalog('performance-v2-preparer', V2_MESSAGES); } catch (_) { /* French text stays readable. */ } }
+    var root = mount.content, n = {};
+    // Comparison bar above the scene: three exclusive choices and the dimensions toggle.
+    n.bar = el('div', 'pv2-bar', '', root); n.bar.setAttribute('role', 'group'); n.bar.setAttribute('aria-label', tv2('Comparer les placements'));
+    el('span', 'pv2-bar-title', tv2('Placement · dessus XY'), n.bar);
+    n.modes = {};
+    [['both', tv2('Les deux')], ['current', tv2('Actuelle')], ['hypothesis', tv2('Hypothèse XY')]].forEach(function (m) {
+      var b = el('button', 'pv2-mode', m[1], n.bar); b.type = 'button'; b.id = 'pv2-mode-' + m[0]; b.setAttribute('data-mode', m[0]); b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', function () { if (window.CNCOriginPreview && window.CNCOriginPreview.comparison) window.CNCOriginPreview.comparison(m[0]); v2Schedule(); });
+      n.modes[m[0]] = b;
+    });
+    n.cotesToggle = el('button', 'pv2-cotes-toggle', tv2('Cotes'), n.bar); n.cotesToggle.type = 'button'; n.cotesToggle.id = 'pv2-cotes-toggle'; n.cotesToggle.setAttribute('aria-pressed', 'true');
+    n.cotesToggle.addEventListener('click', function () { v2.cotes = !v2.cotes; v2Schedule(); });
+    // Dimensions under the scene: at most four, each with its source.
+    n.cotes = el('ul', 'pv2-cotes', '', root); n.cotes.id = 'pv2-cotes';
+    // Summary beside the scene.
+    n.summary = el('section', 'pv2-summary', '', root); n.summary.id = 'pv2-summary';
+    var program = el('div', 'pv2-program', '', n.summary);
+    el('span', 'pv2-eyebrow', tv2('1 · Programme chargé'), program); n.program = el('b', 'pv2-program-name', '', program); n.programSub = el('span', 'pv2-sub', '', program);
+    var origin = el('div', 'pv2-origin', '', n.summary), head = el('div', 'pv2-origin-head', '', origin);
+    el('h3', '', tv2('2 · Origine X Y'), head); n.state = el('span', 'pv2-state', '', head); n.state.id = 'pv2-state';
+    n.hypothesis = el('p', 'pv2-hypothesis', tv2('Hypothèse : zéro X Y à la position actuelle de l’outil. Décalage :'), origin);
+    var offsets = el('div', 'pv2-offsets', '', origin); n.offsets = {};
+    ['x', 'y'].forEach(function (a) {
+      var box = el('div', 'pv2-offset', '', offsets); el('span', '', tv2(a === 'x' ? 'Décalage X' : 'Décalage Y'), box);
+      var value = el('strong', '', '', box); value.id = 'pv2-offset-' + a; n.offsets[a] = value;
+    });
+    el('p', 'pv2-z', tv2('Z conserve son origine actuelle.'), origin);
+    n.travel = el('div', 'pv2-travel', '', n.summary); n.travel.id = 'pv2-travel'; n.travel.setAttribute('role', 'status');
+    n.travelTitle = el('b', '', '', n.travel); n.travelText = el('p', '', '', n.travel); n.margins = el('p', 'pv2-margins', '', n.travel);
+    n.open = el('button', 'pv2-jog-open', tv2('Déplacer l’outil…'), n.summary); n.open.type = 'button'; n.open.id = 'pv2-jog-open';
+    n.open.addEventListener('click', function () { v2.jog = true; v2.focus = 'close'; v2Schedule(); });
+    el('p', 'pv2-only', tv2('Affichage seul : aucune commande envoyée. Les zéros restent dans les coordonnées, avec leur confirmation.'), n.summary);
+    // Head of the jog zone (the jog card itself is the existing .ks-motion-arrows, shown by CSS).
+    n.jogHead = el('div', 'pv2-jog-head', '', root); n.jogHead.id = 'pv2-jog-head';
+    var jogText = el('div', '', '', n.jogHead); el('h3', '', tv2('Déplacer l’outil'), jogText);
+    el('p', '', tv2('Commandes et vérifications existantes. Toucher le dessin ne déplace jamais l’outil.'), jogText);
+    n.close = el('button', 'pv2-jog-close', tv2('Revenir à la comparaison'), n.jogHead); n.close.type = 'button'; n.close.id = 'pv2-jog-close';
+    n.close.addEventListener('click', function () { v2.jog = false; v2.focus = 'open'; v2Schedule(); });
+    v2.nodes = n;
+  }
+  function v2Mounted() {
+    var mount = v2Layout();
+    if (!mount) return;
+    v2.active = true; v2.jog = false; v2.cotes = true; v2.declaredKey = '';
+    try { v2.life = window.cncV2.lifecycle.scope('prepare', 'prepare'); } catch (_) { v2.life = null; }
+    v2Schedule();
+  }
+  function v2Unmounted() {
+    if (!v2.active) return;
+    v2.active = false; v2.reading = false;
+    if (v2.frame && window.cancelAnimationFrame) window.cancelAnimationFrame(v2.frame); v2.frame = 0;
+    if (v2.life) { v2.life.dispose(); v2.life = null; }
+    v2Clear();
+  }
+  // Hidden presenter and no data-pv2: the v2 rules of origin-preview.css no longer apply.
+  function v2Clear() {
+    var jog = document.getElementById('screen-jog');
+    if (v2.content) hide(v2.content, true);
+    if (jog && jog.getAttribute('data-pv2') !== null) jog.removeAttribute('data-pv2');
+  }
+  // 'stale' | 'alarm' | 'running' | 'paused' | 'empty' | 'idle' (idle only at a safe, fresh v2 Idle).
+  function v2Phase(m) {
+    if (!m || !m.fresh) return 'stale';
+    if (/^alarm/i.test(m.activeState || '')) return 'alarm';
+    if (m.workflow === 'paused' || /^hold/i.test(m.activeState || '')) return 'paused';
+    if (m.workflow && m.workflow !== 'idle') return 'running';
+    if (!m.name) return 'empty';
+    try { if (!window.cncV2.state().safeIdle) return 'stale'; } catch (_) { return 'stale'; }
+    return 'idle';
+  }
+  function samePrint(a, b) { var k = function (s) { return String(s || '').toLowerCase().replace(/^sha256:/, ''); }; return !!a && !!b && k(a) === k(b); }
+  // Declarations for L2's placement: the project sheet's stock (bound to the same fingerprint) and the
+  // program's nominal extents from the loaded preview. Data only; nothing is measured or checked off.
+  function v2Declarations(meta, identity) {
+    var list = [], P = window.CNCProjects, sheet = null;
+    try { sheet = P && typeof P.declared === 'function' ? P.declared(identity.file) : null; } catch (_) {}
+    if (sheet && sheet.version === 'current' && samePrint(sheet.fingerprint, identity.fingerprint) && sheet.stock)
+      list.push({ kind: 'stock', source: 'project', identity: identity, value: { x: sheet.stock.x, y: sheet.stock.y, z: sheet.stock.z }, units: 'mm', assumptions: [] });
+    var p = meta && meta.projection, b = p && p.units === 'mm' && p.bounds, z = meta && meta.zBounds;
+    if (Array.isArray(b) && b.length === 4 && b.every(function (v) { return num(v) !== null; }) && b[2] >= b[0] && b[3] >= b[1]) {
+      list.push({ kind: 'dimension', source: 'program', identity: identity, value: { axis: 'x', valueMm: b[2] - b[0] }, units: 'mm', assumptions: [] });
+      list.push({ kind: 'dimension', source: 'program', identity: identity, value: { axis: 'y', valueMm: b[3] - b[1] }, units: 'mm', assumptions: [] });
+      if (Array.isArray(z) && z.length === 2 && num(z[0]) !== null && num(z[1]) !== null && z[1] >= z[0])
+        list.push({ kind: 'dimension', source: 'program', identity: identity, value: { axis: 'z', valueMm: z[1] - z[0] }, units: 'mm', assumptions: [] });
+    }
+    return list;
+  }
+  // Supplies the declarations once per loaded job (and project sheet revision), at a safe Idle, with
+  // the same loaded preview origin-preview.js reads (cncDashboardView.loadedPreview(), cached).
+  function v2Supply(placement) {
+    var v = window.cncV2, id = placement.identity, P = window.CNCProjects, sheet = null;
+    if (!placement.available || !id || !id.jobKey || !v2.life || v2.reading) return;
+    try { sheet = P && typeof P.declared === 'function' ? P.declared(id.file) : null; } catch (_) {}
+    var key = JSON.stringify([id.jobKey, sheet]);
+    if (key === v2.declaredKey) return;
+    var dash = window.cncDashboardView, lease = v2.life.token();
+    if (!lease || !dash || typeof dash.loadedPreview !== 'function') return;
+    var cancelled = false, untrack = v2.life.track('read', function () { cancelled = true; v2.reading = false; });
+    if (cancelled) return;
+    v2.reading = true;
+    function done(meta) {
+      untrack(); v2.reading = false;
+      if (cancelled || !v2.active || !v2.life || !v2.life.valid(lease)) return;
+      var m = v2.machine, now = v.use('placement').snapshot();
+      if (!m || !now.identity || now.identity.jobKey !== id.jobKey) return;
+      v2.declaredKey = key;
+      // Only the preview of this exact program version: the provider would otherwise reset the placement.
+      if (!meta || meta.file !== m.name || !meta.fingerprint || meta.fingerprint !== m.fingerprint) return;
+      v.use('placement').update({ machine: m, preview: meta, declarations: v2Declarations(meta, id) });
+    }
+    try { dash.loadedPreview().then(done, function () { done(null); }); } catch (_) { done(null); }
+  }
+  var SOURCES = { project: 'fiche projet, pas une mesure', operator: 'saisie opérateur, pas une mesure', program: 'programme, valeur nominale' };
+  function cote(d) {
+    var v = d.value || {}, label, value;
+    if (d.kind === 'stock') { label = tv2('Brut déclaré'); value = [v.x, v.y, v.z].filter(function (x) { return num(x) !== null; }).map(function (x) { return decimals(x, 1); }).join(' × ') + ' mm'; }
+    else if (d.kind === 'dimension') { label = v.axis === 'x' ? tv2('Étendue X') : v.axis === 'y' ? tv2('Étendue Y') : v.axis === 'z' ? tv2('Profondeur Z') : tv2('Distance'); value = mm(v.valueMm) + ' mm'; }
+    else return null;
+    return { label: label, value: value, source: tv2(SOURCES[d.source] || 'Source inconnue') };
+  }
+  function v2Render() {
+    v2.frame = 0;
+    var mount = v2Layout(), jog = document.getElementById('screen-jog');
+    if (!v2.active || !jog) return;
+    // The v2 layout ended (known Idle after a loss of eligibility) while the card stays: back to v1.
+    if (!mount) { v2Clear(); return; }
+    v2Build(mount);
+    var n = v2.nodes, m = v2.machine, phase = v2Phase(m), v = window.cncV2, placement = null;
+    try { placement = v.use('placement').snapshot(); } catch (_) {}
+    if (phase !== 'idle' || !placement) placement = null;
+    else if (placement.identity && placement.identity.jobKey) v2Supply(placement);
+    hide(mount.content, false);
+    attr(jog, 'data-pv2', v2.jog ? 'jog' : 'compare');
+    // Comparison bar: the mode is origin-preview's (it resets to « Les deux » at each mount).
+    var mode = window.CNCOriginPreview && window.CNCOriginPreview.comparison ? window.CNCOriginPreview.comparison() : 'both';
+    Object.keys(n.modes).forEach(function (k) { attr(n.modes[k], 'aria-pressed', k === mode ? 'true' : 'false'); });
+    attr(n.cotesToggle, 'aria-pressed', v2.cotes ? 'true' : 'false');
+    // Program.
+    set(n.program, m && m.name ? m.originalName || m.name : tv2('Aucun programme chargé'));
+    set(n.programSub, m && m.name && m.revision !== undefined && m.revision !== null ? tv2('révision') + ' ' + m.revision : '');
+    // Origin X Y: offsets only when L2 computed them; '—' otherwise, never a zero.
+    var h = placement && placement.available ? placement.hypothesis : null;
+    set(n.state, phase !== 'idle' && phase !== 'empty' ? tv2('Suspendu') : h ? tv2('À confirmer') : tv2('Inconnu'));
+    attr(n.state, 'data-tone', phase !== 'idle' && phase !== 'empty' ? 'neutral' : h ? 'info' : 'neutral');
+    set(n.offsets.x, h ? signed(h.deltaMm.x) + ' mm' : '—'); set(n.offsets.y, h ? signed(h.deltaMm.y) + ' mm' : '—');
+    // Travel: L2's verdict as it is. Unknown stays a warning; suspended states say so.
+    var tr = placement && placement.travel, title, text, tone, margins = '';
+    if (phase === 'running' || phase === 'paused' || phase === 'alarm' || phase === 'stale') {
+      title = tv2('Suspendu'); tone = 'neutral';
+      text = tv2(phase === 'running' ? 'Comparaison suspendue : travail en cours.' : phase === 'paused' ? 'Comparaison suspendue : travail en pause.' : phase === 'alarm' ? 'Comparaison suspendue : alarme.' : 'Comparaison suspendue : état machine indisponible.');
+    } else if (phase === 'empty') { title = tv2('Inconnu'); tone = 'neutral'; text = tv2('Aucun programme chargé : rien à comparer.'); }
+    else if (tr && h && (tr.verdict === 'inside' || tr.verdict === 'outside')) {
+      title = tv2(tr.verdict === 'inside' ? 'Dans la course machine en X et Y' : 'Hors course machine en X ou Y');
+      tone = tr.verdict === 'inside' ? 'ok' : 'danger';
+      text = tv2('Estimation de la tablette ($130–$132), pas le contrôle du serveur. Z et collisions non vérifiés.');
+      var mg = tr.marginsMm;
+      if (mg && mg.x && mg.y) margins = tv2('Marges') + ' · X ' + mm(mg.x.min) + ' / ' + mm(mg.x.max) + ' mm · Y ' + mm(mg.y.min) + ' / ' + mm(mg.y.max) + ' mm';
+    } else { title = tv2('△ Course machine non vérifiée'); tone = 'warn'; text = tv2('Données insuffisantes ($23, course, repère ou unités). Z et collisions non vérifiés.'); }
+    set(n.travelTitle, title); set(n.travelText, text); set(n.margins, margins); hide(n.margins, !margins); attr(n.travel, 'data-tone', tone);
+    // Dimensions: at most four, with their source; hidden by « Cotes » without moving the scene.
+    var list = (placement && placement.declarations || []).map(cote).filter(Boolean).slice(0, 4);
+    var sig = JSON.stringify(list);
+    if (n.cotes.getAttribute('data-key') !== sig) {
+      n.cotes.setAttribute('data-key', sig); n.cotes.textContent = '';
+      if (!list.length) el('li', 'pv2-cote-empty', tv2('Aucune cote disponible pour ce programme.'), n.cotes);
+      list.forEach(function (c) { var li = el('li', 'pv2-cote', '', n.cotes); el('span', 'pv2-cote-label', c.label, li); el('b', 'pv2-cote-value', c.value, li); el('span', 'pv2-cote-source', c.source, li); });
+    }
+    attr(n.cotes, 'data-visible', v2.cotes ? 'true' : 'false');
+    // Jog zone: the summary or the jog head, chosen by the operator only (never automatically).
+    hide(n.summary, v2.jog); hide(n.jogHead, !v2.jog);
+    if (v2.focus) { var target = v2.focus === 'close' ? n.close : n.open; v2.focus = ''; if (target.focus) target.focus({ preventScroll: true }); }
+  }
+  window.addEventListener('cnc-job-status', function (e) { var d = e && e.detail || {}; if (d.simulation) return; v2.machine = d.machine || null; v2Schedule(); });
+  ['cnc-v2-change', 'cnc-projects-updated', 'cnc-library-preview-updated'].forEach(function (name) { window.addEventListener(name, v2Schedule); });
+  window.addEventListener('cnc-v2-data', function (e) { if (e && e.detail && e.detail.slot === 'placement') v2Schedule(); });
   originSync();
   window.addEventListener('cnc-job-status', function (e) { var d = e && e.detail || {}; if (d.simulation) return; machine = d.machine || null; render(); });
   window.addEventListener('cnc-library-select', function (e) { selection = e && e.detail || null; render(); });

@@ -80,9 +80,17 @@ node('job-load').disabled=false;send({...idle,name:''});assert(!load.hidden);loa
 const source=fs.readFileSync(__dirname+'/touch/job-preparation.js','utf8');
 assert(!/cncJobControls|XMLHttpRequest|fetch\(/.test(source),'the sheet never commands the machine');
 // Every phrase is in the FR/EN/ES catalog; the script loads after touch-shell.js and macros.js on both pages.
-const phrases=[...source.matchAll(/\bt\('((?:[^'\\]|\\.)*)'\)/g)].map(m=>m[1]);
+// t('…') for the static catalogues, tv2('…') for the v2 presenter's own deferred lines.
+const phrases=[...source.matchAll(/\b(?:t|tv2)\('((?:[^'\\]|\\.)*)'\)/g)].map(m=>m[1]);
+assert(source.split('tv2(').length>20,'the v2 presenter is translated through tv2()');
 const catalog={window:{}};['i18n-messages.js','i18n-messages-profiles.js'].forEach(n=>vm.runInNewContext(fs.readFileSync(__dirname+'/touch/'+n,'utf8'),catalog));
 const keys=new Set(catalog.window.CNCTouchMessages.map(r=>r[0].trim().replace(/\s+/g,' ')));
+// The v2 Préparer presenter brings its own FR/EN/ES lines (registered when v2 builds it), plus the
+// L0 deferred catalogue ('Source inconnue'); none may conflict with a static or v2 catalogue row.
+const v2rows=JSON.parse(fs.readFileSync(__dirname+'/touch/i18n-messages-v2.js','utf8'));
+P.v2Messages.forEach(r=>{assert.equal(r.length,3);r.forEach(s=>assert(typeof s==='string'&&s.trim()));keys.add(r[0]);});v2rows.forEach(r=>keys.add(r[0]));
+{const all=new Map();for(const r of catalog.window.CNCTouchMessages.concat(v2rows))all.set(r[0].trim().replace(/\s+/g,' '),JSON.stringify(r));
+ for(const r of P.v2Messages){const k=r[0].trim().replace(/\s+/g,' ');assert(!all.has(k)||all.get(k)===JSON.stringify(r),'v2 Préparer row conflicts with an existing catalogue row: '+k);}}
 for(const p of new Set(phrases))if(/[a-zà-ÿ]{2}/i.test(p))assert(keys.has(p.trim().replace(/\s+/g,' ')),'missing translation: '+p);
 for(const name of ['index.html','simulation.html']){const html=fs.readFileSync(__dirname+'/touch/'+name,'utf8');assert(html.indexOf('job-preparation.js')>html.indexOf('touch-shell.js')&&html.indexOf('job-preparation.js')>html.indexOf('macros.js'),name);}
 console.log('PASS job preparation: five steps from the snapshot, selection, verdict and travel check; ticks forgotten on a new program or work zero; sheet flow; nothing started from the sheet; translations.');
