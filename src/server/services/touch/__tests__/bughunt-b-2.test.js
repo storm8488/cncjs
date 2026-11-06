@@ -4,6 +4,10 @@
 // de clientId ; api.touch.js:actorOf en fait « http:<user> », différent du bail
 // « touch:<clientId> » de la même tablette, et refuseSystemCommand refuse.
 // PROFILES.md : refusé « while another device pilots ».
+// Correction (équipe F2) : wifi-settings.js envoie désormais clientId/clientLabel
+// comme job-controls.js ; côté serveur, actorOf lisait déjà le corps. Ce test
+// fixe le contrat : la tablette pilote est acceptée, un autre appareil et un
+// appel sans clientId restent refusés tant qu'elle pilote.
 import { EventEmitter } from 'events';
 import os from 'os';
 import path from 'path';
@@ -115,8 +119,15 @@ test('la tablette qui pilote lance une recherche Wi-Fi (comme wifi-settings.js l
   const load = await answer(postJob, { user, body: { action: 'load', port: 'TEST', file: 'job.nc', generation: gen, transportId, clientId: 't-abc-1234', clientLabel: 'Tablette 1234' } });
   expect(load.statusCode).toBe(200);
   expect(touch.snapshot().controllers[0].control.owner).toMatchObject({ kind: 'touch', id: 't-abc-1234' });
-  // Même tablette, Réglages → Système → Rechercher les réseaux : corps { action: 'scan' } sans clientId.
-  const scan = await answer(postWifi, { user, body: { action: 'scan' }, query: {} });
+  // Même tablette, Réglages → Système → Rechercher les réseaux : corps { action: 'scan', clientId, clientLabel } (wifi-settings.js).
+  const scan = await answer(postWifi, { user, body: { action: 'scan', clientId: 't-abc-1234', clientLabel: 'Tablette 1234' }, query: {} });
   expect(scan.payload).not.toMatchObject({ message: expect.stringMatching(/tant qu’il pilote/) });
   expect(scan.statusCode).toBe(200);
+  // Un autre appareil, ou un appel sans clientId (PC) : refusés tant que la tablette pilote.
+  const other = await answer(postWifi, { user, body: { action: 'scan', clientId: 't-other-9999', clientLabel: 'Autre' }, query: {} });
+  expect(other.statusCode).toBe(409);
+  expect(other.payload.message).toMatch(/tant qu’il pilote/);
+  const pc = await answer(postWifi, { user, body: { action: 'scan' }, query: {} });
+  expect(pc.statusCode).toBe(409);
+  expect(pc.payload.message).toMatch(/tant qu’il pilote/);
 });
