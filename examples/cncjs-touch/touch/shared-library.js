@@ -699,7 +699,9 @@
   function v2FilesOpen() { var v = window.cncV2; try { return !!v2FilesMount() && v.gate() === true; } catch (_) { return false; } }
   function v2FilesCancel() { if (v2f.frame && typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(v2f.frame); v2f.frame = 0; }
   function v2FilesSchedule() {
-    if (typeof window.requestAnimationFrame !== 'function' || v2f.ended || document.hidden) { v2FilesCancel(); return; }
+    // Fichiers not shown (or document hidden): no frame; mount() asks again when Fichiers is shown, and the
+    // pending transitions (hide, « non suivi ») are drawn then.
+    if (typeof window.requestAnimationFrame !== 'function' || v2f.ended || !visible()) { v2FilesCancel(); return; }
     var hide = !!v2f.content && !v2f.content.hidden && !v2FilesMount();
     var unfollow = v2f.built && !v2f.stale && !!v2FilesMount() && !v2FilesOpen();
     if (!hide && !unfollow && !v2FilesOpen()) { v2FilesCancel(); return; }
@@ -751,6 +753,14 @@
     n.match = el('p', 'lv2-match', '', box); n.match.id = 'lv2-match'; n.match.setAttribute('role', 'status');
     v2f.nodes = n;
   }
+  // v2 freshness has one source, the L0 contract (monotone age; never fresh without an observed report).
+  // Absent, throwing or unknown: the loaded program is « État machine indisponible », never fresh.
+  function v2Fresh(m) {
+    var v = window.cncV2, r = null;
+    if (!m) return false;
+    try { r = v && typeof v.reportAge === 'function' ? v.reportAge(m) : null; } catch (_) { r = null; }
+    return !!r && r.known === true && r.fresh === true;
+  }
   function v2FilesUnfollowed() {
     var n = v2f.nodes;
     v2f.stale = true;
@@ -777,7 +787,7 @@
     put(n.cells['tool-sel'], sel ? v2Declared(sel.file, sel.verdict === 'ok' ? sel.fingerprint : '') : '—');
     put(n.cells['print-sel'], !sel ? '—' : sel.verdict === 'ok' && sel.fingerprint ? tv2('valide') : sel.verdict === 'stale' ? tv2('périmée') : tv2('inconnue'));
     // Loaded: its report only; an unavailable state is « unknown », never « nothing loaded ».
-    var fresh = !!(m && m.fresh), loaded = fresh && !!m.name;
+    var fresh = v2Fresh(m), loaded = fresh && !!m.name;
     put(n.loadName, !fresh ? tv2('État machine indisponible') : loaded ? m.originalName || m.name : tv2('Aucun programme chargé'));
     put(n.loadState, !loaded ? '' : /^Alarm/.test(m.activeState || '') ? tv2('! Alarme · chargé') : m.workflow === 'paused' || /^Hold/.test(m.activeState || '') ? tv2('Ⅱ En pause') :
       m.workflow === 'running' || /^Run/.test(m.activeState || '') ? tv2('▶ En cours') : tv2('● Chargé'));
