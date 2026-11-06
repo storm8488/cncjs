@@ -296,17 +296,22 @@ describe('E-3 (6e tour) : syntaxe CNCjs, modes G94/G90, G49, S, M2/M30, précisi
     expect(buildResume(P.concat(['(1/2)', 'G1 X10', 'M30']).join('\n'), 7).preamble[1]).toBe('G21 G90 G54 G94');
   });
 
-  test('ni G93 ni G94 avant la ligne : refusé (ETOUCH_RESUME_FEED_MODE), un G93 hérité serait remplacé par G94', () => {
-    const prog = ['G21 G90 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5', 'G1 X10', 'M30'].join('\n');
-    const err = refusalOf(() => buildResume(prog, 6));
-    expect(err).toMatchObject({ code: 'ETOUCH_RESUME_FEED_MODE', params: { from: 6 } });
-    expectCatalogMatch(err);
-    // G94 déclaré plus loin, avant la ligne : accepté.
-    expect(buildResume(prog.replace('G0 X0 Y0', 'G94 G0 X0 Y0'), 6).preamble[1]).toBe('G21 G90 G54 G94');
+  test('ni G93 ni G94 avant la ligne : reprise acceptée, la machine garde son mode et le plan le dit (comme les unités)', () => {
+    const prog = ['G21 G90 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5', 'G1 X10', 'M30'].join('
+');
+    const r = buildResume(prog, 6);
+    expect(r.preamble[1]).toBe('G21 G90 G54');
+    expect(r.notes).toContain('Le programme ne fixe pas son mode d’avance (G94) : la machine garde le sien.');
+    // G94 déclaré avant la ligne : rétabli, pas de note.
+    const declared = buildResume(prog.replace('G0 X0 Y0', 'G94 G0 X0 Y0'), 6);
+    expect(declared.preamble[1]).toBe('G21 G90 G54 G94');
+    expect(declared.notes).not.toContain('Le programme ne fixe pas son mode d’avance (G94) : la machine garde le sien.');
     // Reprise laser : même règle.
-    const laser = ['G21 G90', 'M3 S500', 'G0 X0 Y0', 'G1 X10 F1000', 'M5', 'G0 X5 Y5', 'G1 X15 F1000', 'M30'].join('\n');
-    expect(refusalOf(() => buildResume(laser, 6, { mode: 'laser' }))).toMatchObject({ code: 'ETOUCH_RESUME_FEED_MODE', params: { from: 6 } });
-    expect(buildResume(laser.replace('G21 G90', 'G21 G90 G94'), 6, { mode: 'laser' }).mode).toBe('laser');
+    const laser = ['G21 G90', 'M3 S500', 'G0 X0 Y0', 'G1 X10 F1000', 'M5', 'G0 X5 Y5', 'G1 X15 F1000', 'M30'].join('
+');
+    expect(buildResume(laser, 6, { mode: 'laser' }).mode).toBe('laser');
+    // Un G93 du fichier lui-même reste refusé.
+    expect(refusalOf(() => buildResume(prog.replace('G0 Z5', 'G93 G0 Z5'), 6))).toMatchObject({ code: 'ETOUCH_RESUME_INVERSE_TIME' });
   });
 
   test('G90 déclaré après un premier déplacement : refusé (ETOUCH_RESUME_DISTANCE, ligne du déplacement)', () => {

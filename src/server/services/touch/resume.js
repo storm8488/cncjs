@@ -374,13 +374,11 @@ const coolantOf = (s) => {
   return on.length ? on.join(' ') : null;
 };
 
-// Grbl keeps the feed mode of an earlier program: a file that never chose
-// G94 before the line is not resumed (its own G93 is refused earlier).
-const checkFeedMode = (s, from) => {
-  if (s.feedMode === null) {
-    throw refuse('ETOUCH_RESUME_FEED_MODE', 'Mode d’avance (G93/G94) non fixé avant la ligne ' + from + ' : le mode de la carte est inconnu, reprise impossible.', { from });
-  }
-};
+// A file that never chooses G94 is resumed like one that never chooses its units or its
+// work offset: the board keeps its own mode (G94 after power-up, a reset, M2 or M30), and
+// the plan says so. Refusing would refuse the common posts that omit G94 (FreeCAD grbl,
+// many hand-written files); a G93 of the file itself is refused earlier.
+const checkFeedMode = () => {};
 
 const commonNotes = (s) => {
   const notes = [];
@@ -389,6 +387,9 @@ const commonNotes = (s) => {
   }
   if (!s.wcs) {
     notes.push('Le programme ne choisit pas de repère (G54-G59) : la machine garde le sien.');
+  }
+  if (!s.feedMode) {
+    notes.push('Le programme ne fixe pas son mode d’avance (G94) : la machine garde le sien.');
   }
   if (s.unitsChanged) {
     notes.push('Le programme change d’unités (ligne ' + s.unitsChanged + ') : positions et avances de la reprise converties en ' + s.units + '.');
