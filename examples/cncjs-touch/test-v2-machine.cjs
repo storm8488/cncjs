@@ -10,10 +10,19 @@ function machinePage(o={}){
   const create=p.document.createElement;
   p.document.createElement=tag=>{const e=create(tag);const found={};e.querySelector=s=>found[s]||(found[s]=create('b'));return e;};
   p.node('panel').querySelector=s=>p.node('panel:'+s);
+  // Stub of the L0 freshness contract (single source, v2/fixe): monotone per
+  // [port, generation, statusObservedAt]; never known without statusObservedAt.
+  const seen=new Map();
+  p.base.reportAge=m=>{
+    if(!m||m.statusObservedAt===undefined||m.statusObservedAt===null||typeof m.statusAgeMs!=='number')return {known:false,fresh:false,ageMs:null};
+    const key=JSON.stringify([m.port,m.generation,m.statusObservedAt]);
+    if(!seen.has(key))seen.set(key,{t0:p.mono,a0:m.statusAgeMs});
+    const s=seen.get(key),ageMs=s.a0+p.mono-s.t0;return {known:true,fresh:ageMs<=2500,ageMs};
+  };
   p.run('grbl-help.js');p.run('machine-limits.js');return p;
 }
 const settings={'$110':'5000','$111':'5000','$112':'800','$120':'100','$121':'100','$122':'50','$130':'600','$131':'400','$20':'1','$21':'0','$22':'1'};
-const alarm={port:'A',generation:'g1',fresh:true,statusAgeMs:100,activeState:'Alarm',workflow:'idle',alarmCode:2,settings};
+const alarm={port:'A',generation:'g1',fresh:true,statusAgeMs:100,statusObservedAt:1,activeState:'Alarm',workflow:'idle',alarmCode:2,settings};
 const pilot={state:'mine',value:'Cet appareil',sentence:'Piloté par cet appareil (Tablette atelier).'};
 (async()=>{
   // RT / v1: no v2 frame, mount or presenter attribute.
@@ -41,11 +50,24 @@ const pilot={state:'mine',value:'Cet appareil',sentence:'Piloté par cet apparei
   assert.match(c,/déduit/);assert(!/rapporté par Grbl/.test(c));
   p.status({...alarm,alarmCode:null},{pilot});p.frame();assert.match(text(condition),/Aucun code reçu/);
   // Freshness: the age keeps running without new reports (one bounded timer, no loop).
-  p.status({...alarm,statusAgeMs:2000},{pilot:{state:'other',value:'PC bureau',sentence:'Piloté par « PC bureau ».'}});p.frame();
+  p.status({...alarm,statusAgeMs:2000,statusObservedAt:2},{pilot:{state:'other',value:'PC bureau',sentence:'Piloté par « PC bureau ».'}});p.frame();
   assert.match(text(condition),/Rapport frais/);assert.match(text(condition),/PC bureau/);
   const timers=[...p.timers.values()];assert.equal(timers.length,1);assert(timers[0].ms<=600,'expiry timer at the stale threshold');
   p.advance(600);timers[0].f();assert.equal(text(condition).includes('périmé'),false,'the timer only queues a frame');
   p.frame();assert.match(text(condition),/Rapport périmé/);
+  // Review 3, defect 2: civil clock going back, no new controller answer (same report identity):
+  // v1 recomputes a small age with Date.now(), the v2 panel keeps the L0 monotone verdict.
+  p.advance(1);p.status({...alarm,statusAgeMs:0,statusObservedAt:2,fresh:true},{pilot});p.frame();
+  assert.match(text(condition),/Rapport périmé/,'same report, monotone age: still stale');assert(!/Rapport frais/.test(text(condition)));
+  // Contract absent or throwing: never fresh.
+  const reportAge=p.base.reportAge;
+  for(const broken of [undefined,()=>{throw Error('boom');},()=>null]){
+    p.base.reportAge=broken;p.status({...alarm,statusObservedAt:'x'+Math.random()},{pilot});p.frame();
+    assert(!/Rapport frais/.test(text(condition)),'never fresh without the L0 contract');assert.match(text(condition),/Fraîcheur inconnue|Rapport périmé/);
+  }
+  p.base.reportAge=reportAge;
+  // No statusObservedAt: unknown, even when v1 says fresh.
+  p.status({...alarm,statusObservedAt:undefined},{pilot});p.frame();assert.match(text(condition),/Fraîcheur inconnue/);
   p.status({...alarm,fresh:false},{pilot:null});p.frame();assert.match(text(condition),/Rapport périmé/);assert.match(text(condition),/Appareil pilote : inconnu/);
   // Not in alarm: no alarm block; no report at all: everything unknown, not zero.
   p.status({...alarm,activeState:'Idle',alarmCode:null},{pilot});p.frame();assert.match(text(condition),/Aucune alarme rapportée/);

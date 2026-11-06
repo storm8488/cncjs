@@ -22,8 +22,10 @@ const text=root=>all(root).map(e=>typeof e.textContent==='string'?e.textContent:
   p.run('grbl-help.js');p.run('machine-limits.js');
   p.status();p.frame();await p.complete();
   assert(p.api.gate()&&p.classes.has('perf-v2'),'v2 open at Idle');
+  // L0 freshness contract (v2/fixe): stubbed here when this base does not provide it yet.
+  if(typeof p.api.reportAge!=='function')p.api.reportAge=m=>m&&m.statusObservedAt!==undefined&&typeof m.statusAgeMs==='number'?{known:true,fresh:m.statusAgeMs<=2500,ageMs:m.statusAgeMs}:{known:false,fresh:false,ageMs:null};
   p.emit('cnc-screen-change','machine');
-  p.status({activeState:'Run',workflow:'running',canStop:true,statusAgeMs:100});p.frame();
+  p.status({activeState:'Run',workflow:'running',canStop:true,statusAgeMs:100,statusObservedAt:1});p.frame();
   const content=mounts.machine.content,root=mounts.machine.root;
   assert.equal(content.hidden,false);assert.match(text(content),/État : Run/);assert.match(text(content),/Rapport frais/);
   assert.equal(root.getAttribute('data-v2-presenter'),'on');
