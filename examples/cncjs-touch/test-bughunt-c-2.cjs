@@ -38,7 +38,8 @@ const getJson = (u) => new Promise((res, rej) => http.get(u, (r) => { let b = ''
         await nav(base + 'index.html');
         await until('!!(window.cncState&&(window.cncState.get().machine||{}).workflow==="running")', 30000);
         await sleep(1500);
-        const r = await ev('(function(){var f=document.getElementById("t-file");return {text:f.textContent,w:Math.round(f.getBoundingClientRect().width),need:f.scrollWidth};})()');
+        // The width drawn inside the information zone (.t-vitals clips what overflows it).
+        const r = await ev('(function(){var f=document.getElementById("t-file"),a=f.getBoundingClientRect(),v=f.closest(".t-vitals").getBoundingClientRect();return {text:f.textContent,w:Math.max(0,Math.round(Math.min(a.right,v.right)-Math.max(a.left,v.left))),need:f.scrollWidth};})()');
         const label = w + 'x' + h + '@' + dpr + ' ' + lang + ': « ' + r.text + ' » drawn on ' + r.w + ' px of ' + r.need;
         console.log(label);
         if (r.w < Math.min(MIN_FILE_PX, r.need)) failures.push(label);

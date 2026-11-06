@@ -543,6 +543,8 @@ window.CNCTouchMessages.push(["aperçu du fichier indisponible.", "file preview 
 window.CNCTouchMessages.push(["prise d’origine désactivée ($22), les coordonnées machine ne sont pas repérées.", "homing disabled ($22), machine coordinates are not referenced.", "homing desactivado ($22), las coordenadas de máquina no están referenciadas."]);
 window.CNCTouchMessages.push(["positions rapportées en pouces ($13=1).", "positions reported in inches ($13=1).", "posiciones informadas en pulgadas ($13=1)."]);
 window.CNCTouchMessages.push(["position machine inconnue.", "machine position unknown.", "posición de máquina desconocida."]);
+window.CNCTouchMessages.push(["course $130 inconnue.", "$130 travel unknown.", "recorrido $130 desconocido."]);
+window.CNCTouchMessages.push(["course $131 inconnue.", "$131 travel unknown.", "recorrido $131 desconocido."]);
 window.CNCTouchMessages.push(["Hors course machine : ", "Outside the machine travel: ", "Fuera del recorrido de la máquina: "]);
 window.CNCTouchMessages.push(["course ", "travel ", "recorrido "]);
 window.CNCTouchMessages.push([". Vérifiez l’origine de travail avant de démarrer.", ". Check the work origin before starting.", ". Compruebe el origen de trabajo antes de empezar."]);

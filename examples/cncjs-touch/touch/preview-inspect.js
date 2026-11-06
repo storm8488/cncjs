@@ -280,11 +280,12 @@
   // Source of a previewed file for inspection, cached by fingerprint in a worker. release() ends it.
   function source(meta, options) {
     options = options || {};
-    var worker = null, local = null, ready = null, nextId = 0, waiting = {}, released = false;
+    var worker = null, local = null, ready = null, nextId = 0, waiting = {}, released = false, request = null;
     var scriptURL = options.workerURL || WORKER_URL;
     function load() {
       if (ready) return ready;
-      ready = (options.fetchProgram || fetchProgram)(meta.file).then(function (res) {
+      ready = (options.fetchProgram || fetchProgram)(meta.file, function (xhr) { request = xhr; }).then(function (res) {
+        request = null;
         if (!sameFingerprint(res.fingerprint, meta.fingerprint)) throw new Error(t('Le fichier a changé depuis l’aperçu : valeurs exactes indisponibles.'));
         if (released) throw new Error(t('Annulé'));
         var W = options.Worker || root.Worker;
@@ -314,6 +315,8 @@
       },
       release: function () {
         released = true; local = null;
+        // A read still on its way is aborted: the server stops sending the program.
+        if (request) { var r = request; request = null; r.onload = r.onerror = r.ontimeout = null; try { r.abort(); } catch (_) {} }
         if (worker) { worker.onmessage = worker.onerror = null; worker.terminate(); worker = null; }
         Object.keys(waiting).forEach(function (k) { waiting[k][1](new Error(t('Annulé'))); }); waiting = {};
       },
@@ -366,7 +369,7 @@
   }
   // Page side: reads the program (fingerprint checked against the preview's), interprets it in a worker,
   // gets the typed arrays back (transferred). {promise, cancel}; the promise gives {tooLong, segments, path}.
-  var WORKER_URL = 'preview-inspect.js?v=perfui2';
+  var WORKER_URL = 'preview-inspect.js?v=fixf3';
   function geometry(meta, options) {
     options = options || {};
     var worker = null, done = false, rejectNow = null, request = null;

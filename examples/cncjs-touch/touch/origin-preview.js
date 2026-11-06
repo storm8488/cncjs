@@ -145,6 +145,8 @@
   function openView(list) {
     var own = s, handle = null;
     own.closedBy = '';
+    // Shown before the view opens in it: the view measures its frame once, at open (a hidden frame gave a 1 x 1 px canvas).
+    setHidden(own.view, false);
     handle = root.CNCPreviewGL.open(own.meta, { container: own.view, live: { tool: true }, pathStyle: 'ghost', fit: 'all', overlays: list,
       onClose: function (reason) {
         if (own.handle === handle) own.handle = null;

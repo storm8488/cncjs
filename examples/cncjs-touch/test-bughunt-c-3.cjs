@@ -58,6 +58,6 @@ const WRAP = '(function(){var FP=true,IDLE=true,cur=window.XMLHttpRequest,seen=f
     br.kill(); fx.kill(); await sleep(800);
     try { fs.rmSync(profile, { recursive: true, force: true }); } catch (_) {}
   }
-  assert(result.canvas[0] >= result.frame[0] - 2 && result.canvas[1] >= result.frame[1] - 2, 'origin card canvas ' + result.canvas.join(' x ') + ' px in a ' + result.frame.join(' x ') + ' px frame');
+  assert(Math.abs(result.canvas[0] - result.frame[0]) <= 2 && Math.abs(result.canvas[1] - result.frame[1]) <= 2, 'origin card canvas ' + result.canvas.join(' x ') + ' px in a ' + result.frame.join(' x ') + ' px frame');
   console.log('PASS test-bughunt-c-3');
 })().catch((e) => { console.error(e.message); process.exit(1); });

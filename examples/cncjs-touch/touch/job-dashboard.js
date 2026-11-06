@@ -62,7 +62,7 @@
   function overrideButtons(){return overridesBox.querySelectorAll?overridesBox.querySelectorAll('button'):[];}
   execution.insertAdjacentHTML('beforeend',uiLocale.html('<p id="job-progress-summary" role="status"></p>'));
   var selection=window.cncLibrarySelection||null,machine=null,simulation=false,imageKey='',request=0,track=null,busy=false,feedback='';
-  var previewRequest=null,imageLoading=false,previewFailed=false,mounted=false;
+  var previewRequest=null,imageLoading=false,previewFailed=false,mounted=false,imageRevision;
   function finiteNumber(value){return typeof value==='number'&&isFinite(value);}
   function elapsedClock(){return window.performance&&typeof window.performance.now==='function'?window.performance.now():Date.now();}
   function visible(name){var screen=$('screen-'+name);return !document.hidden&&!!screen&&screen.classList.contains('active');}
@@ -129,6 +129,8 @@
   function preview(file) {
     if(file===imageKey)return;
     cancelPreview();imageKey=file;previewFailed=false;var id=++request;
+    // The version of the loaded program this preview is read for (loadedPreview() compares it).
+    imageRevision=machine&&machine.name===file?machine.revision:undefined;
     var img=$('home-job-image');img.hidden=true;img.removeAttribute('src');
     img.cncPreview=null;
     $('home-image-status').hidden=false;
@@ -412,7 +414,8 @@
     if(left&&(running||valid&&c.workflow==='paused')){var ahead=unknownsText(left.unknownsAhead);if(ahead)unknown=uiLocale.t('Durées inconnues à venir : ')+ahead;}
     set('home-gauge-eta-title','textContent',title);
     [['home-gauge-eta-source',source],['home-gauge-eta-second',second],['home-gauge-eta-unknown',unknown]].forEach(function(d){set(d[0],'textContent',d[1]);set(d[0],'hidden',!d[1]);});
-    var total=valid?(pv&&pv.file===c.name&&finiteNumber(pv.lines)&&pv.lines>0?pv.lines:c.total):0;
+    // Without the preview, a resumed job counts in the original file (resume.total), as acknowledgedLine() does.
+    var r=c&&c.resume,total=valid?(pv&&pv.file===c.name&&finiteNumber(pv.lines)&&pv.lines>0?pv.lines:r&&finiteNumber(r.from)&&finiteNumber(r.total)&&r.total>0?r.total:c.total):0;
     set('home-gauge-ack-value','textContent',valid?number(Math.floor(acknowledgedLine(c,total)))+' / '+number(total):'—');
     var ov=c&&c.fresh&&c.overrides&&typeof c.overrides==='object'?c.overrides:null;
     ['feed','spindle','rapid'].forEach(function(kind){
@@ -449,19 +452,26 @@
   // already read when it is there, else one read of its own (one in flight, same verdict and checks),
   // kept for that program until its preview is regenerated. null without a loaded program or a valid preview.
   var loadedRead=null;
+  function samePrint(a,b){return String(a||'').toLowerCase().replace(/^sha256:/,'')===String(b||'').toLowerCase().replace(/^sha256:/,'');}
+  // A preview belongs to the loaded program when the name matches and, both being known, the
+  // fingerprint too (a file replaced under the same name is another program).
+  function ofLoaded(meta,file,revision){
+    if(!meta||!machine||machine.name!==file||machine.revision!==revision)return false;
+    return !(machine.fingerprint&&meta.fingerprint&&!samePrint(machine.fingerprint,meta.fingerprint));
+  }
   function loadedPreview(){
     var file=machine&&machine.name?machine.name:'';
     if(!file)return Promise.resolve(null);
-    var img=$('home-job-image'),shown=img&&img.cncPreview;
-    if(shown&&shown.file===file&&imageKey===file&&!previewFailed)return Promise.resolve(shown);
-    var revision=machine.revision;
+    var img=$('home-job-image'),shown=img&&img.cncPreview,revision=machine.revision;
+    if(shown&&shown.file===file&&imageKey===file&&!previewFailed&&imageRevision===revision&&ofLoaded(shown,file,revision))return Promise.resolve(shown);
     if(loadedRead&&loadedRead.file===file&&loadedRead.revision===revision)return loadedRead.promise;
     forgetLoaded('');
     var token=sessionToken();if(!token)return Promise.resolve(null);
     var read={file:file,revision:revision,xhr:null,promise:null};loadedRead=read;
     read.promise=new Promise(function(resolve){
       var xhr=previewXhr(file,token);read.xhr=xhr;
-      function done(meta){read.xhr=null;if(loadedRead===read&&!meta)loadedRead=null;resolve(meta&&machine&&machine.name===file?meta:null);}
+      // A result given as null (no preview, no state, another version by now) is never kept: asked again later.
+      function done(meta){read.xhr=null;var result=ofLoaded(meta,file,revision)?meta:null;if(loadedRead===read&&!result)loadedRead=null;resolve(result);}
       xhr.onload=function(){var meta=null;try{var answer=previewAnswer(xhr,file);meta=answer.refused?null:answer.preview;}catch(_){}done(meta);};
       xhr.onerror=xhr.ontimeout=xhr.onabort=function(){done(null);};
       xhr.send(JSON.stringify({file:file+'.cnctouch.json'}));

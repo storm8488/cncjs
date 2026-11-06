@@ -25,7 +25,7 @@
     if(mask&3)return unknown('sens de prise d’origine inversé ($23) : selon la compilation du firmware, la course est [−$13x, 0] ou [0, $13x].');
     for(var i=0;i<2;i++){
       var axis=i?'y':'x',travel=number(s['$'+(130+i)]),m=number(co.mpos&&co.mpos[axis]),w=number(co.wpos&&co.wpos[axis]);
-      if(travel===null||travel<=0)return unknown('course $'+(130+i)+' inconnue.');
+      if(travel===null||travel<=0)return unknown(i?'course $131 inconnue.':'course $130 inconnue.');
       if(m===null||w===null)return unknown('position machine inconnue.');
       var offset=m-w,min=b[i]+offset,max=b[i+2]+offset,low=-travel,high=0;
       var entry={axis:axis.toUpperCase(),min:min,max:max,low:low,high:high};
@@ -54,7 +54,7 @@
     else if(mask&3)reason=uiLocale.t('sens de prise d’origine inversé ($23) : selon la compilation du firmware, la course est [−$13x, 0] ou [0, $13x].');
     for(var i=0;i<3;i++){
       var travel=number(s['$'+(130+i)]);
-      if(travel===null||travel<=0){if(i<2&&!reason)reason=uiLocale.t('course $'+(130+i)+' inconnue.');continue;}
+      if(travel===null||travel<=0){if(i<2&&!reason)reason=uiLocale.t(i?'course $131 inconnue.':'course $130 inconnue.');continue;}
       // Z homing the other way: same uncertainty as X/Y, so Z is not drawn.
       if(i===2){if((mask>>2)&1)continue;zKnown=true;}
       min[i]=-travel;max[i]=0;

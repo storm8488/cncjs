@@ -22,7 +22,8 @@
 //                    around an #op-card), then Pause / Arrêter and the primary commands hit-tested
 //                    with a job running, paused, in alarm and under stacked overlays; sim = the
 //                    simulation page with a job running, paused and in alarm, FR and ES,
-//                    plus the real page with the controller at rest in alarm; strip =
+//                    plus the real page with the controller at rest in alarm and the real
+//                    page with a job running (the strip's « Fichier » column); strip =
 //                    Pause / Arrêter over every overlay, browser-strip.cjs)
 //   --keep-browser   do not kill the browser at the end (debugging)
 //   --strict         also fail (exit 1) on a layout regression in the variants the
@@ -31,7 +32,8 @@
 //                    by another element, a screen that does not scroll shrunk below
 //                    scale 1, a primary target under 64 px, a secondary under 48 px, a
 //                    jog arrow under 96 px, text under 16 px, a control's text drawn
-//                    outside its box or a word cut across two lines, or a rail that
+//                    outside its box or a word cut across two lines, the loaded file's
+//                    name drawn on less than 120 px in the strip during a job, or a rail that
 //                    scrolls horizontally, except the entries of
 //                    layout-exceptions.json (each with its reason). The responsive variants
 //                    (zoom 150 / 200 % included) are enforced too; the default-font variant
@@ -717,6 +719,38 @@ async function alarmVariant(cdp, summary, arg, kind) {
   } finally { fixture.child.kill(); }
 }
 
+// Real page with a job running (preview-server.cjs --replay): Pause, Arrêter and Pilote in the strip
+// leave the loaded file's name readable in the « Fichier » column (bug hunt C-2), FR, EN and ES, on the
+// RT (1366 x 768, Éco) and the Surface Pro 3 kiosk (1366 x 911 at 1.58, Performance). Measured as drawn
+// inside the information zone, which clips what overflows it; enforced by --strict (check file-column).
+const FILE_COLUMN_MIN = 120; // about 10 characters of the 20 px strip font
+const FILE_COLUMN = '(function(){var f=document.getElementById("t-file"),z=f&&f.closest(".t-vitals");if(!f||!z)return null;var a=f.getBoundingClientRect(),v=z.getBoundingClientRect();' +
+  'return {text:f.textContent,w:Math.max(0,Math.round(Math.min(a.right,v.right)-Math.max(a.left,v.left))),need:f.scrollWidth};})()';
+async function jobFileMeasure(cdp, summary) {
+  const fixture = await startFixture(['--replay']);
+  summary.jobFile = summary.jobFile || [];
+  try {
+    for (const [w, h, dpr, perf] of [[1366, 768, 1, 'eco'], [1366, 911, 1.58, 'performance']]) {
+      for (const lang of ['fr', 'en', 'es']) {
+        const tag = 'job running ' + w + 'x' + h + '@' + dpr + ' ' + lang;
+        try {
+          await setViewport(cdp, w, h, dpr);
+          await navigate(cdp, fixture.base + 'README.md');
+          await cdp.evaluate('localStorage.setItem("cncjs-touch-language-v1",' + JSON.stringify(lang) + ');localStorage.setItem("cncjs-touch-performance-v1",' + JSON.stringify(JSON.stringify({ version: 1, profile: perf })) + ');true');
+          await navigate(cdp, fixture.base + 'index.html?job-file=' + lang); await waitReady(cdp);
+          await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 30000, 'running');
+          await sleep(1500);
+          const r = await cdp.evaluate(FILE_COLUMN);
+          if (!r) throw new Error('#t-file not found');
+          log(tag + ': strip file column « ' + r.text + ' » drawn on ' + r.w + ' px of ' + r.need);
+          summary.jobFile.push({ variant: tag, text: r.text, w: r.w, need: r.need });
+        } catch (e) { failures.push(tag + ': ' + e.message); log('FAIL ' + tag + ': ' + e.message); }
+      }
+    }
+    await cdp.evaluate('localStorage.removeItem("cncjs-touch-language-v1");localStorage.removeItem("cncjs-touch-performance-v1");true').catch(() => {});
+  } finally { fixture.child.kill(); }
+}
+
 // --- Responsive layouts (touch/responsive.css). First every screen of the real page at each
 // CSS viewport of RESPONSIVE, enforced like 1366 x 768 (no scale below 1 on a screen that does
 // not scroll, sizes, text, covered commands). Then, on the simulation page with a job, the
@@ -952,6 +986,7 @@ function strictCheck(summary, exceptionList) {
       for (const t of (r.textTargets || []).concat(r.small || [])) { const label = t.label || t.text; if (seen.has(label)) continue; seen.add(label); add(Object.assign({ check: 'text', label, detail: t.fontPx + ' px, goal ' + GOALS.text }, base)); }
     }
   }
+  for (const f of summary.jobFile || []) if (f.w < Math.min(FILE_COLUMN_MIN, f.need)) add({ check: 'file-column', variant: f.variant, screen: 'strip', screenLabel: 'Bandeau', label: '#t-file', detail: '« ' + f.text + ' » drawn on ' + f.w + ' px of ' + f.need + ', goal ' + FILE_COLUMN_MIN });
   const stale = exceptions.filter((x) => !x.used).map((x) => x.e);
   summary.strict = { enabled: STRICT, exceptionsFile: EXCEPTIONS_FILE, violations, excepted, staleExceptions: stale };
   return summary.strict;
@@ -993,6 +1028,14 @@ function writeSummary(summary) {
     const trunc = [];
     for (const r of m.results) if (!r.error) for (const t of r.truncated) trunc.push('| ' + r.label + ' | ' + t.text.replace(/\|/g, '\\|') + ' | ' + t.scrollWidth + ' > ' + t.clientWidth + ' | ' + t.textOverflow + ' |');
     if (trunc.length) { L.push('Text wider than its box (scrollWidth > clientWidth, overflow not visible):'); L.push(''); L.push('| Screen | Text | Widths | text-overflow |'); L.push('| --- | --- | --- | --- |'); L.push(...trunc); L.push(''); }
+  }
+  if (summary.jobFile && summary.jobFile.length) {
+    L.push('## Strip « Fichier » column, real page with a job running');
+    L.push('');
+    L.push('| Variant | File | Drawn px | Needed px |');
+    L.push('| --- | --- | ---: | ---: |');
+    summary.jobFile.forEach((f) => L.push('| ' + f.variant + ' | ' + String(f.text).replace(/\|/g, '\\|') + ' | ' + f.w + ' | ' + f.need + ' |'));
+    L.push('');
   }
   if (summary.startup) {
     const s = summary.startup;
@@ -1084,7 +1127,7 @@ async function main() {
       } catch (e) { summary.fontSizesUnsupported = e.message; log('font 200 % not available: ' + e.message); }
     }
     if (ONLY.includes('responsive')) await responsiveMeasure(cdp, realUrl, simUrl, summary);
-    if (ONLY.includes('sim')) { await simMeasure(cdp, simUrl, summary); if (!URL_BASE) await alarmMeasure(cdp, summary); }
+    if (ONLY.includes('sim')) { await simMeasure(cdp, simUrl, summary); if (!URL_BASE) { await alarmMeasure(cdp, summary); await jobFileMeasure(cdp, summary); } }
     // Pause / Arrêter over every overlay, degraded start-up, offline flag (browser-strip.cjs).
     if (ONLY.includes('strip') && !URL_BASE) { await setViewport(cdp, 1366, 768, 1); const list = await require('./browser-strip.cjs').run(cdp, module.exports, { simBase: base, out: path.join(OUT, 'strip'), log }); list.forEach((f) => failures.push(f)); summary.strip = list; }
     if (ONLY.includes('startup')) { await setViewport(cdp, 1366, 768, 1); await measureStartup(cdp, realUrl, summary); }

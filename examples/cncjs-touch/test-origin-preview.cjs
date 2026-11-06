@@ -217,7 +217,8 @@ function originPage(options = {}) {
   p.document.currentScript = null;
   const opened = [], sets = [], open = w.CNCPreviewGL.open;
   w.CNCPreviewGL.open = function (meta, opts) {
-    const h = open(meta, opts), set = h.setOverlays; opened.push({ meta, opts, handle: h });
+    const hiddenAtOpen = !!(opts && opts.container && opts.container.hidden);
+    const h = open(meta, opts), set = h.setOverlays; opened.push({ meta, opts, handle: h, hiddenAtOpen });
     h.setOverlays = list => { sets.push(list); return set(list); }; return h;
   };
   return Object.assign(p, { opened, sets, status: (machine, extra = {}) => w.dispatchEvent(new w.CustomEvent('cnc-job-status', { detail: { machine, simulation: false, ...extra } })) });
@@ -299,6 +300,8 @@ const shown = (p, cls) => { const n = nodeOf(p, cls); return n.hidden ? '' : n.t
     assert.equal(p.opened.length, 1);
     const o = p.opened[0];
     assert.equal(o.meta, meta); assert.equal(o.opts.container, nodeOf(p, 'op-view'));
+    // Bug hunt C-3: the frame is shown before the view is opened in it, so the view measures its real size (not 1 x 1 px).
+    assert.equal(o.hiddenAtOpen, false, 'view opened in a hidden frame');
     eq(o.opts.live, { tool: true }); assert.equal(o.opts.pathStyle, 'ghost'); assert.equal(o.opts.fit, 'all');
     eq(o.opts.overlays.find(x => x.id === 'placed').translate, [12, 30, 0]);
     assert(!nodeOf(p, 'op-view').hidden); assert(!nodeOf(p, 'op-legend').hidden);
