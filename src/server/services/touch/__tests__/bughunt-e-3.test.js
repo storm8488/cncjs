@@ -45,7 +45,7 @@ describe('E-3 : première ligne de la reprise, commandes non modales à mots d�
     ['G43.1 Z-5', 'G43.1 : error:24'],
     ['G38.2 Z-10 F50', 'G38.2 : error:21 (deux G du groupe 1)']
   ])('ligne de reprise « %s » (%s) : envoyée telle quelle, sans G0/G1 devant', (line) => {
-    const prog = ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G1 X10', 'G0 Z5', line, 'G1 X20', 'M30'].join('\n');
+    const prog = ['G21 G90 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G1 X10', 'G0 Z5', line, 'G1 X20', 'M30'].join('\n');
     const r = buildResume(prog, 7);
     expect(sentFirst(r)).toBe(line);
   });
@@ -60,7 +60,7 @@ describe('E-3 (suite) : les lignes après la première gardent le mode de dépla
   const after = (r, n) => r.program.split('\n').slice(r.preamble.length);
 
   test('G0 avant la ligne : « G0 » seul rétabli devant « G10 L20 P1 X0 », « X20 » reste un rapide', () => {
-    const prog = ['G21 G90 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5', 'G10 L20 P1 X0', 'X20', 'M30'].join('\n');
+    const prog = ['G21 G90 G54 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5', 'G10 L20 P1 X0', 'X20', 'M30'].join('\n');
     const r = buildResume(prog, 6);
     expect(r.preamble.at(-2)).toMatch(/^G1 Z5 F100$/);
     expect(r.preamble.at(-1)).toBe('G0');
@@ -68,14 +68,14 @@ describe('E-3 (suite) : les lignes après la première gardent le mode de dépla
   });
 
   test('G1 avant la ligne : « G1 F<avance> » rétabli devant « G92 X0 Y0 », « X20 » reste une coupe à l’avance du programme', () => {
-    const prog = ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G1 X10 F250', 'G92 X0 Y0', 'X20', 'M30'].join('\n');
+    const prog = ['G21 G90 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G1 X10 F250', 'G92 X0 Y0', 'X20', 'M30'].join('\n');
     const r = buildResume(prog, 6);
     expect(r.preamble.at(-1)).toBe('G1 F250');
     expect(after(r)).toEqual(['G92 X0 Y0', 'X20', 'M30', '']);
   });
 
   test('G2 avant la ligne : reprise refusée (ETOUCH_RESUME_FIRST_LINE), le mode arc ne se rétablit pas sans I/J', () => {
-    const prog = ['G21 G90 G17', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G2 X10 Y0 I5 J0', 'G92 X0 Y0', 'X20 Y0 I5 J0', 'M30'].join('\n');
+    const prog = ['G21 G90 G17 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G2 X10 Y0 I5 J0', 'G92 X0 Y0', 'X20 Y0 I5 J0', 'M30'].join('\n');
     let refusal = null;
     try {
       buildResume(prog, 6);
@@ -90,7 +90,7 @@ describe('E-3 (suite) : les lignes après la première gardent le mode de dépla
   });
 
   test('G38.2 en première ligne : le palpage fixe lui-même le mode de déplacement, rien à rétablir', () => {
-    const prog = ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5', 'G38.2 Z-10 F50', 'G0 Z5', 'M30'].join('\n');
+    const prog = ['G21 G90 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5', 'G38.2 Z-10 F50', 'G0 Z5', 'M30'].join('\n');
     const r = buildResume(prog, 6);
     expect(r.preamble.at(-1)).toMatch(/^G1 Z5 F100$/);
     expect(after(r)).toEqual(['G38.2 Z-10 F50', 'G0 Z5', 'M30', '']);
@@ -100,8 +100,8 @@ describe('E-3 (suite) : les lignes après la première gardent le mode de dépla
   // ne fixe pas le mode de déplacement (G4, G28 sans axe, commentaire, code M),
   // pas seulement pour une commande non modale à mots d'axe ; « G4 P1 » ne
   // contourne plus le refus en mode arc.
-  const G0_PROGRAM = (line) => ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5', line, 'X20', 'M30'].join('\n');
-  const G1_PROGRAM = (line) => ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G1 X10 F250', line, 'X20', 'M30'].join('\n');
+  const G0_PROGRAM = (line) => ['G21 G90 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5', line, 'X20', 'M30'].join('\n');
+  const G1_PROGRAM = (line) => ['G21 G90 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G1 X10 F250', line, 'X20', 'M30'].join('\n');
 
   test.each([['G4 P1'], ['G28'], ['(changement de passe)'], ['M8'], ['M3 S9000']])('programme en G0, première ligne « %s » : « G0 » rétabli, « X20 » reste un rapide', (line) => {
     const r = buildResume(G0_PROGRAM(line), 6);
@@ -117,7 +117,7 @@ describe('E-3 (suite) : les lignes après la première gardent le mode de dépla
   });
 
   test('programme en G2, première ligne « G4 P1 » : reprise refusée (ETOUCH_RESUME_FIRST_LINE), plus de contournement', () => {
-    const prog = ['G21 G90 G17', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G2 X10 Y0 I5 J0', 'G4 P1', 'X20 Y0 I5 J0', 'M30'].join('\n');
+    const prog = ['G21 G90 G17 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G2 X10 Y0 I5 J0', 'G4 P1', 'X20 Y0 I5 J0', 'M30'].join('\n');
     let refusal = null;
     try {
       buildResume(prog, 6);
@@ -139,7 +139,7 @@ describe('E-3 (suite) : les lignes après la première gardent le mode de dépla
 
 // Quatrième tour (revue Codex) : cas de resume.js refusés plutôt que modélisés.
 describe('E-3 (4e tour) : G49 avec axe, palpage modal, expressions en ligne de reprise, plan non fixé', () => {
-  const P = ['G21 G90 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5'];
+  const P = ['G21 G90 G54 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5'];
   const refusalOf = (fn) => {
     try {
       fn();
@@ -174,8 +174,15 @@ describe('E-3 (4e tour) : G49 avec axe, palpage modal, expressions en ligne de r
     expect(r.preamble.at(-1)).toBe('G0');
   });
 
-  test.each([['G[0] X20'], ['G[10] L20 P1 X0'], ['X[4*2] Y[3]'], ['%wait']])('ligne de reprise « %s » : expression ou directive CNCjs, refusée (ETOUCH_RESUME_FIRST_EXPRESSION)', (line) => {
+  test.each([['G[0] X20'], ['G[10] L20 P1 X0'], ['X[4*2] Y[3]']])('ligne de reprise « %s » : expression CNCjs, refusée (6e tour : ETOUCH_RESUME_UNSUPPORTED_SYNTAX)', (line) => {
     const prog = P.concat([line, 'X20', 'M30']).join('\n');
+    const err = refusalOf(() => buildResume(prog, 6));
+    expect(err).toMatchObject({ code: 'ETOUCH_RESUME_UNSUPPORTED_SYNTAX', params: { line: 6 } });
+    expectCatalogMatch(err);
+  });
+
+  test('ligne de reprise « %wait » : directive CNCjs, refusée (ETOUCH_RESUME_FIRST_EXPRESSION)', () => {
+    const prog = P.concat(['%wait', 'X20', 'M30']).join('\n');
     const err = refusalOf(() => buildResume(prog, 6));
     expect(err).toMatchObject({ code: 'ETOUCH_RESUME_FIRST_EXPRESSION', params: { from: 6 } });
     expectCatalogMatch(err);
@@ -187,7 +194,7 @@ describe('E-3 (4e tour) : G49 avec axe, palpage modal, expressions en ligne de r
     expect(err).toMatchObject({ code: 'ETOUCH_RESUME_PLANE', params: { from: 6, line: 7 } });
     expectCatalogMatch(err);
     // Plan déclaré par le programme avant la reprise : préambule en G18, reprise acceptée.
-    const g18 = buildResume(prog.replace('G21 G90 G54', 'G21 G90 G54 G18'), 6);
+    const g18 = buildResume(prog.replace('G21 G90 G54 G94', 'G21 G90 G54 G94 G18'), 6);
     expect(g18.preamble[1]).toBe('G21 G90 G18 G54 G94');
     // Plan déclaré plus loin, avant le premier arc : affaire du programme, reprise acceptée.
     expect(buildResume(prog.replace('G2 X20', 'G17\nG2 X20'), 6).preamble[1]).toBe('G21 G90 G54 G94');
@@ -200,7 +207,7 @@ describe('E-3 (4e tour) : G49 avec axe, palpage modal, expressions en ligne de r
 // (espaces retirés, texte des expressions ignoré), mode modal suivi pour les
 // arcs, refus de ce qui ne peut pas être connu (G43.1, mode de distance).
 describe('E-3 (5e tour) : lecture comme Grbl, expressions, arcs modaux, G43.1, G90/G91', () => {
-  const P = ['G21 G90 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5'];
+  const P = ['G21 G90 G54 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5'];
   const refusalOf = (fn) => {
     try {
       fn();
@@ -227,25 +234,18 @@ describe('E-3 (5e tour) : lecture comme Grbl, expressions, arcs modaux, G43.1, G
     expect(buildResume(P.concat(['G 1 X1 5', 'X20']).join('\n'), 6).preamble.at(-1)).toMatch(/^G1 Z5 F100$/);
   });
 
-  test('le texte d’une expression n’est pas du G-code : « X[\'G2\'.length] » après la reprise n’est pas un arc, « X[\'G17\'.length] » ne choisit pas de plan', () => {
-    const noArc = P.concat(['G1 X10', 'X[\'G2\'.length]', 'M30']).join('\n');
-    expect(buildResume(noArc, 6).preamble.at(-1)).toMatch(/^G1 Z5 F100$/);
-    const fakePlane = P.concat(['G1 X10', 'X[\'G17\'.length]', 'G2 X20 Y0 I5 J0', 'M30']).join('\n');
-    const err = refusalOf(() => buildResume(fakePlane, 6));
-    expect(err).toMatchObject({ code: 'ETOUCH_RESUME_PLANE', params: { from: 6, line: 8 } });
-    expectCatalogMatch(err);
-    // Un mot G valué par une expression après la reprise : mode de déplacement indéterminé, refusé sans plan choisi.
-    const gExpr = P.concat(['G1 X10', 'G[2] X20 Y0 I5 J0', 'M30']).join('\n');
-    expect(refusalOf(() => buildResume(gExpr, 6))).toMatchObject({ code: 'ETOUCH_RESUME_PLANE', params: { from: 6, line: 7 } });
-    // Plan choisi : la même ligne ne gêne plus.
-    expect(buildResume(gExpr.replace('G21 G90 G54', 'G21 G90 G54 G17'), 6).preamble[1]).toBe('G21 G90 G17 G54 G94');
+  // 6e tour : plus de neutralisation du texte des expressions, toute expression
+  // CNCjs est refusée où qu'elle soit (voir « E-3 (6e tour) »).
+  test('une expression CNCjs après la ligne de reprise est refusée (ETOUCH_RESUME_UNSUPPORTED_SYNTAX), même sans arc', () => {
+    const after = P.concat(['G1 X10', 'X[\'G2\'.length]', 'M30']).join('\n');
+    expect(refusalOf(() => buildResume(after, 6))).toMatchObject({ code: 'ETOUCH_RESUME_UNSUPPORTED_SYNTAX', params: { line: 7 } });
   });
 
   test('mode modal suivi après la reprise : « X20 I5 » après « G2 X10 I5 » est un arc, refusé sans plan choisi', () => {
     const prog = P.concat(['G2 X10 I5', 'X20 I5', 'M30']).join('\n');
     expect(refusalOf(() => buildResume(prog, 7))).toMatchObject({ code: 'ETOUCH_RESUME_PLANE', params: { from: 7, line: 7 } });
     // Avec le plan choisi, la ligne d'arc modale reçoit son G2 (comportement existant).
-    const g17 = buildResume(prog.replace('G21 G90 G54', 'G21 G90 G54 G17'), 7);
+    const g17 = buildResume(prog.replace('G21 G90 G54 G94', 'G21 G90 G54 G94 G17'), 7);
     expect(g17.program.split('\n')[g17.preamble.length]).toBe('G2 X20 I5');
     // Un « G2 » seul après la reprise fixe le mode : la ligne d'axe suivante est un arc, refusée ;
     // G80 annule le mode entre les deux : plus d'arc, reprise acceptée.
@@ -260,18 +260,113 @@ describe('E-3 (5e tour) : lecture comme Grbl, expressions, arcs modaux, G43.1, G
     expectCatalogMatch(err);
   });
 
-  test('ni G90 ni G91 avant la ligne de reprise : refusé (ETOUCH_RESUME_DISTANCE), la carte a pu rester en G91', () => {
-    const prog = ['G21 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5', 'G1 X10', 'M30'].join('\n');
+  test('ni G90 ni G91 avant le premier déplacement : refusé (ETOUCH_RESUME_DISTANCE), la carte a pu rester en G91', () => {
+    const prog = ['G21 G94 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5', 'G1 X10', 'M30'].join('\n');
     const err = refusalOf(() => buildResume(prog, 6));
-    expect(err).toMatchObject({ code: 'ETOUCH_RESUME_DISTANCE', params: { from: 6 } });
+    expect(err).toMatchObject({ code: 'ETOUCH_RESUME_DISTANCE', params: { line: 2, from: 6 } });
     expectCatalogMatch(err);
-    expect(buildResume(prog.replace('G21 G54', 'G21 G90 G54'), 6).preamble[1]).toBe('G21 G90 G54 G94');
+    expect(buildResume(prog.replace('G21 G94 G54', 'G21 G90 G94 G54'), 6).preamble[1]).toBe('G21 G90 G54 G94');
+  });
+});
+
+// Sixième tour (revue Codex) : la reprise n'accepte que ce qu'elle certifie.
+describe('E-3 (6e tour) : syntaxe CNCjs, modes G94/G90, G49, S, M2/M30, précision F, arrosage', () => {
+  const P = ['G21 G90 G94 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5'];
+  const refusalOf = (fn) => {
+    try {
+      fn();
+    } catch (err) {
+      return err;
+    }
+    return null;
+  };
+
+  test.each([
+    ['[\'G2\'] X10 I5', 'avant'], ['X[\'G17\'.length+\'[\'.length]', 'avant'], ['G0 X1/0', 'avant'], ['G4/9 Z-100', 'avant'], ['X[\'G2\'.length+\'[\'.length]', 'avant']
+  ])('« %s » n’importe où dans le fichier : refusé (ETOUCH_RESUME_UNSUPPORTED_SYNTAX)', (line) => {
+    const before = P.concat([line, 'G1 X10', 'G1 X20', 'M30']).join('\n');
+    expect(refusalOf(() => buildResume(before, 8))).toMatchObject({ code: 'ETOUCH_RESUME_UNSUPPORTED_SYNTAX', params: { line: 6 } });
+    const at = P.concat(['G1 X10', line, 'G1 X20', 'M30']).join('\n');
+    expect(refusalOf(() => buildResume(at, 7))).toMatchObject({ code: 'ETOUCH_RESUME_UNSUPPORTED_SYNTAX', params: { line: 7 } });
+    const after = P.concat(['G1 X10', 'G1 X20', line, 'M30']).join('\n');
+    const err = refusalOf(() => buildResume(after, 6));
+    expect(err).toMatchObject({ code: 'ETOUCH_RESUME_UNSUPPORTED_SYNTAX', params: { line: 8 } });
+    expectCatalogMatch(err);
+    // Un « / » dans un commentaire n'est pas du code.
+    expect(buildResume(P.concat(['(1/2)', 'G1 X10', 'M30']).join('\n'), 7).preamble[1]).toBe('G21 G90 G54 G94');
+  });
+
+  test('ni G93 ni G94 avant la ligne : refusé (ETOUCH_RESUME_FEED_MODE), un G93 hérité serait remplacé par G94', () => {
+    const prog = ['G21 G90 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5', 'G1 X10', 'M30'].join('\n');
+    const err = refusalOf(() => buildResume(prog, 6));
+    expect(err).toMatchObject({ code: 'ETOUCH_RESUME_FEED_MODE', params: { from: 6 } });
+    expectCatalogMatch(err);
+    // G94 déclaré plus loin, avant la ligne : accepté.
+    expect(buildResume(prog.replace('G0 X0 Y0', 'G94 G0 X0 Y0'), 6).preamble[1]).toBe('G21 G90 G54 G94');
+    // Reprise laser : même règle.
+    const laser = ['G21 G90', 'M3 S500', 'G0 X0 Y0', 'G1 X10 F1000', 'M5', 'G0 X5 Y5', 'G1 X15 F1000', 'M30'].join('\n');
+    expect(refusalOf(() => buildResume(laser, 6, { mode: 'laser' }))).toMatchObject({ code: 'ETOUCH_RESUME_FEED_MODE', params: { from: 6 } });
+    expect(buildResume(laser.replace('G21 G90', 'G21 G90 G94'), 6, { mode: 'laser' }).mode).toBe('laser');
+  });
+
+  test('G90 déclaré après un premier déplacement : refusé (ETOUCH_RESUME_DISTANCE, ligne du déplacement)', () => {
+    const prog = ['G21 G94 G54', 'G0 Z5', 'G90', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5', 'G1 X10', 'M30'].join('\n');
+    const err = refusalOf(() => buildResume(prog, 7));
+    expect(err).toMatchObject({ code: 'ETOUCH_RESUME_DISTANCE', params: { line: 2, from: 7 } });
+    expectCatalogMatch(err);
+  });
+
+  test('G49 avant la ligne : le préambule le répète juste après la ligne des modes (un G43.1 hérité resterait actif)', () => {
+    const prog = P.concat(['G49', 'G4 P1', 'X20', 'M30']).join('\n');
+    const r = buildResume(prog, 7);
+    expect(r.preamble.slice(1, 3)).toEqual(['G21 G90 G54 G94', 'G49']);
+    expect(buildResume(P.concat(['G4 P1', 'X20', 'M30']).join('\n'), 6).preamble).not.toContain('G49');
+  });
+
+  test('S connu et broche arrêtée à la ligne : le préambule émet S12000, le M3 repris démarre à cette vitesse', () => {
+    const prog = ['G21 G90 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'M3 S12000', 'M5', 'M3', 'G1 X10', 'M30'].join('\n');
+    const r = buildResume(prog, 7);
+    expect(r.preamble).toContain('S12000');
+    expect(r.preamble).not.toContain('M3 S12000');
+    expect(r.spindle).toBeNull();
+    expect(r.program.split('\n')[r.preamble.length]).toBe('M3');
+  });
+
+  test.each([['M30'], ['M2']])('%s avant la ligne de reprise : refusé (ETOUCH_RESUME_PROGRAM_END)', (end) => {
+    const prog = P.concat([end, 'G1 X10', 'M30']).join('\n');
+    const err = refusalOf(() => buildResume(prog, 7));
+    expect(err).toMatchObject({ code: 'ETOUCH_RESUME_PROGRAM_END', params: { line: 6, from: 7 } });
+    expectCatalogMatch(err);
+  });
+
+  test('avance minuscule : écrite sans jamais tomber à 0 ; trop petite pour être écrite : refusée (ETOUCH_RESUME_FEED_PRECISION)', () => {
+    const tiny = P.map((l) => l.replace('F100', 'F0.00001')).concat(['G1 X10', 'M30']).join('\n');
+    const r = buildResume(tiny, 6);
+    expect(r.preamble.at(-1)).toBe('G1 Z5 F0.00001');
+    const absurd = P.map((l) => l.replace('F100', 'F0.00000000001')).concat(['G1 X10', 'M30']).join('\n');
+    const err = refusalOf(() => buildResume(absurd, 6));
+    expect(err).toMatchObject({ code: 'ETOUCH_RESUME_FEED_PRECISION', params: { from: 6 } });
+    expectCatalogMatch(err);
+  });
+
+  test('arrosage : M7 et M8 suivis séparément, M9 les efface ; le préambule émet M9 puis les actifs, rien si jamais commandé', () => {
+    const both = buildResume(P.concat(['M7', 'M8', 'G4 P1', 'X20', 'M30']).join('\n'), 9);
+    expect(both.preamble.filter((l) => /^M[789]$/.test(l))).toEqual(['M9', 'M7', 'M8']);
+    expect(both.coolant).toBe('M7 M8');
+    const off = buildResume(P.concat(['M8', 'M9', 'G4 P1', 'X20', 'M30']).join('\n'), 8);
+    expect(off.preamble.filter((l) => /^M[789]$/.test(l))).toEqual(['M9']);
+    expect(off.coolant).toBeNull();
+    const never = buildResume(P.concat(['G4 P1', 'X20', 'M30']).join('\n'), 6);
+    expect(never.preamble.filter((l) => /^M[789]$/.test(l))).toEqual([]);
+    expect(never.coolant).toBeNull();
+    const mist = buildResume(P.concat(['M8', 'M9', 'M7', 'G4 P1', 'X20', 'M30']).join('\n'), 9);
+    expect(mist.preamble.filter((l) => /^M[789]$/.test(l))).toEqual(['M9', 'M7']);
   });
 });
 
 describe('E-3 (suite, laser)', () => {
   test('reprise laser : une telle ligne n’est pas un G0 X/Y, refus inchangé (ETOUCH_LASER_RESUME_NOT_RAPID)', () => {
-    const prog = ['G21 G90', 'M3 S500', 'G0 X0 Y0', 'G1 X10 F1000', 'M5', 'G0 X5 Y5', 'G92 X0 Y0', 'G1 X15 F1000', 'M30'].join('\n');
+    const prog = ['G21 G90 G94', 'M3 S500', 'G0 X0 Y0', 'G1 X10 F1000', 'M5', 'G0 X5 Y5', 'G92 X0 Y0', 'G1 X15 F1000', 'M30'].join('\n');
     let refusal = null;
     try {
       buildResume(prog, 7, { mode: 'laser' });

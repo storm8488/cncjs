@@ -87,17 +87,17 @@ const B = { kind: 'touch', id: 'tablet-B', label: 'Tablette B', user: 'op' };
 
 const PROGRAMS = {
   // Laser: passes separated by rapids, constant Z.
-  'passes.nc': ['G21 G90 G54', 'G0 X0 Y0 Z2', 'M4 S800', 'G1 X10 F1200', 'G1 Y10', 'G0 X20 Y0', 'G1 X30', 'G0 X40 Y40', 'G1 X45', 'M5', 'M30'].join('\n'),
+  'passes.nc': ['G21 G90 G54 G94', 'G0 X0 Y0 Z2', 'M4 S800', 'G1 X10 F1200', 'G1 Y10', 'G0 X20 Y0', 'G1 X30', 'G0 X40 Y40', 'G1 X45', 'M5', 'M30'].join('\n'),
   // The same passes without an explicit G54 (the active WCS is then not needed by the travel check).
-  'passes-frame.nc': ['G21 G90', 'G0 X0 Y0 Z2', 'M4 S800', 'G1 X10 F1200', 'G1 Y10', 'G0 X20 Y0', 'G1 X30', 'G0 X40 Y40', 'G1 X45', 'M5', 'M30'].join('\n'),
+  'passes-frame.nc': ['G21 G90 G94', 'G0 X0 Y0 Z2', 'M4 S800', 'G1 X10 F1200', 'G1 Y10', 'G0 X20 Y0', 'G1 X30', 'G0 X40 Y40', 'G1 X45', 'M5', 'M30'].join('\n'),
   // CNC: retract, spindle, plunge.
-  'cnc.nc': ['G21 G90', 'M3 S9000', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200', 'G1 X10 F800', 'G1 Y10', 'G1 X0', 'G0 Z5', 'M5', 'M30'].join('\n'),
+  'cnc.nc': ['G21 G90 G94', 'M3 S9000', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200', 'G1 X10 F800', 'G1 Y10', 'G1 X0', 'G0 Z5', 'M5', 'M30'].join('\n'),
   // Inches: the framing box must be in millimetres (G21 jogs).
-  'inch.nc': ['G20 G90', 'G0 X1 Y1', 'M3 S500', 'G1 X2 F40', 'G1 Y2', 'M5', 'M30'].join('\n'),
+  'inch.nc': ['G20 G90 G94', 'G0 X1 Y1', 'M3 S500', 'G1 X2 F40', 'G1 Y2', 'M5', 'M30'].join('\n'),
   // A whole laser job (no resume).
-  'laser-job.nc': ['G21 G90', 'M3 S1000', 'G0 X10 Y10', 'G1 X20 F1000', 'G0 X30 Y30', 'G1 X40', 'M5', 'M30'].join('\n'),
+  'laser-job.nc': ['G21 G90 G94', 'M3 S1000', 'G0 X10 Y10', 'G1 X20 F1000', 'G0 X30 Y30', 'G1 X40', 'M5', 'M30'].join('\n'),
   // Library name with the touch upload suffix: the comment of the preamble uses the original name.
-  'part--touch-20260101120000-0123456789abcdef.nc': ['G21 G90', 'M3 S9000', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200', 'G1 X10 F800', 'G1 Y10', 'G0 Z5', 'M5', 'M30'].join('\n')
+  'part--touch-20260101120000-0123456789abcdef.nc': ['G21 G90 G94', 'M3 S9000', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200', 'G1 X10 F800', 'G1 Y10', 'G0 Z5', 'M5', 'M30'].join('\n')
 };
 
 const services = [];
