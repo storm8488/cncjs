@@ -692,7 +692,16 @@
   var v2f = { built: false, frame: 0, nodes: null, sel: null, catalogue: false };
   function v2FilesMount() { var v = window.cncV2; try { return v && typeof v.state === 'function' && v.state().layout === true && v.mounts ? v.mounts.get('files') : null; } catch (_) { return null; } }
   // Outside perf-v2 this returns at once: no frame, no DOM.
-  function v2FilesSchedule() { if (v2f.frame || typeof window.requestAnimationFrame !== 'function' || (!v2f.built && !v2FilesMount())) return; v2f.frame = window.requestAnimationFrame(v2FilesRender); }
+  // A frame only while it can draw: v2 mount present, gate open, document visible, page not ended. The
+  // one exception is a single frame that hides a band still shown after the v2 layout has gone.
+  function v2FilesOpen() { var v = window.cncV2; try { return !!v2FilesMount() && v.gate() === true; } catch (_) { return false; } }
+  function v2FilesCancel() { if (v2f.frame && typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(v2f.frame); v2f.frame = 0; }
+  function v2FilesSchedule() {
+    if (typeof window.requestAnimationFrame !== 'function' || v2f.ended || document.hidden) { v2FilesCancel(); return; }
+    var hide = !!v2f.content && !v2f.content.hidden && !v2FilesMount();
+    if (!hide && !v2FilesOpen()) { v2FilesCancel(); return; }
+    if (!v2f.frame) v2f.frame = window.requestAnimationFrame(v2FilesRender);
+  }
   function v2Selected(info) { v2f.sel = info; v2FilesSchedule(); }
   function v2Dims(bounds, zBounds) {
     var b = bounds, z = zBounds;
@@ -743,7 +752,8 @@
     v2f.frame = 0;
     var mount = v2FilesMount();
     if (!mount) { if (v2f.content) property(v2f.content, 'hidden', true); return; }
-    if (!visible()) return; // Drawn again when Fichiers is shown (mount() schedules it).
+    // Gate closed with the layout still held (Éco during a job): the band keeps its rectangle, unchanged.
+    if (!v2FilesOpen() || v2f.ended || !visible()) return; // Drawn again when Fichiers is shown (mount() schedules it).
     v2FilesBuild(mount);
     var n = v2f.nodes, sel = v2f.sel, m = machine, put = function (node, text) { property(node, 'textContent', String(text)); };
     property(mount.content, 'hidden', false);
@@ -771,6 +781,9 @@
     put(n.match, text); attribute(n.match, 'data-tone', match === 'same' ? 'ok' : match === 'different' ? 'warn' : 'neutral'); property(n.match, 'hidden', !text);
   }
   window.addEventListener('cnc-v2-change', v2FilesSchedule);
+  // Hidden: a pending frame is dropped (drawn again when visible); pagehide ends the band's frames.
+  document.addEventListener('visibilitychange', v2FilesSchedule);
+  window.addEventListener('pagehide', function () { v2f.ended = true; v2FilesCancel(); });
   window.cncLibraryView = {
     mount: mount, unmount: unmount,
     // For projects.js: the programs listed, and the selection of an associated file.
