@@ -7,7 +7,8 @@
   // The spindle labels follow the machine type when it changes (Réglages), not only at load.
   function relabel(){
     var a=$('home-override-spindle-label'),b=$('home-live-spindle-label');
-    var override=laser()?uiLocale.t('Consigne S'):uiLocale.t('Broche'),live=laser()?uiLocale.t('Consigne S rapportée'):uiLocale.t('Broche réelle');
+    // Performance v2: Grbl reports the spindle set point, not a tachometer reading (REFLEXION.md, proposition 1).
+    var override=laser()?uiLocale.t('Consigne S'):uiLocale.t('Broche'),live=laser()?uiLocale.t('Consigne S rapportée'):zones&&zones.v2?say('S rapporté'):uiLocale.t('Broche réelle');
     if(a&&a.textContent!==override)a.textContent=override;
     if(b&&b.textContent!==live)b.textContent=live;
   }
@@ -50,16 +51,23 @@
     uiLocale.html('<p id="home-override-note" class="t-help"></p><p id="home-rapid-note" class="t-help"></p></div>'));
   relabel();
   var overridesBox=$('home-overrides');
-  overridesBox.addEventListener('click',function(e){
+  // The same relay serves the rows Performance v2 shows in their sheet (« Broche / rapides… »).
+  function overrideClick(e){
     var button=e.target&&e.target.closest?e.target.closest('button[data-kind]'):null;
     if(!button||button.disabled||!window.cncJobControls||typeof window.cncJobControls.override!=='function')return;
     window.cncJobControls.override(button.getAttribute('data-kind'),Number(button.getAttribute('data-value'))).catch(function(){});
-  });
+  }
+  overridesBox.addEventListener('click',overrideClick);
   // One formatter per locale: Number.prototype.toLocaleString builds a new one at every call,
   // which was the first script cost of Suivi during a job (two live values, 5 reports a second).
   var formats={};
   function number(v){var r=Math.round(v),loc=uiLocale.locale||'fr-FR';try{var f=formats[loc]||(formats[loc]=typeof Intl!=='undefined'&&Intl.NumberFormat?new Intl.NumberFormat(loc):null);return f?f.format(r):r.toLocaleString(loc);}catch(_){return String(r);}}
-  function overrideButtons(){return overridesBox.querySelectorAll?overridesBox.querySelectorAll('button'):[];}
+  function overrideButtons(){
+    var list=overridesBox.querySelectorAll?overridesBox.querySelectorAll('button'):[],host=v2&&v2.rowHost;
+    if(!host||!host.querySelectorAll)return list;
+    // Under Performance v2 the spindle and rapid rows live in their sheet: same guards, same buttons.
+    return Array.prototype.slice.call(list).concat(Array.prototype.slice.call(host.querySelectorAll('button'))).filter(function(b){return !!b.getAttribute('data-kind');});
+  }
   execution.insertAdjacentHTML('beforeend',uiLocale.html('<p id="job-progress-summary" role="status"></p>'));
   var selection=window.cncLibrarySelection||null,machine=null,simulation=false,imageKey='',request=0,track=null,busy=false,feedback='';
   var previewRequest=null,imageLoading=false,previewFailed=false,mounted=false,imageRevision;
@@ -306,14 +314,16 @@
     // Sent / confirmed / failed / uncertain, mirrored from job-controls.js (ui-2027.css .t-sent).
     var fb=$('home-job-feedback'),state=e.detail.feedbackState||'';if(fb&&typeof fb.setAttribute==='function'&&(!fb.getAttribute||fb.getAttribute('data-state')!==state))fb.setAttribute('data-state',state);
     if(zones.on){sample(machine);requestCurve();}
-    render();});
+    render();
+    // Performance v2: facts for the observation model only; its views are written in an animation frame.
+    if(zones.v2){v2Facts(machine);requestV2();}});
   window.addEventListener('cnc-library-preview-updated',function(e){
     var file=machine&&machine.name?machine.name:selection&&selection.file||'';
     forgetLoaded(e.detail&&e.detail.file||'');
     if(e.detail&&e.detail.file&&e.detail.file!==file)return;
     cancelPreview();imageKey='';render();
   });
-  function mount(){if(mounted||!visible('home'))return;mounted=true;if(previewFailed)imageKey='';render();requestCurve();}
+  function mount(){if(mounted||!visible('home'))return;mounted=true;if(previewFailed)imageKey='';render();requestCurve();requestV2();}
   function unmount(){if(!mounted)return;mounted=false;cancelPreview();}
   window.addEventListener('cnc-screen-change',function(e){if(e.detail==='home')mount();else{unmount();if(e.detail==='files')render();}});
   document.addEventListener('visibilitychange',function(){if(visible('home'))mount();else unmount();});
@@ -324,7 +334,7 @@
   // wrappers and instruments are built the first time the layout is wide; out of it every element goes
   // back where it was, in the same order (on the RT they are never built). Display only: no command here.
   var THREE_ZONES_MIN_WIDTH=1600,CURVE_N=600,CURVE_MS=60000;
-  var zones={on:false,three:false,built:false,gauges:null,controls:null,eta:null,ack:null,read:null,curve:null};
+  var zones={on:false,three:false,v2:false,built:false,gauges:null,controls:null,eta:null,ack:null,read:null,curve:null,svg:null};
   var curve={t:[],v:[],i:0,n:0,frame:null,drawn:-Infinity,max:0,points:''};
   function el(tag,id,cls,text){var e=document.createElement(tag);if(id)e.id=id;if(cls)e.className=cls;if(text)e.textContent=text;return e;}
   function buildZones(){
@@ -351,15 +361,19 @@
       var NS='http://www.w3.org/2000/svg',svg=document.createElementNS(NS,'svg'),grid=document.createElementNS(NS,'path'),line=document.createElementNS(NS,'polyline');
       svg.setAttribute('viewBox','0 0 300 70');svg.setAttribute('preserveAspectRatio','none');svg.setAttribute('aria-hidden','true');
       grid.setAttribute('class','home-gauge-curve-grid');grid.setAttribute('d','M0 69.5H300M0 35H300');line.setAttribute('class','home-gauge-curve-line');line.id='home-gauge-curve-line';
-      svg.appendChild(grid);svg.appendChild(line);zones.curve.appendChild(svg);
+      svg.appendChild(grid);svg.appendChild(line);zones.curve.appendChild(svg);zones.svg=svg;
     }
   }
   function arrange(){
-    var wide=!!(window.cncLayout&&typeof window.cncLayout.wide==='function'&&window.cncLayout.wide()),three=wide&&window.innerWidth>=THREE_ZONES_MIN_WIDTH;
-    if(wide===zones.on&&three===zones.three)return;
+    // Performance v2 (body.perf-v2, only ever with the wide layout): one monitoring column, whatever the width.
+    var wide=!!(window.cncLayout&&typeof window.cncLayout.wide==='function'&&window.cncLayout.wide()),v2on=wide&&v2Body(),three=wide&&!v2on&&window.innerWidth>=THREE_ZONES_MIN_WIDTH;
+    if(wide===zones.on&&three===zones.three&&v2on===zones.v2)return;
+    // L0 contract: no grid change in Run/Hold/Alarm or with an unknown report; cnc-v2-change arranges again at rest.
+    if(zones.on&&v2Held())return;
     var title=$('home-job-title'),metrics=title&&title.parentNode,left=$('home-left'),board=left&&left.parentNode;
     if(!metrics||!left||!board||typeof metrics.insertBefore!=='function')return;
     var progress=$('home-job-progress').parentNode,head=$('home-job-percent').parentNode,coords=$('home-coords'),tiles=$('home-live-feed').parentNode.parentNode,overrides=$('home-overrides'),stop=$('home-job-stop').parentNode,n,next;
+    if(zones.v2&&!v2on)applyV2(false,board,left,tiles,overrides);
     if(wide&&!zones.built)buildZones();
     if(wide&&!zones.on){
       metrics.insertBefore(zones.gauges,progress);
@@ -381,10 +395,17 @@
       if(three)zones.controls.insertBefore(overrides,stop);else left.appendChild(overrides);
       board.setAttribute('data-zones',three?'3':'2');
     }
+    if(v2on&&!zones.v2)applyV2(true,board,left,tiles,overrides);
     zones.on=wide;zones.three=three;
-    if(wide){render();requestCurve();}
+    if(wide){render();requestCurve();requestV2();}
   }
   window.addEventListener('cnc-layout-change',arrange);
+  // perf-v2 is set or cleared by tablet-profile.js in its own frame, then announced: arranged in a frame too.
+  window.addEventListener('cnc-v2-change',function(){
+    if(v2.arrangeFrame!==null||typeof window.requestAnimationFrame!=='function')return;
+    if(!zones.on&&!v2Body())return;
+    v2.arrangeFrame=window.requestAnimationFrame(function(){v2.arrangeFrame=null;arrange();requestV2();});
+  });
   window.addEventListener('resize',function(){if(zones.on||window.cncLayout&&window.cncLayout.wide())arrange();});
   function overrideRead(v){return finiteNumber(v)?v+' %'+(v!==100?' ('+(v>100?'+':'−')+Math.abs(v-100)+' %)':''):'—';}
   // The acknowledged line, by CNCToolPosition.acknowledged (tool-position.js) when the page has it,
@@ -398,24 +419,36 @@
     if(r&&typeof r.from==='number'&&typeof r.preambleLength==='number')return Math.min(totalLines,Math.max(0,r.from-1+Math.max(0,c.received-r.preambleLength)));
     return Math.min(totalLines,Math.max(0,c.received/c.total*totalLines));
   }
+  // Lines of the original file: the preview's count, else resume.total for a resumed job, else CNCjs's total.
+  function linesTotal(c){
+    var pv=$('home-job-image').cncPreview,r=c.resume;
+    return pv&&pv.file===c.name&&finiteNumber(pv.lines)&&pv.lines>0?pv.lines:r&&finiteNumber(r.from)&&finiteNumber(r.total)&&r.total>0?r.total:c.total;
+  }
   function gauges(c,valid,p,eta,remaining){
-    var pv=$('home-job-image').cncPreview,left=motionLeft,running=!!(valid&&c.workflow==='running'&&p<100);
+    var left=motionLeft,running=!!(valid&&c.workflow==='running'&&p<100);
     var title=eta,source='',second='',unknown='';
     var factor=left?(Math.round(left.factor*10)/10).toLocaleString(uiLocale.locale||'fr-FR'):'';
-    if(running&&simulation&&remaining!==null){title=uiLocale.t('Reste ')+remainingText(remaining);source=uiLocale.t('durée simulée, aucun G-code exécuté');}
+    // The estimate as given to the v2 observation model: the value shown, and where it comes from.
+    v2.estimate={seconds:null,source:null,unknowns:[]};
+    if(running&&simulation&&remaining!==null){title=uiLocale.t('Reste ')+remainingText(remaining);source=uiLocale.t('durée simulée, aucun G-code exécuté');v2.estimate={seconds:remaining,source:'simulation',unknowns:[]};}
     else if(running&&left&&left.rapidKnown){
       title=uiLocale.t('Reste ')+remainingText(left.seconds);
       source=left.corrected?uiLocale.t('mouvements, corrigé ×')+factor+uiLocale.t(' d’après les lignes acquittées'):uiLocale.t('mouvements (sans accélérations), pas encore corrigé');
       if(remaining!==null)second=uiLocale.t('Selon le rythme observé : ')+remainingText(remaining);
+      v2.estimate={seconds:left.seconds,source:left.corrected?'motion-corrected':'motion',unknowns:[]};
     }else if(running&&remaining!==null){
       title=uiLocale.t('Reste ')+remainingText(remaining);source=uiLocale.t('rythme observé des lignes acquittées');
       if(left)second=uiLocale.t('Selon les mouvements : ')+remainingText(left.seconds)+uiLocale.t(' (rapides non comptés)');
+      v2.estimate={seconds:remaining,source:'rhythm',unknowns:[]};
     }else if(valid&&c.workflow==='paused'&&remaining!==null)source=uiLocale.t('rythme observé des lignes acquittées');
-    if(left&&(running||valid&&c.workflow==='paused')){var ahead=unknownsText(left.unknownsAhead);if(ahead)unknown=uiLocale.t('Durées inconnues à venir : ')+ahead;}
+    if(left&&(running||valid&&c.workflow==='paused')){
+      var ahead=unknownsText(left.unknownsAhead);if(ahead)unknown=uiLocale.t('Durées inconnues à venir : ')+ahead;
+      (left.unknownsAhead||[]).forEach(function(u){if(u&&u.kind!=='rapid'&&v2.estimate.unknowns.indexOf(u.kind)<0)v2.estimate.unknowns.push(u.kind);});
+    }
     set('home-gauge-eta-title','textContent',title);
     [['home-gauge-eta-source',source],['home-gauge-eta-second',second],['home-gauge-eta-unknown',unknown]].forEach(function(d){set(d[0],'textContent',d[1]);set(d[0],'hidden',!d[1]);});
     // Without the preview, a resumed job counts in the original file (resume.total), as acknowledgedLine() does.
-    var r=c&&c.resume,total=valid?(pv&&pv.file===c.name&&finiteNumber(pv.lines)&&pv.lines>0?pv.lines:r&&finiteNumber(r.from)&&finiteNumber(r.total)&&r.total>0?r.total:c.total):0;
+    var total=valid?linesTotal(c):0;
     set('home-gauge-ack-value','textContent',valid?number(Math.floor(acknowledgedLine(c,total)))+' / '+number(total):'—');
     var ov=c&&c.fresh&&c.overrides&&typeof c.overrides==='object'?c.overrides:null;
     ['feed','spindle','rapid'].forEach(function(kind){
@@ -447,6 +480,249 @@
     var text=points.join(' '),line=$('home-gauge-curve-line');
     if(text!==curve.points&&line&&typeof line.setAttribute==='function'){curve.points=text;line.setAttribute('points',text);}
     if(top!==curve.max){curve.max=top;set('home-gauge-curve-title','textContent',uiLocale.t('Avance réelle, dernière minute')+uiLocale.t(' · 0 à ')+number(top)+' mm/min');}
+  }
+  // ---- Performance v2 Suivi (body.perf-v2, lot L4; design/v2/REFLEXION.md propositions 1, 2 and 8) ----
+  // Only under perf-v2, which implies the wide layout (never on the RT): the scene keeps the left column with
+  // a confidence band at its edge and the planned / next sequence under it; one monitoring column on the right
+  // (time and its source, reported position, feed and S, the minute curve, the feed correction, « Broche /
+  // rapides… » and « Détail du temps » in sheets of the shell). Existing elements move with their IDs and
+  // relays; Pause / Arrêter stay in the strip. The status handler only gives normalized facts to the L3
+  // observation model; the v2 texts and the curve are written in an animation frame, while Suivi is shown.
+  // The strings of this lot are embedded (FR / EN / ES): no catalogue request, nothing loaded on the RT.
+  var V2_MESSAGES=[
+    ['S rapporté','Reported S','S informado'],
+    ['Programme chargé : ','Loaded program: ','Programa cargado: '],
+    ['Aucun programme chargé','No program loaded','Ningún programa cargado'],
+    ['Repère inconnu','Unknown frame','Sistema de coordenadas desconocido'],
+    ['Rapport frais','Fresh report','Informe reciente'],
+    ['Rapport périmé (> 2,5 s)','Stale report (> 2.5 s)','Informe caducado (> 2,5 s)'],
+    ['Rapport inconnu','Unknown report','Informe desconocido'],
+    ['Géométrie complète','Full geometry','Geometría completa'],
+    ['Géométrie simplifiée','Simplified geometry','Geometría simplificada'],
+    ['Géométrie inconnue','Unknown geometry','Geometría desconocida'],
+    ['Acquitté par Grbl','Acknowledged by Grbl','Confirmado por Grbl'],
+    ['À acquitter','Not yet acknowledged','Por confirmar'],
+    ['Acquitté = accepté par Grbl, pas nécessairement usiné.','Acknowledged = accepted by Grbl, not necessarily machined.','Confirmado = aceptado por Grbl, no necesariamente mecanizado.'],
+    ['Rapportée · rapport frais','Reported · fresh report','Informada · informe reciente'],
+    ['Figée · rapport périmé','Frozen · stale report','Congelada · informe caducado'],
+    ['Inconnue · pas de rapport','Unknown · no report','Desconocida · sin informe'],
+    ['Séquence prévue · estimée','Planned sequence · estimated','Secuencia prevista · estimada'],
+    ['Ensuite','Next','A continuación'],
+    ['Séquences non préparées','Sequences not prepared','Secuencias no preparadas'],
+    ['Séquence indéterminée','Indeterminate sequence','Secuencia indeterminada'],
+    ['Prochaine séquence inconnue','Next sequence unknown','Próxima secuencia desconocida'],
+    ['Déclarée dans le fichier','Declared in the file','Declarada en el archivo'],
+    ['Regroupement inféré, pas une opération nommée','Inferred grouping, not a named operation','Agrupación inferida, no una operación nombrada'],
+    ['Aucune accroche sûre au rapport','No reliable link to the report','Ningún vínculo fiable con el informe'],
+    ['Ordre du fichier, pas heure de début','File order, not a start time','Orden del archivo, no hora de inicio'],
+    [' à venir',' ahead',' por venir'],
+    ['durée inconnue','unknown duration','duración desconocida'],
+    ['Avance rapportée, dernière minute','Reported feed, last minute','Avance informado, último minuto'],
+    [' · 0 à ',' · 0 to ',' · 0 a '],
+    ['Courbe indisponible','Curve unavailable','Curva no disponible'],
+    ['Aucun événement sur la minute','No event in the last minute','Ningún evento en el último minuto'],
+    ['Corrections : ','Corrections: ','Correcciones: '],
+    ['pauses : ','pauses: ','pausas: '],
+    ['trous de données : ','data gaps: ','huecos de datos: '],
+    ['Broche / rapides…','Spindle / rapids…','Husillo / rápidos…'],
+    ['Détail du temps','Time details','Detalle del tiempo'],
+    ['Broche et rapides','Spindle and rapids','Husillo y rápidos'],
+    ['Ce que le temps indique','What the time means','Qué indica el tiempo'],
+    ['Estimation sans accélérations. Pauses manuelles, interventions et durées inconnues ne sont pas comptées.','Estimate without accelerations. Manual pauses, interventions and unknown durations are not counted.','Estimación sin aceleraciones. No se cuentan las pausas manuales, las intervenciones ni las duraciones desconocidas.'],
+    ['État des données','Data status','Estado de los datos'],
+    ['Séquences','Sequences','Secuencias']
+  ];
+  function say(fr){var l=uiLocale.language,i=l==='en'?1:l==='es'?2:0;for(var k=0;k<V2_MESSAGES.length;k++)if(V2_MESSAGES[k][0]===fr)return V2_MESSAGES[k][i];return fr;}
+  var v2={built:false,arrangeFrame:null,frame:null,timer:null,rows:null,rowHost:null,timeHost:null,more:null,band:null,sequence:null,position:null,axis:null,paths:{},
+    key:null,id:null,last:null,markers:[],serial:0,chart:null,estimate:{seconds:null,source:null,unknowns:[]}};
+  function v2Body(){var b=document.body;return !!(b&&b.classList&&typeof b.classList.contains==='function'&&b.classList.contains('perf-v2'));}
+  function v2Held(){try{var s=window.cncV2&&typeof window.cncV2.state==='function'?window.cncV2.state():null;return !!(s&&s.holdLayout);}catch(_){return false;}}
+  function v2Use(slot){try{var v=window.cncV2;return v&&typeof v.use==='function'?v.use(slot):null;}catch(_){return null;}}
+  function v2Number(v){var n=typeof v==='number'?v:typeof v==='string'&&v.trim()?Number(v):NaN;return isFinite(n)?n:null;}
+  function attr(node,name,value){if(node&&typeof node.setAttribute==='function'&&node.getAttribute(name)!==value)node.setAttribute(name,value);}
+  function addSpan(parent,id,cls,text){parent.appendChild(el('span',id,cls,text));}
+  function buildV2(overrides){
+    v2.built=true;
+    // Confidence band at the edge of the scene: loaded program, frame and units, report age, geometry; the legend.
+    v2.band=el('div','home-v2-confidence','home-v2-confidence');v2.band.setAttribute('aria-label',say('État des données'));
+    var facts=el('p','home-v2-facts','home-v2-facts'),legend=el('p','home-v2-legend','home-v2-legend');
+    ['home-v2-program','home-v2-frame','home-v2-age','home-v2-geometry'].forEach(function(id){addSpan(facts,id,id);});
+    addSpan(legend,'','home-v2-key home-v2-key--done',say('Acquitté par Grbl'));addSpan(legend,'','home-v2-key home-v2-key--todo',say('À acquitter'));
+    addSpan(legend,'home-v2-meaning','home-v2-meaning',say('Acquitté = accepté par Grbl, pas nécessairement usiné.'));
+    v2.band.appendChild(facts);v2.band.appendChild(legend);
+    v2.position=el('p','home-v2-position','home-v2-position');
+    // Planned / next sequence, prepared at rest by L2: never a G-code line or a resume cursor.
+    v2.sequence=el('div','home-v2-sequence','home-v2-sequence');v2.sequence.setAttribute('aria-label',say('Séquences'));
+    [['now','Séquence prévue · estimée'],['next','Ensuite']].forEach(function(d){
+      var cell=el('div','','home-v2-seq home-v2-seq--'+d[0]);cell.appendChild(el('span','','home-v2-eyebrow',say(d[1])));
+      cell.appendChild(el('b','home-v2-'+d[0],'home-v2-seq-title'));cell.appendChild(el('small','home-v2-'+d[0]+'-detail','home-v2-seq-detail'));v2.sequence.appendChild(cell);
+    });
+    // The curve: the line split at the gaps, the gaps shaded, reported corrections and pauses marked.
+    if(zones.svg&&typeof document.createElementNS==='function')[['gaps','home-v2-curve-gaps'],['line','home-v2-curve-line'],['marks','home-v2-curve-marks']].forEach(function(d){
+      var path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('class',d[1]);path.id=d[1];v2.paths[d[0]]=path;
+    });
+    // A touch near an event of the curve opens the Journal at its interval (lot L6), read only.
+    zones.curve.addEventListener('click',v2CurveTap);
+    // Time axis, with the events of the minute between its ends.
+    v2.axis=el('p','home-v2-curve-axis','home-v2-curve-axis');addSpan(v2.axis,'','','−60 s');addSpan(v2.axis,'home-v2-curve-events','home-v2-curve-events');addSpan(v2.axis,'','','0 s');
+    // « Broche / rapides… » and « Détail du temps »: sheets of the shell, under the strip (Pause / Arrêter kept).
+    var shell=window.cncShell;
+    if(!shell||typeof shell.sheet!=='function')return;
+    var rowsSheet=shell.sheet('perf-v2-overrides-sheet',say('Broche et rapides')),timeSheet=shell.sheet('perf-v2-time-sheet',say('Ce que le temps indique'));
+    v2.rowHost=rowsSheet.content;v2.timeHost=timeSheet.content;v2.rowHost.addEventListener('click',overrideClick);
+    v2.timeHost.appendChild(el('p','home-v2-time-note','t-help home-v2-time-note',say('Estimation sans accélérations. Pauses manuelles, interventions et durées inconnues ne sont pas comptées.')));
+    v2.more=el('div','home-v2-more','home-v2-more');
+    [['home-v2-more-overrides','Broche / rapides…',rowsSheet],['home-v2-time-detail','Détail du temps',timeSheet]].forEach(function(d){
+      var b=el('button',d[0],'t-btn t-btn--ghost',say(d[1]));b.type='button';b.addEventListener('click',d[2].open);v2.more.appendChild(b);
+    });
+    var find=typeof overrides.querySelector==='function'?function(s){return overrides.querySelector(s);}:function(){return null;};
+    v2.rows=[find('.t-override[data-kind="spindle"]'),find('.t-override[data-kind="rapid"]'),$('home-rapid-note')].filter(Boolean);
+  }
+  // Moves the existing elements in (on) or back exactly where the v1 wide layout had them (off).
+  function applyV2(on,board,left,tiles,overrides){
+    var art=$('home-job-image').parentNode,second=$('home-gauge-eta-second'),unknown=$('home-gauge-eta-unknown'),note=$('home-override-note');
+    if(art.parentNode!==left)art=left.firstChild;
+    if(on){
+      if(!v2.built)buildV2(overrides);
+      left.insertBefore(v2.band,art.nextSibling);left.appendChild(v2.sequence);
+      // The reported feed and S head the curve card, as in the mockup.
+      $('home-coords').appendChild(v2.position);zones.curve.insertBefore(tiles,zones.svg);zones.gauges.appendChild(overrides);
+      zones.curve.appendChild(v2.axis);
+      ['gaps','line','marks'].forEach(function(k){if(v2.paths[k])zones.svg.appendChild(v2.paths[k]);});
+      if(v2.more){
+        overrides.appendChild(v2.more);v2.rows.forEach(function(r){v2.rowHost.appendChild(r);});
+        v2.timeHost.appendChild(second);v2.timeHost.appendChild(unknown);
+      }
+      overrides.appendChild(zones.read);
+      board.setAttribute('data-v2','suivi');
+    }else{
+      if(v2.timer!==null&&typeof window.clearTimeout==='function')window.clearTimeout(v2.timer);v2.timer=null;
+      [v2.band,v2.sequence,v2.position,v2.axis,v2.more,v2.paths.gaps,v2.paths.line,v2.paths.marks].forEach(function(n){if(n&&n.parentNode)n.parentNode.removeChild(n);});
+      zones.gauges.insertBefore(tiles,zones.curve);zones.gauges.insertBefore(zones.read,zones.curve);
+      if(v2.more){
+        v2.rows.forEach(function(r){if(r.id==='home-rapid-note')overrides.appendChild(r);else overrides.insertBefore(r,note);});
+        zones.eta.appendChild(second);zones.eta.appendChild(unknown);
+      }
+      board.removeAttribute('data-v2');board.removeAttribute('data-v2-report');
+      // The v1 curve writes its own title again.
+      v2.chart=null;curve.max=0;curve.points='';set('home-gauge-curve-title','textContent',uiLocale.t('Avance réelle, dernière minute'));
+    }
+    zones.v2=on;relabel();
+  }
+  // Normalized facts for the L3 model (performance-observation.js): its loaded identity, the arrival stamp,
+  // the report as given (age, frame, units, feed in mm/min), the acknowledged ORIGINAL line, the estimate
+  // shown with its source, and reported override / pause transitions as markers. Unknown stays null.
+  function v2Facts(m){
+    var o=v2Use('observation'),v=window.cncV2;
+    if(!o||o.stub||typeof o.reset!=='function'||!v||!v.identity||!v.time||!m||!m.name)return;
+    var id=v.identity.create({role:'loaded',file:m.name,fingerprint:m.fingerprint,controller:m.port,generation:m.generation,revision:m.revision});
+    if(!id.jobKey)return;
+    if(v2.key!==id.jobKey||!o.snapshot().identity){v2.key=id.jobKey;v2.id=id;v2.last=null;v2.markers=[];o.reset(id);}
+    var time=v.time.stamp({serverTime:m.statusObservedAt,serverSource:'status'}),at=time.arrivalMonoMs;
+    var age=finiteNumber(m.statusAgeMs)&&m.statusAgeMs>=0?m.statusAgeMs:null,op=m.operator&&typeof m.operator==='object'?m.operator:{};
+    var units=op.reportUnits==='mm'||op.reportUnits==='in'?op.reportUnits:null,w=m.coordinates&&m.coordinates.wpos,pos=null;
+    if(w){var x=v2Number(w.x),y=v2Number(w.y),z=v2Number(w.z);if(x!==null&&y!==null&&z!==null)pos={x:x,y:y,z:z};}
+    var valid=m.fresh&&finiteNumber(m.total)&&m.total>0&&finiteNumber(m.received)&&m.received>=0&&m.received<=m.total;
+    var total=valid?linesTotal(m):null,line=valid?Math.floor(acknowledgedLine(m,total)):null;
+    var ov=m.fresh===true&&m.overrides&&typeof m.overrides==='object'?m.overrides:null,last=v2.last;
+    function mark(kind,value,code,params){
+      v2.markers.push({id:'report:'+(++v2.serial),kind:kind,identity:id,time:time,interval:{fromMonoMs:last.at,toMonoMs:at},value:value,source:'report',code:code,params:params});
+      if(v2.markers.length>100)v2.markers.shift();
+    }
+    if(last&&ov&&age!==null&&finiteNumber(at)&&at>=last.at){
+      ['feed','spindle','rapid'].forEach(function(ch){var a=last.ov[ch],b=ov[ch];if(finiteNumber(a)&&finiteNumber(b)&&a!==b)mark('correction',b,'override-'+ch,{channel:ch,previous:a});});
+      if(last.workflow==='running'&&m.workflow==='paused')mark('pause',true,'pause',{});
+      else if(last.workflow==='paused'&&m.workflow==='running')mark('pause',false,'resume',{});
+    }
+    if(ov&&age!==null&&finiteNumber(at))v2.last={ov:{feed:ov.feed,spindle:ov.spindle,rapid:ov.rapid},workflow:m.workflow,at:at};
+    var feed=units&&finiteNumber(m.feedrate)?Math.round((units==='in'?m.feedrate*25.4:m.feedrate)*10)/10:null,est=v2.estimate;
+    o.update({version:1,available:age!==null,identity:id,time:time,
+      report:{freshness:age===null?'unknown':m.fresh===true&&age<=2500?'fresh':'stale',ageMs:age,wcs:typeof op.wcs==='string'&&op.wcs?op.wcs:null,units:units,position:pos,
+        feedMmMin:feed,spindleS:finiteNumber(m.spindleSpeed)?m.spindleSpeed:null},
+      acknowledgement:{line:line,total:total,meaning:'accepted-not-machined'},
+      estimate:{seconds:est.seconds,source:est.source,estimated:true,unknowns:est.unknowns.slice()},markers:v2.markers});
+    // One timer per report: the band turns stale 2.5 s after it, even when no other report arrives.
+    if(v2.timer!==null&&typeof window.clearTimeout==='function')window.clearTimeout(v2.timer);v2.timer=null;
+    if(age!==null&&age<=2500&&typeof window.setTimeout==='function')v2.timer=window.setTimeout(function(){v2.timer=null;requestV2();},2550-age);
+  }
+  function requestV2(){
+    if(!zones.v2||v2.frame!==null||!visible('home')||typeof window.requestAnimationFrame!=='function')return;
+    v2.frame=window.requestAnimationFrame(paintV2);
+  }
+  function paintV2(){
+    v2.frame=null;
+    if(!zones.v2||!visible('home'))return;
+    var o=v2Use('observation'),live=!!(o&&!o.stub&&typeof o.snapshot==='function'),s=live?o.snapshot():null,r=s&&s.report;
+    var state=r&&s.identity?r.freshness:'unknown',age=r&&finiteNumber(r.ageMs)?r.ageMs:null,c=machine,v=window.cncV2;
+    set('home-v2-program','textContent',c&&c.name?say('Programme chargé : ')+(c.originalName||c.name):say('Aucun programme chargé'));
+    set('home-v2-frame','textContent',r&&r.wcs&&r.units?r.wcs+' · '+r.units:say('Repère inconnu'));
+    set('home-v2-age','textContent',state==='fresh'?say('Rapport frais')+' · '+(age!==null&&age>=1000?Math.floor(age/1000)+' s':'< 1 s'):state==='stale'?say('Rapport périmé (> 2,5 s)'):say('Rapport inconnu'));
+    attr($('home-v2-age'),'data-state',state);attr($('home-left').parentNode,'data-v2-report',state);
+    var g=v2Use('geometry'),gs=g&&!g.stub&&typeof g.snapshot==='function'?g.snapshot():null;
+    var quality=gs&&gs.available&&v2.id&&v&&v.identity&&v.identity.compare(gs.identity,v2.id)==='same'?gs.quality:'unknown';
+    set('home-v2-geometry','textContent',quality==='full'?say('Géométrie complète'):quality==='simplified'?say('Géométrie simplifiée'):say('Géométrie inconnue'));
+    var placed=state==='fresh'&&!!r.position;
+    set('home-v2-position','textContent',placed?say('Rapportée · rapport frais'):state==='stale'?say('Figée · rapport périmé'):say('Inconnue · pas de rapport'));
+    attr($('home-v2-position'),'data-state',placed||state==='stale'?state:'unknown');
+    paintSequence();paintCurve(live?o:null);
+  }
+  function paintSequence(){
+    var q=v2Use('sequences'),s=q&&!q.stub&&typeof q.snapshot==='function'?q.snapshot():null,L=window.CNCPerformanceSequences,v=window.cncV2;
+    function label(x){return L&&typeof L.label==='function'?L.label(x):x&&x.label?x.label:say('Séquence indéterminée');}
+    var ready=!!(s&&s.available&&s.items&&s.items.length&&v2.id&&v&&v.identity&&v.identity.compare(s.identity,v2.id)==='same');
+    var now=ready?s.current:null,up=now&&typeof q.upcoming==='function'?q.upcoming():null;
+    set('home-v2-now','textContent',ready?label(now):say('Séquences non préparées'));
+    set('home-v2-now-detail','textContent',!ready?'':!now?say('Aucune accroche sûre au rapport'):now.provenance==='declared'?say('Déclarée dans le fichier'):say('Regroupement inféré, pas une opération nommée'));
+    set('home-v2-next','textContent',ready&&s.next?label(s.next):say('Prochaine séquence inconnue'));
+    set('home-v2-next-detail','textContent',up?label(up)+say(' à venir')+(up.durationSeconds===null?' — '+say('durée inconnue'):''):say('Ordre du fichier, pas heure de début'));
+  }
+  // Journal context (contract of lot L6): the marker's loaded identity and interval, and the Suivi view to
+  // restore. Display navigation only: nothing is sent to the controller. Nothing happens outside perf-v2.
+  function v2CurveTap(e){
+    var ch=v2.chart,svg=zones.svg,v=window.cncV2,m=machine;
+    if(!zones.v2||!ch||!svg||typeof svg.getBoundingClientRect!=='function'||!e||!finiteNumber(e.clientX)||!v||!v.identity)return;
+    var r=svg.getBoundingClientRect();if(!r||!(r.width>0))return;
+    var x=(e.clientX-r.left)/r.width*CURVE_MS+ch.toMonoMs-CURVE_MS,reach=24/r.width*CURVE_MS,best=null,gap=Infinity;
+    ch.markers.forEach(function(k){
+      var span=k.interval,at=k.kind==='gap'?null:k.time&&k.time.arrivalMonoMs,d;
+      if(!span)return;
+      d=at===null?(x<span.fromMonoMs?span.fromMonoMs-x:x>span.toMonoMs?x-span.toMonoMs:0):finiteNumber(at)?Math.abs(x-at):Infinity;
+      if(d<=reach&&d<gap){gap=d;best=k;}
+    });
+    if(!best||!m||!m.name)return;
+    var id=v.identity.create({role:'loaded',file:m.name,fingerprint:m.fingerprint,controller:m.port,generation:m.generation,revision:m.revision});
+    window.dispatchEvent(new CustomEvent('cnc-v2-journal-open',{detail:{marker:{identity:id,interval:{fromMonoMs:best.interval.fromMonoMs,toMonoMs:best.interval.toMonoMs}},view:{screen:'home'}}}));
+  }
+  window.addEventListener('cnc-v2-journal-return',function(e){
+    var view=e&&e.detail&&e.detail.view,shell=window.cncShell;
+    if(!zones.v2||!view||view.screen!=='home'||!shell||typeof shell.go!=='function')return;
+    shell.go('home');requestV2();
+  });
+  function pathD(key,d){var p=v2.paths[key];if(p&&p.getAttribute('d')!==d)p.setAttribute('d',d);}
+  // chart() is the model's own result, recomputed at most once a second and null while Suivi is hidden:
+  // drawn only when its reference changes. A gap stays a gap; no point is interpolated.
+  function paintCurve(o){
+    if(!o){
+      if(v2.chart!==false){v2.chart=false;['line','gaps','marks'].forEach(function(k){pathD(k,'');});set('home-gauge-curve-title','textContent',say('Courbe indisponible'));set('home-v2-curve-events','textContent','');}
+      return;
+    }
+    var ch=typeof o.chart==='function'?o.chart():null;
+    if(!ch||ch===v2.chart)return;
+    v2.chart=ch;
+    var to=ch.toMonoMs,max=0,top=100,gaps='',marks='',n={correction:0,pause:0,gap:0},parts=[];
+    ch.samples.forEach(function(p){if(finiteNumber(p.feedMmMin)&&p.feedMmMin>max)max=p.feedMmMin;});
+    while(top<max)top=top*(String(top).charAt(0)==='2'?2.5:2);
+    function X(t){return Math.round(Math.max(0,Math.min(300,(t-to+CURVE_MS)/CURVE_MS*300))*10)/10;}
+    function Y(f){return Math.round((70-f/top*69)*10)/10;}
+    pathD('line',ch.segments.map(function(seg){return seg.map(function(p,i){return (i?'L':'M')+X(p.atMonoMs)+' '+Y(p.feedMmMin);}).join('')+(seg.length===1?'h0.5':'');}).join(''));
+    ch.markers.forEach(function(m){
+      if(m.kind==='gap'){gaps+='M'+X(m.interval.fromMonoMs)+' 0H'+X(m.interval.toMonoMs)+'V70H'+X(m.interval.fromMonoMs)+'Z';n.gap++;}
+      else if(n[m.kind]!==undefined&&m.time&&finiteNumber(m.time.arrivalMonoMs)){marks+='M'+X(m.time.arrivalMonoMs)+' 0V70';n[m.kind]++;}
+    });
+    pathD('gaps',gaps);pathD('marks',marks);
+    set('home-gauge-curve-title','textContent',say('Avance rapportée, dernière minute')+say(' · 0 à ')+number(top)+' mm/min');
+    if(n.correction)parts.push(say('Corrections : ')+n.correction);if(n.pause)parts.push(say('pauses : ')+n.pause);if(n.gap)parts.push(say('trous de données : ')+n.gap);
+    set('home-v2-curve-events','textContent',parts.length?parts.join(' · '):say('Aucun événement sur la minute'));
   }
   // Preview of the loaded program for the other screens (spec 8.6, origin preview): the one Suivi
   // already read when it is there, else one read of its own (one in flight, same verdict and checks),

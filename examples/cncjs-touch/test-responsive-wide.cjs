@@ -92,7 +92,7 @@ function CustomEvent(type, o) { this.type = type; this.detail = o && o.detail; }
 
 // --- 2. Style sheets: the gate is the class only, never a media query that repeats it.
 {
-  for (const f of ['responsive.css', 'ui-2027.css', 'app.css', 'touch-shell.css']) {
+  for (const f of ['responsive.css', 'ui-2027.css', 'app.css', 'touch-shell.css', 'performance-v2.css']) {
     const css = read(f).replace(/\/\*[\s\S]*?\*\//g, '');
     const medias = css.match(/@media[^{]*/g) || [];
     medias.forEach((m) => assert(!/1300px|880px/.test(m), f + ': a media query repeats the perf-wide rule: ' + m));
