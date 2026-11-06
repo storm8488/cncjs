@@ -71,6 +71,20 @@
     wpos.x=0;wpos.y=0;coords.wpos=wpos;copy.coordinates=coords;
     return check(preview,copy);
   }
-  var api={check:check,show:show,travelBox:travelBox,place:place};
+  // V2 data exposure only. Signed distances from the nominal XY extent to each
+  // travel boundary; negative means outside. check()/place() and their callers
+  // retain their rules. A missing $23 is not evidence of a firmware convention.
+  function placementData(preview,machine){
+    var result=place(preview,machine),raw=(machine&&machine.settings||{}).$23;
+    var mask=typeof raw==='string'&&raw.trim()===''?null:number(raw);
+    var known=mask!==null&&mask>=0&&mask<=7&&Math.floor(mask)===mask;
+    var value={verdict:'unknown',source:'CNCTravelCheck.place',marginsMm:null,zVerified:false,collisionsVerified:false};
+    if(!known||(result.state!=='ok'&&result.state!=='outside')||!result.axes||result.axes.length!==2)return value;
+    var margins={};
+    result.axes.forEach(function(a){margins[a.axis.toLowerCase()]={min:a.min-a.low,max:a.high-a.max};});
+    value.verdict=result.state==='ok'?'inside':'outside';value.marginsMm=margins;
+    return value;
+  }
+  var api={check:check,show:show,travelBox:travelBox,place:place,placementData:placementData};
   if(typeof module==='object'&&module.exports)module.exports=api;else root.CNCTravelCheck=api;
 })(typeof window==='object'?window:this);

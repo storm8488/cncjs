@@ -227,11 +227,12 @@ const card = p => p.document.getElementById('op-card');
 const nodeOf = (p, cls) => card(p).all().find(e => e.classList.contains(cls));
 const shown = (p, cls) => { const n = nodeOf(p, cls); return n.hidden ? '' : n.textContent; };
 
-(async () => {
+module.exports = { originPage, machine, preview, plain, eq, card, nodeOf, shown };
+if (require.main === module) (async () => {
   // ---------- 3. Model: overlays and texts for a given state ----------
   {
     const p = originPage(), O = p.win.CNCOriginPreview;
-    eq(Object.keys(O).sort(), ['hint', 'model', 'mount', 'unmount']);
+    eq(Object.keys(O).sort(), ['comparison', 'hint', 'model', 'mount', 'unmount']);
     const meta = preview([0, 0, 60, 70]);
     // Tool at machine (-350, -250), current work position (12, 30): origin set here = program translated by (12, 30, 0).
     let r = O.model(machine(-350, -250, 12, 30), meta, { x: 100, y: 80, z: 15 });
@@ -448,6 +449,7 @@ const shown = (p, cls) => { const n = nodeOf(p, cls); return n.hidden ? '' : n.t
   const sandbox = { window: {} };
   ['i18n-messages.js'].concat(fs.readdirSync(dir).filter(n => /^i18n-messages-[a-z]+\.js$/.test(n) && n !== 'i18n-messages-origin.js')).forEach(n => vm.runInNewContext(read(n), sandbox));
   const others = new Set(sandbox.window.CNCTouchMessages.map(r => key(r[0]))), before = sandbox.window.CNCTouchMessages.length;
+  JSON.parse(read('i18n-messages-v2.js')).forEach(row => others.add(key(row[0])));
   vm.runInNewContext(read('i18n-messages-origin.js'), sandbox);
   const rows = sandbox.window.CNCTouchMessages.slice(before), mine = new Set();
   assert(rows.length > 10);
