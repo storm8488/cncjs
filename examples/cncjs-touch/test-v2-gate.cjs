@@ -4,7 +4,7 @@ const assert = require('assert').strict, fs = require('fs'), vm = require('vm');
 const read = f => fs.readFileSync(__dirname + '/touch/' + f, 'utf8');
 const KEY = 'cncjs-touch-performance-ui-v2';
 const BOOTSTRAP = ['i18n-messages-v2.js','performance-v2-contract.js','performance-inspect.js',
-  'performance-sequences.js','performance-observation.js','performance-journal-context.js'];
+  'performance-sequences.js','performance-observation.js','performance-journal-context.js','performance-v2.css'];
 const tick = () => new Promise(setImmediate);
 function page(options = {}) {
   const listeners = {}, frames = new Map(), classes = new Set(), requests = [], events = [];
@@ -26,6 +26,9 @@ function page(options = {}) {
     createElement: element, querySelectorAll: () => [], getElementById: () => null,
     addEventListener(n,f) { (listeners['doc:'+n] ||= []).push(f); },
     removeEventListener(n,f) { listeners['doc:'+n] = (listeners['doc:'+n] || []).filter(x => x !== f); }};
+  // Baseline sheets are already in the head before the deferred bootstrap runs.
+  const responsive = element('link'); responsive.rel = 'stylesheet'; responsive.href = 'responsive.css?v=v2c';
+  document.head.children.push(responsive); responsive.parentNode = document.head;
   const window = {document, localStorage: storage, performance: {now: () => mono},
     innerWidth: options.width || 1366, innerHeight: options.height || 911,
     requestAnimationFrame(f) { frames.set(++seq,f); return seq; }, cancelAnimationFrame: id => frames.delete(id),
@@ -60,7 +63,7 @@ function page(options = {}) {
   function respond(r) {
     r.done = true;
     if (r.kind === 'data') { r.node.status = 200; r.node.responseText = read(r.url.split('?')[0]); r.node.onload(); }
-    else { run(r.url.split('?')[0]); if (r.node.onload) r.node.onload(); }
+    else { if (r.node.tagName === 'SCRIPT') run(r.url.split('?')[0]); if (r.node.onload) r.node.onload(); }
   }
   async function step() {
     // Only actually attached scripts complete. Late execution after removal is
@@ -84,7 +87,13 @@ async function tests() {
   p.frame(); await p.complete();
   assert(p.api.gate()); assert(p.api.state().ready); assert(p.classes.has('perf-v2'));
   assert.deepEqual(p.requests.map(r => r.url.split('?')[0]), BOOTSTRAP);
-  assert(p.requests.every(r => /\?v=v2b$/.test(r.url)));
+  assert(p.requests.every(r => /\?v=v2c$/.test(r.url)));
+  const style = p.requests.find(r => r.url.startsWith('performance-v2.css?')).node;
+  assert.equal(style.tagName, 'LINK'); assert.equal(style.rel, 'stylesheet');
+  assert(p.document.head.children.indexOf(style) > p.document.head.children.findIndex(n => /^responsive\.css\?/.test(n.href || '')),
+    'v2 stylesheet follows responsive.css in the cascade');
+  for (const file of ['index.html','simulation.html']) assert(!/performance-v2\.css/.test(read(file)), file+' never requests v2 CSS statically');
+  await assert.rejects(p.window.cncProfile.loadAdvanced('responsive.css'), 'only the guarded v2 stylesheet is accepted');
   for (const slot of ['inspect','sequences','observation','journal']) assert(!p.api.use(slot).stub, slot+' is installed before ready');
   const count = p.requests.length; p.status(); p.frame(); await p.complete(); assert.equal(p.requests.length,count);
   for (const options of [{profile:'eco'}, {gpu:false,height:768}, {gpu:false}, {kind:'laser'}, {wide:false}, {raw:null}, {raw:'true'}, {raw:'{"version":2,"enabled":true}'}, {raw:'{"version":1,"enabled":"true"}'}, {readFail:true}]) {
@@ -125,7 +134,7 @@ async function tests() {
         assert.equal(q.requests.length,n+1,'one bootstrap request at a time');
         assert(!q.api.state().ready); await q.step();
       }
-      const pending=q.requests[stage]; assert.equal(pending.url,BOOTSTRAP[stage]+'?v=v2b');
+      const pending=q.requests[stage]; assert.equal(pending.url,BOOTSTRAP[stage]+'?v=v2c');
       assert(!q.api.state().ready); assert(!q.classes.has('perf-v2'));
       if(close==='eco') q.window.cncProfile.setPerformance('eco');
       if(close==='gpu') { q.gpu.lost=true; q.emit('cnc-gpu-change'); }
@@ -176,9 +185,9 @@ async function tests() {
   }
   // A script load event alone is not proof that its provider installed (e.g. a
   // script execution error). Do not expose a ready UI backed by a leftover stub.
-  for(const missing of BOOTSTRAP.slice(2)) {
+  for(const missing of BOOTSTRAP.slice(2).filter(file => file.endsWith('.js'))) {
     const q=page(); q.status(); q.frame();
-    while(q.requests[q.requests.length-1].url!==missing+'?v=v2b') await q.step();
+    while(q.requests[q.requests.length-1].url!==missing+'?v=v2c') await q.step();
     const pending=q.requests[q.requests.length-1]; pending.done=true; pending.node.onload();
     await q.complete();
     assert(!q.api.state().ready,'missing provider '+missing); assert(!q.api.gate()); assert(!q.classes.has('perf-v2'));
@@ -197,7 +206,7 @@ async function tests() {
   const snapshot=await sim.window.cncJobSimulation.request('GET');
   sim.emit('cnc-job-status',{simulation:true,machine:snapshot.controllers[0],busy:false,transportConnected:true});
   sim.frame();await sim.complete();assert(sim.api.gate(),'actual virtual Idle is usable without inventing a machine report age');
-  console.log('PASS v2 gate: ordered real phase B, cache v2b, probe/scene barrier, cancellation at every stage, RT/software/Eco/laser zero requests, frozen busy layout.');
+  console.log('PASS v2 gate: real providers and guarded CSS after responsive, cache v2c, probe/scene barrier, cancellation at every stage, RT/software/Eco/laser zero requests, frozen busy layout.');
 }
 module.exports={page,read,tick,KEY,BOOTSTRAP};
 if(require.main===module) tests().catch(e=>{console.error(e);process.exitCode=1;});

@@ -87,7 +87,10 @@
       var screen=name==='prepare'?'jog':name,root=document.getElementById('screen-'+screen);
       if(!root)return;
       var content=document.createElement('div');content.id='perf-v2-'+name;content.hidden=true;
-      content.setAttribute('data-v2-mount',name);root.appendChild(content);
+      content.setAttribute('data-v2-mount',name);
+      var performanceCard=name==='settings'?document.getElementById('ks-performance-card'):null;
+      if(performanceCard&&performanceCard.parentNode===root)root.insertBefore(content,performanceCard.nextSibling);
+      else root.appendChild(content);
       v2Slots[name]=Object.freeze({screen:screen,root:root,content:content,origin:name==='prepare'&&!simulation?content:null});
     });
     return Object.freeze(v2Slots);

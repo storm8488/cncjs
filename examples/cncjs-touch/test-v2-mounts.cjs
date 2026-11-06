@@ -4,20 +4,33 @@ const {page,read}=require('./test-v2-gate.cjs');
 function block(file,start,end) {const s=read(file),a=s.indexOf(start),b=s.indexOf(end,a);assert(a>=0&&b>a,'mount block exists: '+file);return s.slice(a,b);}
 (async()=>{
   const mountSource=block('touch-shell.js','  // BEGIN V2 MOUNTS','  // END V2 MOUNTS');
-  for(const simulation of [false,true]) {
+  for(const simulation of [false,true]) for(const withPerformanceCard of [false,true]) {
     const p=page({simulation}); const nodes={};
     for(const name of ['home','files','jog','machine','history','settings']) nodes['screen-'+name]=p.document.createElement('section');
+    const settings=nodes['screen-settings'];
+    if(withPerformanceCard) {
+      const perf=nodes['ks-performance-card']=p.document.createElement('div');
+      const entry=p.document.createElement('div'), following=p.document.createElement('div');
+      entry.id='ks-v2-card'; following.id='text-size-card';
+      settings.appendChild(perf); settings.appendChild(entry); settings.appendChild(following);
+      // Real DOM insertion and nextSibling semantics, including L6's existing entry.
+      Object.defineProperty(perf,'nextSibling',{get:()=>settings.children[settings.children.indexOf(perf)+1]||null});
+      settings.insertBefore=(node,ref)=>{const index=ref?settings.children.indexOf(ref):settings.children.length;assert(index>=0);settings.children.splice(index,0,node);node.parentNode=settings;return node;};
+    }
     p.document.getElementById=id=>nodes[id]||null;
     vm.runInContext('(function(){var simulation='+simulation+';'+mountSource+'window.testMounts=v2Mounts;})();',p.context);
     assert.equal(Object.keys(p.window.testMounts()).length,0,'no DOM without gate');
     p.window.cncShell={v2Mounts:p.window.testMounts}; p.status(); p.frame(); await p.complete();
     const mounts=p.window.testMounts();
     assert.equal(Object.keys(mounts).length,6);
-    for(const [name,m] of Object.entries(mounts)) {assert.equal(m.root.children.length,1);assert(m.content.hidden);assert.equal(m.content.id,'perf-v2-'+name);}
+    for(const [name,m] of Object.entries(mounts)) {assert.equal(m.root.children.length,name==='settings'&&withPerformanceCard?4:1);assert(m.content.hidden);assert.equal(m.content.id,'perf-v2-'+name);}
+    if(withPerformanceCard) assert.equal(settings.children[1],mounts.settings.content,'settings mount immediately after Performance, before existing L6 entry');
+    const settingsOrder=settings.children.slice();
     assert.equal(mounts.prepare.origin,simulation?null:mounts.prepare.content);
     p.status({workflow:'running'}); p.window.cncProfile.setPerformance('eco'); p.frame();
     assert.equal(p.window.testMounts(),mounts,'same mount nodes throughout work/loss/Eco');
-    assert(Object.values(mounts).every(m=>m.root.children.length===1));
+    assert(Object.entries(mounts).every(([name,m])=>m.root.children.length===(name==='settings'&&withPerformanceCard?4:1)));
+    assert.deepEqual(settings.children,settingsOrder,'settings siblings stay in place during work/Eco');
   }
   // Exercise the shell's real wide block. V2 freezes layout, not the resource gate.
   const p=page(); p.classes.add('perf-performance');p.classes.add('perf-gpu');

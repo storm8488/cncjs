@@ -136,7 +136,9 @@
       if (e && (!e.detail || e.detail.slot !== 'geometry')) return;
       var owner = v.use('geometry'); if (owner.prepared) { var data = owner.prepared(); if (data) update(data); }
     }
-    function status() { if (identity && !programMatches(identity)) clear(); publish(); }
+    // An attachment belongs to one reported position. A later packet (including
+    // missing/stale coordinates) needs a new unique snap from the view's RAF.
+    function status() { anchor = null; if (identity && !programMatches(identity)) clear(); publish(); }
     function lock(e) { locked = !!e.detail; if (locked) anchor = null; publish(); }
     function dispose() {
       if (disposed) return; disposed = true; clear(); life.dispose(); installed = null;

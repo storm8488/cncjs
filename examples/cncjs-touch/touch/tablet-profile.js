@@ -12,7 +12,7 @@
   var t=uiLocale.t;
   var KEY='cncjs-touch-performance-v1',PROFILES=['eco','performance'];
   // Cache key of the advanced scripts (they are not in the pages, so the pages' ?v= does not reach them).
-  var ADVANCED_VERSION='v2b';
+  var ADVANCED_VERSION='v2c';
   function read(){
     // Any failure (storage blocked, bad JSON, unknown value, other version) reads as eco.
     try{
@@ -91,7 +91,11 @@
         xhr.onerror=xhr.ontimeout=xhr.onabort=failed;
         v2PendingLoads[file]=function(){xhr.abort();};xhr.send();return;
       }
-      var s=document.createElement('script');s.src=file+'?v='+ADVANCED_VERSION;s.async=false;
+      // The v2 sheet is appended after the baseline head (including responsive.css).
+      // Keep it in the same serial, revocable bootstrap as the model providers.
+      var css=file==='performance-v2.css',s=document.createElement(css?'link':'script');
+      if(css){s.rel='stylesheet';s.href=file+'?v='+ADVANCED_VERSION;}
+      else{s.src=file+'?v='+ADVANCED_VERSION;s.async=false;}
       s.onload=function(){delete v2PendingLoads[file];if(v2File(file)&&!v2Gate()){delete loading[file];reject(new Error('v2-gate-closed'));return;}resolve(file);};
       s.onerror=function(){delete loading[file];delete v2PendingLoads[file];if(s.parentNode)s.parentNode.removeChild(s);reject(new Error(t('Module avancé introuvable : ')+file));};
       if(v2File(file))v2PendingLoads[file]=s.onerror;
@@ -102,7 +106,7 @@
   function loadAdvanced(files){
     if(performance!=='performance')return Promise.reject(new Error(t('Profil Éco : vues avancées désactivées sur cette tablette.')));
     var list=Array.isArray(files)?files:[files];
-    for(var i=0;i<list.length;i++)if(typeof list[i]!=='string'||!/^[a-z0-9][a-z0-9-]*\.js$/.test(list[i]))return Promise.reject(new Error(t('Nom de module avancé invalide.')));
+    for(var i=0;i<list.length;i++)if(typeof list[i]!=='string'||(!/^[a-z0-9][a-z0-9-]*\.js$/.test(list[i])&&list[i]!=='performance-v2.css'))return Promise.reject(new Error(t('Nom de module avancé invalide.')));
     // Check the complete batch before requesting even its first item.
     for(var j=0;j<list.length;j++)if(v2File(list[j])&&(!v2Gate()||!v2Idle()))return Promise.reject(new Error('v2-gate-closed'));
     // preview-gl is also the existing GPU probe: it MUST remain loadable before
@@ -227,7 +231,7 @@
     // ask for an already cached renderer. Every next request rechecks the gate.
     v2Bootstrap=loadAdvanced('i18n-messages-v2.js');
     ['performance-v2-contract.js','performance-inspect.js','performance-sequences.js',
-      'performance-observation.js','performance-journal-context.js'].forEach(function(file){
+      'performance-observation.js','performance-journal-context.js','performance-v2.css'].forEach(function(file){
       v2Bootstrap=v2Bootstrap.then(function(){return loadAdvanced(file);});
     });
     v2Bootstrap=v2Bootstrap.then(function(){

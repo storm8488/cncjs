@@ -867,7 +867,8 @@
     // The cnc-job-status handler only stores the report, computes A and L and asks for a frame:
     // no drawing, no layout read, no search along the path there. Snapping, interpolation, the pass
     // and the camera follow are computed in the animation frame.
-    var STALE_MS = 2500, INTERPOLATE_MS = 1000;
+    var STALE_MS = 2500, INTERPOLATE_MS = 1000, ANCHOR_BLOCK = 256, ANCHOR_BUDGET = 4096;
+    var sequenceOwner = null, sequenceArrival = null;
     var live = { ackLine: -1, lastAckSegment: 0, pass: null, offset: null, offsetReason: 'no-offset', machine: null, simulation: false, receivedAt: -Infinity, fresh: false, alarm: false,
       report: null, previous: null, seq: 0, display: null, snapped: false, interpolating: false, staleTimer: null, reason: '' };
     var liveOn = gpuMode && (liveOptions.progress || liveOptions.tool), cumulative = null;
@@ -918,11 +919,13 @@
     function onStatus(e) {
       var d = e && e.detail || {}, m = d.machine;
       if (closed) return;
+      clearSequenceAnchor();
       if (!m) {
         if (v2) { live.fresh = false; live.previous = null; live.machine = null; stopReads(); if (live.staleTimer !== null) clearTimeout(live.staleTimer); live.staleTimer = null; invalidate(); }
         return;
       }
       var now = clock(), wasStale = isStale(now);
+      var sequencePacket = sequenceArrivalOf(d, m);
       live.machine = m; live.simulation = !!d.simulation; live.receivedAt = now; live.fresh = m.fresh === true;
       if (v2 && !live.simulation && !(typeof m.statusAgeMs === 'number' && isFinite(m.statusAgeMs) && m.statusAgeMs >= 0 && m.statusAgeMs <= STALE_MS)) live.fresh = false;
       // The whole program is read at rest only (Q7c): a read still in flight when a job starts is cancelled.
@@ -941,7 +944,9 @@
           if (r.point) {
             // Back from a stale state: no interpolation from the old position (a new start).
             live.previous = wasStale || !live.report ? null : live.report;
-            live.report = { t: now, p: r.point, seq: ++live.seq, age: typeof m.statusAgeMs === 'number' && isFinite(m.statusAgeMs) && m.statusAgeMs >= 0 ? m.statusAgeMs : 0, snap: undefined };
+            live.report = { t: now, p: r.point, seq: ++live.seq, age: typeof m.statusAgeMs === 'number' && isFinite(m.statusAgeMs) && m.statusAgeMs >= 0 ? m.statusAgeMs : 0, snap: undefined,
+              time: sequencePacket && sequencePacket.time, sequenceAge: sequencePacket && sequencePacket.age,
+              sequenceKey: sequencePacket && sequencePacket.geometryKey };
             live.reason = '';
           } else { live.report = null; live.previous = null; live.reason = r.reason; }
           var o = offsetOf(m, live.simulation);
@@ -1068,6 +1073,67 @@
       }
       return report.snap;
     }
+    function clearSequenceAnchor() {
+      if (sequenceOwner) { var owner = sequenceOwner; sequenceOwner = null; owner.update({}); }
+    }
+    function sequenceGeometryKey() {
+      var owner = v2 && v2.use('sequences'), model = owner && !owner.stub && typeof owner.snapshot === 'function' && owner.snapshot();
+      return model && model.available ? model.geometryKey : null;
+    }
+    function sequenceArrivalOf(detail, machine) {
+      if (!v2 || !v2.time) return null;
+      // observedAt identifies the received packet; local feedback can re-emit it.
+      // It is a civil timestamp, never subtracted from the monotone clock. Retain
+      // the FIRST arrival and server report age, independently of visual interpolation.
+      var observed = typeof detail.observedAt === 'number' && isFinite(detail.observedAt) ? detail.observedAt : null;
+      if (observed !== null && sequenceArrival && sequenceArrival.observedAt === observed) return sequenceArrival;
+      sequenceArrival = { observedAt: observed, time: v2.time.stamp(),
+        age: typeof machine.statusAgeMs === 'number' && isFinite(machine.statusAgeMs) && machine.statusAgeMs >= 0 ? machine.statusAgeMs : null,
+        geometryKey: sequenceGeometryKey() };
+      return sequenceArrival;
+    }
+    // The visual snap is deliberately unchanged (including its acknowledgement bound).
+    // A source-line attachment needs a separate uniqueness check over the WHOLE path:
+    // an overlapping later move cannot be ruled out by an acknowledgement or a hint.
+    // Block bounds are prepared at idle; a dense/budget-limited search stays unknown.
+    function uniqueReportedAnchor(report, snap) {
+      if (!snap || !passCache || !passCache.anchorBounds ||
+          (geometry !== 'full' && (meta.path3d.simplified !== false || meta.path3d.decimated !== false))) return null;
+      var line = path.lines[snap.seg], P = path.positions, B = passCache.anchorBounds, p = report.p;
+      if (!(line >= 1) || Math.floor(line) !== line) return null;
+      var tol = geometry === 'full' ? 0.1 : Math.max(2 * (meta.path3d.tolerance || 0), 0.1), tol2 = tol * tol, used = 0;
+      for (var block = 0; block < B.length / 6; block++) {
+        if (++used > ANCHOR_BUDGET) return null;
+        var offset = block * 6;
+        if (p[0] < B[offset] - tol || p[0] > B[offset + 3] + tol || p[1] < B[offset + 1] - tol ||
+            p[1] > B[offset + 4] + tol || p[2] < B[offset + 2] - tol || p[2] > B[offset + 5] + tol) continue;
+        var end = Math.min(path.count - 1, (block + 1) * ANCHOR_BLOCK);
+        for (var j = block * ANCHOR_BLOCK + 1; j <= end; j++) {
+          if (++used > ANCHOR_BUDGET) return null;
+          var ax = P[j * 3 - 3], ay = P[j * 3 - 2], az = P[j * 3 - 1], vx = P[j * 3] - ax, vy = P[j * 3 + 1] - ay, vz = P[j * 3 + 2] - az;
+          var length = vx * vx + vy * vy + vz * vz, k = length ? ((p[0] - ax) * vx + (p[1] - ay) * vy + (p[2] - az) * vz) / length : 0;
+          k = Math.max(0, Math.min(1, k));
+          var dx = ax + k * vx - p[0], dy = ay + k * vy - p[1], dz = az + k * vz - p[2];
+          if (dx * dx + dy * dy + dz * dz <= tol2 && path.lines[j] !== line) return null;
+        }
+      }
+      return { source: 'reported-position', sourceLine: line, ambiguous: false };
+    }
+    function publishSequenceAnchor(report, snap) {
+      if (!v2 || !v2.gate() || !v2.time || !options.loaded || live.simulation || doc.hidden || !report.time) return;
+      var owner = v2.use('sequences'), model = owner && !owner.stub && typeof owner.snapshot === 'function' && owner.snapshot();
+      if (!model || !model.available || !model.identity || !report.sequenceKey || model.geometryKey !== report.sequenceKey || typeof owner.update !== 'function') return;
+      var m = live.machine, identity = v2.identity.create({ role: 'loaded', file: m.name, fingerprint: m.fingerprint,
+        controller: m.port, generation: m.generation, revision: m.revision });
+      if (!identity.jobKey || identity.jobKey !== model.identity.jobKey ||
+          v2.time.freshness(report.time, report.sequenceAge) !== 'fresh') return;
+      if (report.anchorKey === model.geometryKey && sequenceOwner === owner) return;
+      var anchor = uniqueReportedAnchor(report, snap);
+      if (!anchor) return;
+      sequenceOwner = owner; report.anchorKey = model.geometryKey;
+      owner.update({ identity: identity, geometryKey: model.geometryKey, anchor: anchor, time: report.time,
+        reportAgeMs: report.sequenceAge, units: 'mm', wcs: 'G54' });
+    }
     // The current pass: work segments around the snapped one, bounded by rapids and by L.
     function passOf(seg, limit) {
       if (v2) return passCache && seg > 0 && seg <= limit && !path.rapid[seg] ? [passCache.start[seg], Math.min(passCache.end[seg], limit)] : null;
@@ -1092,7 +1158,7 @@
     // Called at the start of each frame: snapping, interpolation, pass, follow.
     function beforePaint() {
       live.interpolating = false; live.snapped = false; live.pass = null; live.display = null;
-      if (!liveOn || !liveOptions.tool || !live.report) return;
+      if (!liveOn || !liveOptions.tool || !live.report) { clearSequenceAnchor(); return; }
       var now = clock(), R = live.report, stale = isStale(now), L = live.lastAckSegment;
       // Snapped and interpolated only while a job runs, with fresh reports of this program and known progress.
       var canSnap = !stale && !live.alarm && running() && liveOptions.progress && live.ackLine >= 0 && sameProgram(live.machine) && L >= 1 && (!v2 || !!passCache);
@@ -1102,6 +1168,7 @@
         if (S) {
           live.snapped = true;
           live.pass = passOf(S.seg, L);
+          publishSequenceAnchor(R, S);
           if (PS && PS.s <= S.s && R.t - prev.t > 0 && R.t - prev.t <= INTERPOLATE_MS) {
             var alpha = Math.max(0, Math.min(1, (now - R.t) / (R.t - prev.t)));
             live.display = pointAt(PS.s + alpha * (S.s - PS.s), L);
@@ -1109,6 +1176,7 @@
           }
         }
       }
+      if (!live.snapped) clearSequenceAnchor();
       // « Suivre l’outil »: the camera keeps the marker in the middle; stopped while stale or in alarm.
       if (followOn && !stale && !live.alarm && cam) {
         var b = basis(cam.yaw, cam.pitch), q = [live.display[0] - centre[0], live.display[1] - centre[1], (live.display[2] - centre[2]) * zs];
@@ -1161,7 +1229,8 @@
       stopPassPreparation(); passCache = null; cumulative = null;
       if (!v2 || !gpuPath || !v2.gate() || !v2.state().safeIdle || doc.hidden) return;
       var n = path.count, epoch = passEpoch, i = 1, back = false, first = 1, last = n - 1, visible = -1;
-      var cache = preparingPasses = { start: new Uint32Array(n), end: new Uint32Array(n), next: new Int32Array(n), previous: new Int32Array(n), lengths: new Float64Array(n) };
+      var cache = preparingPasses = { start: new Uint32Array(n), end: new Uint32Array(n), next: new Int32Array(n), previous: new Int32Array(n), lengths: new Float64Array(n),
+        anchorBounds: new Float64Array(Math.ceil(Math.max(0, n - 1) / ANCHOR_BLOCK) * 6) };
       function schedule() {
         idlePassKind = typeof win.requestIdleCallback === 'function' ? 'idle' : 'timer';
         idlePass = idlePassKind === 'idle' ? win.requestIdleCallback(slice, { timeout: 250 }) : win.setTimeout(slice, 0);
@@ -1176,6 +1245,12 @@
             if (R[i] || (i > 1 && R[i - 1])) first = i;
             cache.start[i] = first;
             if (F[i] >= 0) visible = i; cache.previous[i] = visible;
+            var b = Math.floor((i - 1) / ANCHOR_BLOCK) * 6, B = cache.anchorBounds;
+            for (var axis = 0; axis < 3; axis++) {
+              var a = P[i * 3 - 3 + axis], z = P[i * 3 + axis], low = Math.min(a, z), high = Math.max(a, z);
+              B[b + axis] = (i - 1) % ANCHOR_BLOCK === 0 ? low : Math.min(B[b + axis], low);
+              B[b + 3 + axis] = (i - 1) % ANCHOR_BLOCK === 0 ? high : Math.max(B[b + 3 + axis], high);
+            }
             var dx = P[i * 3] - P[i * 3 - 3], dy = P[i * 3 + 1] - P[i * 3 - 2], dz = P[i * 3 + 2] - P[i * 3 - 1];
             cache.lengths[i] = cache.lengths[i - 1] + Math.sqrt(dx * dx + dy * dy + dz * dz); i++;
           } else {
@@ -1264,6 +1339,7 @@
 
     function close(reason) {
       if (closed) return; closed = true;
+      clearSequenceAnchor(); sequenceArrival = null;
       stopPassPreparation(); passCache = null; finishDiagnostic(true);
       if (v2) fullDrop();
       if (inspector && inspector.detach) inspector.detach(reason || 'close'); inspector = null; selection = pickResult = null;
