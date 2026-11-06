@@ -41,7 +41,7 @@ function l6Page(o={}){
   const storage={values:new Map(),getItem(k){return this.values.has(k)?this.values.get(k):null;},setItem(k,v){this.values.set(k,v);}};
   window.localStorage=storage;
   const context=vm.createContext({window,document:dom.document,localStorage:storage,CustomEvent,Event:class{constructor(t){this.type=t;}},
-    Promise,console,Blob:class{constructor(p,x){this.text=p.join('');this.type=x&&x.type;}},Date,JSON,Math,Object,Array,String,Number,isFinite,Proxy});
+    XMLHttpRequest:window.XMLHttpRequest,Promise,console,Blob:class{constructor(p,x){this.text=p.join('');this.type=x&&x.type;}},Date,JSON,Math,Object,Array,String,Number,isFinite,Proxy});
   const run=f=>vm.runInContext(read(f),context,{filename:f});
   const emit=(type,detail)=>window.dispatchEvent(new CustomEvent(type,{detail}));
   function frame(){for(let i=0;i<5&&frames.size;i++){const batch=[...frames.values()];frames.clear();batch.forEach(f=>f(mono));}}

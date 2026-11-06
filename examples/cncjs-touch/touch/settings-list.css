@@ -140,3 +140,36 @@ body.perf-v2 #screen-settings .ks-v2-quality .ks-diagnostic-list{display:grid;gr
 body.perf-v2 #screen-settings .ks-v2-quality .ks-diagnostic-list dt{color:var(--mute)}
 body.perf-v2 #screen-settings .ks-v2-quality .ks-diagnostic-list dd{margin:0;font-variant-numeric:tabular-nums}
 body.perf-v2 #screen-settings .ks-v2-quality .ks-v2-status{font-size:16px}
+/* Journal (real-history.js): wide chronological list, touch filters, detail on the right. The v1
+ * list and filters give way to it once the presenter is drawn; export stays in the header. */
+body.perf-v2 #screen-history[data-v2-presenter=on]>.ks-history-card,body.perf-v2 #screen-history[data-v2-presenter=on] .ks-history-filters{display:none!important}
+body.perf-v2 #perf-v2-history{display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;gap:12px;min-height:0}
+body.perf-v2 #perf-v2-history[hidden]{display:none}
+body.perf-v2 #perf-v2-history .v2j-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px}
+body.perf-v2 #perf-v2-history .v2j-titles{flex:1 1 320px;min-width:0}
+body.perf-v2 #perf-v2-history .v2j-titles h2{margin:0;font-size:22px}
+body.perf-v2 #perf-v2-history .v2j-context{margin:4px 0 0;font-size:16px;color:var(--mute);overflow-wrap:anywhere}
+body.perf-v2 #perf-v2-history .v2j-head button,body.perf-v2 #perf-v2-history .v2j-filters button,body.perf-v2 #perf-v2-history .v2j-pages button{min-height:56px;font-size:18px}
+body.perf-v2 #perf-v2-history .v2j-filters{display:flex;gap:8px}
+body.perf-v2 #perf-v2-history .v2j-filters button{flex:1 1 0;min-width:120px}
+body.perf-v2 #perf-v2-history .v2j-body{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,1fr);gap:16px;min-height:0}
+body.perf-v2 #perf-v2-history .v2j-list{display:flex;flex-direction:column;gap:6px;min-height:0;overflow:auto;margin:0;padding:0;list-style:none}
+body.perf-v2 #perf-v2-history .v2j-list>li{display:block;min-height:0;padding:0;border-left-width:6px}
+body.perf-v2 #perf-v2-history .v2j-row{display:grid;grid-template-columns:96px minmax(0,1fr) auto;align-items:center;gap:12px;width:100%;min-height:56px;padding:6px 12px;font-size:17px;text-align:left;background:transparent;border:0}
+body.perf-v2 #perf-v2-history .v2j-row[aria-pressed=true]{outline:3px solid var(--accent);outline-offset:-3px}
+body.perf-v2 #perf-v2-history .v2j-time{font-variant-numeric:tabular-nums;color:var(--mute)}
+body.perf-v2 #perf-v2-history .v2j-message{overflow-wrap:anywhere}
+body.perf-v2 #perf-v2-history .v2j-badge{padding:4px 10px;border-radius:999px;background:var(--surface-2);font-size:16px;font-weight:600}
+body.perf-v2 #perf-v2-history li[data-category=command][data-state=refused] .v2j-badge{color:var(--danger)}
+body.perf-v2 #perf-v2-history li[data-category=command][data-state=uncertain] .v2j-badge{color:var(--warn)}
+body.perf-v2 #perf-v2-history li[data-category=command][data-state=confirmed] .v2j-badge{color:var(--ok-text)}
+body.perf-v2 #perf-v2-history li[data-category=command]{border-left-color:var(--accent)}
+body.perf-v2 #perf-v2-history .v2j-empty{padding:16px;font-size:18px;color:var(--mute)}
+body.perf-v2 #perf-v2-history .v2j-detail{min-height:0;overflow:auto;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-size:17px}
+body.perf-v2 #perf-v2-history .v2j-detail dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 14px;margin:0}
+body.perf-v2 #perf-v2-history .v2j-detail dt{color:var(--mute)}
+body.perf-v2 #perf-v2-history .v2j-detail dd{margin:0;overflow-wrap:anywhere}
+body.perf-v2 #perf-v2-history .v2j-note,body.perf-v2 #perf-v2-history .v2j-readonly,body.perf-v2 #perf-v2-history .v2j-hint{margin:12px 0 0;font-size:16px}
+body.perf-v2 #perf-v2-history .v2j-readonly{color:var(--mute)}
+body.perf-v2 #perf-v2-history .v2j-pages{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:16px}
+body.perf-v2 #perf-v2-history .v2j-pages[hidden],body.perf-v2 #perf-v2-history [hidden]{display:none}
