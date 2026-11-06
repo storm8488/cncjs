@@ -19,3 +19,67 @@ body.perf-origin #op-card .op-sw-ghost{background:#87969f}
 body.perf-origin #op-card .op-sw-placed{background:#7cbcff}
 body.perf-origin #op-card .op-sw-travel{height:2px;background:#aab8c1}
 body.perf-origin #op-card [hidden]{display:none}
+/* Performance v2 · Préparer (lot L5; REFLEXION.md §5 « Préparer »). Like the rules above, every selector
+ * starts with body.perf-origin; the v2 scope is #screen-jog[data-pv2], an attribute set only by the v2
+ * presenter of job-preparation.js while body.perf-v2 holds and removed otherwise: nothing applies in v1,
+ * on the RT or once the card is unmounted. Placement rules tie with responsive.css (same specificity
+ * through .screen) and win by order: this sheet is linked at mount, after the page's static sheets.
+ * The scene (#op-card) keeps the same cell in both modes, so opening or closing the jog zone neither
+ * moves nor refits it. « compare »: bar / scene / dimensions on the left; summary, then the coordinates
+ * card (zero buttons and their confirmation unchanged) on the right. « jog »: the jog head and the
+ * existing jog card (96 px targets) replace the summary, 24 px (column gap) from the scene. */
+body.perf-origin #screen-jog.screen[data-pv2].active,body.perf-origin #screen-jog.screen[data-pv2].kept{grid-template-columns:minmax(0,1fr) clamp(440px,34vw,520px);grid-template-rows:auto auto minmax(0,1fr) auto auto;column-gap:24px;row-gap:var(--sp-3);grid-template-areas:"intro intro" "bar side" "origin side" "origin coords" "cotes coords"}
+body.perf-origin #screen-jog.screen[data-pv2="jog"].active,body.perf-origin #screen-jog.screen[data-pv2="jog"].kept{grid-template-areas:"intro intro" "bar jhead" "origin jog" "origin coords" "cotes coords"}
+body.perf-origin #screen-jog.screen[data-pv2] #perf-v2-prepare{display:contents}
+body.perf-origin #screen-jog.screen[data-pv2] .ks-panel-intro{grid-area:intro}
+body.perf-origin #screen-jog.screen[data-pv2] #op-card{grid-area:origin;min-height:0}
+body.perf-origin #screen-jog.screen[data-pv2] .ks-motion-coordinates{grid-area:coords;height:auto;min-height:0}
+body.perf-origin #screen-jog.screen[data-pv2] .pv2-bar{grid-area:bar}
+body.perf-origin #screen-jog.screen[data-pv2] .pv2-cotes{grid-area:cotes}
+body.perf-origin #screen-jog.screen[data-pv2] .pv2-summary{grid-area:side;min-height:0}
+body.perf-origin #screen-jog.screen[data-pv2] .pv2-jog-head{grid-area:jhead}
+body.perf-origin #screen-jog.screen[data-pv2="compare"] .ks-motion-arrows{display:none}
+body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-arrows{grid-area:jog;height:auto;min-height:0;overflow:auto;display:grid;grid-template-columns:auto auto;gap:var(--sp-6);justify-content:center;align-content:center;align-items:center}
+body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-arrows .jog{min-width:var(--tap-jog);min-height:var(--tap-jog)}
+body.perf-origin #screen-jog.screen[data-pv2] [hidden]{display:none!important}
+/* Comparison bar: three exclusive choices (aria-pressed) and the dimensions toggle, 48 px targets. */
+body.perf-origin #screen-jog[data-pv2] .pv2-bar{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;min-width:0}
+body.perf-origin #screen-jog[data-pv2] .pv2-bar-title{margin-right:auto;font:600 var(--fs-18)/1.2 var(--font);color:var(--fg)}
+body.perf-origin #screen-jog[data-pv2] .pv2-bar button,body.perf-origin #screen-jog[data-pv2] .pv2-jog-head button{min-height:var(--tap);padding:0 var(--sp-3);font:600 var(--fs-16)/1 var(--font);color:var(--fg);background:transparent;border:1px solid var(--line-strong);border-radius:var(--r-m)}
+body.perf-origin #screen-jog[data-pv2] .pv2-bar button[aria-pressed="true"]{background:var(--info-soft);border-color:var(--info);color:var(--info-text);box-shadow:inset 0 -4px 0 var(--info)}
+body.perf-origin #screen-jog[data-pv2] .pv2-bar .pv2-cotes-toggle{margin-left:var(--sp-3)}
+/* Dimensions: one row of at most four, each with its source; hidden without moving the scene. */
+body.perf-origin #screen-jog[data-pv2] .pv2-cotes{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--sp-2);margin:0;padding:0;list-style:none;min-width:0}
+body.perf-origin #screen-jog[data-pv2] .pv2-cotes[data-visible="false"]{visibility:hidden}
+body.perf-origin #screen-jog[data-pv2] .pv2-cotes li{display:flex;flex-direction:column;gap:2px;min-width:0;padding:var(--sp-2) var(--sp-3);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m)}
+body.perf-origin #screen-jog[data-pv2] .pv2-cotes .pv2-cote-empty{grid-column:1/-1;color:var(--mute);font-size:var(--fs-16)}
+body.perf-origin #screen-jog[data-pv2] .pv2-cote-label{font:600 var(--fs-16)/1.2 var(--font);color:var(--mute)}
+body.perf-origin #screen-jog[data-pv2] .pv2-cote-value{font:600 var(--fs-20)/1.2 var(--font-num);font-variant-numeric:tabular-nums;color:var(--fg);white-space:nowrap}
+body.perf-origin #screen-jog[data-pv2] .pv2-cote-source{font-size:var(--fs-16);color:var(--mute);overflow-wrap:anywhere}
+/* Summary: program, X Y origin and its offsets, Z unchanged, qualified travel, « Déplacer l'outil… ». */
+body.perf-origin #screen-jog[data-pv2] .pv2-summary{display:flex;flex-direction:column;gap:var(--sp-2);overflow:auto}
+body.perf-origin #screen-jog[data-pv2] .pv2-program,body.perf-origin #screen-jog[data-pv2] .pv2-origin,body.perf-origin #screen-jog[data-pv2] .pv2-jog-head{display:flex;flex-direction:column;gap:var(--sp-1);padding:var(--sp-3) var(--sp-4);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m)}
+body.perf-origin #screen-jog[data-pv2] .pv2-eyebrow{font:600 var(--fs-16)/1 var(--font);color:var(--mute);letter-spacing:.06em;text-transform:uppercase}
+body.perf-origin #screen-jog[data-pv2] .pv2-program-name{font:600 var(--fs-20)/1.2 var(--font);color:var(--fg);overflow-wrap:anywhere}
+body.perf-origin #screen-jog[data-pv2] .pv2-sub,body.perf-origin #screen-jog[data-pv2] .pv2-hypothesis,body.perf-origin #screen-jog[data-pv2] .pv2-only,body.perf-origin #screen-jog[data-pv2] .pv2-jog-head p{margin:0;font-size:var(--fs-16);color:var(--mute)}
+body.perf-origin #screen-jog[data-pv2] .pv2-origin-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-3)}
+body.perf-origin #screen-jog[data-pv2] .pv2-origin h3,body.perf-origin #screen-jog[data-pv2] .pv2-jog-head h3{margin:0;font:600 var(--fs-20)/1.2 var(--font);color:var(--fg)}
+body.perf-origin #screen-jog[data-pv2] .pv2-state{font:600 var(--fs-16)/1 var(--font);color:var(--info-text)}
+body.perf-origin #screen-jog[data-pv2] .pv2-state[data-tone="neutral"]{color:var(--mute)}
+body.perf-origin #screen-jog[data-pv2] .pv2-offsets{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-2)}
+body.perf-origin #screen-jog[data-pv2] .pv2-offset{display:flex;flex-direction:column;gap:2px;padding:var(--sp-2) var(--sp-3);background:var(--surface-2);border-radius:var(--r-m)}
+body.perf-origin #screen-jog[data-pv2] .pv2-offset span{font-size:var(--fs-16);color:var(--mute)}
+body.perf-origin #screen-jog[data-pv2] .pv2-offset strong{font:600 var(--fs-24)/1.1 var(--font-num);font-variant-numeric:tabular-nums;color:var(--fg);white-space:nowrap}
+body.perf-origin #screen-jog[data-pv2] .pv2-z{margin:0;font-size:var(--fs-16);color:var(--info-text)}
+/* Travel: the colour is always doubled by words (title and qualification). */
+body.perf-origin #screen-jog[data-pv2] .pv2-travel{display:flex;flex-direction:column;gap:2px;padding:var(--sp-2) var(--sp-3);border-left:6px solid var(--faint);border-radius:var(--r-m);background:var(--surface-2)}
+body.perf-origin #screen-jog[data-pv2] .pv2-travel b{font:600 var(--fs-18)/1.2 var(--font);color:var(--fg)}
+body.perf-origin #screen-jog[data-pv2] .pv2-travel p{margin:0;font-size:var(--fs-16);color:var(--fg)}
+body.perf-origin #screen-jog[data-pv2] .pv2-travel[data-tone="ok"]{border-left-color:var(--ok);background:var(--ok-soft)}
+body.perf-origin #screen-jog[data-pv2] .pv2-travel[data-tone="warn"]{border-left-color:var(--warn);background:var(--warn-soft)}
+body.perf-origin #screen-jog[data-pv2] .pv2-travel[data-tone="warn"] b{color:var(--warn-text)}
+body.perf-origin #screen-jog[data-pv2] .pv2-travel[data-tone="danger"]{border-left-color:var(--danger);background:var(--danger-soft)}
+body.perf-origin #screen-jog[data-pv2] .pv2-margins{font-variant-numeric:tabular-nums}
+body.perf-origin #screen-jog[data-pv2] .pv2-jog-open{flex:none;min-height:var(--tap-primary);margin-top:auto;font:600 var(--fs-20)/1 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m)}
+body.perf-origin #screen-jog[data-pv2] .pv2-jog-head{flex-direction:row;align-items:center;justify-content:space-between;gap:var(--sp-3)}
+body.perf-origin #screen-jog[data-pv2] .pv2-jog-head>div{display:flex;flex-direction:column;gap:2px;min-width:0}

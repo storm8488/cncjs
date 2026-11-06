@@ -440,6 +440,15 @@
       ['x', 'y', 'z'].forEach(function (a) { out[a] = typeof s[a] === 'number' && isFinite(s[a]) && s[a] > 0 ? s[a] : null; });
       return out.x && out.y ? out : null;
     },
+    // For the Performance v2 comparisons (Fichiers, Préparer): what the selected file's sheet declares,
+    // with the fingerprint of the file it was read for. A sheet of another version declares nothing.
+    // Declarations only: never a measurement, never a check of the real set-up.
+    declared: function (file) {
+      if (!current || !file || current.file !== file || file !== selected) return null;
+      var e = current.version === 'current' && current.entry || null;
+      return { file: current.file, fingerprint: typeof current.fingerprint === 'string' && current.fingerprint ? current.fingerprint : null, version: current.version,
+        material: e && e.material || null, tool: e && e.tool || null, stock: e ? this.stock(file) : null };
+    },
     refresh: refreshIndex,
     reload: function () { return load(selected); }
   };
