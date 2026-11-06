@@ -57,7 +57,7 @@ assert.equal(r.reloads, 0);
 const before = r.storage.cnc;
 const every = r.timers.find((t) => t.ms === 12 * 3600 * 1000);
 assert(every, 'renewed every 12 hours');
-every.fn();
+r.advance(12 * 3600 * 1000); every.fn();
 r.requests[1].answer(200, { enabled: true, token: 'new', name: 'ana' });
 assert.equal(r.storage.cnc, before);
 

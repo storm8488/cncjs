@@ -23,7 +23,7 @@ function run({ stored, renewedAgo, compact } = {}) {
   const io = { connect(origin, options) { sockets++; return { options, on() {}, emit() {} }; } };
   let state = { apiBase: '/api', transportConnected: false, transportReason: '', machine: null }, subscribers = [];
   const store = { get: () => state, set(p) { state = Object.assign({}, state, p); subscribers.forEach((f) => f(state)); }, subscribe(f) { subscriptions++; subscribers.push(f); f(state); return () => {}; } };
-  const clock = { mono: 0 };
+  const clock = { mono: 0 }, timers = [];
   const window = { performance: { now: () => clock.mono }, addEventListener(n, f) { (listeners[n] || (listeners[n] = [])).push(f); }, removeEventListener() {},
     dispatchEvent(e) { (listeners[e.type] || []).slice().forEach((f) => f(e)); } };
   if (compact) { window.cncState = store; window.CNCJobStream = {}; }
@@ -32,10 +32,10 @@ function run({ stored, renewedAgo, compact } = {}) {
     localStorage: { getItem: (k) => (k in storage ? storage[k] : null), setItem: (k, v) => { storage[k] = String(v); } },
     sessionStorage: { getItem: (k) => (k in session ? session[k] : null), setItem: (k, v) => { session[k] = String(v); } },
     location: { origin: 'http://localhost:8000', reload: () => { reloads++; } },
-    setInterval: () => 0, setTimeout: () => 0, clearTimeout() {}, clearInterval() {}, requestAnimationFrame: () => 0, Date
+    setInterval: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, setTimeout: () => 0, clearTimeout() {}, clearInterval() {}, requestAnimationFrame: () => 0, Date
   };
   vm.runInNewContext(source, context);
-  return { storage, requests, window, store, node, listeners, advance(ms) { clock.mono += ms; },
+  return { storage, requests, window, store, node, listeners, timers, advance(ms) { clock.mono += ms; },
     get reloads() { return reloads; }, get sockets() { return sockets; }, get subscriptions() { return subscriptions; },
     token: () => JSON.parse(storage.cnc).state.session.token, last: () => requests[requests.length - 1] };
 }
@@ -57,11 +57,13 @@ assert.equal(r.reloads, 0);
 // answer must still let the page start, with the stored session.
 r = run({ compact: true });
 assert.equal(r.subscriptions, 0);
+let rechecks = 0; r.window.addEventListener('cnc-session-renewed', () => rechecks++);
 r.storage.cnc = JSON.stringify({ state: { session: { enabled: true, token: 'B-token', name: 'Bob' } } });
 r.requests[0].answer(200, { enabled: false, token: 'A-fresh', name: '' });
 assert.equal(r.token(), 'B-token');
 assert.equal(r.subscriptions, 1, 'D-7: the page starts with the stored session');
 assert.ok(r.window.cncConnection, 'D-7: connection set up');
+assert.equal(rechecks, 1, 'D-7: the stream rechecks the stored session at once');
 assert.notEqual(r.node('st-server').textContent, 'Serveur : authentification requise');
 assert.equal(r.reloads, 0);
 
@@ -127,4 +129,26 @@ assert.equal(r.requests.length, n);
 r.advance(60000);
 r.window.dispatchEvent({ type: 'cnc-session-refused' });
 assert.equal(r.requests.length, n + 1);
+
+// Every renewal goes through the same guard: the 12 h timer included.
+r = run({ stored: { state: { session: { enabled: false, token: 'old', name: '' } } }, compact: true });
+r.requests[0].answer(200, { enabled: false, token: 'new', name: '' });
+const twelve = r.timers.find((t) => t.ms === 12 * 3600 * 1000);
+r.advance(60000);
+r.window.dispatchEvent({ type: 'cnc-session-refused' });
+assert.equal(r.requests.length, 2);
+r.advance(100); twelve.fn();
+assert.equal(r.requests.length, 2, 'the 12 h timer does not send a second /signin at the same time');
+r.last().answer(200, { enabled: false, token: 'newer', name: '' });
+r.advance(60000); twelve.fn();
+assert.equal(r.requests.length, 3, 'the 12 h renewal still runs once the minute has passed');
+// The /signin request has a timeout, and a lost answer always releases the guard.
+for (const end of ['ontimeout', 'onerror', 'onabort']) {
+  r = run({ stored: { state: { session: { enabled: true, token: 'expired', name: 'ana' } } }, compact: true });
+  assert.ok(r.requests[0].timeout > 0 && r.requests[0].timeout <= 15000, 'timeout set');
+  r.requests[0][end]();
+  r.advance(60000);
+  r.window.dispatchEvent({ type: 'cnc-session-refused' });
+  assert.equal(r.requests.length, 2, end + ': the next refusal a minute later renews again');
+}
 console.log('PASS');
