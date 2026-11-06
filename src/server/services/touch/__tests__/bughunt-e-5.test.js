@@ -69,7 +69,9 @@ test('E-5 : flux fermé pendant prepare(start) → aucune confirmation en attent
     const pending = service.action({ port: 'TEST', generation, transportId: 't1', action: 'prepare', operation: 'start', revision });
     // Le flux t1 se ferme (rotation, coupure) avant la fin de la lecture du fichier.
     service.closeTransport('t1');
-    await pending;
+    // Correction retenue (FINDINGS.md) : la confirmation est refusée, pas posée
+    // sur un flux mort (avant : la demande aboutissait et le ticket vivait 15 s).
+    await expect(pending).rejects.toThrow(/Connexion de suivi interrompue/);
     expect(service.ticketPending('t1')).toBe(false);
     const state = service.list()[0];
     expect(state.canPreviewMotion).toBe(true);
