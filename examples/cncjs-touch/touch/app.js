@@ -79,10 +79,20 @@
   function elapsed() { var p = window.performance; return p && typeof p.now === 'function' ? p.now() : Date.now(); }
   // One renewal attempt a minute at most, for the whole page (load, refused socket, refused
   // requests): with CNCjs users and an expired session, every refusal would otherwise ask again.
+  // The time of the last attempt is also kept for the tab (sessionStorage), so the page that a
+  // renewal reloads does not ask again at once. Returns the milliseconds left to wait (0: sent).
+  function wait() {
+    var now = elapsed(), left = lastRenewal !== null && now - lastRenewal >= 0 && now - lastRenewal < 60000 ? 60000 - (now - lastRenewal) : 0;
+    var last = 0; try { last = Number(sessionStorage.getItem('cnc-touch-signin')) || 0; } catch (_) {}
+    if (last && Date.now() - last >= 0 && Date.now() - last < 60000) left = Math.max(left, 60000 - (Date.now() - last));
+    return left;
+  }
   function renew(done) {
-    var now = elapsed();
-    if (renewing || (lastRenewal !== null && now - lastRenewal >= 0 && now - lastRenewal < 60000)) return;
-    renewing = true; lastRenewal = now;
+    var left = wait();
+    if (renewing) return 0;
+    if (left > 0) return left;
+    renewing = true; lastRenewal = elapsed();
+    try { sessionStorage.setItem('cnc-touch-signin', String(Date.now())); } catch (_) {}
     renewSession(function () { renewing = false; if (done) done(); }, function (users) {
       renewing = false;
       // Another tab stored a session meanwhile (D-7), or none was needed: a page still waiting for
@@ -95,8 +105,15 @@
       sessionNotice = uiLocale.t('Session CNCjs refusée : ouvrez CNCjs à la racine du même serveur, reconnectez-vous, puis rechargez /touch/.');
       notice(sessionNotice);
     });
+    return 0;
   }
-  renew(token ? null : function () { if (!reloadOnce() && !started) { token = storedToken(); init(); } });
+  // A page with a token simply waits for the next renewal; one without a token (reloaded within the
+  // minute after an attempt) tries again once the minute has passed.
+  function first() {
+    var left = renew(token ? null : function () { if (!reloadOnce() && !started) { token = storedToken(); init(); } });
+    if (left > 0 && !token) setTimeout(first, left);
+  }
+  first();
   setInterval(function () { renew(null); }, 12 * 3600 * 1000);
 
   // A request refused for its session (job-stream.js, job-controls.js: HTTP 401, or 403 without a

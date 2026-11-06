@@ -15,7 +15,8 @@ function run({ stored, socketError } = {}) {
     answer(status, data) { this.status = status; this.responseText = JSON.stringify(data); this.onload(); }
   }
   const io = { connect() { socket = { handlers: {}, on(n, f) { this.handlers[n] = f; }, emit() {} }; return socket; } };
-  const clock = { mono: 0 };
+  const clock = { mono: 0, wall: 1.7e12 };
+  class FakeDate extends Date { static now() { return clock.wall; } }
   const window = { performance: { now: () => clock.mono }, addEventListener() {}, removeEventListener() {} };
   const context = {
     window, document, io, XMLHttpRequest, console,
@@ -24,10 +25,10 @@ function run({ stored, socketError } = {}) {
     location: { origin: 'http://localhost:8000', reload: () => { reloads++; } },
     setInterval: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     setTimeout: () => 0, clearTimeout() {}, clearInterval() {},
-    requestAnimationFrame: () => 0, Date
+    requestAnimationFrame: () => 0, Date: FakeDate
   };
   try { vm.runInNewContext(source, context); } catch (e) { if (!socketError) throw e; }
-  return { storage, requests, timers, advance(ms) { clock.mono += ms; }, get reloads() { return reloads; }, get socket() { return socket; }, token: () => JSON.parse(storage.cnc).state.session.token };
+  return { storage, requests, timers, advance(ms) { clock.mono += ms; clock.wall += ms; }, get reloads() { return reloads; }, get socket() { return socket; }, token: () => JSON.parse(storage.cnc).state.session.token };
 }
 
 // No session yet (fresh kiosk): asks for one, stores it, reloads once to connect with it.
@@ -72,10 +73,16 @@ assert(r.socket, 'socket opened with the stored token');
   r.socket.handlers.error({ message: 'jwt expired', code: 'invalid_token', type: 'UnauthorizedError' });
   r.requests[r.requests.length - 1].answer(200, { enabled: false, token: 'newer', name: '' });
   assert.equal(r.reloads, 1);
-  r.advance(60000);
+  // Renewals (hence reloads) are a minute apart at least: none 30 s later, one after the minute.
+  r.advance(30000);
+  const asked = r.requests.length;
+  r.socket.handlers.error({ message: 'jwt expired' });
+  assert.equal(r.requests.length, asked, 'no renewal 30 s later');
+  assert.equal(r.reloads, 1, 'at most one reload a minute');
+  r.advance(30000);
   r.socket.handlers.error({ message: 'jwt expired' });
   r.requests[r.requests.length - 1].answer(200, { enabled: false, token: 'newest', name: '' });
-  assert.equal(r.reloads, 1, 'at most one reload a minute');
+  assert.equal(r.reloads, 2, 'a minute later, renewed and reloaded again');
   // Other connection errors do not touch the session.
   const n = r.requests.length;
   r.advance(60000);
