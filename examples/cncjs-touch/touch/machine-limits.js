@@ -131,12 +131,20 @@
   };
   function vt(s){var l=uiLocale.language,row=TEXT[s];return row&&l==='en'?row[0]:row&&l==='es'?row[1]:s;}
   var AXES=['X','Y','Z'],ROWS=[[110,'Vitesse maximale','mm/min'],[120,'Accélération','mm/s²'],[130,'Course maximale','mm']],FLAGS=[[20,'Limites logicielles'],[21,'Fins de course'],[22,'Référencement']];
-  var v2={registered:false,disposed:false,frame:0,timer:0,detail:null,nodes:null,shown:''};
+  var v2={registered:false,disposed:false,retire:false,ended:false,frame:0,timer:0,detail:null,nodes:null,shown:'',
+    screen:window.cncShell&&typeof window.cncShell.screen==='function'?window.cncShell.screen():null};
   function api(){var a=window.cncV2;return a&&typeof a.gate==='function'&&typeof a.state==='function'?a:null;}
   function layout(){return !!(document.body.classList&&document.body.classList.contains('perf-v2'));}
-  function visible(){var s=document.getElementById('screen-machine');return !document.hidden&&!!s&&s.classList.contains('active');}
+  // The screen the shell announced last (cnc-screen-change), the document and the page lifetime.
+  function visible(){return !v2.ended&&!document.hidden&&v2.screen==='machine';}
   function finite(n){return typeof n==='number'&&isFinite(n);}
-  function queue(){if(!v2.registered||v2.disposed||v2.frame||!window.requestAnimationFrame)return;v2.frame=window.requestAnimationFrame(render);}
+  // No frame is requested while Machine is inactive, hidden or after pagehide: the latest report
+  // (or the pending release notice) is simply drawn once on the next show.
+  function queue(){
+    if(!v2.registered||v2.ended||v2.frame||!window.requestAnimationFrame||!visible()||(v2.disposed&&!v2.retire))return;
+    v2.frame=window.requestAnimationFrame(frame);
+  }
+  function frame(){v2.frame=0;if(!v2.disposed){render();return;}if(v2.retire&&visible()){v2.retire=false;retire();}}
   function clearTimer(){if(v2.timer&&window.clearTimeout)window.clearTimeout(v2.timer);v2.timer=0;}
   function el(tag,cls,value){var n=document.createElement(tag);if(cls)n.className=cls;if(value!==undefined)n.textContent=value;return n;}
   function number(raw){var n=(typeof raw==='number'||typeof raw==='string'&&raw.trim()!=='')?Number(raw):NaN;return isFinite(n)?n:null;}
@@ -212,7 +220,6 @@
     if(mount&&mount.root&&mount.root.getAttribute('data-v2-presenter')==='on')mount.root.setAttribute('data-v2-presenter','off');
   }
   function render(){
-    v2.frame=0;
     var a=api(),mounts=a&&a.mounts,mount=mounts&&mounts.get('machine');
     if(v2.disposed||!a||!a.gate()||!layout()||!mount||!mount.content||!visible())return;
     var n=v2.nodes||(v2.nodes=build(mount.content));
@@ -231,11 +238,12 @@
       var snap={version:1,available:true,screen:'machine',model:null};
       a.register('machine',{snapshot:function(){return snap;},update:function(){return snap;},cancel:function(){},
         dispose:function(){v2.disposed=true;clearTimer();if(v2.frame&&window.cancelAnimationFrame)window.cancelAnimationFrame(v2.frame);v2.frame=0;
-          if(v2.nodes&&window.requestAnimationFrame)window.requestAnimationFrame(retire);}});
+          v2.retire=!!v2.nodes;queue();}});
     }
     queue();
   });
   window.addEventListener('cnc-job-status',function(e){var d=e&&e.detail;if(!d||d.simulation)return;v2.detail=d;queue();});
-  window.addEventListener('cnc-screen-change',function(e){if(e&&e.detail==='machine')queue();else clearTimer();});
+  window.addEventListener('cnc-screen-change',function(e){v2.screen=e?e.detail:null;if(v2.screen==='machine')queue();else clearTimer();});
   document.addEventListener('visibilitychange',function(){if(document.hidden)clearTimer();else queue();});
+  window.addEventListener('pagehide',function(){v2.ended=true;clearTimer();if(v2.frame&&window.cancelAnimationFrame)window.cancelAnimationFrame(v2.frame);v2.frame=0;});
 })();
