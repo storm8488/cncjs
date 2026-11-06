@@ -18,11 +18,14 @@ body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"]{grid-te
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-left{gap:var(--sp-2)}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-left>*{flex-shrink:0}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-left>.job-art{flex:1 1 0;min-height:240px}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .tool-position-note{margin:0}
+/* D1 (REFLEXION § 3.10) : chaque case de la scène et de la colonne garde son rectangle dans tous les états
+   (repos, travail, pause, alarme, périmé, perdu, Éco en travail). Hauteurs fixes ; ce qui va et vient est
+   masqué ou désactivé dans sa case, qui ne s'effondre jamais. La scène prend le reste, constant. */
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .tool-position-note{height:44px;margin:0;font-size:var(--fs-16);line-height:1.35;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}
 /* Bande de confiance, au bord de la scène : programme chargé, repère, âge du rapport, géométrie ; légende. */
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-confidence{display:flex;flex-direction:column;gap:2px;margin:0;padding:var(--sp-2) var(--sp-4);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m)}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-facts,body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-legend{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px var(--sp-4);margin:0;font:var(--fs-16)/1.35 var(--font);color:var(--mute)}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-v2-program{max-width:100%;color:var(--fg);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-confidence{height:64px;display:flex;flex-direction:column;justify-content:center;gap:2px;margin:0;padding:var(--sp-2) var(--sp-4);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);overflow:hidden}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-facts,body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-legend{display:flex;flex-wrap:nowrap;align-items:baseline;gap:var(--sp-4);margin:0;font:var(--fs-16)/1.35 var(--font);color:var(--mute);white-space:nowrap;overflow:hidden}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-v2-program{flex:0 1 auto;min-width:0;max-width:45%;color:var(--fg);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-v2-frame{font-variant-numeric:tabular-nums}
 /* L'âge du rapport : un mot ET une forme (trait plein, tirets, pointillés), pas seulement une couleur. */
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-v2-age{padding-left:var(--sp-2);border-left:4px solid var(--ok);color:var(--fg);font-variant-numeric:tabular-nums}
@@ -32,35 +35,50 @@ body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-key::before{content:"";display:inline-block;width:24px;height:3px;border-radius:2px;background:var(--warn-text)}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-key--todo::before{background:var(--info-text)}
 /* Frise sous la scène : séquence prévue (estimée) et suivante, jamais une ligne G-code en cours. */
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-sequence{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m)}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-sequence{height:84px;overflow:hidden;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m)}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-seq{display:flex;flex-direction:column;gap:2px;min-width:0;padding:var(--sp-2) var(--sp-4)}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-seq+.home-v2-seq{border-left:1px solid var(--line)}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-eyebrow{font:600 var(--fs-16)/1.2 var(--font);color:var(--mute);letter-spacing:.06em;text-transform:uppercase}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-seq--now .home-v2-eyebrow{color:var(--accent)}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-seq-title{font:600 var(--fs-20)/1.2 var(--font);color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-seq-detail{font-size:var(--fs-16);line-height:1.3;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-seq-detail:empty{display:none}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-seq-detail{min-height:21px;font-size:var(--fs-16);line-height:1.3;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* --- Colonne de surveillance ------------------------------------------------------------------------ */
-/* Les instruments gardent leur hauteur ; les commandes prennent le reste, Arrêter le travail en bas. */
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .job-metrics{gap:var(--sp-2)}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-zone-gauges{gap:6px}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-zone-controls{flex:1 1 auto;gap:6px}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-stop{padding-top:var(--sp-1)}
+/* Instruments à hauteurs fixes. Commandes : une case de messages (seule à défiler, dans son rectangle), une
+   case d'actions de 64 px où Charger | Démarrer, Pause | Reprendre gardent leur place, Arrêter le travail en bas. */
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .job-metrics{gap:var(--sp-2);overflow:hidden}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-zone-gauges{gap:6px;flex:0 0 auto}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-zone-gauges>*{flex:0 0 auto;overflow:hidden}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-zone-controls{flex:1 1 0;min-height:0;gap:6px}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-v2-info{display:flex;flex-direction:column;gap:6px;flex:1 1 0;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-v2-info>*{flex-shrink:0;margin:0}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-v2-actions{height:64px;flex:0 0 auto;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:64px;gap:var(--tap-gap)}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-job-load{grid-column:1;grid-row:1;width:auto;min-height:var(--tap-primary);margin:0;padding:0 var(--sp-2);font-size:var(--fs-18);line-height:1.15;white-space:normal}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-job-primary-row{grid-column:2/4;grid-row:1;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-job-resume-row{grid-column:2/4;grid-row:1}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-v2-actions .t-btn{min-height:var(--tap-primary);font-size:var(--fs-20);padding:0 var(--sp-2)}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-stop{height:92px;flex:0 0 auto;margin-top:0;padding-top:var(--sp-1);overflow:hidden}
+/* « Agrandir le tracé » (t-inspect) garde les cases d'actions et de messages des commandes. */
+body.ks-ui.perf-wide.perf-v2.t-inspect .job-dashboard[data-zones][data-v2="suivi"] #home-v2-info{display:flex!important}
+body.ks-ui.perf-wide.perf-v2.t-inspect .job-dashboard[data-zones][data-v2="suivi"] #home-v2-actions{display:grid!important}
 /* Avancement : une ligne (pourcentage, ligne acquittée), la barre dessous. */
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-progress{padding:var(--sp-2) var(--sp-4)!important}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-progress{height:64px;padding:var(--sp-2) var(--sp-4)!important}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-job-percent{margin:0;font-size:var(--fs-36)}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-job-progress{height:8px;margin-top:var(--sp-1)}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-ack{flex-direction:row;align-items:baseline;gap:var(--sp-2)}
 /* Temps restant : la valeur, sa source juste dessous ; le reste est dans « Détail du temps ». */
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-eta-title{font-size:var(--fs-24)}
-/* Position rapportée (repère de travail) sur une ligne ; les coordonnées machine restent dans Machine. */
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-coords{grid-template-columns:minmax(0,1fr)}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-eta{height:68px;justify-content:center}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-eta-title{font-size:var(--fs-24);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-eta .t-help{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Position rapportée (repère de travail) sur une ligne, sur les deux pages (la carte de index.html et celle
+   de la simulation) ; les coordonnées machine restent dans Machine. */
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-coords{height:62px;grid-template-columns:minmax(0,1fr)}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-machine-card{display:none}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-work-card .t-coords{grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr) auto;column-gap:var(--sp-2);row-gap:0}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-work-card .t-val{font-size:var(--fs-24);line-height:1.1;white-space:nowrap}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-work-card .t-axis{font-size:var(--fs-18)}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-work-card .t-unit:not(:last-child){display:none}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-coords .t-coords-card{height:62px;overflow:hidden}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-coords .t-coords-card .t-coords{grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr) auto;column-gap:var(--sp-2);row-gap:0}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-coords .t-coords-card .t-val{font-size:var(--fs-24);line-height:1.1;white-space:nowrap}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-coords .t-coords-card .t-axis{font-size:var(--fs-18)}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-coords .t-coords-card .t-unit:not(:last-child){display:none}
 /* Périmé : la position est figée, dite par le texte et par la forme (cadre en tirets, valeurs atténuées). */
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-coords{position:relative}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-position{position:absolute;top:6px;right:var(--sp-3);max-width:62%;margin:0;font-size:var(--fs-16);line-height:1.2;color:var(--mute);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
@@ -70,7 +88,7 @@ body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2-report="stale"][
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2-report="unknown"][data-v2="suivi"] .home-coords .t-coords-card{border-style:dotted}
 /* Courbe de la dernière minute : visible à 1366 px (deux zones), indépendante de la grille v1 à trois zones.
    Avance et S rapportés en tête de la carte, comme dans la maquette ; les repères de la minute sur l'axe. */
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-curve{display:flex;flex-direction:column;flex:0 0 auto;gap:0;padding:6px var(--sp-3)!important}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-curve{height:150px;display:flex;flex-direction:column;flex:0 0 auto;gap:0;padding:6px var(--sp-3)!important}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-curve .home-live-tiles{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--sp-3)}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-curve .home-live-tiles .t-card{display:flex;flex-direction:column;align-items:flex-start;gap:0;padding:0!important;border:0;background:transparent;box-shadow:none}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-curve .home-live-tiles .t-card+.t-card{align-items:flex-end;text-align:right}
@@ -83,12 +101,14 @@ body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-curve-marks{fill:none;stroke:var(--warn-text);stroke-width:1.5;stroke-dasharray:3 4;vector-effect:non-scaling-stroke}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-curve-axis{display:flex;justify-content:space-between;gap:var(--sp-2);margin:0;font:var(--fs-16)/1.25 var(--font);color:var(--mute);font-variant-numeric:tabular-nums;white-space:nowrap}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-curve-events{flex:1 1 auto;min-width:0;text-align:center;color:var(--fg);overflow:hidden;text-overflow:ellipsis}
-/* Correction d'avance : −10, −1, 100 %, +1, +10 sur une rangée (64 / 48 px), le nom au-dessus. */
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-overrides{padding:var(--sp-2) var(--sp-3)!important;gap:6px;border:1px solid var(--line);border-radius:var(--r-l)}
+/* Correction d'avance : les corrections lues (avance, broche, rapides) au-dessus de −10, −1, 100 %, +1, +10
+   (64 / 48 px). La carte garde sa place même sans état (masquée dans son rectangle, jamais retirée). */
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-overrides{height:164px;padding:var(--sp-2) var(--sp-3)!important;gap:6px;border:1px solid var(--line);border-radius:var(--r-l);align-content:start}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-overrides[hidden]{display:grid!important;visibility:hidden}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-overrides-head{display:none}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .t-override{grid-template-columns:minmax(0,1fr);gap:var(--sp-1)}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .t-ov-name{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-3)}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .t-ov-name b{display:inline;margin:0;font-size:var(--fs-24)}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .t-override{grid-template-columns:minmax(0,1fr);gap:0}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .t-override[data-kind="feed"] .t-ov-name{display:none}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-overrides{order:-1;height:21px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .t-override[data-kind="feed"] .t-ov-row{grid-template-columns:64px 48px minmax(0,1fr) 48px 64px;align-items:center}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .t-override[data-kind="feed"] .t-ov-row .t-btn{grid-row:1;min-height:var(--tap-primary);font-size:var(--fs-20);padding:0}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .t-override[data-kind="feed"] .t-ov-row .t-btn.t-fine{min-height:var(--tap);font-size:var(--fs-18)}
@@ -100,7 +120,7 @@ body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .t-over
 /* « Broche / rapides… » et « Détail du temps » : 48 px, séparés de 12 px ; les corrections lues dessous. */
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-more{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--tap-gap)}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-more .t-btn{min-height:var(--tap);padding:0 var(--sp-2);font-size:var(--fs-16);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-overrides{font-size:var(--fs-16)}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-overrides{font-size:var(--fs-16);line-height:1.3}
 
 /* --- Fiches (sous le bandeau, cncShell.sheet) -------------------------------------------------------- */
 body.ks-ui.perf-wide.perf-v2 #perf-v2-overrides-sheet .t-override{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--sp-2);margin-bottom:var(--sp-4)}

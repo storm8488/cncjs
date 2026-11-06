@@ -11,7 +11,7 @@ assert(!/transform\s*:\s*scale/.test(body), 'no scaling to make things fit');
 const rules = [...body.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({selectors: m[1].split(',').map((s) => s.trim()), decl: m[2]}));
 assert(rules.length > 20, 'rules parsed');
 for (const r of rules) for (const s of r.selectors) {
-  assert(/^body\.ks-ui\.perf-wide\.perf-v2 /.test(s), 'scoped to perf-v2: ' + s);
+  assert(/^body\.ks-ui\.perf-wide\.perf-v2(\.t-inspect)? /.test(s), 'scoped to perf-v2: ' + s);
   assert(/\[data-v2="suivi"\]|#perf-v2-(overrides|time)-sheet/.test(s), 'Suivi v2 grid or its sheets only: ' + s);
   assert(!/real-banner|simulation-banner|t-strip|#t-pause|#t-stop|#job-pause|#job-stop|#tabbar/.test(s), 'the strip is never targeted: ' + s);
 }
@@ -33,4 +33,16 @@ assert(find(/\.home-v2-more \.t-btn$/, /min-height:var\(--tap\)/).length === 1, 
 // Stale is a form, not only a colour.
 assert(find(/#home-v2-age\[data-state="stale"\]/, /border-left-style:dashed/).length === 1, 'stale age: dashed mark');
 assert(find(/\[data-v2-report="stale"\].*\.t-coords-card/, /border-style:dashed/).length === 1, 'stale position: dashed frame');
-console.log('PASS v2 Suivi style: scoped to perf-v2 (no media query, strip untouched), 432 px column, curve visible at 1366 px, text >= 16 px, 64 / 48 px targets, stale shown by form.');
+// D1 (REFLEXION § 3.10): every slot of the scene and the column keeps its rectangle in every state. Fixed
+// heights; content that comes and goes is hidden inside its slot, never collapsing it.
+const S = '\\[data-v2="suivi"\\] ';
+for (const slot of ['\\.home-v2-confidence', '\\.tool-position-note', '\\.home-v2-sequence', '\\.home-progress', '\\.home-gauge-eta', '\\.home-coords', '\\.home-gauge-curve', '\\.home-overrides', '#home-v2-actions', '\\.home-stop'])
+  assert(find(new RegExp(S + slot + '$'), /(^|;)height:\d+px/).length >= 1, 'fixed height: ' + slot);
+assert(find(new RegExp(S + '#home-v2-info$'), /flex:1 1 0/).filter((r) => /min-height:0/.test(r.decl) && /overflow-y:auto/.test(r.decl)).length === 1, 'messages share one scrolling slot');
+assert(find(new RegExp(S + '#home-overrides\\[hidden\\]$'), /visibility:hidden/).length === 1, 'an unavailable override card keeps its place');
+for (const [id, column] of [['home-job-load', '1'], ['home-job-primary-row', '2/4'], ['home-job-resume-row', '2/4']])
+  assert(find(new RegExp(S + '#' + id + '$'), new RegExp('grid-column:' + column + ';grid-row:1')).length === 1, 'fixed place in the action slot: ' + id);
+assert(!rules.some((r) => /:empty|\[hidden\]/.test(r.selectors.join()) && /display:none/.test(r.decl) && /\[data-v2="suivi"\]/.test(r.selectors.join()) && !/#home-v2-info|#home-v2-actions/.test(r.selectors.join())), 'no slot collapses when empty or hidden');
+// D5: the work coordinates of both pages (index #home-work-card, simulation's own card) on one line.
+assert(find(new RegExp(S + '\\.home-coords \\.t-coords-card \\.t-coords$'), /grid-template-columns/).length === 1, 'one-line coordinates on both pages');
+console.log('PASS v2 Suivi style: fixed slots in every state (D1), one-line coordinates on both pages (D5), scoped to perf-v2 (no media query, strip untouched), 432 px column, curve visible at 1366 px, text >= 16 px, 64 / 48 px targets, stale shown by form.');

@@ -12,7 +12,7 @@
     if(a&&a.textContent!==override)a.textContent=override;
     if(b&&b.textContent!==live)b.textContent=live;
   }
-  window.addEventListener('cnc-profile-change',function(){relabel();});
+  window.addEventListener('cnc-profile-change',function(){relabel();if(typeof loadedProfile==='function')loadedProfile();});
   var home=$('file');if(!home)return;
   // UI 2027: preview and overrides on the left; progress, coordinates, live
   // values and the actions on the right. Démarrer or Reprendre is the one
@@ -313,6 +313,7 @@
   window.addEventListener('cnc-job-status',function(e){machine=e.detail.machine;halt=!machine&&e.detail.halt&&typeof e.detail.halt==='object'?e.detail.halt:null;simulation=e.detail.simulation;busy=!!e.detail.busy;feedback=e.detail.feedback||'';
     // Sent / confirmed / failed / uncertain, mirrored from job-controls.js (ui-2027.css .t-sent).
     var fb=$('home-job-feedback'),state=e.detail.feedbackState||'';if(fb&&typeof fb.setAttribute==='function'&&(!fb.getAttribute||fb.getAttribute('data-state')!==state))fb.setAttribute('data-state',state);
+    loadedStatus();
     if(zones.on){sample(machine);requestCurve();}
     render();
     // Performance v2: facts for the observation model only; its views are written in an animation frame.
@@ -402,6 +403,7 @@
   window.addEventListener('cnc-layout-change',arrange);
   // perf-v2 is set or cleared by tablet-profile.js in its own frame, then announced: arranged in a frame too.
   window.addEventListener('cnc-v2-change',function(){
+    loadedGate();
     if(v2.arrangeFrame!==null||typeof window.requestAnimationFrame!=='function')return;
     if(!zones.on&&!v2Body())return;
     v2.arrangeFrame=window.requestAnimationFrame(function(){v2.arrangeFrame=null;arrange();requestV2();});
@@ -565,6 +567,9 @@
     zones.curve.addEventListener('click',v2CurveTap);
     // Time axis, with the events of the minute between its ends.
     v2.axis=el('p','home-v2-curve-axis','home-v2-curve-axis');addSpan(v2.axis,'','','−60 s');addSpan(v2.axis,'home-v2-curve-events','home-v2-curve-events');addSpan(v2.axis,'','','0 s');
+    // Fixed slots of the commands (REFLEXION § 3.10): one scrolling slot for every message that comes and
+    // goes, one action slot of a fixed height where Charger, Démarrer / Pause and Reprendre keep their place.
+    v2.info=el('div','home-v2-info','home-v2-info');v2.actions=el('div','home-v2-actions','home-v2-actions');
     // « Broche / rapides… » and « Détail du temps »: sheets of the shell, under the strip (Pause / Arrêter kept).
     var shell=window.cncShell;
     if(!shell||typeof shell.sheet!=='function')return;
@@ -578,12 +583,22 @@
     var find=typeof overrides.querySelector==='function'?function(s){return overrides.querySelector(s);}:function(){return null;};
     v2.rows=[find('.t-override[data-kind="spindle"]'),find('.t-override[data-kind="rapid"]'),$('home-rapid-note')].filter(Boolean);
   }
-  // Moves the existing elements in (on) or back exactly where the v1 wide layout had them (off).
+  // Moves the existing elements in (on) or back exactly where the v1 wide layout had them (off): the children
+  // of the boxes it rearranges are recorded first and given back in that order.
+  function kidsOf(node){return Array.prototype.slice.call(node.children);}
   function applyV2(on,board,left,tiles,overrides){
-    var art=$('home-job-image').parentNode,second=$('home-gauge-eta-second'),unknown=$('home-gauge-eta-unknown'),note=$('home-override-note');
+    var art=$('home-job-image').parentNode,second=$('home-gauge-eta-second'),unknown=$('home-gauge-eta-unknown');
+    var controls=zones.controls,stop=$('home-job-stop').parentNode,actions=[$('home-job-load'),$('home-job-primary-row'),$('home-job-resume-row')];
     if(art.parentNode!==left)art=left.firstChild;
     if(on){
       if(!v2.built)buildV2(overrides);
+      v2.saved={controls:kidsOf(controls),overrides:kidsOf(overrides),eta:kidsOf(zones.eta)};
+      // Messages (spindle warning, override reason, ready line, resume help, feedback…) in their slot, in order.
+      v2.info.appendChild($('home-spindle-warning'));
+      v2.saved.controls.forEach(function(n){if(n!==stop&&actions.indexOf(n)<0)v2.info.appendChild(n);});
+      v2.info.appendChild($('home-override-note'));
+      actions.forEach(function(n){v2.actions.appendChild(n);});
+      controls.insertBefore(v2.info,stop);controls.insertBefore(v2.actions,stop);
       left.insertBefore(v2.band,art.nextSibling);left.appendChild(v2.sequence);
       // The reported feed and S head the curve card, as in the mockup.
       $('home-coords').appendChild(v2.position);zones.curve.insertBefore(tiles,zones.svg);zones.gauges.appendChild(overrides);
@@ -599,10 +614,11 @@
       if(v2.timer!==null&&typeof window.clearTimeout==='function')window.clearTimeout(v2.timer);v2.timer=null;
       [v2.band,v2.sequence,v2.position,v2.axis,v2.more,v2.paths.gaps,v2.paths.line,v2.paths.marks].forEach(function(n){if(n&&n.parentNode)n.parentNode.removeChild(n);});
       zones.gauges.insertBefore(tiles,zones.curve);zones.gauges.insertBefore(zones.read,zones.curve);
-      if(v2.more){
-        v2.rows.forEach(function(r){if(r.id==='home-rapid-note')overrides.appendChild(r);else overrides.insertBefore(r,note);});
-        zones.eta.appendChild(second);zones.eta.appendChild(unknown);
-      }
+      var saved=v2.saved;
+      saved.overrides.forEach(function(n){overrides.appendChild(n);});saved.eta.forEach(function(n){zones.eta.appendChild(n);});
+      saved.controls.forEach(function(n){controls.appendChild(n);});
+      // Anything another module added to the slots meanwhile stays among the commands, above Arrêter.
+      [v2.info,v2.actions].forEach(function(box){kidsOf(box).forEach(function(n){controls.insertBefore(n,stop);});if(box.parentNode)box.parentNode.removeChild(box);});
       board.removeAttribute('data-v2');board.removeAttribute('data-v2-report');
       // The v1 curve writes its own title again.
       v2.chart=null;curve.max=0;curve.points='';set('home-gauge-curve-title','textContent',uiLocale.t('Avance réelle, dernière minute'));
@@ -742,19 +758,37 @@
     if(shown&&shown.file===file&&imageKey===file&&!previewFailed&&imageRevision===revision&&ofLoaded(shown,file,revision))return Promise.resolve(shown);
     if(loadedRead&&loadedRead.file===file&&loadedRead.revision===revision)return loadedRead.promise;
     forgetLoaded('');
+    // No sidecar read during a job (or with an unknown state): only what is already shown is given.
+    if(!idleNow())return Promise.resolve(null);
     var token=sessionToken();if(!token)return Promise.resolve(null);
-    var read={file:file,revision:revision,xhr:null,promise:null};loadedRead=read;
+    var read={file:file,revision:revision,xhr:null,promise:null,resolve:null,cancelled:false};loadedRead=read;
     read.promise=new Promise(function(resolve){
-      var xhr=previewXhr(file,token);read.xhr=xhr;
+      var xhr=previewXhr(file,token);read.xhr=xhr;read.resolve=resolve;
       // A result given as null (no preview, no state, another version by now) is never kept: asked again later.
-      function done(meta){read.xhr=null;var result=ofLoaded(meta,file,revision)?meta:null;if(loadedRead===read&&!result)loadedRead=null;resolve(result);}
+      // A cancelled read resolves null once, and its late answer is never given (forgetLoaded).
+      function done(meta){if(read.cancelled)return;read.xhr=null;var result=ofLoaded(meta,file,revision)?meta:null;if(loadedRead===read&&!result)loadedRead=null;resolve(result);}
       xhr.onload=function(){var meta=null;try{var answer=previewAnswer(xhr,file);meta=answer.refused?null:answer.preview;}catch(_){}done(meta);};
       xhr.onerror=xhr.ontimeout=xhr.onabort=function(){done(null);};
       xhr.send(JSON.stringify({file:file+'.cnctouch.json'}));
     });
     return read.promise;
   }
-  function forgetLoaded(file){if(!loadedRead||file&&loadedRead.file!==file)return;var xhr=loadedRead.xhr;loadedRead=null;if(xhr&&typeof xhr.abort==='function')xhr.abort();}
+  // Aborts a pending read (its handlers removed first, so no late answer can arrive) and drops the cache.
+  function forgetLoaded(file){
+    if(!loadedRead||file&&loadedRead.file!==file)return;
+    var read=loadedRead,xhr=read.xhr;loadedRead=null;read.cancelled=true;read.xhr=null;
+    if(xhr){xhr.onload=xhr.onerror=xhr.ontimeout=xhr.onabort=null;if(typeof xhr.abort==='function')xhr.abort();}
+    if(read.resolve)read.resolve(null);
+  }
+  function idleNow(){return !!(machine&&machine.fresh&&(!machine.workflow||machine.workflow==='idle')&&!/^(run|hold|jog|alarm|door|home|check)/i.test(String(machine.activeState||'')));}
+  // Cancelled by its consumer's transitions too: a job starts or the program changes, Éco is chosen, the v2
+  // gate closes (only where v2 was opened), the page is hidden for good.
+  // (Called from the existing cnc-job-status, cnc-profile-change and cnc-v2-change listeners.)
+  // A missing state alone does not abort: the answer then resolves null (no loaded program to match).
+  function loadedStatus(){if(loadedRead&&machine&&(!idleNow()||machine.name!==loadedRead.file||machine.revision!==loadedRead.revision))forgetLoaded('');}
+  function loadedProfile(){var p=window.cncProfile;try{if(loadedRead&&p&&typeof p.performance==='function'&&p.performance()==='eco')forgetLoaded('');}catch(_){}}
+  function loadedGate(){var v=window.cncV2;try{if(loadedRead&&v&&typeof v.gate==='function'&&!v.gate()&&v.state().sessionEnabled)forgetLoaded('');}catch(_){}}
+  window.addEventListener('pagehide',function(){forgetLoaded('');});
   window.cncDashboardView={mount:mount,unmount:unmount,loadedPreview:loadedPreview};
   mount();
   render();
