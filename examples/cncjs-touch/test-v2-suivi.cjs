@@ -10,9 +10,12 @@ async function suivi(options = {}) {
   p.status(); p.frame(); await p.complete();
   // Stub of L0's cncV2.reportAge(machine) unless the contract already provides it: monotone age memorised
   // per [port, generation, statusObservedAt] at its first sight, never fresh without statusObservedAt.
-  if (options.reportAge !== false && typeof p.api.reportAge !== 'function') {
+  // A scenario that passes its own reportAge (or false: absent) replaces the real contract's.
+  if (options.reportAge === false) delete p.api.reportAge;
+  else if (typeof options.reportAge === 'function') p.api.reportAge = options.reportAge;
+  else if (typeof p.api.reportAge !== 'function') {
     const seen = new Map();
-    p.api.reportAge = options.reportAge || ((m) => {
+    p.api.reportAge = ((m) => {
       if (!m || typeof m.statusObservedAt !== 'number' || typeof m.statusAgeMs !== 'number') return {known: false, fresh: false, ageMs: null};
       const key = JSON.stringify([m.port, m.generation, m.statusObservedAt]), now = p.window.performance.now();
       if (!seen.has(key)) seen.set(key, {at: now, age: m.statusAgeMs});
