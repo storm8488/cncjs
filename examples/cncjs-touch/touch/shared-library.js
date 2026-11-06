@@ -667,7 +667,7 @@
     ['Sélection et programme chargé', 'Selection and loaded program', 'Selección y programa cargado'],
     ['Sélection', 'Selection', 'Selección'],
     ['Chargé dans la machine', 'Loaded in the machine', 'Cargado en la máquina'],
-    ['Nom · version', 'Name · version', 'Nombre · versión'],
+    ['Version (date · révision)', 'Version (date · revision)', 'Versión (fecha · revisión)'],
     ['Dimensions (aperçu)', 'Dimensions (preview)', 'Dimensiones (vista previa)'],
     ['Outil · matière déclarés', 'Declared tool · material', 'Herramienta · material declarados'],
     ['Empreinte', 'Fingerprint', 'Huella'],
@@ -687,8 +687,7 @@
     ['La sélection n’est pas le programme chargé.', 'The selection is not the loaded program.', 'La selección no es el programa cargado.'],
     ['Correspondance inconnue : empreinte absente ou non vérifiée.', 'Match unknown: fingerprint missing or not verified.', 'Correspondencia desconocida: huella ausente o no verificada.'],
     ['Programme chargé inconnu : état machine indisponible.', 'Loaded program unknown: machine state unavailable.', 'Programa cargado desconocido: estado de la máquina no disponible.'],
-    ['Rien n’est chargé dans la machine.', 'Nothing is loaded in the machine.', 'No hay nada cargado en la máquina.'],
-    ['Sélectionner ne charge pas ; charger ne démarre pas.', 'Selecting does not load; loading does not start.', 'Seleccionar no carga; cargar no inicia.']
+    ['Rien n’est chargé dans la machine.', 'Nothing is loaded in the machine.', 'No hay nada cargado en la máquina.']
   ];
   var v2f = { built: false, frame: 0, nodes: null, sel: null, catalogue: false };
   function v2FilesMount() { var v = window.cncV2; try { return v && typeof v.state === 'function' && v.state().layout === true && v.mounts ? v.mounts.get('files') : null; } catch (_) { return null; } }
@@ -703,11 +702,16 @@
     if (Array.isArray(z) && z.length === 2 && z.every(function (n) { return typeof n === 'number' && isFinite(n); }) && z[1] >= z[0]) parts.push(f(z[1] - z[0]));
     return parts.join(' × ') + ' mm';
   }
-  function v2Declared(file) {
-    var P = projects(), d = null;
+  // The sheet's values only for the program shown: same file AND the sheet read for the same bytes as
+  // that program's fingerprint (selection: its verified preview; loaded: its report). A sheet without
+  // a fingerprint, or a program without one, is not bound: « inconnus ».
+  function v2Declared(file, fingerprint) {
+    var P = projects(), d = null, key = function (s) { return String(s || '').toLowerCase().replace(/^sha256:/, ''); };
     try { d = P && typeof P.declared === 'function' ? P.declared(file) : null; } catch (_) {}
     if (!d) return tv2('aucune fiche');
     if (d.version !== 'current') return tv2('fiche d’une autre version');
+    if (!d.fingerprint || !fingerprint) return tv2('inconnus');
+    if (key(d.fingerprint) !== key(fingerprint)) return tv2('fiche d’une autre version');
     return [d.tool, d.material].filter(Boolean).join(' · ') || tv2('non déclarés');
   }
   function v2FilesBuild(mount) {
@@ -717,21 +721,22 @@
     var n = {}, root = mount.content;
     function el(tag, cls, text, parent) { var e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; parent.appendChild(e); return e; }
     var box = el('section', 'lv2', '', root); box.setAttribute('aria-label', tv2('Sélection et programme chargé'));
-    var band = el('div', 'lv2-band', '', box);
+    // One compact table: its header row is the band (« Sélection » / « Chargé dans la machine »), so the
+    // detail keeps its preview and « Charger et ouvrir le Suivi » in the frame (D3).
+    var table = el('table', 'lv2-compare', '', box), head = el('thead', '', '', table), headRow = el('tr', '', '', head), body = el('tbody', '', '', table);
+    el('td', '', '', headRow);
     [['sel', tv2('Sélection')], ['load', tv2('Chargé dans la machine')]].forEach(function (c) {
-      var col = el('div', 'lv2-col', '', band); col.setAttribute('data-role', c[0] === 'sel' ? 'selection' : 'loaded');
+      var col = el('th', 'lv2-col', '', headRow); col.setAttribute('scope', 'col'); col.setAttribute('data-role', c[0] === 'sel' ? 'selection' : 'loaded');
       el('span', 'lv2-eyebrow', c[1], col);
       n[c[0] + 'Name'] = el('b', 'lv2-name', '', col); n[c[0] + 'Name'].id = 'lv2-' + c[0] + '-name';
       if (c[0] === 'load') { n.loadState = el('span', 'lv2-state', '', col); n.loadState.id = 'lv2-load-state'; }
     });
-    var table = el('table', 'lv2-compare', '', box), body = el('tbody', '', '', table);
     n.cells = {};
-    [['version', tv2('Nom · version')], ['dims', tv2('Dimensions (aperçu)')], ['tool', tv2('Outil · matière déclarés')], ['print', tv2('Empreinte')]].forEach(function (r) {
+    [['version', tv2('Version (date · révision)')], ['dims', tv2('Dimensions (aperçu)')], ['tool', tv2('Outil · matière déclarés')], ['print', tv2('Empreinte')]].forEach(function (r) {
       var tr = el('tr', '', '', body), th = el('th', '', r[1], tr); th.setAttribute('scope', 'row');
       ['sel', 'load'].forEach(function (c) { var td = el('td', '', '', tr); td.id = 'lv2-' + r[0] + '-' + c; n.cells[r[0] + '-' + c] = td; });
     });
     n.match = el('p', 'lv2-match', '', box); n.match.id = 'lv2-match'; n.match.setAttribute('role', 'status');
-    el('p', 'lv2-note', tv2('Sélectionner ne charge pas ; charger ne démarre pas.'), box);
     v2f.nodes = n;
   }
   function v2FilesRender() {
@@ -746,7 +751,7 @@
     put(n.selName, sel ? sel.name : tv2('Aucune sélection'));
     put(n.cells['version-sel'], sel ? new Date(sel.mtime).toLocaleString(uiLocale.locale || 'fr-FR') : '—');
     put(n.cells['dims-sel'], sel ? v2Dims(sel.bounds, sel.zBounds) : '—');
-    put(n.cells['tool-sel'], sel ? v2Declared(sel.file) : '—');
+    put(n.cells['tool-sel'], sel ? v2Declared(sel.file, sel.verdict === 'ok' ? sel.fingerprint : '') : '—');
     put(n.cells['print-sel'], !sel ? '—' : sel.verdict === 'ok' && sel.fingerprint ? tv2('valide') : sel.verdict === 'stale' ? tv2('périmée') : tv2('inconnue'));
     // Loaded: its report only; an unavailable state is « unknown », never « nothing loaded ».
     var fresh = !!(m && m.fresh), loaded = fresh && !!m.name;
@@ -759,7 +764,7 @@
     var loadedPreview = loaded && pv && pv.file === m.name && pv.fingerprint && pv.fingerprint === m.fingerprint ? pv : null;
     put(n.cells['version-load'], loaded ? (m.revision !== undefined && m.revision !== null ? tv2('révision') + ' ' + m.revision : '—') : '—');
     put(n.cells['dims-load'], match === 'same' ? v2Dims(sel.bounds, sel.zBounds) : loadedPreview && loadedPreview.projection ? v2Dims(loadedPreview.projection.bounds, loadedPreview.zBounds) : '—');
-    put(n.cells['tool-load'], match === 'same' ? v2Declared(sel.file) : loaded ? tv2('inconnus') : '—');
+    put(n.cells['tool-load'], match === 'same' ? v2Declared(m.name, m.fingerprint) : loaded ? tv2('inconnus') : '—');
     put(n.cells['print-load'], loaded ? (m.fingerprint ? tv2('connue') : tv2('inconnue')) : '—');
     var text = !fresh ? tv2('Programme chargé inconnu : état machine indisponible.') : !loaded ? tv2('Rien n’est chargé dans la machine.') : !sel ? '' :
       match === 'same' ? tv2('✓ La sélection est le programme chargé (même empreinte).') : match === 'different' ? tv2('La sélection n’est pas le programme chargé.') : tv2('Correspondance inconnue : empreinte absente ou non vérifiée.');
