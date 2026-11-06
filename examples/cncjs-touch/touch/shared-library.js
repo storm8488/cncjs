@@ -352,6 +352,7 @@
     $('library-image').hidden = true; $('library-image').removeAttribute('src'); describe(f.name, null);
     $('library-image-status').hidden = false; $('library-image-status').textContent = uiLocale.t('Chargement de l’image…');
     $('library-preview-note').textContent = '';
+    v2Selected({ file: f.name, name: displayName(f.name), mtime: f.mtime, bounds: null, zBounds: null, fingerprint: '', verdict: 'loading' });
     request('POST', 'file', { file: f.name + suffix }, 'detail').then(function (response) {
       if (id !== requestId) return;
       var meta = JSON.parse(response.data);
@@ -362,6 +363,8 @@
       // The server's verdict on the sidecar: a stale preview (program replaced under the same
       // name, older sidecar without fingerprint) shows a notice instead of the old image.
       var v = verdict(response, meta), usable = v.state !== 'stale', note = v.state === 'unverified' ? previewNotice(v) : '';
+      v2Selected({ file: f.name, name: meta.originalName, mtime: f.mtime, bounds: usable && meta.preview ? meta.preview.bounds : null, zBounds: usable && meta.preview ? meta.preview.zBounds : null,
+        fingerprint: typeof meta.fingerprint === 'string' ? meta.fingerprint : '', verdict: v.state });
       dimensions(usable && meta.preview && meta.preview.bounds, usable ? null : previewNotice(v), usable && meta.preview && meta.preview.zBounds, note);
       var image = usable && meta.preview && meta.preview.image;
       if (!usable) { detailLoading = false; $('library-image-status').textContent = previewNotice(v); }
@@ -386,6 +389,7 @@
       if (id !== requestId) return;
       detailLoading = false;
       detailVersion = ''; // Retry a sidecar still being uploaded at the next refresh.
+      v2Selected({ file: f.name, name: displayName(f.name), mtime: f.mtime, bounds: null, zBounds: null, fingerprint: '', verdict: 'unavailable' });
       dimensions(null);
       $('library-image-status').textContent = uiLocale.t('Aucune image disponible pour ce fichier. Envoyez-le depuis cette interface pour créer son aperçu.');
     });
@@ -433,7 +437,7 @@
         selected = ''; detailVersion = ''; detailLoading = false; requestId++;
         selectedRow();
         cancelRequest('detail');
-        publishSelection(null);
+        publishSelection(null); v2Selected(null);
         $('library-regenerate').disabled = true;
         $('library-name').textContent = uiLocale.t('Sélectionnez un fichier'); $('library-meta').textContent = '';
         $('library-dimensions-file').textContent = '';
@@ -541,6 +545,8 @@
       $('library-name').textContent = file.name; $('library-dimensions-file').textContent = file.name;
       $('library-meta').textContent = size(file.size) + ' · ' + new Date().toLocaleString(window.cncI18n?window.cncI18n.locale:'fr-FR');
       dimensions(meta.preview && meta.preview.bounds, null, meta.preview && meta.preview.zBounds);
+      // Just written: the server has not checked this sidecar against the file yet, so its fingerprint stays unverified.
+      v2Selected({ file: stored, name: file.name, mtime: new Date().toISOString(), bounds: meta.preview && meta.preview.bounds, zBounds: meta.preview && meta.preview.zBounds, fingerprint: meta.fingerprint || '', verdict: 'unverified' });
       var uploadedImage = meta.preview && meta.preview.image;
       $('library-image').onload = $('library-image').onerror = null;
       if (typeof uploadedImage === 'string' && uploadedImage) { describe(stored, meta.preview, meta.fingerprint); $('library-image').src = uploadedImage; $('library-image').hidden = false; $('library-image-status').hidden = true; }
@@ -615,6 +621,7 @@
     machine = event.detail && event.detail.machine || null;
     var key = JSON.stringify(machine ? [machine.name, !!machine.fresh, machine.workflow, machine.activeState] : null);
     if (key !== fileStateKey) { fileStateKey = key; selectedRow(); }
+    v2FilesSchedule();
   });
   window.addEventListener('cnc-library-page-size',function(e){
     var size=Number(e.detail);
@@ -626,7 +633,7 @@
     if (mounted || !visible()) return;
     mounted = true;
     Object.keys(deferredText).forEach(function (id) { setText(id, deferredText[id]); }); deferredText = {};
-    renderList(); applyThumbs(); scheduleThumbs();
+    renderList(); applyThumbs(); scheduleThumbs(); v2FilesSchedule();
     var manual = refreshAgain === 2; refreshAgain = 0;
     refresh(manual);
   }
@@ -645,11 +652,125 @@
     $('library-favorites').setAttribute('aria-pressed', favoritesOnly ? 'true' : 'false');
     renderList();
   });
-  window.addEventListener('cnc-projects-updated', function () { renderList(); });
+  window.addEventListener('cnc-projects-updated', function () { renderList(); v2FilesSchedule(); });
+
+  // ---- Performance v2 · Fichiers (lot L5; REFLEXION.md proposition 7, §5 « Fichiers ») ----
+  // Its lines live in V2_FILES_MESSAGES (registered when the band is built), not in the static catalogues.
+  function tv2(s) { return uiLocale.t(s); }
+  // Only while cncV2's layout holds (body.perf-v2), in the files mount (#perf-v2-files): a band that
+  // tells « Sélection » from « Chargé dans la machine », and a short comparison of name/version,
+  // dimensions, declared tool and material, and fingerprint. A match needs both fingerprints: a name
+  // alone never makes the selection « the loaded program ». Nothing here loads, starts or reads: the
+  // selection's values come from its detail already read, the loaded program's from its report and the
+  // preview Suivi already shows. Every DOM write happens in requestAnimationFrame.
+  var V2_FILES_MESSAGES = [
+    ['Sélection et programme chargé', 'Selection and loaded program', 'Selección y programa cargado'],
+    ['Sélection', 'Selection', 'Selección'],
+    ['Chargé dans la machine', 'Loaded in the machine', 'Cargado en la máquina'],
+    ['Nom · version', 'Name · version', 'Nombre · versión'],
+    ['Dimensions (aperçu)', 'Dimensions (preview)', 'Dimensiones (vista previa)'],
+    ['Outil · matière déclarés', 'Declared tool · material', 'Herramienta · material declarados'],
+    ['Empreinte', 'Fingerprint', 'Huella'],
+    ['valide', 'valid', 'válida'],
+    ['inconnue', 'unknown', 'desconocida'],
+    ['périmée', 'stale', 'caducada'],
+    ['connue', 'known', 'conocida'],
+    ['inconnus', 'unknown', 'desconocidos'],
+    ['non déclarés', 'not declared', 'no declarados'],
+    ['aucune fiche', 'no sheet', 'ninguna ficha'],
+    ['fiche d’une autre version', 'sheet of another version', 'ficha de otra versión'],
+    ['révision', 'revision', 'revisión'],
+    ['Aucun programme chargé', 'No program loaded', 'Ningún programa cargado'],
+    ['État machine indisponible', 'Machine state unavailable', 'Estado de la máquina no disponible'],
+    ['Aucune sélection', 'No selection', 'Ninguna selección'],
+    ['✓ La sélection est le programme chargé (même empreinte).', '✓ The selection is the loaded program (same fingerprint).', '✓ La selección es el programa cargado (misma huella).'],
+    ['La sélection n’est pas le programme chargé.', 'The selection is not the loaded program.', 'La selección no es el programa cargado.'],
+    ['Correspondance inconnue : empreinte absente ou non vérifiée.', 'Match unknown: fingerprint missing or not verified.', 'Correspondencia desconocida: huella ausente o no verificada.'],
+    ['Programme chargé inconnu : état machine indisponible.', 'Loaded program unknown: machine state unavailable.', 'Programa cargado desconocido: estado de la máquina no disponible.'],
+    ['Rien n’est chargé dans la machine.', 'Nothing is loaded in the machine.', 'No hay nada cargado en la máquina.'],
+    ['Sélectionner ne charge pas ; charger ne démarre pas.', 'Selecting does not load; loading does not start.', 'Seleccionar no carga; cargar no inicia.']
+  ];
+  var v2f = { built: false, frame: 0, nodes: null, sel: null, catalogue: false };
+  function v2FilesMount() { var v = window.cncV2; try { return v && typeof v.state === 'function' && v.state().layout === true && v.mounts ? v.mounts.get('files') : null; } catch (_) { return null; } }
+  // Outside perf-v2 this returns at once: no frame, no DOM.
+  function v2FilesSchedule() { if (v2f.frame || typeof window.requestAnimationFrame !== 'function' || (!v2f.built && !v2FilesMount())) return; v2f.frame = window.requestAnimationFrame(v2FilesRender); }
+  function v2Selected(info) { v2f.sel = info; v2FilesSchedule(); }
+  function v2Dims(bounds, zBounds) {
+    var b = bounds, z = zBounds;
+    if (!Array.isArray(b) || b.length !== 4 || !b.every(function (n) { return typeof n === 'number' && isFinite(n); }) || b[2] < b[0] || b[3] < b[1]) return '—';
+    var f = function (n) { return (Math.abs(n) < 0.05 ? 0 : n).toLocaleString(uiLocale.locale || 'fr-FR', { maximumFractionDigits: 1 }); };
+    var parts = [f(b[2] - b[0]), f(b[3] - b[1])];
+    if (Array.isArray(z) && z.length === 2 && z.every(function (n) { return typeof n === 'number' && isFinite(n); }) && z[1] >= z[0]) parts.push(f(z[1] - z[0]));
+    return parts.join(' × ') + ' mm';
+  }
+  function v2Declared(file) {
+    var P = projects(), d = null;
+    try { d = P && typeof P.declared === 'function' ? P.declared(file) : null; } catch (_) {}
+    if (!d) return tv2('aucune fiche');
+    if (d.version !== 'current') return tv2('fiche d’une autre version');
+    return [d.tool, d.material].filter(Boolean).join(' · ') || tv2('non déclarés');
+  }
+  function v2FilesBuild(mount) {
+    if (v2f.built) return;
+    v2f.built = true; v2f.content = mount.content;
+    if (uiLocale.registerCatalog) { try { uiLocale.registerCatalog('performance-v2-files', V2_FILES_MESSAGES); } catch (_) { /* French text stays readable. */ } }
+    var n = {}, root = mount.content;
+    function el(tag, cls, text, parent) { var e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; parent.appendChild(e); return e; }
+    var box = el('section', 'lv2', '', root); box.setAttribute('aria-label', tv2('Sélection et programme chargé'));
+    var band = el('div', 'lv2-band', '', box);
+    [['sel', tv2('Sélection')], ['load', tv2('Chargé dans la machine')]].forEach(function (c) {
+      var col = el('div', 'lv2-col', '', band); col.setAttribute('data-role', c[0] === 'sel' ? 'selection' : 'loaded');
+      el('span', 'lv2-eyebrow', c[1], col);
+      n[c[0] + 'Name'] = el('b', 'lv2-name', '', col); n[c[0] + 'Name'].id = 'lv2-' + c[0] + '-name';
+      if (c[0] === 'load') { n.loadState = el('span', 'lv2-state', '', col); n.loadState.id = 'lv2-load-state'; }
+    });
+    var table = el('table', 'lv2-compare', '', box), body = el('tbody', '', '', table);
+    n.cells = {};
+    [['version', tv2('Nom · version')], ['dims', tv2('Dimensions (aperçu)')], ['tool', tv2('Outil · matière déclarés')], ['print', tv2('Empreinte')]].forEach(function (r) {
+      var tr = el('tr', '', '', body), th = el('th', '', r[1], tr); th.setAttribute('scope', 'row');
+      ['sel', 'load'].forEach(function (c) { var td = el('td', '', '', tr); td.id = 'lv2-' + r[0] + '-' + c; n.cells[r[0] + '-' + c] = td; });
+    });
+    n.match = el('p', 'lv2-match', '', box); n.match.id = 'lv2-match'; n.match.setAttribute('role', 'status');
+    el('p', 'lv2-note', tv2('Sélectionner ne charge pas ; charger ne démarre pas.'), box);
+    v2f.nodes = n;
+  }
+  function v2FilesRender() {
+    v2f.frame = 0;
+    var mount = v2FilesMount();
+    if (!mount) { if (v2f.content) property(v2f.content, 'hidden', true); return; }
+    if (!visible()) return; // Drawn again when Fichiers is shown (mount() schedules it).
+    v2FilesBuild(mount);
+    var n = v2f.nodes, sel = v2f.sel, m = machine, put = function (node, text) { property(node, 'textContent', String(text)); };
+    property(mount.content, 'hidden', false);
+    // Selection: the detail already read (name, version, extents, fingerprint verdict of its preview).
+    put(n.selName, sel ? sel.name : tv2('Aucune sélection'));
+    put(n.cells['version-sel'], sel ? new Date(sel.mtime).toLocaleString(uiLocale.locale || 'fr-FR') : '—');
+    put(n.cells['dims-sel'], sel ? v2Dims(sel.bounds, sel.zBounds) : '—');
+    put(n.cells['tool-sel'], sel ? v2Declared(sel.file) : '—');
+    put(n.cells['print-sel'], !sel ? '—' : sel.verdict === 'ok' && sel.fingerprint ? tv2('valide') : sel.verdict === 'stale' ? tv2('périmée') : tv2('inconnue'));
+    // Loaded: its report only; an unavailable state is « unknown », never « nothing loaded ».
+    var fresh = !!(m && m.fresh), loaded = fresh && !!m.name;
+    put(n.loadName, !fresh ? tv2('État machine indisponible') : loaded ? m.originalName || m.name : tv2('Aucun programme chargé'));
+    put(n.loadState, !loaded ? '' : /^Alarm/.test(m.activeState || '') ? tv2('! Alarme · chargé') : m.workflow === 'paused' || /^Hold/.test(m.activeState || '') ? tv2('Ⅱ En pause') :
+      m.workflow === 'running' || /^Run/.test(m.activeState || '') ? tv2('▶ En cours') : tv2('● Chargé'));
+    // Match: different names are different files; the same name needs both fingerprints.
+    var selPrint = sel && sel.verdict === 'ok' && sel.fingerprint || '', match = !sel || !loaded ? '' : sel.file !== m.name ? 'different' : !selPrint || !m.fingerprint ? 'unknown' : selPrint === m.fingerprint ? 'same' : 'different';
+    var shown = document.getElementById('home-job-image'), pv = shown && shown.cncPreview;
+    var loadedPreview = loaded && pv && pv.file === m.name && pv.fingerprint && pv.fingerprint === m.fingerprint ? pv : null;
+    put(n.cells['version-load'], loaded ? (m.revision !== undefined && m.revision !== null ? tv2('révision') + ' ' + m.revision : '—') : '—');
+    put(n.cells['dims-load'], match === 'same' ? v2Dims(sel.bounds, sel.zBounds) : loadedPreview && loadedPreview.projection ? v2Dims(loadedPreview.projection.bounds, loadedPreview.zBounds) : '—');
+    put(n.cells['tool-load'], match === 'same' ? v2Declared(sel.file) : loaded ? tv2('inconnus') : '—');
+    put(n.cells['print-load'], loaded ? (m.fingerprint ? tv2('connue') : tv2('inconnue')) : '—');
+    var text = !fresh ? tv2('Programme chargé inconnu : état machine indisponible.') : !loaded ? tv2('Rien n’est chargé dans la machine.') : !sel ? '' :
+      match === 'same' ? tv2('✓ La sélection est le programme chargé (même empreinte).') : match === 'different' ? tv2('La sélection n’est pas le programme chargé.') : tv2('Correspondance inconnue : empreinte absente ou non vérifiée.');
+    put(n.match, text); attribute(n.match, 'data-tone', match === 'same' ? 'ok' : match === 'different' ? 'warn' : 'neutral'); property(n.match, 'hidden', !text);
+  }
+  window.addEventListener('cnc-v2-change', v2FilesSchedule);
   window.cncLibraryView = {
     mount: mount, unmount: unmount,
     // For projects.js: the programs listed, and the selection of an associated file.
     files: function () { return files.map(function (f) { return { name: f.name, display: displayName(f.name) }; }); },
+    v2Messages: V2_FILES_MESSAGES,
     selectName: function (name) { var f = files.filter(function (x) { return x.name === name; })[0]; if (f) select(f, false); return !!f; }
   };
   mount();
