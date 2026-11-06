@@ -53,7 +53,18 @@
   var note=document.createElement('p');note.className='tool-position-note';note.id='tool-position-note';
   if(img.parentNode&&typeof img.parentNode.insertAdjacentElement==='function')img.parentNode.insertAdjacentElement('afterend',note);else document.getElementById('home-job-note').insertAdjacentElement('afterend',note);
   var t=(root.cncI18n&&root.cncI18n.t)||function(s){return s;};
-  var state=null,simulation=false,received=0,frame=null,expiry=null,disposed=false;
+  var state=null,simulation=false,received=0,receivedMono=null,frame=null,expiry=null,disposed=false,v2Seen=false;
+  function v2(){if(root.cncV2&&typeof root.cncV2.gate==='function'&&root.cncV2.gate())v2Seen=true;return v2Seen;}
+  function mono(){return root.performance&&typeof root.performance.now==='function'?root.performance.now():null;}
+  function reportAge(){
+    var age=state&&state.statusAgeMs,n=mono();
+    if(typeof age!=='number'||!isFinite(age)||age<0||receivedMono===null||typeof n!=='number'||!isFinite(n)||n<receivedMono)return null;
+    return age+n-receivedMono;
+  }
+  function sameContent(meta,s){
+    var a=meta&&meta.fingerprint,b=s&&s.fingerprint;
+    return typeof a==='string'&&!!a&&typeof b==='string'&&!!b&&a.toLowerCase().replace(/^sha256:/,'')===b.toLowerCase().replace(/^sha256:/,'');
+  }
   // The image box is read at most once a second (and at once after a screen change, a resize
   // or a new image): reading it forces a layout of the screen, and reports come 4 times a
   // second during a job. The marker then moves with a transform, which needs no layout.
@@ -90,7 +101,8 @@
     try{ls=lv&&typeof lv.state==='function'?lv.state():null;}catch(_){ls=null;}
     if(ls&&(ls.closed||!ls.gpu||!ls.live))ls=null;
     if(ls){var text=liveNote(ls);if(text!==null){marker.hidden=true;trail.hidden=true;if(note.textContent!==text)note.textContent=text;return;}}
-    if(!s||!s.fresh||Date.now()-received>2500||img.hidden||!meta||!s.name||meta.file!==s.name){hide(t('Position outil : données ou aperçu indisponibles.'));return;}
+    var ageV2=v2()&&!simulation?reportAge():null;
+    if(!s||!s.fresh||(v2()&&!simulation?ageV2===null||ageV2>2500||!sameContent(meta,s):Date.now()-received>2500)||img.hidden||!meta||!s.name||meta.file!==s.name){hide(t('Position outil : données ou aperçu indisponibles.'));return;}
     if(!meta.projection){hide(t('Position outil : régénérez cet ancien aperçu dans Fichiers.'));return;}
     // The chosen 3D view, when it is the image shown; otherwise the stored 2D image.
     var view=img.cncView&&img.cncView.src===img.getAttribute('src')?img.cncView:null,projection=view?view.projection:meta.projection;
@@ -128,7 +140,7 @@
     if(marker.style.left!==left)marker.style.left=left;if(marker.style.top!==top)marker.style.top=top;
     if(marker.style.transform!==move)marker.style.transform=move;marker.hidden=!!ls;
     // Age of the reported position: the server's age of the status report plus its time in transit here.
-    var age=(typeof s.statusAgeMs==='number'&&isFinite(s.statusAgeMs)&&s.statusAgeMs>=0?s.statusAgeMs:0)+Math.max(0,Date.now()-received);
+    var age=v2()&&!simulation?ageV2:(typeof s.statusAgeMs==='number'&&isFinite(s.statusAgeMs)&&s.statusAgeMs>=0?s.statusAgeMs:0)+Math.max(0,Date.now()-received);
     // In whole seconds: a tenth would rewrite the note (and lay Suivi out) at every report.
     var ageText=age<1000?t('moins d’une seconde'):Math.floor(age/1000)+' s';
     var label=(simulation?t('Point bleu : position fictive G54. Le travail simulé ne déplace pas ce point.'):t('Image : parcours prévu.')+' '+t('Point bleu : position de travail rapportée par Grbl il y a ')+ageText+t(', G54 · projection indicative.'))+trailLabel;
@@ -157,11 +169,15 @@
     if(document.hidden||!document.getElementById('screen-home').classList.contains('active')){if(!marker.hidden)marker.hidden=true;return;}
     if(frame===null)frame=requestAnimationFrame(paint);
   }
-  function expire(){clearTimeout(expiry);expiry=null;if(!document.hidden&&document.getElementById('screen-home').classList.contains('active'))expiry=setTimeout(schedule,2600);}
-  root.addEventListener('cnc-job-status',function(e){state=e.detail.machine;simulation=!!e.detail.simulation;received=Date.now();schedule();expire();});
+  function expire(){
+    clearTimeout(expiry);expiry=null;if(disposed||document.hidden||!document.getElementById('screen-home').classList.contains('active'))return;
+    if(v2()&&!simulation){var age=reportAge();if(age!==null&&age<=2500)expiry=setTimeout(schedule,2501-age);}
+    else expiry=setTimeout(schedule,2600);
+  }
+  root.addEventListener('cnc-job-status',function(e){if(disposed)return;state=e.detail.machine;simulation=!!e.detail.simulation;received=Date.now();receivedMono=mono();schedule();expire();});
   root.addEventListener('cnc-screen-change',function(){invalidate();schedule();expire();});
   root.addEventListener('resize',function(){invalidate();schedule();});img.addEventListener('load',function(){invalidate();schedule();});
   document.addEventListener('visibilitychange',function(){schedule();expire();});
-  root.addEventListener('pagehide',function(e){if(e.persisted)return;disposed=true;if(frame!==null)cancelAnimationFrame(frame);clearTimeout(expiry);});
+  root.addEventListener('pagehide',function(e){if(e.persisted&&!v2())return;disposed=true;if(frame!==null)cancelAnimationFrame(frame);frame=null;clearTimeout(expiry);expiry=null;state=null;drawnTrail={source:null,points:-1};});
   schedule();
 })(typeof window==='undefined'?globalThis:window);

@@ -55,3 +55,23 @@
 .pgl-tool{position:absolute;left:0;top:0;z-index:2;width:16px;height:16px;margin:-8px 0 0 -8px;box-sizing:border-box;border-radius:50%;background:var(--accent,#8ecbff);border:3px solid #fff;box-shadow:0 0 0 1px #000;pointer-events:none;will-change:transform}
 .pgl-tool.is-stale{background:transparent;border-color:#87969f}
 .pgl-tool[hidden]{display:none}
+
+/* L1: inspection belongs to the scene, never to the command strip or page grid.
+ * The loupe is another viewport of the existing GL canvas; these are DOM labels only. */
+.perf-v2 .pgl-examine{min-height:48px;flex:0 0 auto}
+.perf-v2 .pgl-inline .pgl-tools.is-folded>.pgl-examine{display:block}
+.perf-v2 .pgl-v2-inspection{position:absolute;left:12px;bottom:12px;z-index:4;width:min(440px,calc(100% - 24px));max-height:45%;box-sizing:border-box;overflow:auto;overscroll-behavior:contain;padding:12px;border:1px solid var(--line-strong,#647784);border-radius:8px;background:var(--surface,#17212a);color:var(--fg,#edf2f5);font-size:16px;line-height:1.4;touch-action:pan-y}
+.perf-v2 .pgl-inspection-hint{margin:0 0 8px;font-size:16px;overflow-wrap:anywhere}
+.perf-v2 .pgl-inspection-rows{margin:0 0 8px;font-size:16px;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.perf-v2 .pgl-inspection-candidates{display:flex;flex-direction:column;gap:8px;margin:8px 0}
+.perf-v2 .pgl-candidate{min-height:48px;width:100%;text-align:left;white-space:normal;font-size:16px}
+.perf-v2 .pgl-inspection-return{min-height:64px;width:100%;white-space:normal;font-size:16px}
+.perf-v2 .pgl-inspection-crosshair{position:absolute;left:0;top:0;z-index:3;width:28px;height:28px;margin:-14px 0 0 -14px;box-sizing:border-box;border:2px dashed #ffe38a;border-radius:0;box-shadow:0 0 0 1px #101820;pointer-events:none}
+.perf-v2 .pgl-inspection-crosshair::before,.perf-v2 .pgl-inspection-crosshair::after{content:"";position:absolute;left:50%;top:50%;background:#ffe38a;box-shadow:0 0 0 1px #101820}
+.perf-v2 .pgl-inspection-crosshair::before{width:38px;height:2px;transform:translate(-50%,-50%)}
+.perf-v2 .pgl-inspection-crosshair::after{width:2px;height:38px;transform:translate(-50%,-50%)}
+.perf-v2 .pgl-loupe-frame{position:absolute;right:12px;top:76px;z-index:2;width:160px;height:160px;box-sizing:border-box;border:2px solid #ffe38a;border-radius:0;pointer-events:none;color:#fff;background:transparent;font-size:16px}
+.perf-v2 .pgl-loupe-frame::before{content:attr(aria-label);position:absolute;left:-2px;right:-2px;bottom:100%;padding:4px;background:#17212a;color:#ffe38a;font-size:16px}
+.perf-v2 .pgl-v2-inspection[hidden],.perf-v2 .pgl-inspection-crosshair[hidden],.perf-v2 .pgl-loupe-frame[hidden]{display:none}
+.perf-v2 .pgl-foot{font-size:16px}
+@media(max-height:600px){.perf-v2 .pgl-v2-inspection{max-height:55%}}

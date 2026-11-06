@@ -143,6 +143,8 @@
       result.maxTextureSize = Number(gl.getParameter(gl.MAX_TEXTURE_SIZE)) || 0;
       var attrs = gl.getContextAttributes && gl.getContextAttributes();
       result.antialias = !!(attrs && attrs.antialias);
+      // Probe contexts obey the same ownership rule as the rendered scene.
+      lose(gl); gl = null;
       try {
         var c2 = doc.createElement('canvas'); c2.width = 1; c2.height = 1;
         var g2 = c2.getContext('webgl2', { failIfMajorPerformanceCaveat: true });
@@ -369,10 +371,12 @@
         buffers.splice(i, 1); if (!released) try { gl.deleteBuffer(b.id); } catch (_) {}
         if (bound === b) bound = null;
       },
-      begin: function (m, w, h, dpr) {
+      begin: function (m, w, h, dpr, rect) {
         if (released || (gl.isContextLost && gl.isContextLost())) return false;
         frameDpr = dpr || 1; width = -1;
-        gl.viewport(0, 0, w, h); gl.clearColor(BG[0], BG[1], BG[2], 1); gl.clearDepth(1);
+        if (rect) { gl.enable(gl.SCISSOR_TEST); gl.scissor(rect[0], rect[1], rect[2], rect[3]); gl.viewport(rect[0], rect[1], rect[2], rect[3]); }
+        else { gl.disable(gl.SCISSOR_TEST); gl.viewport(0, 0, w, h); }
+        gl.clearColor(BG[0], BG[1], BG[2], 1); gl.clearDepth(1);
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         gl.useProgram(program); gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
         gl.uniformMatrix4fv(U.m, false, m); gl.uniform3f(U.bg, BG[0], BG[1], BG[2]); gl.uniform1f(U.fade, DEPTH_FADE);
@@ -446,6 +450,11 @@
     var win = options.window || root, doc = options.document || win.document;
     if (current) current.close('replaced');
     var gate = gpuGate(win), gpu = !!gate;
+    var v2 = gpu && win.cncV2 && win.cncV2.gate() ? win.cncV2 : null;
+    function vt(message) { var p = v2 && v2.use('inspect'); return p && typeof p.text === 'function' ? p.text(message) : message; }
+    var inspector = null, inspecting = false, selection = null, pickResult = null, inspectionDirty = false;
+    var qualityMode = gpu ? 'full' : 'unknown', diagnostic = null, diagnosticLast = null;
+    var passCache = null, preparingPasses = null, idlePass = null, idlePassKind = '', passEpoch = 0, maxPassSliceMs = 0;
     var liveOptions = gpu && options.live && typeof options.live === 'object' ? { progress: options.live.progress === true, tool: options.live.tool === true } : { progress: false, tool: false };
     var pathStyle = gpu && (options.pathStyle === 'ghost' || options.pathStyle === 'hidden') ? options.pathStyle : 'normal';
     var fitMode = gpu && options.fit === 'all' ? 'all' : 'path';
@@ -491,6 +500,20 @@
     canvas.setAttribute('role', 'img'); canvas.setAttribute('aria-label', t('Parcours en 3D, un doigt pour tourner, deux pour zoomer et déplacer, un appui pour inspecter'));
     if (canvas.style) canvas.style.touchAction = 'none';
     stage.appendChild(canvas); dialog.appendChild(stage);
+    var examineButton = null, returnButton = null, inspectionPanel = null, inspectionHint = null, inspectionRows = null, candidateList = null, crosshair = null, loupeFrame = null;
+    if (v2) {
+      examineButton = el(doc, 'button', 'pgl-examine', vt('Examiner')); examineButton.type = 'button'; examineButton.setAttribute('aria-pressed', 'false'); tools.appendChild(examineButton);
+      inspectionPanel = el(doc, 'section', 'pgl-v2-inspection'); inspectionPanel.hidden = true; inspectionPanel.setAttribute('aria-label', vt('Inspection visuelle'));
+      returnButton = el(doc, 'button', 'pgl-inspection-return', vt('Revenir au direct')); returnButton.type = 'button'; inspectionPanel.appendChild(returnButton);
+      inspectionHint = el(doc, 'p', 'pgl-inspection-hint'); inspectionHint.setAttribute('role', 'status'); inspectionPanel.appendChild(inspectionHint);
+      inspectionRows = el(doc, 'p', 'pgl-inspection-rows'); inspectionPanel.appendChild(inspectionRows);
+      candidateList = el(doc, 'div', 'pgl-inspection-candidates'); inspectionPanel.appendChild(candidateList); stage.appendChild(inspectionPanel);
+      crosshair = el(doc, 'span', 'pgl-inspection-crosshair'); crosshair.hidden = true; crosshair.setAttribute('aria-hidden', 'true'); stage.appendChild(crosshair);
+      loupeFrame = el(doc, 'span', 'pgl-loupe-frame'); loupeFrame.setAttribute('aria-label', vt('Loupe · nominal')); loupeFrame.hidden = true; stage.appendChild(loupeFrame);
+      on(examineButton, 'click', function () { if (inspecting) endInspection(); else if (attachInspector() && inspector.begin()) { inspecting = true; inspectionDirty = true; setFollow(false); invalidate(); } });
+      on(returnButton, 'click', endInspection);
+      on(candidateList, 'click', function (e) { var id = e.target && e.target.getAttribute('data-segment'); if (id !== null && id !== undefined && inspector) { inspector.choose(Number(id)); inspectionDirty = true; invalidate(); } });
+    }
     var side = el(doc, 'div', 'pgl-side'); dialog.appendChild(side);
     // Filters
     var filterBox = el(doc, 'fieldset', 'pgl-filters'), legend = el(doc, 'legend', '', t('Filtres')); filterBox.appendChild(legend);
@@ -577,11 +600,12 @@
         on(rm, 'click', function () { clamps.splice(i, 1); PI.saveClamps(meta.fingerprint, clamps, storage); upload(); invalidate(); });
         li.appendChild(rm); clampList.appendChild(li);
       });
+      if (v2) { preparePasses(); publishInspectionPath(); }
     }
     function resize() {
       var rect = stage.getBoundingClientRect ? stage.getBoundingClientRect() : { width: 800, height: 450 };
       var w = Math.max(1, Math.round(rect.width)), h = Math.max(1, Math.round(rect.height));
-      var nextDpr = Math.min(gpuMode ? GPU_MAX_DPR : MAX_DPR, win.devicePixelRatio || 1);
+      var nextDpr = Math.min(v2 && qualityMode === 'reduced' ? 1 : gpuMode ? GPU_MAX_DPR : MAX_DPR, win.devicePixelRatio || 1);
       if (w !== width || h !== height || nextDpr !== dpr) {
         dpr = nextDpr;
         var first = !width; width = w; height = h;
@@ -593,19 +617,28 @@
     }
     function paint(now) {
       frame = null; if (closed) return;
+      if (v2 && (!v2.gate() || doc.hidden)) { close(doc.hidden ? 'document-hidden' : 'gate'); return; }
       now = typeof now === 'number' ? now : Date.now();
       // During a gesture without the GPU rendering: at most one frame every 33 ms. With it: every
       // animation frame (target 60 frames/s). A late frame is never caught up: the next one draws now.
       if (!gpuMode && gesture && now - lastFrame < GESTURE_FRAME_MS) { frame = win.requestAnimationFrame(paint); return; }
       lastFrame = now;
       var started = clock();
+      if (v2 && !passCache && !preparingPasses && v2.state().safeIdle) { preparePasses(); publishInspectionPath(); }
       beforePaint(now);
       var ok = gpuMode ? paintGpu() : renderer.draw(matrix(cam, width, height, zs), canvas.width, canvas.height, gesture);
       if (!ok) { fail(t('Erreur WebGL : vue 3D libre fermée, vues fixes conservées.')); return; }
+      afterPaint(now);
+      paintInspection();
       var spent = clock() - started;
       counters.frames++; if (gesture) counters.gestureFrames++;
       counters.lastPaintMs = spent; if (spent > counters.maxPaintMs) counters.maxPaintMs = spent;
-      afterPaint(now);
+      if (diagnostic) {
+        diagnostic.costs.push(spent);
+        if (diagnostic.last !== null) diagnostic.gaps.push(Math.max(0, now - diagnostic.last));
+        diagnostic.last = now;
+        if (diagnostic.costs.length >= diagnostic.frames) finishDiagnostic(false); else invalidate();
+      }
     }
     // Vertices of the stock and clamp boxes and the axis triad (one colour per vertex).
     function extraVertices(boxes, axisLength) {
@@ -649,13 +682,13 @@
     }
     // What « Recentrer », the presets and the first frame fit: the path, or everything drawn (fit: 'all').
     function fitBounds() { return fitMode === 'all' ? drawnBounds(pathStyle !== 'hidden') : bounds; }
-    function paintGpu() {
+    function drawGpu(sceneCamera, viewport) {
       var b = drawnBounds(true), radius = 1;
       for (var i = 0; i < 8; i++) {
         var x = (i & 1 ? b[3] : b[0]) - centre[0], y = (i & 2 ? b[4] : b[1]) - centre[1], z = ((i & 4 ? b[5] : b[2]) - centre[2]) * zs;
         radius = Math.max(radius, Math.sqrt(x * x + y * y + z * z));
       }
-      if (!renderer.begin(depthMatrix(cam, width, height, zs, radius * 1.05), canvas.width, canvas.height, dpr)) return false;
+      if (!renderer.begin(depthMatrix(sceneCamera, viewport ? viewport[2] / dpr : width, viewport ? viewport[3] / dpr : height, zs, radius * 1.05), canvas.width, canvas.height, dpr, viewport)) return false;
       renderer.lines(extrasBuffer, 0, extrasBuffer.count, { px: 1 });
       var built = gpuPath.built, A = progressLine();
       // Order (spec 3.1): rapids, work remaining and acknowledged (the shader compares each line with A), current pass.
@@ -672,7 +705,7 @@
         if (o.kind === 'program') { renderer.lines(gpuPath.buffer, 0, built.rapidCount + built.cutCount, { px: px, solid: colour, shift: shift }); return; }
         if (o.kind === 'marker') {
           // Fixed size on screen (24 px CSS), over everything.
-          var k = 24 / Math.max(1e-6, cam.zoom);
+          var k = 24 / Math.max(1e-6, sceneCamera.zoom);
           renderer.lines(triadBuffer, 0, 6, { px: 2, solid: colour, shift: shift, scale: [k, k, k / zs], depth: false });
           return;
         }
@@ -685,6 +718,16 @@
         renderer.lines(o.buffer, 0, o.buffer.count, { px: px, solid: colour, shift: shift });
       });
       return renderer.end();
+    }
+    function paintGpu() {
+      if (!drawGpu(cam)) return false;
+      if (v2 && inspecting && selection && selection.nominalMm && qualityMode === 'full') {
+        var size = Math.min(160, Math.floor(width / 3), Math.floor(height / 3)), p = selection.nominalMm, b = basis(cam.yaw, cam.pitch);
+        var q = [p.x - centre[0], p.y - centre[1], (p.z - centre[2]) * zs], z = cam.zoom * 3;
+        var lens = { yaw: cam.yaw, pitch: cam.pitch, zoom: z, panX: -z * (b.r[0] * q[0] + b.r[1] * q[1]), panY: -z * (b.u[0] * q[0] + b.u[1] * q[1] + b.u[2] * q[2]) };
+        return drawGpu(lens, [Math.round((width - size - 12) * dpr), Math.round((height - size - 76) * dpr), Math.round(size * dpr), Math.round(size * dpr)]);
+      }
+      return true;
     }
     function invalidate() { if (!closed && frame === null) frame = win.requestAnimationFrame(paint); }
 
@@ -739,6 +782,13 @@
       cam.panX = px - (px - cam.panX) * k; cam.panY = py - (py - cam.panY) * k; cam.zoom = z;
     }
     function tap(e) {
+      if (v2) {
+        if (!inspecting || !inspector) return;
+        var r = canvas.getBoundingClientRect();
+        pickResult = inspector.pick({ x: e.clientX - r.left, y: e.clientY - r.top, radius: e.pointerType === 'pen' ? 12 : 24, project: projectPoint });
+        if (pickResult && pickResult.candidates && pickResult.candidates.length === 1 && !pickResult.truncated) inspector.choose(pickResult.candidates[0].segment);
+        inspectionDirty = true; invalidate(); return;
+      }
       // The inline view has no inspection panel (preview-advanced.css): a tap there reads nothing.
       if (inline) return;
       var rect = canvas.getBoundingClientRect(), key = [cam.yaw, cam.pitch, cam.zoom, cam.panX, cam.panY, zs, width, height].join(',');
@@ -756,6 +806,7 @@
       });
     }
     function showInspection(i) {
+      if (v2) { if (attachInspector()) inspector.choose(i - 1); return; }
       inspected = i;
       if (i < 0) { hint.textContent = t('Aucun segment à cet endroit.'); rows.textContent = ''; return; }
       hint.textContent = t('Lecture de la ligne source…');
@@ -805,6 +856,11 @@
     on(win, 'cnc-screen-change', function () { close('screen'); });
     on(win, 'cnc-screen-lock', function (e) { if (e && e.detail) close('lock'); });
     on(win, 'pagehide', function () { close('pagehide'); });
+    if (v2) {
+      on(doc, 'visibilitychange', function () { if (doc.hidden) { fullDrop(); close('document-hidden'); } });
+      on(win, 'cnc-v2-change', function () { if (!v2.gate()) { fullDrop(); close('gate'); } });
+      on(win, 'cnc-v2-lifecycle', function (e) { var reason = e.detail && e.detail.reason; if (reason === 'job-or-unknown') { stopPassPreparation(); stopReads(); } else if (reason === 'program-changed') { fullDrop(); close(reason); } });
+    }
     if (!inline) on(doc, 'keydown', function (e) { if (e.key === 'Escape') { stop(e); close('user'); } });
 
     // ---- Live view (spec 3): reports, acknowledged lines, current pass, interpolated tool marker ----
@@ -823,7 +879,10 @@
       toolMark = el(doc, 'span', 'pgl-tool'); toolMark.hidden = true; toolMark.setAttribute('aria-hidden', 'true'); stage.appendChild(toolMark);
     }
     function totalLines() { var p = meta.path3d; return p && typeof p.lines === 'number' && p.lines > 0 ? p.lines : path.lines[path.count - 1] || 0; }
-    function sameProgram(m) { return !!m && m.name === meta.file && !(m.fingerprint && meta.fingerprint && PI.sameFingerprint && !PI.sameFingerprint(m.fingerprint, meta.fingerprint)); }
+    function sameProgram(m) {
+      if (v2) return !!m && m.name === meta.file && !!m.fingerprint && !!meta.fingerprint && PI.sameFingerprint(m.fingerprint, meta.fingerprint);
+      return !!m && m.name === meta.file && !(m.fingerprint && meta.fingerprint && PI.sameFingerprint && !PI.sameFingerprint(m.fingerprint, meta.fingerprint));
+    }
     // Last segment acknowledged: the largest i with lines[i] <= A (the lines grow along the path).
     function lastSegment(A) {
       var L = path.lines, lo = 1, hi = path.count - 1, best = 0;
@@ -858,9 +917,14 @@
     }
     function onStatus(e) {
       var d = e && e.detail || {}, m = d.machine;
-      if (!m || closed) return;
+      if (closed) return;
+      if (!m) {
+        if (v2) { live.fresh = false; live.previous = null; live.machine = null; stopReads(); if (live.staleTimer !== null) clearTimeout(live.staleTimer); live.staleTimer = null; invalidate(); }
+        return;
+      }
       var now = clock(), wasStale = isStale(now);
       live.machine = m; live.simulation = !!d.simulation; live.receivedAt = now; live.fresh = m.fresh === true;
+      if (v2 && !live.simulation && !(typeof m.statusAgeMs === 'number' && isFinite(m.statusAgeMs) && m.statusAgeMs >= 0 && m.statusAgeMs <= STALE_MS)) live.fresh = false;
       // The whole program is read at rest only (Q7c): a read still in flight when a job starts is cancelled.
       if (busy()) stopReads();
       live.alarm = /^alarm/i.test(String(m.activeState || ''));
@@ -885,7 +949,8 @@
         }
         // One frame when the report becomes stale (2.5 s), then none.
         if (live.staleTimer !== null) clearTimeout(live.staleTimer);
-        live.staleTimer = setTimeout(function () { live.staleTimer = null; invalidate(); }, STALE_MS + 100);
+        live.staleTimer = null;
+        if (!v2 || (live.fresh && live.report)) live.staleTimer = setTimeout(function () { live.staleTimer = null; invalidate(); }, v2 ? Math.max(1, STALE_MS - live.report.age + 1) : STALE_MS + 100);
       }
       invalidate();
     }
@@ -906,7 +971,11 @@
       readWatch = true;
       on(win, 'cnc-job-status', function (e) { var m = e && e.detail && e.detail.machine; if (m && (m.workflow === 'running' || m.workflow === 'paused')) stopReads(); });
     }
-    function isStale(now) { return !live.fresh || (typeof now === 'number' ? now : clock()) - live.receivedAt > STALE_MS; }
+    function isStale(now) {
+      now = typeof now === 'number' ? now : clock();
+      if (v2) return !live.fresh || !live.report || live.report.age + Math.max(0, now - live.report.t) > STALE_MS;
+      return !live.fresh || now - live.receivedAt > STALE_MS;
+    }
     function running() { return !!live.machine && live.machine.workflow === 'running'; }
     function busy() { return !!live.machine && (live.machine.workflow === 'running' || live.machine.workflow === 'paused'); }
     // A job running or paused, as this view knows it (live view) or as the page does (cncState).
@@ -944,13 +1013,13 @@
         // only looked at (Fichiers) does not change the loaded program: its geometry stays.
         if (fullCache && (options.fullGeometry === true || options.loaded === true)) fullDrop();
       }
-      if (geometry !== 'full' && options.fullGeometry === true && typeof PI.geometry === 'function' && !jobBusy()) {
+      if (geometry !== 'full' && options.fullGeometry === true && typeof PI.geometry === 'function' && !jobBusy() && (!v2 || v2.state().safeIdle)) {
         var asked = fullRequest = PI.geometry(meta, { Worker: options.Worker, fetchProgram: options.fetchProgram });
         watchReads();
         asked.promise.then(function (r) {
           if (fullRequest !== asked) return;
           fullRequest = null;
-          if (closed || busy()) return;
+          if (closed || busy() || (v2 && (!v2.gate() || !v2.state().safeIdle))) return;
           if (r.tooLong) { geometryReason = 'too-long'; geometryTotal = r.segments; invalidate(); return; }
           fullDrop(); fullKeep(meta.fingerprint, r.path); useFull(r.path, true);
         }, function () { if (fullRequest === asked) fullRequest = null; });
@@ -959,6 +1028,7 @@
     // Cumulative length along the path, once per view.
     function cumulativeLengths() {
       if (cumulative) return cumulative;
+      if (v2) return passCache && passCache.lengths;
       var P = path.positions, n = path.count, c = new Float64Array(n);
       for (var i = 1; i < n; i++) { var dx = P[i * 3] - P[i * 3 - 3], dy = P[i * 3 + 1] - P[i * 3 - 2], dz = P[i * 3 + 2] - P[i * 3 - 1]; c[i] = c[i - 1] + Math.sqrt(dx * dx + dy * dy + dz * dz); }
       return (cumulative = c);
@@ -979,7 +1049,8 @@
       if (limit < 1) return null;
       var h = hint > 0 ? Math.min(hint, limit) : 1;
       scan(h - 50, Math.min(limit, h + 2000));
-      if (!best) scan(1, limit);
+      // v2 bounds the live snapping search as well. A miss displays the report itself.
+      if (!best && !v2) scan(1, limit);
       return best;
     }
     // Point of the path at abscissa s, on a segment <= limit (s itself is never past the last snap).
@@ -999,6 +1070,7 @@
     }
     // The current pass: work segments around the snapped one, bounded by rapids and by L.
     function passOf(seg, limit) {
+      if (v2) return passCache && seg > 0 && seg <= limit && !path.rapid[seg] ? [passCache.start[seg], Math.min(passCache.end[seg], limit)] : null;
       var R = path.rapid; if (!seg || seg > limit || R[seg]) return null;
       var from = seg, to = seg;
       while (from > 1 && !R[from - 1]) from--;
@@ -1007,6 +1079,11 @@
     }
     function passRange() {
       var pass = live.pass; if (!pass || !gpuPath) return null;
+      if (v2) {
+        if (!passCache) return null;
+        var startVisible = passCache.next[pass[0]], endVisible = passCache.previous[pass[1]];
+        return startVisible < pass[0] || startVisible > pass[1] || endVisible < startVisible ? null : [gpuPath.built.first[startVisible], gpuPath.built.first[endVisible] - gpuPath.built.first[startVisible] + 2];
+      }
       var first = gpuPath.built.first, a = -1, b = -1;
       for (var i = pass[0]; i <= pass[1]; i++) if (first[i] >= 0) { if (a < 0) a = first[i]; b = first[i]; }
       return a < 0 ? null : [a, b - a + 2];
@@ -1018,7 +1095,7 @@
       if (!liveOn || !liveOptions.tool || !live.report) return;
       var now = clock(), R = live.report, stale = isStale(now), L = live.lastAckSegment;
       // Snapped and interpolated only while a job runs, with fresh reports of this program and known progress.
-      var canSnap = !stale && !live.alarm && running() && liveOptions.progress && live.ackLine >= 0 && sameProgram(live.machine) && L >= 1;
+      var canSnap = !stale && !live.alarm && running() && liveOptions.progress && live.ackLine >= 0 && sameProgram(live.machine) && L >= 1 && (!v2 || !!passCache);
       live.display = R.p;
       if (canSnap) {
         var S = snapOf(R, L), prev = live.previous, PS = prev ? snapOf(prev, L) : null;
@@ -1073,8 +1150,123 @@
     function dropOverlay(o) { if (o.buffer && renderer && renderer.free) renderer.free(o.buffer); o.buffer = null; }
     function overlaysChanged() { invalidate(); }
 
+    // Derived pass boundaries, visible GPU ranges and arc lengths are prepared only at rest.
+    // Every slice has both a wall-clock budget and a hard operation cap (also with coarse clocks).
+    function stopPassPreparation() {
+      passEpoch++;
+      if (idlePass !== null) { if (idlePassKind === 'idle' && win.cancelIdleCallback) win.cancelIdleCallback(idlePass); else win.clearTimeout(idlePass); }
+      idlePass = null; preparingPasses = null;
+    }
+    function preparePasses() {
+      stopPassPreparation(); passCache = null; cumulative = null;
+      if (!v2 || !gpuPath || !v2.gate() || !v2.state().safeIdle || doc.hidden) return;
+      var n = path.count, epoch = passEpoch, i = 1, back = false, first = 1, last = n - 1, visible = -1;
+      var cache = preparingPasses = { start: new Uint32Array(n), end: new Uint32Array(n), next: new Int32Array(n), previous: new Int32Array(n), lengths: new Float64Array(n) };
+      function schedule() {
+        idlePassKind = typeof win.requestIdleCallback === 'function' ? 'idle' : 'timer';
+        idlePass = idlePassKind === 'idle' ? win.requestIdleCallback(slice, { timeout: 250 }) : win.setTimeout(slice, 0);
+      }
+      function slice(deadline) {
+        idlePass = null;
+        if (epoch !== passEpoch || closed || !path || !v2.gate() || !v2.state().safeIdle || doc.hidden) { preparingPasses = null; return; }
+        var began = clock(), operations = 0, P = path.positions, R = path.rapid, F = gpuPath.built.first;
+        while (operations++ < 2048 && clock() - began < 4 && (!deadline || deadline.didTimeout || deadline.timeRemaining() > 0)) {
+          if (!back) {
+            if (i >= n) { back = true; i = n - 1; visible = -1; continue; }
+            if (R[i] || (i > 1 && R[i - 1])) first = i;
+            cache.start[i] = first;
+            if (F[i] >= 0) visible = i; cache.previous[i] = visible;
+            var dx = P[i * 3] - P[i * 3 - 3], dy = P[i * 3 + 1] - P[i * 3 - 2], dz = P[i * 3 + 2] - P[i * 3 - 1];
+            cache.lengths[i] = cache.lengths[i - 1] + Math.sqrt(dx * dx + dy * dy + dz * dz); i++;
+          } else {
+            if (i < 1) { passCache = cache; cumulative = cache.lengths; preparingPasses = null; invalidate(); break; }
+            if (R[i] || (i < n - 1 && R[i + 1])) last = i;
+            cache.end[i] = last;
+            if (F[i] >= 0) visible = i; cache.next[i] = visible; i--;
+          }
+        }
+        maxPassSliceMs = Math.max(maxPassSliceMs, clock() - began);
+        if (preparingPasses) schedule();
+      }
+      schedule();
+    }
+    function camera() { return cam && { yaw: cam.yaw, pitch: cam.pitch, zoom: cam.zoom, panX: cam.panX, panY: cam.panY, zScale: zs, follow: followOn }; }
+    function restoreCamera(value) {
+      if (closed || !value || ['yaw', 'pitch', 'zoom', 'panX', 'panY', 'zScale'].some(function (k) { return typeof value[k] !== 'number' || !isFinite(value[k]); })) return;
+      cam = { yaw: value.yaw, pitch: value.pitch, zoom: value.zoom, panX: value.panX, panY: value.panY }; zs = value.zScale; followOn = value.follow === true; invalidate();
+    }
+    function projectPoint(x, y, z) {
+      if (!cam || closed) return null;
+      var b = basis(cam.yaw, cam.pitch), X = x - centre[0], Y = y - centre[1], Z = (z - centre[2]) * zs;
+      return { x: width / 2 + cam.zoom * (b.r[0] * X + b.r[1] * Y) + cam.panX, y: height / 2 - cam.zoom * (b.u[0] * X + b.u[1] * Y + b.u[2] * Z) - cam.panY };
+    }
+    function publishInspectionPath() {
+      if (!inspector || !path || !v2 || !v2.identity || !v2.state().safeIdle || !v2.gate()) return;
+      var m = live && live.machine;
+      if (!m) try { m = win.cncState && win.cncState.get().machine; } catch (_) {}
+      if (options.loaded && (!m || m.name !== meta.file || !m.fingerprint || !meta.fingerprint || !PI.sameFingerprint(m.fingerprint, meta.fingerprint))) return;
+      var identity = v2.identity.create({ role: options.loaded ? 'loaded' : 'selection', file: meta.file, fingerprint: meta.fingerprint, controller: m && m.port, generation: m && m.generation, revision: m && m.revision });
+      if (!identity.key) return;
+      inspector.updatePath(path, { identity: identity, geometryKey: JSON.stringify([identity.key, identity.jobKey || null, v2.state().programKey || null, geometry, meta.path3d.tolerance, path.count, filters]), quality: geometry, toleranceMm: geometry === 'full' ? 0.01 : meta.path3d.tolerance || null });
+    }
+    function attachInspector() {
+      if (!v2 || closed || !v2.gate()) return false;
+      var p = v2.use('inspect');
+      if (!p || p.stub || typeof p.attach !== 'function') return false;
+      if (p !== inspector) { if (inspector && inspector.detach) inspector.detach('replaced'); inspector = p; inspector.attach(handle); publishInspectionPath(); }
+      return true;
+    }
+    function setInspection(value) { if (closed) return; selection = value; inspectionDirty = true; invalidate(); }
+    function endInspection() {
+      if (inspector && inspecting) inspector.end();
+      inspecting = false; selection = null; pickResult = null; inspectionDirty = true; invalidate();
+    }
+    function paintInspection() {
+      if (!v2 || !inspectionPanel) return;
+      var selected = inspecting && selection && selection.nominalMm;
+      if (selected) {
+        var p = selection.nominalMm, pt = projectPoint(p.x, p.y, p.z);
+        crosshair.style.transform = 'translate(' + pt.x.toFixed(1) + 'px,' + pt.y.toFixed(1) + 'px)';
+      }
+      crosshair.hidden = !selected; loupeFrame.hidden = !selected || qualityMode !== 'full';
+      var size = Math.min(160, Math.floor(width / 3), Math.floor(height / 3)); loupeFrame.style.width = size + 'px'; loupeFrame.style.height = size + 'px';
+      if (!inspectionDirty) return; inspectionDirty = false;
+      inspectionPanel.hidden = !inspecting; examineButton.setAttribute('aria-pressed', String(inspecting));
+      inspectionHint.textContent = !pickResult ? vt('Touchez un segment · sélection visuelle uniquement') : !pickResult.ready ? vt('Index indisponible : préparation au repos requise.') : pickResult.truncated ? vt('Recherche bornée : rapprochez la vue pour préciser la sélection.') : pickResult.candidates.length > 1 ? vt('Segments superposés : choisissez lequel examiner.') : !pickResult.candidates.length ? t('Aucun segment à cet endroit.') : vt('Coordonnées nominales · aucune commande machine');
+      inspectionRows.textContent = selected ? 'X ' + fmt(selection.nominalMm.x) + ' · Y ' + fmt(selection.nominalMm.y) + ' · Z ' + fmt(selection.nominalMm.z) + ' mm · ' +
+        (path.rapid[selection.segment + 1] ? vt('Rapide nominal') : vt('Travail nominal')) + ' · ' + t('Ligne ') + (selection.sourceLine || '?') + ' · ' +
+        (selection.approximate ? vt('Approximation du tracé') + ' · ' : vt('Parcours nominal') + ' · ') +
+        (typeof selection.toleranceMm === 'number' && isFinite(selection.toleranceMm) ? vt('Tolérance du tracé : ') + fmt(selection.toleranceMm) + ' mm' : vt('Tolérance inconnue')) : '';
+      candidateList.textContent = '';
+      if (pickResult && (pickResult.candidates.length > 1 || pickResult.truncated)) pickResult.candidates.slice(0, 8).forEach(function (c) { var b = el(doc, 'button', 'pgl-candidate', vt('Segment ') + (c.segment + 1) + ' · ' + t('Ligne ') + (c.sourceLine || '?')); b.type = 'button'; b.setAttribute('data-segment', String(c.segment)); candidateList.appendChild(b); });
+    }
+    function setQuality(mode) {
+      if (!v2 || closed || ['full', 'reduced', 'fixed'].indexOf(mode) < 0) return { mode: qualityMode, dpr: closed ? null : dpr };
+      qualityMode = mode;
+      if (mode === 'fixed') { close('fixed'); if (options.onFallback) options.onFallback(vt('Rendu 3D arrêté : vue fixe conservée.')); }
+      else resize();
+      return { mode: qualityMode, dpr: closed ? null : Math.min(mode === 'reduced' ? 1 : GPU_MAX_DPR, win.devicePixelRatio || 1) };
+    }
+    function percentile(values, q) { var sorted = values.slice().sort(function (a, b) { return a - b; }); return sorted.length ? sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * q) - 1)] : null; }
+    function finishDiagnostic(cancelled) {
+      if (!diagnostic) return;
+      var d = diagnostic; diagnostic = null;
+      diagnosticLast = { samples: d.costs.length, cancelled: cancelled, paintP95Ms: percentile(d.costs, .95), frameP95Ms: percentile(d.gaps, .95), budgetMs: d.budget, scope: 'javascript-issue-and-frame-intervals', gpuCompletionMeasured: false };
+      if (!cancelled && (diagnosticLast.paintP95Ms > d.budget || diagnosticLast.frameP95Ms > 25)) setQuality('reduced');
+      diagnosticLast.quality = { mode: qualityMode, dpr: closed ? null : dpr }; d.resolve(diagnosticLast);
+    }
+    function measure(input) {
+      input = input || {};
+      if (!v2 || closed || !v2.gate() || doc.hidden) return Promise.resolve({ samples: 0, cancelled: true });
+      finishDiagnostic(true);
+      return new Promise(function (resolve) { diagnostic = { frames: Math.max(1, Math.min(120, Math.floor(Number(input.frames) || 60))), budget: Math.max(1, Math.min(50, Number(input.budgetMs) || 12)), costs: [], gaps: [], last: null, resolve: resolve }; invalidate(); });
+    }
+
     function close(reason) {
       if (closed) return; closed = true;
+      stopPassPreparation(); passCache = null; finishDiagnostic(true);
+      if (v2) fullDrop();
+      if (inspector && inspector.detach) inspector.detach(reason || 'close'); inspector = null; selection = pickResult = null;
       overlays.forEach(dropOverlay); overlays = []; followOn = false;
       // (live is not set yet when the view fails while opening.)
       if (live) { if (live.staleTimer !== null) clearTimeout(live.staleTimer); live.staleTimer = null; live.report = live.previous = live.machine = live.display = null; }
@@ -1116,7 +1308,8 @@
     }
     function stats() {
       return { frames: counters.frames, gestureFrames: counters.gestureFrames, lastPaintMs: counters.lastPaintMs, maxPaintMs: counters.maxPaintMs, uploads: counters.uploads, uploadBytes: counters.uploadBytes,
-        dpr: dpr, canvas: { width: canvas.width, height: canvas.height } };
+        dpr: dpr, canvas: { width: canvas.width, height: canvas.height }, quality: { mode: qualityMode, dpr: closed ? null : dpr },
+        passes: { ready: !!passCache, pending: !!preparingPasses, maxSliceMs: maxPassSliceMs }, diagnostic: diagnosticLast };
     }
     var handle = {
       close: close,
@@ -1128,10 +1321,14 @@
           pathStyle: pathStyle, fit: fitMode, live: liveState(),
           overlays: overlays.map(function (o) { var reason = overlayReason(o); return { id: o.id, drawn: !closed && !reason, reason: reason }; }) };
       },
-      stats: stats, setOverlays: setOverlays, follow: follow,
+      stats: stats, setOverlays: setOverlays, follow: follow, camera: camera, restoreCamera: restoreCamera, project: projectPoint,
+      visible: function (segment) { return !closed && pathStyle !== 'hidden' && segment >= 0 && segment < path.count - 1 && (!mask || !!mask[segment + 1]); },
+      setInspection: setInspection, setQuality: setQuality, measure: measure, attachInspector: attachInspector,
       paint: paint, applyFilters: applyFilters, inspect: showInspection, dialog: dialog, canvas: canvas
     };
     current = handle;
+    attachInspector();
+    if (closed) return null;
     if (Array.isArray(options.overlays)) setOverlays(options.overlays);
     zLabel(); upload(); resize();
     if (!inline && closeButton.focus) try { closeButton.focus({ preventScroll: true }); } catch (_) {}

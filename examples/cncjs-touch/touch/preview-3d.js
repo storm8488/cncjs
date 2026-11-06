@@ -19,6 +19,51 @@
   var workerURL = base + 'preview-3d-worker.js?v=view3';
   var view = '2d', hosts = [], cache = [], queue = [], active = null, idle = null, nextId = 0;
   var worker = null, workerState = 'none', startup = null;
+  // v2 owns a visible scene only. Keep the v1 RT/Eco/laser scheduling unchanged.
+  var v2Seen = false, ended = false, locked = false, renderFrame = null, renderTasks = [], refreshQueued = false;
+  function releaseFixed() {
+    if (active && active.cancel) active.cancel();
+    active = null; queue = [];
+    clearTimeout(startup); startup = null;
+    if (idle !== null) { if (root.cancelIdleCallback) root.cancelIdleCallback(idle); else clearTimeout(idle); idle = null; }
+    if (worker) { worker.onmessage = worker.onerror = null; worker.terminate(); worker = null; }
+    workerState = 'none';
+    if (laserJob) { laserJob.run.cancel(); laserJob = null; }
+    cache.forEach(function (entry) { Object.keys(entry.views).forEach(function (view) { try { root.URL.revokeObjectURL(entry.views[view].url); } catch (_) {} }); });
+    cache = [];
+  }
+  function v2() {
+    var api = root.cncV2;
+    if (!v2Seen && api && typeof api.gate === 'function' && api.gate()) { v2Seen = true; releaseFixed(); }
+    return v2Seen;
+  }
+  function v2Ready() { return !ended && !locked && !document.hidden && root.cncV2 && root.cncV2.gate(); }
+  function fixedQuality() {
+    if (!v2() || !root.cncV2 || typeof root.cncV2.use !== 'function') return false;
+    var snapshot = root.cncV2.use('inspect').snapshot();
+    return !!(snapshot && snapshot.quality && snapshot.quality.mode === 'fixed');
+  }
+  function onFrame(fn, failed) {
+    if (!v2()) { fn(); return; }
+    if (!v2Ready()) return;
+    renderTasks.push(function () { try { fn(); } catch (error) { if (failed) failed(error); else throw error; } });
+    if (renderFrame !== null) return;
+    renderFrame = root.requestAnimationFrame(function () {
+      renderFrame = null; var tasks = renderTasks; renderTasks = [];
+      if (!v2Ready()) { refreshQueued = false; return; }
+      tasks.forEach(function (task) { task(); });
+    });
+  }
+  function suspend(reason) {
+    if (!v2()) return;
+    if (renderFrame !== null) root.cancelAnimationFrame(renderFrame);
+    renderFrame = null; renderTasks = []; refreshQueued = false;
+    releaseFixed();
+    if (gpuIdle !== null) { if (root.cancelIdleCallback) root.cancelIdleCallback(gpuIdle); else clearTimeout(gpuIdle); gpuIdle = null; }
+    freeOpen = null;
+    hosts.forEach(function (host) { closeInline(host, reason); });
+    if (root.CNCPreviewGL && typeof root.CNCPreviewGL.close === 'function') root.CNCPreviewGL.close(reason);
+  }
   try { var saved = root.localStorage.getItem(STORE); if (VIEWS.indexOf(saved) >= 0) view = saved; } catch (_) {}
 
   // The cache: a few programs, each with its finished views ({url, projection}). A program is
@@ -81,29 +126,37 @@
   function liveAllowed(host) {
     var g = gpuState(), m = jobMachine, meta = host.meta, art = host.img.parentNode;
     if (host.img.id !== 'home-job-image' || !g.hardware || g.lost || !m || !meta || m.name !== meta.file) return false;
+    if (v2() && (typeof m.fingerprint !== 'string' || !m.fingerprint || !samePrint(m.fingerprint, meta.fingerprint))) return false;
     if (m.fingerprint && meta.fingerprint && !samePrint(m.fingerprint, meta.fingerprint)) return false;
     return !(art && typeof art.getAttribute === 'function' && art.getAttribute('data-identity') === 'other');
   }
   function inlineMode(host) {
+    if (v2() && (!v2Ready() || fixedQuality())) return false;
     if (laserMachine() || !performance() || !host.base || !keyOf(host.meta)) return false;
     if (host.img.id === 'home-job-image' && jobBusy && !liveAllowed(host)) return false;
     return host.failedKey !== keyOf(host.meta);
   }
-  function visible(host) { var s = host.img.closest ? host.img.closest('.screen') : null; return !s || !s.classList || s.classList.contains('active'); }
-  function closeInline(host) { host.glRequest = null; if (host.gl) { var h = host.gl; host.gl = null; h.close('view'); } }
+  function visible(host) { if (v2() && !v2Ready()) return false; var s = host.img.closest ? host.img.closest('.screen') : null; return !s || !s.classList || s.classList.contains('active'); }
+  function closeInline(host, reason) { host.glRequest = null; if (host.gl) { var h = host.gl; host.gl = null; h.close(reason || 'view'); } }
   function inline(host) {
     var meta = host.meta, key = keyOf(meta);
     show(host, host.base, null);
     if (host.gl && host.glKey === key) return;
+    if (v2() && host.glRequest && host.glKey === key) return;
     // « Agrandir » opened the free view in large: the inline one comes back when it closes.
     if (freeOpen) return;
     closeInline(host);
     if (!visible(host)) return;
     var P = profile(), request = host.glRequest = {};
     host.glKey = key; status(host, t('Chargement de la vue 3D libre…'));
-    var extra = meta.estimate !== undefined ? Promise.resolve(meta) : sidecar(meta.file).then(function (s) { return s.fingerprint === meta.fingerprint && s.preview ? s.preview : {}; }, function () { return {}; });
-    function failed(message) { if (host.glRequest !== request && host.glRequest !== null) return; host.failedKey = key; host.gl = null; refresh(); status(host, message); }
+    // v2 inspections use only metadata already attached to the preview. L2 owns
+    // enrichment at rest; opening this scene must never trigger a source read.
+    var extra = v2() || meta.estimate !== undefined ? Promise.resolve(meta) : sidecar(meta.file).then(function (s) { return s.fingerprint === meta.fingerprint && s.preview ? s.preview : {}; }, function () { return {}; });
+    function failed(message) { if (v2() ? host.glRequest !== request : host.glRequest !== request && host.glRequest !== null) return; host.failedKey = key; host.gl = null; refresh(); status(host, message); }
+    function loadFailed(e) { failed(t('Vue 3D libre indisponible : ') + String(e && e.message || e) + t('. Vues fixes conservées.')); }
     Promise.all([P.loadAdvanced(['preview-gl.js']), extra]).then(function (r) {
+      onFrame(function () {
+      if (host.glRequest !== request || !inlineMode(host) || !visible(host)) return;
       gpuEnsure();
       if (host.glRequest !== request || !inlineMode(host) || !visible(host)) return;
       if (!root.CNCPreviewGL) throw new Error(t('module absent'));
@@ -115,19 +168,24 @@
       // and the whole program's geometry, read at rest only, never during a job (Q7).
       // Fichiers never follows the machine (spec 2.4).
       var home = host.img.id === 'home-job-image';
-      var handle = root.CNCPreviewGL.open(full, { container: host.img.parentNode, stock: stock, live: home ? { progress: true, tool: true } : undefined, fullGeometry: home && !jobBusy, loaded: home,
+      var handle = root.CNCPreviewGL.open(full, { container: host.img.parentNode, stock: stock, live: home ? { progress: true, tool: true } : undefined, fullGeometry: home && !jobBusy && (!v2() || root.cncV2.state().safeIdle), loaded: home,
         onFallback: function (message) { failed(message); },
         onClose: function () { if (host.gl === handle) host.gl = null; if (host.img.cncLiveView === handle) host.img.cncLiveView = null; } });
       if (handle) { host.gl = handle; if (home) host.img.cncLiveView = handle; }
-    }).catch(function (e) { failed(t('Vue 3D libre indisponible : ') + String(e && e.message || e) + t('. Vues fixes conservées.')); });
+      }, loadFailed);
+    }).catch(loadFailed);
   }
   function update(host) {
+    if (v2() && (!visible(host) || !v2Ready())) { closeInline(host); return; }
     buttons(host);
     var meta = host.meta, view = current();
     host.key = '';
     if (!host.base) { closeInline(host); host.img.cncView = null; status(host, ''); return; }
     if (inlineMode(host)) { inline(host); return; }
     closeInline(host);
+    // A v2 GPU failure keeps the existing fixed image in exactly the same host;
+    // do not start the v1 fixed-view worker as a second renderer in this session.
+    if (v2()) { show(host, host.base, null); return; }
     if (view === '2d') { show(host, host.base, null); status(host, ''); return; }
     if (view === 'laser') { laser(host); return; }
     // No 3D path (old preview) or no fingerprint (older or unverified sidecar): the 2D image stays.
@@ -144,7 +202,12 @@
     status(host, t('Calcul de la vue 3D…'));
     request(entry, meta, view, true);
   }
-  function refresh() { hosts.forEach(update); }
+  function refresh() {
+    if (!v2()) { hosts.forEach(update); return; }
+    if (refreshQueued || !v2Ready()) return;
+    refreshQueued = true;
+    onFrame(function () { refreshQueued = false; hosts.forEach(update); });
+  }
 
   // ---- Laser view (laser-view.js): computed on demand from the program's text, bound to its fingerprint ----
   var laserJob = null;
@@ -191,15 +254,18 @@
   var freeOpen = null;
   function openFree(host) {
     var P = profile(), meta = host.meta;
+    if (v2() && (!v2Ready() || !visible(host) || fixedQuality())) return;
     if (!performance()) { status(host, t('Vue 3D libre : profil Performance requis (Réglages).')); buttons(host); return; }
     if (!keyOf(meta)) { status(host, t('Vues 3D indisponibles pour cet ancien aperçu : régénérez-le dans Fichiers.')); return; }
     status(host, t('Chargement de la vue 3D libre…'));
     var request = freeOpen = {};
     // The estimate (tools, operations) is not on every image: read from the sidecar when missing.
-    var extra = meta.estimate !== undefined ? Promise.resolve(meta) : sidecar(meta.file).then(function (s) { return s.fingerprint === meta.fingerprint && s.preview ? s.preview : {}; }, function () { return {}; });
+    var extra = v2() || meta.estimate !== undefined ? Promise.resolve(meta) : sidecar(meta.file).then(function (s) { return s.fingerprint === meta.fingerprint && s.preview ? s.preview : {}; }, function () { return {}; });
     // Left (eco, another screen) while loading: nothing opens and the inline view comes back.
     function drop() { if (freeOpen === request) { freeOpen = null; refresh(); } }
+    function loadFailed(e) { if (freeOpen === request) { freeOpen = null; refresh(); status(host, t('Vue 3D libre indisponible : ') + String(e && e.message || e) + t('. Vues fixes conservées.')); } }
     Promise.all([P.loadAdvanced(['preview-gl.js']), extra]).then(function (r) {
+      onFrame(function () {
       if (freeOpen !== request) return;
       if (!performance() || !visible(host)) { drop(); return; }
       if (!root.CNCPreviewGL) throw new Error(t('module absent'));
@@ -210,7 +276,8 @@
       status(host, '');
       var opened = root.CNCPreviewGL.open(full, { stock: stock, onFallback: function (message) { status(host, message); }, onClose: drop });
       if (!opened) drop();
-    }).catch(function (e) { if (freeOpen === request) { freeOpen = null; refresh(); status(host, t('Vue 3D libre indisponible : ') + String(e && e.message || e) + t('. Vues fixes conservées.')); } });
+      }, loadFailed);
+    }).catch(loadFailed);
   }
 
   // ---- GPU gate (PERFORMANCE-UI-SPEC.md 2.1, 8.1): Performance profile AND a hardware WebGL probe ----
@@ -311,7 +378,7 @@
     host.base = src && !/^blob:/.test(src) ? src : '';
     host.meta = host.base ? host.img.cncPreview || null : null;
     host.shown = host.base; host.img.cncView = null;
-    update(host);
+    if (v2()) refresh(); else update(host);
   }
 
   function request(entry, meta, v, urgent) {
@@ -479,12 +546,34 @@
     observe(host); buttons(host);
   }
   ['library-image', 'home-job-image'].forEach(attach);
-  document.addEventListener('visibilitychange', function () { if (!document.hidden) pump(); });
+  document.addEventListener('visibilitychange', function () {
+    if (v2()) { if (document.hidden) suspend('document-hidden'); else refresh(); }
+    else if (!document.hidden) pump();
+  });
   // The profile changed (eco / performance, CNC / laser): the buttons follow; an open free view closes itself.
   if (typeof root.addEventListener === 'function') {
-    root.addEventListener('cnc-profile-change', function () { gpuApply(); gpuSchedule(); refresh(); });
+    root.addEventListener('cnc-profile-change', function () { if (v2() && !performance()) suspend('eco'); gpuApply(); gpuSchedule(); refresh(); });
     // The inline view closes itself on a screen change; it is opened again on the screen now shown.
-    root.addEventListener('cnc-screen-change', function () { setTimeout(refresh, 50); });
+    root.addEventListener('cnc-screen-change', function () {
+      if (v2()) { suspend('screen-hidden'); refresh(); } else setTimeout(refresh, 50);
+    });
+    root.addEventListener('cnc-screen-lock', function (e) { if (!v2()) return; locked = !!(e && e.detail); if (locked) suspend('lock'); else refresh(); });
+    root.addEventListener('cnc-v2-change', function () { if (!v2()) return; if (!v2Ready()) suspend('gate'); else refresh(); });
+    root.addEventListener('cnc-v2-data', function (e) {
+      if (!v2() || !e.detail || e.detail.slot !== 'inspect') return;
+      // A quality notification cannot reattach the provider (attach can notify).
+      // Fixed is an explicit visual stop, kept until another explicit choice.
+      var fixed = fixedQuality(), changed = false;
+      hosts.forEach(function (h) {
+        if (!!h.qualityFixed !== fixed) changed = true;
+        if (h.qualityFixed && !fixed) h.failedKey = null;
+        h.qualityFixed = fixed;
+        if (fixed) closeInline(h, 'fixed');
+      });
+      if (fixed) { freeOpen = null; if (root.CNCPreviewGL && typeof root.CNCPreviewGL.close === 'function') root.CNCPreviewGL.close('fixed'); }
+      if (changed) refresh();
+    });
+    root.addEventListener('pagehide', function () { if (v2()) { ended = true; suspend('pagehide'); } });
     root.addEventListener('cnc-job-status', function (e) {
       var m = e && e.detail && e.detail.machine, busy = !!(m && m.workflow && m.workflow !== 'idle');
       jobMachine = m || null;
