@@ -198,4 +198,6 @@ const FIRST_IMAGE = '(function(){var t={};window.__cncV2First=t;function now(){r
   cdp.close();
   if (OUT) { fs.writeFileSync(OUT, JSON.stringify(result, null, 1) + '\n'); console.log('Rapport : ' + OUT); }
   console.log('Fin de mesure. Aucune commande envoyée.');
+  // The request timeouts above are still armed: end now that everything is written.
+  process.exit(0);
 })().catch((e) => { console.error('measure-performance-v2: ' + (e.stack || e.message)); process.exit(1); });
