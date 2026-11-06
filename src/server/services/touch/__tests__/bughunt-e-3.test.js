@@ -17,6 +17,7 @@
 // a rejointe, exactement comme dans le programme ; le cas réel (reprise au
 // bloc de changement d'outil d'un post Fusion 360) reste possible.
 import { buildResume, programLines } from '../resume';
+import { expectCatalogMatch } from './touch-codes-catalog';
 
 const sentFirst = (r) => r.program.split('\n')[r.preamble.length];
 
@@ -47,5 +48,64 @@ describe('E-3 : première ligne de la reprise, commandes non modales à mots d�
     const prog = ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G1 X10', 'G0 Z5', line, 'G1 X20', 'M30'].join('\n');
     const r = buildResume(prog, 7);
     expect(sentFirst(r)).toBe(line);
+  });
+});
+
+// Second round (revue Codex) : envoyée telle quelle, une commande non modale
+// laisse le mode de déplacement du préambule (G1) aux lignes suivantes, alors
+// que le programme était en G0 : « X20 » après « G10 L20 P1 X0 » devenait une
+// coupe. Le mode modal du programme est rétabli sur sa propre ligne avant la
+// première ligne ; un arc (G2/G3) ou un mode inconnu refuse la reprise.
+describe('E-3 (suite) : les lignes après la première gardent le mode de déplacement du programme', () => {
+  const after = (r, n) => r.program.split('\n').slice(r.preamble.length);
+
+  test('G0 avant la ligne : « G0 » seul rétabli devant « G10 L20 P1 X0 », « X20 » reste un rapide', () => {
+    const prog = ['G21 G90 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5', 'G10 L20 P1 X0', 'X20', 'M30'].join('\n');
+    const r = buildResume(prog, 6);
+    expect(r.preamble.at(-2)).toMatch(/^G1 Z5 F100$/);
+    expect(r.preamble.at(-1)).toBe('G0');
+    expect(after(r)).toEqual(['G10 L20 P1 X0', 'X20', 'M30', '']);
+  });
+
+  test('G1 avant la ligne : « G1 F<avance> » rétabli devant « G92 X0 Y0 », « X20 » reste une coupe à l’avance du programme', () => {
+    const prog = ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G1 X10 F250', 'G92 X0 Y0', 'X20', 'M30'].join('\n');
+    const r = buildResume(prog, 6);
+    expect(r.preamble.at(-1)).toBe('G1 F250');
+    expect(after(r)).toEqual(['G92 X0 Y0', 'X20', 'M30', '']);
+  });
+
+  test('G2 avant la ligne : reprise refusée (ETOUCH_RESUME_FIRST_LINE), le mode arc ne se rétablit pas sans I/J', () => {
+    const prog = ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G2 X10 Y0 I5 J0', 'G92 X0 Y0', 'X20 Y0 I5 J0', 'M30'].join('\n');
+    let refusal = null;
+    try {
+      buildResume(prog, 6);
+    } catch (err) {
+      refusal = err;
+    }
+    expect(refusal).toMatchObject({ code: 'ETOUCH_RESUME_FIRST_LINE', params: { motion: 'G2', from: 6 } });
+    expect(refusal.message).toMatch(/Mode de déplacement G2 avant la ligne 6/);
+    expectCatalogMatch(refusal);
+    // Un rapide après l'arc : la reprise redevient possible, « G0 » rétabli.
+    expect(buildResume(prog.replace('G92 X0 Y0', 'G0 Z5\nG92 X0 Y0'), 7).preamble.at(-1)).toBe('G0');
+  });
+
+  test('G38.2 en première ligne : le palpage fixe lui-même le mode de déplacement, rien à rétablir', () => {
+    const prog = ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G0 Z5', 'G38.2 Z-10 F50', 'G0 Z5', 'M30'].join('\n');
+    const r = buildResume(prog, 6);
+    expect(r.preamble.at(-1)).toMatch(/^G1 Z5 F100$/);
+    expect(after(r)).toEqual(['G38.2 Z-10 F50', 'G0 Z5', 'M30', '']);
+  });
+
+  test('reprise laser : une telle ligne n’est pas un G0 X/Y, refus inchangé (ETOUCH_LASER_RESUME_NOT_RAPID)', () => {
+    const prog = ['G21 G90', 'M3 S500', 'G0 X0 Y0', 'G1 X10 F1000', 'M5', 'G0 X5 Y5', 'G92 X0 Y0', 'G1 X15 F1000', 'M30'].join('\n');
+    let refusal = null;
+    try {
+      buildResume(prog, 7, { mode: 'laser' });
+    } catch (err) {
+      refusal = err;
+    }
+    expect(refusal && refusal.code).toBe('ETOUCH_LASER_RESUME_NOT_RAPID');
+    // Le G0 X/Y précédent (limite de passe, laser éteint) reste une reprise laser valide.
+    expect(buildResume(prog, 6, { mode: 'laser' }).mode).toBe('laser');
   });
 });
