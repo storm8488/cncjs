@@ -607,6 +607,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     record,
     homingActive,
     moving: (c, r) => moves.moving(c, r),
+    spindleOn,
     changed,
     MAX_REPORT_AGE_MS
   });
