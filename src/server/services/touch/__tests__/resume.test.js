@@ -57,7 +57,7 @@ describe('resume refusals carry a stable code and the values of their message', 
     ['ETOUCH_RESUME_TOOL_LENGTH', () => buildResume(P('G21 G90', 'G43 H1', 'G0 Z5'), 3), { line: 2 }],
     ['ETOUCH_RESUME_UNITS_LATE', () => buildResume(P('G0 Z5', 'G21', 'G0 X1'), 3), { units: 'G21', line: 2 }],
     ['ETOUCH_RESUME_RELATIVE', () => buildResume(P('G21 G91', 'G0 Z5', 'G0 X1'), 3), { from: 3 }],
-    ['ETOUCH_RESUME_TOOL_OFFSET_ACTIVE', () => buildResume(P('G21 G90', 'G43.1 Z2', 'G0 Z5 X0 Y0', 'G1 Z-1 F100', 'G1 X1'), 5), { line: 2 }],
+    ['ETOUCH_RESUME_TOOL_OFFSET', () => buildResume(P('G21 G90', 'G43.1 Z2', 'G0 Z5 X0 Y0', 'G1 Z-1 F100', 'G1 X1'), 5), { line: 2, from: 5 }],
     ['ETOUCH_RESUME_POSITION', () => buildResume(P('G21 G90', 'G0 Z5', 'G1 X1 F100'), 3), { from: 3 }],
     ['ETOUCH_RESUME_WCS_POSITION', () => buildResume(P('G21 G90 G54', 'G0 Z5 X0 Y0', 'G55', 'G0 X1', 'G1 X2 F100'), 5), { wcs: 'G55', line: 3, from: 5 }],
     // ETOUCH_RESUME_CLEARANCE is defensive: a known Z always sets the clearance.
@@ -100,7 +100,8 @@ describe('resume from a line', () => {
   });
 
   test('units and work offset the program never chose are left to the controller (no forced G54/G21)', () => {
-    const prog = ['G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200', 'G1 X10 F800', 'G1 Y10', 'G1 X0', 'M30'].join('\n');
+    // E-3 (5e tour) : the distance mode must be chosen (G90), units and offset may not.
+    const prog = ['G90 G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200', 'G1 X10 F800', 'G1 Y10', 'G1 X0', 'M30'].join('\n');
     const r = buildResume(prog, 5);
     expect(r.preamble[1]).toBe('G90 G94');
     expect(r).toMatchObject({ wcs: null, units: null });
@@ -205,7 +206,8 @@ describe('resume from a line', () => {
     expect(at(['G42'], 7)).toThrow(/G41\/G42/);
     expect(at(['G43 H1'], 7)).toThrow(/G43/);
     expect(at(['G43.1 Z2.5'], 7)).toThrow(/G43\.1.*ligne 5/);
-    expect(at(['G43.1 Z2.5', 'G49'], 8)().position).toEqual({ X: 5, Y: 0, Z: -1 });
+    // E-3 (5e tour) : un G43.1 vu avant la ligne, même annulé, refuse la reprise (hauteurs Z non modélisées).
+    expect(at(['G43.1 Z2.5', 'G49'], 8)).toThrow(/G43\.1.*ligne 5/);
   });
 
   test('arcs: end points are followed, I/J/R are never taken for positions, a modal arc line gets its G2 back', () => {
@@ -232,7 +234,7 @@ describe('resume from a line', () => {
   test('notes state the limits: the clearance is the highest Z seen, modes left to the controller are named', () => {
     const r = buildResume(PROGRAM, 12);
     expect(r.notes).toEqual([expect.stringMatching(/dégagement.*Z5.*pas une garantie/), expect.stringMatching(/Retrait en rapide constaté à Z5/)]);
-    const bare = buildResume(['G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200', 'G1 X10 F800', 'G1 Y10', 'M30'].join('\n'), 5);
+    const bare = buildResume(['G90 G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200', 'G1 X10 F800', 'G1 Y10', 'M30'].join('\n'), 5);
     expect(bare.notes).toEqual([
       expect.stringMatching(/dégagement/),
       expect.stringMatching(/Retrait en rapide/),
@@ -387,8 +389,9 @@ describe('resume cross-check: compensations, probes, arcs', () => {
     expect(at(['g42.1 d1'], 7)).toThrow(/G41\/G42/);
     expect(at(['G43H1'], 7)).toThrow(/G43/);
     expect(at(['G43.1Z2.5'], 7)).toThrow(/G43\.1.*ligne 5/);
-    expect(at(['G43.1 Z2.5', 'G1 X3', 'G49'], 8)().position).toEqual({ X: 3, Y: 0, Z: -1 });
-    expect(at(['G43.1 Z2.5', 'G49', 'G43.1 Z1'], 8)).toThrow(/G43\.1.*ligne 7/);
+    // E-3 (5e tour) : un G43.1 vu avant la ligne, même annulé, refuse la reprise.
+    expect(at(['G43.1 Z2.5', 'G1 X3', 'G49'], 8)).toThrow(/G43\.1.*ligne 5/);
+    expect(at(['G43.1 Z2.5', 'G49', 'G43.1 Z1'], 8)).toThrow(/G43\.1.*ligne 5/);
   });
 
   test('G38.2 to G38.5 make only the probed axes unknown; the probe feed stays modal (like Grbl)', () => {
