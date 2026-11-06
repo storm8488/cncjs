@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
   var source = typeof document !== 'undefined' && document.currentScript && document.currentScript.src;
-  var workerURL = source ? source.split(/[?#]/)[0].replace(/[^/]*$/, 'library-preview-worker.js?v=v2c') : 'library-preview-worker.js?v=v2c';
+  var workerURL = source ? source.split(/[?#]/)[0].replace(/[^/]*$/, 'library-preview-worker.js?v=v2d') : 'library-preview-worker.js?v=v2d';
   var generation = 0;
   // Floats per drawn segment: x, y, xx, yy, mode, deepest Z of the segment.
   var STRIDE = 6;
