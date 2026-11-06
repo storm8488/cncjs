@@ -81,7 +81,8 @@ export const stateBefore = (lines, from) => {
   const s = {
     units: null,
 distance: 'G90',
-plane: 'G17',
+    // Null until the program chooses it: the preamble never assumes G17.
+    plane: null,
 wcs: null,
 feedMode: 'G94',
 motion: null,
@@ -140,6 +141,9 @@ toolOffset: null,
     }
     if (g.includes(43)) {
       throw refuse('ETOUCH_RESUME_TOOL_LENGTH', 'Décalage de longueur d’outil (G43) à la ligne ' + lineNo + ' : non rejoué, reprise impossible.', { line: lineNo });
+    }
+    if (g49WithAxis(w)) {
+      throw g49Refusal(lineNo);
     }
     g.forEach((v) => {
       if (v === 20 || v === 21) {
@@ -202,7 +206,13 @@ toolOffset: null,
       }
     });
     const machineMove = g.includes(53) || g.includes(28) || g.includes(30);
-    const probe = g.some((v) => v >= 38.2 && v <= 38.5);
+    // Grbl keeps a G38.x as the modal motion: an axis-only line after it
+    // probes again, and the position of a probed axis is unknown.
+    const probeWord = g.find((v) => v >= 38.2 && v <= 38.5);
+    if (probeWord !== undefined) {
+      s.motion = 'G' + probeWord;
+    }
+    const probe = /^G38/.test(s.motion || '');
     const axes = ['X', 'Y', 'Z'].filter((a) => at(a) !== null);
     if (g.includes(43.1)) {
       // The axis word of G43.1 is the offset, not a move.
@@ -294,7 +304,9 @@ const firstLineOf = (lines, from, s) => {
   // Motion words, compact code included (G90G1X10: the G1 follows a digit).
   const motion = g.filter((v) => [0, 1, 2, 3].includes(v)).map((v) => 'G' + v).pop() || null;
   const modalMove = hasAxis && !g.some((v) => OWN_AXIS_WORDS.includes(v));
-  const prefixed = modalMove && !motion && !!s.motion;
+  // Only a G0-G3 modal motion is given back to a plain axis line (a probe
+  // mode is not: see motionRestore).
+  const prefixed = modalMove && !motion && /^G[0-3]$/.test(s.motion || '');
   const setsMotion = !!motion || g.some((v) => v >= 38.2 && v <= 38.5);
   return {
     text: prefixed ? s.motion + ' ' + first.trim() : first,
@@ -412,6 +424,43 @@ const buildLaserResume = (lines, from, s, name) => {
   };
 };
 
+// G49 with an axis word: Grbl would run the axis word in the modal motion,
+// other controllers cancel the offset only. Not modelled, refused.
+const g49WithAxis = (w) => w.some(([l, v]) => l === 'G' && v === 49) && w.some(([l]) => 'XYZ'.indexOf(l) >= 0);
+const g49Refusal = (line) => refuse('ETOUCH_RESUME_G49_AXIS', 'G49 avec mot d’axe à la ligne ' + line + ' : effet ambigu (annulation du décalage d’outil ou déplacement), reprise impossible.', { line });
+
+// The resume line itself: an expression CNCjs evaluates when it sends the
+// line (its words cannot be read here, "X[..]" or "G[0]"), or a G49 with an
+// axis word, is refused like the lines before it.
+const checkFirstLine = (lines, from) => {
+  const code = clean(lines[from - 1]);
+  if (/^%/.test(code) || /[[\]#]/.test(code)) {
+    throw refuse('ETOUCH_RESUME_FIRST_EXPRESSION', 'Expression ou macro CNCjs à la ligne de reprise ' + from + ' : sa valeur n’est pas connue ici, choisissez une autre ligne.', { from });
+  }
+  if (g49WithAxis(words(code))) {
+    throw g49Refusal(from);
+  }
+};
+
+// An arc (G2/G3) from the resume line on, while the program never chose its
+// plane (G17/G18/G19) before it: the preamble cannot restore a plane it does
+// not know, and the controller may be in G18 or G19. A plane chosen later in
+// the program, before its first arc, is the program's own business.
+const checkPlane = (lines, from, s) => {
+  if (s.plane) {
+    return;
+  }
+  for (let i = from - 1; i < lines.length; i++) {
+    const g = words(clean(lines[i])).filter(([l]) => l === 'G').map(([, v]) => v);
+    if (g.some((v) => v === 17 || v === 18 || v === 19)) {
+      return;
+    }
+    if (g.some((v) => v === 2 || v === 3)) {
+      throw refuse('ETOUCH_RESUME_PLANE', 'Plan de travail (G17/G18/G19) non fixé avant la ligne ' + from + ' et arc (G2/G3) à la ligne ' + (i + 1) + ' : plan de la carte inconnu, reprise impossible.', { from, line: i + 1 });
+    }
+  }
+};
+
 // Builds the program that restarts at line `from`. `mode` is chosen by the
 // server from the machine profile: 'cnc' (default) or 'laser'.
 export const buildResume = (gcode, from, { name = '', mode = 'cnc' } = {}) => {
@@ -420,6 +469,8 @@ export const buildResume = (gcode, from, { name = '', mode = 'cnc' } = {}) => {
     throw refuse('ETOUCH_RESUME_LINE', 'Ligne de reprise invalide : choisissez entre 2 et ' + lines.length + '.', { min: 2, max: lines.length });
   }
   const s = stateBefore(lines, from);
+  checkFirstLine(lines, from);
+  checkPlane(lines, from, s);
   if (s.distance === 'G91') {
     throw refuse('ETOUCH_RESUME_RELATIVE', 'Le programme est en coordonnées relatives (G91) à la ligne ' + from + ' : reprise impossible.', { from });
   }
