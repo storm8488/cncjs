@@ -24,7 +24,12 @@
 //                    simulation page with a job running, paused and in alarm, FR and ES,
 //                    plus the real page with the controller at rest in alarm and the real
 //                    page with a job running (the strip's « Fichier » column); strip =
-//                    Pause / Arrêter over every overlay, browser-strip.cjs)
+//                    Pause / Arrêter over every overlay, browser-strip.cjs; v2 = Performance v2 in
+//                    its own browser: 1366 x 911 and 1728 x 1152, real page through a harness fixture
+//                    (idle, running, paused, alarm, stale, lost), simulation page (job, pause, alarm),
+//                    Préparer comparison and jog panel, Fichiers, Journal opened from the curve,
+//                    Réglages, the way out of v2, and no v2 request in Éco / RT 1366 x 768 / laser /
+//                    software GPU; see v2Measure)
 //   --keep-browser   do not kill the browser at the end (debugging)
 //   --strict         also fail (exit 1) on a layout regression in the variants the
 //                    interface is made for (1366 x 768 and 1024 x 600, standard and
@@ -55,7 +60,7 @@ const URL_BASE = option('--url', '');
 // --root DIR: serve another copy of the pages through the fixture (a bundled build, output/touch-bundle).
 const ROOT_DIR = option('--root', '');
 const REPEAT = Math.max(1, Number(option('--repeat', 5)) || 5);
-const ONLY = option('--only', 'measure,responsive,sim,startup,e2e,strip').split(',');
+const ONLY = option('--only', 'measure,responsive,sim,startup,e2e,strip,v2').split(',');
 const KEEP = args.includes('--keep-browser');
 const STRICT = args.includes('--strict');
 const EXCEPTIONS_FILE = path.resolve(option('--exceptions', path.join(__dirname, 'layout-exceptions.json')));
@@ -176,12 +181,12 @@ class CDP {
 }
 
 // --- Browser and fixture server.
-async function launchBrowser(width, height) {
+async function launchBrowser(width, height, extraFlags) {
   const exe = findBrowser();
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'cnc-browser-run-'));
   const flags = ['--headless=new', '--disable-gpu', '--remote-debugging-port=0', '--user-data-dir=' + profile, '--no-first-run', '--no-default-browser-check',
     '--window-size=' + width + ',' + height, '--force-device-scale-factor=1', '--disable-extensions', '--disable-background-networking', '--disable-sync',
-    '--disable-features=Translate,OptimizationHints,MediaRouter', '--lang=fr-FR', 'about:blank'];
+    '--disable-features=Translate,OptimizationHints,MediaRouter', '--lang=fr-FR'].concat(extraFlags || [], ['about:blank']);
   if (process.env.CI || process.getuid && process.getuid() === 0) flags.unshift('--no-sandbox');
   const child = spawn(exe, flags, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
   let stderr = '';
@@ -953,6 +958,628 @@ async function responsiveMeasure(cdp, realUrl, simUrl, summary) {
   summary.responsive = { viewports: RESPONSIVE.map((v) => v[3]), hits: report.length };
 }
 
+// --- Performance v2 (design/v2/REFLEXION.md § 5, 6, 8; lot L7). v2 opens only with four conditions: the
+// preference, the Performance profile, a hardware GPU and the wide workstation. On this PC the browser renders
+// WebGL in software (SwiftShader), so the GPU probe is answered « hardware » FROM OUTSIDE the page: an init
+// script wraps CNCPreviewGL.probeGpu when preview-gl.js defines it (the real probe still runs, its other
+// fields are kept), and the preference / profile / simulated machine kind are written by CDP in storage.
+// Nothing in the shipped code is hooked or changed. The controller is a harness fixture: a local proxy in
+// front of preview-server.cjs --replay answers /api/custom/health, /api/touch-job and /api/touch-events with
+// a CNC (machine kind declared) whose phase the harness sets: idle (program loaded), running, paused, alarm
+// during the job, stale (server alive, report > 2.5 s old) and lost (no stream). Every other request is passed
+// through; every request that is not a GET under /api/ is recorded and refused (403): the safety pass compares
+// them with the v1 page doing the same steps. Only the v2 browser gets the software-WebGL flags.
+const V2_SIZES = [[1366, 911], [1728, 1152]];
+const V2_FLAGS = ['--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'];
+const V2_FILE = 'Parcours_de_test_1.gcode';
+const V2_FINGERPRINT = 'sha256:' + 'b7'.repeat(32);
+// v2 resources: the deferred catalogue, the contract and every performance-*.js / .css module.
+const V2_REQUEST = /\/(performance-[a-z0-9-]+\.(js|css)|i18n-messages-v2\.js)(\?|$)/;
+const V2_GPU_TRAP = '(function(){var v;try{Object.defineProperty(window,"CNCPreviewGL",{configurable:true,get:function(){return v;},set:function(x){' +
+  'if(x&&typeof x.probeGpu==="function"&&!x.__browserRun){var probe=x.probeGpu;x=Object.assign({},x,{__browserRun:true,probeGpu:function(){var r=probe.apply(this,arguments)||{};' +
+  'window.__browserRunProbe=r;return Object.assign({},r,{hardware:true,reason:""});}});}v=x;}});}catch(e){}})();';
+const V2_KEYS = { profile: 'cncjs-touch-performance-v1', v2: 'cncjs-touch-performance-ui-v2', kind: 'cncjs-touch-sim-kind-v1', lang: 'cncjs-touch-language-v1', display: 'cncjs-touch-display-v1' };
+const V2_PROFILE = { version: 1, id: 'browser-run-cnc', label: 'CNC (banc browser-run)', kind: 'cnc', match: 'exact', signature: 'browser-run', portHint: '/dev/replay', laser: { mode: null, sMax: null, sMin: null }, coherent: true, issues: [], canChange: false, changeReason: '', capabilities: {} };
+
+function startV2Fixture() {
+  return startFixture(['--replay']).then((upstream) => new Promise((resolve, reject) => {
+    const up = new URL(upstream.base);
+    const replay = require('./measure-replay-fixture.cjs').create({ file: V2_FILE });
+    const fx = { phase: 'idle', overrides: { feed: 100, rapid: 100, spindle: 100 }, commands: [], streams: new Set(), sequence: 0, epoch: 'browser-run-v2-' + Date.now().toString(36), frozen: null, staleSince: 0 };
+    fx.controller = function () {
+      const now = Date.now(), c = replay.packet().controllers[0];
+      Object.assign(c, { port: '/dev/replay', controllerId: '/dev/replay', machineProfile: V2_PROFILE, fingerprint: V2_FINGERPRINT, name: V2_FILE, originalName: V2_FILE, revision: 1, overrides: Object.assign({}, fx.overrides), control: { owner: null, lastChange: null } });
+      if (fx.phase === 'idle') {
+        return Object.assign(c, { activeState: 'Idle', workflow: 'idle', feedrate: 0, spindleSpeed: 0, sent: 0, received: 0, canPause: false, canStop: false, canResume: false, canStart: true, startReason: '', canLoad: true, loadReason: '',
+          canPreviewMotion: true, motionReason: '', canOverride: false, canRapidOverride: false, canUnlock: false, canHome: true, homeReason: '', canMacro: false });
+      }
+      if (fx.phase !== 'stale') fx.frozen = { coordinates: c.coordinates, received: c.received, sent: c.sent };
+      const f = fx.frozen || { coordinates: c.coordinates, received: c.received, sent: c.sent };
+      if (fx.phase === 'paused') return Object.assign(c, { activeState: 'Hold:0', workflow: 'paused', feedrate: 0, canPause: false, canResume: true, resumeReason: '', canStop: true, received: f.received, sent: f.sent, coordinates: f.coordinates });
+      if (fx.phase === 'alarm') return Object.assign(c, { activeState: 'Alarm', workflow: 'running', alarmCode: 1, feedrate: 0, spindleSpeed: 0, canPause: false, canResume: false, canStop: true, canOverride: false, canRapidOverride: false, received: f.received, sent: f.sent, coordinates: f.coordinates });
+      if (fx.phase === 'stale') return Object.assign(c, { fresh: false, statusAgeMs: now - fx.staleSince + 40, statusObservedAt: fx.staleSince - 40, received: f.received, sent: f.sent, coordinates: f.coordinates });
+      return c; // running
+    };
+    fx.packet = function () { return { version: 1, epoch: fx.epoch, sequence: ++fx.sequence, sentAt: Date.now(), controllers: [fx.controller()] }; };
+    fx.setPhase = function (phase) {
+      if (phase === 'stale' && fx.phase !== 'stale') fx.staleSince = Date.now();
+      fx.phase = phase;
+      if (phase === 'lost') fx.streams.forEach((s) => s.destroy());
+    };
+    function stream(req, res) {
+      if (fx.phase === 'lost') { res.statusCode = 503; return res.end(); }
+      res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store, no-transform' });
+      const transportId = 'br-' + Math.random().toString(36).slice(2, 10), opened = Date.now();
+      let timer = null, closed = false;
+      const stop = () => { closed = true; clearTimeout(timer); fx.streams.delete(res.socket); };
+      fx.streams.add(res.socket);
+      const tick = () => {
+        if (closed) return;
+        if (fx.phase === 'lost') { res.destroy(); stop(); return; }
+        if (Date.now() - opened >= 60000) { res.write(JSON.stringify({ rotate: true }) + '\n'); res.end(); stop(); return; }
+        res.write(JSON.stringify(Object.assign(fx.packet(), { transportId })) + '\n');
+        timer = setTimeout(tick, replay.PERIOD_MS);
+      };
+      req.on('close', stop); res.on('close', stop); tick();
+    }
+    const server = http.createServer((req, res) => {
+      const url = new URL(req.url, 'http://127.0.0.1');
+      if (url.pathname.indexOf('/api/') === 0 && req.method !== 'GET') {
+        let body = ''; req.on('data', (d) => { body += d; if (body.length > 20000) body = body.slice(0, 20000); });
+        req.on('end', () => {
+          fx.commands.push({ at: Date.now(), method: req.method, path: url.pathname, body: body.slice(0, 400), phase: fx.phase });
+          // Read-only motion preview of the real service stays answered by the upstream fixture.
+          if (url.pathname === '/api/touch-motion/preview') return pass(req, res, body);
+          res.statusCode = 403; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ message: 'Refusé par le banc browser-run (aucune commande machine).' }));
+        });
+        return;
+      }
+      if (url.pathname === '/api/custom/health') {
+        if (fx.phase === 'lost') { res.statusCode = 503; return res.end(); }
+        res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({ loaded: true, version: '3.0.0', protocol: 1, transport: 'ndjson' }));
+      }
+      if (url.pathname === '/api/touch-job') {
+        if (fx.phase === 'lost') { res.statusCode = 503; return res.end(); }
+        res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify(fx.packet()));
+      }
+      if (url.pathname === '/api/touch-events') return stream(req, res);
+      if (url.pathname === '/visual-fixture.js') {
+        // The fixture replaces XMLHttpRequest and throws on any URL it does not know, so the deferred
+        // v2 catalogue (an XHR, tablet-profile.js) would never settle. The harness lets it reach the server.
+        return http.get({ host: up.hostname, port: up.port, path: req.url }, (r) => {
+          let text = ''; r.setEncoding('utf8'); r.on('data', (d) => { text += d; });
+          r.on('end', () => { res.setHeader('Content-Type', 'text/javascript'); res.end(text.replace("if(xhr.url==='/api/touch-motion/preview'", "if(/^i18n-messages-v2\\.js/.test(xhr.url)||xhr.url==='/api/touch-motion/preview'")); });
+        }).on('error', (e) => { res.statusCode = 502; res.end(String(e.message)); });
+      }
+      return pass(req, res);
+    });
+    function pass(req, res, body) {
+      const headers = Object.assign({}, req.headers, { host: up.host });
+      const p = http.request({ host: up.hostname, port: up.port, path: req.url, method: req.method, headers }, (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
+      p.on('error', (e) => { res.statusCode = 502; res.end(String(e.message)); });
+      if (body !== undefined) p.end(body); else req.pipe(p);
+    }
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      fx.base = 'http://127.0.0.1:' + server.address().port + '/';
+      fx.close = () => { try { fx.streams.forEach((s) => s.destroy()); server.close(); } catch (_) { /* closed */ } try { upstream.child.kill(); } catch (_) { /* gone */ } };
+      resolve(fx);
+    });
+  }));
+}
+
+// Text drawn over other text (two text nodes of unrelated elements whose drawn boxes intersect), on the
+// active screen, the strip, the rail and any open sheet; clipped by their ancestors like textFit above.
+const V2_OVERLAP = String(function overlap() {
+  var vw = window.innerWidth, vh = window.innerHeight, active = document.querySelector('main .screen.active'), items = [];
+  function visible(el) {
+    for (var n = el; n && n !== document.body; n = n.parentElement) { if (n.hidden || n.getAttribute('aria-hidden') === 'true') return false; var cs = getComputedStyle(n); if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0) return false; }
+    return true;
+  }
+  var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (var node = walker.nextNode(); node; node = walker.nextNode()) {
+    var p = node.parentElement; if (!node.data.trim() || !p || /^(SCRIPT|STYLE)$/.test(p.tagName) || p.closest('#cnc-boot,.ks-sr-only')) continue;
+    var screen = p.closest('main .screen'); if (screen && screen !== active) continue;
+    if (!visible(p)) continue;
+    var clip = { left: 0, top: 0, right: vw, bottom: vh };
+    for (var a = p; a && a !== document.body; a = a.parentElement) { var cs = getComputedStyle(a); if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') { var ar = a.getBoundingClientRect(); clip.left = Math.max(clip.left, ar.left); clip.top = Math.max(clip.top, ar.top); clip.right = Math.min(clip.right, ar.right); clip.bottom = Math.min(clip.bottom, ar.bottom); } }
+    var range = document.createRange(); range.selectNodeContents(node);
+    Array.prototype.forEach.call(range.getClientRects(), function (q) {
+      // The content box of a line includes the font's internal leading: tight line-heights make the boxes of
+      // two rows overlap with no glyph touching. Keep the middle 60 % of its height (digits, capitals, x-height).
+      var inset = (q.bottom - q.top) * 0.2;
+      var r = { left: Math.max(q.left, clip.left), top: Math.max(q.top + inset, clip.top), right: Math.min(q.right, clip.right), bottom: Math.min(q.bottom - inset, clip.bottom) };
+      if (r.right - r.left > 1 && r.bottom - r.top > 1) items.push({ el: p, r: r, text: node.data.replace(/\s+/g, ' ').trim().slice(0, 40) });
+    });
+  }
+  var out = [], seen = {};
+  for (var i = 0; i < items.length; i++) for (var j = i + 1; j < items.length; j++) {
+    var A = items[i], B = items[j]; if (A.el === B.el || A.el.contains(B.el) || B.el.contains(A.el)) continue;
+    var w = Math.min(A.r.right, B.r.right) - Math.max(A.r.left, B.r.left), h = Math.min(A.r.bottom, B.r.bottom) - Math.max(A.r.top, B.r.top);
+    // More than a sliver.
+    if (w > 2 && h > 2) { var key = A.text + '|' + B.text; if (!seen[key]) { seen[key] = 1; out.push({ a: A.text, b: B.text, w: Math.round(w), h: Math.round(h) }); } }
+  }
+  return out.slice(0, 40);
+});
+// Pause / Reprendre / Arrêter of the strip: shown, inside the window, not inert, and the element under the
+// centre and under four points 3 px inside the middle of each edge is the button itself. A disabled button
+// takes no pointer events by design (ui-2027.css; the strip also blocks them while the state is lost): its
+// points must then land in the strip, not in an overlay. Such a button is reported « blocked », not reachable.
+const V2_HIT = `(function(ids){return ids.map(function(id){var b=document.getElementById(id);if(!b)return {id:id,missing:true};
+  var r=b.getBoundingClientRect(),shown=!b.hidden&&!b.closest('[hidden]')&&r.width>0&&r.height>0,disabled=!!b.disabled||b.getAttribute('aria-disabled')==='true'||getComputedStyle(b).pointerEvents==='none',strip=document.getElementById('status-bar');
+  function d(n){return n?(n.id?'#'+n.id:n.tagName.toLowerCase()+(typeof n.className==='string'&&n.className?'.'+n.className.split(' ')[0]:'')):'nothing';}
+  var pts=[[r.left+r.width/2,r.top+r.height/2,'centre'],[r.left+3,r.top+r.height/2,'bord gauche'],[r.right-3,r.top+r.height/2,'bord droit'],[r.left+r.width/2,r.top+3,'bord haut'],[r.left+r.width/2,r.bottom-3,'bord bas']],bad=[];
+  if(shown)pts.forEach(function(p){if(p[0]<0||p[1]<0||p[0]>window.innerWidth||p[1]>window.innerHeight){bad.push(p[2]+': hors fenêtre');return;}var h=document.elementFromPoint(p[0],p[1]);
+    var ok=!!h&&(h===b||b.contains(h)||(disabled&&(h.contains(b)||(!!strip&&strip.contains(h)))));if(!ok)bad.push(p[2]+': '+d(h));});
+  return {id:id,shown:shown,disabled:disabled,blocked:disabled&&!b.disabled,inert:b.closest('[inert]')?d(b.closest('[inert]')):null,bad:bad,rect:[Math.round(r.left),Math.round(r.top),Math.round(r.width),Math.round(r.height)]};});})`;
+const V2_STATE = '(function(){var v=window.cncV2,s=v&&v.state?v.state():null;return {state:s,body:document.body.className,perfV2:document.body.classList.contains("perf-v2"),' +
+  'mounts:Array.prototype.map.call(document.querySelectorAll("[data-v2-mount]"),function(n){return n.id+(n.hidden?":hidden":":shown");}),' +
+  'requests:performance.getEntriesByType("resource").map(function(e){return e.name.replace(location.origin,"");}).filter(function(n){return ' + V2_REQUEST + '.test(n);}),' +
+  'scripts:Array.prototype.map.call(document.querySelectorAll("script[src],link[rel=stylesheet][href]"),function(n){return (n.getAttribute("src")||n.getAttribute("href"));}).filter(function(n){return ' + V2_REQUEST + '.test("/"+n);})};})()';
+
+async function v2Storage(cdp, base, opts) {
+  await navigate(cdp, base + 'README.md');
+  const o = opts || {};
+  const set = (k, v) => v === null ? 'localStorage.removeItem(' + JSON.stringify(k) + ');' : 'localStorage.setItem(' + JSON.stringify(k) + ',' + JSON.stringify(JSON.stringify(v)) + ');';
+  await cdp.evaluate(set(V2_KEYS.profile, { version: 1, profile: o.profile || 'performance' }) + set(V2_KEYS.v2, o.v2 === undefined ? { version: 1, enabled: true } : o.v2) +
+    set(V2_KEYS.kind, o.kind === null ? null : { version: 1, kind: o.kind || 'cnc' }) + set(V2_KEYS.lang, null) + set(V2_KEYS.display, { size: 'standard' }) + 'true');
+}
+async function v2Open(cdp, url, expectV2) {
+  await navigate(cdp, url); await waitReady(cdp);
+  if (!expectV2) { await sleep(2500); return cdp.evaluate(V2_STATE); }
+  try { await cdp.waitFor('(function(){var s=window.cncV2&&window.cncV2.state();return !!(s&&s.layout&&s.ready&&s.open&&document.body.classList.contains("perf-v2"));})()', 30000, 'v2 layout open'); }
+  catch (e) { const st = await cdp.evaluate(V2_STATE).catch(() => null); throw new Error(e.message + ' — ' + JSON.stringify(st && st.state)); }
+  await sleep(800);
+  return cdp.evaluate(V2_STATE);
+}
+// One measured view of a v2 page, enforced like the other strict variants, plus three checks of its own
+// (v2 measurements only): no horizontal overflow, no vertical overflow of a screen that does not scroll,
+// no text drawn over other text.
+async function v2Capture(cdp, ctx, name, label, state, results) {
+  const dir = path.join(OUT, 'v2-' + ctx.replace(/[^A-Za-z0-9]+/g, '-'));
+  fs.mkdirSync(dir, { recursive: true });
+  try {
+    if (name) await goScreen(cdp, name);
+    await cdp.evaluate('new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(r);});})');
+    const data = await cdp.evaluate('(' + MEASURE + ')(' + JSON.stringify(GOALS) + ')');
+    const overlaps = await cdp.evaluate('(' + V2_OVERLAP + ')()');
+    const file = state + '-' + (name || 'current');
+    fs.writeFileSync(path.join(dir, file + '.json'), JSON.stringify(Object.assign(data, { overlapsText: overlaps }), null, 1));
+    await screenshot(cdp, path.join(dir, file + '.png'));
+    const below = data.targets.filter((t) => t.belowGoal), unreachable = data.targets.filter((t) => !t.reachable);
+    log('v2 ' + ctx + ' ' + label + ' · ' + state + ': ' + data.targets.length + ' targets, ' + below.length + ' under size goal, ' + data.smallText.length + ' text < 16 px, ' + unreachable.length + ' covered, ' + overlaps.length + ' text overlaps' + (data.horizontalOverflow.document ? ', HORIZONTAL OVERFLOW' : '') + (data.verticalOverflow.active ? ', vertical overflow' : ''));
+    results.push({ screen: name || 'current', label: label + ' · ' + state, targets: data.targets.length, below, small: data.smallText, textTargets: data.targets.filter((t) => t.textBelowGoal), gaps: [], unreachable, truncated: data.truncated, overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, scrolls: data.scrolls, fontStats: {}, textFit: textFitOf(data), railScroll: data.railScroll, overlapsText: overlaps });
+    return data;
+  } catch (e) { failures.push('v2 ' + ctx + ' ' + label + ' ' + state + ': ' + e.message); log('FAIL v2 ' + ctx + ' ' + label + ' ' + state + ': ' + e.message); results.push({ screen: name || 'current', label: label + ' · ' + state, error: e.message }); return null; }
+}
+// Pause / Arrêter hit-tests, and their rectangles recorded to prove they never move.
+async function v2Hits(cdp, ctx, where, ids, report, opts) {
+  const list = await cdp.evaluate(V2_HIT + '(' + JSON.stringify(ids) + ')');
+  for (const b of list) {
+    const label = 'v2 ' + ctx + ' · ' + where + ' · ' + b.id;
+    report.push(Object.assign({ ctx, where }, b));
+    if (b.missing || !b.shown) { if (!(opts && opts.optional)) failures.push(label + ': not shown'); continue; }
+    if (b.inert) failures.push(label + ': inert under ' + b.inert);
+    if (b.bad.length) failures.push(label + ': ' + b.bad.join(', '));
+    if (Math.min(b.rect[2], b.rect[3]) < GOALS.primary - 0.5) failures.push(label + ': ' + b.rect[2] + ' x ' + b.rect[3] + ' px, goal ' + GOALS.primary);
+  }
+  return list;
+}
+function v2Rects(ctx, report) {
+  const by = {};
+  report.filter((h) => h.ctx === ctx && h.shown).forEach((h) => { (by[h.id] = by[h.id] || new Set()).add(h.rect.join(',')); });
+  return Object.fromEntries(Object.keys(by).map((id) => [id, Array.from(by[id])]));
+}
+function v2SameRects(ctx, report) {
+  // One rectangle per strip command over every state, screen and sheet of the context: never moved.
+  const by = v2Rects(ctx, report);
+  Object.keys(by).forEach((id) => { if (by[id].length > 1) failures.push('v2 ' + ctx + ': #' + id + ' moved between states or sheets (' + by[id].join(' | ') + ')'); });
+  return by;
+}
+async function v2Sheets(cdp, ctx, where, ids, report) {
+  // The v2 sheets of Suivi, the origin help sheet of Préparer and the numeric pad stacked on it.
+  for (const [screen, button] of [['home', 'home-v2-more-overrides'], ['home', 'home-v2-time-detail'], ['jog', 'ks-origin-info']]) {
+    await goScreen(cdp, screen);
+    const opened = await cdp.evaluate('(function(){var b=document.getElementById(' + JSON.stringify(button) + ');if(!b||b.hidden||b.disabled||!b.getClientRects().length)return false;b.click();return true;})()');
+    if (!opened) { failures.push('v2 ' + ctx + ' ' + where + ': ' + button + ' not available to open its sheet'); continue; }
+    await sleep(400);
+    await v2Hits(cdp, ctx, where + ' + sheet ' + button, ids, report);
+    if (button === 'ks-origin-info') {
+      await cdp.evaluate('(function(){var i=document.getElementById("v2-run-input");if(!i){i=document.createElement("input");i.id="v2-run-input";document.getElementById("screen-jog").appendChild(i);}window.CNCNumeric.open(i,{label:"Test",unit:"mm",min:0,max:50});return true;})()');
+      await sleep(300);
+      await v2Hits(cdp, ctx, where + ' + sheet + numeric pad', ids, report);
+      await cdp.evaluate('(function(){try{window.CNCNumeric.close();}catch(e){}return true;})()');
+    }
+    await cdp.evaluate('(function(){try{window.cncShell.closeSheet();}catch(e){}return true;})()'); await sleep(250);
+  }
+}
+// The 3D scene of Suivi under v2: drag, wheel, « Examiner » and a tap on the canvas, then Pause / Arrêter hit-tested
+// over it. The fixture's previews carry no 3D path, so when Suivi has no 3D canvas the harness opens one with the
+// page's own modules (CNCToolpath3D builds a 80-segment raster, CNCPreviewGL.open draws it under the v2 gate) in a
+// fixed box over the scene column, below the strip. Visual only: the proxy records anything sent meanwhile.
+const V2_SCENE = '(function(){if(!window.CNCPreviewGL||!window.CNCToolpath3D)return null;var host=document.getElementById("br-v2-scene");if(!host){host=document.createElement("div");host.id="br-v2-scene";' +
+  'host.style.cssText="position:fixed;left:104px;top:96px;width:780px;height:560px;z-index:3;background:#0b1118";document.body.appendChild(host);}' +
+  'var T=CNCToolpath3D,b=T.createBuilder({bounds:[0,0,-3,90,90,5]}),l=0;for(var k=0;k<40;k++){b.move(0,k*2,-1,90,k*2,-1,1,++l);b.move(90,k*2,-1,90,k*2+2,-1,1,++l);}' +
+  'window.__brView=CNCPreviewGL.open({file:"browser-run.nc",fingerprint:"sha256:browser-run",path3d:b.finish(l),zBounds:[-3,5]},{container:host,live:{progress:true,tool:true}});return true;})()';
+const V2_CANVAS = '(function(){var c=Array.prototype.filter.call(document.querySelectorAll("#screen-home canvas, #br-v2-scene canvas"),function(x){var r=x.getBoundingClientRect();return r.width>100&&r.height>100;})[0];if(!c)return null;var r=c.getBoundingClientRect();' +
+  'var e=Array.prototype.filter.call(document.querySelectorAll(".pgl-examine"),function(b){return b.getClientRects().length&&!b.hidden;})[0];return {x:r.left+r.width/2,y:r.top+r.height/2,w:r.width,h:r.height,examine:!!e};})()';
+async function v2Gestures(cdp, ctx, report, ids) {
+  await goScreen(cdp, 'home');
+  let scene = await cdp.evaluate(V2_CANVAS), own = false;
+  if (!scene) { own = !!(await cdp.evaluate(V2_SCENE)); await sleep(800); scene = await cdp.evaluate(V2_CANVAS); }
+  if (!scene) { failures.push('v2 ' + ctx + ': no 3D canvas on Suivi and none could be opened (gestures not exercised)'); return; }
+  const mouse = (type, x, y) => cdp.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 });
+  const touch = (type, points) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points });
+  await mouse('mousePressed', scene.x, scene.y); for (let i = 1; i <= 6; i++) await mouse('mouseMoved', scene.x + i * 15, scene.y + i * 6); await mouse('mouseReleased', scene.x + 90, scene.y + 36);
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: scene.x, y: scene.y, deltaX: 0, deltaY: -240 });
+  try { // two-finger pinch
+    await touch('touchStart', [{ x: scene.x - 40, y: scene.y, id: 1 }, { x: scene.x + 40, y: scene.y, id: 2 }]);
+    for (let i = 1; i <= 5; i++) await touch('touchMove', [{ x: scene.x - 40 - i * 10, y: scene.y, id: 1 }, { x: scene.x + 40 + i * 10, y: scene.y, id: 2 }]);
+    await touch('touchEnd', []);
+  } catch (_) { /* touch emulation unavailable */ }
+  if (scene.examine) {
+    await cdp.evaluate('(function(){var e=Array.prototype.filter.call(document.querySelectorAll(".pgl-examine"),function(b){return b.getClientRects().length&&!b.hidden;})[0];e.click();return true;})()');
+    await sleep(300); await mouse('mousePressed', scene.x, scene.y); await mouse('mouseReleased', scene.x, scene.y); await sleep(500);
+    const panel = await cdp.evaluate('(function(){var p=Array.prototype.filter.call(document.querySelectorAll(".pgl-v2-inspection"),function(n){return !n.hidden&&n.getClientRects().length;})[0];return p?p.textContent.replace(/\\s+/g," ").trim().slice(0,200):null;})()');
+    report.push({ ctx, inspection: panel });
+    // Reported only: the harness's own box covers Suivi's view bar, which the measurer would count as covered.
+    const loupe = []; await v2Capture(cdp, ctx, null, 'Suivi', '3d-loupe', loupe);
+    if (v2Gestures.summary) v2Gestures.summary.measurements.push({ variant: 'v2 ' + ctx + ' (3D view opened by the harness, report only)', dir: 'v2-' + ctx.replace(/[^A-Za-z0-9]+/g, '-'), dpr: 1, results: loupe, strict: false });
+  } else failures.push('v2 ' + ctx + ': 3D view open without the « Examiner » control under v2');
+  if (ids) await v2Hits(cdp, ctx, '3D view + loupe', ids, report);
+  report.push({ ctx, gestures: 'drag, wheel, pinch' + (scene.examine ? ', Examiner + tap' : ''), canvas: [Math.round(scene.w), Math.round(scene.h)], openedByHarness: own });
+  log('v2 ' + ctx + ': 3D gestures (drag, wheel, pinch' + (scene.examine ? ', Examiner + tap' : '') + ')' + (own ? ' on a view opened by the harness' : ''));
+  if (own) await cdp.evaluate('(function(){try{if(window.__brView)window.__brView.close("browser-run");}catch(e){}var h=document.getElementById("br-v2-scene");if(h)h.remove();return true;})()');
+}
+
+// The real page (index.html through the v2 fixture): idle, running, paused, alarm, stale, lost, then Journal
+// from the curve, Réglages, and the way out of v2. `v1` runs the same steps without the preference: the
+// baseline of the requests and of the strip rectangles.
+async function v2RealPass(cdp, fx, w, h, summary, report, v1) {
+  const ctx = (v1 ? 'v1 baseline ' : '') + 'real ' + w + 'x' + h, results = [], info = { ctx };
+  const allIds = ['t-pause', 't-stop'];
+  fx.setPhase('idle'); fx.overrides = { feed: 100, rapid: 100, spindle: 100 }; fx.commands.length = 0;
+  pageErrors.length = 0;
+  try {
+    await setViewport(cdp, w, h, 1);
+    await v2Storage(cdp, fx.base, { v2: v1 ? null : { version: 1, enabled: true } });
+    const opened = await v2Open(cdp, fx.base + 'index.html?v2=' + w + 'x' + h + (v1 ? '-v1' : ''), !v1);
+    info.opened = opened; info.requestsAtOpen = opened.requests;
+    if (v1 && (opened.perfV2 || opened.requests.length)) failures.push('v2 ' + ctx + ': v2 resources without the preference (' + JSON.stringify(opened.requests) + ')');
+    if (!v1) {
+      const missing = ['performance-v2-contract.js', 'performance-inspect.js', 'performance-sequences.js', 'performance-observation.js', 'performance-journal-context.js', 'performance-v2.css', 'i18n-messages-v2.js'].filter((f) => !opened.requests.some((r) => r.indexOf(f) >= 0));
+      if (missing.length) failures.push('v2 ' + ctx + ': bootstrap modules not requested: ' + missing.join(', '));
+      const dup = opened.requests.filter((r, i, a) => a.findIndex((x) => x.split('?')[0] === r.split('?')[0]) !== i);
+      if (dup.length) failures.push('v2 ' + ctx + ': v2 modules requested twice: ' + dup.join(', '));
+    }
+    // Idle with a program loaded: every screen.
+    for (const [name, label] of SCREENS) await v2Capture(cdp, ctx, name, label, 'idle', results);
+    if (!v1) {
+      // Each presenter looked for on its own screen (Préparer mounts its card only while shown).
+      const shown = {};
+      for (const [screen, key, sel] of [['home', 'band', '#home-v2-confidence'], ['home', 'sequence', '#home-v2-sequence'], ['files', 'files', '.lv2'], ['jog', 'prepare', '#pv2-summary'], ['settings', 'settings', '#ks-v2-card'], ['settings', 'quality', '#ks-v2-quality'], ['machine', 'machine', '#v2m-condition'], ['history', 'history', '#perf-v2-history']]) {
+        await goScreen(cdp, screen);
+        shown[key] = await cdp.evaluate('(function(){var n=document.querySelector(' + JSON.stringify(sel) + ');return !!(n&&n.getClientRects().length&&!n.closest("[hidden]"));})()');
+      }
+      info.presenters = shown;
+      // Suivi, Préparer and Réglages carry their v2 presenter at rest; Fichiers, Machine, Journal are reported.
+      ['band', 'sequence', 'prepare', 'settings', 'quality'].forEach((k) => { if (!shown[k]) failures.push('v2 ' + ctx + ': v2 presenter « ' + k + ' » not shown at rest'); });
+      // Préparer: the three comparison modes and the jog zone (scene unchanged, jog 24 px away, 96 px arrows).
+      await goScreen(cdp, 'jog');
+      const before = await cdp.evaluate('(function(){var c=document.querySelector("#op-card canvas")||document.getElementById("op-card");return c?JSON.stringify(c.getBoundingClientRect()):null;})()');
+      for (const mode of ['hypothesis', 'current', 'both']) {
+        await cdp.evaluate('(function(){var b=document.getElementById("pv2-mode-' + mode + '");if(b)b.click();return true;})()'); await sleep(300);
+        const pressed = await cdp.evaluate('(function(){var b=document.getElementById("pv2-mode-' + mode + '");return b?b.getAttribute("aria-pressed"):null;})()');
+        if (pressed !== 'true') failures.push('v2 ' + ctx + ': Préparer mode ' + mode + ' not pressed after a tap (' + pressed + ')');
+      }
+      await v2Capture(cdp, ctx, null, 'Préparer', 'idle-comparison', results);
+      const openJog = await cdp.evaluate('(function(){var b=document.getElementById("pv2-jog-open");if(!b||!b.getClientRects().length)return false;b.click();return true;})()');
+      if (!openJog) failures.push('v2 ' + ctx + ': « Déplacer l’outil… » not shown');
+      else {
+        await sleep(500);
+        await v2Capture(cdp, ctx, null, 'Préparer', 'idle-jog-panel', results);
+        const jog = await cdp.evaluate('(function(){var c=(document.querySelector("#op-card canvas")||document.getElementById("op-card"));if(!c)return null;c=c.getBoundingClientRect();var m=Infinity,min=Infinity,n=0;' +
+          'Array.prototype.forEach.call(document.querySelectorAll("#screen-jog .jog"),function(b){var r=b.getBoundingClientRect();if(!r.width||!b.getClientRects().length)return;n++;min=Math.min(min,r.width,r.height);var dx=Math.max(c.left-r.right,r.left-c.right,0),dy=Math.max(c.top-r.bottom,r.top-c.bottom,0);m=Math.min(m,Math.max(dx,dy));});return {gap:m,min:min,count:n};})()');
+        info.jog = jog;
+        if (!jog || !jog.count) failures.push('v2 ' + ctx + ': jog panel opened without jog arrows');
+        else {
+          if (!(jog.gap >= 24)) failures.push('v2 ' + ctx + ': jog arrow ' + jog.gap + ' px from the Préparer scene, goal 24');
+          if (jog.min < GOALS.jog - 0.5) failures.push('v2 ' + ctx + ': jog arrow ' + jog.min + ' px, goal ' + GOALS.jog);
+        }
+        await cdp.evaluate('(function(){var b=document.getElementById("pv2-jog-close");if(b)b.click();return true;})()'); await sleep(500);
+        const after = await cdp.evaluate('(function(){var c=document.querySelector("#op-card canvas")||document.getElementById("op-card");return c?JSON.stringify(c.getBoundingClientRect()):null;})()');
+        if (before !== after) failures.push('v2 ' + ctx + ': Préparer scene not restored to the same frame after the jog panel (' + before + ' → ' + after + ')');
+      }
+      // Réglages: the diagnostic on request.
+      await goScreen(cdp, 'settings');
+      await cdp.evaluate('(function(){var b=document.getElementById("ks-v2-diagnostic-run");if(b)b.click();return true;})()'); await sleep(400);
+      await v2Capture(cdp, ctx, null, 'Réglages', 'idle-diagnostic', results);
+      v2Gestures.results = results; await v2Gestures(cdp, ctx, report);
+    }
+    // Running, paused, alarm, stale, lost: the layout holds; Pause / Arrêter on every screen and sheet.
+    // The Suivi grid: the scene column and image, and the places of Suivi's own commands (feed override row,
+    // Pause and Arrêter of the Commandes zone, the v2 sheet buttons). Measured after two frames.
+    const LAYOUT = 'new Promise(function(done){requestAnimationFrame(function(){requestAnimationFrame(function(){var r=function(n){n=typeof n==="string"?document.getElementById(n)||document.querySelector(n):n;if(!n||!n.getClientRects().length)return null;var b=n.getBoundingClientRect();return [Math.round(b.left),Math.round(b.top),Math.round(b.width),Math.round(b.height)].join(",");};' +
+      'done({perfV2:document.body.classList.contains("perf-v2"),wide:document.body.classList.contains("perf-wide"),zones:(document.querySelector(".job-dashboard")||{getAttribute:function(){return null;}}).getAttribute("data-v2"),' +
+      'left:r("home-left"),image:r("home-job-image"),commands:{feed:r(document.querySelector("#home-overrides .t-override")),more:r("home-v2-more-overrides"),time:r("home-v2-time-detail"),pause:r("home-job-pause"),stop:r("home-job-stop")},scroll:document.querySelector("main").scrollTop});});});})';
+    const layoutAt = async () => cdp.evaluate(LAYOUT);
+    await goScreen(cdp, 'home');
+    const idleLayout = await layoutAt();
+    info.layout = { idle: idleLayout };
+    // M3 in the browser: what the page fetched while the machine was not at rest (the stream, the polling and
+    // the system monitor excluded). A program read, a module, a preview would show here.
+    let seenResources = await cdp.evaluate('performance.getEntriesByType("resource").length');
+    info.duringJob = [];
+    const fetchedSince = async (phase) => {
+      const list = await cdp.evaluate('performance.getEntriesByType("resource").slice(' + seenResources + ').map(function(e){return e.name.replace(location.origin,"");})');
+      seenResources += list.length;
+      const other = list.filter((n) => !/^\/api\/(touch-events|touch-job|custom\/health|touch-system)(\?|$)/.test(n));
+      if (other.length) { info.duringJob.push({ phase, other }); if (!v1) failures.push('v2 ' + ctx + ': fetched while ' + phase + ': ' + other.slice(0, 6).join(', ')); }
+    };
+    for (const phase of ['running', 'paused', 'alarm', 'stale', 'lost']) {
+      fx.setPhase(phase);
+      const ids = phase === 'paused' ? ['t-resume', 't-stop'] : phase === 'alarm' ? ['t-stop'] : allIds;
+      if (phase === 'running') await cdp.waitFor('(function(){var b=document.getElementById("t-pause");return !!b&&!b.hidden;})()', 15000, 'Pause shown');
+      else if (phase === 'paused') await cdp.waitFor('(function(){var b=document.getElementById("t-resume");return !!b&&!b.hidden;})()', 15000, 'Reprendre shown');
+      else await sleep(phase === 'alarm' ? 1500 : 4000);
+      if (phase === 'running' && !v1) {
+        // A feed correction reported by Grbl: a marker of the curve, then the Journal opened from it.
+        await sleep(2500); fx.overrides = { feed: 110, rapid: 100, spindle: 100 }; await sleep(2500);
+      }
+      await goScreen(cdp, 'home');
+      const lay = await layoutAt(); info.layout[phase] = lay;
+      if (!v1 && (lay.perfV2 !== idleLayout.perfV2 || lay.zones !== idleLayout.zones)) failures.push('v2 ' + ctx + ': Suivi grid changed in ' + phase + ' (' + JSON.stringify(idleLayout) + ' → ' + JSON.stringify(lay) + ')');
+      if (!v1) {
+        // A command of Suivi shown in both states at another place, or the scene resized: moved under the finger.
+        const moved = Object.keys(lay.commands).filter((k) => lay.commands[k] && idleLayout.commands[k] && lay.commands[k] !== idleLayout.commands[k]);
+        if (moved.length) failures.push('v2 ' + ctx + ': Suivi commands moved between rest and ' + phase + ': ' + moved.map((k) => k + ' ' + idleLayout.commands[k] + ' → ' + lay.commands[k]).join('; '));
+        if (lay.image !== idleLayout.image) failures.push('v2 ' + ctx + ': Suivi scene resized between rest and ' + phase + ' (' + idleLayout.image + ' → ' + lay.image + ')');
+      }
+      await v2Capture(cdp, ctx, 'home', 'Suivi', phase, results);
+      if (!v1) {
+        const band = await cdp.evaluate('(function(){var t=function(id){var n=document.getElementById(id);return n?n.textContent:null;};return {age:t("home-v2-age"),ageState:(document.getElementById("home-v2-age")||{getAttribute:function(){return null;}}).getAttribute("data-state"),position:t("home-v2-position"),program:t("home-v2-program"),frame:t("home-v2-frame"),geometry:t("home-v2-geometry"),now:t("home-v2-now"),next:t("home-v2-next"),curve:t("home-gauge-curve-title"),events:t("home-v2-curve-events")};})()');
+        info['band-' + phase] = band;
+        // A lost stream ends as « unknown » once the page drops the machine (no report at all): stale or unknown.
+        const expect = { running: ['fresh'], paused: ['fresh'], alarm: ['fresh'], stale: ['stale'], lost: ['stale', 'unknown'] }[phase];
+        if (expect.indexOf(band.ageState) < 0) failures.push('v2 ' + ctx + ': confidence band says « ' + band.age + ' » (' + band.ageState + ') in ' + phase + ', expected ' + expect);
+        if ((phase === 'stale' && !/Figée/.test(band.position || '')) || (phase === 'lost' && !/Figée|Inconnue/.test(band.position || ''))) failures.push('v2 ' + ctx + ': reported position not frozen in ' + phase + ' (« ' + band.position + ' »)');
+      }
+      for (const [name] of SCREENS) { await goScreen(cdp, name); await v2Hits(cdp, ctx, phase + ' ' + name, ids, report); }
+      await fetchedSince(phase);
+      // Under a sheet, strip-guard.js keeps Pause and Arrêter usable and makes the rest inert, Reprendre
+      // included (v1 design, U5): in a pause, Arrêter is required there and Reprendre is only reported.
+      if (!v1 && (phase === 'running' || phase === 'paused' || phase === 'alarm')) await v2Sheets(cdp, ctx, phase, phase === 'paused' ? ['t-stop'] : ids, report);
+      if (!v1 && phase === 'running') {
+        // Journal from the curve: a real tap at the drawn marker, then « Retour à Suivi ».
+        await goScreen(cdp, 'home');
+        const mark = await cdp.evaluate('(function(){var p=document.getElementById("home-v2-curve-marks"),s=p&&p.ownerSVGElement;if(!p||!s)return null;var m=/M([0-9.]+) 0V70/.exec(p.getAttribute("d")||"");if(!m)return {d:p.getAttribute("d")};var r=s.getBoundingClientRect();return {x:r.left+Number(m[1])/300*r.width,y:r.top+r.height/2};})()');
+        info.curveMark = mark;
+        if (!mark || mark.x === undefined) failures.push('v2 ' + ctx + ': no marker drawn on the curve after a reported feed correction (' + JSON.stringify(mark) + ')');
+        else {
+          await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: mark.x, y: mark.y, button: 'left', buttons: 1, clickCount: 1 });
+          await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: mark.x, y: mark.y, button: 'left', buttons: 0, clickCount: 1 });
+          try {
+            await cdp.waitFor('(function(){var s=document.getElementById("screen-history");return !!(s&&s.classList.contains("active"));})()', 5000, 'Journal opened from the curve');
+            await sleep(600);
+            info.journal = await cdp.evaluate('(function(){var c=document.getElementById("v2j-context");return {context:c?c.textContent:null,back:!!document.getElementById("v2j-back")};})()');
+            await v2Capture(cdp, ctx, null, 'Journal', 'from-curve', results);
+            await v2Hits(cdp, ctx, 'running Journal from the curve', ids, report);
+            await cdp.evaluate('(function(){var b=document.getElementById("v2j-back");if(b)b.click();return true;})()');
+            await cdp.waitFor('(function(){var s=document.getElementById("screen-home");return !!(s&&s.classList.contains("active"));})()', 5000, 'Suivi restored by « Retour à Suivi »');
+          } catch (e) { failures.push('v2 ' + ctx + ': ' + e.message); }
+        }
+        v2Gestures.results = results; await v2Gestures(cdp, ctx + ' running', report, ids);
+      }
+    }
+    v2SameRects(ctx, report);
+    // Back to rest, then the way out of v2: preference off (no reload, layout kept, message), next page v1.
+    fx.setPhase('idle'); await sleep(4000);
+    if (!v1) {
+      await goScreen(cdp, 'settings');
+      const off = await cdp.evaluate('(async function(){var b=document.getElementById("ks-v2-toggle");if(!b)return null;window.__noReload=1;b.click();await new Promise(function(r){setTimeout(r,600);});var s=window.cncV2.state();' +
+        'return {pressed:b.getAttribute("aria-pressed"),status:(document.getElementById("ks-v2-status")||{}).textContent,state:s,perfV2:document.body.classList.contains("perf-v2"),kept:window.__noReload===1,strip:(function(){var n=document.getElementById("t-v2-pending");return n?{text:n.textContent,hidden:!!n.hidden,shown:!!n.getClientRects().length}:null;})()};})()');
+      info.exit = off;
+      if (!off) failures.push('v2 ' + ctx + ': Réglages has no « Interface Performance v2 » toggle');
+      else {
+        if (!off.kept) failures.push('v2 ' + ctx + ': the page reloaded when v2 was turned off');
+        if (off.state.open) failures.push('v2 ' + ctx + ': v2 resources still open after the preference was turned off');
+        if (!off.perfV2) failures.push('v2 ' + ctx + ': layout changed at once when v2 was turned off (expected: kept until the next session)');
+        if (!/prochaine session/.test(off.status || '')) failures.push('v2 ' + ctx + ': no « prochaine session » message after turning v2 off (« ' + off.status + ' »)');
+      }
+      await v2Capture(cdp, ctx, null, 'Réglages', 'v2-turned-off', results);
+      const next = await v2Open(cdp, fx.base + 'index.html?v2-off=' + w + 'x' + h, false);
+      info.nextSession = next;
+      if (next.perfV2 || next.requests.length || next.scripts.length) failures.push('v2 ' + ctx + ': next session after turning v2 off still v2 (' + JSON.stringify({ perfV2: next.perfV2, requests: next.requests }) + ')');
+    }
+    info.commands = fx.commands.slice();
+    info.pageErrors = pageErrors.slice();
+    if (pageErrors.length) failures.push('v2 ' + ctx + ': page exceptions: ' + pageErrors.slice(0, 3).join(' | ').slice(0, 600));
+  } catch (e) { failures.push('v2 ' + ctx + ': ' + e.message); log('FAIL v2 ' + ctx + ': ' + e.message); }
+  summary.measurements.push({ variant: 'v2 ' + ctx, dir: 'v2-' + ctx.replace(/[^A-Za-z0-9]+/g, '-'), dpr: 1, results, strict: !v1, v2: !v1 });
+  return info;
+}
+
+// Éco chosen during a job on a v2 page (REFLEXION § 6): the v2 resources stop at once (gate closed, no new v2
+// request), the grid and Pause / Arrêter stay where they are while the job runs, the old layout returns at rest.
+async function v2EcoPass(cdp, fx, w, h, report) {
+  const ctx = 'eco during job ' + w + 'x' + h, info = { ctx };
+  fx.setPhase('idle'); pageErrors.length = 0;
+  try {
+    await setViewport(cdp, w, h, 1);
+    await v2Storage(cdp, fx.base, {});
+    await v2Open(cdp, fx.base + 'index.html?v2-eco=' + w + 'x' + h, true);
+    await goScreen(cdp, 'home');
+    fx.setPhase('running');
+    await cdp.waitFor('(function(){var b=document.getElementById("t-pause");return !!b&&!b.hidden;})()', 15000, 'Pause shown');
+    await sleep(800);
+    const before = await cdp.evaluate('(function(){var r=function(id){var n=document.getElementById(id);if(!n)return null;var b=n.getBoundingClientRect();return [Math.round(b.left),Math.round(b.top),Math.round(b.width),Math.round(b.height)].join(",");};return {pause:r("t-pause"),stop:r("t-stop"),image:r("home-job-image"),feed:r("home-v2-more-overrides"),requests:performance.getEntriesByType("resource").length};})()');
+    const eco = await cdp.evaluate('(async function(){window.cncProfile.setPerformance("eco");var gateAtOnce=window.cncV2.gate();await new Promise(function(r){setTimeout(r,1500);});var r=function(id){var n=document.getElementById(id);if(!n)return null;var b=n.getBoundingClientRect();return [Math.round(b.left),Math.round(b.top),Math.round(b.width),Math.round(b.height)].join(",");};' +
+      'return {gateAtOnce:gateAtOnce,state:window.cncV2.state(),perfV2:document.body.classList.contains("perf-v2"),pause:r("t-pause"),stop:r("t-stop"),image:r("home-job-image"),feed:r("home-v2-more-overrides"),' +
+      'newV2:performance.getEntriesByType("resource").slice(' + before.requests + ').map(function(e){return e.name;}).filter(function(n){return ' + V2_REQUEST + '.test(n);})};})()');
+    info.before = before; info.eco = eco;
+    if (eco.gateAtOnce) failures.push('v2 ' + ctx + ': v2 gate still open right after Éco was chosen');
+    if (!eco.perfV2 || !eco.state.holdLayout) failures.push('v2 ' + ctx + ': layout not held while the job runs after Éco (' + JSON.stringify({ perfV2: eco.perfV2, hold: eco.state.holdLayout }) + ')');
+    ['pause', 'stop', 'image', 'feed'].forEach((k) => { if (before[k] !== eco[k]) failures.push('v2 ' + ctx + ': ' + k + ' moved when Éco was chosen during the job (' + before[k] + ' → ' + eco[k] + ')'); });
+    if (eco.newV2.length) failures.push('v2 ' + ctx + ': v2 requests after Éco: ' + eco.newV2.join(', '));
+    for (const [name] of SCREENS) { await goScreen(cdp, name); await v2Hits(cdp, ctx, 'Éco, job running, ' + name, ['t-pause', 't-stop'], report); }
+    fx.setPhase('idle'); await sleep(3500);
+    const rest = await cdp.evaluate('({perfV2:document.body.classList.contains("perf-v2"),state:window.cncV2.state(),wide:document.body.classList.contains("perf-wide")})');
+    info.rest = rest;
+    if (rest.perfV2) failures.push('v2 ' + ctx + ': v2 layout kept at rest after Éco (expected the old layout at a known rest)');
+    if (pageErrors.length) failures.push('v2 ' + ctx + ': page exceptions: ' + pageErrors.slice(0, 3).join(' | ').slice(0, 600));
+    log('v2 ' + ctx + ': gate ' + (eco.gateAtOnce ? 'OPEN' : 'closed') + ' at once, layout ' + (eco.perfV2 ? 'held' : 'CHANGED') + ' during the job, ' + (rest.perfV2 ? 'STILL v2' : 'v1') + ' at rest');
+  } catch (e) { failures.push('v2 ' + ctx + ': ' + e.message); log('FAIL v2 ' + ctx + ': ' + e.message); }
+  return info;
+}
+
+// The simulation page under v2: the virtual job (60 s), started with its confirmation, paused, in alarm.
+async function v2SimPass(cdp, fx, w, h, summary, report) {
+  const ctx = 'sim ' + w + 'x' + h, results = [], info = { ctx };
+  pageErrors.length = 0;
+  try {
+    await setViewport(cdp, w, h, 1);
+    await v2Storage(cdp, fx.base, {});
+    info.opened = await v2Open(cdp, fx.base + 'simulation.html?v2=' + w + 'x' + h, true);
+    await goScreen(cdp, 'files');
+    await cdp.evaluate('document.querySelector(".library-file").click();true');
+    await cdp.waitFor('(function(){var b=document.getElementById("job-load");return !!b&&!b.disabled;})()', 15000, 'load enabled');
+    await v2Capture(cdp, ctx, null, 'Fichiers', 'selected', results);
+    await cdp.evaluate('document.getElementById("job-load").click();true');
+    await cdp.waitFor('(function(){var m=window.cncState.get().machine;return !!(m&&m.name);})()', 15000, 'loaded');
+    await v2Capture(cdp, ctx, 'home', 'Suivi', 'loaded', results);
+    await v2Capture(cdp, ctx, 'jog', 'Préparer', 'loaded', results);
+    await goScreen(cdp, 'home');
+    await cdp.evaluate('document.getElementById("home-job-start").click();true');
+    await cdp.waitFor('!document.getElementById("job-dialog").hidden', 15000, 'dialog');
+    await cdp.evaluate('(function(){var c=document.getElementById("job-check");c.checked=true;c.dispatchEvent(new Event("change",{bubbles:true}));document.getElementById("job-confirm").click();return true;})()');
+    await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 15000, 'running');
+    await sleep(1500);
+    await v2Capture(cdp, ctx, 'home', 'Suivi', 'running', results);
+    for (const [name] of SCREENS) { await goScreen(cdp, name); await v2Hits(cdp, ctx, 'running ' + name, ['t-pause', 't-stop'], report); }
+    await v2Sheets(cdp, ctx, 'running', ['t-pause', 't-stop'], report);
+    v2Gestures.results = results; await v2Gestures(cdp, ctx, report, ['t-pause', 't-stop']);
+    await cdp.evaluate('document.getElementById("t-pause").click();true');
+    await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="paused"', 15000, 'paused');
+    await sleep(1200);
+    await v2Capture(cdp, ctx, 'home', 'Suivi', 'paused', results);
+    for (const [name] of SCREENS) { await goScreen(cdp, name); await v2Hits(cdp, ctx, 'paused ' + name, ['t-resume', 't-stop'], report); }
+    await goScreen(cdp, 'machine');
+    if (await cdp.evaluate('(function(){var b=document.getElementById("sim-trigger-alarm");if(!b||b.disabled)return false;b.click();return true;})()')) {
+      await cdp.waitFor('/^alarm/i.test(((window.cncState.get().machine||{}).activeState)||"")', 10000, 'alarm');
+      await sleep(1200);
+      await v2Capture(cdp, ctx, 'home', 'Suivi', 'alarm', results);
+      await v2Capture(cdp, ctx, 'machine', 'Machine', 'alarm', results);
+      for (const [name] of SCREENS) { await goScreen(cdp, name); await v2Hits(cdp, ctx, 'alarm ' + name, ['t-stop'], report); }
+      await v2Sheets(cdp, ctx, 'alarm', ['t-stop'], report);
+      await cdp.evaluate('(function(){var b=document.getElementById("sim-clear-alarm");if(b&&!b.disabled)b.click();return true;})()');
+    } else failures.push('v2 ' + ctx + ': alarm button unavailable');
+    v2SameRects(ctx, report);
+    const held = await cdp.evaluate('({perfV2:document.body.classList.contains("perf-v2"),state:window.cncV2.state()})');
+    info.held = held;
+    if (!held.perfV2) failures.push('v2 ' + ctx + ': perf-v2 lost during the job');
+    await cdp.evaluate('document.getElementById("t-stop").click();true');
+    await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="idle"', 15000, 'idle after stop');
+    info.pageErrors = pageErrors.slice();
+    if (pageErrors.length) failures.push('v2 ' + ctx + ': page exceptions: ' + pageErrors.slice(0, 3).join(' | ').slice(0, 600));
+  } catch (e) { failures.push('v2 ' + ctx + ': ' + e.message); log('FAIL v2 ' + ctx + ': ' + e.message); }
+  summary.measurements.push({ variant: 'v2 ' + ctx, dir: 'v2-' + ctx.replace(/[^A-Za-z0-9]+/g, '-'), dpr: 1, results, strict: true, v2: true });
+  return info;
+}
+
+// No v2 request where v2 must not open, the preference being ON: Éco and the RT size 1366 x 768 (real and
+// simulation pages), Performance at 1366 x 768 (not the wide workstation), the laser kind, the software GPU
+// (no trap). Éco and RT 1366 x 768 are also compared with the same page without the preference: same body
+// classes, same element ids, same requested files.
+const V2_DOM = '(function(){return {body:document.body.className.split(/\\s+/).sort().join(" "),ids:Array.prototype.map.call(document.querySelectorAll("[id]"),function(n){return n.id;}).sort().join(","),' +
+  'files:performance.getEntriesByType("resource").map(function(e){return e.name.replace(location.origin,"").split("?")[0];}).filter(function(n){return !/\\/api\\//.test(n);}).sort().filter(function(n,i,a){return a.indexOf(n)===i;}).join(",")};})()';
+async function v2Closed(cdp, fx, summary) {
+  const out = [];
+  const cases = [
+    ['Éco 1366x768 real', 1366, 768, 'index.html', { profile: 'eco' }, true], ['Éco 1366x768 sim', 1366, 768, 'simulation.html', { profile: 'eco' }, true],
+    ['Éco 1366x911 real', 1366, 911, 'index.html', { profile: 'eco' }, true],
+    ['Performance 1366x768 real (not wide)', 1366, 768, 'index.html', {}, false], ['Performance 1366x768 sim (not wide)', 1366, 768, 'simulation.html', {}, false],
+    ['laser 1366x911 sim', 1366, 911, 'simulation.html', { kind: 'laser' }, false]
+  ];
+  for (const [label, w, h, page, opts, compare] of cases) {
+    try {
+      fx.setPhase('idle');
+      await setViewport(cdp, w, h, 1);
+      await v2Storage(cdp, fx.base, opts);
+      const st = await v2Open(cdp, fx.base + page + '?v2-closed=' + encodeURIComponent(label), false);
+      for (const [name] of SCREENS) await goScreen(cdp, name);
+      const after = await cdp.evaluate(V2_STATE);
+      const dom = compare ? await cdp.evaluate(V2_DOM) : null;
+      let same = null;
+      if (compare) {
+        await v2Storage(cdp, fx.base, Object.assign({}, opts, { v2: null }));
+        await v2Open(cdp, fx.base + page + '?v2-closed-ref=' + encodeURIComponent(label), false);
+        for (const [name] of SCREENS) await goScreen(cdp, name);
+        const ref = await cdp.evaluate(V2_DOM);
+        same = { body: dom.body === ref.body, ids: dom.ids === ref.ids, files: dom.files === ref.files };
+        if (!same.body || !same.ids || !same.files) {
+          const diff = (a, b) => a.split(',').filter((x) => b.split(',').indexOf(x) < 0);
+          failures.push('v2 closed ' + label + ': page differs from the same page without the preference (' + JSON.stringify({ body: same.body ? null : [dom.body, ref.body], ids: same.ids ? null : { extra: diff(dom.ids, ref.ids), missing: diff(ref.ids, dom.ids) }, files: same.files ? null : { extra: diff(dom.files, ref.files), missing: diff(ref.files, dom.files) } }).slice(0, 700) + ')');
+        }
+      }
+      const bad = after.perfV2 || after.requests.length || after.scripts.length || (after.state && after.state.open) || after.mounts.length;
+      if (bad) failures.push('v2 closed ' + label + ': v2 requested or open (' + JSON.stringify({ perfV2: after.perfV2, requests: after.requests, mounts: after.mounts, open: after.state && after.state.open }) + ')');
+      out.push({ label, requests: after.requests, perfV2: after.perfV2, mounts: after.mounts, reason: after.state && after.state.reason, eligible: after.state && after.state.eligible, sameAsWithoutPreference: same });
+      log('v2 closed ' + label + ': ' + (bad ? 'V2 PRESENT' : 'no v2 request, no perf-v2') + (same ? ', same DOM/files as without the preference: ' + (same.body && same.ids && same.files) : ''));
+    } catch (e) { failures.push('v2 closed ' + label + ': ' + e.message); log('FAIL v2 closed ' + label + ': ' + e.message); }
+  }
+  return out;
+}
+
+async function v2Measure(summary) {
+  const fx = await startV2Fixture();
+  const browser = await launchBrowser(1366, 911, V2_FLAGS), cdp = browser.cdp;
+  v2Gestures.summary = summary;
+  const report = [], v2 = { fixture: 'browser-run v2 proxy over preview-server.cjs --replay', flags: V2_FLAGS, passes: [], hits: report };
+  try {
+    const before = await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: V2_GPU_TRAP });
+    v2.trap = !!before.identifier;
+    // The pages of the software GPU first (no trap): v2 must stay closed on a software renderer.
+    await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: before.identifier });
+    try {
+      await setViewport(cdp, 1366, 911, 1); await v2Storage(cdp, fx.base, {});
+      const soft = await v2Open(cdp, fx.base + 'simulation.html?v2-software', false);
+      v2.software = { perfV2: soft.perfV2, requests: soft.requests, reason: soft.state && soft.state.reason, eligible: soft.state && soft.state.eligible };
+      if (soft.perfV2 || soft.requests.length) failures.push('v2 software GPU 1366x911: v2 opened on a software renderer (' + JSON.stringify(v2.software) + ')');
+      log('v2 software GPU 1366x911 sim: ' + (soft.perfV2 ? 'V2 OPEN' : 'closed') + ', eligible ' + v2.software.eligible);
+    } catch (e) { failures.push('v2 software GPU: ' + e.message); }
+    await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: V2_GPU_TRAP });
+    v2.closed = await v2Closed(cdp, fx, summary);
+    for (const [w, h] of V2_SIZES) {
+      v2.passes.push(await v2RealPass(cdp, fx, w, h, summary, report, true));
+      v2.passes.push(await v2RealPass(cdp, fx, w, h, summary, report, false));
+      v2.passes.push(await v2SimPass(cdp, fx, w, h, summary, report));
+      v2.passes.push(await v2EcoPass(cdp, fx, w, h, report));
+      // Requests the v2 page sent that the v1 page did not, the same steps being run (path + action).
+      const key = (c) => c.method + ' ' + c.path + ' ' + ((/"action"\s*:\s*"([^"]+)"/.exec(c.body) || [])[1] || '');
+      const base = v2.passes[v2.passes.length - 4], real = v2.passes[v2.passes.length - 3];
+      // POST /api/signin is the session renewal of app.js (v1, refused by the fixture), not a machine request.
+      const extra = (real.commands || []).filter((c) => c.path !== '/api/signin' && !(base.commands || []).some((b) => key(b) === key(c)));
+      real.extraCommandsVersusV1 = extra;
+      if (extra.length) failures.push('v2 real ' + w + 'x' + h + ': requests sent by the v2 page and not by the v1 page: ' + extra.map(key).join(', '));
+      log('v2 real ' + w + 'x' + h + ': ' + (real.commands || []).length + ' non-GET API request(s), ' + extra.length + ' not sent by v1 (' + (real.commands || []).map(key).join(', ') + ')');
+      // Strip commands at the same place with and without v2.
+      const r1 = v2Rects('real ' + w + 'x' + h, report), r0 = v2Rects('v1 baseline real ' + w + 'x' + h, report);
+      Object.keys(r1).forEach((id) => { if (r0[id] && r0[id].join() !== r1[id].join()) failures.push('v2 real ' + w + 'x' + h + ': #' + id + ' at ' + r1[id] + ' under v2, ' + r0[id] + ' under v1'); });
+    }
+  } catch (e) { failures.push('v2: ' + (e.stack || e.message)); log('FAIL v2: ' + e.message); }
+  finally {
+    cdp.close();
+    try { await cdp.send('Browser.close', {}, 3000); } catch (_) { /* closed */ }
+    try { browser.child.kill(); } catch (_) { /* gone */ }
+    fx.close();
+    await sleep(300);
+    try { fs.rmSync(browser.profile, { recursive: true, force: true }); } catch (_) { /* busy */ }
+  }
+  fs.mkdirSync(OUT, { recursive: true });
+  fs.writeFileSync(path.join(OUT, 'v2.json'), JSON.stringify(v2, null, 1));
+  summary.v2 = { passes: v2.passes.map((p) => ({ ctx: p.ctx, commands: (p.commands || []).length, pageErrors: (p.pageErrors || []).length })), closed: v2.closed, software: v2.software, hits: report.length };
+}
+
 // --- Strict layout check (--strict): the regressions the layout must never show, minus the
 // documented exceptions (layout-exceptions.json: check, variant / screen / label patterns, reason).
 function loadExceptions() {
@@ -982,6 +1609,12 @@ function strictCheck(summary, exceptionList) {
         if (t.broken && t.broken.length) add(Object.assign({ check: 'word-break', label: t.label, detail: 'word cut across lines: ' + t.broken.join(', ') }, base));
       }
       if (r.railScroll) add(Object.assign({ check: 'rail-scroll', label: 'rail', detail: 'rail scrolls horizontally (' + r.railScroll + ')' }, base));
+      // Performance v2 views (lot L7): no overflow, no text drawn over other text.
+      if (m.v2) {
+        if (r.overflow && (r.overflow.document || r.overflow.active)) add(Object.assign({ check: 'overflow-x', label: r.label, detail: 'horizontal overflow (' + r.overflow.documentScrollWidth + ' > ' + r.overflow.clientWidth + ')' }, base));
+        if (r.vertical && r.vertical.active && !r.scrolls) add(Object.assign({ check: 'overflow-y', label: r.label, detail: 'screen taller than its box and not scrolling' }, base));
+        for (const o of r.overlapsText || []) add(Object.assign({ check: 'overlap', label: o.a + ' / ' + o.b, detail: 'text over text, ' + o.w + ' x ' + o.h + ' px' }, base));
+      }
       const seen = new Set();
       for (const t of (r.textTargets || []).concat(r.small || [])) { const label = t.label || t.text; if (seen.has(label)) continue; seen.add(label); add(Object.assign({ check: 'text', label, detail: t.fontPx + ' px, goal ' + GOALS.text }, base)); }
     }
@@ -1083,6 +1716,18 @@ function writeSummary(summary) {
     if (st.excepted.length) { L.push('Excepted (reason in the exceptions file):'); L.push(''); L.push('| Check | Variant | Screen | Target | Detail |'); L.push('| --- | --- | --- | --- | --- |'); st.excepted.forEach((v) => L.push(row(v))); L.push(''); }
     if (st.staleExceptions.length) { L.push('Unused exceptions (no longer needed?): ' + st.staleExceptions.map((e) => '`' + [e.check, e.variant, e.screen, e.label].filter(Boolean).join(' / ') + '`').join(', ')); L.push(''); }
   }
+  if (summary.v2) {
+    const v = summary.v2;
+    L.push('## Performance v2 (`v2.json`, `v2-*/`)');
+    L.push('');
+    L.push('Opened from outside the page: preference, Performance profile and simulated machine kind written in storage, GPU probe answered « hardware » by an init script (SwiftShader underneath). Hit tests of the strip commands: ' + v.hits + '.');
+    L.push('');
+    L.push('| Pass | Non-GET API requests | Page exceptions |');
+    L.push('| --- | ---: | ---: |');
+    v.passes.forEach((p) => L.push('| ' + p.ctx + ' | ' + p.commands + ' | ' + p.pageErrors + ' |'));
+    L.push('');
+    if (v.closed) { L.push('| Where v2 must stay closed | v2 requests | perf-v2 | Same page as without the preference |'); L.push('| --- | ---: | --- | --- |'); v.closed.forEach((c) => L.push('| ' + c.label + ' | ' + c.requests.length + ' | ' + c.perfV2 + ' | ' + (c.sameAsWithoutPreference ? JSON.stringify(c.sameAsWithoutPreference) : '—') + ' |')); L.push(''); }
+  }
   L.push('## Limits');
   L.push('');
   L.push('- Headless Chrome on a PC: no touch digitiser, no Tegra 3 timings, GPU disabled like the kiosk but a different compositor; the Surface RT resolves the font stack to Bitstream Vera Sans, wider than Segoe UI.');
@@ -1132,6 +1777,8 @@ async function main() {
     if (ONLY.includes('strip') && !URL_BASE) { await setViewport(cdp, 1366, 768, 1); const list = await require('./browser-strip.cjs').run(cdp, module.exports, { simBase: base, out: path.join(OUT, 'strip'), log }); list.forEach((f) => failures.push(f)); summary.strip = list; }
     if (ONLY.includes('startup')) { await setViewport(cdp, 1366, 768, 1); await measureStartup(cdp, realUrl, summary); }
     if (ONLY.includes('e2e')) { await setViewport(cdp, 1366, 768, 1); for (const lang of ['fr', 'en', 'es']) await e2e(cdp, simUrl, lang, summary); await cdp.evaluate('localStorage.removeItem("cncjs-touch-language-v1");true').catch(() => {}); }
+    // Performance v2 in its own browser (software WebGL flags, simulated hardware probe), on its fixture.
+    if (ONLY.includes('v2') && !URL_BASE) await v2Measure(summary);
   } catch (e) { failures.push('harness: ' + (e.stack || e.message)); log('FAIL harness: ' + e.message); }
   let strictResult = null;
   try { strictResult = strictCheck(summary); } catch (e) { failures.push('strict check: ' + e.message); }
