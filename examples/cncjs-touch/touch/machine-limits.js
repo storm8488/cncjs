@@ -123,6 +123,8 @@
     'Rapport périmé : dernières valeurs connues, non actualisées.':['Stale report: last known values, not updated.','Informe caducado: últimos valores conocidos, sin actualizar.'],
     'Fraîcheur inconnue : aucun rapport récent du contrôleur.':['Freshness unknown: no recent controller report.','Antigüedad desconocida: ningún informe reciente del controlador.'],
     'Appareil pilote : ':['Pilot device: ','Dispositivo piloto: '],
+    'Rapport non suivi : l’interface v2 est arrêtée pour cette session. L’état et l’alarme à jour sont affichés dans la carte « Connexion et état ».':['Report not followed: the v2 interface is stopped for this session. The current state and alarm are shown in the “Connection and state” card.','Informe no seguido: la interfaz v2 está detenida en esta sesión. El estado y la alarma actuales se muestran en la tarjeta «Conexión y estado».'],
+    'Paramètres non suivis depuis l’arrêt de l’interface v2.':['Parameters not followed since the v2 interface stopped.','Parámetros no seguidos desde que se detuvo la interfaz v2.'],
     'Sens de prise d’origine':['Homing direction','Sentido del referenciado'],
     ' paramètres connus':[' parameters known',' parámetros conocidos'],
     'Valeurs transmises par Grbl via CNCjs ; « inconnu » : non reçue ou invalide. Le référencement activé ne signifie pas que la machine est référencée.':['Values sent by Grbl through CNCjs; “unknown”: not received or invalid. Homing enabled does not mean the machine is homed.','Valores enviados por Grbl a través de CNCjs; «desconocido»: no recibido o no válido. El referenciado activado no significa que la máquina esté referenciada.']
@@ -163,7 +165,7 @@
     n.parameters=el('section','v2m-zone v2m-parameters');n.parameters.id='v2m-parameters';
     zones.appendChild(n.condition);zones.appendChild(n.parameters);content.appendChild(zones);return n;
   }
-  function clear(node){while(node.children.length)node.removeChild(node.lastChild);}
+  function clear(node){while(node.children.length)node.removeChild(node.children[node.children.length-1]);}
   function draw(n,x){
     clear(n.condition);clear(n.parameters);
     n.condition.appendChild(el('h2',null,vt('Condition actuelle')));
@@ -191,6 +193,20 @@
     n.parameters.appendChild(el('p','v2m-count',x.known+'/13'+vt(' paramètres connus')));
     n.parameters.appendChild(el('p','v2m-note',vt('Valeurs transmises par Grbl via CNCjs ; « inconnu » : non reçue ou invalide. Le référencement activé ne signifie pas que la machine est référencée.')));
   }
+  // Resources closed (Éco, GPU loss, preference off, pagehide) while the layout may be held: the
+  // panel stops following the reports, so it says so in the same rectangle and gives the alarm
+  // back to the v1 notice (its CSS hiding keys on data-v2-presenter=on). Never a frozen « frais ».
+  function retire(){
+    var a=api(),mount=a&&a.mounts&&a.mounts.get('machine'),n=v2.nodes;
+    if(!n)return;
+    clear(n.condition);clear(n.parameters);v2.shown='';
+    n.condition.appendChild(el('h2',null,vt('Condition actuelle')));
+    var notice=el('p','v2m-freshness',vt('Rapport non suivi : l’interface v2 est arrêtée pour cette session. L’état et l’alarme à jour sont affichés dans la carte « Connexion et état ».'));
+    notice.setAttribute('data-freshness','untracked');n.condition.appendChild(notice);
+    n.parameters.appendChild(el('h2',null,vt('Paramètres de course')));
+    n.parameters.appendChild(el('p','v2m-note',vt('Paramètres non suivis depuis l’arrêt de l’interface v2.')));
+    if(mount&&mount.root&&mount.root.getAttribute('data-v2-presenter')==='on')mount.root.setAttribute('data-v2-presenter','off');
+  }
   function render(){
     v2.frame=0;
     var a=api(),mounts=a&&a.mounts,mount=mounts&&mounts.get('machine');
@@ -210,7 +226,8 @@
       v2.registered=true;
       var snap={version:1,available:true,screen:'machine',model:null};
       a.register('machine',{snapshot:function(){return snap;},update:function(){return snap;},cancel:function(){},
-        dispose:function(){v2.disposed=true;clearTimer();if(v2.frame&&window.cancelAnimationFrame)window.cancelAnimationFrame(v2.frame);v2.frame=0;}});
+        dispose:function(){v2.disposed=true;clearTimer();if(v2.frame&&window.cancelAnimationFrame)window.cancelAnimationFrame(v2.frame);v2.frame=0;
+          if(v2.nodes&&window.requestAnimationFrame)window.requestAnimationFrame(retire);}});
     }
     queue();
   });

@@ -297,7 +297,8 @@
     seg.setAttribute('role', 'group'); n.sources = {};
     ['session', 'server'].forEach(function (k) {
       var b = button('v2j-source-' + k, vt(k === 'session' ? 'Cette session' : 'Serveur'), ''); b.setAttribute('aria-pressed', 'false');
-      b.addEventListener('click', function () { if (v2.context) return; v2.selected = null; choose(k); v2Queue(); });
+      // The filters sort the session journal only (disabled on the server): reset on switching.
+      b.addEventListener('click', function () { if (v2.context) return; v2.selected = null; if (k === 'server') v2.filter = 'all'; choose(k); v2Queue(); });
       n.sources[k] = b; seg.appendChild(b);
     });
     head.appendChild(seg);

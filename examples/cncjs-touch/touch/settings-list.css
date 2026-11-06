@@ -148,6 +148,7 @@ body.perf-v2 #perf-v2-history[hidden]{display:none}
 body.perf-v2 #perf-v2-history .v2j-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px}
 body.perf-v2 #perf-v2-history .v2j-titles{flex:1 1 320px;min-width:0}
 body.perf-v2 #perf-v2-history .v2j-titles h2{margin:0;font-size:22px}
+body.perf-v2 #perf-v2-history .ks-readonly{font-size:16px!important;padding:8px 12px!important}
 body.perf-v2 #perf-v2-history .v2j-context{margin:4px 0 0;font-size:16px;color:var(--mute);overflow-wrap:anywhere}
 body.perf-v2 #perf-v2-history .v2j-head button,body.perf-v2 #perf-v2-history .v2j-filters button,body.perf-v2 #perf-v2-history .v2j-pages button{min-height:56px;font-size:18px}
 body.perf-v2 #perf-v2-history .v2j-filters{display:flex;gap:8px}

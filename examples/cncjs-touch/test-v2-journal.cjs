@@ -87,7 +87,9 @@ function timeline(p){
   q.show('history');q.frame();assert.equal(qrows().length,16,'availability back, state, file and workflow');
   // Server history stays read-only, read on demand, labelled as its own source.
   q.window.localStorage.values.set('cnc',JSON.stringify({state:{session:{token:'T'}}}));
+  filter('connection').click();q.frame();
   find(qc,'v2j-source-server').click();q.frame();
+  assert.equal(filter('all').getAttribute('aria-pressed'),'true','a session filter does not survive the switch to the server source');
   const xhr=q.window.sent.at(-1);assert.match(xhr.url,/\/touch-history\?limit=/);
   xhr.status=200;xhr.responseText=JSON.stringify({entries:[{seq:9,event:'start',at:'2026-11-06T10:00:00Z',program:'piece.nc'},{seq:8,event:'alarm',code:2,at:'2026-11-06T09:59:00Z'}],total:2,more:false});xhr.onload();
   q.frame();assert.equal(qrows().length,2);assert.match(text(qlist),/Serveur CNCjs/);assert.match(text(qlist),/Travail démarré/);
@@ -96,5 +98,15 @@ function timeline(p){
   q.st.open=false;q.emit('cnc-v2-change',q.base.state());q.status({...m,activeState:'Idle',workflow:'idle'});q.frame();
   assert.equal(qrows().length,16);assert.equal(qc.hidden,false);
   await flush();
+  // D4 (L7): the « Lecture seule » pill uses the shared .ks-readonly class (14 px, 12 px when
+  // narrow, touch-shell.css); the v2 journal overrides it to >= 16 px, and no L6 v2 rule is smaller.
+  {
+    const css=require('fs').readFileSync(__dirname+'/touch/settings-list.css','utf8'),v2=css.slice(css.indexOf('/* Performance v2 (L6)')).replace(/\/\*[\s\S]*?\*\//g,'');
+    const pill=v2.split('}').find(r=>r.split('{')[0].split(',').some(s=>/#perf-v2-history \.ks-readonly$/.test(s.trim())));
+    assert(pill,'v2 journal rule for the read-only pill');const size=/font-size:(\d+)px/.exec(pill);
+    assert(size&&Number(size[1])>=16&&/!important/.test(pill),'pill text >= 16 px over the narrow-screen rule: '+pill);
+    for(const m of v2.matchAll(/font-size:(\d+)px/g))assert(Number(m[1])>=16,'v2 text >= 16 px: '+m[0]);
+    assert.equal(all(qc).find(e=>e.className==='ks-readonly').textContent,'Lecture seule');
+  }
   console.log('PASS v2 journal: chronological list, command/state/connection filters, distinct sent/confirmed/refused/uncertain, detail without replay, contextual opening and return to Suivi, missing context, hidden screen, server source, release; RT unchanged.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

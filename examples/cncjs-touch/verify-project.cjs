@@ -32,7 +32,7 @@ const tests = [
  'v2-journal-context',
  'v2-suivi','v2-suivi-style',
  'v2-preparer','v2-preparer-reopen','v2-preparer-rest','v2-preparer-layout','v2-files',
- 'v2-settings','v2-journal','v2-machine',
+ 'v2-settings','v2-journal','v2-machine','v2-machine-release',
  'performance-v2-safety'
 ].map(name=>'test-'+name+'.cjs');
 // The backend (job service, event stream, motion preflight, probe input) lives in
