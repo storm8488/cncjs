@@ -51,7 +51,7 @@
   // Name shown to the other devices: the kind of device and the end of its identity.
   var touchDevice=!!(window.navigator&&window.navigator.maxTouchPoints>0);
   var clientLabel=clientId?(touchDevice?uiLocale.t('Tablette'):uiLocale.t('Poste'))+' '+clientId.slice(-4):'';
-  var selection=window.cncLibrarySelection||null, machines=[], current=null, busy=false, polling=false, lastSeen=0, ticket=null, until=0, portSignature='';
+  var selection=window.cncLibrarySelection||null, machines=[], current=null, busy=false, polling=false, lastSeen=0, seenAt=0, ticket=null, until=0, portSignature='';
   var store=window.cncState, compact=!!(store&&window.CNCJobStream), stream=null, transportId=null, epoch='', serverSequence=0;
   var generation=0, mutation=0, confirmation=0, pending=0, commandSequence=0, feedbackSequence=0, nextPoll=0, disposed=false, stateSignature='', streamReason='';
   var latestMachine=null, lastTransit=0, appliedRequest=0, requestSequence=0, requests=[], bindings=[], explicitPort=false, protocolReady=false;
@@ -78,7 +78,9 @@
   // A planned stream renewal (every minute) is not a disconnection: for up to 3 s
   // the transport still counts as connected and no notice is shown, while the
   // confirmations bound to the old stream are void as before.
-  function renewalGrace(){return renewing>0&&Date.now()-renewing>=0&&Date.now()-renewing<3000&&Date.now()-lastSeen<3000;}
+  function renewalGrace(){return renewing>0&&elapsedClock()-renewing>=0&&elapsedClock()-renewing<3000&&sinceSeen()<3000;}
+  // Time since the last report on the monotone clock (a civil clock set back renews nothing).
+  function sinceSeen(){return lastSeen?elapsedClock()-seenAt:Infinity;}
   function bind(target,name,fn){target.addEventListener(name,fn);bindings.push(function(){if(target.removeEventListener)target.removeEventListener(name,fn);});}
   function text(id,value){if(window.cncI18n&&(id==='job-feedback'||id==='job-reason'||id==='job-state'))value=window.cncI18n.message(value);var node=$(id);if(node&&node.textContent!==String(value))node.textContent=String(value);}
   function prop(id,name,value){var node=$(id);if(node&&node[name]!==value)node[name]=value;}
@@ -278,7 +280,7 @@
   }
   function confirmable(){
     var state=projected();
-    return !!ticket&&!document.hidden&&elapsedClock()>=ticket.started&&elapsedClock()<until&&Date.now()-lastSeen>=0&&Date.now()-lastSeen<3000&&
+    return !!ticket&&!document.hidden&&elapsedClock()>=ticket.started&&elapsedClock()<until&&sinceSeen()>=0&&sinceSeen()<3000&&
       ticket.generation===generation&&state&&state.fresh&&state.port===ticket.port&&ticketAllowed(ticket,state);
   }
   function otherDialog(own){
@@ -289,7 +291,7 @@
   // state stays shown, but confirmations bound to the old stream are void.
   function unavailable(reason,rotating){
     var dropped=!!ticket||preparing>0;generation++;mutation++;dismiss();transportId=null;
-    renewing=rotating?Date.now():0;
+    renewing=rotating?elapsedClock():0;
     if(!rotating){current=null;latestMachine=null;lastSeen=0;systemCommand=null;}
     streamReason=reason||'';
     if(dropped){text('job-feedback',uiLocale.t('Confirmation annulée : le suivi a été renouvelé. Touchez à nouveau le bouton.'));setFeedbackState('failed');}
@@ -300,7 +302,7 @@
   }
   function projected(){
     if(!latestMachine)return null;
-    var elapsed=Math.max(0,Date.now()-lastSeen), next={};
+    var elapsed=Math.max(0,sinceSeen()), next={};
     Object.keys(latestMachine).forEach(function(key){next[key]=latestMachine[key];});
     if(compact&&!simulation&&!protocolReady){next.fresh=false;next.canLoad=next.canStart=next.canResume=next.canPreviewMotion=false;next.loadReason=next.startReason=next.resumeReason=uiLocale.t('Module de suivi absent ou incompatible. Installez la version attendue avant de charger ou démarrer.');}
     else if(compact&&!simulation&&(!transportId||!stream||!stream.alive())){next.canLoad=next.canStart=next.canResume=next.canPreviewMotion=false;next.loadReason=next.startReason=next.resumeReason=uiLocale.t('Suivi continu interrompu. Lecture de secours ; attendez le rétablissement avant de charger ou confirmer.');}
@@ -313,9 +315,9 @@
   }
   function render() {
     current=projected();
-    var online=current && Date.now()-lastSeen<3000;
+    var online=current && sinceSeen()<3000;
     var grace=compact&&!simulation&&!transportId&&renewalGrace();
-    var transportConnected=compact&&!simulation?(!!transportId&&!!stream&&stream.alive())||grace:!!lastSeen&&Date.now()-lastSeen<3000;
+    var transportConnected=compact&&!simulation?(!!transportId&&!!stream&&stream.alive())||grace:sinceSeen()<3000;
     var command=online?systemCommand:null;
     pilot=pilotOf(online?current:null);
     if(pilot.takenOver&&pilot.changeAt!==takeoverSeen){takeoverSeen=pilot.changeAt;text('job-feedback',pilot.takenOver);setFeedbackState('failed');}
@@ -416,7 +418,7 @@
         if(data.epoch===epoch&&data.sequence<=serverSequence)return;
         epoch=data.epoch;serverSequence=data.sequence;
       }
-      machines=data.controllers||[];lastSeen=Date.now();lastTransit=transit||0;
+      machines=data.controllers||[];lastSeen=Date.now();seenAt=elapsedClock();lastTransit=transit||0;
       var sc=data.systemCommand;systemCommand=sc&&typeof sc==='object'&&typeof sc.title==='string'&&sc.title?{title:sc.title,since:sc.since}:null;
       var old=$('job-port').value, signature=machines.map(function(m){return m.port;}).join('|');
       if(signature!==portSignature){
@@ -456,11 +458,11 @@
     });
   }
   function run(action,extra) {
-    if((!current || Date.now()-lastSeen>=3000)&&halt&&!simulation&&(action==='pause'||action==='stop')){
+    if((!current || sinceSeen()>=3000)&&halt&&!simulation&&(action==='pause'||action==='stop')){
       var target={action:action,port:halt.port};if(halt.generation)target.generation=halt.generation;
       return api('POST',target);
     }
-    if(!current || Date.now()-lastSeen>=3000)return Promise.reject(new Error('État indisponible.'));
+    if(!current || sinceSeen()>=3000)return Promise.reject(new Error('État indisponible.'));
     if(!simulation&&(['prepare','start','resume','macro','override','unlock','home','spindle','readSettings','set-origin','machine'].indexOf(action)>=0||(action==='motion'&&!(extra&&extra.operation==='jog-stop')))&&(!current.generation||!transportId||!stream||!stream.alive()))return Promise.reject(new Error(uiLocale.t('Suivi continu interrompu. Nouvelle confirmation requise.')));
     var body={action:action,port:current.port};
     if(current.generation)body.generation=current.generation;
@@ -580,7 +582,7 @@
     e.stopImmediatePropagation();
   });
   // A preview image loaded for another version of the program is marked before it is painted.
-  function previewLoaded(e){if(e&&e.target&&e.target.id==='home-job-image')previewIdentity(current&&Date.now()-lastSeen<3000?current:null);}
+  function previewLoaded(e){if(e&&e.target&&e.target.id==='home-job-image')previewIdentity(current&&sinceSeen()<3000?current:null);}
   if(document.addEventListener){document.addEventListener('load',previewLoaded,true);bindings.push(function(){if(document.removeEventListener)document.removeEventListener('load',previewLoaded,true);});}
   bind(window,'cnc-screen-change',function(){dismiss(false);closePilot(false);});
   bind(window,'cnc-screen-lock',function(e){if(e&&e.detail){dismiss(false);closePilot(false);}});
