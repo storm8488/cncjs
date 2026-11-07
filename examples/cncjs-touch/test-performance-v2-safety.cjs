@@ -57,7 +57,7 @@ function trap(win, sent, allowRead) {
   };
 }
 // The state of every v2 node (id or class of a v2 presenter), to prove a handler wrote nothing.
-const V2_NODE = /^(home-v2|pv2|lv2|v2m|v2j|ks-v2|perf-v2|pgl-)/;
+const V2_NODE = /^(home-v2|pv2|lv2|v2m|v2k|ks-v2|perf-v2|pgl-)/;
 function v2Nodes(root) {
   const out = [];
   (function walk(n, depth) {

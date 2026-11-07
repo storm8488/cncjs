@@ -29,7 +29,7 @@ function page(options = {}) {
     removeEventListener(n,f) { listeners['doc:'+n] = (listeners['doc:'+n] || []).filter(x => x !== f); },
     dispatchEvent(e) { (listeners['doc:'+e.type] || []).slice().forEach(f => f(e)); }};
   // Baseline sheets are already in the head before the deferred bootstrap runs.
-  const responsive = element('link'); responsive.rel = 'stylesheet'; responsive.href = 'responsive.css?v=v2j';
+  const responsive = element('link'); responsive.rel = 'stylesheet'; responsive.href = 'responsive.css?v=v2k';
   document.head.children.push(responsive); responsive.parentNode = document.head;
   const window = {document, localStorage: storage, performance: {now: () => mono},
     innerWidth: options.width || 1366, innerHeight: options.height || 911,
@@ -92,7 +92,7 @@ async function tests() {
   p.frame(); await p.complete();
   assert(p.api.gate()); assert(p.api.state().ready); assert(p.classes.has('perf-v2'));
   assert.deepEqual(p.requests.map(r => r.url.split('?')[0]), BOOTSTRAP);
-  assert(p.requests.every(r => /\?v=v2j$/.test(r.url)));
+  assert(p.requests.every(r => /\?v=v2k$/.test(r.url)));
   const style = p.requests.find(r => r.url.startsWith('performance-v2.css?')).node;
   assert.equal(style.tagName, 'LINK'); assert.equal(style.rel, 'stylesheet');
   assert(p.document.head.children.indexOf(style) > p.document.head.children.findIndex(n => /^responsive\.css\?/.test(n.href || '')),
@@ -141,7 +141,7 @@ async function tests() {
         assert.equal(q.requests.length,n+1,'one bootstrap request at a time');
         assert(!q.api.state().ready); await q.step();
       }
-      const pending=q.requests[stage]; assert.equal(pending.url,BOOTSTRAP[stage]+'?v=v2j');
+      const pending=q.requests[stage]; assert.equal(pending.url,BOOTSTRAP[stage]+'?v=v2k');
       assert(!q.api.state().ready); assert(!q.classes.has('perf-v2'));
       if(close==='eco') q.window.cncProfile.setPerformance('eco');
       if(close==='gpu') { q.gpu.lost=true; q.emit('cnc-gpu-change'); }
@@ -194,7 +194,7 @@ async function tests() {
   // script execution error). Do not expose a ready UI backed by a leftover stub.
   for(const missing of BOOTSTRAP.slice(2).filter(file => file.endsWith('.js'))) {
     const q=page(); q.status(); q.frame();
-    while(q.requests[q.requests.length-1].url!==missing+'?v=v2j') await q.step();
+    while(q.requests[q.requests.length-1].url!==missing+'?v=v2k') await q.step();
     const pending=q.requests[q.requests.length-1]; pending.done=true; pending.node.onload();
     await q.complete();
     assert(!q.api.state().ready,'missing provider '+missing); assert(!q.api.gate()); assert(!q.classes.has('perf-v2'));
@@ -213,7 +213,7 @@ async function tests() {
   const snapshot=await sim.window.cncJobSimulation.request('GET');
   sim.emit('cnc-job-status',{simulation:true,machine:snapshot.controllers[0],busy:false,transportConnected:true});
   sim.frame();await sim.complete();assert(sim.api.gate(),'actual virtual Idle is usable without inventing a machine report age');
-  console.log('PASS v2 gate: real providers and guarded CSS after responsive, cache v2j, probe/scene barrier, cancellation at every stage, RT/software/Eco/laser zero requests, frozen busy layout.');
+  console.log('PASS v2 gate: real providers and guarded CSS after responsive, cache v2k, probe/scene barrier, cancellation at every stage, RT/software/Eco/laser zero requests, frozen busy layout.');
 }
 
 async function repeatedReportClock() {

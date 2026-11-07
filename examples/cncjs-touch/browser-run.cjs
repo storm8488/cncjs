@@ -1362,10 +1362,10 @@ async function v2RealPass(cdp, fx, w, h, summary, report, v1) {
           try {
             await cdp.waitFor('(function(){var s=document.getElementById("screen-history");return !!(s&&s.classList.contains("active"));})()', 5000, 'Journal opened from the curve');
             await sleep(600);
-            info.journal = await cdp.evaluate('(function(){var c=document.getElementById("v2j-context");return {context:c?c.textContent:null,back:!!document.getElementById("v2j-back")};})()');
+            info.journal = await cdp.evaluate('(function(){var c=document.getElementById("v2k-context");return {context:c?c.textContent:null,back:!!document.getElementById("v2k-back")};})()');
             await v2Capture(cdp, ctx, null, 'Journal', 'from-curve', results);
             await v2Hits(cdp, ctx, 'running Journal from the curve', ids, report);
-            await cdp.evaluate('(function(){var b=document.getElementById("v2j-back");if(b)b.click();return true;})()');
+            await cdp.evaluate('(function(){var b=document.getElementById("v2k-back");if(b)b.click();return true;})()');
             await cdp.waitFor('(function(){var s=document.getElementById("screen-home");return !!(s&&s.classList.contains("active"));})()', 5000, 'Suivi restored by « Retour à Suivi »');
           } catch (e) { failures.push('v2 ' + ctx + ': ' + e.message); }
         }

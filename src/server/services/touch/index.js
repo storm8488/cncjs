@@ -10,6 +10,7 @@ import { createStream, VERSION } from './touch-stream';
 import { createSystemStats } from './system-stats';
 import { createBacklight } from './backlight';
 import { createWifi } from './wifi';
+import { createUpdates } from './updates';
 import { createHistory } from './history';
 import { createControl, describeOwner, safeCommand, safeWrite } from './control';
 
@@ -196,6 +197,33 @@ const wifiAction = async (body, actor) => {
   }
 };
 
+// System updates of the CNCjs host (Réglages → Système). Taken like a host
+// command for the whole task (minutes for an install): refused while a job, a
+// pause, a move, a homing, a probe or a load is in progress, or while another
+// device pilots a port; machine actions wait until it ends. The API answers at
+// once; the page follows updatesStatus().
+const updates = createUpdates();
+const updatesStatus = () => updates.status();
+const updatesAction = (body, actor) => {
+  const action = body && body.action;
+  if (action !== 'check' && action !== 'install') {
+    throw Object.assign(new Error('Action de mise à jour inconnue.'), { status: 400 });
+  }
+  const refused = refuseSystemCommand(actor);
+  if (refused) {
+    throw Object.assign(new Error(refused.message), { status: 409 });
+  }
+  const titles = { check: 'Recherche des mises à jour du système', install: 'Installation des mises à jour du système' };
+  const reservation = service.reserveSystemCommand({ id: 'touch-updates', title: titles[action] });
+  try {
+    updates.start(action).then(() => reservation.release());
+  } catch (err) {
+    reservation.release();
+    throw err;
+  }
+  return updates.status();
+};
+
 export default {
   VERSION,
   start,
@@ -218,5 +246,7 @@ export default {
   dimBacklight,
   wakeBacklight,
   wifiStatus,
-  wifiAction
+  wifiAction,
+  updatesStatus,
+  updatesAction
 };

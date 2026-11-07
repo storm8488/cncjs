@@ -21,7 +21,7 @@ const tests = [
  'control-attribution','program-check-view','preview-identity','server-history','projects','server-messages',
  'strip-guard','strip-continuity','preview-notes',
  'motion-estimate','preview-inspect','laser-view','preview-gl','preview-sidecar','job-motion','viz-i18n',
- 'tablet-profile','tablet-diagnostic','scenario-profiles','simulated-kind','laser-z','wifi-settings',
+ 'tablet-profile','tablet-diagnostic','scenario-profiles','simulated-kind','laser-z','wifi-settings','system-updates',
  'preview-3d-gpu','preview-3d-live','preview-3d-overlays','responsive-wide','origin-preview','session-renew','job-stream-no-session','scenario-perf-safety','scenario-perf-defects',
  'network-hint','session-backoff','session-refused','settings-identity','session-race','plain-403','monotonic-delays','report-age-clock','dashboard-pause-guard','frame-refusal-reasons',
  'bughunt-c-1','bughunt-f3',

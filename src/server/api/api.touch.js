@@ -186,6 +186,31 @@ export const postWifi = authorized((req, res) => {
     });
 });
 
+// System updates of the computer running CNCjs (Réglages → Système): apt in the
+// background; POST answers at once with the status, GET follows the task.
+export const getUpdates = authorized((req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    res.send(touch.updatesStatus());
+  } catch (err) {
+    log.error(`updates status failed: ${err && err.stack}`);
+    res.status(ERR_INTERNAL_SERVER_ERROR).send({ message: 'Mises à jour indisponibles.' });
+  }
+});
+
+export const postUpdates = authorized((req, res) => {
+  const body = req.body || {};
+  res.set('Cache-Control', 'no-store');
+  try {
+    const data = touch.updatesAction({ action: body.action }, actorOf(req));
+    log.info(`updates ${body.action} started`);
+    res.send(data);
+  } catch (err) {
+    log.warn(`updates ${body.action} refused: ${err.message}`);
+    res.status(err.status || ERR_INTERNAL_SERVER_ERROR).send({ message: err.status ? err.message : 'Mise à jour impossible.' });
+  }
+});
+
 // Project sheets of the shared library (F3) and the provenance of compensated
 // files (F6). They describe programs only: nothing here reaches a controller,
 // so they need a session but not the touch service.

@@ -26,7 +26,7 @@ function timeline(p){
     const p=journalPage({eligible:false,noV2:true});p.show('history');timeline(p);
     const report=p.window.cncSessionJournal;assert(report);
     assert.equal(p.frames.size,0,'v1 journal requests no frame');
-    assert.equal(find(p.node('screen-history'),'v2j-list'),null);
+    assert.equal(find(p.node('screen-history'),'v2k-list'),null);
     assert.equal(p.node('screen-history').getAttribute('data-v2-presenter'),null);
     assert(!text(p.node('real-history-list')).includes('Demande envoyée'),'v1 journal records no command feedback');
   }
@@ -35,19 +35,19 @@ function timeline(p){
   p.open();const content=p.mount('history').content;assert.equal(content.children.length,0);
   p.show('history');assert.equal(content.children.length,0,'no rendering in an event handler');
   p.frame();assert.equal(content.hidden,false);assert.equal(p.node('screen-history').getAttribute('data-v2-presenter'),'on');
-  const list=find(content,'v2j-list'),detail=find(content,'v2j-detail'),rows=()=>list.children.filter(li=>li.getAttribute('data-id'));
+  const list=find(content,'v2k-list'),detail=find(content,'v2k-detail'),rows=()=>list.children.filter(li=>li.getAttribute('data-id'));
   // Commands captured before perf-v2 was drawn are not invented; capture starts with the v2 layout.
   assert(!rows().some(r=>r.getAttribute('data-category')==='command'),'no command feedback recorded before the v2 layout');
   // Fresh page with the v2 layout from the start: the same timeline is recorded.
   const q=journalPage();q.open();timeline(q);q.show('history');q.frame();
-  const qc=q.mount('history').content,qlist=find(qc,'v2j-list'),qrows=()=>qlist.children.filter(li=>li.getAttribute('data-id'));
+  const qc=q.mount('history').content,qlist=find(qc,'v2k-list'),qrows=()=>qlist.children.filter(li=>li.getAttribute('data-id'));
   assert.equal(qrows().length,12,'session, report and command events: '+qrows().map(r=>r.textContent).join(' | '));
   const times=qrows().map(r=>Number(r.getAttribute('data-at')));assert.deepEqual(times,[...times].sort((a,b)=>a-b),'chronological order');
   const states=qrows().filter(r=>r.getAttribute('data-category')==='command').map(r=>r.getAttribute('data-state'));
   assert.deepEqual(states,['sent','confirmed','refused','uncertain'],'sent/confirmed/refused/uncertain stay distinct');
   assert.match(text(qlist),/Envoyée/);assert.match(text(qlist),/Confirmée/);assert.match(text(qlist),/Refusée/);assert.match(text(qlist),/Incertaine/);
   // Touch filters: command, state, connection.
-  const filter=k=>all(qc).find(e=>e.getAttribute&&e.getAttribute('data-v2j-filter')===k);
+  const filter=k=>all(qc).find(e=>e.getAttribute&&e.getAttribute('data-v2k-filter')===k);
   assert.deepEqual(['all','command','state','connection'].map(k=>filter(k).textContent),['Tous','Commande','État','Connexion']);
   filter('command').click();assert.equal(qrows().length,12,'filter applies in the next frame');q.frame();
   assert.equal(qrows().length,4);assert.equal(filter('command').getAttribute('aria-pressed'),'true');
@@ -57,7 +57,7 @@ function timeline(p){
   // Detail on the right: origin, state meaning, program; read only, no replay.
   const refused=qrows().find(r=>r.getAttribute('data-state')==='refused');
   all(refused).find(e=>e.tagName==='BUTTON').click();q.frame();
-  const qd=find(qc,'v2j-detail');assert.match(text(qd),/Refusé : un autre appareil pilote/);assert.match(text(qd),/Appareil/);
+  const qd=find(qc,'v2k-detail');assert.match(text(qd),/Refusé : un autre appareil pilote/);assert.match(text(qd),/Appareil/);
   assert.match(text(qd),/piece\.nc/);assert.match(text(qd),/Lecture seule/);
   const confirmed=qrows().find(r=>r.getAttribute('data-category')==='command'&&r.getAttribute('data-state')==='confirmed');all(confirmed).find(e=>e.tagName==='BUTTON').click();q.frame();
   assert.match(text(qd),/ne prouve pas/,'confirmation is not machine execution');
@@ -71,29 +71,29 @@ function timeline(p){
   q.emit('cnc-v2-journal-open',{marker:{identity,interval:{fromMonoMs:61000,toMonoMs:63000}},view:{camera:'saved'}});
   assert.deepEqual(navigations,['history'],'opens Journal');q.show('history');q.frame();
   assert.equal(qrows().length,6,'events of that program within the marker interval (±30 s)');
-  assert.match(find(qc,'v2j-context').textContent,/piece\.nc/);
+  assert.match(find(qc,'v2k-context').textContent,/piece\.nc/);
   assert(qrows().every(r=>{const at=Number(r.getAttribute('data-at'));return at>=31000&&at<=93000;}));
-  const back=find(qc,'v2j-back');assert.equal(back.hidden,false);
+  const back=find(qc,'v2k-back');assert.equal(back.hidden,false);
   back.click();assert.deepEqual(navigations,['history','home']);assert.equal(JSON.stringify(returns),'[{"view":{"camera":"saved"}}]','Suivi receives its saved view');
-  q.show('history');q.frame();assert.equal(qrows().length,12,'the context ends with the return');assert.equal(find(qc,'v2j-back').hidden,true);
+  q.show('history');q.frame();assert.equal(qrows().length,12,'the context ends with the return');assert.equal(find(qc,'v2k-back').hidden,true);
   // Missing context: another program, or no interval: « Aucun événement conservé ».
   for(const marker of [{identity:{...identity,fingerprint:'sha:other'},interval:{fromMonoMs:61000,toMonoMs:63000}},{identity,interval:null},null]){
     q.emit('cnc-v2-journal-open',{marker});q.show('history');q.frame();
     assert.equal(qrows().length,0);assert.match(text(qlist),/Aucun événement conservé/);
   }
-  find(qc,'v2j-all').click();q.frame();assert.equal(qrows().length,12);
+  find(qc,'v2k-all').click();q.frame();assert.equal(qrows().length,12);
   // Hidden Journal: new events do not paint until it is shown again.
   q.show('home');q.status({...m,activeState:'Hold',workflow:'paused'});q.frame();assert.equal(qrows().length,12);
   q.show('history');q.frame();assert.equal(qrows().length,16,'availability back, state, file and workflow');
   // Server history stays read-only, read on demand, labelled as its own source.
   q.window.localStorage.values.set('cnc',JSON.stringify({state:{session:{token:'T'}}}));
   filter('connection').click();q.frame();
-  find(qc,'v2j-source-server').click();q.frame();
+  find(qc,'v2k-source-server').click();q.frame();
   assert.equal(filter('all').getAttribute('aria-pressed'),'true','a session filter does not survive the switch to the server source');
   const xhr=q.window.sent.at(-1);assert.match(xhr.url,/\/touch-history\?limit=/);
   xhr.status=200;xhr.responseText=JSON.stringify({entries:[{seq:9,event:'start',at:'2026-11-06T10:00:00Z',program:'piece.nc'},{seq:8,event:'alarm',code:2,at:'2026-11-06T09:59:00Z'}],total:2,more:false});xhr.onload();
   q.frame();assert.equal(qrows().length,2);assert.match(text(qlist),/Serveur CNCjs/);assert.match(text(qlist),/Travail démarré/);
-  find(qc,'v2j-source-session').click();q.frame();assert.equal(qrows().length,16);
+  find(qc,'v2k-source-session').click();q.frame();assert.equal(qrows().length,16);
   // Eco / GPU loss: the presenter is released; nothing repaints, nothing moves.
   q.st.open=false;q.emit('cnc-v2-change',q.base.state());q.status({...m,activeState:'Idle',workflow:'idle'});q.frame();
   assert.equal(qrows().length,16);assert.equal(qc.hidden,false);

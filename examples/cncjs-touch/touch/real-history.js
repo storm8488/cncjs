@@ -290,19 +290,19 @@
   function node(tag, cls, value) { var n = document.createElement(tag); if (cls) n.className = cls; if (value !== undefined) n.textContent = value; return n; }
   function button(id, label, cls) { var b = node('button', cls || 'ks-secondary', label); b.type = 'button'; if (id) b.id = id; return b; }
   function v2Build(content) {
-    var n = {}, head = node('div', 'v2j-head'), titles = node('div', 'v2j-titles'), seg = node('div', 't-seg v2j-sources');
-    n.title = node('h2'); n.context = node('p', 'v2j-context'); n.context.id = 'v2j-context';
+    var n = {}, head = node('div', 'v2k-head'), titles = node('div', 'v2k-titles'), seg = node('div', 't-seg v2k-sources');
+    n.title = node('h2'); n.context = node('p', 'v2k-context'); n.context.id = 'v2k-context';
     titles.appendChild(n.title); titles.appendChild(n.context); head.appendChild(titles);
     n.readOnly = node('span', 'ks-readonly'); head.appendChild(n.readOnly);
     seg.setAttribute('role', 'group'); n.sources = {};
     ['session', 'server'].forEach(function (k) {
-      var b = button('v2j-source-' + k, vt(k === 'session' ? 'Cette session' : 'Serveur'), ''); b.setAttribute('aria-pressed', 'false');
+      var b = button('v2k-source-' + k, vt(k === 'session' ? 'Cette session' : 'Serveur'), ''); b.setAttribute('aria-pressed', 'false');
       // The filters sort the session journal only (disabled on the server): reset on switching.
       b.addEventListener('click', function () { if (v2.context) return; v2.selected = null; if (k === 'server') v2.filter = 'all'; choose(k); v2Queue(); });
       n.sources[k] = b; seg.appendChild(b);
     });
     head.appendChild(seg);
-    n.all = button('v2j-all', vt('Tout le journal')); n.back = button('v2j-back', vt('← Retour à Suivi'));
+    n.all = button('v2k-all', vt('Tout le journal')); n.back = button('v2k-back', vt('← Retour à Suivi'));
     n.all.addEventListener('click', function () { v2.context = null; v2.view = null; v2.selected = null; v2Queue(); });
     n.back.addEventListener('click', function () {
       var view = v2.view; v2.context = null; v2.view = null; v2.selected = null; v2Queue();
@@ -310,16 +310,16 @@
       window.dispatchEvent(new CustomEvent('cnc-navigate', { detail: 'home' }));
     });
     head.appendChild(n.all); head.appendChild(n.back);
-    n.filters = node('div', 't-seg v2j-filters'); n.filters.setAttribute('role', 'group'); n.filterButtons = [];
+    n.filters = node('div', 't-seg v2k-filters'); n.filters.setAttribute('role', 'group'); n.filterButtons = [];
     ['all', 'command', 'state', 'connection'].forEach(function (k) {
-      var b = button(null, k, ''); b.setAttribute('data-v2j-filter', k); b.setAttribute('aria-pressed', String(k === 'all'));
+      var b = button(null, k, ''); b.setAttribute('data-v2k-filter', k); b.setAttribute('aria-pressed', String(k === 'all'));
       b.addEventListener('click', function () { v2.filter = k; v2.selected = null; v2Queue(); });
       n.filterButtons.push(b); n.filters.appendChild(b);
     });
-    var body = node('div', 'v2j-body');
-    n.list = node('ol', 'v2j-list'); n.list.id = 'v2j-list'; n.detail = node('aside', 'v2j-detail'); n.detail.id = 'v2j-detail';
+    var body = node('div', 'v2k-body');
+    n.list = node('ol', 'v2k-list'); n.list.id = 'v2k-list'; n.detail = node('aside', 'v2k-detail'); n.detail.id = 'v2k-detail';
     body.appendChild(n.list); body.appendChild(n.detail);
-    n.pages = node('div', 'v2j-pages'); n.newer = button('v2j-newer', vt('← Plus récent')); n.page = node('span'); n.older = button('v2j-older', vt('Plus ancien →'));
+    n.pages = node('div', 'v2k-pages'); n.newer = button('v2k-newer', vt('← Plus récent')); n.page = node('span'); n.older = button('v2k-older', vt('Plus ancien →'));
     n.newer.addEventListener('click', serverNewer); n.older.addEventListener('click', serverOlder);
     n.pages.appendChild(n.newer); n.pages.appendChild(n.page); n.pages.appendChild(n.older);
     content.appendChild(head); content.appendChild(n.filters); content.appendChild(body); content.appendChild(n.pages);
@@ -335,12 +335,12 @@
     var key = String(e.id), row = v2.rows[key];
     var badge = e.params.category === 'command' && e.source !== 'server' ? labels.states[e.state] : vt(SOURCES[e.source]);
     var sig = JSON.stringify([clock(e), e.params.message, badge, v2.selected === key]);
-    if (!row) { row = node('li'); row._button = button(null, '', 'v2j-row'); row.appendChild(row._button);
+    if (!row) { row = node('li'); row._button = button(null, '', 'v2k-row'); row.appendChild(row._button);
       row._button.addEventListener('click', function () { v2.selected = key; v2Queue(); }); v2.rows[key] = row; }
     if (row._sig !== sig) {
       row._sig = sig; var b = row._button; b.textContent = '';
-      b.appendChild(node('span', 'v2j-time', clock(e))); b.appendChild(node('span', 'v2j-message', e.params.message || ''));
-      b.appendChild(node('b', 'v2j-badge', badge || ''));
+      b.appendChild(node('span', 'v2k-time', clock(e))); b.appendChild(node('span', 'v2k-message', e.params.message || ''));
+      b.appendChild(node('b', 'v2k-badge', badge || ''));
       b.setAttribute('aria-pressed', String(v2.selected === key));
       row.setAttribute('data-id', key); row.setAttribute('data-kind', e.params.category); row.setAttribute('data-category', e.params.category);
       row.setAttribute('data-state', e.state); row.setAttribute('data-source', e.source);
@@ -350,7 +350,7 @@
   }
   function v2Detail(n, e, labels) {
     while (n.detail.children.length) n.detail.removeChild(n.detail.lastChild);
-    if (!e) { n.detail.appendChild(node('p', 'v2j-hint', vt('Touchez un événement pour afficher son détail.'))); return; }
+    if (!e) { n.detail.appendChild(node('p', 'v2k-hint', vt('Touchez un événement pour afficher son détail.'))); return; }
     var dl = node('dl');
     function line(label, value) { if (!value) return; dl.appendChild(node('dt', null, vt(label))); dl.appendChild(node('dd', null, value)); }
     line('Événement', e.params.message); line('Heure', clock(e)); line('Origine', vt(SOURCES[e.source]));
@@ -359,8 +359,8 @@
     line('Programme', e.params.file); line('Contrôleur', e.params.port); if (e.params.detail) line('Détail', e.params.detail);
     n.detail.appendChild(dl);
     var note = e.source === 'server' ? 'Enregistré par le serveur CNCjs : ce n’est pas une preuve d’usinage.' : e.params.category === 'command' ? STATE_NOTES[e.state] : '';
-    if (note) n.detail.appendChild(node('p', 'v2j-note', vt(note)));
-    n.detail.appendChild(node('p', 'v2j-readonly', vt('Lecture seule : aucune commande ne peut être rejouée depuis le journal.')));
+    if (note) n.detail.appendChild(node('p', 'v2k-note', vt(note)));
+    n.detail.appendChild(node('p', 'v2k-readonly', vt('Lecture seule : aucune commande ne peut être rejouée depuis le journal.')));
   }
   function v2Render() {
     v2.frame = 0;
@@ -376,12 +376,12 @@
       Math.round((ctx.interval.toMonoMs - ctx.interval.fromMonoMs) / 1000) + vt(' s autour de l’événement de la courbe (horloge de cette tablette).') : vt('Contexte indisponible : programme ou intervalle inconnu.'));
     set(n.context, 'hidden', !ctx); set(n.back, 'hidden', !ctx); set(n.all, 'hidden', !ctx);
     Object.keys(n.sources).forEach(function (k) { n.sources[k].setAttribute('aria-pressed', String(k === source)); set(n.sources[k], 'disabled', !!ctx); });
-    n.filterButtons.forEach(function (b) { var k = b.getAttribute('data-v2j-filter'); set(b, 'textContent', labels.filters[k]); b.setAttribute('aria-pressed', String(k === v2.filter)); set(b, 'disabled', source === 'server'); });
+    n.filterButtons.forEach(function (b) { var k = b.getAttribute('data-v2k-filter'); set(b, 'textContent', labels.filters[k]); b.setAttribute('aria-pressed', String(k === v2.filter)); set(b, 'disabled', source === 'server'); });
     if (source === 'server') events = events.filter(function (e) { return v2.filter === 'all' || e.params.category === v2.filter; });
     var desired = [], keep = Object.create(null), selected = null;
     events.forEach(function (e) { desired.push(v2Row(e, labels)); keep[String(e.id)] = true; if (String(e.id) === v2.selected) selected = e; });
     if (!events.length) {
-      var empty = n.list._empty || (n.list._empty = node('li', 'v2j-empty'));
+      var empty = n.list._empty || (n.list._empty = node('li', 'v2k-empty'));
       set(empty, 'textContent', source === 'server' && server.loading ? uiLocale.t('Lecture de l’historique serveur…') : source === 'server' && server.error ? server.error : labels.emptyMessage);
       desired.push(empty);
     }

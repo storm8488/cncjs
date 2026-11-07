@@ -30,22 +30,22 @@ const {page,read}=require('./test-v2-gate.cjs');
       'projects.js','settings-list.css','shared-library.css',
       'shared-library.js','status-strip.js','tablet-diagnostic.js','tablet-profile.js','tool-position.js',
       'touch-shell.js','travel-check.js','library-preview.js','laser-view.js']) {
-      assert(html.includes(file+'?v=v2j'),'phase C page cache version: '+name+' / '+file);
+      assert(html.includes(file+'?v=v2k'),'phase C page cache version: '+name+' / '+file);
     }
     if(name==='index.html') for(const file of ['real-history.js','session-journal.js']) {
-      assert(html.includes(file+'?v=v2j'),'phase C real page cache version: '+file);
+      assert(html.includes(file+'?v=v2k'),'phase C real page cache version: '+file);
     }
   }
-  assert(/ADVANCED_VERSION\s*=\s*'v2j'/.test(read('tablet-profile.js')),'phase C deferred resources cache version');
+  assert(/ADVANCED_VERSION\s*=\s*'v2k'/.test(read('tablet-profile.js')),'phase C deferred resources cache version');
   for(const [module,file] of [['preview-inspect.js','preview-inspect.js'],['library-preview.js','library-preview-worker.js'],
     ['laser-view.js','laser-view.js']]) {
     const source=read(module);
     const urls=source.match(new RegExp(file.replace(/\./g,'\\.')+'\\?v=[a-z0-9]+','g')) || [];
     assert(urls.length>0,'worker URL exists: '+module);
-    assert(urls.every(url=>url===file+'?v=v2j'),'phase C worker cache version: '+module);
+    assert(urls.every(url=>url===file+'?v=v2k'),'phase C worker cache version: '+module);
   }
   for(const module of ['preview-inspect.js','laser-view.js']) {
-    assert(read(module).includes("importScripts('motion-estimate.js?v=v2j')"),'phase C worker dependency cache version: '+module);
+    assert(read(module).includes("importScripts('motion-estimate.js?v=v2k')"),'phase C worker dependency cache version: '+module);
   }
   // All executable L0 / phase B browser files parse at ES2017; the catalogue is strictly JSON data.
   const acorn=require('acorn');
