@@ -67,6 +67,15 @@ async function dropAndReconnect(f, epoch) {
     const m = f.posts().length; f.controls().override('feed', 110).catch(() => {}); await f.flush();
     assert.equal(f.posts().length, m, 'an override waits for a recent state');
   }
+  // Lot Fichiers: the sentence names only what the lost state still allows (paused: Pause greyed, Arrêter
+  // offered), never « Pause et Arrêter » under a disabled Pause. The buttons' state is the one above.
+  {
+    const f = await connected({ workflow: 'paused', activeState: 'Hold', canPause: false, canStop: true, canResume: true, canStart: false, canLoad: false });
+    stream(f).onerror(); await f.flush();
+    assert.equal(f.el('job-pause').disabled, true); assert.equal(f.el('job-stop').disabled, false);
+    assert.match(f.el('job-reason').textContent, /Arrêter reste disponible ; les autres commandes attendent un état récent\./, f.el('job-reason').textContent);
+    assert.doesNotMatch(f.el('job-reason').textContent, /Pause et Arrêter|Pause reste/);
+  }
   // A controller at rest (nothing to stop) gives no target; a fresh idle state clears it.
   {
     const f = await connected();

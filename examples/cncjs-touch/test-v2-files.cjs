@@ -124,17 +124,24 @@ function libraryPage(options = {}) {
   for (const language of ['fr', 'en', 'es']) {
     const context = { window: {}, document: { documentElement: {}, title: '', body: null }, localStorage: { getItem: k => k === 'cncjs-touch-language-v1' ? language : null, setItem() {} } };
     context.window.localStorage = context.localStorage; context.window.document = context.document; vm.createContext(context);
-    for (const f of fs.readdirSync(__dirname + '/touch').filter(f => /^i18n-messages(-[a-z]+)?\.js$/.test(f) && f !== 'i18n-messages-v2.js')) vm.runInContext(fs.readFileSync(__dirname + '/touch/' + f, 'utf8'), context);
+    // In the page's order (index.html): i18n-messages.js assigns the array and the others push onto it.
+    // In directory order i18n-messages.js came last and wiped the viz rows, so a conflict went unseen.
+    const order = [...fs.readFileSync(__dirname + '/touch/index.html', 'utf8').matchAll(/src="(i18n-messages(?:-[a-z]+)?\.js)\?/g)].map(m => m[1]);
+    assert.deepEqual(order.slice(0, 2), ['i18n-messages.js', 'i18n-messages-machine.js']); assert(order.includes('i18n-messages-viz.js'));
+    for (const f of order) vm.runInContext(fs.readFileSync(__dirname + '/touch/' + f, 'utf8'), context);
     vm.runInContext(fs.readFileSync(__dirname + '/touch/i18n.js', 'utf8'), context);
     const i = context.window.cncI18n;
     assert.equal(i.registerCatalog('performance-v2', JSON.parse(fs.readFileSync(__dirname + '/touch/i18n-messages-v2.js', 'utf8'))), true);
     assert.equal(i.registerCatalog('performance-v2-files', rows), true, 'no conflicting row');
     assert.equal(i.t('Chargé dans la machine'), { fr: 'Chargé dans la machine', en: 'Loaded in the machine', es: 'Cargado en la máquina' }[language]);
+    // The batch is really registered (a conflict rejected all of it and the band stayed in French).
+    assert.equal(i.t('Empreinte'), { fr: 'Empreinte', en: 'Fingerprint', es: 'Huella' }[language]);
+    assert.equal(i.t('inconnue'), { fr: 'inconnue', en: 'unknown', es: 'desconocido' }[language]);
   }
   // Every t('…') of the band is in its catalogue or an existing one.
   const source = fs.readFileSync(__dirname + '/touch/shared-library.js', 'utf8'), block = source.slice(source.indexOf('// ---- Performance v2 · Fichiers'));
   const keys = new Set(rows.map(r => r[0]));
-  const statics = { window: {} }; ['i18n-messages.js', 'i18n-messages-profiles.js'].forEach(n => vm.runInNewContext(fs.readFileSync(__dirname + '/touch/' + n, 'utf8'), statics));
+  const statics = { window: {} }; ['i18n-messages.js', 'i18n-messages-profiles.js', 'i18n-messages-viz.js'].forEach(n => vm.runInNewContext(fs.readFileSync(__dirname + '/touch/' + n, 'utf8'), statics));
   statics.window.CNCTouchMessages.forEach(r => keys.add(r[0]));
   const literals = [...block.matchAll(/\b(?:t|tv2)\('((?:[^'\\]|\\.)*)'\)/g)].map(m => m[1]);
   assert(literals.length > 20, 'the band is translated through tv2()');

@@ -26,6 +26,16 @@ vm.runInNewContext(fs.readFileSync(__dirname+'/touch/job-controls.js','utf8'),{d
  response.controllers[0]={...response.controllers[0],activeState:'Idle',name:'leaf.nc',originalName:'Feuille.nc',canLoad:true,canStart:true};
  now+=10000;timers[0]();pending.shift()();await new Promise(setImmediate);
  assert.match(el('file').textContent,/Chargé dans CNCjs : Feuille.nc/);assert.equal(el('job-start').disabled,false);
+ // Lot Fichiers: Fichiers has no Démarrer, its reason line sends to Suivi; Suivi (#file) keeps « Touchez Démarrer ».
+ assert.equal(el('job-reason').textContent,'Fichier chargé : ouvrez le Suivi pour démarrer.');assert.match(el('file').textContent,/Touchez Démarrer pour confirmer/);
+ // A stale report (fresh false) no longer says « Chargé dans CNCjs : … » under « état de charge indisponible ».
+ response.controllers[0]={...response.controllers[0],fresh:false,canLoad:false,canStart:false};
+ now+=10000;timers[0]();pending.shift()();await new Promise(setImmediate);
+ assert.equal(el('job-loaded').textContent,'Fichier chargé : état indisponible.');assert.equal(el('job-load').disabled,true);assert.equal(el('job-start').disabled,true);
+ assert.match(el('job-reason').textContent,/En attente d’un état récent/);
+ response.controllers[0]={...response.controllers[0],fresh:true,canLoad:true,canStart:true};
+ now+=10000;timers[0]();pending.shift()();await new Promise(setImmediate);
+ assert.match(el('job-loaded').textContent,/Chargé dans CNCjs : Feuille.nc/);
  response.controllers=[];now+=10000;timers[0]();pending.shift()();await new Promise(setImmediate);
  assert.match(el('file').textContent,/état indisponible/);assert.equal(el('job-start').disabled,true);
  console.log('PASS: alarme, sélection distincte du chargement, accueil synchronisé et déconnexion.');

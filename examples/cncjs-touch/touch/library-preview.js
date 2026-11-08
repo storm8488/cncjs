@@ -4,6 +4,8 @@
   var source = typeof document !== 'undefined' && document.currentScript && document.currentScript.src;
   var workerURL = source ? source.split(/[?#]/)[0].replace(/[^/]*$/, 'library-preview-worker.js?v=v2m') : 'library-preview-worker.js?v=v2m';
   var generation = 0;
+  // Progress lines shown while a file is prepared (cncI18n in the page; unchanged in Node tests).
+  function tr(s) { var i = root.cncI18n; return i && typeof i.t === 'function' ? i.t(s) : s; }
   // Floats per drawn segment: x, y, xx, yy, mode, deepest Z of the segment.
   var STRIDE = 6;
   // The 3D path from the worker is kept only if it has the expected shape and a bounded size.
@@ -423,7 +425,7 @@
       }
       function encode() {
         if (!check()) return;
-        report('Encodage de l’image PNG…');
+        report(tr('Encodage de l’image PNG…'));
         try {
           output.finish();
           if (typeof canvas.toBlob === 'function' && typeof root.FileReader === 'function') {
@@ -438,7 +440,7 @@
               } catch (error) { finish(error); }
             }, 'image/png');
           } else {
-            report('Encodage PNG local synchrone — réactivité non garantie…');
+            report(tr('Encodage PNG local synchrone — réactivité non garantie…'));
             drawing = setTimeout(function () {
               drawing = null; if (!check()) return;
               try { encoded(canvas.toDataURL('image/png'), true); } catch (error) { finish(error); }
@@ -455,7 +457,7 @@
           // Small responses retain the compatible, explicitly limited fallback.
           if (responseBlob.size > 262144) { finish(new Error('Worker requis pour régénérer cet aperçu volumineux. Utilisez un navigateur compatible sur le PC.')); return; }
           if (typeof root.FileReader !== 'function') { finish(new Error('Lecture du fichier impossible sur ce navigateur')); return; }
-          report(reason + ' — lecture locale limitée à 256 Kio, réactivité non garantie.');
+          report(tr(reason) + tr(' — lecture locale limitée à 256 Kio, réactivité non garantie.'));
           var blob = responseBlob; responseBlob = null;
           try {
             reader = new root.FileReader();
@@ -474,8 +476,8 @@
           } catch (error) { finish(error); }
           return;
         }
-        report(reason + ' — analyse locale découpée, réactivité non garantie.');
-        scan(text, null, stopped, function (p) { report('Analyse locale du parcours : ' + Math.floor(p * 100) + ' %'); }).then(function (value) {
+        report(tr(reason) + tr(' — analyse locale découpée, réactivité non garantie.'));
+        scan(text, null, stopped, function (p) { report(tr('Analyse locale du parcours : ') + Math.floor(p * 100) + ' %'); }).then(function (value) {
           if (!check()) return;
           result = value; output.setup(result);
           var data = new Float64Array(2048 * STRIDE), used = 0, T3 = toolpath3d(), builder = T3 ? T3.createBuilder({ bounds: pathBounds(result) }) : null;
@@ -519,7 +521,7 @@
               if (worker) worker.postMessage({ type: 'ack', id: id, sequence: block.sequence });
             }
           }
-          report((fallback ? 'Dessin local' : 'Dessin') + ' du parcours : ' + Math.floor(drawn / result.count * 100) + ' %');
+          report(tr(fallback ? 'Dessin local du parcours : ' : 'Dessin du parcours : ') + Math.floor(drawn / result.count * 100) + ' %');
           if (queue.length) drawing = setTimeout(draw, 0);
           else if (localResume) { var resume = localResume; localResume = null; resume(); }
         } catch (error) { finish(error); }
@@ -547,7 +549,7 @@
               if (message.version !== 2) { local('Version du Worker incompatible'); return; }
               if (responseBlob && !message.response) { local('Lecture du serveur indisponible dans le Worker'); return; }
               ready = true; clearTimeout(startup);
-              report('Préparation du parcours hors interface…');
+              report(tr('Préparation du parcours hors interface…'));
               if (responseBlob) {
                 // Clone immutable Blob bytes without materializing either the
                 // JSON envelope or the G-code string on the UI thread.
@@ -557,7 +559,7 @@
             }
             if (!ready || message.id !== id) return;
             if (message.type === 'input') { if (message.offset !== input) throw new Error('Transfert du G-code désynchronisé'); sendInput(); }
-            else if (message.type === 'progress') report('Analyse du parcours : ' + Math.floor(message.value * 100) + ' %');
+            else if (message.type === 'progress') report(tr('Analyse du parcours : ') + Math.floor(message.value * 100) + ' %');
             else if (message.type === 'bounds') { result = message.result; output.setup(result); }
             else if (message.type === 'segments') {
               if (!result || message.sequence !== sequence + 1 || !message.data || message.data.byteLength > 2048 * STRIDE * 8 || !message.data.byteLength || message.data.byteLength % (STRIDE * 8) || queue.length >= 4) throw new Error('Bloc de parcours invalide');

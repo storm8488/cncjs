@@ -332,18 +332,23 @@
     var signature=JSON.stringify(detail);
     if(signature!==stateSignature){stateSignature=signature;window.dispatchEvent(new CustomEvent('cnc-job-status',{detail:detail}));}
     var selectedText=selection?uiLocale.t('Sélectionné dans la bibliothèque : ')+selection.name:uiLocale.t('Aucun fichier sélectionné dans la bibliothèque.');
-    var loadedText=online?(current.name?uiLocale.t('Chargé dans CNCjs : ')+(current.originalName||current.name):uiLocale.t('Aucun fichier chargé dans CNCjs.')):uiLocale.t('Fichier chargé : état indisponible.');
+    // A report too old (fresh false) does not tell what CNCjs holds now: same words as offline.
+    var loadedText=online&&current.fresh!==false?(current.name?uiLocale.t('Chargé dans CNCjs : ')+(current.originalName||current.name):uiLocale.t('Aucun fichier chargé dans CNCjs.')):uiLocale.t('Fichier chargé : état indisponible.');
     var reason='';
-    if(!online) reason=(streamReason||uiLocale.t('Connectez le contrôleur dans CNCjs et attendez un état récent.'))+(lost?' '+uiLocale.t('Pause et Arrêter restent disponibles ; les autres commandes attendent un état récent.'):'');
+    // Text only: it names the commands the lost state still allows (lost.canPause / lost.canStop, as below).
+    var still=!lost?'':lost.canPause&&lost.canStop?uiLocale.t('Pause et Arrêter restent disponibles ; les autres commandes attendent un état récent.'):lost.canStop?uiLocale.t('Arrêter reste disponible ; les autres commandes attendent un état récent.'):lost.canPause?uiLocale.t('Pause reste disponible ; les autres commandes attendent un état récent.'):'';
+    var filesReason='';
+    if(!online) reason=(streamReason||uiLocale.t('Connectez le contrôleur dans CNCjs et attendez un état récent.'))+(still?' '+still:'');
     else if(/^alarm/i.test(current.activeState)) reason=simulation?uiLocale.t('Alarme fictive : ouvrez Machine pour terminer le test d’alarme. La reprise devra être confirmée.'):(window.CNCGrblHelp?window.CNCGrblHelp.text(window.CNCGrblHelp.alarm(current.alarmCode,current.alarmCodeInferred))+' ':'')+uiLocale.t('Chargement et démarrage bloqués : le contrôleur est en ALARM. Consultez le message d’alarme dans CNCjs et résolvez sa cause. Quand la machine sera prête (Idle), chargez le fichier puis touchez Démarrer.');
     else if(!current.fresh) reason=uiLocale.t('En attente d’un état récent du contrôleur.');
     else if(!current.name) reason=current.canLoad?(selection?uiLocale.t('Étape suivante : Charger le fichier sélectionné, puis Démarrer.'):uiLocale.t('Sélectionnez un fichier dans la bibliothèque.')):(current.loadReason||uiLocale.t('Chargement indisponible.'));
     else if(current.workflow==='paused') reason=current.canResume?uiLocale.t('Travail en pause. Touchez Reprendre pour confirmer la reprise.'):current.resumeReason;
     else if(current.workflow==='running') reason=uiLocale.t('Travail en cours.');
-    else reason=current.canStart?uiLocale.t('Fichier chargé. Touchez Démarrer pour confirmer.'):current.startReason;
+    // Fichiers has no Démarrer (it lives in Suivi): its reason line says where to start; #file (Suivi) keeps reason.
+    else {reason=current.canStart?uiLocale.t('Fichier chargé. Touchez Démarrer pour confirmer.'):current.startReason;if(current.canStart)filesReason=uiLocale.t('Fichier chargé : ouvrez le Suivi pour démarrer.');}
     text('job-selected',selectedText);
     text('job-loaded',loadedText);
-    text('job-reason',reason);
+    text('job-reason',filesReason||reason);
     var homeFile=$('file');
     if(simulation) {loadedText=loadedText.replace(uiLocale.t('dans CNCjs'),uiLocale.t('dans le simulateur'));text('job-loaded',loadedText);}
     if(homeFile) text('file',(simulation?uiLocale.t('SIMULATION — '):'')+selectedText+' — '+loadedText+' '+reason);

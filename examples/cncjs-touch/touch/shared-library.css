@@ -38,7 +38,7 @@ body.ks-ui.perf-v2 #screen-files #perf-v2-files[hidden]{display:none}
 body.perf-v2 #screen-files .lv2{display:flex;flex-direction:column;gap:var(--sp-2);padding:var(--sp-2) var(--sp-3);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m)}
 body.perf-v2 #screen-files .lv2-compare{width:100%;border-collapse:collapse;table-layout:fixed;font-size:var(--fs-16);line-height:1.3;font-variant-numeric:tabular-nums}
 body.perf-v2 #screen-files .lv2-compare th,body.perf-v2 #screen-files .lv2-compare td{padding:var(--sp-1) var(--sp-2);border-bottom:1px solid var(--line);text-align:left;vertical-align:top;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg)}
-body.perf-v2 #screen-files .lv2-compare tbody th{width:30%;font-weight:400;color:var(--mute)}
+body.perf-v2 #screen-files .lv2-compare tbody th{width:30%;font-weight:400;color:var(--mute);white-space:normal;overflow-wrap:break-word}
 body.perf-v2 #screen-files .lv2-compare thead td{width:30%;border-bottom:0}
 body.perf-v2 #screen-files .lv2-col{border-bottom:0;border-left:6px solid var(--accent);background:var(--surface-2)}
 body.perf-v2 #screen-files .lv2-col[data-role="loaded"]{border-left-color:var(--info)}
@@ -50,6 +50,12 @@ body.perf-v2 #screen-files .lv2-col,body.perf-v2 #screen-files .lv2-col .lv2-eye
 body.ks-ui.perf-v2 #screen-files .library-file{grid-template-columns:96px minmax(0,1fr)}
 body.ks-ui.perf-v2 #screen-files .library-file .library-thumb{grid-row:span 2}
 body.ks-ui.perf-v2 #screen-files .library-file .library-file-state{grid-column:2;justify-self:start}
+/* Un badge long (« ✓ Seleccionado · ! Alarma · cargado », texte agrandi) passe à la ligne au lieu de sortir de la carte. */
+body.ks-ui.perf-v2 #screen-files .library-file .library-file-state{white-space:normal;line-height:1.3;max-width:100%}
+/* « Charger et ouvrir le Suivi » en tête de l'exécution (ordre visuel seulement, même DOM) : désactivé, il ne colle plus
+   (responsive.css) et passait sous le pli du détail en texte agrandi avec une aide d'alarme longue ; il reste dans le
+   cadre et l'aide qui dit pourquoi se lit dessous, en faisant défiler le détail. */
+body.ks-ui.perf-v2 #screen-files .library-execution #job-load{order:-1}
 body.perf-v2 #screen-files .lv2-state{display:inline;margin-left:var(--sp-2);font:600 var(--fs-16)/1.2 var(--font);color:var(--info-text)}
 body.perf-v2 #screen-files .lv2-match{margin:0;padding:var(--sp-1) var(--sp-3);border-left:6px solid var(--faint);border-radius:var(--r-m);background:var(--surface-2);font-size:var(--fs-16);line-height:1.3;color:var(--fg)}
 body.perf-v2 #screen-files .lv2-match[data-tone="ok"]{border-left-color:var(--ok);background:var(--ok-soft)}

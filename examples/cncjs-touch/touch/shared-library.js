@@ -9,7 +9,7 @@
     uiLocale.html('<button id="library-refresh" type="button">↻ Actualiser</button></div>') +
     uiLocale.html('<div class="card library-list-panel"><div class="library-list-title"><h2>Fichiers sur le serveur</h2><span id="library-count" class="tag">0</span></div>') +
     uiLocale.html('<label class="library-label" for="library-search">Rechercher un fichier</label>') +
-    uiLocale.html('<input id="library-search" type="search" placeholder="Nom, matière, outil, notes…">') +
+    uiLocale.html('<input id="library-search" type="search" placeholder="Rechercher…">') +
     uiLocale.html('<button id="library-favorites" type="button" aria-pressed="false">★ Favoris seulement</button>') +
     uiLocale.html('<p id="library-status" role="status">Connexion à la bibliothèque…</p>') +
     uiLocale.html('<div id="library-list" aria-label="Fichiers disponibles"></div>') +
@@ -167,7 +167,8 @@
   // at a time in idle time after the list is drawn (never before the selected
   // file's own detail), and cached per file version. Without requestIdleCallback
   // (tests, very old browsers) rows simply show no thumbnail.
-  var thumbs = Object.create(null), thumbBusy = false, thumbIdle = null;
+  // thumbIdle: a requestIdleCallback id; thumbRetry: the 500 ms retry's setTimeout id (both cancelled by unmount()).
+  var thumbs = Object.create(null), thumbBusy = false, thumbIdle = null, thumbRetry = null;
   function thumbKey(f) { return f.name + ':' + (f.previewMtime || ''); }
   function rowInfo(f, bounds) {
     var valid = Array.isArray(bounds) && bounds.length === 4 && bounds.every(function (n) { return typeof n === 'number' && isFinite(n); }) && bounds[2] >= bounds[0] && bounds[3] >= bounds[1];
@@ -175,7 +176,7 @@
     return extent + size(f.size) + ' · ' + new Date(f.mtime).toLocaleString(window.cncI18n ? window.cncI18n.locale : 'fr-FR');
   }
   function scheduleThumbs() {
-    if (typeof requestIdleCallback !== 'function' || thumbIdle !== null) return;
+    if (typeof requestIdleCallback !== 'function' || !mounted || !visible() || thumbIdle !== null || thumbRetry !== null) return;
     // Only in a real idle period (parsing a stored preview can take a few hundred ms on
     // the tablet): never with a timeout, so a screen opening is never delayed by it.
     // A short idle period is retried half a second later (never in a loop of idle callbacks),
@@ -184,7 +185,7 @@
       thumbIdle = null;
       if (!visible()) return;
       if (deadline && typeof deadline.timeRemaining === 'function' && deadline.timeRemaining() < 45) {
-        thumbIdle = setTimeout(function () { thumbIdle = null; scheduleThumbs(); }, 500); return;
+        thumbRetry = setTimeout(function () { thumbRetry = null; scheduleThumbs(); }, 500); return;
       }
       nextThumb();
     });
@@ -556,7 +557,7 @@
       previewChanged(stored);
       // CNCjs's watch list sees a new file a few seconds after it is written
       // (measured: about 4 s on the tablet): look again a few times.
-      [2000, 5000, 9000].forEach(function (delay) { setTimeout(function () { refresh(true); }, delay); });
+      againAt = [2000, 5000, 9000].map(function (delay) { return Date.now() + delay; }); armAgain();
       refresh(true);
       return stored;
     }).catch(function (error) {
@@ -629,11 +630,25 @@
     pageLimit=size;rowHeight=0;selectedHeight=0;
     if(size!==pageSize){page=Math.floor(page*pageSize/size);pageSize=size;renderList();}else schedulePageFit();
   });
+  // The looks after an upload (2, 5 and 9 s): their deadlines are kept, their timers run only while Fichiers
+  // is shown. A deadline passed while hidden makes the next refresh a manual one, as its refresh(true) did.
+  var againAt = [], againTimers = [];
+  function armAgain() {
+    againTimers.forEach(function (id) { clearTimeout(id); }); againTimers = [];
+    if (!visible()) return false;
+    var now = Date.now(), due = againAt.some(function (at) { return at <= now; });
+    againAt = againAt.filter(function (at) { return at > now; });
+    againAt.forEach(function (at) {
+      againTimers.push(setTimeout(function () { againAt = againAt.filter(function (x) { return x !== at; }); refresh(true); }, at - now));
+    });
+    return due;
+  }
   function mount() {
     if (mounted || !visible()) return;
     mounted = true;
     Object.keys(deferredText).forEach(function (id) { setText(id, deferredText[id]); }); deferredText = {};
     renderList(); applyThumbs(); scheduleThumbs(); v2FilesSchedule();
+    if (armAgain()) refreshAgain = 2;
     var manual = refreshAgain === 2; refreshAgain = 0;
     refresh(manual);
   }
@@ -644,6 +659,11 @@
     detailLoading = false; $('library-image').onload = null; $('library-image').onerror = null;
     cancelRequest('list'); cancelRequest('detail'); cancelRequest('thumb'); thumbBusy = false;
     refreshing = false; refreshPromise = null;
+    // No wake-up left once Fichiers is hidden: idle thumbnail work, its retry, the looks after an upload.
+    if (thumbIdle !== null && typeof cancelIdleCallback === 'function') cancelIdleCallback(thumbIdle);
+    if (thumbRetry !== null) clearTimeout(thumbRetry);
+    thumbIdle = thumbRetry = null;
+    againTimers.forEach(function (id) { clearTimeout(id); }); againTimers = [];
   }
   window.addEventListener('cnc-screen-change', function (e) { if (e.detail === 'files') mount(); else unmount(); });
   document.addEventListener('visibilitychange', function () { if (visible()) mount(); else unmount(); });
@@ -672,7 +692,6 @@
     ['Outil · matière déclarés', 'Declared tool · material', 'Herramienta · material declarados'],
     ['Empreinte', 'Fingerprint', 'Huella'],
     ['valide', 'valid', 'válida'],
-    ['inconnue', 'unknown', 'desconocida'],
     ['périmée', 'stale', 'caducada'],
     ['connue', 'known', 'conocida'],
     ['inconnus', 'unknown', 'desconocidos'],
