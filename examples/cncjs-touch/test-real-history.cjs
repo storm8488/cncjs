@@ -15,6 +15,35 @@ const api=context.cncSessionJournal,j=api.create(()=>Date.UTC(2026,9,14,12));
  assert.equal(compactJournal.report().events.filter(e=>e.kind==='connection').length,2);
 }
 const machine={port:'/dev/test',fresh:true,name:'part.gcode',originalName:'Pièce.gcode',revision:'one',activeState:'Idle',workflow:'idle',token:'SECRET',nonce:'SECRET',settings:{secret:'SECRET'}};
+// Lot Journal (m8, m9, m10): a page of 6 at 1366 x 768 (touch-shell.js), the Erreurs filter keeps only losses,
+// an alarm state is drawn red (data-tone, display only).
+{
+ const {document:doc,nodes,activeScreens:screens,element}=require('./dom-fixture.cjs').createDOM(['history']);
+ const all=element('button'),errors=element('button'),alarms=element('button'),h={};
+ all.setAttribute('data-history-filter','all');errors.setAttribute('data-history-filter','errors');alarms.setAttribute('data-history-filter','alarms');
+ doc.querySelectorAll=s=>s==='[data-history-filter]'?[all,errors,alarms]:[];
+ const journal=api.create(),win={cncSessionJournal:{create:()=>journal},addEventListener(n,f){h[n]=f;}};
+ vm.runInNewContext(fs.readFileSync(__dirname+'/touch/real-history.js','utf8'),{document:doc,window:win,Blob,Date});
+ const m={port:'/dev/t',fresh:true,name:'a.nc',originalName:'a.nc',revision:'1',generation:'g1',activeState:'Idle',workflow:'idle'};
+ const st=x=>h['cnc-job-status']({detail:{machine:x,simulation:false}});
+ st(m);st({...m,activeState:'Run',workflow:'running'});st({...m,activeState:'Alarm',workflow:'running'});st({...m,fresh:false});st(m);
+ st({...m,generation:'g2'});st({...m,activeState:'Hold',workflow:'paused'});st({...m,activeState:'Idle',workflow:'idle'});
+ const messages=()=>journal.report().events.map(e=>e.kind+':'+e.message);
+ assert(messages().some(x=>/^availability:.*disponible/.test(x)&&!/indisponible/.test(x)),'a « Suivi … disponible » event: '+messages().join(' | '));
+ assert(messages().some(x=>/^availability:Nouvelle instance/.test(x)),'a new instance event');
+ h['cnc-screen-change']({detail:'history'});
+ const list=nodes['real-history-list'],titles=()=>list.children.map(li=>li.children[0].textContent);
+ assert(journal.report().events.length>=7,'more than a page of 6');
+ h['cnc-history-page-size']({detail:6});assert.equal(list.children.length,6,'a page of 6 events');const total=journal.report().events.length;assert.equal(nodes['real-history-page'].textContent,'Page 1 / '+Math.ceil(total/6)+' · '+total+' événements');
+ errors.handlers.click();
+ assert(titles().length>=1&&titles().every(t=>/indisponible/.test(t)),'Erreurs: losses only, not « disponible » nor a new instance: '+titles().join(' | '));
+ alarms.handlers.click();assert.equal(titles().length,1);assert.match(titles()[0],/Alarm/);
+ assert.equal(list.children[0].getAttribute('data-tone'),'alarm','an alarm state is drawn red');
+ all.handlers.click();
+ const tones=list.children.map(li=>li.getAttribute('data-tone')),alarmRow=list.children.findIndex(li=>/Alarm\b/.test(li.children[0].textContent)&&li.getAttribute('data-kind')==='state');
+ assert(tones.filter(t=>t==='alarm').length<=1&&tones.every((t,i)=>t===(i===alarmRow?'alarm':'')),'only the alarm row is red: '+tones.join(','));
+ screens.clear();
+}
 // Identical reports from a new CNCjs controller instance must start a new
 // baseline, including after a gap. Stale reports cannot change that identity.
 {

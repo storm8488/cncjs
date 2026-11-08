@@ -14,7 +14,7 @@
 //   --url URL        touch base URL of a running server (default: preview-server.cjs)
 //   --browser PATH   Chrome/Edge executable (default: CNC_BROWSER or well-known paths)
 //   --repeat N       start-up repetitions (default 5)
-//   --only LIST      comma list among measure,responsive,sim,settings,startup,e2e,strip,v2 (default all;
+//   --only LIST      comma list among measure,responsive,sim,settings,startup,e2e,strip,v2,screens (default all;
 //                    responsive = every screen at the CSS viewports of RESPONSIVE (landscape,
 //                    portrait, intermediate sizes, large text, browser zoom 150 / 200 %, a
 //                    virtual keyboard, the Surface Pro 3 kiosk at 1366 x 911 and the wide
@@ -34,6 +34,9 @@
 //                    v2 CNC 1366 x 911 in the v2 browser), scroll needed per control, Wi-Fi keyboard,
 //                    first tap of the Tablette commands and the update install, refusals during a
 //                    job, no system request outside Système; see settingsMeasure
+//                    screens = every screen but Réglages in every machine state (hors ligne, repos, pilote pris,
+//                    homing, palpage, travail, pause, alarme, périmé), v1 Éco 1366 x 768 laser and v2 1366 x 911 CNC,
+//                    FR/ES, dark/light, standard/large text, one folder per screen, variant and state; see screensMeasure
 //   --keep-browser   do not kill the browser at the end (debugging)
 //   --strict         also fail (exit 1) on a layout regression in the variants the
 //                    interface is made for (1366 x 768 and 1024 x 600, standard and
@@ -64,7 +67,7 @@ const URL_BASE = option('--url', '');
 // --root DIR: serve another copy of the pages through the fixture (a bundled build, output/touch-bundle).
 const ROOT_DIR = option('--root', '');
 const REPEAT = Math.max(1, Number(option('--repeat', 5)) || 5);
-const ONLY = option('--only', 'measure,responsive,sim,settings,startup,e2e,strip,v2').split(',');
+const ONLY = option('--only', 'measure,responsive,sim,settings,startup,e2e,strip,v2,screens').split(',');
 const KEEP = args.includes('--keep-browser');
 const STRICT = args.includes('--strict');
 const EXCEPTIONS_FILE = path.resolve(option('--exceptions', path.join(__dirname, 'layout-exceptions.json')));
@@ -347,10 +350,15 @@ const MEASURE = String(function measure(goals) {
     var reachable = !!hit && (hit === el || el.contains(hit) || (hit.contains(el) && (hit.tagName === 'LABEL' || disabled)));
     // Centre outside the window or outside a clipping ancestor (a list scrolled, a screen that
     // scrolls): not hidden by another element, but not on screen either.
-    var offscreen = cx < 0 || cy < 0 || cx > vw || cy > vh;
+    var offscreen = cx < 0 || cy < 0 || cx > vw || cy > vh, scroller = false;
     for (var n = el.parentElement; n && !offscreen && n !== document.body; n = n.parentElement) {
       var ov = getComputedStyle(n); if (ov.overflowX === 'visible' && ov.overflowY === 'visible') continue;
-      var cr = n.getBoundingClientRect(); if (cx < cr.left || cx > cr.right || cy < cr.top || cy > cr.bottom) offscreen = true;
+      var cr = n.getBoundingClientRect(); if (cx < cr.left || cx > cr.right || cy < cr.top || cy > cr.bottom) {
+        offscreen = true;
+        // Clipped by the v2 Journal list, which scrolls by design (kept at its newest end): a row is reached by
+        // scrolling that list, like a row of a scrolling screen. Limited to that list so no other finding is hidden.
+        scroller = n.id === 'v2k-list' && (ov.overflowY === 'auto' || ov.overflowY === 'scroll') && n.scrollHeight > n.clientHeight + 1 && cx >= cr.left && cx <= cr.right;
+      }
     }
     var gap = Infinity, neighbour = null, overlaps = [];
     rects.forEach(function (o, j) {
@@ -362,7 +370,7 @@ const MEASURE = String(function measure(goals) {
     var font = renderedFont(el, textFont(el)), fit = textFit(el, r);
     return { textOut: fit.out, brokenWords: fit.broken, label: label(el), id: el.id || null, tag: el.tagName.toLowerCase(), kind: k, goal: goal, x: Math.round(r.left * 10) / 10, y: Math.round(r.top * 10) / 10, w: Math.round(r.width * 10) / 10, h: Math.round(r.height * 10) / 10,
       minSide: Math.round(Math.min(r.width, r.height) * 10) / 10, belowGoal: Math.min(r.width, r.height) * dpr < goal - 0.5, fontPx: Math.round(font * 10) / 10, textBelowGoal: font * dpr < goals.text - 0.5,
-      gap: isFinite(gap) ? Math.round(gap * 10) / 10 : null, neighbour: neighbour, gapBelowGoal: isFinite(gap) && gap * dpr < goals.gap - 0.5, overlaps: overlaps, disabled: disabled, reachable: reachable, offscreen: offscreen, hit: reachable ? null : (hit ? label(hit) : 'nothing') };
+      gap: isFinite(gap) ? Math.round(gap * 10) / 10 : null, neighbour: neighbour, gapBelowGoal: isFinite(gap) && gap * dpr < goals.gap - 0.5, overlaps: overlaps, disabled: disabled, reachable: reachable, offscreen: offscreen, scroller: scroller, hit: reachable ? null : (hit ? label(hit) : 'nothing') };
   });
   // Small text: visible text nodes under 16 px, anywhere on the active screen, header or rail.
   var small = [], truncated = [], seen = new Set();
@@ -987,6 +995,8 @@ const V2_GPU_TRAP = '(function(){var v;try{Object.defineProperty(window,"CNCPrev
   'window.__browserRunProbe=r;return Object.assign({},r,{hardware:true,reason:""});}});}v=x;}});}catch(e){}})();';
 const V2_KEYS = { profile: 'cncjs-touch-performance-v1', v2: 'cncjs-touch-performance-ui-v2', kind: 'cncjs-touch-sim-kind-v1', lang: 'cncjs-touch-language-v1', display: 'cncjs-touch-display-v1' };
 const V2_PROFILE = { version: 1, id: 'browser-run-cnc', label: 'CNC (banc browser-run)', kind: 'cnc', match: 'exact', signature: 'browser-run', portHint: '/dev/replay', laser: { mode: null, sMax: null, sMin: null }, coherent: true, issues: [], canChange: false, changeReason: '', capabilities: {} };
+// The Surface RT's machine (screensMeasure): a laser, $32=1, S 0-1000.
+const V2_LASER_PROFILE = Object.assign({}, V2_PROFILE, { id: 'browser-run-laser', label: 'Laser (banc browser-run)', kind: 'laser', laser: { mode: true, sMax: 1000, sMin: 0 } });
 
 function startV2Fixture() {
   return startFixture(['--replay']).then((upstream) => new Promise((resolve, reject) => {
@@ -995,10 +1005,16 @@ function startV2Fixture() {
     const fx = { phase: 'idle', overrides: { feed: 100, rapid: 100, spindle: 100 }, commands: [], streams: new Set(), sequence: 0, epoch: 'browser-run-v2-' + Date.now().toString(36), frozen: null, staleSince: 0 };
     fx.controller = function () {
       const now = Date.now(), c = replay.packet().controllers[0];
-      Object.assign(c, { port: '/dev/replay', controllerId: '/dev/replay', machineProfile: V2_PROFILE, fingerprint: V2_FINGERPRINT, name: V2_FILE, originalName: V2_FILE, revision: 1, overrides: Object.assign({}, fx.overrides), control: { owner: null, lastChange: null } });
-      if (fx.phase === 'idle') {
-        return Object.assign(c, { activeState: 'Idle', workflow: 'idle', feedrate: 0, spindleSpeed: 0, sent: 0, received: 0, canPause: false, canStop: false, canResume: false, canStart: true, startReason: '', canLoad: true, loadReason: '',
+      Object.assign(c, { port: '/dev/replay', controllerId: '/dev/replay', machineProfile: fx.profile || V2_PROFILE, fingerprint: V2_FINGERPRINT, name: V2_FILE, originalName: V2_FILE, revision: 1, overrides: Object.assign({}, fx.overrides), control: { owner: null, lastChange: null } });
+      // At rest with a program loaded; screensMeasure adds three states built on it: another device pilots
+      // (control.owner), a homing cycle (Home) and a touch-plate probe (probing), both stoppable like the server says.
+      if (fx.phase === 'idle' || fx.phase === 'pilot' || fx.phase === 'homing' || fx.phase === 'probing') {
+        Object.assign(c, { activeState: 'Idle', workflow: 'idle', feedrate: 0, spindleSpeed: 0, sent: 0, received: 0, canPause: false, canStop: false, canResume: false, canStart: true, startReason: '', canLoad: true, loadReason: '',
           canPreviewMotion: true, motionReason: '', canOverride: false, canRapidOverride: false, canUnlock: false, canHome: true, homeReason: '', canMacro: false });
+        if (fx.phase === 'pilot') c.control = { owner: { kind: 'touch', id: 'browser-run-other', label: 'Tablette atelier', present: true }, lastChange: null };
+        if (fx.phase === 'homing') Object.assign(c, { activeState: 'Home', homing: true, canStop: true, canStart: false, startReason: 'Prise d’origine en cours.', canLoad: false, loadReason: 'Prise d’origine en cours.', canPreviewMotion: false, motionReason: 'Prise d’origine en cours.', canHome: false, homeReason: 'Prise d’origine en cours.' });
+        if (fx.phase === 'probing') Object.assign(c, { activeState: 'Run', probing: true, canStop: true, canStart: false, startReason: 'Palpage en cours.', canLoad: false, loadReason: 'Palpage en cours.', canPreviewMotion: false, motionReason: 'Palpage en cours.', canHome: false, homeReason: 'Palpage en cours.', canZeroZ: false, zeroZReason: 'Palpage en cours.' });
+        return c;
       }
       if (fx.phase !== 'stale') fx.frozen = { coordinates: c.coordinates, received: c.received, sent: c.sent };
       const f = fx.frozen || { coordinates: c.coordinates, received: c.received, sent: c.sent };
@@ -1591,6 +1607,159 @@ async function v2Measure(summary) {
   summary.v2 = { passes: v2.passes.map((p) => ({ ctx: p.ctx, commands: (p.commands || []).length, pageErrors: (p.pageErrors || []).length })), closed: v2.closed, software: v2.software, hits: report.length };
 }
 
+// --- Every screen but Réglages in every machine state (design/PROMPT-ECRANS-MULTIAGENT.md, phase 0): the real page
+// through the v2 fixture (startV2Fixture), whose controller the harness sets, on the Surface RT (v1 Éco 1366 x 768,
+// laser) and the Surface Pro (v2 Performance 1366 x 911, CNC), FR and ES, dark and light, standard and large text.
+// States: hors ligne (no stream, no API), repos (program loaded), pilote pris (control.owner: another device),
+// homing (Home), palpage (touch-plate probe), travail, pause, alarme (during the job), périmé (report > 2.5 s old).
+// One folder per screen, variant and state: screens-<screen>-<variant>-<state>/<screen>.png|.json. Enforced like
+// the other strict variants, plus horizontal / vertical overflow and text over text. Visual only: every request
+// that is not a GET under /api/ is refused (403) by the fixture.
+const SCREENS_STATES = [['repos', 'idle'], ['pilote-pris', 'pilot'], ['homing', 'homing'], ['palpage', 'probing'], ['travail', 'running'], ['pause', 'paused'], ['alarme', 'alarm'], ['perime', 'stale'], ['hors-ligne', 'lost']];
+const SCREENS_READY = {
+  idle: 'm&&m.workflow==="idle"&&/^Idle/.test(m.activeState||"")&&!(m.control&&m.control.owner)&&!m.homing&&!m.probing',
+  pilot: 'm&&m.control&&m.control.owner&&m.control.owner.id==="browser-run-other"',
+  homing: 'm&&m.homing&&/^Home/.test(m.activeState||"")',
+  probing: 'm&&m.probing',
+  running: 'm&&m.workflow==="running"&&/^Run/.test(m.activeState||"")',
+  paused: 'm&&m.workflow==="paused"',
+  alarm: 'm&&/^Alarm/.test(m.activeState||"")'
+};
+const SCREENS_VARIANTS = [
+  { id: 'v1-768-fr-sombre-laser', v2: false, w: 1366, h: 768, lang: 'fr', theme: 'dark', size: 'standard', kind: 'laser' },
+  { id: 'v1-768-es-clair-laser', v2: false, w: 1366, h: 768, lang: 'es', theme: 'light', size: 'standard', kind: 'laser' },
+  { id: 'v1-768-es-clair-laser-agrandi', v2: false, w: 1366, h: 768, lang: 'es', theme: 'light', size: 'large', kind: 'laser', states: ['idle', 'running', 'alarm'] },
+  { id: 'v1-768-fr-clair-cnc', v2: false, w: 1366, h: 768, lang: 'fr', theme: 'light', size: 'standard', kind: 'cnc', states: ['idle', 'running', 'paused'] },
+  { id: 'v2-911-fr-sombre-cnc', v2: true, w: 1366, h: 911, lang: 'fr', theme: 'dark', size: 'standard', kind: 'cnc' },
+  { id: 'v2-911-es-clair-cnc', v2: true, w: 1366, h: 911, lang: 'es', theme: 'light', size: 'standard', kind: 'cnc' },
+  { id: 'v2-911-es-sombre-cnc-agrandi', v2: true, w: 1366, h: 911, lang: 'es', theme: 'dark', size: 'large', kind: 'cnc', states: ['idle', 'running', 'alarm'] }
+];
+const SCREENS_OF_STATES = SCREENS.filter(([name]) => name !== 'settings');
+const SCREENS_PAGE = '(function(){var m=window.cncState&&window.cncState.get().machine,t=function(id){var e=document.getElementById(id);return e?e.textContent.replace(/\\s+/g," ").trim():null;};' +
+  'return {lang:document.documentElement.lang,theme:document.documentElement.getAttribute("data-theme")||"dark",large:document.body.classList.contains("display-large"),perfV2:document.body.classList.contains("perf-v2"),' +
+  'kind:window.cncProfile&&window.cncProfile.kind?window.cncProfile.kind():null,profile:window.cncProfile&&window.cncProfile.performance?window.cncProfile.performance():null,stateWord:t("t-state-text"),' +
+  'machine:m?{workflow:m.workflow,activeState:m.activeState,fresh:m.fresh,homing:!!m.homing,probing:!!m.probing,owner:m.control&&m.control.owner?m.control.owner.label:null}:null};})()';
+// Journal rows (lot Journal): each visible row of the v1 list (#real-history-list) and of the v2 list (#v2k-list)
+// starts at least one row height below the previous one (rows squeezed by a flex list overlapped by 18 px), and the
+// v1 page fits its box (no inner scroll bar). Not « overlaps non empty »: adjacent segments touch at distance 0.
+const SCREENS_JOURNAL = '(function(){function rows(id){var l=document.getElementById(id);if(!l||!l.getClientRects().length)return null;' +
+  'var li=[].filter.call(l.children,function(x){return x.getClientRects().length;}).map(function(x){var r=x.getBoundingClientRect();return {top:r.top,h:r.height};}),bad=[];' +
+  'for(var i=1;i<li.length;i++)if(li[i].top-li[i-1].top<li[i-1].h-0.5)bad.push({row:i,pitch:Math.round((li[i].top-li[i-1].top)*10)/10,height:Math.round(li[i-1].h*10)/10});' +
+  'return {rows:li.length,scrollHeight:l.scrollHeight,clientHeight:l.clientHeight,bad:bad};}' +
+  'var p=document.getElementById("real-history-page"),m=p&&/·\\s*(\\d+)/.exec(p.textContent);return {v1:rows("real-history-list"),v2:rows("v2k-list"),page:p?p.textContent:"",events:m?Number(m[1]):null};})()';
+async function screensCapture(cdp, dirName, name, label, tag, page, results) {
+  const dir = path.join(OUT, dirName);
+  fs.mkdirSync(dir, { recursive: true });
+  try {
+    await goScreen(cdp, name);
+    const data = await cdp.evaluate('(' + MEASURE + ')(' + JSON.stringify(GOALS) + ')');
+    const overlaps = await cdp.evaluate('(' + V2_OVERLAP + ')()');
+    const journal = name === 'history' ? await cdp.evaluate(SCREENS_JOURNAL) : null;
+    fs.writeFileSync(path.join(dir, name + '.json'), JSON.stringify(Object.assign(data, { screen: name, label, variant: tag, page, overlapsText: overlaps, journal }), null, 1));
+    await screenshot(cdp, path.join(dir, name + '.png'));
+    const below = data.targets.filter((t) => t.belowGoal), unreachable = data.targets.filter((t) => !t.reachable), fonts = data.targets.map((t) => t.fontPx);
+    results.push({ screen: name, label, targets: data.targets.length, below, small: data.smallText, textTargets: data.targets.filter((t) => t.textBelowGoal), gaps: data.targets.filter((t) => t.gapBelowGoal), unreachable, truncated: data.truncated,
+      overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, scrolls: data.scrolls, fontStats: { min: fonts.length ? Math.min(...fonts) : null, median: median(fonts), max: fonts.length ? Math.max(...fonts) : null }, textFit: textFitOf(data), railScroll: data.railScroll, overlapsText: overlaps, journal });
+  } catch (e) { failures.push(tag + ' ' + label + ': ' + e.message); log('FAIL ' + tag + ' ' + label + ': ' + e.message); results.push({ screen: name, label, error: e.message }); }
+}
+// Source Serveur of the Journal (lot Journal): the real button, with an in-page fake XMLHttpRequest installed only
+// around the click (fetchServer builds its request synchronously), answered with a fixed page or a network error.
+// Nothing leaves the page. The entries cover the labels of every event kind and a failed origin with its reason.
+function screensServerEntries() {
+  const now = Date.now(), at = (min) => new Date(now - min * 60000).toISOString();
+  const port = { port: '/dev/replay' }, tab = { kind: 'touch', label: 'Tablette atelier' };
+  return [
+    { seq: 23, at: at(1), event: 'origin', result: 'failed', reason: 'Grbl a refusé la définition d’origine (error:9).', controller: port, actor: tab },
+    { seq: 22, at: at(3), event: 'jog', result: 'cancelled', reason: 'operator', controller: port },
+    { seq: 21, at: at(6), event: 'frame', result: 'ended', reason: '', controller: port },
+    { seq: 20, at: at(9), event: 'control', change: 'claim', owner: tab, actor: tab, controller: port },
+    { seq: 19, at: at(14), event: 'pause', program: V2_FILE, controller: port, actor: tab },
+    { seq: 18, at: at(21), event: 'alarm', code: 1, controller: port },
+    { seq: 17, at: at(23), event: 'start', program: V2_FILE, controller: port, actor: tab },
+    { seq: 16, at: at(40), event: 'machine', operation: 'set-kind', controller: port }
+  ];
+}
+function screensServerClick(id, fail) {
+  return '(function(){var Prev=window.XMLHttpRequest,E=' + JSON.stringify(screensServerEntries()) + ',fail=' + !!fail + ';' +
+    'window.XMLHttpRequest=function(){var x={status:0,responseText:"",timeout:0,open:function(m,u){x.method=m;x.url=u;},setRequestHeader:function(){},abort:function(){x.onload=x.onerror=null;},' +
+    'send:function(){setTimeout(function(){if(fail){if(x.onerror)x.onerror();return;}var n=Number((/[?&]limit=([0-9]+)/.exec(x.url)||[])[1])||E.length;x.status=200;x.responseText=JSON.stringify({entries:E.slice(0,n),total:E.length,skipped:0,more:n<E.length});if(x.onload)x.onload();},60);}};return x;};' +
+    'try{var b=document.getElementById(' + JSON.stringify(id) + ');if(!b)return false;b.click();}finally{window.XMLHttpRequest=Prev;}return true;})()';
+}
+async function screensServer(cdp, v, summary) {
+  const p = v.v2 ? 'v2k-source-' : 'real-history-source-', session = '(function(){var b=document.getElementById("' + p + 'session");if(b)b.click();return !!b;})()';
+  for (const [suffix, fail] of [['serveur', false], ['serveur-erreur', true]]) {
+    const tag = 'screens ' + v.id + ' ' + suffix, results = [];
+    try {
+      await goScreen(cdp, 'history');
+      await cdp.evaluate(session); await sleep(300);
+      if (!await cdp.evaluate(screensServerClick(p + 'server', fail))) throw new Error('no ' + p + 'server button');
+      await sleep(700);
+      // v2: the failed origin selected, its reason in the detail on the right.
+      if (!fail && v.v2) { await cdp.evaluate('(function(){var b=document.querySelector(\'#v2k-list li[data-id="server-23"] button\');if(b)b.click();return true;})()'); await sleep(300); }
+      const page = await cdp.evaluate(SCREENS_PAGE);
+      await screensCapture(cdp, 'screens-history-' + v.id + '-' + suffix, 'history', 'Journal', tag, page, results);
+      log(tag + ': ' + (results[0] && results[0].journal ? JSON.stringify({ v1: results[0].journal.v1 && results[0].journal.v1.rows, v2: results[0].journal.v2 && results[0].journal.v2.rows }) : 'no journal'));
+    } catch (e) { failures.push(tag + ': ' + e.message); log('FAIL ' + tag + ': ' + e.message); }
+    summary.measurements.push({ variant: tag, dir: 'screens-history-' + v.id + '-' + suffix, dpr: 1, results, strict: true, overlap: true, v2: !!v.v2 });
+  }
+  try { await cdp.evaluate(session); } catch (_) { /* next variant reloads the page */ }
+}
+async function screensVariant(cdp, fx, v, summary, out) {
+  const states = SCREENS_STATES.filter(([, phase]) => !v.states || v.states.indexOf(phase) >= 0);
+  const info = { variant: v.id, states: {} };
+  fx.setPhase('idle'); fx.overrides = { feed: 100, rapid: 100, spindle: 100 }; fx.profile = v.kind === 'laser' ? V2_LASER_PROFILE : V2_PROFILE;
+  pageErrors.length = 0;
+  try {
+    await setViewport(cdp, v.w, v.h, 1);
+    await v2Storage(cdp, fx.base, { profile: v.v2 ? 'performance' : 'eco', v2: { version: 1, enabled: !!v.v2 }, kind: null });
+    await settingsStorage(cdp, { lang: v.lang, size: v.size, theme: v.theme });
+    await v2Open(cdp, fx.base + 'index.html?screens=' + v.id, v.v2);
+    for (const [stateId, phase] of states) {
+      const tag = 'screens ' + v.id + ' ' + stateId, results = [];
+      fx.setPhase(phase);
+      try {
+        if (SCREENS_READY[phase]) await cdp.waitFor('(function(){var m=window.cncState&&window.cncState.get().machine;return !!(' + SCREENS_READY[phase] + ');})()', 20000, 'state ' + phase);
+        else await sleep(4000); // stale, lost: the report ages, the stream ends
+        await sleep(phase === 'running' ? 1500 : 800);
+        const page = await cdp.evaluate(SCREENS_PAGE);
+        info.states[stateId] = page;
+        if (page.lang !== v.lang || page.theme !== v.theme || page.large !== (v.size === 'large') || page.perfV2 !== v.v2 || page.kind !== v.kind) failures.push(tag + ': page shown as ' + JSON.stringify(page) + ', expected ' + JSON.stringify({ lang: v.lang, theme: v.theme, size: v.size, v2: v.v2, kind: v.kind }));
+        for (const [name, label] of SCREENS_OF_STATES) await screensCapture(cdp, 'screens-' + name + '-' + v.id + '-' + stateId, name, label, tag, page, results);
+        // Lot Journal: after every state, the journal holds more than two v1 pages (15 events or more).
+        const journal = results.find((r) => r.screen === 'history' && r.journal);
+        if (!v.states && phase === 'lost' && journal && !(journal.journal.events >= 15)) failures.push(tag + ': journal holds ' + journal.journal.events + ' events, fixture goal 15 (' + journal.journal.page + ')');
+        log(tag + ': « ' + page.stateWord + ' », ' + results.length + ' screens' + (page.machine ? ' (' + page.machine.workflow + ' / ' + page.machine.activeState + ')' : ' (no machine)'));
+      } catch (e) { failures.push(tag + ': ' + e.message); log('FAIL ' + tag + ': ' + e.message); }
+      summary.measurements.push({ variant: tag, dir: 'screens-*-' + v.id + '-' + stateId, dpr: 1, results, strict: true, overlap: true, v2: !!v.v2 });
+    }
+    await screensServer(cdp, v, summary);
+    info.commands = fx.commands.splice(0, fx.commands.length);
+    info.pageErrors = pageErrors.slice();
+    if (pageErrors.length) failures.push('screens ' + v.id + ': page exceptions: ' + pageErrors.slice(0, 3).join(' | ').slice(0, 600));
+  } catch (e) { failures.push('screens ' + v.id + ': ' + e.message); log('FAIL screens ' + v.id + ': ' + e.message); }
+  out.push(info);
+}
+async function screensMeasure(summary) {
+  const fx = await startV2Fixture();
+  const browser = await launchBrowser(1366, 911, V2_FLAGS), cdp = browser.cdp;
+  const out = [];
+  try {
+    await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: V2_GPU_TRAP });
+    for (const v of SCREENS_VARIANTS) await screensVariant(cdp, fx, v, summary, out);
+  } catch (e) { failures.push('screens: ' + (e.stack || e.message)); log('FAIL screens: ' + e.message); }
+  finally {
+    cdp.close();
+    try { await cdp.send('Browser.close', {}, 3000); } catch (_) { /* closed */ }
+    try { browser.child.kill(); } catch (_) { /* gone */ }
+    fx.close();
+    await sleep(300);
+    try { fs.rmSync(browser.profile, { recursive: true, force: true }); } catch (_) { /* busy */ }
+  }
+  fs.mkdirSync(OUT, { recursive: true });
+  fs.writeFileSync(path.join(OUT, 'screens.json'), JSON.stringify({ states: SCREENS_STATES, variants: SCREENS_VARIANTS, passes: out }, null, 1));
+  summary.screens = out.map((p) => ({ variant: p.variant, states: Object.keys(p.states), commands: (p.commands || []).length, pageErrors: (p.pageErrors || []).length }));
+}
+
 // --- Réglages (design/PROMPT-REGLAGES-MULTIAGENT.md, contract §7-§8). The three tabs walked from top to bottom, one
 // capture per screenful, enforced like the other strict variants plus horizontal overflow and text over text: FR and
 // ES, standard and large text, dark and light, at 1366 x 768 on the simulation page in Éco with a laser (the RT) and
@@ -1931,13 +2100,20 @@ function strictCheck(summary, exceptionList) {
       if (r.error) continue;
       const base = { variant: m.variant, screen: r.screen, screenLabel: r.label };
       if (!r.scrolls && typeof r.scale === 'number' && r.scale < 0.999) add(Object.assign({ check: 'scale', label: r.label, detail: 'scale ' + r.scale + ' on a screen that does not scroll' }, base));
-      for (const t of r.unreachable || []) if (!(r.scrolls && t.offscreen)) add(Object.assign({ check: 'covered', label: t.label, detail: 'centre ' + (t.offscreen ? 'clipped' : 'covered') + ' by ' + t.hit }, base));
+      for (const t of r.unreachable || []) if (!((r.scrolls || t.scroller) && t.offscreen)) add(Object.assign({ check: 'covered', label: t.label, detail: 'centre ' + (t.offscreen ? 'clipped' : 'covered') + ' by ' + t.hit }, base));
       for (const t of r.below || []) add(Object.assign({ check: 'size', label: t.label, detail: t.kind + ' ' + t.w + ' x ' + t.h + ' px, goal ' + t.goal }, base));
       for (const t of r.textFit || []) {
         if (t.out > 1) add(Object.assign({ check: 'text-overflow', label: t.label, detail: 'text ' + t.out + ' px outside its control' }, base));
         if (t.broken && t.broken.length) add(Object.assign({ check: 'word-break', label: t.label, detail: 'word cut across lines: ' + t.broken.join(', ') }, base));
       }
       if (r.railScroll) add(Object.assign({ check: 'rail-scroll', label: 'rail', detail: 'rail scrolls horizontally (' + r.railScroll + ')' }, base));
+      // Journal rows (screensCapture): no row drawn over the next one; the v1 page fits its box.
+      if (r.journal) {
+        for (const [id, list] of [['#real-history-list', r.journal.v1], ['#v2k-list', r.journal.v2]]) {
+          if (list && list.bad.length) add(Object.assign({ check: 'journal-pitch', label: id, detail: list.bad.length + ' row(s) closer than their height, first: row ' + list.bad[0].row + ' at ' + list.bad[0].pitch + ' px for ' + list.bad[0].height + ' px' }, base));
+        }
+        if (r.journal.v1 && r.journal.v1.scrollHeight > r.journal.v1.clientHeight + 1) add(Object.assign({ check: 'journal-scroll', label: '#real-history-list', detail: 'page of ' + r.journal.v1.rows + ' rows scrolls inside its box (' + r.journal.v1.scrollHeight + ' > ' + r.journal.v1.clientHeight + ')' }, base));
+      }
       // Performance v2 views (lot L7): no overflow, no text drawn over other text.
       if (m.v2 || m.overlap) {
         if (r.overflow && (r.overflow.document || r.overflow.active)) add(Object.assign({ check: 'overflow-x', label: r.label, detail: 'horizontal overflow (' + r.overflow.documentScrollWidth + ' > ' + r.overflow.clientWidth + ')' }, base));
@@ -2121,6 +2297,8 @@ async function main() {
     if (ONLY.includes('e2e')) { await setViewport(cdp, 1366, 768, 1); for (const lang of ['fr', 'en', 'es']) await e2e(cdp, simUrl, lang, summary); await cdp.evaluate('localStorage.removeItem("cncjs-touch-language-v1");true').catch(() => {}); }
     // Performance v2 in its own browser (software WebGL flags, simulated hardware probe), on its fixture.
     if (ONLY.includes('v2') && !URL_BASE) await v2Measure(summary);
+    // Every screen in every machine state, on the same fixture (design/PROMPT-ECRANS-MULTIAGENT.md, phase 0).
+    if (ONLY.includes('screens') && !URL_BASE) await screensMeasure(summary);
   } catch (e) { failures.push('harness: ' + (e.stack || e.message)); log('FAIL harness: ' + e.message); }
   let strictResult = null;
   try { strictResult = strictCheck(summary); } catch (e) { failures.push('strict check: ' + e.message); }

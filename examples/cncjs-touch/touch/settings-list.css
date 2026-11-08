@@ -167,32 +167,46 @@ body.perf-v2 #perf-v2-history{display:grid;grid-template-rows:auto auto minmax(0
 body.perf-v2 #perf-v2-history[hidden]{display:none}
 body.perf-v2 #perf-v2-history .v2k-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px}
 body.perf-v2 #perf-v2-history .v2k-titles{flex:1 1 320px;min-width:0}
-body.perf-v2 #perf-v2-history .v2k-titles h2{margin:0;font-size:22px}
-body.perf-v2 #perf-v2-history .ks-readonly{font-size:16px!important;padding:8px 12px!important}
-body.perf-v2 #perf-v2-history .v2k-context{margin:4px 0 0;font-size:16px;color:var(--mute);overflow-wrap:anywhere}
-body.perf-v2 #perf-v2-history .v2k-head button,body.perf-v2 #perf-v2-history .v2k-filters button,body.perf-v2 #perf-v2-history .v2k-pages button{min-height:56px;font-size:18px}
+body.perf-v2 #perf-v2-history .v2k-titles h2{margin:0;font-size:calc(var(--fs-20) + 2px)}
+body.perf-v2 #perf-v2-history .ks-readonly{font-size:var(--fs-16)!important;padding:0!important;border:0!important;color:var(--mute)}
+body.perf-v2 #perf-v2-history .v2k-context{margin:4px 0 0;font-size:var(--fs-16);color:var(--mute);overflow-wrap:anywhere}
+body.perf-v2 #perf-v2-history .v2k-head button,body.perf-v2 #perf-v2-history .v2k-filters button,body.perf-v2 #perf-v2-history .v2k-pages button{min-height:56px;font-size:var(--fs-18)}
+/* The pressed segment shows (over .ks-secondary, ui-2027.css), and a disabled one looks disabled (ui-2027.css .t-seg button:disabled),
+ * at full opacity over app.css button:disabled (0.4, about 1.6 to 2:1): its text keeps >= 4.5:1, paging included. */
+body.perf-v2 #perf-v2-history .t-seg button[aria-pressed=true]{background:var(--accent);color:var(--bg)}
+body.perf-v2 #perf-v2-history .t-seg button:disabled,body.perf-v2 #perf-v2-history .v2k-pages button:disabled{opacity:1;color:var(--disabled-fg);background:var(--disabled-bg);border-color:var(--line);cursor:not-allowed;background-image:repeating-linear-gradient(135deg,var(--disabled-stripe) 0 6px,transparent 6px 14px)}
+/* « Cette session » / « Esta sesión » on one line, like the v1 source switch. */
+body.perf-v2 #perf-v2-history .v2k-sources button{min-width:140px}
+/* The v1 subtitle (100 events, this device) repeats the v2 title and contradicts the server source. */
+body.perf-v2 #screen-history[data-v2-presenter=on] .ks-panel-intro p{display:none}
 body.perf-v2 #perf-v2-history .v2k-filters{display:flex;gap:8px}
 body.perf-v2 #perf-v2-history .v2k-filters button{flex:1 1 0;min-width:120px}
 body.perf-v2 #perf-v2-history .v2k-body{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,1fr);gap:16px;min-height:0}
 body.perf-v2 #perf-v2-history .v2k-list{display:flex;flex-direction:column;gap:6px;min-height:0;overflow:auto;margin:0;padding:0;list-style:none}
-body.perf-v2 #perf-v2-history .v2k-list>li{display:block;min-height:0;padding:0;border-left-width:6px}
-body.perf-v2 #perf-v2-history .v2k-row{display:grid;grid-template-columns:96px minmax(0,1fr) auto;align-items:center;gap:12px;width:100%;min-height:56px;padding:6px 12px;font-size:17px;text-align:left;background:transparent;border:0}
+body.perf-v2 #perf-v2-history .v2k-list>li{display:block;flex:0 0 auto;min-height:0;padding:0;border-left-width:6px}
+body.perf-v2 #perf-v2-history .v2k-row{display:grid;grid-template-columns:96px minmax(0,1fr) auto;align-items:center;gap:12px;width:100%;min-height:56px;padding:6px 12px;font-size:calc(var(--fs-16) + 1px);text-align:left;background:transparent;border:0}
+/* A server time is a date and a time (toLocaleString): its column widens rather than wrapping. */
+body.perf-v2 #perf-v2-history li[data-source=server] .v2k-row{grid-template-columns:minmax(96px,max-content) minmax(0,1fr) auto}
 body.perf-v2 #perf-v2-history .v2k-row[aria-pressed=true]{outline:3px solid var(--accent);outline-offset:-3px}
 body.perf-v2 #perf-v2-history .v2k-time{font-variant-numeric:tabular-nums;color:var(--mute)}
 body.perf-v2 #perf-v2-history .v2k-message{overflow-wrap:anywhere}
-body.perf-v2 #perf-v2-history .v2k-badge{padding:4px 10px;border-radius:999px;background:var(--surface-2);font-size:16px;font-weight:600}
-body.perf-v2 #perf-v2-history li[data-category=command][data-state=refused] .v2k-badge{color:var(--danger)}
-body.perf-v2 #perf-v2-history li[data-category=command][data-state=uncertain] .v2k-badge{color:var(--warn)}
+body.perf-v2 #perf-v2-history .v2k-badge{padding:4px 10px;border-radius:999px;background:var(--surface-2);font-size:var(--fs-16);font-weight:600}
+body.perf-v2 #perf-v2-history li[data-category=command][data-state=refused] .v2k-badge{color:var(--danger-text)}
+body.perf-v2 #perf-v2-history li[data-category=command][data-state=uncertain] .v2k-badge{color:var(--warn-text)}
 body.perf-v2 #perf-v2-history li[data-category=command][data-state=confirmed] .v2k-badge{color:var(--ok-text)}
 body.perf-v2 #perf-v2-history li[data-category=command]{border-left-color:var(--accent)}
-body.perf-v2 #perf-v2-history .v2k-empty{padding:16px;font-size:18px;color:var(--mute)}
-body.perf-v2 #perf-v2-history .v2k-detail{min-height:0;overflow:auto;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-size:17px}
+/* An alarm (state of this session, failed server entry, unreachable server): red bar and red badge text.
+ * The bar is --danger-text: --danger is 1.86:1 on --surface-2 in the dark theme, under the 3:1 of a mark. */
+body.perf-v2 #perf-v2-history li[data-tone=alarm]{border-left-color:var(--danger-text)}
+body.perf-v2 #perf-v2-history li[data-tone=alarm][data-source] .v2k-badge{color:var(--danger-text)}
+body.perf-v2 #perf-v2-history .v2k-list>li.v2k-empty{padding:16px;font-size:var(--fs-18);color:var(--mute)}
+body.perf-v2 #perf-v2-history .v2k-detail{min-height:0;overflow:auto;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-size:calc(var(--fs-16) + 1px)}
 body.perf-v2 #perf-v2-history .v2k-detail dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 14px;margin:0}
 body.perf-v2 #perf-v2-history .v2k-detail dt{color:var(--mute)}
 body.perf-v2 #perf-v2-history .v2k-detail dd{margin:0;overflow-wrap:anywhere}
-body.perf-v2 #perf-v2-history .v2k-note,body.perf-v2 #perf-v2-history .v2k-readonly,body.perf-v2 #perf-v2-history .v2k-hint{margin:12px 0 0;font-size:16px}
+body.perf-v2 #perf-v2-history .v2k-note,body.perf-v2 #perf-v2-history .v2k-readonly,body.perf-v2 #perf-v2-history .v2k-hint{margin:12px 0 0;font-size:var(--fs-16)}
 body.perf-v2 #perf-v2-history .v2k-readonly{color:var(--mute)}
-body.perf-v2 #perf-v2-history .v2k-pages{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:16px}
+body.perf-v2 #perf-v2-history .v2k-pages{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:var(--fs-16)}
 body.perf-v2 #perf-v2-history .v2k-pages[hidden],body.perf-v2 #perf-v2-history [hidden]{display:none}
 /* Machine (machine-limits.js): a third row across the screen, condition left, parameters right.
  * The v1 alarm notice gives way to the explained one; coordinates and every button stay. */

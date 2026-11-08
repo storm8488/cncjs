@@ -440,7 +440,10 @@
 .ks-ui #screen-history li{display:grid;grid-template-columns:minmax(0,1fr);gap:2px;min-height:56px;padding:var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-4);border:0;border-left:6px solid var(--faint);border-radius:var(--r-s);background:var(--surface-2)}
 .ks-ui #screen-history li[data-kind=connection],.ks-ui #screen-history li[data-kind=availability]{border-left-color:var(--warn)}
 .ks-ui #screen-history li[data-kind=workflow],.ks-ui #screen-history li[data-kind=file]{border-left-color:var(--info)}
-.ks-ui #screen-history li[data-kind=alarm]{border-left-color:var(--danger)}
+/* Alarm bars in --danger-text: --danger is 1.86:1 on --surface-2 in the dark theme, under the 3:1 of a mark. */
+.ks-ui #screen-history li[data-kind=alarm]{border-left-color:var(--danger-text)}
+/* An alarm state of this session (real-history.js data-tone, display only), red like the server's alarms. */
+.ks-ui #screen-history li[data-tone=alarm]{border-left-color:var(--danger-text)}
 .ks-ui #screen-history li strong{font:500 var(--fs-20)/1.25 var(--font);color:var(--fg);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .ks-ui #screen-history li p{font-size:var(--fs-16);color:var(--mute);margin:0;overflow-wrap:anywhere}
 .ks-ui #screen-history li p:empty{display:none}

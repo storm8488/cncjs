@@ -38,4 +38,17 @@ assert(!kinds.some((k) => k.includes('settings')), 'a target below the fold of a
 assert(!r.violations.some((v) => v.variant.includes('zoom')), 'browser zoom 200 % is reported, not enforced');
 assert.equal(r.excepted.length, 1); assert.equal(r.excepted[0].reason, 'synthetic: a documented label kept at 15 px for the test');
 assert.equal(r.staleExceptions.length, 1, 'an exception that matched nothing is listed as unused');
+// Lot Journal: rows closer than their height (v2 rows squeezed to a 37.5 px pitch for 56 px) and a v1 page that
+// scrolls inside its box fail; adjacent rows exactly one height apart pass.
+{
+  const ok = { rows: 6, scrollHeight: 416, clientHeight: 432, bad: [] };
+  const j = strictCheck({ measurements: [{ variant: 'screens v2-911-es-clair-cnc hors-ligne', strict: true, overlap: true, v2: true, results: [
+    screen({ screen: 'history', label: 'Journal', journal: { v1: null, v2: { rows: 15, scrollHeight: 556, clientHeight: 556, bad: [{ row: 1, pitch: 37.5, height: 56 }] } } }),
+    screen({ screen: 'history', label: 'Journal', journal: { v1: { rows: 8, scrollHeight: 476, clientHeight: 433, bad: [] }, v2: null } }),
+    screen({ screen: 'history', label: 'Journal', journal: { v1: ok, v2: { rows: 15, scrollHeight: 930, clientHeight: 556, bad: [] } } }),
+    // A row scrolled out of its scrolling list (v2 Journal kept at its newest end) is reached by scrolling it.
+    screen({ screen: 'history', label: 'Journal', unreachable: [target({ label: 'row in list', kind: 'secondary', reachable: false, offscreen: true, scroller: true, hit: 'Commande' })] })
+  ] }] }, []);
+  assert.deepStrictEqual(j.violations.map((v) => v.check + ':' + v.label), ['journal-pitch:#v2k-list', 'journal-scroll:#real-history-list']);
+}
 console.log('PASS layout exceptions: the strict harness fails on covered commands, scale under 1, targets under 64/48/96 px and text under 16 px, except documented entries; zoom 200 % and scrolling screens below the fold are not enforced.');

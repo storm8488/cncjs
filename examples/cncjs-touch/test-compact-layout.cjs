@@ -21,7 +21,7 @@ const css=strip(read('ui-2027.css')),shell=read('touch-shell.js'),fit=read('view
  const ctx={window:win,document:{body},CustomEvent:function(type,o){this.type=type;this.detail=o.detail;}};
  vm.runInNewContext(src,ctx);
  assert(!classes.has('t-compact'),'1366 x 768 is not compact');
- assert.deepEqual(dispatched.map(e=>e.type+':'+e.detail),['cnc-library-page-size:5','cnc-history-page-size:8']);
+ assert.deepEqual(dispatched.map(e=>e.type+':'+e.detail),['cnc-library-page-size:5','cnc-history-page-size:6']);
  win.innerWidth=1024;win.innerHeight=600;events.resize();
  assert(classes.has('t-compact'),'1024 x 600 is compact');assert.deepEqual(dispatched.slice(-2).map(e=>e.detail),[3,4]);
  win.innerWidth=1366;win.innerHeight=640;events.resize();assert(classes.has('t-compact'),'a short window is compact');

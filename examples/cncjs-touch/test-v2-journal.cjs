@@ -98,15 +98,81 @@ function timeline(p){
   q.st.open=false;q.emit('cnc-v2-change',q.base.state());q.status({...m,activeState:'Idle',workflow:'idle'});q.frame();
   assert.equal(qrows().length,16);assert.equal(qc.hidden,false);
   await flush();
+  // Lot Journal (a1, a2, a5, m10): own page, the rest above unchanged.
+  {
+    const r=journalPage();r.open();timeline(r);r.show('history');r.frame();
+    const rc=r.mount('history').content,rlist=find(rc,'v2k-list'),rr=()=>rlist.children.filter(li=>li.getAttribute('data-id'));
+    // a2 / m10: an alarm state gets the red tone and the « Alarme » badge instead of « Rapport du contrôleur ».
+    r.status({...m,activeState:'Alarm',workflow:'running'});r.frame();
+    const alarm=rr().find(li=>/Alarm/.test(text(li))&&li.getAttribute('data-category')==='state');
+    assert(alarm,'alarm state row: '+rr().map(text).join(' | '));
+    assert.equal(alarm.getAttribute('data-tone'),'alarm');assert.equal(all(alarm).find(e=>e.className==='v2k-badge').textContent,'Alarme');
+    assert(rr().filter(li=>li!==alarm).every(li=>li.getAttribute('data-tone')===''),'no other row is red');
+    // a1: chronological list kept at its newest end while the reader is at the bottom; left alone once scrolled up.
+    let rowsHeight=()=>rr().length*62;Object.defineProperty(rlist,'scrollHeight',{get:()=>rowsHeight(),configurable:true});rlist.clientHeight=300;rlist.scrollTop=rlist.scrollHeight-300;
+    r.status({...m,activeState:'Idle',workflow:'idle'});r.frame();
+    assert.equal(rlist.scrollTop,rlist.scrollHeight-300,'a new row keeps the newest event in view');
+    rlist.scrollTop=0;r.status({...m,activeState:'Run',workflow:'running'});r.frame();assert.equal(rlist.scrollTop,0,'a reader scrolled up is not moved');
+    const filter=k=>all(rc).find(e=>e.getAttribute&&e.getAttribute('data-v2k-filter')===k);
+    filter('state').click();r.frame();assert.equal(rlist.scrollTop,rlist.scrollHeight-300,'a new filter opens at the newest event');
+    filter('all').click();r.frame();
+    // a1 (contre-revue): scrolled up, then the Journal left and opened again: it opens at its newest event.
+    rlist.scrollTop=0;r.show('home');r.show('history');r.frame();
+    assert.equal(rlist.scrollTop,rlist.scrollHeight-300,'reopened, the journal shows its newest event');
+    // a5: no frame on another screen or a hidden page; a pending frame is cancelled when the Journal is left.
+    r.status({...m,activeState:'Hold',workflow:'paused'});assert.equal(r.frames.size,1,'a new event queues one frame');
+    r.show('home');assert.equal(r.frames.size,0,'leaving the Journal cancels its frame');
+    r.emit('cnc-v2-change',r.base.state());r.status({...m,activeState:'Idle',workflow:'idle'});
+    assert.equal(r.frames.size,0,'no frame while another screen is shown');
+    r.show('history');assert.equal(r.frames.size,1,'shown again: one frame');r.frame();
+    r.document.hidden=true;r.emit('cnc-v2-change',r.base.state());r.status({...m,activeState:'Run',workflow:'running'});
+    assert.equal(r.frames.size,0,'no frame on a hidden page');r.document.hidden=false;
+  }
   // D4 (L7): the « Lecture seule » pill uses the shared .ks-readonly class (14 px, 12 px when
   // narrow, touch-shell.css); the v2 journal overrides it to >= 16 px, and no L6 v2 rule is smaller.
   {
     const css=require('fs').readFileSync(__dirname+'/touch/settings-list.css','utf8'),v2=css.slice(css.indexOf('/* Performance v2 (L6)')).replace(/\/\*[\s\S]*?\*\//g,'');
     const pill=v2.split('}').find(r=>r.split('{')[0].split(',').some(s=>/#perf-v2-history \.ks-readonly$/.test(s.trim())));
-    assert(pill,'v2 journal rule for the read-only pill');const size=/font-size:(\d+)px/.exec(pill);
-    assert(size&&Number(size[1])>=16&&/!important/.test(pill),'pill text >= 16 px over the narrow-screen rule: '+pill);
+    // Lot Journal a4: a size may be a --fs-N token (N px in standard text, larger under Agrandi).
+    assert(pill,'v2 journal rule for the read-only pill');const size=/font-size:(?:(\d+)px|var\(--fs-(\d+)\))/.exec(pill);
+    assert(size&&Number(size[1]||size[2])>=16&&/!important/.test(pill),'pill text >= 16 px over the narrow-screen rule: '+pill);
     for(const m of v2.matchAll(/font-size:(\d+)px/g))assert(Number(m[1])>=16,'v2 text >= 16 px: '+m[0]);
+    for(const m of v2.matchAll(/font-size:(?:calc\()?var\(--fs-(\d+)\)/g))assert(Number(m[1])>=16,'v2 text token >= 16 px: '+m[0]);
     assert.equal(all(qc).find(e=>e.className==='ks-readonly').textContent,'Lecture seule');
+  }
+  // Lot Journal, style sheet (m1, m3, m4, m5, m6, m7, m10, empty line): the rules that fix the measured defects.
+  {
+    const read=f=>require('fs').readFileSync(__dirname+'/touch/'+f,'utf8').replace(/\/\*[\s\S]*?\*\//g,'');
+    const css=read('settings-list.css'),v2=css.slice(css.indexOf('body.perf-v2 #perf-v2-settings[hidden]')),P='body.perf-v2 #perf-v2-history ';
+    const rule=sel=>{const r=v2.split('}').find(x=>x.split('{')[0].split(',').some(s=>s.trim()===sel));return r?r.slice(r.indexOf('{')+1):null;};
+    assert.match(rule(P+'.v2k-list>li')||'',/flex:0 0 auto/,'m1: v2 rows keep their height in the scrolling list (they overlapped by 18 px)');
+    assert.match(rule(P+'.t-seg button[aria-pressed=true]')||'',/background:var\(--accent\)/,'m3: the pressed segment shows over .ks-secondary');
+    assert.match(rule(P+'.t-seg button:disabled')||'',/background:var\(--disabled-bg\)/,'m3: a disabled segment looks disabled');
+    assert.match(rule(P+'.v2k-sources button')||'',/min-width:140px/,'m5');
+    assert.match(rule('body.perf-v2 #screen-history[data-v2-presenter=on] .ks-panel-intro p')||'',/display:none/,'m6');
+    assert.match(rule(P+'li[data-source=server] .v2k-row')||'',/minmax\(96px,max-content\)/,'m7');
+    assert.match(rule(P+'.v2k-list>li.v2k-empty')||'',/padding:16px/,'the empty / error line keeps its 16 px inset');
+    assert.match(rule(P+'li[data-tone=alarm]')||'',/border-left-color:var\(--danger-text\)/,'m10 v2 (--danger-text: the bar keeps >= 3:1)');
+    assert.match(rule(P+'li[data-tone=alarm][data-source] .v2k-badge')||'',/color:var\(--danger-text\)/,'a2: red alarm badge');
+    assert.match(read('ui-2027.css'),/\.ks-ui #screen-history li\[data-tone=alarm\]\{border-left-color:var\(--danger-text\)\}/,'m10 v1');
+    assert.match(read('ui-2027.css'),/\.ks-ui #screen-history li\[data-kind=alarm\]\{border-left-color:var\(--danger-text\)\}/,'v1 server alarm bar, same red');
+    // Contre-revue: disabled filters and paging at full opacity (app.css button:disabled is 0.4).
+    for(const sel of ['.t-seg button:disabled','.v2k-pages button:disabled'])assert.match(rule(P+sel)||'',/opacity:1;.*color:var\(--disabled-fg\).*background:var\(--disabled-bg\)/,'disabled at full opacity: '+sel);
+    assert(!/diario/i.test(read('real-history.js')+read('performance-journal-context.js')),'m13: one Spanish word, « registro », like the tab');
+    // m4: badge text >= 4.5:1 on its --surface-2 pill in both themes (--danger was 1.86:1 dark, --warn 3.68:1 light).
+    const tokens=read('design-tokens.css'),theme=re=>{const b=re.exec(tokens)[1],o={};for(const m of b.matchAll(/--([\w-]+):(#[0-9a-f]{6})/gi))o[m[1]]=m[2];return o;};
+    const lum=h=>{const c=[1,3,5].map(i=>parseInt(h.slice(i,i+2),16)/255).map(v=>v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4));return 0.2126*c[0]+0.7152*c[1]+0.0722*c[2];};
+    const ratio=(a,b)=>{const x=lum(a),y=lum(b);return (Math.max(x,y)+0.05)/(Math.min(x,y)+0.05);};
+    for(const [name,t] of [['dark',theme(/:root\{([^}]*)\}/)],['light',theme(/:root\[data-theme="light"\]\{([^}]*)\}/)]])
+      for(const [state,token] of [['refused','danger-text'],['uncertain','warn-text']]){
+        assert.match(rule(P+'li[data-category=command][data-state='+state+'] .v2k-badge')||'',new RegExp('color:var\\(--'+token+'\\)'),state+' badge token');
+        assert(ratio(t[token],t['surface-2'])>=4.5,name+' '+state+' badge '+ratio(t[token],t['surface-2']).toFixed(2)+':1');
+      }
+    // Contre-revue: the alarm bar (a mark, >= 3:1 on the row and the page) and a disabled label (>= 4.5:1).
+    for(const [name,t] of [['dark',theme(/:root\{([^}]*)\}/)],['light',theme(/:root\[data-theme="light"\]\{([^}]*)\}/)]]){
+      for(const bg of ['surface-2','surface','bg'])assert(ratio(t['danger-text'],t[bg])>=3,name+' alarm bar on --'+bg+' '+ratio(t['danger-text'],t[bg]).toFixed(2)+':1');
+      assert(ratio(t['disabled-fg'],t['disabled-bg'])>=4.5,name+' disabled label '+ratio(t['disabled-fg'],t['disabled-bg']).toFixed(2)+':1');
+    }
   }
   console.log('PASS v2 journal: chronological list, command/state/connection filters, distinct sent/confirmed/refused/uncertain, detail without replay, contextual opening and return to Suivi, missing context, hidden screen, server source, release; RT unchanged.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

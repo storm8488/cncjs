@@ -74,6 +74,41 @@ assert.deepEqual(list(), ['Historique serveur indisponible (HTTP 500) : Historiq
 assert.equal(node('real-history-list').children[0].getAttribute('data-kind'), 'alarm');
 session.click(); server.click(); answer(requests.at(-1), { message: 'Session CNCjs requise.' }, 401); assert.deepEqual(list(), ['Session CNCjs requise.']);
 session.click(); server.click(); requests.at(-1).onerror(); assert.match(list()[0], /^Historique serveur injoignable/);
+// Lot Journal m11: the message says « touchez Serveur à nouveau »; a second tap on Serveur reads again (same GET).
+{
+  const failed = requests.at(-1), count = requests.length; server.click();
+  assert.equal(requests.length, count + 1, 'a second tap on Serveur after a network error reads again');
+  assert.equal(requests.at(-1).method, 'GET'); assert.equal(requests.at(-1).url, '/cnc/api/touch-history?limit=5'); assert.notEqual(requests.at(-1), failed);
+  assert.deepEqual(list(), ['Lecture de l’historique serveur…']); server.click(); assert.equal(requests.length, count + 1, 'no second read while one is pending');
+  answer(requests.at(-1), { entries: [], total: 0, skipped: 0, more: false }); server.click(); assert.equal(requests.length, count + 1, 'no read again after a success');
+}
+// Lot Journal m12/m14: origin, jog, frame, machine have their own label (no raw key); a failed one shows its
+// reason, without a doubled full stop, as an alarm. Outside control, a stop code (motion.js STOP_REASONS, jog/frame
+// results) shows as its phrase, a Grbl error as « Grbl a refusé la ligne (error:N) »; an unknown code is not shown.
+const reasonEntries = [
+  { seq: 23, at: at(23), event: 'origin', result: 'failed', reason: 'Grbl a refusé la définition d’origine (error:9).', command: 'G10 L20 P1 X0 Y0', axes: ['X', 'Y'], actor: { kind: 'touch', label: 'Tablette atelier' }, controller: { port: 'COM3' } },
+  { seq: 22, at: at(22), event: 'jog', result: 'cancelled', reason: 'operator', axis: 'X', controller: { port: 'COM3' } },
+  { seq: 21, at: at(21), event: 'frame', result: 'ended', reason: '' },
+  { seq: 20, at: at(20), event: 'jog-cancel-unconfirmed', reason: 'timeout' },
+  { seq: 19, at: at(19), event: 'machine', operation: 'set-kind', machine: { kind: 'cnc' } },
+  { seq: 18, at: at(18), event: 'jog', result: 'refused', reason: 'error:9', controller: { port: 'COM3' } },
+  { seq: 17, at: at(17), event: 'frame', result: 'lost', reason: 'connection' },
+  { seq: 16, at: at(16), event: 'origin', result: 'failed', reason: 'La machine a bougé pendant la définition d’origine (X 1.5, Y -2) : arrêtez et vérifiez le contrôleur.' }
+];
+session.click(); server.click();
+answer(requests.at(-1), { entries: reasonEntries, total: 8, skipped: 0, more: false });
+{
+  const shown = list(), kinds = node('real-history-list').children.map((li) => li.getAttribute('data-kind'));
+  assert.match(shown[0], / — Définition d’origine \| motif : Grbl a refusé la définition d’origine \(error:9\) · par Tablette atelier · COM3$/);
+  assert.match(shown[1], / — Déplacement manuel \| motif : relâchement ou arrêt demandé · COM3$/); assert.match(shown[2], / — Cadrage$/);
+  assert.match(shown[3], / — Arrêt de déplacement non confirmé$/); assert.match(shown[4], / — Fiche machine modifiée$/);
+  assert.match(shown[5], / — Déplacement manuel \| motif : Grbl a refusé la ligne \(error:9\) · COM3$/);
+  assert.match(shown[6], / — Cadrage \| motif : connexion au contrôleur perdue$/);
+  assert.match(shown[7], / — Définition d’origine \| motif : La machine a bougé pendant la définition d’origine : arrêtez et vérifiez le contrôleur \(X 1\.5, Y -2\)$/);
+  assert(!/operator|timeout|\bconnection\b/.test(JSON.stringify(shown)), 'no raw internal code: ' + shown.join(' | '));
+  assert.deepEqual(kinds, ['alarm', 'workflow', 'workflow', 'workflow', 'workflow', 'workflow', 'workflow', 'alarm'], 'a failed origin is an alarm');
+  assert(!JSON.stringify(shown).includes('G10'), 'the command line is not shown');
+}
 session.click(); server.click(); answer(requests.at(-1), '<html>proxy</html>', 200); assert.match(list()[0], /^Historique serveur indisponible \(HTTP 200\)\.$/);
 // Back to the session journal: local events again, filters usable, no server read.
 const before = requests.length; session.click();
@@ -84,4 +119,26 @@ server.click(); const pending = requests.at(-1); handlers['cnc-screen-change']({
 handlers['cnc-screen-change']({ detail: 'history' }); assert.notEqual(requests.at(-1), pending); assert.equal(requests.at(-1).url, '/cnc/api/touch-history?limit=5');
 // Read-only: the view never sends anything but GET.
 assert(requests.every((x) => x.method === 'GET' && x.body === null));
+// Contre-revue: in the Spanish interface a reason is Spanish, its values kept (catalog of i18n-messages.js).
+{
+  const cat = {}; vm.runInNewContext(fs.readFileSync(__dirname + '/touch/i18n-messages.js', 'utf8'), { window: cat });
+  // Same lookup as i18n.js text(): a source written exactly as in the catalog gets its row as written.
+  const es = new Map(cat.CNCTouchMessages.map((row) => [row[0].trim().replace(/\s+/g, ' '), row]));
+  const t = (s) => { const p = /^(\s*)([\s\S]*?)(\s*)$/.exec(s), r = es.get(p[2].replace(/\s+/g, ' ')); return !r ? s : r[0] === s ? r[2] : p[1] + r[2].trim() + p[3]; };
+  const d = require('./dom-fixture.cjs').createDOM([]), esReq = [], h = {}, esCard = d.element('div', 'history-card');
+  d.document.querySelector = (sel) => (sel === '#screen-history .ks-history-card' ? esCard : d.node('panel'));
+  d.document.querySelectorAll = () => [];
+  function EsXHR() { this.headers = {}; this.open = (m, u) => { this.method = m; this.url = u; }; this.setRequestHeader = () => {}; this.send = () => { esReq.push(this); }; this.abort = () => {}; }
+  const w = { cncI18n: { t, html: t, language: 'es', locale: 'es-ES' }, cncSessionJournal: window.cncSessionJournal, cncState: window.cncState, CNCJobStream: {}, addEventListener(n, f) { h[n] = f; } };
+  vm.runInNewContext(fs.readFileSync(__dirname + '/touch/real-history.js', 'utf8'), { document: d.document, window: w, Date, Blob, XMLHttpRequest: EsXHR, localStorage: context.localStorage });
+  d.activeScreens.add('history'); h['cnc-screen-change']({ detail: 'history' });
+  esCard.querySelectorAll('*').find((e) => e.id === 'real-history-source-server').click();
+  answer(esReq.at(-1), { entries: reasonEntries, total: 8, skipped: 0, more: false });
+  const shown = d.node('real-history-list').children.map((li) => li.children[1].textContent);
+  assert.equal(shown[0], 'motivo: Grbl rechazó la definición del origen (error:9) · por Tablette atelier · COM3');
+  assert.equal(shown[1], 'motivo: soltado o parada solicitada · COM3'); assert.equal(shown[5], 'motivo: Grbl rechazó la línea (error:9) · COM3');
+  assert.equal(shown[6], 'motivo: conexión con el controlador perdida');
+  assert.equal(shown[7], 'motivo: La máquina se movió durante la definición del origen: detenga y compruebe el controlador (X 1.5, Y -2)');
+  assert(!shown.some((s) => /définition|refusé|arrêt|perdue|bougé/.test(s)), 'no French left in the Spanish reasons: ' + shown.join(' | '));
+}
 console.log('PASS server history (F4): session vs server sources, paged by before, read-only, empty, HTTP/network/invalid errors, stale answers ignored, listed fields only (no secret).');

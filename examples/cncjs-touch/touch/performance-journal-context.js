@@ -57,7 +57,7 @@
     en: {emptyMessage:'No retained events', title:'Journal context', readOnlyLabel:'Read only',
       filters:{all:'All', command:'Command', state:'State', connection:'Connection'},
       states:{sent:'Sent', confirmed:'Confirmed', refused:'Refused', uncertain:'Uncertain'}},
-    es: {emptyMessage:'Ningún evento conservado', title:'Contexto del diario', readOnlyLabel:'Solo lectura',
+    es: {emptyMessage:'Ningún evento conservado', title:'Contexto del registro', readOnlyLabel:'Solo lectura',
       filters:{all:'Todos', command:'Orden', state:'Estado', connection:'Conexión'},
       states:{sent:'Enviada', confirmed:'Confirmada', refused:'Rechazada', uncertain:'Incierta'}}
   };

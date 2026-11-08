@@ -43,7 +43,7 @@
   $('sim-history-prev').addEventListener('click',function(){page=Math.max(0,page-1);dirty=true;render();});
   $('sim-history-next').addEventListener('click',function(){if((page+1)*size<events.length)page++;dirty=true;render();});
   window.addEventListener('cnc-history-page-size',function(e){
-    var next=Number(e.detail);if(next!==3&&next!==5&&next!==8)return;
+    var next=Number(e.detail);if(next!==3&&next!==5&&next!==6&&next!==8)return;
     if(next!==size){page=Math.floor(page*size/next);size=next;dirty=true;render();}
   });
   var exporting=false,exportVersion=0;
