@@ -193,9 +193,12 @@ body.ks-ui.perf-wide.perf-origin #screen-jog .ks-coordinate-table td:last-child{
 body.ks-ui.perf-wide .job-dashboard[data-zones="2"]{grid-template-columns:minmax(0,1fr) 520px}
 body.ks-ui.perf-wide .job-dashboard[data-zones="3"]{grid-template-columns:minmax(0,1fr) 756px}
 body.ks-ui.perf-wide .job-dashboard[data-zones] .job-art{position:relative;flex:1 1 0;min-height:240px}
-/* Une note sous l'aperçu affiché (aperçu non vérifié…) garde sa colonne : sur une vue plus haute que
-   sur la RT, l'image ne la réduit plus à quelques pixels. */
-body.ks-ui.perf-wide .job-dashboard[data-zones] #home-job-image{min-width:0}
+/* Une note à côté de l'aperçu affiché (aperçu non vérifié…) garde au moins 210 px, en v1 Éco aussi : sur la RT,
+   l'image la réduisait à une colonne d'un caractère qui étirait .job-art (1 293 px) et faisait défiler Suivi.
+   En v1 elle s'élargit quand l'image laisse de la place (image basse en pause : la note ne passe plus sous
+   « Agrandir le tracé » et « Agrandir ») ; la v2 garde sa colonne fixe. .job-art reste une rangée. */
+body.ks-ui .job-dashboard #home-job-image{min-width:0}
+body.ks-ui .job-dashboard #home-job-image:not([hidden])+#home-image-status{flex:0 1 auto;min-width:210px}
 body.ks-ui.perf-wide .job-dashboard[data-zones] #home-job-image:not([hidden])+#home-image-status{flex:0 0 210px}
 body.ks-ui.perf-wide .job-dashboard[data-zones] .job-metrics{gap:var(--sp-3)}
 body.ks-ui.perf-wide .job-dashboard[data-zones="3"] .job-metrics{display:grid;grid-template-columns:340px 400px;grid-template-rows:minmax(0,1fr);column-gap:var(--sp-4);align-items:stretch}

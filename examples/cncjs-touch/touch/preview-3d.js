@@ -90,6 +90,8 @@
     return entry;
   }
 
+  // The note of Suivi beside its preview (job-dashboard.js #home-image-status), shown with the image.
+  function noted(host) { var n = host.img.id === 'home-job-image' && typeof document === 'object' && document && typeof document.getElementById === 'function' ? document.getElementById('home-image-status') : null; return !!(n && !n.hidden && n.textContent); }
   function status(host, text) { if (host.status.textContent !== text) host.status.textContent = text; if (host.status.hidden !== !text) host.status.hidden = !text; }
   // cncView names the image it belongs to: a reader compares it with the shown src.
   function show(host, src, cncView) {
@@ -213,7 +215,8 @@
   var laserJob = null;
   function laser(host) {
     var meta = host.meta, L = root.CNCLaserView;
-    if (!meta || !meta.fingerprint || !meta.file) { show(host, host.base, null); status(host, t('Vue laser indisponible : aperçu sans empreinte, régénérez-le dans Fichiers.')); return; }
+    // Suivi already shows its note on this preview (« non vérifié… régénérez-le depuis le PC »): one instruction, not two.
+    if (!meta || !meta.fingerprint || !meta.file) { show(host, host.base, null); status(host, noted(host) ? '' : t('Vue laser indisponible : aperçu sans empreinte, régénérez-le dans Fichiers.')); return; }
     if (!L || !root.CNCPreviewInspect) { show(host, host.base, null); status(host, t('Vue laser indisponible sur cette page.')); return; }
     var key = 'laser|' + meta.fingerprint, entry = entryFor(key, meta.file, true), done = entry.views.laser;
     host.key = key;

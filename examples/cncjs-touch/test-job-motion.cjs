@@ -29,7 +29,8 @@ assert.equal(el('home-job-motion').hidden, false);
 assert.match(text, /^Selon les mouvements \(sans accélérations\) : au moins /, 'rapids unknown: a lower bound');
 assert.match(text, /rapides non comptés \(\$110–\$112 inconnus\)/);
 assert.match(text, /durées inconnues : pause M0 \(l\. 51\), changement d’outil M6 \(l\. 105\)/);
-assert.match(el('home-job-eta').textContent, /estimation après démarrage/, 'the rhythm-based estimate is kept, separately');
+// Migrated (lot Suivi 2026-11): the shorter v1 title « Temps restant : après démarrage » (one line in FR at 768 px).
+assert.match(el('home-job-eta').textContent, /^Temps restant : après démarrage$/, 'the rhythm-based estimate is kept, separately');
 // With $110-$112 from the controller: bounded or exact.
 status({ ...c, settings: { $110: '6000', $111: '6000', $112: '1000' } });
 text = el('home-job-motion').textContent;

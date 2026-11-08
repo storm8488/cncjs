@@ -7,7 +7,7 @@ const fs=require('fs'),vm=require('vm'),assert=require('assert');
 let now=1e6,mono=1e6,reads=0,v2=false,expiryDelay=null;const frames=[],handlers={};
 function el(tag){return {tagName:tag,style:{},hidden:false,attributes:{},children:[],textContent:'',
   setAttribute(k,v){this.attributes[k]=v;},appendChild(c){this.children.push(c);c.parentNode=this;return c;},
-  addEventListener(n,f){(this.handlers=this.handlers||{})[n]=f;},insertAdjacentElement(){} };}
+  addEventListener(n,f){(this.handlers=this.handlers||{})[n]=f;},insertAdjacentElement(where,node){this.adjacent=node;} };}
 const parent=el('div');parent.getBoundingClientRect=()=>({left:100,top:50,width:500,height:300});
 const img=el('img');img.id='home-job-image';parent.appendChild(img);img.offsetWidth=400;
 // viewport-fit scale 0.8: screen rects are 0.8 x the layout size.
@@ -54,6 +54,12 @@ for(const age of [NaN,Infinity,-1,2501]){report(20,10,{statusAgeMs:age});assert.
 report(20,10,{statusAgeMs:0});assert.equal(marker.hidden,false);
 for(const fingerprint of [null,'','sha256:other']){report(20,10,{statusAgeMs:0,fingerprint});assert.equal(marker.hidden,true,'v2 fixed view requires matching known content');}
 report(20,10,{statusAgeMs:0});assert.equal(marker.hidden,false);
+// Alarm (lot Suivi 2026-11): Grbl may have lost the position: no blue point, and the note says so instead of
+// « position de travail rapportée par Grbl il y a moins d'une seconde ».
+const toolNote=parent.adjacent;assert(toolNote&&toolNote.id==='tool-position-note','note under the preview');
+report(20,10,{statusAgeMs:0,activeState:'Alarm'});assert.equal(marker.hidden,true,'no marker in an alarm');assert.match(toolNote.textContent,/^Alarme : position non garantie\./);
+report(20,10,{statusAgeMs:0,activeState:'Alarm:1'});assert.equal(marker.hidden,true,'Alarm with a sub-state too');
+report(20,10,{statusAgeMs:0,activeState:'Run'});assert.equal(marker.hidden,false,'shown again once the alarm is cleared');assert.match(toolNote.textContent,/Point bleu/);
 handlers.pagehide({persisted:true});const frameCount=frames.length;handlers['cnc-job-status']({detail:{machine:{fresh:true},simulation:false}});
 assert.equal(frames.length,frameCount,'bfcache pagehide ends v2 marker work');
-console.log('PASS tool position: cached box and transform, v1 retained; v2 monotone combined age, 2500 ms threshold, unknown age and bfcache cleanup.');
+console.log('PASS tool position: cached box and transform, v1 retained; v2 monotone combined age, 2500 ms threshold, unknown age and bfcache cleanup; no marker in an alarm.');

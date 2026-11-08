@@ -2,6 +2,8 @@
   'use strict';
   var uiLocale=(typeof window!=='undefined'&&window.cncI18n)||{t:function(s){return s;}};
   var t=function(s){return uiLocale.t(s);};
+  // A server text shown as it comes, translated when the catalogue has it (its fixed notes), else in French.
+  var message=function(s){return typeof uiLocale.message==='function'?uiLocale.message(s):t(s);};
   // Grbl acknowledges a line when it enters its planner, up to ~15 moves before
   // it is executed: a resume after a stop starts that far back.
   var PLANNER_MARGIN=15;
@@ -47,9 +49,9 @@
       return t('Reprise à la ligne ')+r.from+' / '+r.total+' : '+r.line+(r.tool!==null&&r.tool!==undefined?t(' — outil attendu T')+r.tool:'')+t('. La machine monte à la hauteur de dégagement, se place en XY, relance la broche puis plonge.')+notesText(r.notes);}
     return '';
   }
-  // Server notes on a rebuilt program (units, work frame, clearance): French strings
-  // written by the server, like its messages, so they are shown as they come.
-  function notesText(notes){return Array.isArray(notes)&&notes.length?' '+notes.filter(function(n){return typeof n==='string'&&n;}).join(' '):'';}
+  // Server notes on a rebuilt program (units, work frame, clearance): French strings written by the
+  // server, like its messages; its fixed notes are in the catalogue, the others are shown as they come.
+  function notesText(notes){return Array.isArray(notes)&&notes.length?' '+notes.filter(function(n){return typeof n==='string'&&n;}).map(message).join(' '):'';}
   function suggestedLine(c,file){
     if(!c||typeof c.stoppedAtLine!=='number'||c.stoppedFile!==file)return null;
     return Math.max(2,c.stoppedAtLine-PLANNER_MARGIN);
@@ -59,7 +61,7 @@
     if(laserPlan(plan)){
       var lines=[t('Ligne ')+plan.from+' / '+plan.total+' : '+plan.line+'.',t('Début de passe : laser éteint (M5), G0 en XY jusqu’au départ (Z rétabli seulement si le programme garde un Z constant), puis M3/M4 et consigne S du programme.')];
       if(pv&&Array.isArray(pv.preamble)&&pv.preamble.length)lines.push(t('Lignes envoyées avant la reprise : ')+pv.preamble.filter(function(l){return typeof l==='string';}).join(' · ')+'.');
-      if(Array.isArray(plan.notes))plan.notes.forEach(function(n){if(typeof n==='string'&&n)lines.push(n);});
+      if(Array.isArray(plan.notes))plan.notes.forEach(function(n){if(typeof n==='string'&&n)lines.push(message(n));});
       return lines.join(' ');
     }
     var parts=[t('Ligne ')+plan.from+' / '+plan.total+' : '+plan.line+'.'];
@@ -67,7 +69,7 @@
     if(plan.spindle)parts.push(t('Broche ')+spindleText(plan.spindle)+t(' relancée 3 s avant la plongée.'));
     if(plan.coolant)parts.push(t('Arrosage ')+plan.coolant+'.');
     if(plan.tool!==null&&plan.tool!==undefined)parts.push(t('Outil attendu : T')+plan.tool+t(' (vérifiez qu’il est en place et que le zéro Z lui correspond).'));
-    if(Array.isArray(plan.notes))plan.notes.forEach(function(n){if(typeof n==='string'&&n)parts.push(n);});
+    if(Array.isArray(plan.notes))plan.notes.forEach(function(n){if(typeof n==='string'&&n)parts.push(message(n));});
     return parts.join(' ');
   }
   var api={pauseText:pauseText,dialogNote:dialogNote,laserOf:laserOf,capabilityOf:capabilityOf,suggestedLine:suggestedLine,planText:planText,plateNote:plateNote,lastZeroText:lastZeroText,PLANNER_MARGIN:PLANNER_MARGIN,
@@ -163,6 +165,9 @@
     // its way) only disables the load and keeps the check.
     if(!panel.hidden&&(!machine||!selection||machine.workflow!=='idle'))close();
     else set(load,'disabled',!checked||!can);
+    // Presentation only (performance-v2.css): an open plate or resume form gets its room in the v2 messages slot.
+    var left=document.getElementById('home-left'),board=left&&left.parentNode,form=!plate.hidden||!panel.hidden?'1':'0';
+    if(board&&typeof board.setAttribute==='function'&&board.getAttribute('data-v2-form')!==form)board.setAttribute('data-v2-form',form);
   }
   function line(){var p=parsed(input.value,LINE_RULES);return p.state==='ok'?p.value:null;}
   open.addEventListener('click',function(){

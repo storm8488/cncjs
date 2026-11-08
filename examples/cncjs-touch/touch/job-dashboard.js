@@ -238,13 +238,15 @@
     // Work frame (G54…) next to the work coordinates, as reported by the controller; blank when unknown.
     var frameNode=$('home-work-frame');if(frameNode&&homeShown){var frame=c&&c.fresh&&c.operator&&/^G5[4-9]$/.test(String(c.operator.wcs||''))?' · '+c.operator.wcs:'';set('home-work-frame','textContent',frame);}
     if(homeShown){set('home-live-feed','textContent',feed===null?'—':number(feed)+' mm/min');
-    set('home-live-spindle','textContent',rpm===null?'—':number(rpm)+uiLocale.t(' tr/min'));}
+    set('home-live-spindle','textContent',rpm===null?'—':number(rpm)+(laser()?'':uiLocale.t(' tr/min')));}
     // Reprendre takes the primary place while the job is held; Démarrer otherwise.
     var held=!!(c&&c.workflow==='paused');
     // In an alarm at rest nothing here can start (the ready line says why, Déverrouiller is on
     // the strip): the inactive Démarrer / Pause row gives its room to the alarm's help (N1).
     var alarmRest=!!(c&&c.workflow==='idle'&&/^alarm/i.test(String(c.activeState||'')));
     set('home-job-resume-row','hidden',!held);set('home-job-primary-row','hidden',held||alarmRest);
+    // Presentation only (ui-2027.css): during a job the active Pause takes the large cell. Read by no handler.
+    var row=$('home-job-primary-row'),run=c&&c.workflow==='running'?'1':'0';if(row&&typeof row.setAttribute==='function'&&(!row.getAttribute||row.getAttribute('data-run')!==run))row.setAttribute('data-run',run);
     // Charger only shows while the machine is idle and something is selected: one primary action per screen.
     var busyJob=!!(c&&c.workflow&&c.workflow!=='idle');
     set('home-job-load','hidden',!selection||busyJob);
@@ -262,23 +264,25 @@
     var failed=!simulation&&c&&c.finishedWithErrors===true&&finiteNumber(c.jobErrors)&&c.jobErrors>0;
     if(valid&&(c.finished===true||failed)&&c.workflow==='idle')p=100;
     var percent=valid?Math.floor(p)+' %':'—',remaining=null,eta=uiLocale.t('Temps restant : —');
-    var key=c?simulation+':'+c.port+':'+c.name+':'+c.revision+':'+c.total:'';
+    var key=c?simulation+':'+c.port+':'+c.name+':'+c.revision+':'+c.total:'',alarmNow=!!(c&&/^alarm/i.test(String(c.activeState||'')));
     if(!valid){track=null;eta=c&&c.fresh&&!c.name?uiLocale.t('Temps restant : chargez un fichier'):uiLocale.t('Temps restant : état indisponible');}
     else {
       if(!track||track.key!==key||p<track.p)track={key:key,p:p,last:now,active:0,advance:0,running:false};
       var dt=(now-track.last)/1000;
       // Discontinuous observations must not reuse an estimate learned before sleep or a clock jump.
       if(dt<0||dt>3){track.active=0;track.advance=0;}
-      else if(track.running&&c.workflow==='running'&&dt>0){track.active+=dt;track.advance+=Math.max(0,p-track.p);}
-      track.last=now;track.p=p;track.running=c.workflow==='running';
+      else if(track.running&&c.workflow==='running'&&!alarmNow&&dt>0){track.active+=dt;track.advance+=Math.max(0,p-track.p);}
+      track.last=now;track.p=p;track.running=c.workflow==='running'&&!alarmNow;
       if(simulation){if(finiteNumber(c.remainingSeconds)&&c.remainingSeconds>=0)remaining=c.remainingSeconds;}
       else if(track.active>=10&&track.advance>0)remaining=(100-p)*track.active/track.advance;
       if(!finiteNumber(remaining)||remaining<0)remaining=null;
       if(p>=100&&failed)eta=uiLocale.t('Fin du programme avec ')+c.jobErrors+uiLocale.t(' erreur(s) Grbl — vérifiez la pièce');
       else if(p>=100&&(simulation||c.finished===true))eta=simulation?uiLocale.t('Terminé — 0 s restantes'):uiLocale.t('Terminé — programme exécuté jusqu’au bout');
+      // An alarm overrides the texts that expect motion to go on or a stop without cause (display only).
+      else if(alarmNow)eta=uiLocale.t('Alarme — estimation suspendue');
       else if(p>=100)eta=uiLocale.t('Toutes les lignes acquittées — attendre la fin des mouvements');
       else if(c.workflow==='idle'&&!c.canStart)eta=uiLocale.t('Travail arrêté — temps restant indisponible');
-      else if(c.canStart)eta=simulation?(remaining!==null?uiLocale.t('Durée simulée : ')+duration(remaining):uiLocale.t('Temps restant : état indisponible')):uiLocale.t('Temps restant : estimation après démarrage');
+      else if(c.canStart)eta=simulation?(remaining!==null?uiLocale.t('Durée simulée : ')+duration(remaining):uiLocale.t('Temps restant : état indisponible')):uiLocale.t('Temps restant : après démarrage');
       else if(c.workflow==='paused')eta=uiLocale.t('En pause — ')+(remaining!==null?remainingText(remaining)+uiLocale.t(' restantes'):uiLocale.t('estimation suspendue'));
       else eta=remaining!==null?uiLocale.t('Temps restant ')+(simulation?uiLocale.t('simulé'):uiLocale.t('estimé'))+' : '+remainingText(remaining):uiLocale.t('Temps restant : calcul en cours…');
     }
@@ -295,6 +299,8 @@
       // The notice's tone follows the colour rules: red alarm, amber hold, blue running, green ready.
       var tone=!c||!c.fresh?'off':/^alarm/i.test(c.activeState||'')||failed?'danger':c.workflow==='paused'||finiteNumber(c.stalledMs)&&c.workflow==='running'?'warn':c.workflow==='running'?'info':c.canStart?'ok':'off';
       var ready=$('home-job-ready');if(ready&&typeof ready.setAttribute==='function'&&(!ready.getAttribute||ready.getAttribute('data-tone')!==tone))ready.setAttribute('data-tone',tone);
+      // Presentation only (performance-v2.css): the safety texts of a hold or an alarm are read without scrolling.
+      var alertBoard=$('home-left').parentNode,alertOn=tone==='danger'||tone==='warn'||spinning?'1':'0';if(alertBoard&&typeof alertBoard.setAttribute==='function'&&(!alertBoard.getAttribute||alertBoard.getAttribute('data-v2-alert')!==alertOn))alertBoard.setAttribute('data-v2-alert',alertOn);
       set('home-job-selection','textContent',different?uiLocale.t('Sélection différente : ')+selection.name+uiLocale.t('. Charger la sélection remplacera le fichier chargé.'):'');
       set('home-job-load','textContent',same?uiLocale.t('Recharger le fichier'):uiLocale.t('Charger la sélection'));
       preview(file);
@@ -303,7 +309,8 @@
       set('home-job-percent','textContent',percent);set('home-job-progress','value',p);
       // The static help sentence of the job controls is not a command result: only results show here.
       set('home-job-eta','textContent',eta);
-      var motion=motionText(c,file,now);set('home-job-motion','textContent',motion);set('home-job-motion','hidden',!motion);set('home-job-feedback','textContent',feedback===uiLocale.t('Le chargement ne démarre pas le travail.')?'':feedback);
+      // In an alarm no remaining time sits under « estimation suspendue » (motionText still refreshes motionLeft).
+      var motion=motionText(c,file,now);if(alarmNow)motion='';set('home-job-motion','textContent',motion);set('home-job-motion','hidden',!motion);set('home-job-feedback','textContent',feedback===uiLocale.t('Le chargement ne démarre pas le travail.')?'':feedback);
       if(zones.on)gauges(c,valid,p,eta,remaining);
       set('home-job-note','textContent',simulation?uiLocale.t('Progression fictive sur 60 secondes, hors pauses. Aucun G-code exécuté.'):uiLocale.t('Progression des lignes acquittées. Estimation indicative selon le rythme observé, pas selon la durée des mouvements.'));
     }
@@ -324,8 +331,8 @@
     if(e.detail&&e.detail.file&&e.detail.file!==file)return;
     cancelPreview();imageKey='';render();
   });
-  function mount(){if(mounted||!visible('home'))return;mounted=true;if(previewFailed)imageKey='';render();requestCurve();requestV2();}
-  function unmount(){if(!mounted)return;mounted=false;cancelPreview();}
+  function mount(){if(mounted||!visible('home'))return;mounted=true;if(previewFailed)imageKey='';render();requestCurve();requestV2();if(zones.v2)armV2();}
+  function unmount(){if(!mounted)return;mounted=false;cancelPreview();if(v2.timer!==null&&typeof window.clearTimeout==='function')window.clearTimeout(v2.timer);v2.timer=null;}
   window.addEventListener('cnc-screen-change',function(e){if(e.detail==='home')mount();else{unmount();if(e.detail==='files')render();}});
   document.addEventListener('visibilitychange',function(){if(document.hidden)forgetLoaded('');if(visible('home'))mount();else unmount();});
   // ---- Wide workstation (body.perf-wide, touch-shell.js; PERFORMANCE-UI-SPEC.md 5.2, 6) ----
@@ -427,7 +434,7 @@
     return pv&&pv.file===c.name&&finiteNumber(pv.lines)&&pv.lines>0?pv.lines:r&&finiteNumber(r.from)&&finiteNumber(r.total)&&r.total>0?r.total:c.total;
   }
   function gauges(c,valid,p,eta,remaining){
-    var left=motionLeft,running=!!(valid&&c.workflow==='running'&&p<100);
+    var left=motionLeft,running=!!(valid&&c.workflow==='running'&&p<100&&!/^alarm/i.test(String(c.activeState||'')));
     var title=eta,source='',second='',unknown='';
     var factor=left?(Math.round(left.factor*10)/10).toLocaleString(uiLocale.locale||'fr-FR'):'';
     // The estimate as given to the v2 observation model: the value shown, and where it comes from.
@@ -447,6 +454,8 @@
       var ahead=unknownsText(left.unknownsAhead);if(ahead)unknown=uiLocale.t('Durées inconnues à venir : ')+ahead;
       (left.unknownsAhead||[]).forEach(function(u){if(u&&u.kind!=='rapid'&&v2.estimate.unknowns.indexOf(u.kind)<0)v2.estimate.unknowns.push(u.kind);});
     }
+    // Performance v2: the shorter titles of the 432 px column (the v1 ones were cut).
+    if(zones.v2&&title===eta)V2_TITLES.forEach(function(d){if(eta===uiLocale.t(d[0]))title=say(d[1]);});
     set('home-gauge-eta-title','textContent',title);
     [['home-gauge-eta-source',source],['home-gauge-eta-second',second],['home-gauge-eta-unknown',unknown]].forEach(function(d){set(d[0],'textContent',d[1]);set(d[0],'hidden',!d[1]);});
     // Without the preview, a resumed job counts in the original file (resume.total), as acknowledgedLine() does.
@@ -504,7 +513,7 @@
     ['Géométrie inconnue','Unknown geometry','Geometría desconocida'],
     ['Acquitté par Grbl','Acknowledged by Grbl','Confirmado por Grbl'],
     ['À acquitter','Not yet acknowledged','Por confirmar'],
-    ['Acquitté = accepté par Grbl, pas nécessairement usiné.','Acknowledged = accepted by Grbl, not necessarily machined.','Confirmado = aceptado por Grbl, no necesariamente mecanizado.'],
+    ['Acquitté = accepté par Grbl, pas nécessairement usiné.','Acknowledged = accepted by Grbl, not necessarily machined.','Confirmado = aceptado por Grbl, quizá sin mecanizar.'],
     ['Rapportée · rapport frais','Reported · fresh report','Informada · informe reciente'],
     ['Figée · rapport périmé','Frozen · stale report','Congelada · informe caducado'],
     ['Inconnue · pas de rapport','Unknown · no report','Desconocida · sin informe'],
@@ -519,7 +528,7 @@
     ['Ordre du fichier, pas heure de début','File order, not a start time','Orden del archivo, no hora de inicio'],
     [' à venir',' ahead',' por venir'],
     ['durée inconnue','unknown duration','duración desconocida'],
-    ['Avance rapportée, dernière minute','Reported feed, last minute','Avance informado, último minuto'],
+    ['Avance rapportée, dernière minute','Reported feed, last minute','Avance informado, 1 min'],
     [' · 0 à ',' · 0 to ',' · 0 a '],
     ['Courbe indisponible','Curve unavailable','Curva no disponible'],
     ['Aucun événement sur la minute','No event in the last minute','Ningún evento en el último minuto'],
@@ -532,10 +541,17 @@
     ['Ce que le temps indique','What the time means','Qué indica el tiempo'],
     ['Estimation sans accélérations. Pauses manuelles, interventions et durées inconnues ne sont pas comptées.','Estimate without accelerations. Manual pauses, interventions and unknown durations are not counted.','Estimación sin aceleraciones. No se cuentan las pausas manuales, las intervenciones ni las duraciones desconocidas.'],
     ['État des données','Data status','Estado de los datos'],
-    ['Séquences','Sequences','Secuencias']
+    ['Séquences','Sequences','Secuencias'],
+    ['Estimation après démarrage','Estimate after start','Estimación tras iniciar'],
+    ['Arrêté — pas d’estimation','Stopped — no estimate','Detenido — sin estimación'],
+    ['État indisponible','Status unavailable','Estado no disponible'],
+    ['Alarme — sans estimation','Alarm — no estimate','Alarma — sin estimación'],
+    ['Alarme : position non garantie','Alarm: position not guaranteed','Alarma: posición no garantizada']
   ];
+  // v1 remaining-time texts (catalogue) and their short v2 titles.
+  var V2_TITLES=[['Temps restant : après démarrage','Estimation après démarrage'],['Travail arrêté — temps restant indisponible','Arrêté — pas d’estimation'],['Temps restant : état indisponible','État indisponible'],['Alarme — estimation suspendue','Alarme — sans estimation']];
   function say(fr){var l=uiLocale.language,i=l==='en'?1:l==='es'?2:0;for(var k=0;k<V2_MESSAGES.length;k++)if(V2_MESSAGES[k][0]===fr)return V2_MESSAGES[k][i];return fr;}
-  var v2={built:false,arrangeFrame:null,frame:null,timer:null,rows:null,rowHost:null,timeHost:null,more:null,band:null,sequence:null,position:null,axis:null,paths:{},
+  var v2={built:false,arrangeFrame:null,frame:null,timer:null,due:null,rows:null,rowHost:null,timeHost:null,more:null,band:null,sequence:null,position:null,axis:null,paths:{},
     key:null,id:null,last:null,reports:[],markers:[],serial:0,chart:null,estimate:{seconds:null,source:null,unknowns:[]}};
   function v2Body(){var b=document.body;return !!(b&&b.classList&&typeof b.classList.contains==='function'&&b.classList.contains('perf-v2'));}
   function v2Held(){try{var s=window.cncV2&&typeof window.cncV2.state==='function'?window.cncV2.state():null;return !!(s&&s.holdLayout);}catch(_){return false;}}
@@ -611,7 +627,7 @@
       overrides.appendChild(zones.read);
       board.setAttribute('data-v2','suivi');
     }else{
-      if(v2.timer!==null&&typeof window.clearTimeout==='function')window.clearTimeout(v2.timer);v2.timer=null;
+      if(v2.timer!==null&&typeof window.clearTimeout==='function')window.clearTimeout(v2.timer);v2.timer=null;v2.due=null;
       [v2.band,v2.sequence,v2.position,v2.axis,v2.more,v2.paths.gaps,v2.paths.line,v2.paths.marks].forEach(function(n){if(n&&n.parentNode)n.parentNode.removeChild(n);});
       zones.gauges.insertBefore(tiles,zones.curve);zones.gauges.insertBefore(zones.read,zones.curve);
       var saved=v2.saved;
@@ -668,8 +684,15 @@
       estimate:{seconds:est.seconds,source:est.source,estimated:true,unknowns:est.unknowns.slice()},markers:v2.markers});
     // One timer per report: the band turns stale 2.5 s after it, even when no other report arrives.
     if(same)return;
+    v2.due=age!==null&&age<=2500?elapsedClock()+2550-age:null;
+    armV2();
+  }
+  // The stale turn is a timer only while Suivi is shown: hidden, nothing is armed (mount() arms it again).
+  function armV2(){
     if(v2.timer!==null&&typeof window.clearTimeout==='function')window.clearTimeout(v2.timer);v2.timer=null;
-    if(age!==null&&age<=2500&&typeof window.setTimeout==='function')v2.timer=window.setTimeout(function(){v2.timer=null;requestV2();},2550-age);
+    if(v2.due===null||!visible('home')||typeof window.setTimeout!=='function')return;
+    var wait=v2.due-elapsedClock();if(wait<=0){v2.due=null;return;}
+    v2.timer=window.setTimeout(function(){v2.timer=null;v2.due=null;requestV2();},wait);
   }
   function v2ReportAge(m){
     var v=window.cncV2;
@@ -693,9 +716,10 @@
     var g=v2Use('geometry'),gs=g&&!g.stub&&typeof g.snapshot==='function'?g.snapshot():null;
     var quality=gs&&gs.available&&v2.id&&v&&v.identity&&v.identity.compare(gs.identity,v2.id)==='same'?gs.quality:'unknown';
     set('home-v2-geometry','textContent',quality==='full'?say('Géométrie complète'):quality==='simplified'?say('Géométrie simplifiée'):say('Géométrie inconnue'));
-    var placed=state==='fresh'&&!!r.position;
-    set('home-v2-position','textContent',placed?say('Rapportée · rapport frais'):state==='stale'?say('Figée · rapport périmé'):say('Inconnue · pas de rapport'));
-    attr($('home-v2-position'),'data-state',placed||state==='stale'?state:'unknown');
+    // In an alarm Grbl may have lost the position: never shown as reported (display only).
+    var alarm=!!(c&&/^alarm/i.test(String(c.activeState||''))),placed=!alarm&&state==='fresh'&&!!r.position;
+    set('home-v2-position','textContent',alarm?say('Alarme : position non garantie'):placed?say('Rapportée · rapport frais'):state==='stale'?say('Figée · rapport périmé'):say('Inconnue · pas de rapport'));
+    attr($('home-v2-position'),'data-state',alarm?'alarm':placed||state==='stale'?state:'unknown');
     paintSequence();paintCurve(live?o:null);
   }
   function paintSequence(){

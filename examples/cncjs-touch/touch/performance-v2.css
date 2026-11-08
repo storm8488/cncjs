@@ -26,6 +26,12 @@ body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .tool-p
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-confidence{height:64px;display:flex;flex-direction:column;justify-content:center;gap:2px;margin:0;padding:var(--sp-2) var(--sp-4);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);overflow:hidden}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-facts,body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-legend{display:flex;flex-wrap:nowrap;align-items:baseline;gap:var(--sp-4);margin:0;font:var(--fs-16)/1.35 var(--font);color:var(--mute);white-space:nowrap;overflow:hidden}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-v2-program{flex:0 1 auto;min-width:0;max-width:45%;color:var(--fg);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Large text: the band grows (fixed for a given text size, never with the machine state) and its lines wrap
+   instead of being cut (« … no necesariame »); the program name on two lines at most. */
+body.ks-ui.perf-wide.perf-v2.display-large .job-dashboard[data-zones][data-v2="suivi"] .home-v2-confidence{height:auto;min-height:64px}
+body.ks-ui.perf-wide.perf-v2.display-large .job-dashboard[data-zones][data-v2="suivi"] .home-v2-facts,body.ks-ui.perf-wide.perf-v2.display-large .job-dashboard[data-zones][data-v2="suivi"] .home-v2-legend{flex-wrap:wrap;row-gap:0;white-space:normal}
+body.ks-ui.perf-wide.perf-v2.display-large .job-dashboard[data-zones][data-v2="suivi"] .home-v2-legend .home-v2-key{white-space:nowrap}
+body.ks-ui.perf-wide.perf-v2.display-large .job-dashboard[data-zones][data-v2="suivi"] #home-v2-program{white-space:normal;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-v2-frame{font-variant-numeric:tabular-nums}
 /* L'âge du rapport : un mot ET une forme (trait plein, tirets, pointillés), pas seulement une couleur. */
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-v2-age{padding-left:var(--sp-2);border-left:4px solid var(--ok);color:var(--fg);font-variant-numeric:tabular-nums}
@@ -57,7 +63,35 @@ body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-j
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-job-primary-row{grid-column:2/4;grid-row:1;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-job-resume-row{grid-column:2/4;grid-row:1}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-v2-actions .t-btn{min-height:var(--tap-primary);font-size:var(--fs-20);padding:0 var(--sp-2)}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-stop{height:92px;flex:0 0 auto;margin-top:0;padding-top:var(--sp-1);overflow:hidden}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-stop{height:96px;flex:0 0 auto;margin-top:0;padding-top:6px;overflow:hidden}
+/* Large text: the caption of Arrêter wraps (« … no es una parada de emergencia » was cut). */
+body.ks-ui.perf-wide.perf-v2.display-large .job-dashboard[data-zones][data-v2="suivi"] .home-stop{height:auto;min-height:96px}
+/* The size meant for Charger / Recharger (the id alone lost to #home-v2-actions .t-btn: 3 lines of 20 px in 64 px). */
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-v2-actions #home-job-load{font-size:var(--fs-18)}
+/* Safety texts of a hold or an alarm (data-v2-alert, written by job-dashboard.js render()) and the plate / resume
+   forms (data-v2-form, written by job-resume.js render()) are read without scrolling: the minute curve, a
+   secondary instrument, gives them its room. Display only. */
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"][data-v2-alert="1"] #home-v2-info{min-height:calc(4 * 1.35em + 12px)}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"][data-v2-form="1"] #home-v2-info{min-height:180px}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"][data-v2-alert="1"] .home-gauge-curve,body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"][data-v2-form="1"] .home-gauge-curve{display:none}
+/* … and the alarm or hold text itself is no longer capped at three lines (ui-2027.css): the slot scrolls if needed. */
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"][data-v2-alert="1"] #home-job-ready{max-height:none;overflow-y:visible}
+/* Plate card: thickness and search side by side, so « Palper le zéro Z… » stays in the messages slot during a probe. */
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-plate{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:var(--sp-3);row-gap:var(--sp-1);padding:var(--sp-3)}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-plate>*{grid-column:1/-1}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-plate-thickness-label{grid-column:1;grid-row:2}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-plate-search-label{grid-column:2;grid-row:2}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-plate-thickness-label+.t-field-row{grid-column:1;grid-row:3}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-plate-search-label+.t-field-row{grid-column:2;grid-row:3}
+/* Each field keeps a 72 px box at least; its unit and limits wrap beside it. */
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-plate .t-field-row{grid-template-columns:minmax(72px,1fr) minmax(0,auto)}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-plate .t-field-row span{line-height:1.2}
+/* « Palper le zéro Z… » whole in the 235 px slot (211 px in large text), at rest as during a probe: the card title
+   keeps its grid row at no height (read by screen readers; the labels and the button name the task), the top
+   padding plus the row gap give the 8 px above the labels, the labels keep 1.2 line spacing. Display only. */
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-plate{padding-top:var(--sp-1)}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-plate-title{height:0;margin:0;overflow:hidden}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-plate-thickness-label,body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-plate-search-label{line-height:1.2}
 /* « Agrandir le tracé » (t-inspect) garde les cases d'actions et de messages des commandes. */
 body.ks-ui.perf-wide.perf-v2.t-inspect .job-dashboard[data-zones][data-v2="suivi"] #home-v2-info{display:flex!important}
 body.ks-ui.perf-wide.perf-v2.t-inspect .job-dashboard[data-zones][data-v2="suivi"] #home-v2-actions{display:grid!important}
@@ -83,17 +117,22 @@ body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-c
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-coords{position:relative}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-position{position:absolute;top:6px;right:var(--sp-3);max-width:62%;margin:0;font-size:var(--fs-16);line-height:1.2;color:var(--mute);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-position[data-state="stale"]{color:var(--warn-text);font-weight:600}
+/* Alarm: « position non garantie » (job-dashboard.js paintV2, data-state="alarm"), no marker. */
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-position[data-state="alarm"]{color:var(--danger-text);font-weight:600}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2-report="stale"][data-v2="suivi"] .home-coords .t-coords-card{border-style:dashed;border-color:var(--warn)}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2-report="stale"][data-v2="suivi"] .home-coords .t-val{color:var(--mute)}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2-report="unknown"][data-v2="suivi"] .home-coords .t-coords-card{border-style:dotted}
 /* Courbe de la dernière minute : visible à 1366 px (deux zones), indépendante de la grille v1 à trois zones.
    Avance et S rapportés en tête de la carte, comme dans la maquette ; les repères de la minute sur l'axe. */
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-curve{height:150px;display:flex;flex-direction:column;flex:0 0 auto;gap:0;padding:6px var(--sp-3)!important}
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-curve{height:146px;display:flex;flex-direction:column;flex:0 0 auto;gap:0;padding:6px var(--sp-3)!important}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-curve .home-live-tiles{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--sp-3)}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-curve .home-live-tiles .t-card{display:flex;flex-direction:column;align-items:flex-start;gap:0;padding:0!important;border:0;background:transparent;box-shadow:none}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-curve .home-live-tiles .t-card+.t-card{align-items:flex-end;text-align:right}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-curve .home-live-tiles b{font-size:var(--fs-24);line-height:1}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-curve svg{display:block;width:100%;height:48px;min-height:48px;margin-top:0}
+/* The trace starts under the feed and S values: the shaded gaps no longer run under « 11.701 rpm ». */
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-curve svg{display:block;width:100%;height:36px;min-height:36px;margin-top:var(--sp-2)}
+/* Large text: the curve gives its room to the messages, as the live tiles do in v1 (ui-2027.css .display-large). */
+body.ks-ui.perf-wide.perf-v2.display-large .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-curve{display:none}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-curve-line{display:none}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-curve-line{fill:none;stroke:var(--info-text);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
 /* Trou de données : une zone hachurée par sa teinte, jamais une ligne qui le traverse. */

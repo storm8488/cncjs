@@ -23,7 +23,7 @@ async function suivi(options = {}) {
       return {known: true, fresh: age <= 2500, ageMs: age};
     });
   }
-  const dom = createDOM(['home']), {node} = dom, timers = [], opened = [], overrides = [];
+  const dom = createDOM(['home']), {node} = dom, timers = [], opened = [], overrides = [], live = new Map();
   const link = (e) => {
     if (e._linked) return e; e._linked = true;
     Object.defineProperty(e, 'nextSibling', {get() { const q = this.parentNode, i = q && q.children ? q.children.indexOf(this) : -1; return i >= 0 ? q.children[i + 1] || null : null; }});
@@ -48,7 +48,8 @@ async function suivi(options = {}) {
   feedCard.appendChild(el('home-live-feed')); tiles.appendChild(feedCard); stop.appendChild(el('home-job-stop'));
   [el('home-job-title'), progress, coords, tiles, el('home-job-note'), el('home-job-ready'), el('home-job-selection'), el('home-job-load'), el('home-job-primary-row'), el('home-job-resume-row'), el('home-job-feedback'), stop].forEach((n) => metrics.appendChild(n));
   const w = p.window;
-  w.setTimeout = (f) => { timers.push(f); return timers.length; }; w.clearTimeout = () => {};
+  // timers: every callback set (tests run them by hand); live: the ones not cleared yet, by id.
+  w.setTimeout = (f) => { timers.push(f); live.set(timers.length, f); return timers.length; }; w.clearTimeout = (id) => { live.delete(id); };
   w.cncShell = {screen: () => 'home', sheet(id, title) { const content = create('div'); content.id = id + '-content'; return {content, title, open() { opened.push(id); }}; }};
   w.cncJobControls = {override(kind, value) { overrides.push([kind, value]); return Promise.resolve(); }};
   p.context.XMLHttpRequest = function () { this.open = () => {}; this.setRequestHeader = () => {}; this.abort = () => {}; this.send = () => {}; };
@@ -67,7 +68,7 @@ async function suivi(options = {}) {
     overrides: {feed: 100, spindle: 100, rapid: 100}}, patch));
   const text = (id) => node(id).textContent;
   const navigate = (name) => { dom.activeScreens.clear(); dom.activeScreens.add(name); p.emit('cnc-screen-change', name); };
-  return {p, dom, node, board, left, metrics, art, ov, spindleRow, rapidRow, timers, opened, overrides, shape, kids, send, running, text, navigate,
+  return {p, dom, node, board, left, metrics, art, ov, spindleRow, rapidRow, timers, live, opened, overrides, shape, kids, send, running, text, navigate,
     layout(on) { p.emit('cnc-layout-change', {wide: on}); }, obs: () => p.api.use('observation')};
 }
 async function cases(entries) {
@@ -275,6 +276,33 @@ async function cases(entries) {
       s.send({activeState: 'Alarm'}); s.p.frame(); assert.equal(s.shape(), v2, 'Alarm: layout frozen');
       s.send(); s.p.frame(); s.p.frame();
       assert.equal(s.board.getAttribute('data-v2'), null, 'at fresh Idle the layout may change');
+    }],
+    ['alarm (lot Suivi 2026-11): the position is never shown as reported, the estimate is suspended, the alarm text gets its room', async () => {
+      const s = await suivi(); s.send(); s.layout(true); s.p.frame();
+      s.running(); s.p.frame(); assert.equal(s.text('home-v2-position'), 'Rapportée · rapport frais'); assert.equal(s.board.getAttribute('data-v2-alert'), '0');
+      s.p.advance(300); s.running({activeState: 'Alarm', alarmCode: 1, canPause: false}); s.p.frame();
+      assert.equal(s.text('home-v2-position'), 'Alarme : position non garantie'); assert.equal(s.node('home-v2-position').getAttribute('data-state'), 'alarm');
+      assert.equal(s.text('home-gauge-eta-title'), 'Alarme — sans estimation', 'no « Reste … » during an alarm');
+      assert.equal(s.obs().snapshot().estimate.seconds, null, 'no estimate given to the model during an alarm');
+      assert.equal(s.board.getAttribute('data-v2-alert'), '1', 'the alarm text gets its room (performance-v2.css)');
+      s.p.advance(300); s.running({workflow: 'paused', activeState: 'Hold:0', spindleSpeed: 12000}); s.p.frame();
+      assert.equal(s.text('home-v2-position'), 'Rapportée · rapport frais'); assert.equal(s.board.getAttribute('data-v2-alert'), '1', 'a hold with its spindle warning too');
+      s.p.advance(300); s.running(); s.p.frame(); assert.equal(s.board.getAttribute('data-v2-alert'), '0');
+    }],
+    ['short v2 time titles (lot Suivi 2026-11): the 432 px column is not cut', async () => {
+      const s = await suivi(); s.send({canStart: true}); s.layout(true); s.p.frame();
+      assert.equal(s.text('home-gauge-eta-title'), 'Estimation après démarrage');
+      s.send({canStart: false}); s.p.frame(); assert.equal(s.text('home-gauge-eta-title'), 'Arrêté — pas d’estimation');
+    }],
+    ['hidden Suivi (lot Suivi 2026-11): no stale timer armed, armed again on return', async () => {
+      const s = await suivi(); s.send(); s.layout(true); s.p.frame();
+      s.running(); s.p.frame(); assert(s.timers.length >= 1, 'shown: the stale turn is armed'); assert(s.live.size >= 1);
+      // Revue : the timer armed before leaving must be cleared by the navigation itself (not by the test).
+      s.navigate('files'); assert.equal(s.live.size, 0, 'leaving Suivi clears the armed stale turn'); s.timers.splice(0);
+      for (let i = 0; i < 5; i++) { s.p.advance(250); s.running({received: 430 + i}); }
+      assert.equal(s.timers.length, 0, 'hidden: no timer at the reports');
+      s.navigate('home'); assert.equal(s.timers.length, 1, 'shown again: armed from the last report age');
+      s.p.advance(2600); s.timers.splice(0).forEach((f) => f()); s.p.frame(); assert.match(s.text('home-v2-age'), /^Rapport périmé/);
     }],
     ['labels: S rapporté under v2, the laser set point wording kept', async () => {
       const s = await suivi(); s.send(); s.layout(true); s.p.frame();

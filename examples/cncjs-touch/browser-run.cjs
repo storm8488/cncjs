@@ -386,6 +386,18 @@ const MEASURE = String(function measure(goals) {
     // Screen-reader-only text (.ks-sr-only: 1 px clipped box) is not truncation.
     if (el.scrollWidth > el.clientWidth + 1 && cs.overflowX !== 'visible' && el.clientWidth > 2 && !el.classList.contains('ks-sr-only')) truncated.push({ text: own.slice(0, 60), tag: el.tagName.toLowerCase(), id: el.id || null, scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, textOverflow: cs.textOverflow });
   });
+  // Suivi: texts cut by the box that holds them rather than by their own width (the caption of Arrêter, the
+  // confidence band of v2, « A continuación »): their bottom or right edge past the nearest clipping ancestor.
+  Array.prototype.forEach.call(document.querySelectorAll('#screen-home .home-stop .t-help, #home-v2-program, #home-v2-legend, #screen-home .home-v2-seq--next .home-v2-eyebrow'), function (el) {
+    if (!visible(el)) return;
+    var r = el.getBoundingClientRect();
+    for (var a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+      var acs = getComputedStyle(a); if (acs.overflowX === 'visible' && acs.overflowY === 'visible') continue;
+      var b = a.getBoundingClientRect();
+      // Every clipping ancestor counts (a band inside a clipped card): the first one that cuts is reported, once.
+      if (r.bottom > b.bottom + 0.5 || r.right > b.right + 0.5) { truncated.push({ text: (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60), tag: el.tagName.toLowerCase(), id: el.id || null, scrollWidth: Math.round(Math.max(r.bottom - b.bottom, r.right - b.right)), clientWidth: 0, textOverflow: 'clipped by ' + (a.id ? '#' + a.id : '.' + String(a.className).split(' ')[0]) }); break; }
+    }
+  });
   // A screen scrolls when it is marked so (Réglages) or when the responsive layout let it grow
   // past the window (data-fit-overflow, viewport-fit.js): main then scrolls under the strip.
   var mainScrolls = !!main && getComputedStyle(main).overflowY === 'auto' && main.scrollHeight > main.clientHeight + 1;
@@ -1011,8 +1023,10 @@ function startV2Fixture() {
       if (fx.phase === 'idle' || fx.phase === 'pilot' || fx.phase === 'homing' || fx.phase === 'probing') {
         Object.assign(c, { activeState: 'Idle', workflow: 'idle', feedrate: 0, spindleSpeed: 0, sent: 0, received: 0, canPause: false, canStop: false, canResume: false, canStart: true, startReason: '', canLoad: true, loadReason: '',
           canPreviewMotion: true, motionReason: '', canOverride: false, canRapidOverride: false, canUnlock: false, canHome: true, homeReason: '', canMacro: false });
+        // Like the server (job-service.js plateReady): a CNC at rest can probe its Z zero with the plate (a laser: unchanged).
+        if ((fx.profile || V2_PROFILE).kind === 'cnc') Object.assign(c, { canZeroZ: true, zeroZReason: '' });
         if (fx.phase === 'pilot') c.control = { owner: { kind: 'touch', id: 'browser-run-other', label: 'Tablette atelier', present: true }, lastChange: null };
-        if (fx.phase === 'homing') Object.assign(c, { activeState: 'Home', homing: true, canStop: true, canStart: false, startReason: 'Prise d’origine en cours.', canLoad: false, loadReason: 'Prise d’origine en cours.', canPreviewMotion: false, motionReason: 'Prise d’origine en cours.', canHome: false, homeReason: 'Prise d’origine en cours.' });
+        if (fx.phase === 'homing') Object.assign(c, { activeState: 'Home', homing: true, canStop: true, canStart: false, startReason: 'Prise d’origine en cours.', canLoad: false, loadReason: 'Prise d’origine en cours.', canPreviewMotion: false, motionReason: 'Prise d’origine en cours.', canHome: false, homeReason: 'Prise d’origine en cours.', canZeroZ: false, zeroZReason: 'Prise d’origine en cours.' });
         if (fx.phase === 'probing') Object.assign(c, { activeState: 'Run', probing: true, canStop: true, canStart: false, startReason: 'Palpage en cours.', canLoad: false, loadReason: 'Palpage en cours.', canPreviewMotion: false, motionReason: 'Palpage en cours.', canHome: false, homeReason: 'Palpage en cours.', canZeroZ: false, zeroZReason: 'Palpage en cours.' });
         return c;
       }

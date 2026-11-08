@@ -3,5 +3,11 @@
 .pv3d-host{position:relative}
 .ks-ui .pv3d-views{position:absolute;left:8px;top:8px;z-index:3;padding:2px;background:rgba(14,20,23,.88);box-shadow:var(--shadow)}
 .ks-ui .pv3d-views button{flex:0 0 auto;white-space:nowrap;min-width:var(--tap);min-height:var(--tap);padding:var(--sp-1) var(--sp-2);font-size:var(--fs-16);line-height:var(--lh-tight)}
-.ks-ui .pv3d-status{position:absolute;left:8px;bottom:8px;right:120px;z-index:2;margin:0;padding:var(--sp-1) var(--sp-2);border-radius:var(--r-s);background:rgba(14,20,23,.88);color:var(--mute);font-size:var(--fs-14);line-height:var(--lh)}
+/* The panel keeps a fixed dark fill in both themes: its buttons and status take a fixed light text (the
+   theme's --mute was 2.1:1 on it in the light theme). A pressed or disabled view keeps its own style. */
+.ks-ui .pv3d-views button:not([aria-pressed="true"]):not(:disabled){color:#eef3f6}
+.ks-ui .pv3d-status{position:absolute;left:8px;bottom:8px;right:120px;z-index:2;margin:0;padding:var(--sp-1) var(--sp-2);border-radius:var(--r-s);background:rgba(14,20,23,.88);color:#eef3f6;font-size:var(--fs-16);line-height:var(--lh)}
+/* Suivi: the status sits at the top, under the view selector, so the Z legend drawn at the bottom left of
+   the image stays visible (.job-art stays a row: a status in its flow would become a third column). */
+.ks-ui .job-art .pv3d-status{top:64px;bottom:auto;right:8px}
 .pv3d-status[hidden],.pv3d-views[hidden]{display:none!important}

@@ -133,7 +133,7 @@
           worker.onmessage = function (e) {
             var m = e.data || {};
             if (m.type === 'ready') { worker.postMessage({ type: 'render', id: 1, blob: res.blob, bounds: bounds, sRef: options.sRef }); return; }
-            if (m.type === 'error') { reject(new Error(m.message)); return; }
+            if (m.type === 'error') { reject(new Error(t(m.message))); return; } // the worker's French text, translated when known
             if (m.type === 'image') resolve({ pixels: new Uint8ClampedArray(m.pixels), projection: m.projection, summary: m.summary });
           };
         });

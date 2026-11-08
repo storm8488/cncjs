@@ -11,7 +11,8 @@ assert(!/transform\s*:\s*scale/.test(body), 'no scaling to make things fit');
 const rules = [...body.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({selectors: m[1].split(',').map((s) => s.trim()), decl: m[2]}));
 assert(rules.length > 20, 'rules parsed');
 for (const r of rules) for (const s of r.selectors) {
-  assert(/^body\.ks-ui\.perf-wide\.perf-v2(\.t-inspect)? /.test(s), 'scoped to perf-v2: ' + s);
+  // Large text (.display-large, a display setting, never a machine state) may give a slot more room.
+  assert(/^body\.ks-ui\.perf-wide\.perf-v2(\.t-inspect|\.display-large)? /.test(s), 'scoped to perf-v2: ' + s);
   assert(/\[data-v2="suivi"\]|#perf-v2-(overrides|time)-sheet/.test(s), 'Suivi v2 grid or its sheets only: ' + s);
   assert(!/real-banner|simulation-banner|t-strip|#t-pause|#t-stop|#job-pause|#job-stop|#tabbar/.test(s), 'the strip is never targeted: ' + s);
 }
@@ -19,7 +20,13 @@ const find = (re, prop) => rules.filter((r) => r.selectors.some((s) => re.test(s
 // One monitoring column of 432 px; the curve shown whatever the v1 zone count, its v1 polyline replaced.
 assert(find(/\.job-dashboard\[data-zones\]\[data-v2="suivi"\]$/, /grid-template-columns:minmax\(0,1fr\) 432px/).length === 1, '432 px column');
 assert(find(/\[data-v2="suivi"\] \.home-gauge-curve$/, /display:flex/).length === 1, 'curve visible under v2');
-assert(!find(/home-gauge-curve$/, /display:none/).length, 'the curve is never hidden by this sheet');
+// Migrated (lot Suivi 2026-11): the curve gives its room only to a hold / alarm safety text, an open plate or resume
+// form, or large text; never otherwise.
+assert(!find(/home-gauge-curve$/, /display:none/).filter((r) => !r.selectors.every((x) => /\[data-v2-(alert|form)="1"\] \.home-gauge-curve$|^body\.ks-ui\.perf-wide\.perf-v2\.display-large /.test(x))).length, 'the curve is never hidden by this sheet, except for a safety text, a form or large text');
+assert(find(/\[data-v2-alert="1"\] #home-v2-info$/, /min-height:calc\(4 \* 1\.35em \+ 12px\)/).length === 1, 'a hold or alarm text: four lines without scrolling');
+assert(find(/\[data-v2-form="1"\] #home-v2-info$/, /min-height:180px/).length === 1, 'an open plate or resume form: its first field without scrolling');
+assert(find(/#home-v2-actions #home-job-load$/, /font-size:var\(--fs-18\)/).length === 1, 'Charger at 18 px (the id alone lost to #home-v2-actions .t-btn)');
+assert(find(new RegExp('\\[data-v2="suivi"\\] \\.home-stop$'), /(^|;)height:96px/).filter((r) => /padding-top:6px/.test(r.decl)).length === 1, 'Arrêter at least 12 px under the actions (gap 6 + padding 6), its caption whole');
 assert(find(/\.home-gauge-curve-line$/, /display:none/).length === 1, 'v1 polyline replaced by the v2 path');
 // Text: no size below 16 px, no small token.
 for (const r of rules) {

@@ -124,6 +124,8 @@
     // ("acquittées": accepted into its buffer, not necessarily cut yet) and the reported position.
     var trailLabel=trail.hidden?'':simulation?t(' Tracé orange : avancement fictif.'):t(' Tracé orange : lignes acquittées par Grbl (acceptées, pas forcément usinées), indicatif.');
     function noMarker(message){marker.hidden=true;var text=message+trailLabel;if(note.textContent!==text)note.textContent=text;}
+    // In an alarm Grbl may have lost the position: no blue point, the note says so (display only).
+    if(!simulation&&/^alarm/i.test(String(s.activeState||''))){noMarker(t('Alarme : position non garantie.'));return;}
     var point;
     if(simulation){
       if(s.wcs!=='G54'){noMarker(t('Position fictive : aperçu limité au repère G54.'));return;}

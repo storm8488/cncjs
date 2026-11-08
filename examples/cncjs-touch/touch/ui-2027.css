@@ -243,6 +243,11 @@
 .ks-ui .home-load{width:100%}
 .ks-ui .home-job-actions{display:grid;margin:0;gap:var(--tap-gap)}
 .ks-ui .home-job-primary{grid-template-columns:2fr 1fr}
+/* During a job (data-run, written by job-dashboard.js render(), read by no handler) the active Pause takes the
+   large cell; Démarrer stays on the left, Arrêter does not move. */
+.ks-ui .home-job-primary[data-run="1"]{grid-template-columns:1fr 2fr}
+/* Laser framing: its help is not repeated while Cadrer… is disabled (#home-frame-why says why). */
+#home-frame-start:disabled~#home-frame-help{display:none}
 .ks-ui .home-job-actions .t-btn{min-height:var(--tap-primary);font-size:var(--fs-24);padding:var(--sp-2) var(--sp-3)}
 .ks-ui #home-job-feedback{margin:0;min-height:0;font-size:var(--fs-16);color:var(--mute)}
 .ks-ui #home-job-feedback:empty{display:none}

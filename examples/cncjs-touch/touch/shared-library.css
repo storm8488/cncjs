@@ -11,7 +11,9 @@
 #home-job-name{overflow-wrap:anywhere}#job-progress-summary{font-weight:700;color:var(--info-text)}
 @media(max-width:780px){.job-dashboard{grid-template-columns:1fr}}
 /* Realtime overrides on the follow-up screen: one row per kind, Grbl step buttons. */
-#home-job-stop{background:var(--danger-soft);border-color:var(--danger-text)}
+/* Active only: the soft red with its own text colour (white on it was 1.25:1 in the light theme); a disabled
+   Arrêter keeps the shared .t-btn:disabled look, never one that resembles the active button. */
+#home-job-stop:not(:disabled){background:var(--danger-soft);border-color:var(--danger-text);color:var(--danger-text)}
 #home-job-resume{background:var(--ok);border-color:var(--ok-text)}
 #home-job-feedback{color:var(--mute);overflow-wrap:anywhere}
 .job-travel{font-size:.95em}.job-travel.outside{color:var(--warn-text);font-weight:700}.job-travel.unknown{opacity:.75}
