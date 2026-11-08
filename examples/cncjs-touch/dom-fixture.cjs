@@ -1,18 +1,21 @@
 // Small DOM fixture for view lifecycle/diff tests; it counts even redundant writes.
 // Every listener of an event is kept, like in a browser; handlers[name] stays a
 // single callable (tests call node(id).handlers.click()) that runs them all in order.
-function addListener(target, name, fn) {
+// A capture listener runs before the bubble ones of its target, as in Chromium 89+ (the RT runs 106).
+function addListener(target, name, fn, options) {
   const lists = target._listeners || (target._listeners = {});
   const list = lists[name] || (lists[name] = []);
   if (list.includes(fn)) return;
-  list.push(fn);
+  const capture = target._capture || (target._capture = new Set());
+  if (options === true || (options && options.capture)) { list.splice(list.filter(f => capture.has(f)).length, 0, fn); capture.add(fn); }
+  else list.push(fn);
   target.handlers[name] = function (...args) { let result; list.slice().forEach(f => { result = f.apply(this, args); }); return result; };
 }
 function removeListener(target, name, fn) {
   const list = target._listeners && target._listeners[name];
   const index = list ? list.indexOf(fn) : -1;
   if (index < 0) return;
-  list.splice(index, 1);
+  list.splice(index, 1); if (target._capture) target._capture.delete(fn);
   if (!list.length) { delete target._listeners[name]; delete target.handlers[name]; }
 }
 function createDOM(initialScreens = ['files', 'home', 'history']) {
@@ -20,7 +23,7 @@ function createDOM(initialScreens = ['files', 'home', 'history']) {
   const document = { hidden: false, handlers: {}, activeElement: null };
   function element(tag = 'div', id = '') {
     const el = { id, tagName: tag.toUpperCase(), children: [], parentNode: null, handlers: {}, attributes: {}, files: [],
-      addEventListener(name, fn) { addListener(this, name, fn); }, removeEventListener(name, fn) { removeListener(this, name, fn); },
+      addEventListener(name, fn, options) { addListener(this, name, fn, options); }, removeEventListener(name, fn) { removeListener(this, name, fn); },
       insertAdjacentHTML() {}, setAttribute(name, value) { stats.writes++; this.attributes[name] = String(value); },
       getAttribute(name) { return this.attributes[name] === undefined ? null : this.attributes[name]; },
       removeAttribute(name) { stats.writes++; delete this.attributes[name]; if (name === 'src') delete this.src; },

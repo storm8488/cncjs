@@ -209,9 +209,11 @@ body.perf-v2 #perf-v2-history .v2k-readonly{color:var(--mute)}
 body.perf-v2 #perf-v2-history .v2k-pages{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:var(--fs-16)}
 body.perf-v2 #perf-v2-history .v2k-pages[hidden],body.perf-v2 #perf-v2-history [hidden]{display:none}
 /* Machine (machine-limits.js): a third row across the screen, condition left, parameters right.
- * The v1 alarm notice gives way to the explained one; coordinates and every button stay. */
+ * The v1 alarm notice stays at the top (cause and what to do without scrolling); the v2 block adds the
+ * code's origin. To give that row its height back: Serveur | Contrôleur on one row, the four shortcuts on one row. */
 body.perf-v2 #screen-machine[data-v2-presenter=on]{grid-template-rows:auto auto minmax(0,1fr)!important}
-body.perf-v2 #screen-machine[data-v2-presenter=on] #ks-machine-alarm{display:none!important}
+body.perf-v2:not(.t-compact) #screen-machine[data-v2-presenter=on] .ks-machine-overview{grid-template-columns:repeat(4,minmax(0,1fr))}
+body.perf-v2:not(.t-compact) #screen-machine[data-v2-presenter=on] .ks-machine-overview>p[data-machine-copy]{grid-column:span 2}
 body.perf-v2 #perf-v2-machine{grid-column:1/-1;min-height:0;overflow:auto}
 body.perf-v2 #perf-v2-machine[hidden]{display:none}
 body.perf-v2 #perf-v2-machine .v2m-zones{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:16px}
@@ -219,7 +221,6 @@ body.perf-v2 #perf-v2-machine .v2m-zone{padding:14px 18px;border:1px solid var(-
 body.perf-v2 #perf-v2-machine .v2m-zone h2{margin:0 0 8px;font-size:22px}
 body.perf-v2 #perf-v2-machine .v2m-zone p{margin:6px 0 0;font-size:17px}
 body.perf-v2 #perf-v2-machine .v2m-alarm{margin:8px 0;padding:10px 14px;border-left:6px solid var(--danger);border-radius:8px;background:var(--surface-2)}
-body.perf-v2 #perf-v2-machine .v2m-alarm h3{margin:0;font-size:20px}
 body.perf-v2 #perf-v2-machine .v2m-origin,body.perf-v2 #perf-v2-machine .v2m-note,body.perf-v2 #perf-v2-machine .v2m-count{color:var(--mute);font-size:16px!important}
 body.perf-v2 #perf-v2-machine .v2m-next{font-weight:600}
 body.perf-v2 #perf-v2-machine .v2m-freshness[data-freshness=stale],body.perf-v2 #perf-v2-machine .v2m-freshness[data-freshness=unknown]{color:var(--warn)}
@@ -230,3 +231,9 @@ body.perf-v2 #perf-v2-machine .v2m-table td small{color:var(--mute);font-size:16
 body.perf-v2 #perf-v2-machine .v2m-table td[data-known=false] b{color:var(--mute);font-weight:400}
 body.perf-v2 #perf-v2-machine .v2m-flags{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 14px;margin:10px 0 0;font-size:16px}
 body.perf-v2 #perf-v2-machine .v2m-flags dd{margin:0}
+/* Machine on the RT (v1 Éco, 1366 x 768): the $X / $H reason line costs one row, given back by Serveur |
+ * Contrôleur side by side; in large text also the alarm notice at 18 px and the four shortcuts on one row. */
+body:not(.perf-v2):not(.t-compact).ks-ui #screen-machine .ks-machine-overview>p[data-machine-copy]{grid-column:auto}
+body:not(.perf-v2):not(.t-compact):not([data-simulation=true]).ks-ui.display-large #ks-machine-alarm{font-size:var(--fs-16)}
+body:not(.perf-v2):not(.t-compact):not([data-simulation=true]).ks-ui.display-large #screen-machine .ks-machine-overview{grid-template-columns:repeat(4,minmax(0,1fr))}
+body:not(.perf-v2):not(.t-compact):not([data-simulation=true]).ks-ui.display-large #screen-machine .ks-machine-overview>p[data-machine-copy]{grid-column:span 2}

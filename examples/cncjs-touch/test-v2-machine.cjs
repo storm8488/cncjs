@@ -35,8 +35,11 @@ const pilot={state:'mine',value:'Cet appareil',sentence:'Piloté par cet apparei
   p.frame();assert.equal(content.hidden,false);assert.equal(p.node('screen-machine').getAttribute('data-v2-presenter'),'on');
   const condition=find(content,'v2m-condition'),params=find(content,'v2m-parameters');
   let c=text(condition);
-  assert.match(c,/Limite logicielle dépassée/,'readable title');assert.match(c,/rapporté par Grbl/,'reported origin');
-  assert.match(c,/Vérifiez l’origine de travail/,'explanation');assert.match(c,/Déverrouiller/);assert.match(c,/confirmation/,'next action keeps its confirmation');
+  // Lot écrans 4 (A4): the readable title and the explanation are those of the v1 notice, now shown in v2 too
+  // (settings-list.css no longer hides it, checked below); the block adds the code's origin and a short next
+  // action that points at the $X / $H buttons above (with their confirmation dialog, unchanged).
+  assert(!/Limite logicielle dépassée/.test(c),'readable title: in the v1 notice above, not repeated');assert.match(c,/rapporté par Grbl/,'reported origin');
+  assert(!/Vérifiez l’origine de travail/.test(c),'explanation: in the v1 notice above, not repeated');assert.match(c,/\$X ou \$H plus haut/,'next action points at $X / $H');assert(!/Cet écran n’envoie rien/.test(c));
   assert.match(c,/Rapport frais/);assert.match(c,/Piloté par cet appareil/);
   // Known and unknown parameters with their units, never a fabricated value.
   const t=text(params);assert.match(t,/mm\/min/);assert.match(t,/mm\/s²/);assert.match(t,/\bmm\b/);
@@ -74,11 +77,62 @@ const pilot={state:'mine',value:'Cet appareil',sentence:'Piloté par cet apparei
   p.status(null,{});p.frame();assert.match(text(condition),/Fraîcheur inconnue/);assert.match(text(params),/0\/13 paramètres connus/);
   // Hidden screen: no paint until shown again.
   p.show('menu');p.status(alarm,{pilot});p.frame();assert.match(text(condition),/Fraîcheur inconnue/);
-  p.show('machine');p.frame();assert.match(text(condition),/Limite logicielle dépassée/);
+  p.show('machine');p.frame();assert.match(text(condition),/ALARM:2 rapporté par Grbl/);
   // Released with the gate: static, same rectangle, no new timer.
   p.st.open=false;p.emit('cnc-v2-change',p.base.state());p.timers.clear();p.status({...alarm,activeState:'Idle',alarmCode:null},{pilot});p.frame();
   assert.match(text(condition),/Rapport non suivi/,'released: explicitly not followed');assert(!/Limite logicielle|Rapport frais/.test(text(condition)));
-  assert.equal(p.node('screen-machine').getAttribute('data-v2-presenter'),'off','v1 alarm notice back');
+  assert.equal(p.node('screen-machine').getAttribute('data-v2-presenter'),'off','presenter off: the v2 grid row is released');
   assert.equal(p.timers.size,0);assert.equal(content.hidden,false);
+  // Lot écrans 4 (M1): the v1 alarm notice (cause and what to do) is never hidden in v2: it was hidden while the
+  // presenter was on, which left the cause in the inner-scrolled third row, cut at 911 px.
+  {
+    const css=require('fs').readFileSync(__dirname+'/touch/settings-list.css','utf8').replace(/\/\*[\s\S]*?\*\//g,'');
+    css.split('}').forEach(rule=>{const sel=rule.split('{')[0];if(/#ks-machine-alarm/.test(sel))assert(!/display\s*:\s*none/.test(rule),'v1 alarm notice hidden by: '+sel.trim());});
+  }
+  // Lot écrans 4 (A3): a new report of the same condition only renews the age text: no node rebuilt.
+  {
+    const q=machinePage();q.open();const cont=q.mount('machine').content;q.show('machine');
+    q.status({...alarm,statusAgeMs:100,statusObservedAt:10},{pilot});q.frame();
+    const cond=find(cont,'v2m-condition'),par=find(cont,'v2m-parameters'),before=all(cont);
+    const age=()=>all(cond).find(e=>e.className==='v2m-freshness');
+    const first=age().textContent;
+    q.advance(300);q.status({...alarm,statusAgeMs:50,statusObservedAt:11},{pilot});q.frame();
+    const after=all(cont);assert.equal(after.length,before.length);after.forEach((e,i)=>assert.equal(e,before[i],'node kept: '+(e.className||e.tagName)));
+    assert.match(age().textContent,/Rapport frais/);assert.equal(age().getAttribute('data-freshness'),'fresh');
+    q.advance(300);q.status({...alarm,statusAgeMs:1800,statusObservedAt:12},{pilot});q.frame();
+    assert.notEqual(age().textContent,first,'the age text follows');all(cont).forEach((e,i)=>assert.equal(e,before[i]));
+    // Parameters changed: only the right zone is rebuilt; condition changed: only the left one.
+    const condKids=cond.children.slice();q.status({...alarm,statusObservedAt:13,settings:{...settings,$132:'90'}},{pilot});q.frame();
+    assert.deepEqual(cond.children,condKids,'condition kept when only parameters change');assert.match(text(par),/12\/13 paramètres connus/);
+    const parKids=par.children.slice();q.status({...alarm,alarmCode:3,statusObservedAt:14,settings:{...settings,$132:'90'}},{pilot});q.frame();
+    assert.deepEqual(par.children,parKids,'parameters kept when only the condition changes');assert.match(text(cond),/ALARM:3/);
+  }
+  // Lot écrans 4 (M3): the State line says the state in the interface's words (status-strip.js describe), never
+  // Grbl's English word, in FR and ES; the transport flag is the real one (offline shows « Hors ligne » like the card).
+  {
+    const vm=require('vm'),fs=require('fs'),touch=f=>fs.readFileSync(__dirname+'/touch/'+f,'utf8');
+    const ENGLISH=/\b(Idle|Run|Hold|Jog|Alarm|Door|Check|Home|Sleep)\b/;
+    for(const language of ['fr','es']){
+      const sb={window:{}};vm.runInNewContext(touch('i18n-messages.js'),sb);
+      const map=new Map(sb.window.CNCTouchMessages.map(r=>[r[0].trim().replace(/\s+/g,' '),r[2]]));
+      const t=s=>{const k=String(s).trim();return language==='es'&&map.has(k)?s.replace(k,map.get(k)):s;};
+      const src=touch('status-strip.js'),a=src.indexOf('function describe(m,connected){'),b=src.indexOf("var tone='',lastDetail=null;");
+      const describe=vm.runInNewContext('(function(uiLocale){function finite(v){return typeof v==="number"&&isFinite(v);}'+src.slice(a,b)+'return describe;})',{isFinite,String})({t});
+      const q=machinePage({language});q.window.cncI18n.t=t;q.window.cncStatusStrip={describe};q.open();const cont=q.mount('machine').content;q.show('machine');
+      const state=()=>all(find(cont,'v2m-condition')).find(e=>e.className==='v2m-state').textContent;
+      for(const [m,fr,es] of [[{...alarm,alarmCode:1},'État : Alarme 1','Estado: Alarma 1'],[{...alarm,activeState:'Idle',alarmCode:null},'État : Repos','Estado: Reposo'],
+        [{...alarm,activeState:'Run',alarmCode:null},'État : En cours','Estado: En curso'],[{...alarm,activeState:'Hold:0',alarmCode:null},'État : Pause','Estado: Pausa'],
+        [{...alarm,activeState:'Home',alarmCode:null},'État : Prise d’origine',null],[{...alarm,alarmCode:3,alarmCodeInferred:true},'État : Alarme 3 déduite','Estado: Alarma 3 deducida']]){
+        q.status(m,{pilot});q.frame();const s=state();
+        assert(!ENGLISH.test(s),language+': '+s);if(language==='fr')assert.equal(s,fr);else if(es)assert.equal(s,es);
+      }
+      q.status({...alarm,activeState:'Idle',alarmCode:null},{pilot,transportConnected:false});q.frame();assert.equal(state(),language==='fr'?'État : Hors ligne':'Estado: Sin conexión');
+      // No machine at all (offline snapshot): the strip's « Hors ligne », not « inconnu » (counter-review).
+      q.status(null,{pilot});q.frame();assert.equal(state(),language==='fr'?'État : Hors ligne':'Estado: Sin conexión');
+    }
+    // Without status-strip.js (older page), Grbl's word rather than nothing.
+    const q=machinePage();q.open();q.show('machine');q.status({...alarm,activeState:'Idle',alarmCode:null},{pilot});q.frame();
+    assert.match(text(find(q.mount('machine').content,'v2m-condition')),/État : Idle/);
+  }
   console.log('PASS v2 machine: readable alarm with reported/deduced/missing origin, explanation and next action; freshness with bounded expiry; pilot device; known/unknown parameters with units; no command; hidden and released states; RT unchanged.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

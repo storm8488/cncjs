@@ -394,13 +394,65 @@
       e.status==='skipped'?t('Passée le ')+dateText(e.date)+t(' sous la responsabilité de l’opérateur.'):t('En cours : étape ')+((e.step||0)+1)+' / '+STEPS.length+'.');
     if(settingsButton)set(settingsButton,e&&e.status==='progress'?t('Reprendre l’assistant'):e?t('Relancer l’assistant'):t('Lancer l’assistant'));
   }
-  var overview=document.querySelector('.ks-machine-overview'),machineUnlock=null,machineHome=null;
+  var overview=document.querySelector('.ks-machine-overview'),machineUnlock=null,machineHome=null,machineReason=null,asked='',waiting=false,answered='',lastStatus=null;
   if(overview&&overview.appendChild){
     var tools=el('div','ks-wiz-row ks-machine-commands');
     machineUnlock=button(t('Déverrouiller ($X)…'),'ks-secondary',function(){command(function(c){c.prepareCommand('unlock');});});
     machineHome=button(t('Prise d’origine ($H)…'),'ks-secondary',function(){command(function(c){c.prepareCommand('home');});});
     tools.appendChild(machineUnlock);tools.appendChild(machineHome);tools.appendChild(button(t('Mise en service…'),'ks-secondary',open));
     overview.appendChild(tools);
+    // Why $X / $H are greyed out (a title is not shown on touch), or the answer to a request sent from
+    // here: one status line under the commands. Text only: handlers, guards and disabled are above.
+    machineReason=el('p','ks-help');machineReason.id='ks-machine-command-reason';machineReason.setAttribute('role','status');machineReason.hidden=true;
+    overview.appendChild(machineReason);
+    machineUnlock.setAttribute('aria-describedby','ks-machine-command-reason');machineHome.setAttribute('aria-describedby','ks-machine-command-reason');
+    // Which answer is ours: marked in the capture phase (before the handler above publishes « Demande
+    // envoyée… »), dropped after it when nothing was sent (busy, no state). The confirmation dialog of that
+    // request continues it. Listeners only: what the buttons send and when they are enabled is unchanged.
+    var ask=function(phase){return function(){asked=phase;waiting=true;answered='';};};
+    var unanswered=function(){if(!waiting)return;waiting=false;asked='';if(lastStatus)commandReason(lastStatus);};
+    machineUnlock.addEventListener('click',ask('prepare'),true);machineHome.addEventListener('click',ask('prepare'),true);
+    machineUnlock.addEventListener('click',unanswered);machineHome.addEventListener('click',unanswered);
+    var jobConfirm=document.getElementById('job-confirm');
+    if(jobConfirm&&jobConfirm.addEventListener){jobConfirm.addEventListener('click',function(){if(asked==='dialog')ask('confirm')();},true);jobConfirm.addEventListener('click',unanswered);}
+  }
+  // Three server reasons carry a value (job-service.js spindleStill, available): the catalogue's phrase
+  // with the value as received; every other reason is a fixed phrase of the catalogue.
+  var VALUED=[[/^La broche tourne encore \((.+) tr\/min\) : arrêtez-la d’abord \(M5\)\.$/,'La broche tourne encore ({value} tr/min) : arrêtez-la d’abord (M5).'],
+    [/^La broche est commandée \((.+)\) : arrêtez-la d’abord \(M5\)\.$/,'La broche est commandée ({value}) : arrêtez-la d’abord (M5).'],
+    [/^Commande système en cours \((.+)\) : attendez sa fin\.$/,'Commande système en cours ({value}) : attendez sa fin.']];
+  function reasonText(s){
+    for(var i=0;i<VALUED.length;i++){var r=VALUED[i][0].exec(s);if(r){var value=t(r[1]);return t(VALUED[i][1]).replace('{value}',function(){return value;});}}
+    return shown(s);
+  }
+  // The answer of the request asked here while it is the latest one: « sent », then « failed » /
+  // « uncertain » until anything else happens (another request, its dialog ready or confirmed, new reasons).
+  function answer(state,feedback,reasons){
+    if(!asked||waiting&&state!=='sent')return false;
+    waiting=false;
+    if(asked==='dialog'){if(state!=='confirmed')asked='';return false;}
+    var key=JSON.stringify([state,feedback,reasons]);
+    if(answered&&key!==answered){asked='';return false;}
+    if(state==='sent')return !!feedback;
+    if(state==='failed'||state==='uncertain'){answered=key;return !!feedback;}
+    asked=state==='confirmed'&&asked==='prepare'?'dialog':'';return false;
+  }
+  // A recent answer to $X / $H asked from this screen first (otherwise a refused $H at rest would hide
+  // behind the permanent « $X only in alarm »), else the server's reasons for the disabled buttons.
+  function commandReason(d){
+    if(!machineReason)return;
+    var m=d&&d.machine||null,state=d&&d.feedbackState||'',feedback=d&&d.feedback||'',text='',tone='';
+    if(m){
+      // Read after the handler below has set them: the reason of a button that is greyed out.
+      var ux=machineUnlock.disabled&&m.unlockReason||'',uh=machineHome.disabled&&m.homeReason||'';
+      if(ux&&uh&&ux===uh)text=t('$X et $H indisponibles : ')+reasonText(ux);
+      else if(ux&&uh)text=t('$X indisponible : ')+reasonText(ux)+' · '+t('$H indisponible : ')+reasonText(uh);
+      else if(ux)text=(/\(\$X\)/.test(ux)?'':t('$X indisponible : '))+reasonText(ux);
+      else if(uh)text=t('$H indisponible : ')+reasonText(uh);
+    }
+    if(answer(state,feedback,text)){text=feedback;tone=state;}
+    set(machineReason,text);prop(machineReason,'hidden',!text);
+    if((machineReason.getAttribute('data-feedback')||'')!==tone){if(tone)machineReason.setAttribute('data-feedback',tone);else machineReason.removeAttribute('data-feedback');}
   }
 
   window.addEventListener('cnc-command-sent',function(e){
@@ -410,6 +462,8 @@
   window.addEventListener('cnc-screen-change',function(e){
     var was=current;current=e&&e.detail;
     if(was==='commissioning'&&current!=='commissioning'){stopSpindle();view=null;}
+    // The answer line only follows a request made from Machine while Machine stays open.
+    if(asked&&current!=='machine'){asked='';waiting=false;if(lastStatus)commandReason(lastStatus);}
   });
   window.addEventListener('cnc-job-status',function(e){
     var d=e&&e.detail||{};if(d.simulation)return;
@@ -417,6 +471,7 @@
     if(machine&&machine.port!==port){port=machine.port;settingsCard();}
     if(machineUnlock){prop(machineUnlock,'disabled',!machine||!machine.canUnlock);prop(machineUnlock,'title',t(machine&&machine.unlockReason||''));}
     if(machineHome){prop(machineHome,'disabled',!machine||!machine.canHome);prop(machineHome,'title',t(machine&&machine.homeReason||''));}
+    lastStatus=d;commandReason(d);
     if(view){observe(STEPS[index],st,machine);refresh();}
     // First real controller seen on this port: open the assistant once, from the menu.
     if(!autoDone&&machine&&machine.fresh&&machine.workflow==='idle'&&!/sim/i.test(machine.port)&&!entry(machine.port)&&(current==='menu'||current==='home')){

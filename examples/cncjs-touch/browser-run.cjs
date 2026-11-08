@@ -1023,10 +1023,12 @@ function startV2Fixture() {
       if (fx.phase === 'idle' || fx.phase === 'pilot' || fx.phase === 'homing' || fx.phase === 'probing') {
         Object.assign(c, { activeState: 'Idle', workflow: 'idle', feedrate: 0, spindleSpeed: 0, sent: 0, received: 0, canPause: false, canStop: false, canResume: false, canStart: true, startReason: '', canLoad: true, loadReason: '',
           canPreviewMotion: true, motionReason: '', canOverride: false, canRapidOverride: false, canUnlock: false, canHome: true, homeReason: '', canMacro: false });
+        // $X out of alarm: the server's reason (job-service.js unlockReady), not the replay's « Travail en cours. ».
+        c.unlockReason = fx.phase === 'probing' ? 'Palpage en cours.' : 'Le déverrouillage ($X) ne sert qu’en alarme.';
         // Like the server (job-service.js plateReady): a CNC at rest can probe its Z zero with the plate (a laser: unchanged).
         if ((fx.profile || V2_PROFILE).kind === 'cnc') Object.assign(c, { canZeroZ: true, zeroZReason: '' });
         if (fx.phase === 'pilot') c.control = { owner: { kind: 'touch', id: 'browser-run-other', label: 'Tablette atelier', present: true }, lastChange: null };
-        if (fx.phase === 'homing') Object.assign(c, { activeState: 'Home', homing: true, canStop: true, canStart: false, startReason: 'Prise d’origine en cours.', canLoad: false, loadReason: 'Prise d’origine en cours.', canPreviewMotion: false, motionReason: 'Prise d’origine en cours.', canHome: false, homeReason: 'Prise d’origine en cours.', canZeroZ: false, zeroZReason: 'Prise d’origine en cours.' });
+        if (fx.phase === 'homing') Object.assign(c, { activeState: 'Home', homing: true, canStop: true, canStart: false, startReason: 'Prise d’origine en cours.', canLoad: false, loadReason: 'Prise d’origine en cours.', canPreviewMotion: false, motionReason: 'Prise d’origine en cours.', canHome: false, homeReason: 'La prise d’origine exige une machine au repos ou en alarme.', canZeroZ: false, zeroZReason: 'Prise d’origine en cours.' });
         if (fx.phase === 'probing') Object.assign(c, { activeState: 'Run', probing: true, canStop: true, canStart: false, startReason: 'Palpage en cours.', canLoad: false, loadReason: 'Palpage en cours.', canPreviewMotion: false, motionReason: 'Palpage en cours.', canHome: false, homeReason: 'Palpage en cours.', canZeroZ: false, zeroZReason: 'Palpage en cours.' });
         return c;
       }
@@ -1661,6 +1663,13 @@ const SCREENS_JOURNAL = '(function(){function rows(id){var l=document.getElement
   'for(var i=1;i<li.length;i++)if(li[i].top-li[i-1].top<li[i-1].h-0.5)bad.push({row:i,pitch:Math.round((li[i].top-li[i-1].top)*10)/10,height:Math.round(li[i-1].h*10)/10});' +
   'return {rows:li.length,scrollHeight:l.scrollHeight,clientHeight:l.clientHeight,bad:bad};}' +
   'var p=document.getElementById("real-history-page"),m=p&&/·\\s*(\\d+)/.exec(p.textContent);return {v1:rows("real-history-list"),v2:rows("v2k-list"),page:p?p.textContent:"",events:m?Number(m[1]):null};})()';
+// Machine (lot Machine) on the real page: the alarm notice shown (v1 and v2), the note « consulter CNCjs » under the
+// coordinates hidden once the notice explains the code, a reason line whenever $X or $H is greyed out (a title is not
+// shown on touch), and no Grbl English word on the v2 State line.
+const SCREENS_MACHINE = '(function(){var v=function(e){return !!(e&&e.getClientRects().length&&getComputedStyle(e).visibility!=="hidden");},$=function(id){return document.getElementById(id);};' +
+  'var n=document.querySelector("#screen-machine .ks-machine-coordinates>.ks-help"),r=$("ks-machine-command-reason"),b=document.querySelectorAll("#screen-machine .ks-machine-commands button"),s=document.querySelector("#v2m-condition .v2m-state");' +
+  'var nt=$("ks-machine-alarm-title"),na=$("ks-machine-alarm-action");' +
+  'return {notice:v($("ks-machine-alarm")),noticeTitle:nt?nt.textContent.trim():"",noticeAction:na?na.textContent.trim():"",note:v(n),reason:v(r)?r.textContent:"",unlockDisabled:!!(b[0]&&b[0].disabled),homeDisabled:!!(b[1]&&b[1].disabled),v2state:s&&v(s)?s.textContent:null};})()';
 async function screensCapture(cdp, dirName, name, label, tag, page, results) {
   const dir = path.join(OUT, dirName);
   fs.mkdirSync(dir, { recursive: true });
@@ -1739,6 +1748,17 @@ async function screensVariant(cdp, fx, v, summary, out) {
         info.states[stateId] = page;
         if (page.lang !== v.lang || page.theme !== v.theme || page.large !== (v.size === 'large') || page.perfV2 !== v.v2 || page.kind !== v.kind) failures.push(tag + ': page shown as ' + JSON.stringify(page) + ', expected ' + JSON.stringify({ lang: v.lang, theme: v.theme, size: v.size, v2: v.v2, kind: v.kind }));
         for (const [name, label] of SCREENS_OF_STATES) await screensCapture(cdp, 'screens-' + name + '-' + v.id + '-' + stateId, name, label, tag, page, results);
+        await goScreen(cdp, 'machine');
+        const mc = await cdp.evaluate(SCREENS_MACHINE);
+        (info.machine || (info.machine = {}))[stateId] = mc;
+        if (phase === 'alarm' && !mc.notice) failures.push(tag + ': Machine, alarm notice not shown');
+        // The cause and what to do are in that notice (v1 and v2, the v2 block no longer repeats them): never empty.
+        if (phase === 'alarm' && (!mc.noticeTitle || !mc.noticeAction)) failures.push(tag + ': Machine, alarm notice without its title or explanation');
+        // ES / EN: the reason line is translated (server reasons through the catalogue), no French left.
+        if (v.lang !== 'fr' && /’| :|\b(arrêtez|attendez|broche|commande|réglages?)\b|en cours/i.test(mc.reason)) failures.push(tag + ': Machine, French reason on the ' + v.lang + ' page: ' + mc.reason);
+        if (phase === 'alarm' && mc.note) failures.push(tag + ': Machine, « consulter CNCjs » shown under a known alarm code');
+        if (phase !== 'lost' && (mc.unlockDisabled || mc.homeDisabled) && !mc.reason) failures.push(tag + ': Machine, $X / $H greyed out without a reason line');
+        if (mc.v2state && /\b(Idle|Run|Hold|Jog|Alarm|Door|Check|Home|Sleep)\b/.test(mc.v2state)) failures.push(tag + ': Machine, Grbl word on the v2 State line: ' + mc.v2state);
         // Lot Journal: after every state, the journal holds more than two v1 pages (15 events or more).
         const journal = results.find((r) => r.screen === 'history' && r.journal);
         if (!v.states && phase === 'lost' && journal && !(journal.journal.events >= 15)) failures.push(tag + ': journal holds ' + journal.journal.events + ' events, fixture goal 15 (' + journal.journal.page + ')');
@@ -2120,6 +2140,8 @@ function strictCheck(summary, exceptionList) {
         if (t.out > 1) add(Object.assign({ check: 'text-overflow', label: t.label, detail: 'text ' + t.out + ' px outside its control' }, base));
         if (t.broken && t.broken.length) add(Object.assign({ check: 'word-break', label: t.label, detail: 'word cut across lines: ' + t.broken.join(', ') }, base));
       }
+      // Lot Machine (M15f): Machine fits its window in every screens-* variant and state, large text and alarm included.
+      if (r.screen === 'machine' && /^screens /.test(m.variant) && r.scrolls) add(Object.assign({ check: 'machine-scroll', label: r.label, detail: 'Machine scrolls (data-fit-overflow)' }, base));
       if (r.railScroll) add(Object.assign({ check: 'rail-scroll', label: 'rail', detail: 'rail scrolls horizontally (' + r.railScroll + ')' }, base));
       // Journal rows (screensCapture): no row drawn over the next one; the v1 page fits its box.
       if (r.journal) {

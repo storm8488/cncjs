@@ -2,7 +2,8 @@
   'use strict';
   var uiLocale=window.cncI18n||{t:function(s){return s;},html:function(s){return s;}};
   // The report freshness sits with the coordinates it qualifies (real page); the overview keeps the commands.
-  var store = window.cncState, host = document.querySelector('#screen-machine .ks-machine-coordinates') || document.querySelector('.ks-machine-overview');
+  // Simulation: under the alarm test card, which has room below its help (the overview has none at 768 px).
+  var store = window.cncState, host = document.querySelector('#screen-machine .ks-machine-coordinates') || document.querySelector('#screen-machine .ks-machine-actions') || document.querySelector('.ks-machine-overview');
   if (!store || !host) return;
   var simulation = document.body.getAttribute('data-simulation') === 'true';
   var panel = document.createElement('div'); panel.className = 'connection-details';
@@ -13,6 +14,9 @@
   var bar = !simulation && document.getElementById('status-bar'), badge = null;
   if (bar) { badge = document.createElement('span'); badge.id = 'st-report-age'; badge.className = 'badge warn'; bar.appendChild(badge); }
   var latest = {}, receivedAt = 0, disposed = false, bindings = [];
+  // Elapsed time on the monotonic clock (job-controls.js elapsedClock): a civil clock set back or forward
+  // (NTP at kiosk boot) neither freezes nor inflates the age shown between two reports.
+  function elapsedClock() { return window.performance && typeof window.performance.now === 'function' ? window.performance.now() : Date.now(); }
   function text(el, value) { if (el && el.textContent !== value) el.textContent = value; }
   function style(el, value) { if (el && el.className !== value) el.className = value; }
   function visible() { var screen = document.getElementById('screen-machine'); return !document.hidden && screen && screen.classList.contains('active'); }
@@ -20,7 +24,7 @@
     if (disposed || document.hidden) return;
     var c = latest.machine, connected = !!latest.transportConnected;
     var age = c && c.statusAgeMs, known = typeof age === 'number' && isFinite(age) && age >= 0;
-    if (known) age += Math.max(0, Date.now() - receivedAt);
+    if (known) age += Math.max(0, elapsedClock() - receivedAt);
     var usable = known && age <= 2500 && !!c.fresh;
     var ageText = !known ? uiLocale.t('âge inconnu') : age < 1000 ? uiLocale.t('moins de 1 s') : age < 60000 ? Math.ceil(age / 1000) + ' s' : Math.ceil(age / 60000) + ' min';
     var tone = !connected || !c || !usable ? 'warn' : 'ok';
@@ -43,7 +47,7 @@
     }
   }
   function bind(target, name, fn) { target.addEventListener(name, fn); bindings.push(function () { target.removeEventListener(name, fn); }); }
-  var unsubscribe = store.subscribe(function (state) { if (state.machine !== latest.machine) receivedAt = Date.now(); latest = state; render(); });
+  var unsubscribe = store.subscribe(function (state) { if (state.machine !== latest.machine) receivedAt = elapsedClock(); latest = state; render(); });
   bind(window, 'cnc-screen-change', render); bind(document, 'visibilitychange', render);
   function dispose() { if (disposed) return; disposed = true; unsubscribe(); bindings.forEach(function (fn) { fn(); }); bindings = []; }
   bind(window, 'pagehide', function (event) { if (!event || !event.persisted) dispose(); });

@@ -118,7 +118,7 @@
     ' rapporté par Grbl.':[' reported by Grbl.',' notificado por Grbl.'],'Code ALARM:':['Code ALARM:','Código ALARM:'],'Code ':['Code ','Código '],
     ' déduit de l’état précédent : la carte l’a effacé en redémarrant.':[' deduced from the previous state: the board erased it when restarting.',' deducido del estado anterior: la placa lo borró al reiniciarse.'],
     'Aucun code reçu : cause non rapportée par la carte.':['No code received: cause not reported by the board.','Ningún código recibido: causa no notificada por la placa.'],
-    'Prochaine action possible : corriger la cause, puis Déverrouiller ($X) ou faire la prise d’origine ($H) depuis leurs commandes habituelles, avec leur confirmation. Cet écran n’envoie rien.':['Next possible action: fix the cause, then Unlock ($X) or home ($H) from their usual controls, with their confirmation. This screen sends nothing.','Próxima acción posible: corregir la causa y luego Desbloquear ($X) o hacer el referenciado ($H) desde sus mandos habituales, con su confirmación. Esta pantalla no envía nada.'],
+    'Prochaine action : corriger la cause, puis $X ou $H plus haut.':['Next action: fix the cause, then $X or $H above.','Próxima acción: corregir la causa y luego $X o $H más arriba.'],
     'Rapport frais · âge ':['Fresh report · age ','Informe reciente · antigüedad '],
     'Rapport périmé : dernières valeurs connues, non actualisées.':['Stale report: last known values, not updated.','Informe caducado: últimos valores conocidos, sin actualizar.'],
     'Fraîcheur inconnue : aucun rapport récent du contrôleur.':['Freshness unknown: no recent controller report.','Antigüedad desconocida: ningún informe reciente del controlador.'],
@@ -131,7 +131,7 @@
   };
   function vt(s){var l=uiLocale.language,row=TEXT[s];return row&&l==='en'?row[0]:row&&l==='es'?row[1]:s;}
   var AXES=['X','Y','Z'],ROWS=[[110,'Vitesse maximale','mm/min'],[120,'Accélération','mm/s²'],[130,'Course maximale','mm']],FLAGS=[[20,'Limites logicielles'],[21,'Fins de course'],[22,'Référencement']];
-  var v2={registered:false,disposed:false,retire:false,ended:false,frame:0,timer:0,detail:null,nodes:null,shown:'',
+  var v2={registered:false,disposed:false,retire:false,ended:false,frame:0,timer:0,detail:null,nodes:null,shown:'',parameters:'',
     screen:window.cncShell&&typeof window.cncShell.screen==='function'?window.cncShell.screen():null};
   function api(){var a=window.cncV2;return a&&typeof a.gate==='function'&&typeof a.state==='function'?a:null;}
   function layout(){return !!(document.body.classList&&document.body.classList.contains('perf-v2'));}
@@ -159,13 +159,17 @@
     // Never fresher than the existing snapshot either: fresh:false (lost stream…) stays stale.
     var freshness=!known?'unknown':r.fresh===true&&age<=2500&&m.fresh!==false?'fresh':'stale';
     var alarm=!!(m&&/^alarm/i.test(m.activeState||'')),code=alarm&&finite(m.alarmCode)?m.alarmCode:null,inferred=alarm&&code!==null&&m.alarmCodeInferred===true;
-    var help=alarm&&window.CNCGrblHelp?window.CNCGrblHelp.alarm(code,inferred):null,pilot=d.pilot;
+    var pilot=d.pilot;
     var s=m&&m.settings&&typeof m.settings==='object'?m.settings:{},known=0,rows=[],flags=[];
     ROWS.forEach(function(r){rows.push({label:uiLocale.t(r[1]),unit:r[2],cells:AXES.map(function(_,i){var key='$'+(r[0]+i),n=number(s[key]),ok=n!==null&&n>0;if(ok)known++;return {key:key,value:ok?format(n)+' '+r[2]:vt('inconnu')};})});});
     FLAGS.forEach(function(f){var raw=s['$'+f[0]],on=raw==='1'||raw===1,off=raw==='0'||raw===0;if(on||off)known++;flags.push({key:'$'+f[0],label:uiLocale.t(f[1]),value:on?uiLocale.t('Activé'):off?uiLocale.t('Désactivé'):vt('inconnu')});});
     var mask=number(s.$23),maskOk=mask!==null&&mask>=0&&Math.floor(mask)===mask;if(maskOk)known++;
     flags.push({key:'$23',label:vt('Sens de prise d’origine'),value:maskOk?String(mask):vt('inconnu')});
-    return {state:m&&m.activeState?m.activeState:null,alarm:alarm,title:help?help.title:null,action:help?help.action:null,
+    // The state in the words of the overview card (status-strip.js), never Grbl's English word.
+    // Offline (no machine, or no transport) is « Hors ligne », as on the strip, not « inconnu ».
+    var word=null;
+    if(!m||!d.transportConnected||m.activeState){try{var w=window.cncStatusStrip&&window.cncStatusStrip.describe(m,!!d.transportConnected);word=w&&w.word?w.word+(w.note?' '+w.note:''):null;}catch(_){word=null;}}
+    return {state:m&&m.activeState?word||m.activeState:word,alarm:alarm,
       origin:!alarm?null:inferred?vt('Code ')+code+vt(' déduit de l’état précédent : la carte l’a effacé en redémarrant.'):code!==null?vt('Code ALARM:')+code+vt(' rapporté par Grbl.'):vt('Aucun code reçu : cause non rapportée par la carte.'),
       freshness:freshness,age:freshness==='fresh'?age:null,
       pilot:pilot&&pilot.sentence?pilot.sentence:pilot&&pilot.value&&pilot.value!=='—'?vt('Appareil pilote : ')+pilot.value:vt('Appareil pilote : ')+vt('inconnu'),
@@ -178,20 +182,25 @@
     zones.appendChild(n.condition);zones.appendChild(n.parameters);content.appendChild(zones);return n;
   }
   function clear(node){while(node.children.length)node.removeChild(node.children[node.children.length-1]);}
-  function draw(n,x){
-    clear(n.condition);clear(n.parameters);
+  function freshText(x){return x.freshness==='fresh'?vt('Rapport frais · âge ')+format(Math.round(x.age/100)/10)+' s':x.freshness==='stale'?vt('Rapport périmé : dernières valeurs connues, non actualisées.'):vt('Fraîcheur inconnue : aucun rapport récent du contrôleur.');}
+  // The alarm's title and explanation stay in the v1 notice above (shown in v2 too): the block only
+  // adds the code's origin and a short next action, so that it fits the shorter third row.
+  function drawCondition(n,x){
+    clear(n.condition);
     n.condition.appendChild(el('h2',null,vt('Condition actuelle')));
     n.condition.appendChild(el('p','v2m-state',vt('État : ')+(x.state||vt('inconnu'))));
     if(x.alarm){
       var box=el('div','v2m-alarm');box.setAttribute('data-tone','danger');
-      box.appendChild(el('h3',null,x.title||uiLocale.t('Alarme')));box.appendChild(el('p','v2m-origin',x.origin));
-      if(x.action)box.appendChild(el('p','v2m-explanation',x.action));
-      box.appendChild(el('p','v2m-next',vt('Prochaine action possible : corriger la cause, puis Déverrouiller ($X) ou faire la prise d’origine ($H) depuis leurs commandes habituelles, avec leur confirmation. Cet écran n’envoie rien.')));
+      box.appendChild(el('p','v2m-origin',x.origin));
+      box.appendChild(el('p','v2m-next',vt('Prochaine action : corriger la cause, puis $X ou $H plus haut.')));
       n.condition.appendChild(box);
     } else n.condition.appendChild(el('p','v2m-calm',vt('Aucune alarme rapportée.')));
-    var fresh=el('p','v2m-freshness',x.freshness==='fresh'?vt('Rapport frais · âge ')+format(Math.round(x.age/100)/10)+' s':x.freshness==='stale'?vt('Rapport périmé : dernières valeurs connues, non actualisées.'):vt('Fraîcheur inconnue : aucun rapport récent du contrôleur.'));
-    fresh.setAttribute('data-freshness',x.freshness);n.condition.appendChild(fresh);
+    n.freshness=el('p','v2m-freshness',freshText(x));
+    n.freshness.setAttribute('data-freshness',x.freshness);n.condition.appendChild(n.freshness);
     n.condition.appendChild(el('p','v2m-pilot',x.pilot));
+  }
+  function drawParameters(n,x){
+    clear(n.parameters);
     n.parameters.appendChild(el('h2',null,vt('Paramètres de course')));
     var table=el('table','v2m-table'),head=el('tr');
     [uiLocale.t('Paramètre')].concat(AXES).forEach(function(h){var th=el('th',null,h);th.setAttribute('scope','col');head.appendChild(th);});
@@ -225,8 +234,12 @@
     var n=v2.nodes||(v2.nodes=build(mount.content));
     if(mount.content.hidden)mount.content.hidden=false;
     if(mount.root.getAttribute('data-v2-presenter')!=='on')mount.root.setAttribute('data-v2-presenter','on');
-    var x=model(),signature=JSON.stringify(x);
-    if(signature!==v2.shown){v2.shown=signature;draw(n,x);}
+    // Two signatures: a new report only changes the age, which is a text update, not a rebuild.
+    var x=model(),signature=JSON.stringify([x.state,x.alarm,x.origin,x.freshness,x.pilot]),parameters=JSON.stringify([x.rows,x.flags,x.known]);
+    if(!v2.shown)v2.parameters='';
+    if(signature!==v2.shown){v2.shown=signature;drawCondition(n,x);}
+    else if(n.freshness&&n.freshness.textContent!==freshText(x))n.freshness.textContent=freshText(x);
+    if(parameters!==v2.parameters){v2.parameters=parameters;drawParameters(n,x);}
     // The age keeps running without a new report: one timer at the stale threshold.
     clearTimer();
     if(x.freshness==='fresh'&&window.setTimeout)v2.timer=window.setTimeout(function(){v2.timer=0;queue();},Math.ceil(2500-x.age)+20);

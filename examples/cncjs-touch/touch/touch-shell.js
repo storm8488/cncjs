@@ -178,6 +178,9 @@
   var machineAlarm=document.createElement('div');machineAlarm.id='ks-machine-alarm';machineAlarm.className='t-notice';machineAlarm.setAttribute('data-tone','danger');machineAlarm.hidden=true;
   machineAlarm.innerHTML=uiLocale.html('<div><b id="ks-machine-alarm-title"></b><span id="ks-machine-alarm-action"></span></div>');
   overview.insertBefore(machineAlarm,overview.firstChild);overview.insertBefore(machineWord,overview.firstChild);
+  // The note under the coordinates sends to CNCjs for the cause: useless when the notice above explains the code.
+  var coordNote=simulation?null:document.querySelector('#screen-machine .ks-machine-coordinates>.ks-help');
+  if(coordNote&&!/\bks-help\b/.test(coordNote.className||''))coordNote=null;
   document.getElementById('ks-machine-follow').addEventListener('click',function(){go('home');});
   document.getElementById('ks-machine-limits').addEventListener('click',function(){go('limits');});
   document.getElementById('ks-machine-display').addEventListener('click',function(){go('settings');});
@@ -239,6 +242,11 @@
     var help=alarm?(simulation?{title:uiLocale.t('Alarme fictive'),action:uiLocale.t('Effacez l’alarme ci-contre, puis confirmez la reprise dans Suivi.')}:window.CNCGrblHelp?window.CNCGrblHelp.alarm(m.alarmCode,m.alarmCodeInferred):{title:word.word,action:''}):null;
     if(machineAlarm.hidden!==!help)machineAlarm.hidden=!help;
     if(help){setText(document.getElementById('ks-machine-alarm-title'),help.title);setText(document.getElementById('ks-machine-alarm-action'),help.action);}
+    if(coordNote){
+      var helped=alarm&&!!window.CNCGrblHelp&&!!window.CNCGrblHelp.codes&&window.CNCGrblHelp.codes.alarms.indexOf(m.alarmCode)>=0;
+      if(coordNote.hidden!==helped)coordNote.hidden=helped;
+      setText(coordNote,alarm&&!helped?uiLocale.t('Code non reconnu : consulter CNCjs.'):uiLocale.t('En cas d’alarme, consulter sa cause dans CNCjs.'));
+    }
   }
   window.addEventListener('cnc-job-status',function(e){
     if(!!e.detail.simulation!==simulation)return;

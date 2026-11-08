@@ -414,6 +414,11 @@
 .ks-ui #screen-machine .ks-machine-commands button:first-child{background:var(--info);color:var(--on-info);border-color:transparent}
 .ks-ui #screen-machine .ks-machine-commands button:last-child{grid-column:1/-1;min-height:var(--tap)}
 .ks-ui #screen-machine .ks-machine-overview>.ks-secondary{order:5;grid-column:auto;min-height:var(--tap);background:transparent;font-weight:500}
+/* Order (CSS only, DOM unchanged): state word, alarm notice, $X / $H and their reason, shortcuts, then Serveur / Contrôleur. */
+.ks-ui #screen-machine .ks-machine-overview>p[data-machine-copy]{order:6}
+.ks-ui #screen-machine .ks-machine-overview>#ks-machine-command-reason{order:4;color:var(--fg);font-size:var(--fs-16)}
+.ks-ui #screen-machine .ks-machine-overview>#ks-machine-command-reason[data-feedback=failed]{color:var(--danger-text)}
+.ks-ui #screen-machine .ks-machine-overview>#ks-machine-command-reason[data-feedback=uncertain]{color:var(--warn-text)}
 .ks-ui #screen-machine .ks-machine-overview>.connection-details,.ks-ui #screen-machine .connection-details{order:6;border-top:1px solid var(--line);margin-top:var(--sp-2);padding-top:var(--sp-2)}
 .ks-ui #screen-machine .connection-details h3{font:600 var(--fs-16)/1 var(--font);color:var(--mute);letter-spacing:.06em;text-transform:uppercase;margin:0 0 var(--sp-1)}
 .ks-ui #screen-machine .connection-details p{font-size:var(--fs-16);margin:2px 0;color:var(--mute)}
