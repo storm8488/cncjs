@@ -14,7 +14,7 @@
 //   --url URL        touch base URL of a running server (default: preview-server.cjs)
 //   --browser PATH   Chrome/Edge executable (default: CNC_BROWSER or well-known paths)
 //   --repeat N       start-up repetitions (default 5)
-//   --only LIST      comma list among measure,responsive,sim,startup,e2e,strip (default all;
+//   --only LIST      comma list among measure,responsive,sim,settings,startup,e2e,strip,v2 (default all;
 //                    responsive = every screen at the CSS viewports of RESPONSIVE (landscape,
 //                    portrait, intermediate sizes, large text, browser zoom 150 / 200 %, a
 //                    virtual keyboard, the Surface Pro 3 kiosk at 1366 x 911 and the wide
@@ -29,7 +29,11 @@
 //                    (idle, running, paused, alarm, stale, lost), simulation page (job, pause, alarm),
 //                    Préparer comparison and jog panel, Fichiers, Journal opened from the curve,
 //                    Réglages, the way out of v2, and no v2 request in Éco / RT 1366 x 768 / laser /
-//                    software GPU; see v2Measure)
+//                    software GPU; see v2Measure); settings = the three Réglages tabs walked top to
+//                    bottom (FR/ES, standard/large text, dark/light, 1366 x 768 Éco laser, real page,
+//                    v2 CNC 1366 x 911 in the v2 browser), scroll needed per control, Wi-Fi keyboard,
+//                    first tap of the Tablette commands and the update install, refusals during a
+//                    job, no system request outside Système; see settingsMeasure
 //   --keep-browser   do not kill the browser at the end (debugging)
 //   --strict         also fail (exit 1) on a layout regression in the variants the
 //                    interface is made for (1366 x 768 and 1024 x 600, standard and
@@ -60,7 +64,7 @@ const URL_BASE = option('--url', '');
 // --root DIR: serve another copy of the pages through the fixture (a bundled build, output/touch-bundle).
 const ROOT_DIR = option('--root', '');
 const REPEAT = Math.max(1, Number(option('--repeat', 5)) || 5);
-const ONLY = option('--only', 'measure,responsive,sim,startup,e2e,strip,v2').split(',');
+const ONLY = option('--only', 'measure,responsive,sim,settings,startup,e2e,strip,v2').split(',');
 const KEEP = args.includes('--keep-browser');
 const STRICT = args.includes('--strict');
 const EXCEPTIONS_FILE = path.resolve(option('--exceptions', path.join(__dirname, 'layout-exceptions.json')));
@@ -249,6 +253,9 @@ async function waitSettled(cdp) {
     const now = await cdp.evaluate('(function(){var t=function(id){var e=document.getElementById(id);return e?e.textContent:"";};return t("t-state-text")+"|"+t("home-job-ready")+"|"+(document.getElementById("notice")||{}).hidden;})()');
     stable = now === previous ? stable + 1 : 0; previous = now;
   }
+}
+async function selectSettingsTab(cdp, name) {
+  await cdp.evaluate('window.cncSystemMonitor&&window.cncSystemMonitor.select(' + JSON.stringify(name) + ');true'); await sleep(200);
 }
 async function goScreen(cdp, name) {
   await cdp.evaluate('window.cncShell.go(' + JSON.stringify(name) + ');true');
@@ -1259,6 +1266,8 @@ async function v2RealPass(cdp, fx, w, h, summary, report, v1) {
       const shown = {};
       for (const [screen, key, sel] of [['home', 'band', '#home-v2-confidence'], ['home', 'sequence', '#home-v2-sequence'], ['files', 'files', '.lv2'], ['jog', 'prepare', '#pv2-summary'], ['settings', 'settings', '#ks-v2-card'], ['settings', 'quality', '#ks-v2-quality'], ['machine', 'machine', '#v2m-condition'], ['history', 'history', '#perf-v2-history']]) {
         await goScreen(cdp, screen);
+        // Réglages: the v2 cards live on the « Machine et performances » tab.
+        if (screen === 'settings') await selectSettingsTab(cdp, 'machine');
         shown[key] = await cdp.evaluate('(function(){var n=document.querySelector(' + JSON.stringify(sel) + ');return !!(n&&n.getClientRects().length&&!n.closest("[hidden]"));})()');
       }
       info.presenters = shown;
@@ -1291,7 +1300,7 @@ async function v2RealPass(cdp, fx, w, h, summary, report, v1) {
         if (before !== after) failures.push('v2 ' + ctx + ': Préparer scene not restored to the same frame after the jog panel (' + before + ' → ' + after + ')');
       }
       // Réglages: the diagnostic on request.
-      await goScreen(cdp, 'settings');
+      await goScreen(cdp, 'settings'); await selectSettingsTab(cdp, 'machine');
       await cdp.evaluate('(function(){var b=document.getElementById("ks-v2-diagnostic-run");if(b)b.click();return true;})()'); await sleep(400);
       await v2Capture(cdp, ctx, null, 'Réglages', 'idle-diagnostic', results);
       v2Gestures.results = results; await v2Gestures(cdp, ctx, report);
@@ -1376,7 +1385,7 @@ async function v2RealPass(cdp, fx, w, h, summary, report, v1) {
     // Back to rest, then the way out of v2: preference off (no reload, layout kept, message), next page v1.
     fx.setPhase('idle'); await sleep(4000);
     if (!v1) {
-      await goScreen(cdp, 'settings');
+      await goScreen(cdp, 'settings'); await selectSettingsTab(cdp, 'machine');
       const off = await cdp.evaluate('(async function(){var b=document.getElementById("ks-v2-toggle");if(!b)return null;window.__noReload=1;b.click();await new Promise(function(r){setTimeout(r,600);});var s=window.cncV2.state();' +
         'return {pressed:b.getAttribute("aria-pressed"),status:(document.getElementById("ks-v2-status")||{}).textContent,state:s,perfV2:document.body.classList.contains("perf-v2"),kept:window.__noReload===1,strip:(function(){var n=document.getElementById("t-v2-pending");return n?{text:n.textContent,hidden:!!n.hidden,shown:!!n.getClientRects().length}:null;})()};})()');
       info.exit = off;
@@ -1555,6 +1564,7 @@ async function v2Measure(summary) {
       v2.passes.push(await v2RealPass(cdp, fx, w, h, summary, report, false));
       v2.passes.push(await v2SimPass(cdp, fx, w, h, summary, report));
       v2.passes.push(await v2EcoPass(cdp, fx, w, h, report));
+      if (w === 1366 && ONLY.includes('settings')) v2.settings = await v2SettingsPass(cdp, fx, summary);
       // Requests the v2 page sent that the v1 page did not, the same steps being run (path + action).
       const key = (c) => c.method + ' ' + c.path + ' ' + ((/"action"\s*:\s*"([^"]+)"/.exec(c.body) || [])[1] || '');
       const base = v2.passes[v2.passes.length - 4], real = v2.passes[v2.passes.length - 3];
@@ -1579,6 +1589,324 @@ async function v2Measure(summary) {
   fs.mkdirSync(OUT, { recursive: true });
   fs.writeFileSync(path.join(OUT, 'v2.json'), JSON.stringify(v2, null, 1));
   summary.v2 = { passes: v2.passes.map((p) => ({ ctx: p.ctx, commands: (p.commands || []).length, pageErrors: (p.pageErrors || []).length })), closed: v2.closed, software: v2.software, hits: report.length };
+}
+
+// --- Réglages (design/PROMPT-REGLAGES-MULTIAGENT.md, contract §7-§8). The three tabs walked from top to bottom, one
+// capture per screenful, enforced like the other strict variants plus horizontal overflow and text over text: FR and
+// ES, standard and large text, dark and light, at 1366 x 768 on the simulation page in Éco with a laser (the RT) and
+// on the real page, then at 1366 x 911 in v2 CNC (v2SettingsPass). Also checked: the scroll needed to reach the
+// frequent controls (§8.2, enforced at 1366 x 768 Éco laser, standard text), every direct child of the panel shown on
+// exactly one tab, nothing between the strip and the sticky tabs once scrolled, the selected tab distinct and
+// readable, « Appliquer » shown on every tab, the Wi-Fi form with its keyboard, the first tap (arming) of a Tablette
+// command and of the update install (never the second), the refusals during a job, and no system request while
+// Affichage or Machine is shown. Every API is answered by the fixture (preview-server.cjs), VERSION.json and
+// api.github.com included: nothing leaves the loopback.
+const SETTINGS_TABS = ['display', 'machine', 'system'];
+const SETTINGS_REQUEST = /\/api\/touch-system|\/api\/touch-wifi|\/api\/touch-updates|\/api\/commands|VERSION\.json|api\.github\.com/;
+// Controls whose scroll is measured on each tab (§8.2); `apply` only while another language is chosen.
+const SETTINGS_CONTROLS = {
+  display: { theme: '[data-display-theme]', size: '[data-display-size]', brightness: '#ks-backlight .ks-backlight-step', sleep: '#display-sleep-delay, #display-sleep-test', language: '#display-language', apply: '#language-apply' },
+  machine: { diagnostic: '#profile-diagnostic-run', language: '#display-language', apply: '#language-apply', v2: '#ks-v2-card', quality: '#ks-v2-quality' },
+  system: { wifi: '.ks-wifi-scan', language: '#display-language', apply: '#language-apply' }
+};
+const SETTINGS_LIMITS = { theme: 0, size: 0, brightness: 120, sleep: 350, language: 0, apply: 0, diagnostic: 0, wifi: 0 };
+// Every XHR the page opens, with the Réglages tab at that moment and its body (installed before the fixture
+// replaces XMLHttpRequest, which it then wraps too).
+const SETTINGS_TRAP = '(function(){var log=window.__brRequests=[];function wrap(F){if(!F||F.__brWrapped)return F;var W=function(){var x=new F(),open=x.open,send=x.send,e=null;' +
+  'x.open=function(m,u){var p=document.getElementById("screen-settings");e={method:m,url:String(u),tab:p?p.getAttribute("data-settings-tab"):null,active:!!(p&&p.classList.contains("active"))};log.push(e);return open.apply(x,arguments);};' +
+  'x.send=function(b){if(e)e.body=b==null?"":String(b).slice(0,200);return send.apply(x,arguments);};return x;};W.__brWrapped=true;W.prototype=F.prototype;["UNSENT","OPENED","HEADERS_RECEIVED","LOADING","DONE"].forEach(function(k){W[k]=F[k];});return W;}' +
+  'var current=wrap(window.XMLHttpRequest);try{Object.defineProperty(window,"XMLHttpRequest",{configurable:true,get:function(){return current;},set:function(F){current=wrap(F);}});}catch(_){}})();';
+// The panel at the top of the current tab: children shown, tab buttons, scroll needed to see the bottom of each control.
+const SETTINGS_SHAPE = String(function shape(controls) {
+  var p = document.getElementById('screen-settings'), main = document.querySelector('main');
+  main.scrollTop = 0;
+  var mr = main.getBoundingClientRect();
+  function shown(n) { return !!n && n.getClientRects().length > 0 && getComputedStyle(n).visibility !== 'hidden'; }
+  function key(n) { return n.id ? '#' + n.id : '.' + String(n.className).trim().split(/\s+/).join('.'); }
+  var need = {};
+  Object.keys(controls).forEach(function (k) {
+    var list = Array.prototype.filter.call(document.querySelectorAll(controls[k]), function (n) { return p.contains(n) && shown(n); });
+    need[k] = list.length ? Math.max.apply(null, list.map(function (n) { return Math.max(0, Math.ceil(n.getBoundingClientRect().bottom - mr.bottom)); })) : null;
+  });
+  return { tab: p.getAttribute('data-settings-tab'), compact: document.body.classList.contains('t-compact'), large: document.body.classList.contains('display-large'), theme: document.documentElement.getAttribute('data-theme') || 'dark',
+    lang: document.documentElement.lang, perfV2: document.body.classList.contains('perf-v2'), scrollHeight: main.scrollHeight, clientHeight: main.clientHeight, need: need,
+    children: Array.prototype.map.call(p.children, function (n) { return { key: key(n), hidden: !!n.hidden, shown: shown(n) }; }),
+    tabs: Array.prototype.map.call(p.querySelectorAll('.ks-settings-tabs [data-tab]'), function (b) { return { tab: b.getAttribute('data-tab'), selected: b.getAttribute('aria-selected'), label: b.textContent.trim() }; }) };
+});
+// Scrolled 300 px: the sticky tabs start at the top of main and nothing else is drawn above or through them.
+const SETTINGS_STICKY = String(function sticky() {
+  var main = document.querySelector('main'), tabs = document.querySelector('#screen-settings .ks-settings-tabs');
+  if (!tabs || main.scrollHeight - main.clientHeight < 300) return Promise.resolve(null);
+  main.scrollTop = 300;
+  return new Promise(function (done) { requestAnimationFrame(function () { requestAnimationFrame(function () {
+    var mr = main.getBoundingClientRect(), tr = tabs.getBoundingClientRect(), bad = [];
+    function d(n) { return n ? (n.id ? '#' + n.id : n.tagName.toLowerCase() + (typeof n.className === 'string' && n.className ? '.' + n.className.split(' ')[0] : '')) : 'nothing'; }
+    for (var x = tr.left + 4; x < tr.right - 4; x += Math.max(20, (tr.width - 8) / 24)) [mr.top + 1, tr.top + 2, tr.top + tr.height / 2].forEach(function (y) { var h = document.elementFromPoint(x, y); if (!h || !tabs.contains(h)) bad.push(Math.round(x) + ',' + Math.round(y) + ' ' + d(h)); });
+    var out = { gap: Math.round((tr.top - mr.top) * 10) / 10, bad: bad.slice(0, 6), background: getComputedStyle(tabs).backgroundColor };
+    main.scrollTop = 0; done(out);
+  }); }); });
+});
+// Each tab button: its drawn background (first opaque ancestor) and the contrast of its text on it.
+const SETTINGS_TAB_STYLE = String(function tabStyle() {
+  function rgb(s) { var m = /rgba?\(([^)]+)\)/.exec(s || ''); if (!m) return null; var v = m[1].split(',').map(parseFloat); return { r: v[0], g: v[1], b: v[2], a: v.length > 3 ? v[3] : 1 }; }
+  function bgOf(n) { for (; n; n = n.parentElement) { var c = rgb(getComputedStyle(n).backgroundColor); if (c && c.a > 0.5) return c; } return { r: 255, g: 255, b: 255, a: 1 }; }
+  function lum(c) { return [c.r, c.g, c.b].map(function (v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }).reduce(function (s, v, i) { return s + v * [0.2126, 0.7152, 0.0722][i]; }, 0); }
+  function ratio(a, b) { var x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
+  return Array.prototype.map.call(document.querySelectorAll('#screen-settings .ks-settings-tabs [data-tab]'), function (b) {
+    var bg = bgOf(b), fg = rgb(getComputedStyle(b).color);
+    return { tab: b.getAttribute('data-tab'), selected: b.getAttribute('aria-selected') === 'true', bg: [bg.r, bg.g, bg.b].join(','), contrast: Math.round(ratio(fg, bg) * 100) / 100 };
+  });
+});
+async function settingsTab(cdp, tab) {
+  const ok = await cdp.evaluate('(function(){var b=document.querySelector(\'#screen-settings .ks-settings-tabs [data-tab="' + tab + '"]\');if(!b)return false;b.click();return true;})()');
+  if (!ok) throw new Error('no « ' + tab + ' » tab button');
+  await sleep(tab === 'system' ? 1500 : 500);
+}
+// One capture per screenful of the current tab, from its top. A control scrolled under the sticky tabs is out of
+// view (offscreen), not covered; text under them is not text over text.
+async function settingsCaptures(cdp, dir, name, label, results) {
+  const geo = await cdp.evaluate('(function(){var m=document.querySelector("main"),t=document.querySelector("#screen-settings .ks-settings-tabs");m.scrollTop=0;return {h:m.scrollHeight,c:m.clientHeight,tabs:t?Math.round(t.getBoundingClientRect().height):0,labels:t?Array.prototype.map.call(t.querySelectorAll("button"),function(b){return b.textContent.replace(/\\s+/g," ").trim();}):[]};})()');
+  const step = Math.max(200, geo.c - geo.tabs - 40);
+  for (let y = 0, i = 0; i < 12; i++) {
+    const at = await cdp.evaluate('(function(){var m=document.querySelector("main");m.scrollTop=' + y + ';return new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(function(){r(m.scrollTop);});});});})()');
+    const shot = name + '-' + i, where = label + ' · ' + i + (at ? ' (scrollTop ' + at + ')' : '');
+    try {
+      const data = await cdp.evaluate('(function(){var d=(' + MEASURE + ')(' + JSON.stringify(GOALS) + '),t=document.querySelector("#screen-settings .ks-settings-tabs");' +
+        'if(t&&document.querySelector("main").scrollTop>0){var r=t.getBoundingClientRect(),labels=' + JSON.stringify(geo.labels.map((l) => l.slice(0, 60))) + ';d.targets.forEach(function(x){var cy=x.y+x.h/2;if(cy>=r.top&&cy<=r.bottom&&labels.indexOf(x.label)<0){x.offscreen=true;x.underTabs=true;}});}return d;})()');
+      const overlaps = (await cdp.evaluate('(' + V2_OVERLAP + ')()')).filter((o) => !at || (geo.labels.indexOf(o.a) < 0 && geo.labels.indexOf(o.b) < 0));
+      fs.writeFileSync(path.join(dir, shot + '.json'), JSON.stringify(Object.assign(data, { overlapsText: overlaps, scrollTop: at }), null, 1));
+      await screenshot(cdp, path.join(dir, shot + '.png'));
+      const below = data.targets.filter((t) => t.belowGoal), unreachable = data.targets.filter((t) => !t.reachable), fonts = data.targets.map((t) => t.fontPx);
+      results.push({ screen: 'settings', label: 'Réglages · ' + where, targets: data.targets.length, below, small: data.smallText, textTargets: data.targets.filter((t) => t.textBelowGoal), gaps: data.targets.filter((t) => t.gapBelowGoal), unreachable, truncated: data.truncated,
+        overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, scrolls: data.scrolls, fontStats: { min: fonts.length ? Math.min(...fonts) : null, median: median(fonts), max: fonts.length ? Math.max(...fonts) : null }, textFit: textFitOf(data), railScroll: data.railScroll, overlapsText: overlaps });
+    } catch (e) { failures.push(dir + ' ' + where + ': ' + e.message); results.push({ screen: 'settings', label: 'Réglages · ' + where, error: e.message }); }
+    if (at + geo.c >= geo.h - 1) break;
+    y = Math.min(at + step, geo.h - geo.c);
+  }
+  await cdp.evaluate('document.querySelector("main").scrollTop=0;true');
+}
+// The tabs of one page: shape, captures, sticky tabs, tab styles, language confirmation, children on exactly one tab.
+async function settingsWalk(cdp, tag, dir, results, info, opts) {
+  for (const tab of SETTINGS_TABS) {
+    await settingsTab(cdp, tab);
+    if (tab === 'system') {
+      try { await cdp.waitFor('(function(){var w=document.querySelector("#ks-system .ks-wifi-current"),u=document.querySelector("#ks-system .ks-updates-summary");return !!(w&&u&&w.textContent!=="—"&&u.textContent!=="—"&&document.querySelector("#ks-system .ks-tablet-action"));})()', 10000, 'Système data'); }
+      catch (e) { failures.push(tag + ': ' + e.message); }
+    }
+    const shape = await cdp.evaluate('(' + SETTINGS_SHAPE + ')(' + JSON.stringify(SETTINGS_CONTROLS[tab]) + ')');
+    info.tabs[tab] = shape;
+    const tabLabels = { fr: ['Affichage', 'Machine et performances', 'Système'], es: ['Pantalla', 'Máquina y rendimiento', 'Sistema'] }[info.lang];
+    if (tabLabels && JSON.stringify(shape.tabs.map((b) => b.label)) !== JSON.stringify(tabLabels)) failures.push(tag + ' ' + tab + ': tab labels ' + JSON.stringify(shape.tabs.map((b) => b.label)) + ', expected ' + JSON.stringify(tabLabels));
+    if (shape.tab !== tab) failures.push(tag + ': data-settings-tab « ' + shape.tab + ' » after a tap on « ' + tab + ' »');
+    shape.tabs.forEach((b) => { if (b.selected !== String(b.tab === tab)) failures.push(tag + ' ' + tab + ': aria-selected="' + b.selected + '" on the « ' + b.tab + ' » tab'); });
+    if (shape.compact) failures.push(tag + ': body.t-compact at ' + JSON.stringify(info.viewport) + ' (measurements would not be those of the tablet)');
+    await settingsCaptures(cdp, dir, tab, opts.labels[tab], results);
+    const st = await cdp.evaluate('(' + SETTINGS_STICKY + ')()');
+    info.sticky = info.sticky || {}; info.sticky[tab] = st;
+    if (st && (Math.abs(st.gap) > 1 || st.bad.length)) failures.push(tag + ' ' + tab + ': something visible between the strip and the sticky tabs once scrolled (tabs ' + st.gap + ' px below the top of main; ' + st.bad.join(' | ') + ')');
+    const style = await cdp.evaluate('(' + SETTINGS_TAB_STYLE + ')()');
+    info.tabStyle = info.tabStyle || {}; info.tabStyle[tab] = style;
+    const sel = style.find((s) => s.selected);
+    if (!sel) failures.push(tag + ' ' + tab + ': no selected tab');
+    else {
+      style.filter((s) => !s.selected && s.bg === sel.bg).forEach((s) => failures.push(tag + ' ' + tab + ': the selected tab has the background of « ' + s.tab + ' » (' + s.bg + ')'));
+      style.filter((s) => s.contrast < 4.5).forEach((s) => failures.push(tag + ' ' + tab + ': tab « ' + s.tab + ' » text contrast ' + s.contrast + ', goal 4.5'));
+    }
+  }
+  // Another language chosen, not applied: « Appliquer et recharger » on every tab, then the choice put back.
+  const other = info.lang === 'fr' ? 'es' : 'fr';
+  await cdp.evaluate('(function(){var s=document.getElementById("display-language");s.value=' + JSON.stringify(other) + ';s.dispatchEvent(new Event("change",{bubbles:true}));return true;})()');
+  info.apply = {};
+  for (const tab of SETTINGS_TABS) {
+    await settingsTab(cdp, tab);
+    const shape = await cdp.evaluate('(' + SETTINGS_SHAPE + ')(' + JSON.stringify({ apply: '#language-apply', language: '#display-language' }) + ')');
+    info.apply[tab] = shape.need;
+    if (shape.need.apply === null) failures.push(tag + ' ' + tab + ': « Appliquer et recharger » not shown after choosing another language');
+    await screenshot(cdp, path.join(dir, 'language-' + tab + '.png'));
+  }
+  await cdp.evaluate('(function(){var s=document.getElementById("display-language");s.value=' + JSON.stringify(info.lang) + ';s.dispatchEvent(new Event("change",{bubbles:true}));return true;})()');
+  // Each direct child of the panel: intro and tabs on every tab, any other on exactly one (none if [hidden]).
+  const base = info.tabs.display.children;
+  base.forEach((c, i) => {
+    const row = SETTINGS_TABS.map((t) => info.tabs[t].children[i]);
+    if (row.some((r) => !r || r.key !== c.key)) { failures.push(tag + ': the panel children changed between tabs at ' + c.key); return; }
+    const n = row.filter((r) => r.shown).length, all = /ks-panel-intro|ks-settings-tabs/.test(c.key);
+    if (all ? n !== 3 : c.hidden ? n !== 0 : n !== 1) failures.push(tag + ': ' + c.key + ' shown on ' + n + ' tab(s), expected ' + (all ? 3 : c.hidden ? 0 : 1));
+  });
+  info.placement = {};
+  base.forEach((c, i) => { info.placement[c.key] = SETTINGS_TABS.filter((t) => info.tabs[t].children[i].shown).join('+') || (c.hidden ? 'hidden' : 'none'); });
+}
+// Requests seen by the trap: system ones only while Système is shown, never a host command, install or Wi-Fi change.
+async function settingsRequests(cdp, tag, info) {
+  const list = (await cdp.evaluate('window.__brRequests||[]')) || [];
+  info.requests = list.filter((r) => SETTINGS_REQUEST.test(r.url)).map((r) => ({ method: r.method, url: r.url, tab: r.tab, active: r.active, action: (/"action"\s*:\s*"([^"]+)"/.exec(r.body || '') || [])[1] || '' }));
+  info.requests.filter((r) => !(r.active && r.tab === 'system')).forEach((r) => failures.push(tag + ': ' + r.method + ' ' + r.url + ' while ' + (r.active ? 'the « ' + r.tab + ' » tab' : 'another screen') + ' is shown'));
+  info.requests.filter((r) => r.method !== 'GET' && !(/touch-wifi/.test(r.url) && r.action === 'scan')).forEach((r) => failures.push(tag + ': ' + r.method + ' ' + r.url + ' ' + r.action + ' sent (only a Wi-Fi scan is allowed here)'));
+  if (list.some((r) => /^https?:/.test(r.url) && !/^https:\/\/api\.github\.com\/repos\/fixture\//.test(r.url))) failures.push(tag + ': request outside the fixture: ' + list.filter((r) => /^https?:/.test(r.url)).map((r) => r.url).join(', '));
+}
+const SETTINGS_LABELS = { display: 'Affichage', machine: 'Machine et performances', system: 'Système' };
+async function settingsStorage(cdp, v) {
+  await cdp.evaluate('localStorage.setItem("cncjs-touch-language-v1",' + JSON.stringify(v.lang) + ');localStorage.setItem("cncjs-touch-display-v1",' + JSON.stringify(JSON.stringify({ size: v.size, theme: v.theme })) + ');' +
+    (v.kind ? 'localStorage.setItem("cncjs-touch-sim-kind-v1",' + JSON.stringify(JSON.stringify({ version: 1, kind: v.kind })) + ');' : '') + 'true');
+}
+async function settingsOpen(cdp, url, v, tag) {
+  await setViewport(cdp, v.w, v.h, 1);
+  await navigate(cdp, url);
+  await cdp.evaluate('localStorage.removeItem("cncjs-touch-sim-kind-v1");localStorage.removeItem("cncjs-touch-performance-v1");true');
+  await settingsStorage(cdp, v);
+  try { await navigate(cdp, url + '?settings=' + encodeURIComponent(tag)); await waitReady(cdp); } catch (_) { await navigate(cdp, url + '?settings=' + encodeURIComponent(tag) + '-retry'); await waitReady(cdp); }
+  await sleep(1500);
+  await goScreen(cdp, 'settings');
+}
+async function settingsVariant(cdp, v, realUrl, simUrl, summary, out) {
+  const tag = 'settings ' + v.w + 'x' + v.h + ' ' + v.page + ' ' + v.lang + ' ' + v.size + ' ' + v.theme + (v.kind ? ' ' + v.kind : '');
+  const dirName = tag.replace(/[^A-Za-z0-9]+/g, '-'), dir = path.join(OUT, dirName), results = [], info = { tag, lang: v.lang, viewport: [v.w, v.h], tabs: {} };
+  fs.mkdirSync(dir, { recursive: true });
+  try {
+    await settingsOpen(cdp, v.page === 'sim' ? simUrl : realUrl, v, tag);
+    const page = await cdp.evaluate('({lang:document.documentElement.lang,large:document.body.classList.contains("display-large"),theme:document.documentElement.getAttribute("data-theme")||"dark",kind:window.cncProfile&&window.cncProfile.kind?window.cncProfile.kind():null,profile:window.cncProfile&&window.cncProfile.performance?window.cncProfile.performance():null})');
+    info.page = page;
+    if (page.lang !== v.lang || page.large !== (v.size === 'large') || page.theme !== v.theme) failures.push(tag + ': page opened as ' + JSON.stringify(page));
+    if (v.kind && page.kind !== v.kind) failures.push(tag + ': machine kind ' + page.kind + ' instead of ' + v.kind);
+    await settingsWalk(cdp, tag, dir, results, info, { labels: SETTINGS_LABELS });
+    if (v.kind === 'laser' && info.placement['#ks-laser-z-card'] !== 'machine') failures.push(tag + ': Z laser card on « ' + info.placement['#ks-laser-z-card'] + ' », expected the Machine tab');
+    // §8.2: the frequent controls without (or within a short) scroll, at the RT size in Éco laser, standard text.
+    const enforce = v.page === 'sim' && v.w === 1366 && v.h === 768 && v.size === 'standard';
+    info.limits = [];
+    for (const tab of SETTINGS_TABS) for (const k of Object.keys(SETTINGS_LIMITS)) {
+      const need = k === 'apply' ? info.apply[tab].apply : info.tabs[tab].need[k];
+      if (need === undefined) continue;
+      info.limits.push({ tab, control: k, need, limit: SETTINGS_LIMITS[k] });
+      if (enforce && (need === null || need > SETTINGS_LIMITS[k])) failures.push(tag + ' ' + tab + ': « ' + k + ' » needs ' + (need === null ? 'a control that is not shown' : need + ' px of scroll') + ', goal ' + SETTINGS_LIMITS[k] + ' px');
+    }
+    if (v.flows) await settingsFlows(cdp, tag, dir, results, info);
+    await settingsRequests(cdp, tag, info);
+    log(tag + ': ' + results.length + ' captures, placement ' + Object.keys(info.placement).length + ' blocks, scroll ' + info.limits.filter((l) => l.tab === 'display').map((l) => l.control + ' ' + l.need).join(', '));
+  } catch (e) { failures.push(tag + ': ' + e.message); log('FAIL ' + tag + ': ' + e.message); }
+  summary.measurements.push({ variant: tag, dir: dirName, dpr: 1, results, strict: true, overlap: true });
+  out.variants.push(info);
+}
+// Système at rest: the Wi-Fi form opened with its keyboard (then Annuler), the first tap of a Tablette command and of
+// the update install (armed, orange), both disarmed by leaving the tab. Nothing is confirmed.
+async function settingsFlows(cdp, tag, dir, results, info) {
+  const flows = info.flows = {};
+  try {
+    await settingsTab(cdp, 'system');
+    await cdp.evaluate('document.querySelector("#ks-system .ks-wifi-scan").click();true');
+    await cdp.waitFor('document.querySelectorAll("#ks-system .ks-wifi-network").length>=2', 8000, 'Wi-Fi networks listed');
+    flows.wifi = await cdp.evaluate('(function(){var b=Array.prototype.filter.call(document.querySelectorAll("#ks-system .ks-wifi-network"),function(n){return /Livebox-7A2C/.test(n.textContent);})[0];if(!b)return null;b.click();var s=window.cncWifiSettings.state(),k=document.querySelector("#ks-system .ks-wifi-keys");return {state:s,title:document.querySelector("#ks-system .ks-wifi-form-title").textContent,keys:k?k.querySelectorAll("button").length:0};})()');
+    if (!flows.wifi || !flows.wifi.state.formOpen || !flows.wifi.state.keyboard || flows.wifi.keys < 30) failures.push(tag + ': Wi-Fi form or keyboard not opened (' + JSON.stringify(flows.wifi) + ')');
+    await sleep(300);
+    await settingsCaptures(cdp, dir, 'system-wifi-keyboard', 'Système · Wi-Fi clavier', results);
+    await cdp.evaluate('(function(){var b=document.querySelector("#ks-system .ks-wifi-actions .ks-secondary:not(.ks-wifi-forget)");b.click();return true;})()');
+    const closed = await cdp.evaluate('window.cncWifiSettings.state().formOpen');
+    if (closed) failures.push(tag + ': the Wi-Fi form stayed open after « Annuler »');
+    // First tap only: the Tablette command, then the install.
+    const idle = await cdp.evaluate('(function(){var b=document.querySelector("#ks-system .ks-updates-install");return b?{bg:getComputedStyle(b).backgroundColor,disabled:b.disabled}:null;})()');
+    flows.tablet = await cdp.evaluate('(function(){var b=document.querySelector("#ks-system .ks-tablet-action");if(!b||b.disabled)return null;b.scrollIntoView({block:"center"});b.click();var s=window.cncTabletActions.state();return {armed:s.armed,state:b.getAttribute("data-state"),label:b.textContent,prefix:window.cncI18n.t("Confirmer : ")};})()');
+    if (!flows.tablet || !flows.tablet.armed || flows.tablet.state !== 'armed' || flows.tablet.label.indexOf(flows.tablet.prefix) !== 0) failures.push(tag + ': Tablette command not armed by a first tap (' + JSON.stringify(flows.tablet) + ')');
+    flows.install = await cdp.evaluate('(function(){var b=document.querySelector("#ks-system .ks-updates-install");if(!b||b.disabled)return null;b.scrollIntoView({block:"center"});b.click();var s=window.cncSystemUpdates.state();return {armed:s.armed,state:b.getAttribute("data-state"),label:b.textContent,expected:window.cncI18n.t("Confirmer : installer les mises à jour"),bg:getComputedStyle(b).backgroundColor};})()');
+    if (!idle || idle.disabled || !flows.install || !flows.install.armed || flows.install.state !== 'armed' || flows.install.label !== flows.install.expected) failures.push(tag + ': update install not armed by a first tap (' + JSON.stringify({ idle, install: flows.install }) + ')');
+    else if (flows.install.bg === idle.bg) failures.push(tag + ': the armed install looks like the idle one (' + idle.bg + ')');
+    await sleep(200);
+    await cdp.evaluate('(function(){var t=document.querySelector("#ks-system .ks-tablet");if(t)t.scrollIntoView({block:"start"});document.querySelector("main").scrollTop-=90;return true;})()');
+    await sleep(200);
+    await screenshot(cdp, path.join(dir, 'system-armed.png'));
+    await settingsTab(cdp, 'display');
+    flows.left = await cdp.evaluate('({tablet:window.cncTabletActions.state().armed,install:window.cncSystemUpdates.state().armed})');
+    if (flows.left.tablet || flows.left.install) failures.push(tag + ': still armed after leaving Système (' + JSON.stringify(flows.left) + ')');
+  } catch (e) { failures.push(tag + ' flows: ' + e.message); log('FAIL ' + tag + ' flows: ' + e.message); }
+}
+// Simulation page with a job running: Système refuses Wi-Fi, updates and Tablette commands, with the reason shown.
+async function settingsDuringJob(cdp, lang, simUrl, summary, out) {
+  const v = { page: 'sim', w: 1366, h: 768, lang, size: 'standard', theme: 'dark', kind: 'laser' };
+  const tag = 'settings 1366x768 sim ' + lang + ' job running', dirName = tag.replace(/[^A-Za-z0-9]+/g, '-'), dir = path.join(OUT, dirName), results = [], info = { tag, lang };
+  fs.mkdirSync(dir, { recursive: true });
+  try {
+    await settingsOpen(cdp, simUrl, v, tag);
+    await goScreen(cdp, 'files');
+    await cdp.evaluate('document.querySelector(".library-file").click();true');
+    await cdp.waitFor('(function(){var b=document.getElementById("job-load");return !!b&&!b.disabled;})()', 15000, 'load enabled');
+    await cdp.evaluate('document.getElementById("job-load").click();true');
+    await cdp.waitFor('(function(){var m=window.cncState.get().machine;return !!(m&&m.name);})()', 15000, 'loaded');
+    await goScreen(cdp, 'home');
+    await cdp.waitFor('(function(){var b=document.getElementById("home-job-start");return !!b&&!b.disabled;})()', 15000, 'Démarrer enabled');
+    await cdp.evaluate('document.getElementById("home-job-start").click();true');
+    await cdp.waitFor('!document.getElementById("job-dialog").hidden', 15000, 'dialog');
+    await cdp.evaluate('(function(){var c=document.getElementById("job-check");c.checked=true;c.dispatchEvent(new Event("change",{bubbles:true}));document.getElementById("job-confirm").click();return true;})()');
+    await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 15000, 'running');
+    await goScreen(cdp, 'settings');
+    await settingsTab(cdp, 'system');
+    await sleep(1000);
+    // Taps on the refused controls: nothing is sent, nothing is armed.
+    await cdp.evaluate('(function(){["#ks-system .ks-wifi-scan","#ks-system .ks-updates-install","#ks-system .ks-tablet-action"].forEach(function(s){var b=document.querySelector(s);if(b)b.click();});return true;})()');
+    const st = info.refusal = await cdp.evaluate('(function(){var t=function(s){var n=document.querySelector(s);return n?n.textContent:null;},d=function(s){return Array.prototype.every.call(document.querySelectorAll(s),function(b){return b.disabled;})&&document.querySelectorAll(s).length>0;};' +
+      'return {wifi:t("#ks-system .ks-wifi [role=status]"),updates:t("#ks-system .ks-updates [role=status]"),tablet:t("#ks-system .ks-tablet [role=status]"),wifiDisabled:d("#ks-system .ks-wifi-scan, #ks-system .ks-wifi-hidden"),updatesDisabled:d("#ks-system .ks-updates-check, #ks-system .ks-updates-install"),tabletDisabled:d("#ks-system .ks-tablet-action"),' +
+      'armed:{tablet:window.cncTabletActions.state().armed,install:window.cncSystemUpdates.state().armed},expected:{wifi:window.cncI18n.t("Travail en cours : réseau Wi-Fi non modifiable."),updates:window.cncI18n.t("Travail en cours : mise à jour impossible."),tablet:window.cncI18n.t("Indisponible pendant un travail en cours ou en pause.")}};})()');
+    ['wifi', 'updates', 'tablet'].forEach((k) => {
+      if (st[k] !== st.expected[k]) failures.push(tag + ': ' + k + ' reason « ' + st[k] + ' » instead of « ' + st.expected[k] + ' »');
+      if (!st[k + 'Disabled']) failures.push(tag + ': ' + k + ' commands enabled during a job');
+    });
+    if (st.armed.tablet || st.armed.install) failures.push(tag + ': armed during a job (' + JSON.stringify(st.armed) + ')');
+    await settingsCaptures(cdp, dir, 'system', 'Système · travail en cours', results);
+    await settingsRequests(cdp, tag, info);
+    await cdp.evaluate('document.getElementById("home-job-stop").click();true');
+    await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="idle"', 15000, 'idle after stop');
+    log(tag + ': Wi-Fi « ' + st.wifi + ' », updates « ' + st.updates + ' », Tablette « ' + st.tablet + ' »');
+  } catch (e) { failures.push(tag + ': ' + e.message); log('FAIL ' + tag + ': ' + e.message); }
+  summary.measurements.push({ variant: tag, dir: dirName, dpr: 1, results, strict: true, overlap: true });
+  out.variants.push(info);
+}
+async function settingsMeasure(cdp, realUrl, simUrl, summary) {
+  const out = { variants: [] }, errorsAt = pageErrors.length;
+  const trap = await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: SETTINGS_TRAP });
+  try {
+    const variants = [];
+    for (const lang of ['fr', 'es']) for (const size of ['standard', 'large']) for (const theme of ['dark', 'light']) variants.push({ page: 'sim', w: 1366, h: 768, lang, size, theme, kind: 'laser', flows: true });
+    // The real page (Mise en service card), and the Pro 3 size in v1 Éco (v2 CNC: v2SettingsPass).
+    variants.push({ page: 'real', w: 1366, h: 768, lang: 'fr', size: 'standard', theme: 'dark' }, { page: 'real', w: 1366, h: 911, lang: 'es', size: 'standard', theme: 'dark' });
+    for (const v of variants) await settingsVariant(cdp, v, realUrl, simUrl, summary, out);
+    for (const lang of ['fr', 'es']) await settingsDuringJob(cdp, lang, simUrl, summary, out);
+  } catch (e) { failures.push('settings: ' + (e.stack || e.message)); log('FAIL settings: ' + e.message); }
+  await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: trap.identifier }).catch(() => {});
+  await cdp.evaluate('["cncjs-touch-language-v1","cncjs-touch-display-v1","cncjs-touch-sim-kind-v1"].forEach(function(k){localStorage.removeItem(k);});true').catch(() => {});
+  // The stream probe of the real page (/api/custom/health) is refused by the default fixture by design (no
+  // --replay): the page falls back to polling. Any other exception fails the phase.
+  out.pageErrors = pageErrors.slice(errorsAt).filter((e) => !/Unexpected request in visual fixture: \/api\/custom\/health/.test(e));
+  if (out.pageErrors.length) failures.push('settings: page exceptions: ' + out.pageErrors.slice(0, 3).join(' | ').slice(0, 600));
+  fs.writeFileSync(path.join(OUT, 'settings.json'), JSON.stringify(out, null, 1));
+  summary.settings = (summary.settings || []).concat(out.variants.map((v) => ({ tag: v.tag, placement: v.placement, limits: v.limits, apply: v.apply, sticky: v.sticky, flows: v.flows, refusal: v.refusal, requests: (v.requests || []).length })));
+}
+// The same walk on the v2 page at 1366 x 911 (CNC), FR and ES, standard and large text, dark and light: the v2 cards
+// on the Machine tab at rest (§8.3), enforced as v2 measurements.
+async function v2SettingsPass(cdp, fx, summary) {
+  const out = [];
+  const trap = await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: SETTINGS_TRAP });
+  for (const lang of ['fr', 'es']) for (const [size, theme] of [['standard', 'dark'], ['large', 'dark'], ['standard', 'light']]) {
+    const tag = 'v2 settings 1366x911 ' + lang + ' ' + size + ' ' + theme, dirName = tag.replace(/[^A-Za-z0-9]+/g, '-'), dir = path.join(OUT, dirName), results = [], info = { tag, lang, viewport: [1366, 911], tabs: {} };
+    fs.mkdirSync(dir, { recursive: true });
+    fx.setPhase('idle'); pageErrors.length = 0;
+    try {
+      await setViewport(cdp, 1366, 911, 1);
+      await v2Storage(cdp, fx.base, {});
+      await settingsStorage(cdp, { lang, size, theme });
+      await v2Open(cdp, fx.base + 'index.html?v2-settings=' + encodeURIComponent(dirName), true);
+      await goScreen(cdp, 'settings');
+      await settingsWalk(cdp, tag, dir, results, info, { labels: SETTINGS_LABELS });
+      const m = info.tabs.machine;
+      if (!m.perfV2 || m.need.v2 === null || m.need.quality === null) failures.push(tag + ': v2 cards not shown on the Machine tab at rest (' + JSON.stringify(m.need) + ')');
+      ['#ks-v2-card', '#perf-v2-settings'].forEach((k) => { if (info.placement[k] && info.placement[k] !== 'machine') failures.push(tag + ': ' + k + ' on « ' + info.placement[k] + ' », expected the Machine tab'); });
+      await settingsRequests(cdp, tag, info);
+      if (pageErrors.length) failures.push(tag + ': page exceptions: ' + pageErrors.slice(0, 3).join(' | ').slice(0, 600));
+      log(tag + ': ' + results.length + ' captures, v2 card at ' + m.need.v2 + ' px of scroll on Machine');
+    } catch (e) { failures.push(tag + ': ' + e.message); log('FAIL ' + tag + ': ' + e.message); }
+    summary.measurements.push({ variant: tag, dir: dirName, dpr: 1, results, strict: true, v2: true });
+    out.push(info);
+  }
+  await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: trap.identifier }).catch(() => {});
+  fs.writeFileSync(path.join(OUT, 'settings-v2.json'), JSON.stringify(out, null, 1));
+  summary.settings = (summary.settings || []).concat(out.map((v) => ({ tag: v.tag, placement: v.placement, limits: [].concat(...SETTINGS_TABS.map((t) => Object.keys((v.tabs[t] && v.tabs[t].need) || {}).map((k) => ({ tab: t, control: k, need: v.tabs[t].need[k] })))), sticky: v.sticky, requests: (v.requests || []).length })));
+  return out.map((v) => v.tag);
 }
 
 // --- Strict layout check (--strict): the regressions the layout must never show, minus the
@@ -1611,7 +1939,7 @@ function strictCheck(summary, exceptionList) {
       }
       if (r.railScroll) add(Object.assign({ check: 'rail-scroll', label: 'rail', detail: 'rail scrolls horizontally (' + r.railScroll + ')' }, base));
       // Performance v2 views (lot L7): no overflow, no text drawn over other text.
-      if (m.v2) {
+      if (m.v2 || m.overlap) {
         if (r.overflow && (r.overflow.document || r.overflow.active)) add(Object.assign({ check: 'overflow-x', label: r.label, detail: 'horizontal overflow (' + r.overflow.documentScrollWidth + ' > ' + r.overflow.clientWidth + ')' }, base));
         if (r.vertical && r.vertical.active && !r.scrolls) add(Object.assign({ check: 'overflow-y', label: r.label, detail: 'screen taller than its box and not scrolling' }, base));
         for (const o of r.overlapsText || []) add(Object.assign({ check: 'overlap', label: o.a + ' / ' + o.b, detail: 'text over text, ' + o.w + ' x ' + o.h + ' px' }, base));
@@ -1717,6 +2045,17 @@ function writeSummary(summary) {
     if (st.excepted.length) { L.push('Excepted (reason in the exceptions file):'); L.push(''); L.push('| Check | Variant | Screen | Target | Detail |'); L.push('| --- | --- | --- | --- | --- |'); st.excepted.forEach((v) => L.push(row(v))); L.push(''); }
     if (st.staleExceptions.length) { L.push('Unused exceptions (no longer needed?): ' + st.staleExceptions.map((e) => '`' + [e.check, e.variant, e.screen, e.label].filter(Boolean).join(' / ') + '`').join(', ')); L.push(''); }
   }
+  if (summary.settings && summary.settings.length) {
+    L.push('## Réglages (`settings.json`, `settings-v2.json`, `settings-*/`, `v2-settings-*/`)');
+    L.push('');
+    L.push('Scroll in px needed to see the bottom of each control from the top of its tab (— not shown). Goals, enforced at 1366 x 768 Éco laser, standard text: ' + Object.keys(SETTINGS_LIMITS).map((k) => k + ' ≤ ' + SETTINGS_LIMITS[k]).join(', ') + '. System requests: all seen while Système was shown.');
+    L.push('');
+    L.push('| Variant | Affichage | Machine | Système | System requests |');
+    L.push('| --- | --- | --- | --- | ---: |');
+    const cell = (s, tab) => (s.limits || []).filter((l) => l.tab === tab).map((l) => l.control + ' ' + (l.need === null ? '—' : l.need)).join(', ');
+    summary.settings.forEach((s) => L.push('| ' + s.tag + ' | ' + cell(s, 'display') + ' | ' + cell(s, 'machine') + ' | ' + cell(s, 'system') + ' | ' + s.requests + ' |'));
+    L.push('');
+  }
   if (summary.v2) {
     const v = summary.v2;
     L.push('## Performance v2 (`v2.json`, `v2-*/`)');
@@ -1774,6 +2113,8 @@ async function main() {
     }
     if (ONLY.includes('responsive')) await responsiveMeasure(cdp, realUrl, simUrl, summary);
     if (ONLY.includes('sim')) { await simMeasure(cdp, simUrl, summary); if (!URL_BASE) { await alarmMeasure(cdp, summary); await jobFileMeasure(cdp, summary); } }
+    // Réglages: the three tabs, their flows and refusals, on the fixture only (every API answered locally).
+    if (ONLY.includes('settings') && !URL_BASE) await settingsMeasure(cdp, realUrl, simUrl, summary);
     // Pause / Arrêter over every overlay, degraded start-up, offline flag (browser-strip.cjs).
     if (ONLY.includes('strip') && !URL_BASE) { await setViewport(cdp, 1366, 768, 1); const list = await require('./browser-strip.cjs').run(cdp, module.exports, { simBase: base, out: path.join(OUT, 'strip'), log }); list.forEach((f) => failures.push(f)); summary.strip = list; }
     if (ONLY.includes('startup')) { await setViewport(cdp, 1366, 768, 1); await measureStartup(cdp, realUrl, summary); }

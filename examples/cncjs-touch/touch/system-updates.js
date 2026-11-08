@@ -40,7 +40,7 @@
   var head = el('div', 'ks-system-row'); head.appendChild(el('h3', '', t('Mises à jour du système'))); box.appendChild(head);
   var summary = el('p', 'ks-updates-summary', '—'); box.appendChild(summary);
   var names = el('p', 'ks-system-note ks-updates-list', ''); names.hidden = true; box.appendChild(names);
-  var reboot = el('p', 'ks-updates-reboot', t('Redémarrage nécessaire pour finir la mise à jour : utilisez « Redémarrer la tablette » (bloc Tablette), hors travail.')); reboot.hidden = true; box.appendChild(reboot);
+  var reboot = el('p', 'ks-updates-reboot', t('Redémarrage nécessaire pour finir la mise à jour : utilisez la commande de redémarrage du bloc Tablette, hors travail.')); reboot.hidden = true; box.appendChild(reboot);
   var tools = el('div', 'ks-wifi-tools');
   var checkButton = el('button', 'ks-secondary ks-updates-check', t('Rechercher les mises à jour')); checkButton.type = 'button'; tools.appendChild(checkButton);
   var installButton = el('button', 't-btn t-btn--primary ks-updates-install', t('Installer les mises à jour')); installButton.type = 'button'; tools.appendChild(installButton);
@@ -106,7 +106,7 @@
     if (!armed) { armed = true; clearTimeout(armTimer); armTimer = setTimeout(disarm, CONFIRM_MS); paint(); return; }
     clearTimeout(armTimer); armTimer = null; armed = false; start('install');
   });
-  window.addEventListener('cnc-settings-tab', function (e) { if (e && e.detail === 'system') load(); else { clearTimeout(pollTimer); pollTimer = null; } });
+  window.addEventListener('cnc-settings-tab', function (e) { if (e && e.detail === 'system') load(); else { clearTimeout(pollTimer); pollTimer = null; if (armed) disarm(); } });
   window.addEventListener('cnc-job-status', function () { if (jobActive()) disarm(); else paint(); });
   document.addEventListener('visibilitychange', function () { if (shown() && running()) load(); });
   if (shown() && !loaded) load();

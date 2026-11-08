@@ -89,6 +89,27 @@ assert.equal(check.disabled, true); assert.equal(install.disabled, true);
 assert.match(text(), /Travail en cours : mise à jour impossible/);
 check.click(); install.click(); assert.equal(requests.length, 0);
 
+// Leaving Système for Machine: the pending confirmation is cancelled and the 3 s follow-up stops.
+state.machine = { workflow: 'idle' }; listeners['cnc-job-status']();
+listeners['cnc-settings-tab']({ detail: 'system' }); answer(requests.pop(), 200, { ...IDLE, checkedAt: at });
+install.click(); assert.equal(install.getAttribute('data-state'), 'armed');
+panel.attrs['data-settings-tab'] = 'machine'; listeners['cnc-settings-tab']({ detail: 'machine' });
+assert.equal(install.getAttribute('data-state'), 'idle', 'no second tap left pending on a hidden tab');
+assert.equal(requests.length, 0);
+panel.attrs['data-settings-tab'] = 'system'; listeners['cnc-settings-tab']({ detail: 'system' });
+answer(requests.pop(), 200, { ...IDLE, running: { action: 'check', since: 3 } });
+panel.attrs['data-settings-tab'] = 'machine'; listeners['cnc-settings-tab']({ detail: 'machine' });
+assert.equal(flush(), 0, 'no follow-up poll on the Machine tab'); assert.equal(requests.length, 0);
+panel.attrs['data-settings-tab'] = 'system';
+// An armed install looks armed (the warning style of the armed Tablette commands), outside the L6 block.
+{
+  const css = fs.readFileSync(path.join(__dirname, 'touch', 'settings-list.css'), 'utf8');
+  const rule = css.indexOf('.ks-ui #screen-settings .ks-updates-install[data-state=armed]{background:var(--warn);color:var(--on-warn)');
+  assert(rule > 0, 'armed install style'); assert(rule < css.indexOf('/* Performance v2 (L6)'), 'armed style not scoped to v2');
+}
+// The restart hint names no command title (titles come from the CNCjs configuration).
+assert.equal(reboot.textContent, 'Redémarrage nécessaire pour finir la mise à jour : utilisez la commande de redémarrage du bloc Tablette, hors travail.');
+
 // Off Linux (or without apt) the server says why; both buttons stay off.
 state.machine = { workflow: 'idle' };
 listeners['cnc-settings-tab']({ detail: 'system' });

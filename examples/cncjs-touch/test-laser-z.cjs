@@ -26,7 +26,9 @@ function setup(values, kind) {
   const zeroText = { nodeType: 3, nodeValue: 'Zéro XYZ' }, probeText = { nodeType: 3, nodeValue: 'Palpage X / Y / Z' };
   const zeroAll = el('BUTTON', '', { 'data-axis': 'xyz' }); zeroAll.childNodes = [{ nodeType: 1, childNodes: [zeroText] }];
   const probe = el('BUTTON', ''); probe.childNodes = [probeText];
-  const machineCard = { insertAdjacentHTML(where, html) { assert.equal(where, 'afterend'); assert.match(html, /id="ks-laser-z-card"/); } };
+  const machineCard = { insertAdjacentHTML(where, html) { assert.equal(where, 'afterend'); assert.match(html, /id="ks-laser-z-card"/);
+    // Scope badge: kept in this browser only.
+    assert.match(html, /<h2>Axe Z du laser <span class="ks-scope" data-scope="tablet">Cette tablette<\/span><\/h2>/); } };
   const select = (sel) => {
     if (sel === '.t-coords > .t-axis') return [axisZ, axisX];
     if (sel === 'tr') return [rowZ, rowX];

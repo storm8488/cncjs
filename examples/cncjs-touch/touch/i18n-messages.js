@@ -233,6 +233,9 @@ window.CNCTouchMessages.push(['Macro fictive « ','Simulated macro “','Macro s
 window.CNCTouchMessages.push([' » exécutée.','” executed.','» ejecutada.']);
 window.CNCTouchMessages.push(['Affichage','Display','Pantalla']);
 window.CNCTouchMessages.push(['Système','System','Sistema']);
+window.CNCTouchMessages.push(['Machine et performances','Machine & performance','Máquina y rendimiento']);
+window.CNCTouchMessages.push(['Actions système','System actions','Acciones del sistema']);
+window.CNCTouchMessages.push(['Machine au repos uniquement · confirmation par un second appui','Machine idle only · confirm with a second tap','Solo con la máquina en reposo · confirmar con un segundo toque']);
 window.CNCTouchMessages.push(['Ordinateur du serveur CNCjs','CNCjs server computer','Ordenador del servidor CNCjs']);
 window.CNCTouchMessages.push(['Processeur','Processor','Procesador']);
 window.CNCTouchMessages.push(['Température','Temperature','Temperatura']);
@@ -267,7 +270,7 @@ window.CNCTouchMessages.push(['Ce serveur CNCjs ne fournit pas les mesures syst�
 window.CNCTouchMessages.push(['Mesures système indisponibles.','System figures unavailable.','Medidas del sistema no disponibles.']);
 window.CNCTouchMessages.push(['Serveur injoignable. Nouvel essai automatique.','Server unreachable. Retrying automatically.','Servidor inaccesible. Nuevo intento automático.']);
 window.CNCTouchMessages.push(['Lecture des mesures…','Reading figures…','Leyendo medidas…']);
-window.CNCTouchMessages.push(['Affichage · veille · système','Display · sleep · system','Pantalla · reposo · sistema']);
+window.CNCTouchMessages.push(['Affichage · machine · système','Display · machine · system','Pantalla · máquina · sistema']);
 window.CNCTouchMessages.push(['Historique · 10 min','History · 10 min','Historial · 10 min']);
 window.CNCTouchMessages.push(['Réseau','Network','Red']);
 window.CNCTouchMessages.push(['Relevé toutes les ','Sampled every ','Medido cada ']);
@@ -316,8 +319,8 @@ window.CNCTouchMessages.push(['Aucun rétroéclairage réglable sur cet ordinate
 window.CNCTouchMessages.push(['Réglage bloqué : CNCjs n’a pas le droit de modifier la luminosité (règle udev à installer, voir README).','Blocked: CNCjs is not allowed to change the brightness (install the udev rule, see README).','Bloqueado: CNCjs no tiene permiso para cambiar el brillo (instale la regla udev, vea el README).']);
 window.CNCTouchMessages.push(['Ce serveur CNCjs ne gère pas la luminosité.','This CNCjs server does not handle brightness.','Este servidor CNCjs no gestiona el brillo.']);
 window.CNCTouchMessages.push(['Luminosité indisponible.','Brightness unavailable.','Brillo no disponible.']);
-window.CNCTouchMessages.push(['Pendant la veille','During screen sleep','Durante el reposo']);
-window.CNCTouchMessages.push(['Luminosité pendant la veille','Brightness during screen sleep','Brillo durante el reposo']);
+window.CNCTouchMessages.push(['Pendant la veille','During screen sleep','Durante la suspensión']);
+window.CNCTouchMessages.push(['Luminosité pendant la veille','Brightness during screen sleep','Brillo durante la suspensión']);
 window.CNCTouchMessages.push(['Écran éteint','Screen off','Pantalla apagada']);
 window.CNCTouchMessages.push(['Luminosité minimale','Minimum brightness','Brillo mínimo']);
 window.CNCTouchMessages.push(['Inchangée','Unchanged','Sin cambios']);

@@ -64,6 +64,18 @@ f.screen('files');f.send(M());f.send(M({workflow:'running'}));assert.deepEqual(f
 f=fixture(JSON.stringify({open:false,lock:true}));assert.equal(f.settings.children[0].children[2].getAttribute('aria-pressed'),'false');
 f=fixture('{broken');assert.equal(f.settings.children[0].children[2].getAttribute('aria-pressed'),'true','unreadable storage: defaults');
 // The two switches of the card sit in rows 1 and 2 of the right column (a shared cell hid one of them).
+// Affichage tab: right after the screen sleep card, the same place in index and simulation; « Cette tablette » badge.
+{
+  const scope=f.settings.children[0].children[0].children[0];
+  assert.equal(scope.className,'ks-scope');assert.equal(scope.getAttribute('data-scope'),'tablet');assert.equal(scope.textContent,'Cette tablette');
+  const {document,node,element}=require('./dom-fixture.cjs').createDOM(['home']);document.body.getAttribute=()=>null;
+  const p=node('screen-settings'),sleep=element('div'),coords=element('div');sleep.className='card ks-display-sleep';coords.className='card ks-display-card';
+  p.appendChild(sleep);p.appendChild(coords);Object.defineProperty(sleep,'nextSibling',{get:()=>p.children[p.children.indexOf(sleep)+1]||null});
+  p.querySelector=sel=>sel==='.ks-display-sleep'?sleep:null;
+  vm.runInNewContext(fs.readFileSync(__dirname+'/touch/job-follow.js','utf8'),{document,window:{cncI18n:{t:s=>s,locale:'fr-FR'},addEventListener(){}},Date,
+    localStorage:{getItem:()=>null,setItem(){}},JSON,Math,Array,Object,String,Number});
+  assert.deepEqual(p.children.map(c=>c.className),['card ks-display-sleep','card ks-display-card ks-job-follow-card','card ks-display-card'],'after the screen sleep card');
+}
 const css=fs.readFileSync(__dirname+'/touch/settings-list.css','utf8');
 assert.match(css,/.ks-job-follow-card>#job-follow-open{grid-row:1}/);assert.match(css,/.ks-job-follow-card>#job-follow-lock{grid-row:2}/);
 for(const name of ['index.html','simulation.html']){

@@ -16,7 +16,7 @@ function fixture(storage=memory()){
  const window={innerWidth:1366,innerHeight:768,addEventListener(n,f){events[n]=f;},dispatchEvent(e){if(events[e.type])events[e.type](e);},
    cncScreenSaver:{configure:n=>sleep.push(n),status:()=>({blocked:false,reason:''}),preview:()=>true}};
  vm.runInNewContext(fs.readFileSync(__dirname+'/touch/display-settings.js','utf8'),{window,document:dom.document,localStorage:storage,Promise,Event:class{constructor(type){this.type=type;}}});
- return {...dom,storage,classes,sleep,sizes,feedback:()=>dom.node('display-feedback').textContent,
+ return {...dom,window,storage,classes,sleep,sizes,feedback:()=>dom.node('display-feedback').textContent,
    delay(n){const select=dom.node('display-sleep-delay');select.value=String(n);select.handlers.change.call(select);}};
 }
 let s=memory(),a=fixture(s);assert.equal(s.writeCount,0);assert.equal(a.sleep.at(-1),5);
@@ -51,4 +51,15 @@ assert.equal(s.writeCount,0);assert.match(a.feedback(),/indisponible/);assert.eq
  c.node('display-clock-toggle').click();assert.equal(JSON.parse(cs.getItem(key)).clock,false);assert(c.classes.has('display-hide-clock'));assert.equal(c.node('display-clock-state').textContent,'Masquée');
  assert(fixture(cs).classes.has('display-hide-clock'),'restored hidden');
  const bad=fixture(memory(JSON.stringify({clock:'yes'})));assert.match(bad.feedback(),/illisibles/);assert(!bad.classes.has('display-hide-clock'));}
+// Tabs (contract §1): intro, then the Machine tab cards (performance, machine kind), then the Affichage tab
+// cards in their order; every card kept in this browser carries the « Cette tablette » badge.
+{const d=fixture(),html=d.node('screen-settings').innerHTML,badge=' <span class="ks-scope" data-scope="tablet">Cette tablette</span></h2>';
+ const order=['ks-panel-intro','id="ks-performance-card"','id="ks-machine-kind-card"','<h2>Thème','<h2>Taille du texte','ks-display-sleep','<h2>Suivi du travail réel','<h2>Horloge','ks-display-fullscreen','ks-display-footer'].map(m=>html.indexOf(m));
+ order.forEach((at,i)=>{assert(at>=0,'marker '+i);if(i)assert(at>order[i-1],'card order at '+i);});
+ ['Thème','Taille du texte','Veille de l’écran','Suivi du travail réel','Horloge','Plein écran','Performances de cette tablette'].forEach(h=>assert(html.includes('<h2>'+h+badge),'badge: '+h));
+ assert(html.includes('<span class="ks-scope" data-scope="server">Serveur CNCjs</span>'),'machine kind stays a server setting');
+ assert(html.includes('<p>La portée est indiquée sur chaque réglage : Cette tablette ou Serveur CNCjs.</p>'),'neutral scope sentence in the intro shared by the three tabs');
+ // « Réglages d’affichage → » (Machine screen) opens the Affichage tab; harmless without the monitor.
+ const entry=d.node('panel').children.find(c=>c.id==='ks-machine-display'),tabs=[];
+ entry.click();d.window.cncSystemMonitor={select:n=>tabs.push(n)};entry.click();assert.deepEqual(tabs,['display']);}
 console.log('PASS: display preference persistence/readback, stale tabs, explicit reset, corrupt/future/partial settings, quota/permission/silent failures; no network or controller API.');

@@ -5,7 +5,7 @@ function setup(language='fr',fail=false){
  dom.document.documentElement={lang:''};dom.document.querySelectorAll=()=>dialogs;
  const window={addEventListener:(n,f)=>events[n]=f,removeEventListener:n=>delete events[n],dispatchEvent:e=>{if(events[e.type])events[e.type](e);},location:{reload:()=>calls.reload++},cncScreenSaver:{status:()=>state}};
  const context={window,document:dom.document,localStorage:{getItem:k=>saved.get(k)||null,setItem:(k,v)=>{if(fail)throw Error('storage disabled');saved.set(k,v);}},Event:class{constructor(type){this.type=type;}}};
- ['i18n-messages.js','i18n.js','language-settings.js'].forEach(name=>vm.runInNewContext(fs.readFileSync(path.join(__dirname,'touch',name),'utf8'),context));
+ ['i18n-messages.js','i18n-messages-profiles.js','i18n.js','language-settings.js'].forEach(name=>vm.runInNewContext(fs.readFileSync(path.join(__dirname,'touch',name),'utf8'),context));
  return {...dom,window,events,state,calls,saved,dialogs};
 }
 for(const language of ['en','es']){
@@ -25,6 +25,16 @@ for(const language of ['en','es']){
  assert.equal(i.html('<button id="Fichiers" data-route="files" title="Fichiers">Fichiers</button>'),language==='en'?'<button id="Fichiers" data-route="files" title="Files">Files</button>':'<button id="Fichiers" data-route="files" title="Archivos">Archivos</button>');
  assert.equal(i.html('<option value="simulation">SIMULATION</option>'),language==='en'?'<option value="simulation">SIMULATION</option>':'<option value="simulation">SIMULACIÓN</option>');
  assert.equal(i.html('<h2>Fichiers'),language==='en'?'<h2>Files':'<h2>Archivos');
+ // Réglages, three tabs: new labels, note, intro and restart message exist in both languages.
+ const en=language==='en';
+ assert.equal(i.t('Affichage'),en?'Display':'Pantalla');assert.equal(i.t('Machine et performances'),en?'Machine & performance':'Máquina y rendimiento');assert.equal(i.t('Système'),en?'System':'Sistema');
+ assert.equal(i.t('Actions système'),en?'System actions':'Acciones del sistema');
+ assert.equal(i.t('Machine au repos uniquement · confirmation par un second appui'),en?'Machine idle only · confirm with a second tap':'Solo con la máquina en reposo · confirmar con un segundo toque');
+ assert.equal(i.t('La portée est indiquée sur chaque réglage : Cette tablette ou Serveur CNCjs.'),en?'Each setting shows its scope: This tablet or CNCjs server.':'Cada ajuste indica su alcance: Esta tableta o Servidor CNCjs.');
+ assert.equal(i.t('Redémarrage nécessaire pour finir la mise à jour : utilisez la commande de redémarrage du bloc Tablette, hors travail.'),en?'Restart needed to finish the update: use the restart command of the Tablet block, outside a job.':'Reinicio necesario para terminar la actualización: use el comando de reinicio del bloque Tableta, fuera de un trabajo.');
+ assert.equal(i.t(' »'),en?'”':'»');
+ assert.equal(i.t('Affichage · machine · système'),en?'Display · machine · system':'Pantalla · máquina · sistema');
+ assert.equal(i.t('Luminosité pendant la veille'),en?'Brightness during screen sleep':'Brillo durante la suspensión');
  const keys=new Set();s.window.CNCTouchMessages.forEach(row=>{const key=row[0].trim().replace(/\s+/g,' ');assert(!keys.has(key),'duplicate: '+row[0]);keys.add(key);assert.equal(row.length,3);row.forEach(value=>assert(typeof value==='string'&&value.length>0));});
  // A translated browser must retain the exact protocol and calculation contracts.
  const runtime={window:s.window};
@@ -40,6 +50,8 @@ for(const language of ['en','es']){
  const C=s.window.CNCCoordinates,result=C.plan({wcs:'G55',workPosition:{x:10},machinePosition:{x:110}},{axis:'x',operation:'shift',unit:'mm',value:'1,5',feed:100});
  assert.equal(result.wcs,'G55');assert.equal(result.targetMachineMm,111.5);assert.equal(result.offsetMm,100);
 }
+// The language confirmation sits in the intro (shown on every tab), not at the end of the panel.
+{const s=setup();assert(s.node('panel').children.some(c=>c.className==='wide language-confirm'),'confirmation in the intro');assert(!s.node('screen-settings').children.length,'nothing appended to the panel');}
 let s=setup('invalid');assert.equal(s.window.cncI18n.language,'fr');assert.equal(s.window.cncI18n.t('Fichiers'),'Fichiers');assert(!s.window.cncI18n.save('de'));assert.equal(s.saved.get('cncjs-touch-language-v1'),'invalid');
 function choose(s,language){s.node('display-language').value=language;s.node('display-language').handlers.change();}
 s=setup();choose(s,'en');assert(!s.node('language-apply').disabled);s.node('language-apply').click();assert.equal(s.saved.get('cncjs-touch-language-v1'),'en');assert.equal(s.calls.reload,1);

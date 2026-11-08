@@ -30,7 +30,7 @@
   // "resume where I was" shortcut plus six tiles, each with a live indicator.
   menu.innerHTML=uiLocale.html('<button type="button" id="ks-resume" class="ks-resume" hidden>')+icon('back')+uiLocale.html('<span class="ks-resume-text"><b id="ks-resume-title"></b><small id="ks-resume-hint"></small></span><span class="ks-resume-go">Ouvrir →</span></button><div class="ks-tiles"></div>');
   main.insertBefore(menu,main.firstChild);
-  var menuLabels={jog:uiLocale.t('Préparer'),home:uiLocale.t('Suivi')},menuHints={jog:uiLocale.t('Déplacer · Origine · Palpage'),files:uiLocale.t('Choisir et charger un parcours'),home:uiLocale.t('Avancement et commandes'),machine:uiLocale.t('État et limites'),history:uiLocale.t('Événements et exports'),settings:uiLocale.t('Affichage · veille · système')};
+  var menuLabels={jog:uiLocale.t('Préparer'),home:uiLocale.t('Suivi')},menuHints={jog:uiLocale.t('Déplacer · Origine · Palpage'),files:uiLocale.t('Choisir et charger un parcours'),home:uiLocale.t('Avancement et commandes'),machine:uiLocale.t('État et limites'),history:uiLocale.t('Événements et exports'),settings:uiLocale.t('Affichage · machine · système')};
   var tileOrder=['home','files','jog','machine','history','settings'],lives={};
   tileOrder.forEach(function(name){
     var b=document.createElement('button');b.type='button';b.className='ks-tile';b.setAttribute('data-ks-tile',name);
@@ -233,7 +233,7 @@
     var toDo=commissioning&&(commissioning.state==='none'||commissioning.state==='progress');
     live('machine',alarm?'danger':toDo?'warn':word.tone,alarm?word.word:toDo?(commissioning.state==='progress'?uiLocale.t('Mise en service en cours'):uiLocale.t('Mise en service à faire')):word.word);
     live('history','',uiLocale.t('Chronologie et export'));
-    live('settings','',uiLocale.t('Affichage · veille · système'));
+    live('settings','',uiLocale.t('Affichage · machine · système'));
     // Machine screen: the state word and the alarm explained.
     setText(machineWord,word.word);if(machineWord.getAttribute('data-tone')!==word.tone)machineWord.setAttribute('data-tone',word.tone);
     var help=alarm?(simulation?{title:uiLocale.t('Alarme fictive'),action:uiLocale.t('Effacez l’alarme ci-contre, puis confirmez la reprise dans Suivi.')}:window.CNCGrblHelp?window.CNCGrblHelp.alarm(m.alarmCode,m.alarmCodeInferred):{title:word.word,action:''}):null;

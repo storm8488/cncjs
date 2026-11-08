@@ -7,7 +7,7 @@
   host.appendChild(control);
   var note=document.createElement('div');note.className='wide language-confirm';note.hidden=true;
   note.innerHTML=i18n.html('<p>Le rechargement efface le journal de cette page et les saisies non enregistrées. Exportez ou enregistrez-les avant de continuer.</p><p id="language-status" role="status"></p><button type="button" id="language-apply" class="ks-secondary">Appliquer et recharger</button>');
-  document.getElementById('screen-settings').appendChild(note);
+  host.appendChild(note);
   var select=document.getElementById('display-language'),apply=document.getElementById('language-apply'),status=document.getElementById('language-status');
   select.value=i18n.language;
   var busy=false,disposed=false;

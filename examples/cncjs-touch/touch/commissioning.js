@@ -384,7 +384,9 @@
     card.appendChild(el('p','ks-help',t('Arrêt d’urgence, fins de course, sonde, prise d’origine, broche et fichier d’essai, étape par étape.')));
     var intro=settingsPanel.querySelector&&settingsPanel.querySelector('.ks-panel-intro');
     var tabs=settingsPanel.querySelector&&settingsPanel.querySelector('.ks-settings-tabs');
-    var anchor=tabs||intro;settingsPanel.insertBefore(card,anchor&&anchor.nextSibling||null);
+    // Machine tab: after the laser Z card, else after the machine kind card; older layouts: after the tabs or intro.
+    var anchor=settingsPanel.querySelector&&(settingsPanel.querySelector('#ks-laser-z-card')||settingsPanel.querySelector('#ks-machine-kind-card'))||tabs||intro;
+    settingsPanel.insertBefore(card,anchor&&anchor.nextSibling||null);
   }
   function settingsCard(){
     var e=entry(port);

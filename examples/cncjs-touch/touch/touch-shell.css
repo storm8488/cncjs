@@ -145,6 +145,8 @@ body.ks-real.display-large{font-size:20px}.ks-real.display-large .screen p,.ks-r
 .ks-settings-tab{flex:0 1 220px;min-height:52px;font:inherit;font-size:18px;color:var(--mute);background:var(--surface);border:1px solid var(--line);border-bottom:3px solid transparent;border-radius:8px;cursor:pointer;touch-action:manipulation}
 .ks-settings-tab[aria-selected=true]{color:var(--fg);background:var(--surface-2);border-bottom-color:var(--accent)}
 #screen-settings[data-settings-tab=system]>:not(.ks-panel-intro):not(.ks-settings-tabs):not(#ks-system){display:none!important}
+#screen-settings[data-settings-tab=machine]>:not(.ks-panel-intro):not(.ks-settings-tabs):not(#ks-performance-card):not(#perf-v2-settings):not(#ks-v2-card):not(#ks-machine-kind-card):not(#ks-laser-z-card):not(.ks-commissioning-card){display:none!important}
+#screen-settings[data-settings-tab=display]>#ks-performance-card,#screen-settings[data-settings-tab=display]>#perf-v2-settings,#screen-settings[data-settings-tab=display]>#ks-v2-card,#screen-settings[data-settings-tab=display]>#ks-machine-kind-card,#screen-settings[data-settings-tab=display]>#ks-laser-z-card,#screen-settings[data-settings-tab=display]>.ks-commissioning-card{display:none!important}
 #screen-settings:not([data-settings-tab=system]) #ks-system{display:none}
 .ks-system-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
 .ks-system-head h2{margin:0!important}.ks-system-status{min-height:20px;color:var(--warn-text);font-size:15px}

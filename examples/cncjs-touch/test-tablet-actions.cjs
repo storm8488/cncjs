@@ -89,6 +89,13 @@ machine={workflow:'idle'};handlers['cnc-job-status']();assert(!upd.disabled);
 
 // Leaving the tab disarms; no session means no list request.
 upd.click();panel.setAttribute('data-settings-tab','display');handlers['cnc-settings-tab']({detail:'display'});assert.equal(upd.getAttribute('data-state'),'idle');
+// The Machine tab too: a pending second tap is cancelled, nothing is posted.
+panel.setAttribute('data-settings-tab','system');handlers['cnc-settings-tab']({detail:'system'});
+const posts=requests.filter(r=>r.method==='POST').length;
+upd.click();assert.equal(upd.getAttribute('data-state'),'armed');
+panel.setAttribute('data-settings-tab','machine');handlers['cnc-settings-tab']({detail:'machine'});assert.equal(upd.getAttribute('data-state'),'idle');
+assert.equal(requests.filter(r=>r.method==='POST').length,posts,'the first tap posted nothing');
+answer('/api/commands',200,{records:[{id:'u1',title:'Mettre à jour l’interface'},{id:'r1',title:'Redémarrer la tablette'}]});
 panel.setAttribute('data-settings-tab','system');token='';handlers['cnc-settings-tab']({detail:'system'});
 assert.match(status.textContent,/Session CNCjs requise/);assert.equal(list.children.length,0);
 // Empty list.

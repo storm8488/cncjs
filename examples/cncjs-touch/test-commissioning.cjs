@@ -144,6 +144,21 @@ const M=(extra)=>Object.assign({port:'/dev/ttyUSB0',fresh:true,workflow:'idle',a
  check.checked=true;check.handlers.change();assert(!confirm.disabled);confirm.click();
  assert.equal(f.data().machines['/dev/ttyUSB0'].status,'skipped');assert.equal(f.screens.at(-1),'menu');
 }
+// Réglages card on the Machine tab: after the laser Z card, else after the machine kind card, else after the tabs (older layouts).
+{
+ function place(names){
+  const dom=createDOM(['menu']);dom.document.body.getAttribute=()=>null;
+  const p=dom.node('screen-settings'),made={};
+  names.forEach(n=>{const e=dom.element('div');e.name=n;made[n]=e;p.appendChild(e);Object.defineProperty(e,'nextSibling',{get:()=>p.children[p.children.indexOf(e)+1]||null});});
+  p.querySelector=sel=>made[{'#ks-laser-z-card':'laser','#ks-machine-kind-card':'kind','.ks-settings-tabs':'tabs','.ks-panel-intro':'intro'}[sel]]||null;
+  vm.runInNewContext(source,{window:{addEventListener(){},cncJobControls:{},cncShell:{go(){}}},document:dom.document,localStorage:{getItem:()=>null,setItem(){}},JSON,Object,Math,Date,String,Number,Promise});
+  return p.children.map(c=>c.name||(/ks-commissioning-card/.test(c.className)?'commissioning':'?'));
+ }
+ assert.deepEqual(place(['intro','tabs','perf','kind','laser','theme']),['intro','tabs','perf','kind','laser','commissioning','theme']);
+ assert.deepEqual(place(['intro','tabs','perf','kind','theme']),['intro','tabs','perf','kind','commissioning','theme'],'no laser Z card: after the machine kind');
+ assert.deepEqual(place(['intro','tabs','theme']),['intro','tabs','commissioning','theme'],'older layout: after the tabs');
+ assert.deepEqual(place(['intro','theme']),['intro','commissioning','theme'],'older layout: after the intro');
+}
 for(const name of ['index.html','simulation.html']){
  const html=fs.readFileSync(__dirname+'/touch/'+name,'utf8');
  if(name==='simulation.html'){assert(!html.includes('commissioning.js'),'real machines only');continue;}

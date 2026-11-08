@@ -14,10 +14,12 @@
   function set(n,value){if(n.textContent!==value)n.textContent=value;}
   function attr(n,name,value){if(n.getAttribute(name)!==value)n.setAttribute(name,value);}
 
-  // Tabs: "Affichage" keeps every existing settings card, "Système" shows only this panel.
+  // Tabs: "Affichage" (this tablet's screen), "Machine et performances" (machine kind, performance,
+  // diagnostic, v2), "Système" (this panel only); touch-shell.css hides the other cards.
+  var TABS=['display','machine','system'];
   var tabs=el('div','ks-settings-tabs');tabs.setAttribute('role','tablist');
-  var tabDisplay=el('button','ks-settings-tab',t('Affichage')),tabSystem=el('button','ks-settings-tab',t('Système'));
-  [tabDisplay,tabSystem].forEach(function(b,i){b.type='button';b.setAttribute('role','tab');b.setAttribute('data-tab',i?'system':'display');tabs.appendChild(b);});
+  var tabDisplay=el('button','ks-settings-tab',t('Affichage')),tabMachine=el('button','ks-settings-tab',t('Machine et performances')),tabSystem=el('button','ks-settings-tab',t('Système'));
+  [tabDisplay,tabMachine,tabSystem].forEach(function(b,i){b.type='button';b.setAttribute('role','tab');b.setAttribute('data-tab',TABS[i]);tabs.appendChild(b);});
   panel.insertBefore(tabs,intro.nextSibling||null);
 
   var section=el('div','card wide ks-system');section.id='ks-system';section.setAttribute('role','tabpanel');
@@ -54,6 +56,9 @@
   var historyNote=el('p','ks-system-note','');historyBox.appendChild(historyNote);grid.appendChild(historyBox);
   var net=tile(t('Réseau')),server=tile(t('Serveur CNCjs'));
   var memBar=bar();mem.box.insertBefore(memBar.box,mem.note);
+  // Host commands (tablet-actions.js, system-updates.js) come under this heading, before the final note.
+  section.appendChild(el('h3','ks-system-actions-head',t('Actions système')));
+  section.appendChild(el('p','ks-help ks-system-actions-note',t('Machine au repos uniquement · confirmation par un second appui')));
   var foot=el('p','ks-help',t('Mesures réelles de l’ordinateur qui exécute CNCjs (serveur CNCjs), pas de cette tablette sauf si CNCjs tourne dessus. Actualisées toutes les 2 s tant que cet onglet est affiché. Aucune commande n’est envoyée à la machine.'));
   section.appendChild(foot);
   panel.appendChild(section);
@@ -179,8 +184,9 @@
     request.send();
   }
   function select(name){
+    if(TABS.indexOf(name)<0)name='display';
     tab=name;attr(panel,'data-settings-tab',name);
-    attr(tabDisplay,'aria-selected',String(name==='display'));attr(tabSystem,'aria-selected',String(name==='system'));
+    attr(tabDisplay,'aria-selected',String(name==='display'));attr(tabMachine,'aria-selected',String(name==='machine'));attr(tabSystem,'aria-selected',String(name==='system'));
     window.dispatchEvent(new CustomEvent('cnc-settings-tab',{detail:name}));
     if(name==='system'){if(!lastData)set(status,t('Lecture des mesures…'));if(!xhr){clearTimeout(timer);timer=null;poll();}}
     else stop();
@@ -191,6 +197,7 @@
   // A tab chosen by the operator starts at its top (Réglages scrolls, see viewport-fit.js).
   function choose(name){select(name);var main=document.querySelector('main');if(main&&main.scrollTop)main.scrollTop=0;}
   tabDisplay.addEventListener('click',function(){choose('display');});
+  tabMachine.addEventListener('click',function(){choose('machine');});
   tabSystem.addEventListener('click',function(){choose('system');});
   window.addEventListener('cnc-screen-change',refresh);
   document.addEventListener('visibilitychange',refresh);

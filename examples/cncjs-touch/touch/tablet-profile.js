@@ -12,7 +12,7 @@
   var t=uiLocale.t;
   var KEY='cncjs-touch-performance-v1',PROFILES=['eco','performance'];
   // Cache key of the advanced scripts (they are not in the pages, so the pages' ?v= does not reach them).
-  var ADVANCED_VERSION='v2k';
+  var ADVANCED_VERSION='v2l';
   function read(){
     // Any failure (storage blocked, bad JSON, unknown value, other version) reads as eco.
     try{

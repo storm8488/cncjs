@@ -24,7 +24,7 @@ const api=window.cncSystemMonitor;
 const live=()=>timers.filter(t=>t.live);
 const fire=()=>{const t=live()[0];assert(t,'a timer is pending');t.live=false;t.f();};
 const answer=(status,data)=>{const r=requests.at(-1);r.status=status;r.responseText=typeof data==='string'?data:JSON.stringify(data);r.onload();};
-const tabs=panel.children[1],[tabDisplay,tabSystem]=tabs.children,section=panel.children.at(-1);
+const tabs=panel.children[1],[tabDisplay,tabMachine,tabSystem]=tabs.children,section=panel.children.at(-1);
 const text=n=>n.textContent;
 const all=n=>[n,...n.querySelectorAll('*')];
 const byClass=cls=>all(section).filter(n=>(' '+(n.className||'')+' ').includes(' '+cls+' '));
@@ -32,8 +32,23 @@ const status=()=>text(byClass('ks-system-status')[0]);
 
 assert.equal(tabs.className,'ks-settings-tabs');assert.equal(section.id,'ks-system');
 assert.equal(panel.getAttribute('data-settings-tab'),'display');assert.equal(tabDisplay.getAttribute('aria-selected'),'true');
+// Three tabs, in this order; each one carries aria-selected.
+assert.equal(tabs.children.length,3);
+assert.deepEqual(tabs.children.map(b=>b.getAttribute('data-tab')),['display','machine','system']);
+assert.deepEqual(tabs.children.map(b=>text(b)),['Affichage','Machine et performances','Système']);
+const selected=()=>tabs.children.map(b=>b.getAttribute('aria-selected'));
+assert.deepEqual(selected(),['true','false','false']);
+// System actions: heading and note between the figures and the final note (tablet-actions and
+// system-updates insert before that last child, so they land under the heading).
+const kids=section.children.map(n=>n.className);
+assert.deepEqual(kids.slice(-3),['ks-system-actions-head','ks-help ks-system-actions-note','ks-help']);
+assert.equal(section.children.at(-3).tagName,'H3');
+assert.equal(text(section.children.at(-3)),'Actions système');
+assert.equal(text(section.children.at(-2)),'Machine au repos uniquement · confirmation par un second appui');
+assert(kids.indexOf('ks-system-grid')<kids.indexOf('ks-system-actions-head'),'heading after the figures');
 // Display tab, or system tab on a screen that is not shown: no request at all.
 tabSystem.click();assert.equal(panel.getAttribute('data-settings-tab'),'system');assert.equal(requests.length,0,'settings screen not active');
+assert.deepEqual(selected(),['false','false','true']);
 assert(resizes>=2,'tab changes ask viewport-fit to refit');
 activeScreens.clear();activeScreens.add('settings');handlers['cnc-screen-change']();
 assert.equal(requests.length,1);const first=requests[0];
@@ -71,6 +86,17 @@ fire();assert.equal(requests.length,2);const before=stats.writes;answer(200,samp
 fire();answer(200,{...sample,cores:[50,50]});assert.equal(byClass('ks-core').length,2);
 // Leaving the tab aborts the request in flight and stops the timer.
 fire();const inflight=requests.at(-1);tabDisplay.click();assert(inflight.aborted);assert.equal(live().length,0);assert.equal(api.state().polling,false);
+// The Machine tab polls nothing either, and leaving Système for it stops the poll.
+tabSystem.click();answer(200,sample);assert.equal(live().length,1);
+const seen=requests.length,events=[];window.dispatchEvent=e=>{if(e.type==='resize')resizes++;else events.push(e.detail);};
+tabMachine.click();assert.equal(panel.getAttribute('data-settings-tab'),'machine');assert.deepEqual(selected(),['false','true','false']);
+assert.equal(live().length,0);assert.equal(api.state().polling,false);assert.equal(api.state().tab,'machine');
+handlers['cnc-screen-change']();document.hidden=false;document.handlers.visibilitychange();assert.equal(requests.length,seen,'no request on the Machine tab');
+// An unknown value falls back to Affichage.
+api.select('wifi');assert.equal(api.state().tab,'display');assert.equal(panel.getAttribute('data-settings-tab'),'display');assert.deepEqual(selected(),['true','false','false']);
+api.select(undefined);assert.equal(api.state().tab,'display');
+assert.deepEqual(events,['machine','display','display'],'cnc-settings-tab carries the bounded value');
+assert.equal(requests.length,seen);
 // A hidden page stops polling; visible again resumes at once.
 tabSystem.click();const n=requests.length;answer(200,sample);document.hidden=true;handlers['cnc-screen-change']();assert.equal(live().length,0);
 document.hidden=false;document.handlers.visibilitychange();assert.equal(requests.length,n+1);

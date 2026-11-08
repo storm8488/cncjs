@@ -19,7 +19,8 @@
   var settings=document.getElementById('screen-settings'),toggles={};
   if(settings){
     var card=el('div','card ks-display-card ks-job-follow-card');
-    card.appendChild(el('h2','',''));card.lastChild.textContent=t('Pendant un travail');
+    card.appendChild(el('h2','',''));card.lastChild.textContent=t('Pendant un travail')+' ';
+    var scope=el('span','ks-scope');scope.setAttribute('data-scope','tablet');scope.textContent=t('Cette tablette');card.lastChild.appendChild(scope);
     var help=el('p','');help.textContent=t('Ce qui se passe au démarrage d’un travail, même lancé depuis le PC.');card.appendChild(help);
     [['open',t('Ouvrir le Suivi')],['lock',t('Verrouiller l’écran')]].forEach(function(pair){
       var b=el('button','ks-display-toggle','job-follow-'+pair[0]);b.type='button';
@@ -27,8 +28,9 @@
       b.addEventListener('click',function(){prefs[pair[0]]=!prefs[pair[0]];save();paintSettings();});
       toggles[pair[0]]=b;card.appendChild(b);
     });
-    var intro=settings.querySelector&&settings.querySelector('.ks-commissioning-card');
-    settings.insertBefore(card,intro&&intro.nextSibling||null);
+    // Right after the screen sleep card (Affichage tab), the same place in index and simulation.
+    var sleep=settings.querySelector&&settings.querySelector('.ks-display-sleep');
+    settings.insertBefore(card,sleep&&sleep.nextSibling||null);
   }
   function paintSettings(){
     Object.keys(toggles).forEach(function(k){

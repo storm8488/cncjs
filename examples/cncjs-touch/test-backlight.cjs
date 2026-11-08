@@ -92,6 +92,14 @@ select.value='bogus';select.handlers.change();assert.deepEqual(JSON.parse(storag
 // A read-only panel is left alone.
 select.value='off';select.handlers.change();handlers['cnc-screen-change']();answer(200,{available:true,writable:false,percent:60});
 mark=requests.length;saver(true);assert.equal(requests.length,mark);
+// Affichage tab: the card goes just before the screen sleep card (the footer is only the fallback above).
+{
+  const d=require('./dom-fixture.cjs').createDOM(['menu']),p=d.node('screen-settings'),sleep=d.element('div'),foot=d.element('div');
+  sleep.className='card ks-display-sleep';foot.className='wide ks-display-footer';p.appendChild(sleep);p.appendChild(foot);
+  p.querySelector=sel=>sel==='.ks-display-sleep'?sleep:sel==='.ks-display-footer'?foot:null;
+  vm.runInNewContext(fs.readFileSync(__dirname+'/touch/backlight.js','utf8'),{...context,document:d.document,window:{addEventListener(){},cncState:window.cncState}});
+  assert.deepEqual(p.children.map(c=>c.id||c.className),['ks-backlight','card ks-display-sleep','wide ks-display-footer'],'brightness before the screen sleep card');
+}
 for(const name of ['index.html','simulation.html']){
   const html=fs.readFileSync(__dirname+'/touch/'+name,'utf8');
   assert.equal((html.match(/src="backlight\.js/g)||[]).length,1);

@@ -33,12 +33,13 @@
   [['off',t('Écran éteint')],['min',t('Luminosité minimale')],['keep',t('Inchangée')]].forEach(function(o){var opt=el('option','',o[1]);opt.value=o[0];sleepSelect.appendChild(opt);});
   sleepSelect.value=mode;sleepRow.appendChild(sleepSelect);card.appendChild(sleepRow);
   var status=el('p','ks-help ks-backlight-status','');status.setAttribute('role','status');card.appendChild(status);
-  var footer=panel.querySelector('.ks-display-footer');panel.insertBefore(card,footer||null);
+  // Just before the screen sleep card (Affichage tab); older layouts: before the footer.
+  var anchor=panel.querySelector('.ks-display-sleep')||panel.querySelector('.ks-display-footer');panel.insertBefore(card,anchor||null);
 
   var state=null,inflight=null,pending=null,loading=null,disposed=false;
   function token(){try{return JSON.parse(localStorage.getItem('cnc')).state.session.token||'';}catch(_){return '';}}
   function apiBase(){try{return window.cncState.get().apiBase;}catch(_){return '/api';}}
-  function shown(){return !disposed&&!document.hidden&&panel.classList.contains('active');}
+  function shown(){var tab=panel.getAttribute('data-settings-tab');return !disposed&&!document.hidden&&panel.classList.contains('active')&&(!tab||tab==='display');}
   function request(method,body,done){
     var credential=token();if(!credential){done(401,null);return null;}
     var x=new XMLHttpRequest();x.open(method,apiBase()+'/touch-backlight',true);x.timeout=5000;

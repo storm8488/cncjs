@@ -64,7 +64,8 @@
   [formTitle, ssidLabel, ssidInput, label, row, keyboard, actions].forEach(function (n) { form.appendChild(n); }); box.appendChild(form);
   var status = el('p', 'ks-system-note', ''); status.setAttribute('role', 'status'); box.appendChild(status);
   box.appendChild(el('p', 'ks-system-note', t('Réseau de l’ordinateur du serveur CNCjs (cette tablette en mode kiosque). Changer de réseau coupe la liaison quelques secondes : refusé pendant un travail. Le mot de passe est enregistré par le système, pas par cette page.')));
-  var foot = section.lastChild; section.insertBefore(box, foot || null);
+  // First block of Système, under the host status line (stale data, session); test fixtures: before the last child.
+  var anchor = (section.querySelector && section.querySelector('.ks-system-grid')) || section.lastChild; section.insertBefore(box, anchor || null);
 
   // ---- On-screen keyboard: AZERTY letters, then digits and symbols ----
   var LETTERS = ['azertyuiop', 'qsdfghjklm', 'wxcvbn'], SYMBOLS = ['1234567890', '@#$%&*-_+=', '!?.,;:\'"/\\', '()[]{}<>~|^`'];
@@ -114,7 +115,7 @@
   function message(code, data, fallback) { return data && data.message ? data.message : code === 0 ? t('Serveur CNCjs injoignable.') : code === 401 || (code === 403 && !data) ? t('Session CNCjs requise : ouvrez CNCjs et connectez-vous.') : fallback; }
   function showCurrent(data) {
     if (!data || data.available === false) { set(current, data && data.reason ? data.reason : t('Wi-Fi indisponible.')); return; }
-    set(current, data.ssid ? t('Connecté à « ') + data.ssid + ' »' + (data.signal !== null && data.signal !== undefined ? ' · ' + data.signal + ' %' : '') : t('Aucun réseau Wi-Fi connecté.'));
+    set(current, data.ssid ? t('Connecté à « ') + data.ssid + t(' »') + (data.signal !== null && data.signal !== undefined ? ' · ' + data.signal + ' %' : '') : t('Aucun réseau Wi-Fi connecté.'));
   }
   function load() {
     request('GET', undefined, 10000, function (code, data) {
@@ -134,7 +135,7 @@
     form.hidden = false; disable();
   }
   function choose(net) {
-    set(formTitle, t('Réseau « ') + net.ssid + ' »' + (net.saved ? t(' · enregistré : laissez vide pour utiliser le mot de passe connu') : net.secure ? '' : t(' · réseau ouvert, sans mot de passe')));
+    set(formTitle, t('Réseau « ') + net.ssid + t(' »') + (net.saved ? t(' · enregistré : laissez vide pour utiliser le mot de passe connu') : net.secure ? '' : t(' · réseau ouvert, sans mot de passe')));
     openForm(net);
   }
   hiddenButton.addEventListener('click', function () {
@@ -188,7 +189,7 @@
   forget.addEventListener('click', function () {
     if (!chosen || !chosen.saved || chosen.inUse || busy || jobActive()) return;
     var ssid = chosen.ssid;
-    busy = true; disable(); set(status, t('Oubli du réseau « ') + ssid + ' »…');
+    busy = true; disable(); set(status, t('Oubli du réseau « ') + ssid + t(' »…'));
     request('POST', { action: 'forget', ssid: ssid }, 15000, function (code, data) {
       busy = false;
       if (code === 200) {

@@ -11,7 +11,7 @@ function el(tag) {
     get textContent() { return this._text + this.children.map((c) => c.textContent).join(''); },
     set textContent(v) { this._text = String(v); this.children.forEach((c) => { c.parentNode = null; }); this.children = []; },
     appendChild(c) { c.parentNode = n; n.children.push(c); return c; },
-    insertBefore(c) { c.parentNode = n; n.children.push(c); return c; },
+    insertBefore(c, ref) { c.parentNode = n; const i = ref ? n.children.indexOf(ref) : -1; if (i < 0) n.children.push(c); else n.children.splice(i, 0, c); return c; },
     setAttribute(k, v) { n.attrs[k] = String(v); }, getAttribute(k) { return k in n.attrs ? n.attrs[k] : null; },
     addEventListener(t, f) { n.handlers[t] = f; }, click() { if (n.handlers.click) n.handlers.click(); }, focus() {},
     querySelectorAll(sel) { const out = []; const walk = (x) => x.children.forEach((c) => { if (sel === 'button' && c.tagName === 'BUTTON') out.push(c); walk(c); }); walk(n); return out; },
@@ -21,11 +21,14 @@ function el(tag) {
 }
 function find(root, pred) { let hit = null; const walk = (x) => x.children.forEach((c) => { if (!hit && pred(c)) hit = c; walk(c); }); walk(root); return hit; }
 
-function setup(state) {
+function setup(state, filled, t) {
   const section = el('div'), panel = el('section'), requests = [], listeners = {};
+  // The real Système panel (system-monitor.js): head, status, grid, actions heading and note, final note.
+  if (filled) ['ks-system-head', 'ks-system-status', 'ks-system-grid', 'ks-system-actions-head', 'ks-help ks-system-actions-note', 'ks-help'].forEach((c) => { const n = el('div'); n.className = c; section.appendChild(n); });
+  if (filled) section.querySelector = (sel) => section.children.find((c) => sel === '.' + c.className) || null;
   panel.attrs['data-settings-tab'] = 'system';
   const document = { hidden: false, createElement: el, getElementById: (id) => (id === 'ks-system' ? section : id === 'screen-settings' ? panel : null) };
-  const window = { addEventListener: (n, f) => { listeners[n] = f; }, cncI18n: { t: (s) => s }, cncState: { get: () => ({ apiBase: '/api', machine: state.machine }) } };
+  const window = { addEventListener: (n, f) => { listeners[n] = f; }, cncI18n: { t: t || ((s) => s) }, cncState: { get: () => ({ apiBase: '/api', machine: state.machine }) } };
   function XMLHttpRequest() { this.headers = {}; }
   XMLHttpRequest.prototype.open = function (m, u) { this.method = m; this.url = u; };
   XMLHttpRequest.prototype.setRequestHeader = function (k, v) { this.headers[k] = v; };
@@ -33,9 +36,29 @@ function setup(state) {
   const answer = (x, status, data) => { x.status = status; x.responseText = JSON.stringify(data); x.onload(); };
   const localStorage = { getItem: () => JSON.stringify({ state: { session: { token: 'tok' } } }) };
   vm.runInNewContext(source, { window, document, XMLHttpRequest, localStorage, JSON, setTimeout: (f) => f(), Array });
-  const box = section.children[0];
+  const box = filled ? section.children.find((c) => c.className === 'ks-system-block ks-wifi') : section.children[0];
   const by = (text) => find(box, (c) => c.tagName === 'BUTTON' && c.textContent === text);
-  return { box, requests, answer, listeners, by, find: (pred) => find(box, pred), window };
+  return { box, section, requests, answer, listeners, by, find: (pred) => find(box, pred), window };
+}
+
+// Place: first block of Système, under the host status line and above the figures.
+{
+  const p = setup({ machine: { workflow: 'idle' } }, true);
+  assert.deepEqual(p.section.children.map((c) => c.className), ['ks-system-head', 'ks-system-status', 'ks-system-block ks-wifi', 'ks-system-grid', 'ks-system-actions-head', 'ks-help ks-system-actions-note', 'ks-help']);
+}
+// Spanish: both guillemets come from the catalog, with no French spacing (« Conectado a «Atelier» »).
+{
+  const rows = {}; const sandbox = { window: { CNCTouchMessages: [] } };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'touch', 'i18n-messages-profiles.js'), 'utf8'), sandbox);
+  sandbox.window.CNCTouchMessages.forEach((r) => { rows[r[0]] = r[2]; });
+  const p = setup({ machine: { workflow: 'idle' } }, false, (s) => (s in rows ? rows[s] : s));
+  p.listeners['cnc-settings-tab']({ detail: 'system' });
+  while (p.requests.length) p.answer(p.requests.pop(), 200, { available: true, ssid: 'Atelier', signal: 78, saved: [] });
+  assert.match(p.box.textContent, /Conectado a «Atelier» · 78 %/);
+  p.find((c) => c.tagName === 'BUTTON' && /ks-wifi-scan/.test(c.className)).click();
+  p.answer(p.requests.pop(), 200, { networks: [{ ssid: 'Livebox-7A2C', signal: 44, secure: true, inUse: false, saved: false }] });
+  p.find((c) => c.tagName === 'BUTTON' && c.textContent.indexOf('Livebox-7A2C') === 0).click();
+  assert.match(p.box.textContent, /Red «Livebox-7A2C»/);
 }
 
 const state = { machine: { workflow: 'idle' } };
