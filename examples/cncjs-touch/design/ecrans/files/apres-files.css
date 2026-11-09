@@ -1,0 +1,18 @@
+/* Maquette lot Fichiers (phase 3) : règles APRÈS, chargées après toutes les feuilles de touch/.
+ * Chaque bloc renvoie au point du plan retenu ; l'implémentation les place dans le fichier indiqué. */
+
+/* 2 · responsive.css:36 : le collant passe du conteneur au bouton actif. */
+body.ks-ui #screen-files .library-execution>.job-buttons{position:static}
+body.ks-ui #screen-files .library-execution #job-load:not(:disabled){position:sticky;bottom:0;z-index:2}
+
+/* 3 · ui-2027.css:287 : le nom devient un bloc, l'ellipse s'applique avant le badge. */
+.ks-ui #screen-files .library-file strong{display:block;max-width:100%}
+
+/* 4 · preview-3d.css:4 : plus de fond fixe, la barre reprend le fond de .t-seg (var(--surface)). */
+.ks-ui .pv3d-views{background:var(--surface)}
+
+/* 5 · responsive.css:156 : le statut sous l'aperçu prend les couleurs de carte. */
+body.ks-ui .pv3d-status.pv3d-status--below{background:var(--surface-2);color:var(--fg)}
+
+/* 7 · shared-library.css (après les règles perf-v2) : le badge peut passer à la ligne. */
+body.ks-ui.perf-v2 #screen-files .library-file .library-file-state{white-space:normal;line-height:1.3;max-width:100%}
