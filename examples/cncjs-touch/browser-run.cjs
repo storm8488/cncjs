@@ -1661,11 +1661,12 @@ const SCREENS_READY = {
   alarm: 'm&&/^Alarm/.test(m.activeState||"")'
 };
 const SCREENS_VARIANTS = [
-  { id: 'v1-768-fr-sombre-laser', v2: false, w: 1366, h: 768, lang: 'fr', theme: 'dark', size: 'standard', kind: 'laser' },
+  // firstStart (lot Menu, M9): no remembered screen, as at the kiosk's first start: the Menu at rest has no resume bar.
+  { id: 'v1-768-fr-sombre-laser', v2: false, w: 1366, h: 768, lang: 'fr', theme: 'dark', size: 'standard', kind: 'laser', firstStart: true },
   { id: 'v1-768-es-clair-laser', v2: false, w: 1366, h: 768, lang: 'es', theme: 'light', size: 'standard', kind: 'laser' },
   { id: 'v1-768-es-clair-laser-agrandi', v2: false, w: 1366, h: 768, lang: 'es', theme: 'light', size: 'large', kind: 'laser', states: ['idle', 'running', 'alarm'] },
   { id: 'v1-768-fr-clair-cnc', v2: false, w: 1366, h: 768, lang: 'fr', theme: 'light', size: 'standard', kind: 'cnc', states: ['idle', 'running', 'paused'] },
-  { id: 'v2-911-fr-sombre-cnc', v2: true, w: 1366, h: 911, lang: 'fr', theme: 'dark', size: 'standard', kind: 'cnc' },
+  { id: 'v2-911-fr-sombre-cnc', v2: true, w: 1366, h: 911, lang: 'fr', theme: 'dark', size: 'standard', kind: 'cnc', firstStart: true },
   { id: 'v2-911-es-clair-cnc', v2: true, w: 1366, h: 911, lang: 'es', theme: 'light', size: 'standard', kind: 'cnc' },
   { id: 'v2-911-es-sombre-cnc-agrandi', v2: true, w: 1366, h: 911, lang: 'es', theme: 'dark', size: 'large', kind: 'cnc', states: ['idle', 'running', 'alarm'] },
   // Lot jog (review): French large text too, for Préparer and its probe screens and real-move panel only (screens).
@@ -1703,6 +1704,17 @@ const SCREENS_SHY = '(function(){var out=[],a=document.querySelector("main .scre
 const SCREENS_CLIP = '(function(){var a=document.querySelector("main .screen.active"),out=[];if(!a)return out;[].forEach.call(a.querySelectorAll(".card>*"),function(el){if(!el.getClientRects().length)return;var r=el.getBoundingClientRect();if(!r.width||!r.height)return;' +
   'for(var p=el.parentElement;p&&p!==document.body;p=p.parentElement){var cs=getComputedStyle(p);if(cs.overflowX==="visible"&&cs.overflowY==="visible")continue;var b=p.getBoundingClientRect();' +
   'if(r.bottom>b.bottom+0.5||r.right>b.right+0.5){out.push({text:(el.textContent||"").replace(/\\s+/g," ").trim().slice(0,60),tag:el.tagName.toLowerCase(),id:el.id||null,by:p.id?"#"+p.id:"."+String(p.className).split(" ")[0],out:Math.round(Math.max(r.bottom-b.bottom,r.right-b.right)*10)/10});break;}}});return out;})()';
+// Lot Menu (M1, M9): on the Menu, the label and value of each strip cell lie inside the information zone (a cell
+// clipped by the zone showed « F » or « MÁQU », which the own-width truncation check does not see), and the tiles
+// fill the screen down to its bottom with or without the resume bar (first start: tiles of 192 px over half of it).
+const SCREENS_MENU = '(function(){var out={stripClip:[],resume:null,tiles:[],screenBottom:null};var z=document.querySelector("#real-banner>.t-vitals,#simulation-banner>.t-vitals");' +
+  'if(z&&z.getClientRects().length&&getComputedStyle(z).visibility!=="hidden"){var zr=z.getBoundingClientRect();[].forEach.call(z.querySelectorAll(".t-vital>span,.t-vital>b"),function(el){if(!el.getClientRects().length)return;var r=el.getBoundingClientRect();if(!r.width)return;' +
+  'if(r.right>zr.right+0.5||r.left<zr.left-0.5||r.bottom>zr.bottom+0.5||r.top<zr.top-0.5)out.stripClip.push({text:(el.textContent||"").trim().slice(0,40),id:el.id||null,out:Math.round(Math.max(r.right-zr.right,zr.left-r.left,r.bottom-zr.bottom,zr.top-r.top)*10)/10});});}' +
+  'var s=document.getElementById("screen-menu"),bar=document.getElementById("ks-resume");if(s){var sr=s.getBoundingClientRect();out.screenBottom=Math.round(sr.bottom*10)/10;out.resume=!!(bar&&bar.getClientRects().length);' +
+  'var g=s.querySelector(".ks-tiles"),gr=g&&g.getClientRects().length?g.getBoundingClientRect():null,br=out.resume?bar.getBoundingClientRect():null;out.gridTop=gr?Math.round(gr.top*10)/10:null;out.resumeBottom=br?Math.round(br.bottom*10)/10:null;out.screenTop=Math.round((sr.top+parseFloat(getComputedStyle(s).paddingTop||"0"))*10)/10;' +
+  'out.tiles=[].filter.call(s.querySelectorAll(".ks-tile"),function(t){return t.getClientRects().length&&getComputedStyle(t).visibility!=="hidden";}).map(function(t){var r=t.getBoundingClientRect();return {tile:t.getAttribute("data-ks-tile"),y:Math.round(r.top*10)/10,h:Math.round(r.height*10)/10,bottom:Math.round(r.bottom*10)/10};});}' +
+  // Strip machine buttons (lot Menu, review): a button the page does not hide must be drawn (no stylesheet may hide it).
+  'out.buttons=["t-pause","t-stop","t-resume","t-unlock"].map(function(id){var b=document.getElementById(id);if(!b)return {id:id,missing:true};var cs=getComputedStyle(b);return {id:id,hidden:b.hidden,disabled:b.disabled,drawn:!!b.getClientRects().length&&cs.visibility!=="hidden"&&parseFloat(cs.opacity)>0};});return out;})()';
 async function screensCapture(cdp, dirName, name, label, tag, page, results, opts) {
   const dir = path.join(OUT, dirName), o = opts || {};
   fs.mkdirSync(dir, { recursive: true });
@@ -1716,12 +1728,12 @@ async function screensCapture(cdp, dirName, name, label, tag, page, results, opt
     // Préparer (lot jog): top of the first visible cross button, « Cotes » reachable, soft-hyphen breaks.
     const jogTarget = data.targets.find((t) => t.kind === 'jog'), cotes = data.targets.find((t) => t.id === 'pv2-cotes-toggle');
     const jog = name === 'jog' ? { top: jogTarget ? jogTarget.y : null, cotes: cotes ? cotes.reachable : null } : null;
-    const shy = await cdp.evaluate(SCREENS_SHY), cardClip = /^probe/.test(name) ? await cdp.evaluate(SCREENS_CLIP) : null;
-    fs.writeFileSync(path.join(dir, name + '.json'), JSON.stringify(Object.assign(data, { screen: name, label, variant: tag, page, overlapsText: overlaps, journal, jog, softHyphenBreaks: shy, cardClip }), null, 1));
+    const shy = await cdp.evaluate(SCREENS_SHY), cardClip = /^probe/.test(name) ? await cdp.evaluate(SCREENS_CLIP) : null, menu = name === 'menu' ? await cdp.evaluate(SCREENS_MENU) : null;
+    fs.writeFileSync(path.join(dir, name + '.json'), JSON.stringify(Object.assign(data, { screen: name, label, variant: tag, page, overlapsText: overlaps, journal, jog, softHyphenBreaks: shy, cardClip, menu }), null, 1));
     await screenshot(cdp, path.join(dir, name + '.png'));
     const below = data.targets.filter((t) => t.belowGoal), unreachable = data.targets.filter((t) => !t.reachable), fonts = data.targets.map((t) => t.fontPx);
     results.push({ screen: name, label, targets: data.targets.length, below, small: data.smallText, textTargets: data.targets.filter((t) => t.textBelowGoal), gaps: data.targets.filter((t) => t.gapBelowGoal), unreachable, truncated: data.truncated,
-      overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, scrolls: data.scrolls, fontStats: { min: fonts.length ? Math.min(...fonts) : null, median: median(fonts), max: fonts.length ? Math.max(...fonts) : null }, textFit: textFitOf(data), railScroll: data.railScroll, overlapsText: overlaps, journal, jog, softHyphenBreaks: shy, cardClip });
+      overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, scrolls: data.scrolls, fontStats: { min: fonts.length ? Math.min(...fonts) : null, median: median(fonts), max: fonts.length ? Math.max(...fonts) : null }, textFit: textFitOf(data), railScroll: data.railScroll, overlapsText: overlaps, journal, jog, softHyphenBreaks: shy, cardClip, menu });
   } catch (e) { failures.push(tag + ' ' + label + ': ' + e.message); log('FAIL ' + tag + ' ' + label + ': ' + e.message); results.push({ screen: name, label, error: e.message }); }
 }
 // Source Serveur of the Journal (lot Journal): the real button, with an in-page fake XMLHttpRequest installed only
@@ -1846,6 +1858,7 @@ async function screensVariant(cdp, fx, v, summary, out) {
     await setViewport(cdp, v.w, v.h, 1);
     await v2Storage(cdp, fx.base, { profile: v.v2 ? 'performance' : 'eco', v2: { version: 1, enabled: !!v.v2 }, kind: null });
     await settingsStorage(cdp, { lang: v.lang, size: v.size, theme: v.theme });
+    if (v.firstStart) await cdp.evaluate('localStorage.removeItem("cncjs-touch-last-screen");true');
     await v2Open(cdp, fx.base + 'index.html?screens=' + v.id, v.v2);
     for (const [stateId, phase] of states) {
       const tag = 'screens ' + v.id + ' ' + stateId, results = [];
@@ -1858,6 +1871,9 @@ async function screensVariant(cdp, fx, v, summary, out) {
         info.states[stateId] = page;
         if (page.lang !== v.lang || page.theme !== v.theme || page.large !== (v.size === 'large') || page.perfV2 !== v.v2 || page.kind !== v.kind) failures.push(tag + ': page shown as ' + JSON.stringify(page) + ', expected ' + JSON.stringify({ lang: v.lang, theme: v.theme, size: v.size, v2: v.v2, kind: v.kind }));
         for (const [name, label] of SCREENS_OF_STATES.filter(([n]) => !v.screens || v.screens.indexOf(n) >= 0)) await screensCapture(cdp, 'screens-' + name + '-' + v.id + '-' + stateId, name, label, tag, page, results);
+        // Lot Menu: the first-start fixture really measures the Menu without its resume bar.
+        const menuResult = results.find((r) => r.screen === 'menu' && r.menu);
+        if (v.firstStart && phase === 'idle' && (!menuResult || menuResult.menu.resume !== false)) failures.push(tag + ': Menu, first start measured with a resume bar (' + (menuResult ? menuResult.menu.resume : 'no measure') + ')');
         // Lot jog: the cross stays in place between states (O3), « Cotes » of the v2 bar is reachable (O1).
         const jogResult = results.find((r) => r.screen === 'jog' && r.jog);
         if (jogResult) {
@@ -2264,6 +2280,26 @@ function strictCheck(summary, exceptionList) {
       if (r.screen === 'machine' && /^screens /.test(m.variant) && r.scrolls) add(Object.assign({ check: 'machine-scroll', label: r.label, detail: 'Machine scrolls (data-fit-overflow)' }, base));
       // Lot jog (review): the probe screens of Préparer fit their window and cut nothing inside a card.
       if (/^probe/.test(r.screen) && /^screens /.test(m.variant) && r.scrolls) add(Object.assign({ check: 'probe-scroll', label: r.label, detail: 'probe screen scrolls (data-fit-overflow)' }, base));
+      // Lot Menu: no strip cell clipped by the information zone; the tiles reach the bottom of the Menu (16 px padding
+      // of main aside), with or without the resume bar.
+      if (r.menu) {
+        for (const c of r.menu.stripClip) add(Object.assign({ check: 'strip-clip', label: c.id ? '#' + c.id : c.text, detail: '« ' + c.text + ' » cut by the strip information zone (' + c.out + ' px)' }, base));
+        // Six tiles on two rows of equal height that share the space: the first row starts under the resume bar
+        // (or at the top of the Menu without it), the rows are one gap apart, the last ends at the bottom.
+        const tiles = r.menu.tiles, bar = r.menu.resume ? 'shown' : 'hidden', tileFail = (d) => add(Object.assign({ check: 'menu-tiles', label: 'tiles', detail: d + ' (resume bar ' + bar + ')' }, base));
+        const tops = [...new Set(tiles.map((t) => Math.round(t.y)))].sort((a, b) => a - b), heights = tiles.map((t) => t.h);
+        if (tiles.length !== 6) tileFail(tiles.length + ' visible tiles instead of 6');
+        else if (tops.length !== 2) tileFail('tiles on ' + tops.length + ' rows instead of 2');
+        else {
+          const last = Math.max(...tiles.map((t) => t.bottom)), firstBottom = Math.max(...tiles.filter((t) => Math.round(t.y) === tops[0]).map((t) => t.bottom));
+          const above = r.menu.resume ? r.menu.resumeBottom : r.menu.screenTop;
+          if (Math.max(...heights) - Math.min(...heights) > 2) tileFail('tile heights differ (' + Math.min(...heights) + ' to ' + Math.max(...heights) + ' px)');
+          if (r.menu.screenBottom - last > 24) tileFail('tiles end ' + Math.round(r.menu.screenBottom - last) + ' px above the bottom of the Menu');
+          if (tops[1] - firstBottom > 24) tileFail(Math.round(tops[1] - firstBottom) + ' px between the two rows');
+          if (above !== null && tops[0] - above > 24) tileFail('first row ' + Math.round(tops[0] - above) + ' px under ' + (r.menu.resume ? 'the resume bar' : 'the top of the Menu'));
+        }
+        for (const b of r.menu.buttons || []) if (!b.missing && !b.hidden && !b.drawn) add(Object.assign({ check: 'strip-button', label: '#' + b.id, detail: 'shown by the page (hidden=false) but not drawn: a stylesheet hides it' }, base));
+      }
       for (const c of r.cardClip || []) add(Object.assign({ check: 'card-clip', label: c.id ? '#' + c.id : c.text || c.tag, detail: c.tag + ' cut by ' + c.by + ' (' + c.out + ' px)' }, base));
       if (r.railScroll) add(Object.assign({ check: 'rail-scroll', label: 'rail', detail: 'rail scrolls horizontally (' + r.railScroll + ')' }, base));
       // Journal rows (screensCapture): no row drawn over the next one; the v1 page fits its box.

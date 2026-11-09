@@ -1095,6 +1095,10 @@ window.CNCTouchMessages.push(['Code non reconnu : consulter CNCjs.','Unrecognize
 window.CNCTouchMessages.push(['La broche tourne encore ({value} tr/min) : arrêtez-la d’abord (M5).','The spindle is still turning ({value} rpm): stop it first (M5).','El husillo sigue girando ({value} rpm): deténgalo primero (M5).']);
 window.CNCTouchMessages.push(['La broche est commandée ({value}) : arrêtez-la d’abord (M5).','The spindle is commanded on ({value}): stop it first (M5).','El husillo está activado ({value}): deténgalo primero (M5).']);
 window.CNCTouchMessages.push(['Commande système en cours ({value}) : attendez sa fin.','System command running ({value}): wait for it to finish.','Comando del sistema en curso ({value}): espere a que termine.']);
+// Menu (lot écrans 6): a machine moving outside a job, the file's state unknown while the observation is lost,
+// alarm and stale report in the resume bar.
+window.CNCTouchMessages.push(['Machine en mouvement','Machine moving','Máquina en movimiento'],['État du fichier indisponible','File status unavailable','Estado del archivo no disponible'],
+  [' · alarme',' · alarm',' · alarma'],[' · rapport ancien',' · stale report',' · informe antiguo']);
 // Préparer (lot jog): coordinates editor, probe screens (the server's probe input reasons, probe-input.js, as
 // received) and the real-motion position line while the report is stale.
 window.CNCTouchMessages.push([' mm · Travail : ',' mm · Work: ',' mm · Trabajo: '],['fictif.','simulated.','ficticio.'],['Supprimer…','Delete…','Eliminar…'],

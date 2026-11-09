@@ -90,8 +90,9 @@ body.ks-ui.t-inspect .home-overrides{display:none!important}
   body.ks-ui .job-metrics{order:-1}
   body.ks-ui.t-inspect .job-metrics{width:auto;order:0}
 }
-/* Rail court : libellés seuls, cibles réparties sur la hauteur (48 px au moins à 1×). */
-@media (max-height:560px) and (min-width:600px){
+/* Rail court : libellés seuls, cibles réparties sur la hauteur (48 px au moins à 1×). Dès 650 px de haut
+   (le seuil de t-compact) : à 1024 × 600, l'icône de « Segui-miento » était écrasée à 10 px. */
+@media (max-height:650px) and (min-width:600px){
   body.ks-ui #tabbar{gap:4px!important;padding:4px!important;overflow:hidden}
   body.ks-ui #tabbar .ks-nav{min-height:0;max-height:none;flex:1 1 0;padding:0 2px}
   body.ks-ui #tabbar .ks-nav svg{display:none}

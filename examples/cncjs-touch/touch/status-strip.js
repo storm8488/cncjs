@@ -186,6 +186,8 @@
     // The pilot never changes what Pause and Stop accept: the server takes them from everyone.
     var p=!simulation&&detail.pilot&&typeof detail.pilot==='object'?detail.pilot:null,pilotState=p?p.state:'unknown';
     text(pilotValue,p&&p.value?p.value:'—');attr(pilot,'data-state',pilotState);
+    // Read by the stylesheet only (lot Menu M1): another device's name takes the machine name's room.
+    attr(banner,'data-pilot',pilotState);
     var pilotTitle=p&&p.sentence?p.sentence:uiLocale.t('Pilotage : état machine indisponible.');attr(pilot,'title',pilotTitle);attr(pilot,'aria-label',uiLocale.t('Pilote : ')+pilotTitle);
     prop(pilot,'hidden',simulation);
   }

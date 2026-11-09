@@ -64,7 +64,7 @@
 .t-tile strong{font-weight:600;display:block}
 .t-tile small{display:block;font-size:var(--fs-16);color:var(--mute);line-height:var(--lh)}
 /* Indicateur vivant : pastille et texte, forme + couleur + mot. */
-.t-tile .t-live{align-self:flex-start;display:inline-flex;align-items:center;gap:var(--sp-2);font:600 var(--fs-16)/var(--lh) var(--font);color:var(--mute);
+.t-tile .t-live,.ks-tile .t-live{align-self:flex-start;display:inline-flex;align-items:center;gap:var(--sp-2);font:600 var(--fs-16)/var(--lh) var(--font);color:var(--mute);
   padding:var(--sp-1) var(--sp-3);border-radius:var(--r-pill);background:var(--surface-2)}
 .t-live i{width:10px;height:10px;border-radius:50%;background:var(--faint);flex:none}
 .t-live[data-tone="ok"]{color:var(--ok-text);background:var(--ok-soft)}.t-live[data-tone="ok"] i{background:var(--ok)}
@@ -390,11 +390,11 @@ body.ks-ui.display-large:not(.perf-origin) #screen-jog #jog-msg{flex-basis:100%}
 .ks-ui .ks-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:var(--sp-4);padding:0;min-height:0}
 .ks-ui .ks-tile{position:relative;display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;gap:var(--sp-3);min-height:0;padding:var(--sp-5);text-align:left;font:var(--fs-28)/var(--lh-tight) var(--font);color:var(--fg);background:var(--surface);border:1px solid var(--line);border-bottom-width:1px;border-radius:var(--r-l)}
 .ks-ui .ks-tile:active{transform:scale(.98);background:var(--surface-2)}
-.ks-ui .ks-tile svg{width:48px;height:48px;stroke:var(--mute);stroke-width:1.6}
+.ks-ui .ks-tile svg{width:48px;height:48px;stroke:var(--mute);stroke-width:1.6;flex:none}
 .ks-ui .ks-tile-text{display:flex;flex-direction:column;gap:var(--sp-1)}
 .ks-ui .ks-tile span{font-weight:600}
 .ks-ui .ks-tile small{font-size:var(--fs-16);color:var(--mute);line-height:var(--lh)}
-.ks-ui .ks-tile .t-live{align-self:flex-start;max-width:100%}
+.ks-ui .ks-tile .t-live{align-self:flex-start;max-width:100%;flex:none}
 .ks-ui .ks-tile .t-live>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* === Machine ================================================================ */
@@ -1085,3 +1085,34 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
 /* 1024 x 600: with « Déverrouiller… » or « Reprendre… » beside « PILOTE / Cet appareil », the
  * page switch link gives its room as during a job (the strip overflowed by 28 px, N2). */
 .ks-ui.t-compact [data-confirm=true] .ks-exit{display:none}
+/* === Menu (lot écrans 6) ===================================================== */
+/* First start (no last screen): the hidden resume bar is display:none, so the tiles took the auto row and
+ * the 1fr row stayed empty (tiles of 192 px over half the screen). They keep the second row; the grid gap
+ * of the empty first row is taken back. */
+.ks-ui .ks-tiles{grid-row:2}
+.ks-ui .ks-resume[hidden]+.ks-tiles{margin-top:calc(-1 * var(--sp-4))}
+/* 1024 x 600: the hint on one line (ellipsis), the icon and the indicator are no longer squeezed. */
+.ks-ui.t-compact .ks-tile-text{max-width:100%}
+.ks-ui.t-compact .ks-tile small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Outlines of the menu's controls at 3:1 at least on --bg and --surface (--line gave 1.6 to 2.0:1). The
+ * blue left edge of the resume bar stays. */
+.ks-ui .ks-tile{border-color:var(--line-control)}
+.ks-resume{border-top-color:var(--line-control);border-right-color:var(--line-control);border-bottom-color:var(--line-control)}
+.ks-resume-go{border-color:var(--line-control)}
+/* Resume bar: no file line under a screen that is not about the job (Journal, Réglages…). */
+.ks-resume small:empty{display:none}
+/* An indicator with nothing to say (Journal, Réglages) keeps its place and its height (a no-break space for its
+ * line), so the titles stay aligned with the other tiles. */
+.ks-ui .ks-tile .t-live[data-empty=true]{visibility:hidden}
+.ks-ui .ks-tile .t-live[data-empty=true]>span::before{content:"\a0"}
+/* Strip: a greyed-out Pause / Reprendre / Déverrouiller stays readable (button:disabled{opacity:.4} of
+ * app.css gave 1.7 to 2.0:1); the stripes and the lock say it is unavailable. Appearance only. */
+.t-strip-actions .t-btn:disabled{opacity:1}
+/* Strip information zone: the machine cell gives way twice as fast as the file name and both keep their
+ * own ellipsis, rather than one being clipped by the zone (« F », « MÁQU »). While a confirmation
+ * (Déverrouiller…, Reprendre…) is shown, the machine name gives its room as during a job. */
+.ks-ui [data-confirm=true] .t-vital--machine{display:none}
+/* Another device pilots: its name is wider than « Cet appareil »; the machine cell was cut to « MAC… / Lase… ». */
+.ks-ui [data-pilot=other] .t-vital--machine{display:none}
+.ks-ui .t-vital--machine{flex:0 2 auto;min-width:0}
+.ks-ui .t-vital--machine span,.ks-ui .t-vital--machine b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

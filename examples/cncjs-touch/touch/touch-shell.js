@@ -38,7 +38,8 @@
     lives[name]=b.querySelector('.t-live');
     b.addEventListener('click',function(){go(name);});menu.querySelector('.ks-tiles').appendChild(b);
   });
-  function live(name,tone,text){var el=lives[name];if(!el)return;if(el.getAttribute('data-tone')!==tone)el.setAttribute('data-tone',tone);setText(el.lastChild,text);}
+  // An indicator with nothing to say keeps its place, unseen (ui-2027.css, data-empty): the titles stay aligned.
+  function live(name,tone,text){var el=lives[name];if(!el)return;if(el.getAttribute('data-tone')!==tone)el.setAttribute('data-tone',tone);setText(el.lastChild,text);var empty=String(!text);if(el.getAttribute('data-empty')!==empty)el.setAttribute('data-empty',empty);}
   nav.innerHTML='';
   // Every screen on the rail; Retour appears only on a sub-screen (probe, limits…).
   var mainScreens=['menu','jog','files','home','machine','history','settings'],keptScreens=['menu','jog','files','home','machine','history'];
@@ -218,7 +219,10 @@
     if(!show)return;
     var m=lastMachine;
     setText(document.getElementById('ks-resume-title'),uiLocale.t('Reprendre où j’en étais : ')+(menuLabels[lastScreen]||names[lastScreen]));
-    setText(document.getElementById('ks-resume-hint'),m&&m.name?(m.originalName||m.name)+(m.workflow==='running'?uiLocale.t(' · en cours'):m.workflow==='paused'?uiLocale.t(' · en pause'):m.canStart?uiLocale.t(' · prêt à démarrer'):''):uiLocale.t('Aucun fichier chargé'));
+    // The file line only under Suivi or Fichiers (the job's screens). No state published (observation lost):
+    // the file's state is unknown, not « no file ». An alarm or a stale report is said before the workflow.
+    var alarm=!!(m&&/^alarm/i.test(m.activeState||''));
+    setText(document.getElementById('ks-resume-hint'),lastScreen!=='home'&&lastScreen!=='files'?'':!m?uiLocale.t('État du fichier indisponible'):m.name?(m.originalName||m.name)+(alarm?uiLocale.t(' · alarme'):!m.fresh?uiLocale.t(' · rapport ancien'):m.workflow==='running'?uiLocale.t(' · en cours'):m.workflow==='paused'?uiLocale.t(' · en pause'):m.canStart?uiLocale.t(' · prêt à démarrer'):''):uiLocale.t('Aucun fichier chargé'));
   }
   document.getElementById('ks-resume').addEventListener('click',function(){if(lastScreen)go(lastScreen);});
   function updateTiles(m,connected){
@@ -228,15 +232,23 @@
     var word=window.cncStatusStrip?window.cncStatusStrip.describe(m,connected):{word:connected&&m?m.activeState:uiLocale.t('Hors ligne'),tone:connected&&m?'info':'off'};
     // A deduced alarm code is never shown as received (V6): « Alarme 3 déduite ».
     if(word.note)word={word:word.word+' '+word.note,tone:word.tone};
-    live('home',!m||!connected?'off':alarm?'danger':running?'info':paused?'warn':m.canStart?'ok':'',
-      !m||!connected?uiLocale.t('Hors ligne'):alarm?uiLocale.t('Alarme'):running?uiLocale.t('En cours')+(pct!==null?' · '+pct+' %':''):paused?uiLocale.t('En pause'):m.canStart?uiLocale.t('Prêt à démarrer'):file||uiLocale.t('Aucun fichier chargé'));
-    live('files',file?'ok':'',file?uiLocale.t('Chargé : ')+file:uiLocale.t('Choisir un parcours'));
-    live('jog',alarm?'danger':running||paused?'warn':simulation?'':'warn',alarm?uiLocale.t('Bloqué : alarme'):running||paused?uiLocale.t('Bloqué : travail en cours'):simulation?uiLocale.t('Simulateur'):uiLocale.t('Déplacements à blanc'));
+    // Words only (the tiles open a screen, they send nothing). Offline, a stale report and a machine that
+    // moves outside a job (homing, probing, jog: tone run) are said before the routine words.
+    var off=!m||!connected,stale=!off&&!m.fresh,moving=!off&&word.tone==='run'&&!running&&!paused;
+    var share=pct!==null?' · '+pct+' %':'';
+    live('home',off?'off':alarm?'danger':stale?'warn':running?'info':paused?'warn':moving?'info':m.canStart?'ok':'',
+      off?uiLocale.t('Hors ligne'):alarm?uiLocale.t('Alarme'):stale?uiLocale.t('Rapport ancien')+share:running?uiLocale.t('En cours')+share:paused?uiLocale.t('En pause'):moving?word.word:m.canStart?uiLocale.t('Prêt à démarrer'):file||uiLocale.t('Aucun fichier chargé'));
+    live('files',off?'off':file?'ok':'',off?uiLocale.t('État du fichier indisponible'):file?uiLocale.t('Chargé : ')+file:uiLocale.t('Choisir un parcours'));
+    live('jog',alarm?'danger':off?'off':running||paused||moving?'warn':simulation?'':'warn',alarm?uiLocale.t('Bloqué : alarme'):off?uiLocale.t('Hors ligne'):running||paused?uiLocale.t('Bloqué : travail en cours'):moving?uiLocale.t('Machine en mouvement'):simulation?uiLocale.t('Simulateur'):uiLocale.t('Déplacements à blanc'));
     var commissioning=!simulation&&window.cncCommissioning&&typeof window.cncCommissioning.status==='function'?window.cncCommissioning.status():null;
     var toDo=commissioning&&(commissioning.state==='none'||commissioning.state==='progress');
-    live('machine',alarm?'danger':toDo?'warn':word.tone,alarm?word.word:toDo?(commissioning.state==='progress'?uiLocale.t('Mise en service en cours'):uiLocale.t('Mise en service à faire')):word.word);
-    live('history','',uiLocale.t('Chronologie et export'));
-    live('settings','',uiLocale.t('Affichage · machine · système'));
+    // The tiles have no « run » style: a moving machine is shown in the info tone.
+    var machineTone=word.tone==='run'?'info':word.tone;
+    if(off||alarm||stale||word.tone==='run')live('machine',machineTone,word.word);
+    else live('machine',toDo?'warn':machineTone,toDo?(commissioning.state==='progress'?uiLocale.t('Mise en service en cours'):uiLocale.t('Mise en service à faire')):word.word);
+    // Journal and Réglages have no live state: their hint says it all, the indicator stays empty.
+    live('history','','');
+    live('settings','','');
     // Machine screen: the state word and the alarm explained.
     setText(machineWord,word.word);if(machineWord.getAttribute('data-tone')!==word.tone)machineWord.setAttribute('data-tone',word.tone);
     var help=alarm?(simulation?{title:uiLocale.t('Alarme fictive'),action:uiLocale.t('Effacez l’alarme ci-contre, puis confirmez la reprise dans Suivi.')}:window.CNCGrblHelp?window.CNCGrblHelp.alarm(m.alarmCode,m.alarmCodeInferred):{title:word.word,action:''}):null;
