@@ -69,7 +69,7 @@
   // Action feedback (D5): what the confirmed command was to lead to, and whether it was seen.
   // When the observed workflow later leaves it (another device paused, stopped or resumed),
   // the line « Démarrage demandé. » no longer describes the machine and is cleared.
-  var feedbackExpect=null,feedbackReached=false;
+  var feedbackExpect=null,feedbackReached=false,feedbackRaw='';
   // Last alarm code per port (D6): Grbl's restart banner after ALARM:3 makes the server forget
   // the code; the alarm's help stays shown while the controller remains in Alarm.
   var alarmMemory=null;
@@ -405,9 +405,16 @@
   // D5: the confirmed action's line stays while the workflow it led to is observed; once the
   // workflow leaves it (another device acted), the line is cleared rather than kept beside a
   // state it no longer describes.
+  var PAUSE_WAIT='Pause demandée. Attendre l’état Hold.';
   function followFeedback(m){
     if(feedbackState!=='confirmed'||!feedbackExpect||!m)return;
-    if(m.workflow===feedbackExpect){feedbackReached=true;return;}
+    if(m.workflow===feedbackExpect){
+      feedbackReached=true;
+      // The server's pause answer asks to wait for Hold: once a recent report (< 1 s) says Hold, that wait is over
+      // (text only). An old Hold kept by the server (reports lost) does not confirm this pause.
+      if(feedbackExpect==='paused'&&feedbackRaw===PAUSE_WAIT&&/^hold/i.test(String(m.activeState||''))&&m.fresh===true&&typeof m.statusAgeMs==='number'&&m.statusAgeMs<1000){feedbackRaw='';text('job-feedback',uiLocale.t('Pause confirmée : la machine est en Hold.'));}
+      return;
+    }
     if(feedbackReached){feedbackExpect=null;feedbackReached=false;text('job-feedback','');setFeedbackState('');}
   }
   function apply(data,transit) {
@@ -486,7 +493,7 @@
     function finish(){pending--;busy=pending>0;render();if(!stream||!stream.alive())poll(true);}
     return run(action,extra).then(function(data){
       if(ownGeneration===generation){
-        if(id>=feedbackSequence){feedbackSequence=id;text('job-feedback',data.message||'');setFeedbackState('confirmed');feedbackExpect={start:'running',resume:'running',pause:'paused',stop:'idle'}[action]||null;feedbackReached=false;}
+        if(id>=feedbackSequence){feedbackSequence=id;feedbackRaw=data.message||'';text('job-feedback',feedbackRaw);setFeedbackState('confirmed');feedbackExpect={start:'running',resume:'running',pause:'paused',stop:'idle'}[action]||null;feedbackReached=false;}
         if(data.snapshot)apply(data.snapshot,Date.now()-started);
       }
       return data;

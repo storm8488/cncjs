@@ -199,6 +199,22 @@ async function dropAndReconnect(f, epoch) {
     assert.equal(f.el('job-feedback').textContent, '', 'cleared once another device stopped the paused job');
   }
   {
+    // Surface Pro 2026-11-09: the server's « Attendre l'état Hold » stayed beside a reported Hold.
+    const f = await connected(RUNNING);
+    f.el('job-pause').click(); await f.flush();
+    f.answer(f.posts().at(-1), { message: 'Pause demandée. Attendre l’état Hold.' }); await f.flush();
+    assert.equal(f.el('job-feedback').textContent, 'Pause demandée. Attendre l’état Hold.');
+    // An old Hold kept by the server (reports lost) does not confirm this pause.
+    f.push([f.machine({ workflow: 'paused', activeState: 'Hold:0', fresh: false, statusAgeMs: 5000, canResume: false, canStop: true })]); await f.flush();
+    assert.equal(f.el('job-feedback').textContent, 'Pause demandée. Attendre l’état Hold.', 'an old Hold is no confirmation');
+    f.push([f.machine({ workflow: 'paused', activeState: 'Hold:1', canResume: false, canStop: true })]); await f.flush();
+    assert.equal(f.el('job-feedback').textContent, 'Pause confirmée : la machine est en Hold.', 'the wait is over once Hold is reported');
+    assert.equal(f.el('job-feedback').getAttribute('data-state'), 'confirmed');
+    assert.equal(f.lastStatus().feedback, 'Pause confirmée : la machine est en Hold.', 'Suivi shows the same line');
+    f.push([f.machine({ workflow: 'idle', activeState: 'Idle' })]); await f.flush();
+    assert.equal(f.el('job-feedback').textContent, '', 'still cleared once the paused job is stopped elsewhere');
+  }
+  {
     // A failed or uncertain action keeps its line (it says what happened here).
     const f = await connected(RUNNING);
     f.el('job-stop').click(); await f.flush(); f.posts().at(-1).onerror(); await f.flush();

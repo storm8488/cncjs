@@ -83,4 +83,26 @@ for(const name of ['index.html','simulation.html']){
   assert.equal((html.match(/src="job-follow\.js\?v=/g)||[]).length,1);
   ['job-dashboard.js','touch-shell.js','screen-lock.js'].forEach(dep=>assert(html.indexOf(dep)<html.indexOf('job-follow.js'),dep+' loads first'));
 }
-console.log('PASS job follow-up: Suivi on a new job only, lock option, summary (finished, errors, stopped, pauses excluded), switches kept, script order.');
+// Surface Pro 2026-11-09: CNCjs counted 8 lines for a 7-line file; the gauge said « 6 / 7 », the summary « 7 / 8 ».
+// With Suivi's preview of the same file, the summary counts the file's lines like the gauge.
+f=fixture();f.node('home-job-image').cncPreview={file:'a--touch-1.nc',lines:7};
+f.send(M());f.send(M({workflow:'running',total:8,received:7}));f.send(M({workflow:'idle',jobStopped:true,total:8,received:0}));
+assert.match(f.summary.children[0].textContent,/^Travail arrêté avant la fin · .* · 6 \/ 7 lignes$/);
+f.send(M({workflow:'running',total:8,received:8}));f.send(M({workflow:'idle',finished:true,total:8,received:0}));
+assert.match(f.summary.children[0].textContent,/^Travail terminé · .* · 7 lignes$/,'a finished job counts the file lines too');
+// Another file's preview is not used.
+f=fixture();f.node('home-job-image').cncPreview={file:'other.nc',lines:7};
+f.send(M());f.send(M({workflow:'running',total:8,received:7}));f.send(M({workflow:'idle',jobStopped:true,total:8,received:0}));
+assert.match(f.summary.children[0].textContent,/ · 7 \/ 8 lignes$/);
+// A resume from line 400 of a 500-line file (preamble of 8): the summary counts in the file, like the gauge.
+f=fixture();
+f.send(M());f.send(M({workflow:'running',total:109,received:58,resume:{from:400,total:500,preambleLength:8}}));f.send(M({workflow:'idle',jobStopped:true,total:109,received:0}));
+assert.match(f.summary.children[0].textContent,/ · 449 \/ 500 lignes$/,'resumed job counted from its line, as the gauge');
+// The v2 messages slot knows when the summary is shown: on at the summary, off at OK and at a new job.
+f=fixture();const board=f.node('home-board');board.appendChild(f.node('home-left'));
+f.send(M());f.send(M({workflow:'running',total:10,received:3}));f.send(M({workflow:'idle',jobStopped:true}));
+assert.equal(board.getAttribute('data-v2-summary'),'1','summary shown');
+f.summary.children[1].click();assert(f.summary.hidden);assert.equal(board.getAttribute('data-v2-summary'),'0','OK hides it at once');
+f.send(M({workflow:'running',total:10,received:1}));f.send(M({workflow:'idle',jobStopped:true}));assert.equal(board.getAttribute('data-v2-summary'),'1');
+f.send(M({workflow:'running',total:10,received:1}));assert.equal(board.getAttribute('data-v2-summary'),'0','a new job hides it');
+console.log('PASS job follow-up: Suivi on a new job only, lock option, summary (finished, errors, stopped, pauses excluded, file lines like the gauge), switches kept, script order.');

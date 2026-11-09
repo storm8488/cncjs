@@ -245,6 +245,8 @@
     // the strip): the inactive Démarrer / Pause row gives its room to the alarm's help (N1).
     var alarmRest=!!(c&&c.workflow==='idle'&&/^alarm/i.test(String(c.activeState||'')));
     set('home-job-resume-row','hidden',!held);set('home-job-primary-row','hidden',held||alarmRest);
+    // Presentation only (performance-v2.css): Charger / Recharger alone in its row (both rows hidden) takes the row.
+    var load=$('home-job-load'),alone=!held&&alarmRest?'1':'0';if(load&&typeof load.setAttribute==='function'&&(!load.getAttribute||load.getAttribute('data-alone')!==alone))load.setAttribute('data-alone',alone);
     // Presentation only (ui-2027.css): during a job the active Pause takes the large cell. Read by no handler.
     var row=$('home-job-primary-row'),run=c&&c.workflow==='running'?'1':'0';if(row&&typeof row.setAttribute==='function'&&(!row.getAttribute||row.getAttribute('data-run')!==run))row.setAttribute('data-run',run);
     // Charger only shows while the machine is idle and something is selected: one primary action per screen.

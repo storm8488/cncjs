@@ -79,6 +79,12 @@ body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"][data-v2
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-zone-gauges>.home-gauge-curve{order:1}
 /* … and the alarm or hold text itself is no longer capped at three lines (ui-2027.css): the slot scrolls if needed. */
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"][data-v2-alert="1"] #home-job-ready{max-height:none;overflow-y:visible}
+/* Surface Pro 2026-11-09, alarm after a stop: the end-of-job summary filled the messages slot and its edge cut a
+   line in half. While the summary is shown (data-v2-summary, job-follow.js), both edges fade over a reserved band (the mask does not scroll), so
+   no half line is shown as if complete and the first and last messages read whole at either end. Display only. */
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"][data-v2-summary="1"] #home-v2-info{--v2-info-fade:24px;padding:var(--v2-info-fade) 0;-webkit-mask-image:linear-gradient(to bottom,transparent,#000 var(--v2-info-fade),#000 calc(100% - var(--v2-info-fade)),transparent);mask-image:linear-gradient(to bottom,transparent,#000 var(--v2-info-fade),#000 calc(100% - var(--v2-info-fade)),transparent)}
+/* « Recharger le fichier » alone (Démarrer / Pause and Reprendre hidden, an alarm at rest; data-alone, job-dashboard.js): the whole row, on one line. */
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-v2-actions #home-job-load[data-alone="1"]{grid-column:1/-1}
 /* Plate card: thickness and search side by side, so « Palper le zéro Z… » stays in the messages slot during a probe. */
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-plate{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:var(--sp-3);row-gap:var(--sp-1);padding:var(--sp-3)}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-plate>*{grid-column:1/-1}

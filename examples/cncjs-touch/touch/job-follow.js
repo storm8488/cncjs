@@ -43,9 +43,15 @@
 
   // ---- End-of-job summary in Suivi ----
   var summary=el('div','t-notice home-job-summary','home-job-summary');summary.hidden=true;summary.setAttribute('role','status');
+  // Presentation only (performance-v2.css data-v2-summary): the v2 messages slot knows when the summary is shown.
+  function showSummary(on){
+    summary.hidden=!on;
+    var left=document.getElementById('home-left'),board=left&&left.parentNode,v=on?'1':'0';
+    if(board&&typeof board.setAttribute==='function'&&(!board.getAttribute||board.getAttribute('data-v2-summary')!==v))board.setAttribute('data-v2-summary',v);
+  }
   var summaryText=el('p','home-job-summary-text','home-job-summary-text');summary.appendChild(summaryText);
   var close=el('button','t-btn t-btn--ghost','home-job-summary-close');close.type='button';close.textContent=t('OK');summary.appendChild(close);
-  close.addEventListener('click',function(){summary.hidden=true;});
+  close.addEventListener('click',function(){showSummary(false);});
   var feedback=document.getElementById('home-job-feedback');
   if(feedback&&feedback.parentNode)feedback.parentNode.insertBefore(summary,feedback.nextSibling);
 
@@ -54,6 +60,19 @@
     return h?h+' h '+(m<10?'0':'')+m+' min':m?m+' min '+(r<10?'0':'')+r+' s':r+' s';
   }
   function number(v){try{return Math.round(v).toLocaleString(uiLocale.locale||'fr-FR');}catch(_){return String(Math.round(v));}}
+  // The gauge's scale (job-dashboard.js linesTotal): Suivi's preview of this file, else a resume's file total.
+  function fileLines(m){
+    var img=document.getElementById('home-job-image'),pv=img&&img.cncPreview,r=m.resume;
+    if(pv&&pv.file===m.name&&typeof pv.lines==='number'&&isFinite(pv.lines)&&pv.lines>0)return pv.lines;
+    return r&&typeof r.from==='number'&&typeof r.total==='number'&&r.total>0?r.total:0;
+  }
+  // The gauge's acknowledged line (tool-position.js acknowledged): a resume counts the lines before it as done.
+  function gaugeLine(m,lines){
+    var tp=window.CNCToolPosition;if(tp&&typeof tp.acknowledged==='function')return tp.acknowledged(m,lines);
+    var r=m.resume;
+    if(r&&typeof r.from==='number'&&typeof r.preambleLength==='number')return Math.min(lines,Math.max(0,r.from-1+Math.max(0,m.received-r.preambleLength)));
+    return Math.min(lines,Math.max(0,m.received/m.total*lines));
+  }
   // Result from the idle snapshot after the job: the server tells a program run
   // to its end from a stop, and counts the lines Grbl refused.
   function describe(job,m){
@@ -67,7 +86,9 @@
     var parts=[result==='done'?t('Travail terminé'):result==='errors'?t('Fin du programme avec des erreurs Grbl'):t('Travail arrêté avant la fin')];
     if(job.name)parts.push(job.name);
     if(job.started)parts.push(t('durée ')+duration(Date.now()-job.started-job.pausedMs));
-    if(job.total)parts.push(result==='done'?number(job.total)+t(' lignes'):number(job.received)+' / '+number(job.total)+t(' lignes'));
+    // Lines of the file when known (the Suivi gauge's own count), else CNCjs's count.
+    var total=job.lines||job.total,received=job.lines?job.line:job.received;
+    if(job.total)parts.push(result==='done'?number(total)+t(' lignes'):number(received)+' / '+number(total)+t(' lignes'));
     if(errors)parts.push(errors+t(' erreur(s) Grbl')+(m.jobLastError?' ('+m.jobLastError+')':''));
     return {tone:result==='done'?'ok':result==='errors'?'danger':'warn',text:parts.join(' · ')};
   }
@@ -89,7 +110,7 @@
       if(!job){
         // A job starts (or the page loaded during one: its duration is then unknown).
         job={port:m.port,generation:m.generation,name:m.originalName||m.name||'',started:last&&!active(last)?Date.now():0,pausedMs:0,pausedAt:0,total:0,received:0};
-        summary.hidden=true;pending=null;
+        showSummary(false);pending=null;
         if(last&&!active(last)){
           if(prefs.lock&&window.cncScreenLock)window.cncScreenLock.lock();
           if(prefs.open&&screen!=='home'&&screen!=='commissioning'&&!dialogOpen()&&window.cncShell)window.cncShell.go('home');
@@ -97,6 +118,9 @@
       }
       if(typeof m.total==='number'&&m.total>0)job.total=m.total;
       if(typeof m.received==='number')job.received=m.received;
+      // The line the Suivi gauge shows (job-dashboard.js linesTotal / acknowledgedLine), kept while the job
+      // runs: the summary says what the gauge said (« 6 / 7 », not CNCjs's « 7 / 8 »; a resume counts in the file).
+      var lines=fileLines(m);if(lines&&m.total>0){job.lines=lines;job.line=Math.floor(gaugeLine(m,lines));}
       if(m.workflow==='paused'&&!job.pausedAt)job.pausedAt=Date.now();
       if(m.workflow!=='paused'&&job.pausedAt){job.pausedMs+=Date.now()-job.pausedAt;job.pausedAt=0;}
     }else if(job&&m&&m.fresh){
@@ -109,13 +133,13 @@
       if(known||Date.now()>=pending.until){
         var r=describe(pending.job,m);pending=null;
         text(summaryText,r.text);if(summary.getAttribute('data-tone')!==r.tone)summary.setAttribute('data-tone',r.tone);
-        summary.hidden=false;
+        showSummary(true);
       }
     }
     last=m;
   }
   window.addEventListener('cnc-job-status',onStatus);
   // A new selection or load hides the previous summary.
-  window.addEventListener('cnc-library-select',function(){summary.hidden=true;});
+  window.addEventListener('cnc-library-select',function(){showSummary(false);});
   window.cncJobFollow={prefs:function(){return {open:prefs.open,lock:prefs.lock};},describe:describe,duration:duration};
 })();

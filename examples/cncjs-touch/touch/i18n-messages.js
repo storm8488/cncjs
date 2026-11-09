@@ -490,6 +490,7 @@ window.CNCTouchMessages.push(["Confirmation expirée ou déjà utilisée.", "Con
 window.CNCTouchMessages.push(["Arrêt broche (M5) envoyé.", "Spindle stop (M5) sent.", "Parada del husillo (M5) enviada."]);
 window.CNCTouchMessages.push(["Aucun travail en cours.", "No job running.", "Ningún trabajo en curso."]);
 window.CNCTouchMessages.push(["Pause demandée. Attendre l’état Hold.", "Pause requested. Wait for the Hold state.", "Pausa solicitada. Espere el estado Hold."]);
+window.CNCTouchMessages.push(["Pause confirmée : la machine est en Hold.", "Pause confirmed: the machine is in Hold.", "Pausa confirmada: la máquina está en Hold."]);
 window.CNCTouchMessages.push(["Déplacement annulé.", "Move cancelled.", "Desplazamiento cancelado."]);
 window.CNCTouchMessages.push(["Prise d’origine interrompue (réinitialisation). La carte demandera $H ou $X.", "Homing interrupted (reset). The board will ask for $H or $X.", "Búsqueda de origen interrumpida (reinicio). La placa pedirá $H o $X."]);
 window.CNCTouchMessages.push(["Aucun travail à arrêter.", "No job to stop.", "Ningún trabajo que detener."]);

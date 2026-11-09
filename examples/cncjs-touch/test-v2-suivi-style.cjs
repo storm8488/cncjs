@@ -56,4 +56,8 @@ for (const [id, column] of [['home-job-load', '1'], ['home-job-primary-row', '2/
 assert(!rules.some((r) => /:empty|\[hidden\]/.test(r.selectors.join()) && /display:none/.test(r.decl) && /\[data-v2="suivi"\]/.test(r.selectors.join()) && !/#home-v2-info|#home-v2-actions/.test(r.selectors.join())), 'no slot collapses when empty or hidden');
 // D5: the work coordinates of both pages (index #home-work-card, simulation's own card) on one line.
 assert(find(new RegExp(S + '\\.home-coords \\.t-coords-card \\.t-coords$'), /grid-template-columns/).length === 1, 'one-line coordinates on both pages');
+// Surface Pro 2026-11-09, alarm after a stop: the summary's slot fades at both edges (no half line shown whole),
+// and « Recharger le fichier » alone takes the whole row. Display only, both scoped to v2 Suivi.
+assert(/\[data-v2-summary="1"\] #home-v2-info\{[^}]*padding:var\(--v2-info-fade\) 0;[^}]*mask-image:linear-gradient\(to bottom,transparent/.test(css), 'summary slot fades at both edges');
+assert(/\[data-v2="suivi"\] #home-v2-actions #home-job-load\[data-alone="1"\]\{grid-column:1\/-1\}/.test(css), 'reload alone takes the row');
 console.log('PASS v2 Suivi style: fixed slots in every state (D1), one-line coordinates on both pages (D5), scoped to perf-v2 (no media query, strip untouched), 432 px column, curve visible at 1366 px, text >= 16 px, 64 / 48 px targets, stale shown by form.');
