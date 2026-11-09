@@ -37,6 +37,8 @@ assert(has(perf, V2 + ' #home-plate-title', /height:0/) && has(perf, V2 + ' #hom
 const ui = rules(touch('ui-2027.css'));
 assert(has(ui, '#home-frame-start:disabled~#home-frame-help', /display:none/), 'laser framing: no help while Cadrer… is disabled');
 assert(has(ui, '.ks-ui .home-job-primary[data-run="1"]', /grid-template-columns:1fr 2fr/), 'during a job the active Pause takes the large cell');
+// Final harness: in the small cell, « Démarrer… » at 24 px broke across two lines at 1024 x 600 (142 px wide).
+assert(has(ui, '.ks-ui .home-job-primary[data-run="1"] #home-job-start', /font-size:var\(--fs-20\)/), 'during a job Démarrer… at 20 px, its word whole');
 
 // ---- A page of the fixture: i18n (optional language), job-dashboard.js, job-resume.js ----
 function page(options = {}) {

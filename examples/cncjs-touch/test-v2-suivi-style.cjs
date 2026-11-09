@@ -25,6 +25,10 @@ assert(find(/\[data-v2="suivi"\] \.home-gauge-curve$/, /display:flex/).length ==
 assert(!find(/home-gauge-curve$/, /display:none/).filter((r) => !r.selectors.every((x) => /\[data-v2-(alert|form)="1"\] \.home-gauge-curve$|^body\.ks-ui\.perf-wide\.perf-v2\.display-large /.test(x))).length, 'the curve is never hidden by this sheet, except for a safety text, a form or large text');
 assert(find(/\[data-v2-alert="1"\] #home-v2-info$/, /min-height:calc\(4 \* 1\.35em \+ 12px\)/).length === 1, 'a hold or alarm text: four lines without scrolling');
 assert(find(/\[data-v2-form="1"\] #home-v2-info$/, /min-height:180px/).length === 1, 'an open plate or resume form: its first field without scrolling');
+// Final harness (2026-11-09): with the curve above the corrections, hiding it moved the feed row 152 px between rest
+// (plate shown) and a job. The curve is drawn after the corrections, so only the messages slot below gets its room.
+assert(find(/\.home-zone-gauges>\.home-gauge-curve$/, /(^|;)order:1(;|$)/).length === 1, 'curve drawn under the corrections: hiding it never moves a command');
+assert(!rules.some((r) => /(^|;)order:/.test(r.decl) && r.selectors.some((s) => /\.home-overrides$|\.home-progress$|\.home-gauge-eta$|\.home-coords$/.test(s))), 'the slots above the curve keep their order');
 assert(find(/#home-v2-actions #home-job-load$/, /font-size:var\(--fs-18\)/).length === 1, 'Charger at 18 px (the id alone lost to #home-v2-actions .t-btn)');
 assert(find(new RegExp('\\[data-v2="suivi"\\] \\.home-stop$'), /(^|;)height:96px/).filter((r) => /padding-top:6px/.test(r.decl)).length === 1, 'Arrêter at least 12 px under the actions (gap 6 + padding 6), its caption whole');
 assert(find(/\.home-gauge-curve-line$/, /display:none/).length === 1, 'v1 polyline replaced by the v2 path');

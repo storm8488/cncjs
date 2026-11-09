@@ -74,6 +74,9 @@ body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-v
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"][data-v2-alert="1"] #home-v2-info{min-height:calc(4 * 1.35em + 12px)}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"][data-v2-form="1"] #home-v2-info{min-height:180px}
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"][data-v2-alert="1"] .home-gauge-curve,body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"][data-v2-form="1"] .home-gauge-curve{display:none}
+/* The curve drawn under the corrections (visual order only, the DOM is unchanged): when it gives its room, only the
+   messages slot grows; the feed row and its sheet buttons keep their place between rest and a job (harness). */
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-zone-gauges>.home-gauge-curve{order:1}
 /* … and the alarm or hold text itself is no longer capped at three lines (ui-2027.css): the slot scrolls if needed. */
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"][data-v2-alert="1"] #home-job-ready{max-height:none;overflow-y:visible}
 /* Plate card: thickness and search side by side, so « Palper le zéro Z… » stays in the messages slot during a probe. */
