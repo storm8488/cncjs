@@ -1956,17 +1956,43 @@ async function screensGuideSim(cdp, fx, summary) {
 // preview's line count, and Suivi's commands kept their place since rest (v2). Captured and measured like the states.
 const SCREENS_STOPPED = '(function(){var t=function(id){var n=document.getElementById(id);return n?n.textContent.replace(/\\s+/g," ").trim():null;},s=document.getElementById("home-job-summary"),i=document.getElementById("home-job-image"),p=i&&i.cncPreview,m=window.cncState.get().machine||{};' +
   'return {shown:!!(s&&!s.hidden&&s.getClientRects().length),tone:s?s.getAttribute("data-tone"):null,summary:t("home-job-summary-text"),gauge:t("home-gauge-ack-value"),lines:p&&p.file===m.name?p.lines:null,total:m.total};})()';
+// b.received: the fixture's frozen counter (set by the harness, not read from the page), so the expected line is
+// known independently of the texts shown: floor(received / CNCjs total × file lines), as acknowledgedLine() counts.
 function stoppedChecks(b) {
   if (!b || !b.shown || !b.summary) return ['end-of-job summary not shown'];
+  const NUM = /^(?:\d+|\d{1,3}(?:[\s\u00a0\u202f.,]\d{3})+)$/;
   const out = [], g = /^(.+?) \/ (.+)$/.exec(b.gauge || ''), digits = (x) => Number(String(x).replace(/\D/g, ''));
   if (b.tone !== 'warn') out.push('summary tone « ' + b.tone + ' », expected warn (stopped before the end)');
   if (!g) out.push('gauge « ' + b.gauge + ' » is not « line / lines »');
-  else if (b.summary.indexOf(b.gauge + ' ') < 0) out.push('summary « ' + b.summary + ' » does not say the gauge’s « ' + b.gauge + ' »');
+  else {
+    if (b.summary.indexOf(b.gauge + ' ') < 0) out.push('summary « ' + b.summary + ' » does not say the gauge’s « ' + b.gauge + ' »');
+    if (!NUM.test(g[1]) || !NUM.test(g[2])) out.push('gauge « ' + b.gauge + ' » is not two numbers');
+  }
   if (!(b.lines > 0)) out.push('no preview of the file (line count ' + b.lines + ')');
   else {
     if (g && digits(g[2]) !== b.lines) out.push('gauge scale « ' + g[2] + ' » is not the file’s ' + b.lines + ' lines');
     if (b.lines === b.total) out.push('preview lines equal CNCjs’s total (' + b.total + '): the file count is not proven');
+    if (!(b.received > 0 && b.total > 0 && b.received < b.total)) out.push('frozen counter ' + b.received + ' / ' + b.total + ' is not a job stopped before its end');
+    else if (g && NUM.test(g[1])) {
+      const line = digits(g[1]), expected = Math.floor(b.received / b.total * b.lines);
+      if (!(line >= 0 && line < b.lines)) out.push('stopped line ' + line + ' is not before the end of the file’s ' + b.lines + ' lines');
+      if (line !== expected) out.push('stopped line ' + line + ', expected ' + expected + ' (counter ' + b.received + ' / ' + b.total + ' of ' + b.lines + ' lines)');
+    }
   }
+  return out;
+}
+// Suivi's commands keep their place between rest and the stop (v2): feed, more, time and stop are shown in both
+// states (a missing one fails instead of escaping the comparison); only Pause may disappear once the job is over.
+const STOPPED_KEPT = ['feed', 'more', 'time', 'stop'];
+function stoppedLayoutChecks(rest, lay) {
+  const out = [], a = (rest && rest.commands) || {}, b = (lay && lay.commands) || {};
+  STOPPED_KEPT.forEach((k) => {
+    if (!a[k]) out.push('Suivi command ' + k + ' not shown at rest');
+    if (!b[k]) out.push('Suivi command ' + k + ' not shown after the stop');
+  });
+  const moved = Object.keys(b).filter((k) => a[k] && b[k] && a[k] !== b[k]);
+  if (moved.length) out.push('Suivi commands moved between rest and the stop: ' + moved.map((k) => k + ' ' + a[k] + ' → ' + b[k]).join('; '));
+  if (!rest || !lay || rest.image !== lay.image) out.push('Suivi scene resized between rest and the stop (' + (rest && rest.image) + ' → ' + (lay && lay.image) + ')');
   return out;
 }
 async function screensStopped(cdp, fx, v, summary) {
@@ -1984,12 +2010,9 @@ async function screensStopped(cdp, fx, v, summary) {
     await cdp.waitFor('(function(){var s=document.getElementById("home-job-summary");return !!(s&&!s.hidden&&s.getClientRects().length);})()', 10000, 'end-of-job summary');
     await sleep(800);
     const lay = await cdp.evaluate(SUIVI_LAYOUT), bilan = await cdp.evaluate(SCREENS_STOPPED);
+    if (bilan) bilan.received = fx.frozen ? fx.frozen.received : null;
     stoppedChecks(bilan).forEach((f) => failures.push(tag + ': ' + f));
-    if (v.v2) {
-      const moved = Object.keys(lay.commands).filter((k) => lay.commands[k] && rest.commands[k] && lay.commands[k] !== rest.commands[k]);
-      if (moved.length) failures.push(tag + ': Suivi commands moved between rest and the stop: ' + moved.map((k) => k + ' ' + rest.commands[k] + ' → ' + lay.commands[k]).join('; '));
-      if (lay.image !== rest.image) failures.push(tag + ': Suivi scene resized between rest and the stop (' + rest.image + ' → ' + lay.image + ')');
-    }
+    if (v.v2) stoppedLayoutChecks(rest, lay).forEach((f) => failures.push(tag + ': ' + f));
     await screensCapture(cdp, dir, 'home', 'Suivi · alarme après arrêt', tag, await cdp.evaluate(SCREENS_PAGE), results, { stay: true });
     fs.writeFileSync(path.join(OUT, dir, 'bilan.json'), JSON.stringify({ bilan, rest, stopped: lay }, null, 1));
     log(tag + ': « ' + bilan.summary + ' », gauge « ' + bilan.gauge + ' », file ' + bilan.lines + ' lines, CNCjs ' + bilan.total);
@@ -2670,4 +2693,4 @@ async function main() {
 // The measurement scripts (measure-*.cjs) reuse the DevTools client, the browser
 // launcher and the fixture starter; run the harness only as a program.
 if (require.main === module) main().catch((e) => { console.error('browser-run: ' + (e.stack || e.message)); process.exit(1); });
-module.exports = { FILE_COLUMN, GUIDE_MODE, guideChecks, strictCheck, loadExceptions, infoClipOf, stoppedChecks, GOALS, RESPONSIVE, MEASURE, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors };
+module.exports = { FILE_COLUMN, GUIDE_MODE, guideChecks, strictCheck, loadExceptions, infoClipOf, stoppedChecks, stoppedLayoutChecks, GOALS, RESPONSIVE, MEASURE, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors };

@@ -34,6 +34,10 @@ const perf = rules(touch('performance-v2.css')), V2 = 'body.ks-ui.perf-wide.perf
 assert(has(perf, V2 + '[data-v2-alert="1"] #home-job-ready', /max-height:none/), 'v2 alarm / hold text not capped at three lines');
 // Lot C (harness info-clip): the plate help was cut net at the bottom of the slot: a bottom fade, padded, without the summary.
 assert(has(perf, V2 + '[data-v2-form="1"]:not([data-v2-summary="1"]) #home-v2-info', /--v2-info-fade-top:0px;--v2-info-fade-bottom:28px;padding-bottom:var\(--v2-info-fade-bottom\);[^}]*mask-image:linear-gradient\(to bottom,#000 calc\(100% - var\(--v2-info-fade-bottom\)\),transparent\)/), 'v2 plate form: bottom edge fades');
+// Lot X (harness info-clip, v2 simulation running): the override note was cut net at the bottom of the slot: the same
+// bottom fade in every state without the summary, and a hold or alarm keeps four lines plus the band without scrolling.
+assert(has(perf, V2 + ':not([data-v2-summary="1"]) #home-v2-info', /--v2-info-fade-top:0px;--v2-info-fade-bottom:28px;padding-bottom:var\(--v2-info-fade-bottom\);[^}]*mask-image:linear-gradient\(to bottom,#000 calc\(100% - var\(--v2-info-fade-bottom\)\),transparent\)/), 'v2 messages slot: bottom edge fades outside the summary');
+assert(has(perf, V2 + '[data-v2-alert="1"]:not([data-v2-summary="1"]) #home-v2-info', /min-height:calc\(4 \* 1\.35em \+ 12px \+ var\(--v2-info-fade-bottom\)\)/), 'v2 hold / alarm text: four lines above the fade band');
 assert(has(perf, V2 + '[data-v2-actions-empty="1"] #home-v2-actions', /^display:none$/), 'v2: an empty action row gives its room');
 // Revue : « Palper le zéro Z… » was cut at the bottom of the 235 px slot, at rest on a real CNC (canZeroZ) as during a probe.
 assert(has(perf, V2 + ' #home-plate-title', /height:0/) && has(perf, V2 + ' #home-plate', /padding-top:var\(--sp-1\)/), 'v2 plate card compact enough for its button');

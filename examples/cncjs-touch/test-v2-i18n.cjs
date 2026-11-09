@@ -47,6 +47,13 @@ const {page,read}=require('./test-v2-gate.cjs');
   for(const module of ['preview-inspect.js','laser-view.js']) {
     assert(read(module).includes("importScripts('motion-estimate.js?v=v2o')"),'phase C worker dependency cache version: '+module);
   }
+  // The library preview worker loads its own copies of library-preview.js and motion-estimate.js.
+  {
+    const deps=(/importScripts\(([^)]*)\)/.exec(read('library-preview-worker.js'))||[])[1]||'';
+    for(const file of ['library-preview.js','motion-estimate.js']) {
+      assert(deps.includes("'"+file+"?v=v2o'"),'phase C worker dependency cache version: library-preview-worker.js / '+file);
+    }
+  }
   // All executable L0 / phase B browser files parse at ES2017; the catalogue is strictly JSON data.
   const acorn=require('acorn');
   for(const name of ['tablet-profile.js','touch-shell.js','status-strip.js','i18n.js','performance-v2-contract.js',

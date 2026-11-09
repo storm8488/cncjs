@@ -97,7 +97,7 @@ class GrblSimulator {
 
     #waitingQueue = [];
 
-    // Feed hold (Grbl 1.1): the time the motion was frozen at and the state to resume to, or null.
+    // Feed hold (Grbl 1.1): the time the motion was frozen at, or null.
     #hold = null;
 
     constructor() {
@@ -661,11 +661,13 @@ class GrblSimulator {
             case '!':
                 // Feed hold: as Grbl 1.1, the machine stays in Hold (motion frozen, queued
                 // blocks not started) until '~'. From Idle too, so a block queued between
-                // two lines is not started either.
-                if (this.machineState === 'Run' || this.machineState === 'Jog' || this.machineState === 'Idle') {
-                    const from = this.machineState;
+                // two lines is not started either. During a jog, Grbl 1.1 cancels the jog
+                // instead (protocol.c, SUSPEND_JOG_CANCEL): back to Idle, '~' does nothing.
+                if (this.machineState === 'Jog') {
+                    this.cancelJog();
+                } else if (this.machineState === 'Run' || this.machineState === 'Idle') {
                     this.machineState = 'Hold';
-                    this.#hold = { at: Date.now(), from };
+                    this.#hold = { at: Date.now() };
                 }
                 return '';
 
@@ -679,7 +681,7 @@ class GrblSimulator {
                             startTime: this.#motionState.startTime + shift,
                             endTime: this.#motionState.endTime + shift
                         });
-                        this.machineState = hold.from === 'Jog' ? 'Jog' : 'Run';
+                        this.machineState = 'Run';
                     } else {
                         // Nothing in motion: the next queued block (if any) starts on the next tick.
                         this.machineState = 'Idle';
@@ -1746,7 +1748,9 @@ class GrblSimulator {
             reportedFeedRate = this.#motionState.currentFeedRate;
         }
 
-        let report = `<${this.machineState}|${posType}:${posValue}|FS:${reportedFeedRate.toFixed(1)},${this.spindleSpeed.toFixed(0)}`;
+        // Grbl 1.1 always reports a hold with its sub-state; the simulator freezes at once, so the hold is complete (0).
+        const reportedState = this.machineState === 'Hold' ? 'Hold:0' : this.machineState;
+        let report = `<${reportedState}|${posType}:${posValue}|FS:${reportedFeedRate.toFixed(1)},${this.spindleSpeed.toFixed(0)}`;
 
         // Add line number if available (Ln:)
         // $10 bit 2 controls line number reporting (BITFLAG_RT_STATUS_LINE_NUMBERS)

@@ -65,56 +65,89 @@ describe('GrblSimulator - Real-time Commands', () => {
         expect(sim.machineState).toBe('Idle');
     });
 
-    it('should stay in Hold until ~, motion frozen and queued lines not started, then resume where it stopped', async () => {
-        const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-        const sim = new GrblSimulator();
-        try {
-            // 2 mm at 600 mm/min = 200 ms, then a second block queued behind it.
-            sim.processLine('G1 X2 F600');
-            sim.processLine('G1 X4');
-            await sleep(80);
-            expect(sim.machineState).toBe('Run');
-            sim.processRealtimeCommand('!');
-            expect(sim.machineState).toBe('Hold');
-            const frozen = sim.getCurrentPosition().x;
-            expect(frozen).toBeGreaterThan(0);
-            expect(frozen).toBeLessThan(2);
-            // Longer than both blocks would take: still Hold, same position, second block still queued.
-            await sleep(600);
-            expect(sim.machineState).toBe('Hold');
-            expect(sim.getCurrentPosition().x).toBeCloseTo(frozen, 6);
-            expect(sim.plannerBuffer.queue.length).toBe(1);
-            expect(sim.processRealtimeCommand('?')).toMatch(/^<Hold\|/);
-            // Resume: continues from the frozen point (no jump), then runs the queued block.
-            sim.processRealtimeCommand('~');
-            expect(sim.machineState).toBe('Run');
-            expect(sim.getCurrentPosition().x).toBeLessThan(frozen + 0.2);
-            await sleep(700);
-            expect(sim.machineState).toBe('Idle');
-            expect(sim.machinePosition.x).toBeCloseTo(4, 6);
-            expect(sim.plannerBuffer.queue.length).toBe(0);
-        } finally {
-            sim.stopPlannerExecutor();
-        }
-    });
+    // The hold tests drive the simulator's clock (Date.now and its 10 ms planner loop) with fake timers: a busy
+    // machine that stalls the event loop cannot move the motion past the point the assertions expect.
+    describe('feed hold (fake timers)', () => {
+        beforeEach(() => {
+            jest.useFakeTimers();
+        });
+        afterEach(() => {
+            jest.useRealTimers();
+        });
 
-    it('should not start a block queued during a hold taken at rest until ~', async () => {
-        const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-        const sim = new GrblSimulator();
-        try {
-            sim.processRealtimeCommand('!');
-            expect(sim.machineState).toBe('Hold');
-            sim.processLine('G1 X1 F600');
-            await sleep(250);
-            expect(sim.machineState).toBe('Hold');
-            expect(sim.machinePosition.x).toBe(0);
-            sim.processRealtimeCommand('~');
-            await sleep(300);
-            expect(sim.machineState).toBe('Idle');
-            expect(sim.machinePosition.x).toBeCloseTo(1, 6);
-        } finally {
-            sim.stopPlannerExecutor();
-        }
+        it('should stay in Hold until ~, motion frozen and queued lines not started, then resume where it stopped', () => {
+            const sim = new GrblSimulator();
+            try {
+                // 2 mm at 600 mm/min = 200 ms, then a second block queued behind it.
+                sim.processLine('G1 X2 F600');
+                sim.processLine('G1 X4');
+                jest.advanceTimersByTime(80);
+                expect(sim.machineState).toBe('Run');
+                sim.processRealtimeCommand('!');
+                expect(sim.machineState).toBe('Hold');
+                const frozen = sim.getCurrentPosition().x;
+                expect(frozen).toBeGreaterThan(0);
+                expect(frozen).toBeLessThan(2);
+                // Longer than both blocks would take: still Hold, same position, second block still queued.
+                jest.advanceTimersByTime(600);
+                expect(sim.machineState).toBe('Hold');
+                expect(sim.getCurrentPosition().x).toBeCloseTo(frozen, 6);
+                expect(sim.plannerBuffer.queue.length).toBe(1);
+                // Grbl 1.1 reports the hold with its sub-state: 0, the hold is complete.
+                expect(sim.processRealtimeCommand('?')).toMatch(/^<Hold:0\|/);
+                // Resume: continues from the frozen point (no jump), then runs the queued block.
+                sim.processRealtimeCommand('~');
+                expect(sim.machineState).toBe('Run');
+                expect(sim.getCurrentPosition().x).toBeLessThan(frozen + 0.2);
+                jest.advanceTimersByTime(700);
+                expect(sim.machineState).toBe('Idle');
+                expect(sim.machinePosition.x).toBeCloseTo(4, 6);
+                expect(sim.plannerBuffer.queue.length).toBe(0);
+            } finally {
+                sim.stopPlannerExecutor();
+            }
+        });
+
+        it('should not start a block queued during a hold taken at rest until ~', () => {
+            const sim = new GrblSimulator();
+            try {
+                sim.processRealtimeCommand('!');
+                expect(sim.machineState).toBe('Hold');
+                expect(sim.processRealtimeCommand('?')).toMatch(/^<Hold:0\|/);
+                sim.processLine('G1 X1 F600');
+                jest.advanceTimersByTime(250);
+                expect(sim.machineState).toBe('Hold');
+                expect(sim.machinePosition.x).toBe(0);
+                sim.processRealtimeCommand('~');
+                jest.advanceTimersByTime(300);
+                expect(sim.machineState).toBe('Idle');
+                expect(sim.machinePosition.x).toBeCloseTo(1, 6);
+            } finally {
+                sim.stopPlannerExecutor();
+            }
+        });
+
+        it('should cancel a jog on ! like Grbl 1.1 (back to Idle, ~ does not resume it)', () => {
+            const sim = new GrblSimulator();
+            try {
+                // 20 mm at 600 mm/min = 2 s.
+                sim.processLine('$J=G91 X20 F600');
+                jest.advanceTimersByTime(100);
+                expect(sim.machineState).toBe('Jog');
+                sim.processRealtimeCommand('!');
+                expect(sim.machineState).toBe('Idle');
+                expect(sim.processRealtimeCommand('?')).toMatch(/^<Idle\|/);
+                const stopped = sim.getCurrentPosition().x;
+                expect(stopped).toBeLessThan(20);
+                sim.processRealtimeCommand('~');
+                expect(sim.machineState).toBe('Idle');
+                jest.advanceTimersByTime(2500);
+                expect(sim.machineState).toBe('Idle');
+                expect(sim.getCurrentPosition().x).toBeCloseTo(stopped, 6);
+            } finally {
+                sim.stopPlannerExecutor();
+            }
+        });
     });
 
     it('should drop the hold on soft reset', () => {
