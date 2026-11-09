@@ -252,6 +252,10 @@
     // Charger only shows while the machine is idle and something is selected: one primary action per screen.
     var busyJob=!!(c&&c.workflow&&c.workflow!=='idle');
     set('home-job-load','hidden',!selection||busyJob);
+    // Presentation only (performance-v2.css): Charger, Démarrer / Pause and Reprendre all hidden (an alarm at rest, nothing
+    // selected): the v2 action row gives its room to the messages slot. Read by no handler.
+    var actionsBoard=$('home-left').parentNode,actionsEmpty=alarmRest&&!held&&!selection?'1':'0';
+    if(actionsBoard&&typeof actionsBoard.setAttribute==='function'&&(!actionsBoard.getAttribute||actionsBoard.getAttribute('data-v2-actions-empty')!==actionsEmpty))actionsBoard.setAttribute('data-v2-actions-empty',actionsEmpty);
     // During a job nothing else distracts: no selection notice, the override help only as a reason.
     set('home-job-selection','hidden',busyJob);
     var box=$('home-overrides');if(box&&typeof box.setAttribute==='function'&&(!box.getAttribute||box.getAttribute('data-on')!==String(overrideOn)))box.setAttribute('data-on',String(overrideOn));

@@ -51,4 +51,31 @@ assert.equal(r.staleExceptions.length, 1, 'an exception that matched nothing is 
   ] }] }, []);
   assert.deepStrictEqual(j.violations.map((v) => v.check + ':' + v.label), ['journal-pitch:#v2k-list', 'journal-scroll:#real-history-list']);
 }
+// Lot C (avant l'essai CNC): a line of the v2 messages slot (#home-v2-info) cut net by its edge fails; a line whose drawn
+// part lies in the fade band of the summary's mask, a line scrolled out of the box and a line inside pass. No exception.
+{
+  const { infoClipOf, stoppedChecks } = require('./browser-run.cjs');
+  const line = (id, top, bottom) => ({ text: id, id, top, bottom });
+  const slot = (fade, lines, clip) => ({ infoSlot: Object.assign({ top: 400, bottom: 600, clipTop: 400, clipBottom: 600, fadeTop: fade, fadeBottom: fade, lines }, clip || {}) });
+  const lines = [line('above', 360, 385), line('inside', 420, 445), line('cut-bottom', 585, 610), line('cut-top', 390, 415), line('below', 620, 645)];
+  assert.deepStrictEqual(infoClipOf(slot(0, lines)).map((c) => c.id + ':' + c.edge + ':' + c.out), ['cut-bottom:bottom:10', 'cut-top:top:10'], 'no mask: both cut lines fail');
+  assert.deepStrictEqual(infoClipOf(slot(24, lines)), [], 'summary fade (24 px): the cut lines are drawn in the fade band');
+  // In the band only: a line that starts above the band is still cut net at the edge.
+  assert.deepStrictEqual(infoClipOf(slot(24, [line('tall', 560, 610)])).map((c) => c.id), ['tall']);
+  // The fade belongs to the slot's own edge: cut by an ancestor above that edge, the line is cut net.
+  assert.deepStrictEqual(infoClipOf(slot(24, [line('ancestor', 570, 595)], { clipBottom: 590 })).map((c) => c.id), ['ancestor']);
+  assert.deepStrictEqual(infoClipOf({ infoSlot: null }), []);
+  // A bottom-only fade (plate form): the top edge still cuts net.
+  assert.deepStrictEqual(infoClipOf(slot(0, lines, { fadeBottom: 28 })).map((c) => c.id), ['cut-top']);
+  const s = strictCheck({ measurements: [{ variant: 'screens v2-911-fr-sombre-cnc alarme-arret', strict: true, overlap: true, v2: true, results: [screen({ infoClip: infoClipOf(slot(0, lines)) })] }] }, []);
+  assert.deepStrictEqual(s.violations.map((v) => v.check + ':' + v.label), ['info-clip:#cut-bottom', 'info-clip:#cut-top']);
+  // « alarme après arrêt avec bilan »: the summary says the gauge's « line / lines » of the file (its preview), stopped.
+  const ok = { shown: true, tone: 'warn', summary: 'Travail arrêté avant la fin · Parcours_de_test_1.gcode · durée 3 s · 6 / 25 lignes', gauge: '6 / 25', lines: 25, total: 20000 };
+  assert.deepStrictEqual(stoppedChecks(ok), []);
+  assert.deepStrictEqual(stoppedChecks(Object.assign({}, ok, { shown: false })), ['end-of-job summary not shown']);
+  assert.equal(stoppedChecks(Object.assign({}, ok, { summary: 'Travail arrêté avant la fin · 4 800 / 20 000 lignes' })).length, 1, 'CNCjs count, not the gauge');
+  assert.equal(stoppedChecks(Object.assign({}, ok, { gauge: '6 / 7' , summary: 'Travail arrêté · 6 / 7 lignes' })).length, 1, 'gauge scale not the file lines');
+  assert.equal(stoppedChecks(Object.assign({}, ok, { total: 25 })).length, 1, 'file lines equal to CNCjs total prove nothing');
+  assert.equal(stoppedChecks(Object.assign({}, ok, { tone: 'ok' })).length, 1, 'a stop is not « terminé »');
+}
 console.log('PASS layout exceptions: the strict harness fails on covered commands, scale under 1, targets under 64/48/96 px and text under 16 px, except documented entries; zoom 200 % and scrolling screens below the fold are not enforced.');

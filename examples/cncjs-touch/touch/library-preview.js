@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
   var source = typeof document !== 'undefined' && document.currentScript && document.currentScript.src;
-  var workerURL = source ? source.split(/[?#]/)[0].replace(/[^/]*$/, 'library-preview-worker.js?v=v2n') : 'library-preview-worker.js?v=v2n';
+  var workerURL = source ? source.split(/[?#]/)[0].replace(/[^/]*$/, 'library-preview-worker.js?v=v2o') : 'library-preview-worker.js?v=v2o';
   var generation = 0;
   // Progress lines shown while a file is prepared (cncI18n in the page; unchanged in Node tests).
   function tr(s) { var i = root.cncI18n; return i && typeof i.t === 'function' ? i.t(s) : s; }

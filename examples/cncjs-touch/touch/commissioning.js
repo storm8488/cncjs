@@ -449,6 +449,8 @@
       else if(ux&&uh)text=t('$X indisponible : ')+reasonText(ux)+' · '+t('$H indisponible : ')+reasonText(uh);
       else if(ux)text=(/\(\$X\)/.test(ux)?'':t('$X indisponible : '))+reasonText(ux);
       else if(uh)text=t('$H indisponible : ')+reasonText(uh);
+      // Alarm during a job: Arrêter (strip) ends it and makes $X available; the server's reason is kept.
+      if(ux&&uh&&/^alarm/i.test(m.activeState||'')&&m.workflow!=='idle')text+=' '+t('Touchez Arrêter, puis $X.');
     }
     if(answer(state,feedback,text)){text=feedback;tone=state;}
     set(machineReason,text);prop(machineReason,'hidden',!text);

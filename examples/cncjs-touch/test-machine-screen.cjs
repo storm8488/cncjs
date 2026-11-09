@@ -81,6 +81,10 @@ const STATES={
   p.status(STATES.palpage);assert.equal(p.reason.textContent,'$X et $H indisponibles : Palpage en cours.');
   p.status(STATES['sans-22']);assert.equal(p.reason.textContent,'$X indisponible : Le déverrouillage ($X) ne sert qu’en alarme. · $H indisponible : Réglage $22 inconnu : relisez les réglages de la carte.');
   p.status(STATES.homing);assert.equal(p.reason.textContent,'$X indisponible : Le déverrouillage ($X) ne sert qu’en alarme. · $H indisponible : La prise d’origine exige une machine au repos ou en alarme.');
+  // Alarm during a job (lot D, point 3): the server's words kept, then the missing step (Arrêter, then $X).
+  p.status(STATES['alarme-travail']);assert.equal(p.reason.textContent,'$X et $H indisponibles : Impossible pendant un travail ou avec des commandes en attente. Touchez Arrêter, puis $X.');
+  p.status({...STATES['alarme-travail'],unlockReason:'Travail en cours.',homeReason:'Travail en cours.'});assert.equal(p.reason.textContent,'$X et $H indisponibles : Travail en cours. Touchez Arrêter, puis $X.');
+  p.status({...STATES['alarme-travail'],workflow:'idle',unlockReason:'Impossible pendant un travail ou avec des commandes en attente.'});assert.equal(p.reason.textContent,'$X et $H indisponibles : Impossible pendant un travail ou avec des commandes en attente.','idle (commands pending): no Arrêter step');
   // aria: both buttons point at the line.
   assert.equal(p.unlock.getAttribute('aria-describedby'),'ks-machine-command-reason');assert.equal(p.home.getAttribute('aria-describedby'),'ks-machine-command-reason');
   assert.equal(p.reason.getAttribute('role'),'status');
@@ -91,8 +95,10 @@ const STATES={
   // (b) An alarm during a job (the RT capture: $X / $H striped while the notice says to use them): the reason shows, ES.
   const p=machinePage('es');p.status(STATES['alarme-travail']);
   assert.equal(p.reason.hidden,false);
-  assert.equal(p.reason.textContent,'$X y $H no disponibles: No es posible durante un trabajo o con comandos en espera.');
+  assert.equal(p.reason.textContent,'$X y $H no disponibles: No es posible durante un trabajo o con comandos en espera. Toque Detener y luego $X.');
   p.status(STATES['alarme-repos']);assert.equal(p.reason.hidden,true,'both available: no line');
+  const en=machinePage('en');en.status({...STATES['alarme-travail'],unlockReason:'Travail en cours.',homeReason:'Travail en cours.'});
+  assert.equal(en.reason.textContent,'$X and $H unavailable: Job running. Touch Stop, then $X.');
   p.status(STATES.repos);assert.equal(p.reason.textContent,'El desbloqueo ($X) solo sirve en alarma.');
 }
 {

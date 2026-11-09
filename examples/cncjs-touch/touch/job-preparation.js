@@ -147,7 +147,7 @@
     ['saisie opérateur, pas une mesure', 'operator entry, not a measurement', 'entrada del operador, no una medida'],
     ['programme, valeur nominale', 'program, nominal value', 'programa, valor nominal'],
     ['Aucune cote disponible pour ce programme.', 'No dimension available for this program.', 'Ninguna cota disponible para este programa.'],
-    ['Vérifier un déplacement…', 'Check a move…', 'Comprobar un desplazamiento…'],
+    ['Vérifier un déplacement sans bouger…', 'Check a move without moving…', 'Comprobar un desplazamiento sin mover…'],
     ['Vérifier un déplacement', 'Check a move', 'Comprobar un desplazamiento'],
     ['Revenir à la comparaison', 'Back to the comparison', 'Volver a la comparación'],
     ['Toucher le dessin ne déplace jamais l’outil.', 'Touching the drawing never moves the tool.', 'Tocar el dibujo nunca mueve la herramienta.']
@@ -335,7 +335,7 @@
     el('h3', '', tv2('3 · Origine Z et contrôle final'), finalText); el('p', 'pv2-sub', tv2('Z séparé · validation manuelle.'), finalText);
     n.final = el('button', 'pv2-final-open', tv2('Contrôle final…'), final); n.final.type = 'button'; n.final.id = 'pv2-final-open';
     n.final.addEventListener('click', function () { render(); panel.open(); });
-    n.open = el('button', 'pv2-jog-open', tv2('Vérifier un déplacement…'), n.summary); n.open.type = 'button'; n.open.id = 'pv2-jog-open';
+    n.open = el('button', 'pv2-jog-open', tv2('Vérifier un déplacement sans bouger…'), n.summary); n.open.type = 'button'; n.open.id = 'pv2-jog-open';
     n.open.addEventListener('click', function () { v2.jog = true; v2.focus = 'close'; v2Schedule(); });
     // The coordinates card is not shown beside the comparison: its two tools stay one tap away.
     var tools = el('div', 'pv2-tools', '', n.summary); n.tools = {};

@@ -83,6 +83,14 @@ body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"][data-v2
    line in half. While the summary is shown (data-v2-summary, job-follow.js), both edges fade over a reserved band (the mask does not scroll), so
    no half line is shown as if complete and the first and last messages read whole at either end. Display only. */
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"][data-v2-summary="1"] #home-v2-info{--v2-info-fade:24px;padding:var(--v2-info-fade) 0;-webkit-mask-image:linear-gradient(to bottom,transparent,#000 var(--v2-info-fade),#000 calc(100% - var(--v2-info-fade)),transparent);mask-image:linear-gradient(to bottom,transparent,#000 var(--v2-info-fade),#000 calc(100% - var(--v2-info-fade)),transparent)}
+/* Lot C (avant l'essai CNC): the plate form fills the messages slot and its help ran past the bottom edge, cut net
+   (harness info-clip). Without the summary, the bottom edge fades over a band taller than a line (28 px, large text
+   27 px), padded so the last line scrolls clear of it; the top is not faded (the slot opens at its top). Display only. */
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"][data-v2-form="1"]:not([data-v2-summary="1"]) #home-v2-info{--v2-info-fade-top:0px;--v2-info-fade-bottom:28px;padding-bottom:var(--v2-info-fade-bottom);-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - var(--v2-info-fade-bottom)),transparent);mask-image:linear-gradient(to bottom,#000 calc(100% - var(--v2-info-fade-bottom)),transparent)}
+/* No command of the action row shown (an alarm at rest with nothing selected; data-v2-actions-empty, job-dashboard.js):
+   the empty 64 px row gives its room to the messages slot (the end-of-job summary after a stop in an alarm, large text).
+   Arrêter stays at the bottom of the column. Display only. */
+body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"][data-v2-actions-empty="1"] #home-v2-actions{display:none}
 /* « Recharger le fichier » alone (Démarrer / Pause and Reprendre hidden, an alarm at rest; data-alone, job-dashboard.js): the whole row, on one line. */
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-v2-actions #home-job-load[data-alone="1"]{grid-column:1/-1}
 /* Plate card: thickness and search side by side, so « Palper le zéro Z… » stays in the messages slot during a probe. */

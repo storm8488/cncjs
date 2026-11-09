@@ -80,6 +80,7 @@ const meta = { file: 'a.nc', fingerprint: 'sha256:aa', projection: { units: 'mm'
   p.emit('cnc-v2-data', { slot: 'placement' }); await p.flush();
   assert.equal(p.find('pv2-travel').getAttribute('data-tone'), 'danger'); assert.match(p.find('pv2-travel').children[2].textContent, /X −12,0 \/ 4,0 mm/);
   // ---- Jog zone: opened and closed by the operator only, focus moved, never switched automatically. ----
+  assert.equal(p.find('pv2-jog-open').textContent, 'Vérifier un déplacement sans bouger…');
   p.find('pv2-jog-open').click(); p.frame();
   assert.equal(p.node('screen-jog').getAttribute('data-pv2'), 'jog'); assert(p.find('pv2-summary').hidden); assert(!p.find('pv2-jog-head').hidden);
   assert.equal(p.document.activeElement, p.find('pv2-jog-close'));
@@ -145,7 +146,8 @@ const meta = { file: 'a.nc', fingerprint: 'sha256:aa', projection: { units: 'mm'
     assert.equal(i.registerCatalog('performance-v2', JSON.parse(fs.readFileSync(__dirname + '/touch/i18n-messages-v2.js', 'utf8'))), true);
     assert.equal(i.registerCatalog('performance-v2-preparer', P.v2Messages), true, 'no conflicting row');
     // « Déplacer l’outil… » opened the dry-run cross, which never moves the machine: renamed (lot jog, X1).
-    assert.equal(i.t('Vérifier un déplacement…'), { fr: 'Vérifier un déplacement…', en: 'Check a move…', es: 'Comprobar un desplazamiento…' }[language]);
+    // Static wording (lot D, point 2): the button never sends, in « Vérification seule » as with « Déplacement réel » shown above it.
+    assert.equal(i.t('Vérifier un déplacement sans bouger…'), { fr: 'Vérifier un déplacement sans bouger…', en: 'Check a move without moving…', es: 'Comprobar un desplazamiento sin mover…' }[language]);
     assert.equal(i.t('Vérifier un déplacement'), { fr: 'Vérifier un déplacement', en: 'Check a move', es: 'Comprobar un desplazamiento' }[language]);
     assert.equal(i.t('Indisponible : hypothèse X Y non calculable.'), { fr: 'Indisponible : hypothèse X Y non calculable.', en: 'Unavailable: the X Y hypothesis cannot be computed.', es: 'No disponible: la hipótesis X Y no se puede calcular.' }[language]);
     assert(!P.v2Messages.some(r => /Real motion|Movimiento real/.test(r[1] + r[2])), 'one name for « Déplacement réel » in EN / ES (i18n-messages.js)');

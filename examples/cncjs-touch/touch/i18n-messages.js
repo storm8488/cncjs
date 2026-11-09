@@ -1093,6 +1093,7 @@ window.CNCTouchMessages.push(['Palpage abandonné (service arrêté ou contrôle
 window.CNCTouchMessages.push(['$X et $H indisponibles :','$X and $H unavailable:','$X y $H no disponibles:']);
 window.CNCTouchMessages.push(['$X indisponible :','$X unavailable:','$X no disponible:']);
 window.CNCTouchMessages.push(['$H indisponible :','$H unavailable:','$H no disponible:']);
+window.CNCTouchMessages.push(['Touchez Arrêter, puis $X.','Touch Stop, then $X.','Toque Detener y luego $X.']);
 window.CNCTouchMessages.push(['Code non reconnu : consulter CNCjs.','Unrecognized code: check CNCjs.','Código no reconocido: consulte CNCjs.']);
 // The server's $X / $H reasons that carry a value (job-service.js spindleStill, available): {value} as received.
 window.CNCTouchMessages.push(['La broche tourne encore ({value} tr/min) : arrêtez-la d’abord (M5).','The spindle is still turning ({value} rpm): stop it first (M5).','El husillo sigue girando ({value} rpm): deténgalo primero (M5).']);

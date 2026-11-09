@@ -398,6 +398,23 @@ const MEASURE = String(function measure(goals) {
       if (r.bottom > b.bottom + 0.5 || r.right > b.right + 0.5) { truncated.push({ text: (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60), tag: el.tagName.toLowerCase(), id: el.id || null, scrollWidth: Math.round(Math.max(r.bottom - b.bottom, r.right - b.right)), clientWidth: 0, textOverflow: 'clipped by ' + (a.id ? '#' + a.id : '.' + String(a.className).split(' ')[0]) }); break; }
     }
   });
+  // v2 messages slot of Suivi (#home-v2-info, scrolls): every line of text drawn in it, and its visible box (the slot
+  // clipped by its ancestors) with the fade bands of its mask at each edge (performance-v2.css --v2-info-fade-top /
+  // --v2-info-fade-bottom, else --v2-info-fade for both). Screen-reader-only text (.ks-sr-only) is not drawn.
+  var infoSlot = null, infoEl = document.getElementById('home-v2-info');
+  if (infoEl && visible(infoEl)) {
+    var ib = infoEl.getBoundingClientRect(), ics = getComputedStyle(infoEl), ibox = { top: ib.top, bottom: ib.bottom };
+    for (var ia = infoEl.parentElement; ia && ia !== document.body; ia = ia.parentElement) { var iacs = getComputedStyle(ia); if (iacs.overflowX === 'visible' && iacs.overflowY === 'visible') continue; var iab = ia.getBoundingClientRect(); ibox.top = Math.max(ibox.top, iab.top); ibox.bottom = Math.min(ibox.bottom, iab.bottom); }
+    var imask = [ics.maskImage, ics.webkitMaskImage].some(function (v) { return !!v && v !== 'none'; });
+    var ifade = function (edge) { var v = ics.getPropertyValue('--v2-info-fade-' + edge).trim(); return parseFloat(v === '' ? ics.getPropertyValue('--v2-info-fade') : v) || 0; };
+    var ilines = [], iwalk = document.createTreeWalker(infoEl, NodeFilter.SHOW_TEXT);
+    for (var inode = iwalk.nextNode(); inode; inode = iwalk.nextNode()) {
+      if (!inode.data.trim() || !inode.parentElement || !visible(inode.parentElement) || inode.parentElement.closest('.ks-sr-only')) continue;
+      var irange = document.createRange(); irange.selectNodeContents(inode);
+      Array.prototype.forEach.call(irange.getClientRects(), function (q) { if (q.width && q.height) ilines.push({ text: inode.data.replace(/\s+/g, ' ').trim().slice(0, 60), id: inode.parentElement.id || null, top: Math.round(q.top * 10) / 10, bottom: Math.round(q.bottom * 10) / 10 }); });
+    }
+    infoSlot = { top: Math.round(ib.top * 10) / 10, bottom: Math.round(ib.bottom * 10) / 10, clipTop: Math.round(ibox.top * 10) / 10, clipBottom: Math.round(ibox.bottom * 10) / 10, fadeTop: imask ? ifade('top') : 0, fadeBottom: imask ? ifade('bottom') : 0, lines: ilines };
+  }
   // A screen scrolls when it is marked so (Réglages) or when the responsive layout let it grow
   // past the window (data-fit-overflow, viewport-fit.js): main then scrolls under the strip.
   var mainScrolls = !!main && getComputedStyle(main).overflowY === 'auto' && main.scrollHeight > main.clientHeight + 1;
@@ -405,12 +422,28 @@ const MEASURE = String(function measure(goals) {
     railScroll: !!rail && rail.scrollWidth > rail.clientWidth + 1 ? rail.scrollWidth + ' > ' + rail.clientWidth : null,
     horizontalOverflow: { document: de.scrollWidth > de.clientWidth + 1, documentScrollWidth: de.scrollWidth, clientWidth: de.clientWidth, main: !!main && main.scrollWidth > main.clientWidth + 1, active: !!active && active.scrollWidth > active.clientWidth + 1 },
     verticalOverflow: { document: de.scrollHeight > de.clientHeight + 1, active: !!active && active.scrollHeight > active.clientHeight + 1 && active.getAttribute('data-fit') !== 'scroll' },
-    targets: targets, smallText: small, truncated: truncated, bodyClass: document.body.className, theme: de.getAttribute('data-theme') || 'dark' };
+    targets: targets, smallText: small, truncated: truncated, infoSlot: infoSlot, bodyClass: document.body.className, theme: de.getAttribute('data-theme') || 'dark' };
 });
 
 // Controls whose text leaves their box (> 1 px) or breaks a word across lines.
 function textFitOf(data) {
   return data.targets.filter((t) => t.textOut > 1 || (t.brokenWords && t.brokenWords.length)).map((t) => ({ label: t.label, id: t.id, out: t.textOut, broken: t.brokenWords }));
+}
+// Lines of the v2 messages slot (#home-v2-info) cut by its visible box: a line drawn partly inside and partly outside.
+// Tolerated only when the part drawn lies wholly in the fade band of the slot's mask at that edge (performance-v2.css:
+// the summary's two edges, the plate form's bottom edge) and that edge is the slot's own; a line cut net is refused. Lines scrolled out of
+// the box are not drawn and not counted.
+function infoClipOf(data) {
+  const s = data && data.infoSlot, out = [];
+  if (!s) return out;
+  for (const q of s.lines || []) {
+    if (q.bottom <= s.clipTop + 0.5 || q.top >= s.clipBottom - 0.5) continue;
+    const top = q.top < s.clipTop - 0.5, bottom = q.bottom > s.clipBottom + 0.5;
+    if (!top && !bottom) continue;
+    const faded = bottom ? s.fadeBottom > 0 && Math.abs(s.clipBottom - s.bottom) <= 0.5 && q.top >= s.bottom - s.fadeBottom - 0.5 : s.fadeTop > 0 && Math.abs(s.clipTop - s.top) <= 0.5 && q.bottom <= s.top + s.fadeTop + 0.5;
+    if (!faded) out.push({ text: q.text, id: q.id, edge: bottom ? 'bottom' : 'top', out: Math.round((bottom ? q.bottom - s.clipBottom : s.clipTop - q.top) * 10) / 10 });
+  }
+  return out;
 }
 async function measureScreens(cdp, baseUrl, variant, dirName, dpr, summary, strict, screens) {
   const dir = path.join(OUT, dirName);
@@ -1035,10 +1068,15 @@ function startV2Fixture() {
         if (fx.phase === 'probing') Object.assign(c, { activeState: 'Run', probing: true, canStop: true, canStart: false, startReason: 'Palpage en cours.', canLoad: false, loadReason: 'Palpage en cours.', canPreviewMotion: false, motionReason: 'Palpage en cours.', canHome: false, homeReason: 'Palpage en cours.', canZeroZ: false, zeroZReason: 'Palpage en cours.' });
         return c;
       }
-      if (fx.phase !== 'stale') fx.frozen = { coordinates: c.coordinates, received: c.received, sent: c.sent };
+      if (fx.phase !== 'stale' && fx.phase !== 'stopped') fx.frozen = { coordinates: c.coordinates, received: c.received, sent: c.sent };
       const f = fx.frozen || { coordinates: c.coordinates, received: c.received, sent: c.sent };
       if (fx.phase === 'paused') return Object.assign(c, { activeState: 'Hold:0', workflow: 'paused', feedrate: 0, canPause: false, canResume: true, resumeReason: '', canStop: true, received: f.received, sent: f.sent, coordinates: f.coordinates });
       if (fx.phase === 'alarm') return Object.assign(c, { activeState: 'Alarm', workflow: 'running', alarmCode: 1, feedrate: 0, spindleSpeed: 0, canPause: false, canResume: false, canStop: true, canOverride: false, canRapidOverride: false, received: f.received, sent: f.sent, coordinates: f.coordinates });
+      // Lot C: the job stopped (Arrêter) during an alarm, as the server reports it: at rest, still in ALARM, jobStopped,
+      // the lines of the job kept; $X and $H offered (job-service.js unlockReady / homeReady once the job is over).
+      if (fx.phase === 'stopped') return Object.assign(c, { activeState: 'Alarm', workflow: 'idle', alarmCode: 1, feedrate: 0, spindleSpeed: 0, jobStopped: true, stoppedAtLine: f.received, stoppedFile: V2_FILE,
+        canPause: false, canResume: false, resumeReason: 'Machine en alarme.', canStop: false, canStart: false, startReason: 'Machine en alarme.', canLoad: false, loadReason: 'Machine en alarme.', canOverride: false, canRapidOverride: false,
+        canUnlock: true, unlockReason: '', canHome: true, homeReason: '', received: f.received, sent: f.sent, coordinates: f.coordinates });
       if (fx.phase === 'stale') return Object.assign(c, { fresh: false, statusAgeMs: now - fx.staleSince + 40, statusObservedAt: fx.staleSince - 40, received: f.received, sent: f.sent, coordinates: f.coordinates });
       return c; // running
     };
@@ -1209,7 +1247,7 @@ async function v2Capture(cdp, ctx, name, label, state, results) {
     await screenshot(cdp, path.join(dir, file + '.png'));
     const below = data.targets.filter((t) => t.belowGoal), unreachable = data.targets.filter((t) => !t.reachable);
     log('v2 ' + ctx + ' ' + label + ' · ' + state + ': ' + data.targets.length + ' targets, ' + below.length + ' under size goal, ' + data.smallText.length + ' text < 16 px, ' + unreachable.length + ' covered, ' + overlaps.length + ' text overlaps' + (data.horizontalOverflow.document ? ', HORIZONTAL OVERFLOW' : '') + (data.verticalOverflow.active ? ', vertical overflow' : ''));
-    results.push({ screen: name || 'current', label: label + ' · ' + state, targets: data.targets.length, below, small: data.smallText, textTargets: data.targets.filter((t) => t.textBelowGoal), gaps: [], unreachable, truncated: data.truncated, overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, scrolls: data.scrolls, fontStats: {}, textFit: textFitOf(data), railScroll: data.railScroll, overlapsText: overlaps });
+    results.push({ screen: name || 'current', label: label + ' · ' + state, targets: data.targets.length, below, small: data.smallText, textTargets: data.targets.filter((t) => t.textBelowGoal), gaps: [], unreachable, truncated: data.truncated, overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, scrolls: data.scrolls, fontStats: {}, textFit: textFitOf(data), railScroll: data.railScroll, overlapsText: overlaps, infoClip: infoClipOf(data) });
     return data;
   } catch (e) { failures.push('v2 ' + ctx + ' ' + label + ' ' + state + ': ' + e.message); log('FAIL v2 ' + ctx + ' ' + label + ' ' + state + ': ' + e.message); results.push({ screen: name || 'current', label: label + ' · ' + state, error: e.message }); return null; }
 }
@@ -1296,6 +1334,9 @@ async function v2Gestures(cdp, ctx, report, ids) {
 // The real page (index.html through the v2 fixture): idle, running, paused, alarm, stale, lost, then Journal
 // from the curve, Réglages, and the way out of v2. `v1` runs the same steps with the preference stored off (v2 is the default): the
 // baseline of the requests and of the strip rectangles.
+const SUIVI_LAYOUT = 'new Promise(function(done){requestAnimationFrame(function(){requestAnimationFrame(function(){var r=function(n){n=typeof n==="string"?document.getElementById(n)||document.querySelector(n):n;if(!n||!n.getClientRects().length)return null;var b=n.getBoundingClientRect();return [Math.round(b.left),Math.round(b.top),Math.round(b.width),Math.round(b.height)].join(",");};' +
+  'done({perfV2:document.body.classList.contains("perf-v2"),wide:document.body.classList.contains("perf-wide"),zones:(document.querySelector(".job-dashboard")||{getAttribute:function(){return null;}}).getAttribute("data-v2"),' +
+  'left:r("home-left"),image:r("home-job-image"),commands:{feed:r(document.querySelector("#home-overrides .t-override")),more:r("home-v2-more-overrides"),time:r("home-v2-time-detail"),pause:r("home-job-pause"),stop:r("home-job-stop")},scroll:document.querySelector("main").scrollTop});});});})';
 async function v2RealPass(cdp, fx, w, h, summary, report, v1) {
   const ctx = (v1 ? 'v1 baseline ' : '') + 'real ' + w + 'x' + h, results = [], info = { ctx };
   const allIds = ['t-pause', 't-stop'];
@@ -1337,7 +1378,7 @@ async function v2RealPass(cdp, fx, w, h, summary, report, v1) {
       }
       await v2Capture(cdp, ctx, null, 'Préparer', 'idle-comparison', results);
       const openJog = await cdp.evaluate('(function(){var b=document.getElementById("pv2-jog-open");if(!b||!b.getClientRects().length)return false;b.click();return true;})()');
-      if (!openJog) failures.push('v2 ' + ctx + ': « Vérifier un déplacement… » not shown');
+      if (!openJog) failures.push('v2 ' + ctx + ': « Vérifier un déplacement sans bouger… » not shown');
       else {
         await sleep(500);
         await v2Capture(cdp, ctx, null, 'Préparer', 'idle-jog-panel', results);
@@ -1362,9 +1403,7 @@ async function v2RealPass(cdp, fx, w, h, summary, report, v1) {
     // Running, paused, alarm, stale, lost: the layout holds; Pause / Arrêter on every screen and sheet.
     // The Suivi grid: the scene column and image, and the places of Suivi's own commands (feed override row,
     // Pause and Arrêter of the Commandes zone, the v2 sheet buttons). Measured after two frames.
-    const LAYOUT = 'new Promise(function(done){requestAnimationFrame(function(){requestAnimationFrame(function(){var r=function(n){n=typeof n==="string"?document.getElementById(n)||document.querySelector(n):n;if(!n||!n.getClientRects().length)return null;var b=n.getBoundingClientRect();return [Math.round(b.left),Math.round(b.top),Math.round(b.width),Math.round(b.height)].join(",");};' +
-      'done({perfV2:document.body.classList.contains("perf-v2"),wide:document.body.classList.contains("perf-wide"),zones:(document.querySelector(".job-dashboard")||{getAttribute:function(){return null;}}).getAttribute("data-v2"),' +
-      'left:r("home-left"),image:r("home-job-image"),commands:{feed:r(document.querySelector("#home-overrides .t-override")),more:r("home-v2-more-overrides"),time:r("home-v2-time-detail"),pause:r("home-job-pause"),stop:r("home-job-stop")},scroll:document.querySelector("main").scrollTop});});});})';
+    const LAYOUT = SUIVI_LAYOUT;
     const layoutAt = async () => cdp.evaluate(LAYOUT);
     await goScreen(cdp, 'home');
     const idleLayout = await layoutAt();
@@ -1661,7 +1700,8 @@ const SCREENS_READY = {
   probing: 'm&&m.probing',
   running: 'm&&m.workflow==="running"&&/^Run/.test(m.activeState||"")',
   paused: 'm&&m.workflow==="paused"',
-  alarm: 'm&&/^Alarm/.test(m.activeState||"")'
+  alarm: 'm&&/^Alarm/.test(m.activeState||"")',
+  stopped: 'm&&m.workflow==="idle"&&/^Alarm/.test(m.activeState||"")&&m.jobStopped===true'
 };
 const SCREENS_VARIANTS = [
   // firstStart (lot Menu, M9): no remembered screen, as at the kiosk's first start: the Menu at rest has no resume bar.
@@ -1669,12 +1709,15 @@ const SCREENS_VARIANTS = [
   { id: 'v1-768-es-clair-laser', v2: false, w: 1366, h: 768, lang: 'es', theme: 'light', size: 'standard', kind: 'laser' },
   { id: 'v1-768-es-clair-laser-agrandi', v2: false, w: 1366, h: 768, lang: 'es', theme: 'light', size: 'large', kind: 'laser', states: ['idle', 'running', 'alarm'] },
   { id: 'v1-768-fr-clair-cnc', v2: false, w: 1366, h: 768, lang: 'fr', theme: 'light', size: 'standard', kind: 'cnc', states: ['idle', 'running', 'paused'] },
-  { id: 'v2-911-fr-sombre-cnc', v2: true, w: 1366, h: 911, lang: 'fr', theme: 'dark', size: 'standard', kind: 'cnc', firstStart: true },
+  // stopped (lot C): « alarme après arrêt avec bilan », measured by screensStopped after the states.
+  { id: 'v2-911-fr-sombre-cnc', v2: true, w: 1366, h: 911, lang: 'fr', theme: 'dark', size: 'standard', kind: 'cnc', firstStart: true, stopped: true },
   { id: 'v2-911-es-clair-cnc', v2: true, w: 1366, h: 911, lang: 'es', theme: 'light', size: 'standard', kind: 'cnc' },
   { id: 'v2-911-es-sombre-cnc-agrandi', v2: true, w: 1366, h: 911, lang: 'es', theme: 'dark', size: 'large', kind: 'cnc', states: ['idle', 'running', 'alarm'] },
   // Lot jog (review): French large text too, for Préparer and its probe screens and real-move panel only (screens).
   { id: 'v1-768-fr-sombre-laser-agrandi', v2: false, w: 1366, h: 768, lang: 'fr', theme: 'dark', size: 'large', kind: 'laser', states: ['idle'], screens: ['jog'] },
-  { id: 'v2-911-fr-clair-cnc-agrandi', v2: true, w: 1366, h: 911, lang: 'fr', theme: 'light', size: 'large', kind: 'cnc', states: ['idle'], screens: ['jog'] }
+  { id: 'v2-911-fr-clair-cnc-agrandi', v2: true, w: 1366, h: 911, lang: 'fr', theme: 'light', size: 'large', kind: 'cnc', states: ['idle'], screens: ['jog'] },
+  // Lot C: Spanish, light, large text: only « alarme après arrêt avec bilan » (Suivi).
+  { id: 'v2-911-es-clair-cnc-agrandi', v2: true, w: 1366, h: 911, lang: 'es', theme: 'light', size: 'large', kind: 'cnc', states: [], screens: ['home'], stopped: true }
 ];
 const SCREENS_OF_STATES = SCREENS.filter(([name]) => name !== 'settings');
 const SCREENS_PAGE = '(function(){var m=window.cncState&&window.cncState.get().machine,t=function(id){var e=document.getElementById(id);return e?e.textContent.replace(/\\s+/g," ").trim():null;};' +
@@ -1739,7 +1782,7 @@ async function screensCapture(cdp, dirName, name, label, tag, page, results, opt
     await screenshot(cdp, path.join(dir, name + '.png'));
     const below = data.targets.filter((t) => t.belowGoal), unreachable = data.targets.filter((t) => !t.reachable), fonts = data.targets.map((t) => t.fontPx);
     results.push({ screen: name, label, targets: data.targets.length, below, small: data.smallText, textTargets: data.targets.filter((t) => t.textBelowGoal), gaps: data.targets.filter((t) => t.gapBelowGoal), unreachable, truncated: data.truncated,
-      overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, scrolls: data.scrolls, fontStats: { min: fonts.length ? Math.min(...fonts) : null, median: median(fonts), max: fonts.length ? Math.max(...fonts) : null }, textFit: textFitOf(data), railScroll: data.railScroll, overlapsText: overlaps, journal, jog, softHyphenBreaks: shy, cardClip, menu });
+      overflow: data.horizontalOverflow, vertical: data.verticalOverflow, scale: data.screenScale, scrolls: data.scrolls, fontStats: { min: fonts.length ? Math.min(...fonts) : null, median: median(fonts), max: fonts.length ? Math.max(...fonts) : null }, textFit: textFitOf(data), railScroll: data.railScroll, overlapsText: overlaps, journal, jog, softHyphenBreaks: shy, cardClip, menu, infoClip: infoClipOf(data) });
   } catch (e) { failures.push(tag + ' ' + label + ': ' + e.message); log('FAIL ' + tag + ' ' + label + ': ' + e.message); results.push({ screen: name, label, error: e.message }); }
 }
 // Source Serveur of the Journal (lot Journal): the real button, with an in-page fake XMLHttpRequest installed only
@@ -1907,6 +1950,53 @@ async function screensGuideSim(cdp, fx, summary) {
   }
   await cdp.evaluate('localStorage.removeItem("cncjs-touch-language-v1");localStorage.removeItem("cncjs-touch-display-v1");true').catch(() => {});
 }
+// Lot C (avant l'essai CNC): « alarme après arrêt avec bilan ». A job runs with the preview of its file read by Suivi,
+// then the operator's stop during an alarm (idle + Alarm + jobStopped, the job's lines kept): Suivi shows the end-of-job
+// summary; it counts the file's lines like the gauge (« 6 / 7 » on the Surface Pro, not CNCjs's count), the scale is the
+// preview's line count, and Suivi's commands kept their place since rest (v2). Captured and measured like the states.
+const SCREENS_STOPPED = '(function(){var t=function(id){var n=document.getElementById(id);return n?n.textContent.replace(/\\s+/g," ").trim():null;},s=document.getElementById("home-job-summary"),i=document.getElementById("home-job-image"),p=i&&i.cncPreview,m=window.cncState.get().machine||{};' +
+  'return {shown:!!(s&&!s.hidden&&s.getClientRects().length),tone:s?s.getAttribute("data-tone"):null,summary:t("home-job-summary-text"),gauge:t("home-gauge-ack-value"),lines:p&&p.file===m.name?p.lines:null,total:m.total};})()';
+function stoppedChecks(b) {
+  if (!b || !b.shown || !b.summary) return ['end-of-job summary not shown'];
+  const out = [], g = /^(.+?) \/ (.+)$/.exec(b.gauge || ''), digits = (x) => Number(String(x).replace(/\D/g, ''));
+  if (b.tone !== 'warn') out.push('summary tone « ' + b.tone + ' », expected warn (stopped before the end)');
+  if (!g) out.push('gauge « ' + b.gauge + ' » is not « line / lines »');
+  else if (b.summary.indexOf(b.gauge + ' ') < 0) out.push('summary « ' + b.summary + ' » does not say the gauge’s « ' + b.gauge + ' »');
+  if (!(b.lines > 0)) out.push('no preview of the file (line count ' + b.lines + ')');
+  else {
+    if (g && digits(g[2]) !== b.lines) out.push('gauge scale « ' + g[2] + ' » is not the file’s ' + b.lines + ' lines');
+    if (b.lines === b.total) out.push('preview lines equal CNCjs’s total (' + b.total + '): the file count is not proven');
+  }
+  return out;
+}
+async function screensStopped(cdp, fx, v, summary) {
+  const tag = 'screens ' + v.id + ' alarme-arret', dir = 'screens-home-' + v.id + '-alarme-arret', results = [];
+  const ready = (phase) => cdp.waitFor('(function(){var m=window.cncState&&window.cncState.get().machine;return !!(' + SCREENS_READY[phase] + ');})()', 20000, 'state ' + phase);
+  try {
+    fx.setPhase('idle');
+    await v2Open(cdp, fx.base + 'index.html?screens=' + v.id + '-arret', v.v2);
+    await ready('idle');
+    await goScreen(cdp, 'home');
+    await cdp.waitFor('(function(){var i=document.getElementById("home-job-image");return !!(i&&i.cncPreview&&i.cncPreview.lines>0);})()', 20000, 'Suivi preview of the file');
+    const rest = await cdp.evaluate(SUIVI_LAYOUT);
+    fx.setPhase('running'); await ready('running'); await sleep(1500);
+    fx.setPhase('stopped'); await ready('stopped');
+    await cdp.waitFor('(function(){var s=document.getElementById("home-job-summary");return !!(s&&!s.hidden&&s.getClientRects().length);})()', 10000, 'end-of-job summary');
+    await sleep(800);
+    const lay = await cdp.evaluate(SUIVI_LAYOUT), bilan = await cdp.evaluate(SCREENS_STOPPED);
+    stoppedChecks(bilan).forEach((f) => failures.push(tag + ': ' + f));
+    if (v.v2) {
+      const moved = Object.keys(lay.commands).filter((k) => lay.commands[k] && rest.commands[k] && lay.commands[k] !== rest.commands[k]);
+      if (moved.length) failures.push(tag + ': Suivi commands moved between rest and the stop: ' + moved.map((k) => k + ' ' + rest.commands[k] + ' → ' + lay.commands[k]).join('; '));
+      if (lay.image !== rest.image) failures.push(tag + ': Suivi scene resized between rest and the stop (' + rest.image + ' → ' + lay.image + ')');
+    }
+    await screensCapture(cdp, dir, 'home', 'Suivi · alarme après arrêt', tag, await cdp.evaluate(SCREENS_PAGE), results, { stay: true });
+    fs.writeFileSync(path.join(OUT, dir, 'bilan.json'), JSON.stringify({ bilan, rest, stopped: lay }, null, 1));
+    log(tag + ': « ' + bilan.summary + ' », gauge « ' + bilan.gauge + ' », file ' + bilan.lines + ' lines, CNCjs ' + bilan.total);
+  } catch (e) { failures.push(tag + ': ' + e.message); log('FAIL ' + tag + ': ' + e.message); }
+  finally { fx.setPhase('idle'); }
+  summary.measurements.push({ variant: tag, dir, dpr: 1, results, strict: true, overlap: true, v2: !!v.v2 });
+}
 async function screensVariant(cdp, fx, v, summary, out) {
   const states = SCREENS_STATES.filter(([, phase]) => !v.states || v.states.indexOf(phase) >= 0);
   const info = { variant: v.id, states: {} }, jogTops = {};
@@ -1964,6 +2054,7 @@ async function screensVariant(cdp, fx, v, summary, out) {
       if (phase === 'idle') { await screensProbe(cdp, fx, v, summary); await screensReal(cdp, fx, v, summary); await screensGuide(cdp, v, summary, false); }
     }
     if (!v.screens) await screensServer(cdp, v, summary);
+    if (v.stopped) await screensStopped(cdp, fx, v, summary);
     info.jogTops = jogTops;
     info.commands = fx.commands.splice(0, fx.commands.length);
     info.pageErrors = pageErrors.slice();
@@ -2363,6 +2454,8 @@ function strictCheck(summary, exceptionList) {
         }
         for (const b of r.menu.buttons || []) if (!b.missing && !b.hidden && !b.drawn) add(Object.assign({ check: 'strip-button', label: '#' + b.id, detail: 'shown by the page (hidden=false) but not drawn: a stylesheet hides it' }, base));
       }
+      // Lot C (avant l'essai CNC): no line of the v2 messages slot cut net by its edge (a fade is tolerated).
+      for (const c of r.infoClip || []) add(Object.assign({ check: 'info-clip', label: c.id ? '#' + c.id : c.text, detail: '« ' + c.text + ' » cut at the ' + c.edge + ' of #home-v2-info (' + c.out + ' px)' }, base));
       for (const c of r.cardClip || []) add(Object.assign({ check: 'card-clip', label: c.id ? '#' + c.id : c.text || c.tag, detail: c.tag + ' cut by ' + c.by + ' (' + c.out + ' px)' }, base));
       if (r.railScroll) add(Object.assign({ check: 'rail-scroll', label: 'rail', detail: 'rail scrolls horizontally (' + r.railScroll + ')' }, base));
       // Journal rows (screensCapture): no row drawn over the next one; the v1 page fits its box.
@@ -2577,4 +2670,4 @@ async function main() {
 // The measurement scripts (measure-*.cjs) reuse the DevTools client, the browser
 // launcher and the fixture starter; run the harness only as a program.
 if (require.main === module) main().catch((e) => { console.error('browser-run: ' + (e.stack || e.message)); process.exit(1); });
-module.exports = { FILE_COLUMN, GUIDE_MODE, guideChecks, strictCheck, loadExceptions, GOALS, RESPONSIVE, MEASURE, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors };
+module.exports = { FILE_COLUMN, GUIDE_MODE, guideChecks, strictCheck, loadExceptions, infoClipOf, stoppedChecks, GOALS, RESPONSIVE, MEASURE, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors };

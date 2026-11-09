@@ -97,6 +97,9 @@ class GrblSimulator {
 
     #waitingQueue = [];
 
+    // Feed hold (Grbl 1.1): the time the motion was frozen at and the state to resume to, or null.
+    #hold = null;
+
     constructor() {
         // System state
         this.alarmCode = 0;
@@ -225,6 +228,10 @@ class GrblSimulator {
      */
     set machineState(state) {
         this.#machineState = state;
+        // Leaving Hold by any other path (reset, alarm) drops the frozen motion's resume point.
+        if (state !== 'Hold') {
+            this.#hold = null;
+        }
 
         // Update laser power when machine state changes (for Hold/Door safety shutoff)
         this.updateLaserPower();
@@ -370,8 +377,11 @@ class GrblSimulator {
         // Debug logging (can be enabled with DEBUG_PLANNER env var)
         const debug = process.env.DEBUG_PLANNER === '1';
 
+        // Feed hold: the motion stays frozen and no queued block starts until '~' (lines are still accepted below).
+        const held = this.#hold !== null;
+
         // Update current motion state
-        if (this.#motionState.active) {
+        if (!held && this.#motionState.active) {
             const now = Date.now();
 
             // Check soft limits during execution (only if enabled)
@@ -417,7 +427,7 @@ class GrblSimulator {
         }
 
         // Start next command if nothing is executing
-        if (!this.#motionState.active && this.#plannerBuffer.queue.length > 0) {
+        if (!held && !this.#motionState.active && this.#plannerBuffer.queue.length > 0) {
             const nextCommand = this.#plannerBuffer.queue.shift();
             this.#plannerBuffer.executing = nextCommand;
 
@@ -649,16 +659,31 @@ class GrblSimulator {
                 return this.generateStatusReport();
 
             case '!':
-                // Feed hold
-                if (this.machineState === 'Run' || this.machineState === 'Jog') {
+                // Feed hold: as Grbl 1.1, the machine stays in Hold (motion frozen, queued
+                // blocks not started) until '~'. From Idle too, so a block queued between
+                // two lines is not started either.
+                if (this.machineState === 'Run' || this.machineState === 'Jog' || this.machineState === 'Idle') {
+                    const from = this.machineState;
                     this.machineState = 'Hold';
+                    this.#hold = { at: Date.now(), from };
                 }
                 return '';
 
             case '~':
-                // Cycle start / resume
+                // Cycle start / resume: the frozen motion continues where it stopped.
                 if (this.machineState === 'Hold') {
-                    this.machineState = 'Idle';
+                    const hold = this.#hold;
+                    if (hold && this.#motionState.active) {
+                        const shift = Date.now() - hold.at;
+                        this.setMotionState({
+                            startTime: this.#motionState.startTime + shift,
+                            endTime: this.#motionState.endTime + shift
+                        });
+                        this.machineState = hold.from === 'Jog' ? 'Jog' : 'Run';
+                    } else {
+                        // Nothing in motion: the next queued block (if any) starts on the next tick.
+                        this.machineState = 'Idle';
+                    }
                 }
                 return '';
 
@@ -1640,7 +1665,8 @@ class GrblSimulator {
             return { ...this.machinePosition };
         }
 
-        const now = Date.now();
+        // In feed hold the position stays where the motion was frozen.
+        const now = this.#hold ? this.#hold.at : Date.now();
         if (now >= this.#motionState.endTime) {
             return { ...this.#motionState.endPosition };
         }

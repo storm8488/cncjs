@@ -32,6 +32,9 @@ assert(has(responsive, 'body.ks-ui.perf-wide .job-dashboard[data-zones] #home-jo
 const perf = rules(touch('performance-v2.css')), V2 = 'body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"]';
 // Revue : the alarm text stayed capped at three lines (ui-2027.css max-height) with room left in the slot.
 assert(has(perf, V2 + '[data-v2-alert="1"] #home-job-ready', /max-height:none/), 'v2 alarm / hold text not capped at three lines');
+// Lot C (harness info-clip): the plate help was cut net at the bottom of the slot: a bottom fade, padded, without the summary.
+assert(has(perf, V2 + '[data-v2-form="1"]:not([data-v2-summary="1"]) #home-v2-info', /--v2-info-fade-top:0px;--v2-info-fade-bottom:28px;padding-bottom:var\(--v2-info-fade-bottom\);[^}]*mask-image:linear-gradient\(to bottom,#000 calc\(100% - var\(--v2-info-fade-bottom\)\),transparent\)/), 'v2 plate form: bottom edge fades');
+assert(has(perf, V2 + '[data-v2-actions-empty="1"] #home-v2-actions', /^display:none$/), 'v2: an empty action row gives its room');
 // Revue : « Palper le zéro Z… » was cut at the bottom of the 235 px slot, at rest on a real CNC (canZeroZ) as during a probe.
 assert(has(perf, V2 + ' #home-plate-title', /height:0/) && has(perf, V2 + ' #home-plate', /padding-top:var\(--sp-1\)/), 'v2 plate card compact enough for its button');
 const ui = rules(touch('ui-2027.css'));
@@ -152,6 +155,15 @@ for (const lang of [null, 'es']) {
   p.send({...run, activeState: 'Alarm', alarmCode: 1}); assert.equal(board.getAttribute('data-v2-alert'), '1');
   p.send(run); assert.equal(board.getAttribute('data-v2-alert'), '0');
   p.send(STATES.pause); assert.equal(board.getAttribute('data-v2-alert'), '1');
+  // Lot C: an alarm at rest with nothing selected hides Charger and Démarrer / Pause: the empty v2 action row gives its room
+  // (performance-v2.css data-v2-actions-empty); with a selection (Recharger shown) or in a job, the row stays.
+  const alarmRest = {...base, activeState: 'Alarm', alarmCode: 1, canLoad: false, canStart: false}, load = p.node('home-job-load');
+  p.emit('cnc-library-select', null); p.send(alarmRest);
+  assert.equal(load.hidden, true); assert.equal(p.node('home-job-primary-row').hidden, true); assert.equal(p.node('home-job-resume-row').hidden, true);
+  assert.equal(board.getAttribute('data-v2-actions-empty'), '1');
+  p.emit('cnc-library-select', {file: 'a.nc', name: 'a.nc'}); assert.equal(load.hidden, false); assert.equal(board.getAttribute('data-v2-actions-empty'), '0');
+  p.emit('cnc-library-select', null); p.send(run); assert.equal(board.getAttribute('data-v2-actions-empty'), '0', 'Pause shown during a job');
+  p.emit('cnc-library-select', {file: 'a.nc', name: 'a.nc'});
   // CNC: a speed, with its unit.
   p.send({...run, spindleSpeed: 12000}); assert.match(p.node('home-live-spindle').textContent, /^12.000 tr\/min$/u);
   // Plate or resume form open: the v2 messages slot gives it room (performance-v2.css reads data-v2-form).
