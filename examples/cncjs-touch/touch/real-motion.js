@@ -43,6 +43,8 @@
   function units(){var o=machine&&machine.operator;return o&&o.reportUnits==='mm'?'mm':o&&o.reportUnits==='in'?t('pouces'):t('unité inconnue');}
   function frame(){var o=machine&&machine.operator;return o&&typeof o.wcs==='string'&&o.wcs?o.wcs:t('repère inconnu');}
   function dir(d){return d>0?'+':'−';}
+  // The controller's state in the status strip's words (« Repos », « Alarme »…), Grbl's word without the strip. Text only.
+  function stateWord(m){var w=null;try{w=window.cncStatusStrip&&window.cncStatusStrip.describe(m,true);}catch(_){w=null;}return w&&w.word?w.word:m.activeState;}
 
   // ---- What was sent, what the server answered, what the reports show ----
   function sent(text){if(ui)setText(ui.sent,t('Demande envoyée : ')+text);}
@@ -50,7 +52,7 @@
   function refusal(e){return (e&&e.uncertain?t('Sans réponse du serveur : '):t('Refusé par le serveur : '))+msg(e&&e.message?e.message:t('raison inconnue'));}
   function observed(){
     if(!machine)return t('État observé : aucun rapport.');
-    var m=motion(),parts=[t('État observé : ')+(machine.activeState||t('inconnu'))];
+    var m=motion(),parts=[t('État observé : ')+(stateWord(machine)||t('inconnu'))];
     if(m&&m.jog)parts.push(t('jog du serveur en cours ')+m.jog.axis+dir(m.jog.direction)+' ('+t('au plus ')+m.jog.distanceMm+' mm)');
     if(m&&m.cancelling)parts.push(t('annulation (0x85) en cours de confirmation'));
     if(m&&m.cancelUnconfirmed)parts.push(t('ANNULATION NON CONFIRMÉE : utilisez l’arrêt physique si la machine bouge encore'));
@@ -304,7 +306,7 @@
     ui.feeds.buttons().forEach(function(b){prop(b,'disabled',!!hold||stepping);});
     setText(ui.warning,mode==='hold'?t('RÉEL · la machine bouge · relâchez pour arrêter'):t('RÉEL · chaque appui envoie un pas à la machine'));
     attr(ui.panel,'data-mode',mode);
-    setText(ui.where,t('Position rapportée par le contrôleur · ')+t('repère ')+frame()+' · '+units()+(machine&&typeof machine.statusAgeMs==='number'?' · '+(machine.statusAgeMs<1000?'< 1 s':Math.ceil(machine.statusAgeMs/1000)+' s'):''));
+    setText(ui.where,t('Position rapportée par le contrôleur · ')+t('repère ')+frame()+' · '+units()+(machine&&typeof machine.statusAgeMs==='number'?' · '+(machine.statusAgeMs<1000?'< 1 s':Math.ceil(machine.statusAgeMs/1000)+' s'):'')+(machine&&machine.fresh===false?t(' · rapport ancien : attendez un rapport récent avant une origine'):''));
     var co=machine&&machine.coordinates||{};
     AXES.forEach(function(a){var k=a.toLowerCase();setText(ui.rows[a].m,fmt(co.mpos&&co.mpos[k]));setText(ui.rows[a].w,fmt(co.wpos&&co.wpos[k]));});
     var m=motion(),mf=m&&m.maxFeed||{};

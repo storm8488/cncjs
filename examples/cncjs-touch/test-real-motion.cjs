@@ -382,5 +382,33 @@ function choice(f, value) { return findAll(f.el('real-motion'), (n) => n.getAttr
     f.answer(start, { message: 'Refusé.', code: 'ETOUCH_X' }, 409); await f.flush();
     assert.equal(f.motion('jog-stop').length, 0, 'a refused jog-start (answered) needs no stop');
   }
+  // Lot jog (M10): a stale report is said on the position line, text only: the arrows and X / Y / Z = 0 keep the
+  // state they had (originReason() does not read fresh; the server checks its own report at « prepare »).
+  {
+    const f = await opened();
+    const states = () => ['x', 'y', 'z'].map((a) => f.el('real-motion-origin-' + a).disabled).concat(f.el('real-motion-xp').disabled);
+    const before = states();
+    assert(!/rapport ancien/.test(f.el('real-motion-frame').textContent));
+    f.push([machine({ fresh: false, statusAgeMs: 7000 })]); await f.flush();
+    assert.match(f.el('real-motion-frame').textContent, /· 7 s · rapport ancien : attendez un rapport récent avant une origine$/);
+    assert.deepEqual(states(), [before[0], before[1], before[2], true], 'origins unchanged, arrows blocked by moveReason as before');
+    f.push([machine()]); await f.flush();
+    assert(!/rapport ancien/.test(f.el('real-motion-frame').textContent)); assert.deepEqual(states(), before);
+  }
+  // Review fixes (Astra 9): « État observé » names the state with the status strip's word (status-strip.js describe,
+  // given the whole report), not Grbl's « Idle »; text only, the arrows and origins keep their state.
+  {
+    const f = await opened(), seen = [];
+    const states = () => ['x', 'y', 'z'].map((a) => f.el('real-motion-origin-' + a).disabled).concat(f.el('real-motion-xp').disabled);
+    const before = states();
+    f.window.cncStatusStrip = { describe(m, connected) { seen.push([m.activeState, m.fresh, connected]); return { word: /^Idle/.test(m.activeState) ? 'Repos' : 'Alarme' }; } };
+    f.push([machine({ revision: 'rev-2' })]); await f.flush();
+    assert.match(f.el('real-motion-observed').textContent, /^État observé : Repos/);
+    assert.doesNotMatch(f.el('real-motion-observed').textContent, /Idle/);
+    assert.deepEqual(seen.at(-1), ['Idle', true, true]); assert.deepEqual(states(), before);
+    f.window.cncStatusStrip = { describe() { throw new Error('strip not ready'); } };
+    f.push([machine({ revision: 'rev-3' })]); await f.flush();
+    assert.match(f.el('real-motion-observed').textContent, /^État observé : Idle/, 'without the strip, Grbl\'s word as before');
+  }
   console.log('PASS: real moves hidden unless enabled; step; hold → keepalive → release; pointercancel/leave, blur, hidden, screen change; stream loss without restart; refused keepalive; ECONTROL; origin in two steps; idle release.');
 })().catch((e) => { console.error(e); process.exit(1); });

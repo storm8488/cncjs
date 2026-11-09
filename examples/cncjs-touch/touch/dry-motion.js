@@ -9,6 +9,12 @@
   var step = 1, feed = 800, socket = window.cncSocket, compact = !!(window.cncState&&window.CNCJobStream), blocked = !socket || !socket.connected;
   var request = null, version = 0, currentScreen='jog', timer=null;
   function setText(el, text) { if (el && el.textContent !== text) el.textContent = text; }
+  // Grbl state in the status strip's words (status-strip.js describe), never the controller's English word.
+  function stateWord(a) {
+    a = String(a || '');
+    if (!a) return t('état inconnu');
+    return t(/^idle/i.test(a) ? 'Repos' : /^run/i.test(a) ? 'En cours' : /^hold/i.test(a) ? 'En pause' : /^alarm/i.test(a) ? 'Alarme' : /^door/i.test(a) ? 'Porte ouverte' : /^check/i.test(a) ? 'Vérification' : /^sleep/i.test(a) ? 'Veille' : /^home/i.test(a) ? 'Prise d’origine' : /^jog/i.test(a) ? 'Déplacement' : 'Inconnu');
+  }
   function reason() {
     if (document.hidden) return t('Page masquée : essais bloqués.');
     if (compact ? !window.cncState.get().transportConnected : blocked || !socket || !socket.connected) return t('Serveur déconnecté : essais bloqués.');
@@ -16,7 +22,7 @@
     if (!machine.fresh || Date.now() - received >= 3000) return t('État du contrôleur périmé : attendez son actualisation.');
     if (machine.type !== 'Grbl' || !machine.port) return t('Contrôleur Grbl requis pour cet essai.');
     if (busy || machine.loading) return t('Une opération est en cours : essais bloqués.');
-    if (machine.workflow !== 'idle' || machine.activeState !== 'Idle') return t('Contrôleur non prêt (') + (machine.activeState || t('état inconnu')) + t(') : essais bloqués.');
+    if (machine.workflow !== 'idle' || machine.activeState !== 'Idle') return t('Contrôleur non prêt (') + stateWord(machine.activeState) + t(') : essais bloqués.');
     if (!machine.canLoad) return msg(machine.loadReason) || t('Commandes en attente : essais bloqués.');
     if (machine.canPreviewMotion !== true) return msg(machine.motionReason) || t('Vérification serveur indisponible : actualisez la page.');
     return '';

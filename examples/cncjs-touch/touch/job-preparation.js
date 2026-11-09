@@ -113,8 +113,13 @@
     ['Inconnu', 'Unknown', 'Desconocido'],
     ['Hypothèse : zéro X Y à la position de l’outil.', 'Hypothesis: X Y zero at the tool position.', 'Hipótesis: cero X Y en la posición de la herramienta.'],
     ['Poser X Y ici…', 'Set X Y here…', 'Fijar X Y aquí…'],
-    ['Ouvre « Déplacement réel » : X = 0 puis Y = 0, chacun avec sa confirmation.', 'Opens « Real motion »: X = 0 then Y = 0, each with its confirmation.', 'Abre « Movimiento real »: X = 0 y luego Y = 0, cada uno con su confirmación.'],
-    ['Origine réelle indisponible ici : « Déplacement réel » n’est pas ouvert sur ce poste.', 'Real origin unavailable here: « Real motion » is not open on this station.', 'Origen real no disponible aquí: « Movimiento real » no está abierto en este puesto.'],
+    ['Ouvre « Déplacement réel » : X = 0 puis Y = 0, chacun avec sa confirmation.', 'Opens « Real move »: X = 0 then Y = 0, each with its confirmation.', 'Abre « Desplazamiento real »: X = 0 y luego Y = 0, cada uno con su confirmación.'],
+    ['Origine réelle indisponible ici : « Déplacement réel » n’est pas ouvert sur ce poste.', 'Real origin unavailable here: « Real move » is not open on this station.', 'Origen real no disponible aquí: « Desplazamiento real » no está abierto en este puesto.'],
+    // Why « Poser X Y ici… » is greyed out, shown under it (a title is not seen on touch).
+    ['Indisponible : aucun programme chargé.', 'Unavailable: no program loaded.', 'No disponible: ningún programa cargado.'],
+    ['Indisponible : la machine n’est pas au repos.', 'Unavailable: the machine is not at rest.', 'No disponible: la máquina no está en reposo.'],
+    ['Indisponible : hypothèse X Y non calculable.', 'Unavailable: the X Y hypothesis cannot be computed.', 'No disponible: la hipótesis X Y no se puede calcular.'],
+    ['Indisponible : « Déplacement réel » non activé sur ce poste.', 'Unavailable: « Real move » not enabled on this station.', 'No disponible: « Desplazamiento real » no activado en este puesto.'],
     ['3 · Origine Z et contrôle final', '3 · Z origin and final check', '3 · Origen Z y control final'],
     ['Z séparé · validation manuelle.', 'Z separate · manual validation.', 'Z aparte · validación manual.'],
     ['Contrôle final…', 'Final check…', 'Control final…'],
@@ -142,8 +147,8 @@
     ['saisie opérateur, pas une mesure', 'operator entry, not a measurement', 'entrada del operador, no una medida'],
     ['programme, valeur nominale', 'program, nominal value', 'programa, valor nominal'],
     ['Aucune cote disponible pour ce programme.', 'No dimension available for this program.', 'Ninguna cota disponible para este programa.'],
-    ['Déplacer l’outil…', 'Move the tool…', 'Mover la herramienta…'],
-    ['Déplacer l’outil', 'Move the tool', 'Mover la herramienta'],
+    ['Vérifier un déplacement…', 'Check a move…', 'Comprobar un desplazamiento…'],
+    ['Vérifier un déplacement', 'Check a move', 'Comprobar un desplazamiento'],
     ['Revenir à la comparaison', 'Back to the comparison', 'Volver a la comparación'],
     ['Toucher le dessin ne déplace jamais l’outil.', 'Touching the drawing never moves the tool.', 'Tocar el dibujo nunca mueve la herramienta.']
   ];
@@ -267,7 +272,7 @@
   // visual origin card is mounted. It presents L2's placement model (cncV2.use('placement')) beside the
   // scene: comparison Les deux / Actuelle / Hypothèse (CNCOriginPreview.comparison, same framing), the
   // XY offsets only when computable, Z unchanged, the travel verdict as qualified as L2 gives it
-  // (unknown stays unknown), at most four dimensions with their source, and « Déplacer l'outil… », which
+  // (unknown stays unknown), at most four dimensions with their source, and « Vérifier un déplacement… », which
   // shows the existing jog card in its own zone (CSS: 96 px targets, 24 px from the scene).
   // Nothing here sends, zeroes, moves or ticks: the zero buttons stay in the coordinates card with their
   // confirmation, and no listener is put on the scene. Every DOM write happens in requestAnimationFrame.
@@ -321,6 +326,7 @@
     // « Poser X Y ici… » relays to the existing origin entry (real-motion.js « Déplacement réel »), whose
     // X = 0 and Y = 0 keep their own ticket and confirmation: no new command path.
     n.setXY = el('button', 'pv2-set-xy', tv2('Poser X Y ici…'), origin); n.setXY.type = 'button'; n.setXY.id = 'pv2-set-xy';
+    n.setXYWhy = el('p', 'pv2-sub', '', origin); n.setXYWhy.id = 'pv2-set-xy-why';
     n.setXY.addEventListener('click', function () { var entry = relayTarget('real-motion-open'); if (entry && v2Phase(v2.machine) === 'idle') entry.click(); });
     n.travel = el('div', 'pv2-travel', '', n.summary); n.travel.id = 'pv2-travel'; n.travel.setAttribute('role', 'status');
     n.travelTitle = el('b', '', '', n.travel); n.travelText = el('p', '', '', n.travel); n.margins = el('p', 'pv2-margins', '', n.travel);
@@ -329,7 +335,7 @@
     el('h3', '', tv2('3 · Origine Z et contrôle final'), finalText); el('p', 'pv2-sub', tv2('Z séparé · validation manuelle.'), finalText);
     n.final = el('button', 'pv2-final-open', tv2('Contrôle final…'), final); n.final.type = 'button'; n.final.id = 'pv2-final-open';
     n.final.addEventListener('click', function () { render(); panel.open(); });
-    n.open = el('button', 'pv2-jog-open', tv2('Déplacer l’outil…'), n.summary); n.open.type = 'button'; n.open.id = 'pv2-jog-open';
+    n.open = el('button', 'pv2-jog-open', tv2('Vérifier un déplacement…'), n.summary); n.open.type = 'button'; n.open.id = 'pv2-jog-open';
     n.open.addEventListener('click', function () { v2.jog = true; v2.focus = 'close'; v2Schedule(); });
     // The coordinates card is not shown beside the comparison: its two tools stay one tap away.
     var tools = el('div', 'pv2-tools', '', n.summary); n.tools = {};
@@ -340,7 +346,7 @@
     });
     // Head of the jog zone (the jog card itself is the existing .ks-motion-arrows, shown by CSS).
     n.jogHead = el('div', 'pv2-jog-head', '', root); n.jogHead.id = 'pv2-jog-head';
-    var jogText = el('div', '', '', n.jogHead); el('h3', '', tv2('Déplacer l’outil'), jogText);
+    var jogText = el('div', '', '', n.jogHead); el('h3', '', tv2('Vérifier un déplacement'), jogText);
     el('p', '', tv2('Toucher le dessin ne déplace jamais l’outil.'), jogText);
     n.close = el('button', 'pv2-jog-close', tv2('Revenir à la comparaison'), n.jogHead); n.close.type = 'button'; n.close.id = 'pv2-jog-close';
     n.close.addEventListener('click', function () { v2.jog = false; v2.focus = 'open'; v2Schedule(); });
@@ -479,6 +485,9 @@
     // Relays: enabled only while their existing target can be used (its own guards still apply).
     var canSet = phase === 'idle' && !!h && !!relayTarget('real-motion-open');
     prop(n.setXY, 'disabled', !canSet);
+    // Text only, in the order of canSet's own conditions (the machine state before the hypothesis, which is not computed outside rest).
+    var why = canSet ? '' : phase === 'empty' ? 'Indisponible : aucun programme chargé.' : phase !== 'idle' ? 'Indisponible : la machine n’est pas au repos.' : !h ? 'Indisponible : hypothèse X Y non calculable.' : 'Indisponible : « Déplacement réel » non activé sur ce poste.';
+    set(n.setXYWhy, why ? tv2(why) : ''); hide(n.setXYWhy, !why);
     attr(n.setXY, 'title', tv2(relayTarget('real-motion-open') ? 'Ouvre « Déplacement réel » : X = 0 puis Y = 0, chacun avec sa confirmation.' : 'Origine réelle indisponible ici : « Déplacement réel » n’est pas ouvert sur ce poste.'));
     Object.keys(n.tools).forEach(function (id) { prop(n.tools[id], 'disabled', !relayTarget(id)); });
     if (v2.focus) { var target = v2.focus === 'close' ? n.close : n.open; v2.focus = ''; if (target.focus) target.focus({ preventScroll: true }); }

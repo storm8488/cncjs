@@ -44,7 +44,7 @@
     put($('calculate'),'disabled',!!why);put($('wcs'),'disabled',!simulation||!!why);
     if(s&&model.frames.indexOf(s.wcs)>=0)put($('wcs'),'value',s.wcs);else put($('wcs'),'selectedIndex',-1);
     var a=$('axis').value;
-    try{put($('current'),'textContent',s?'Machine : '+model.number(s.machinePosition[a]).toFixed(3)+' mm · Travail : '+model.number(s.workPosition[a]).toFixed(3)+' mm':uiLocale.t('Coordonnées indisponibles'));}catch(_){put($('current'),'textContent',uiLocale.t('Coordonnées indisponibles'));put($('calculate'),'disabled',true);}
+    try{put($('current'),'textContent',s?uiLocale.t('Machine : ')+model.number(s.machinePosition[a]).toFixed(3)+uiLocale.t(' mm · Travail : ')+model.number(s.workPosition[a]).toFixed(3)+' mm':uiLocale.t('Coordonnées indisponibles'));}catch(_){put($('current'),'textContent',uiLocale.t('Coordonnées indisponibles'));put($('calculate'),'disabled',true);}
     put($('confirm'),'disabled',!simulation||!draft||!!why);
   }
   function close(){modal.hidden=true;invalidate();var restore=background;background=null;if(typeof restore==='function')restore();if(returnTo&&returnTo.isConnected)returnTo.focus({preventScroll:true});}
@@ -74,7 +74,7 @@
     try{
       var body={port:'SIMULATION',action:'coordinate',operation:$('operation').value,axis:$('axis').value,unit:$('unit').value,value:$('value').value,feed:Number($('feed').value),motionRevision:machine.motionRevision};
       var p=model.plan(snapshot(),body);draft={body:body,stamp:stamp(),until:Date.now()+15000};
-      $('result').textContent=p.wcs+' · '+p.axis.toUpperCase()+uiLocale.t(' travail → ')+p.targetWorkMm+uiLocale.t(' mm · machine ')+p.targetMachineMm+' mm. '+(p.operation==='set'?uiLocale.t('Origine modifiée, aucun déplacement.'):uiLocale.t('Déplacement ')+(simulation?'fictif.':uiLocale.t('non exécuté.')));
+      $('result').textContent=p.wcs+' · '+p.axis.toUpperCase()+uiLocale.t(' travail → ')+p.targetWorkMm+uiLocale.t(' mm · machine ')+p.targetMachineMm+' mm. '+(p.operation==='set'?uiLocale.t('Origine modifiée, aucun déplacement.'):uiLocale.t('Déplacement ')+(simulation?uiLocale.t('fictif.'):uiLocale.t('non exécuté.')));
       render();
     }catch(error){invalidate(error.message);}
   });

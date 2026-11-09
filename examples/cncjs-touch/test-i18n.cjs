@@ -36,6 +36,25 @@ for(const language of ['en','es']){
  assert.equal(i.t('Affichage · machine · système'),en?'Display · machine · system':'Pantalla · máquina · sistema');
  assert.equal(i.t('Luminosité pendant la veille'),en?'Brightness during screen sleep':'Brillo durante la suspensión');
  const keys=new Set();s.window.CNCTouchMessages.forEach(row=>{const key=row[0].trim().replace(/\s+/g,' ');assert(!keys.has(key),'duplicate: '+row[0]);keys.add(key);assert.equal(row.length,3);row.forEach(value=>assert(typeof value==='string'&&value.length>0));});
+ // Lot jog: coordinates editor, probe screens and the real-motion line were French in EN / ES (A10–A12, M10).
+ assert.equal(i.t('Machine : ')+'1.000'+i.t(' mm · Travail : ')+'2.000 mm',en?'Machine: 1.000 mm · Work: 2.000 mm':'Máquina: 1.000 mm · Trabajo: 2.000 mm');
+ assert.equal(i.t('Déplacement ')+i.t('fictif.'),en?'Movement simulated.':'Movimiento ficticio.');
+ assert.equal(i.t('Supprimer…'),en?'Delete…':'Eliminar…');
+ for(const r of ['Contact signalé par le champ Pn du rapport Grbl.','Champ Pn explicite : entrée P non active.','Champ Pn absent : entrée libre non confirmée. Capacité du firmware à valider.','Rapport sonde non reconnu : état inconnu.',' · rapport ancien : attendez un rapport récent avant une origine'])assert.notEqual(i.message(r),r,'translated: '+r);
+ assert.equal(i.t('repère inconnu'),en?'unknown work frame':'G5x ?');
+ {const ce=fs.readFileSync(path.join(__dirname,'touch','coordinate-editor.js'),'utf8'),pu=fs.readFileSync(path.join(__dirname,'touch','probe-ui.js'),'utf8');
+  assert(!/'Machine : '\+|\?'fictif\.'/.test(ce),'coordinate-editor: no untranslated literal');
+  assert(!/,'Supprimer…',|:'inconnue'\)/.test(pu),'probe-ui: no untranslated literal');
+  assert.equal((pu.match(/\(uiLocale\.message\|\|uiLocale\.t\)\(live\.reason\)/g)||[]).length,2,'probe-ui: the server reason is translated where it is shown');
+  // Review fixes (Astra 9): the controller line of the probe screens and « État observé » of the real panel say
+  // the status strip's word (« Reposo »), never Grbl's « Idle ».
+  const rm=fs.readFileSync(path.join(__dirname,'touch','real-motion.js'),'utf8');
+  assert(!/machine\?machine\.activeState:/.test(pu)&&(pu.match(/machine\?stateWord\(machine\):/g)||[]).length===2,'probe-ui: state in the strip\'s words');
+  assert(!/'État observé : '\)\+\(machine\.activeState/.test(rm)&&/t\('État observé : '\)\+\(stateWord\(machine\)/.test(rm),'real-motion: state in the strip\'s words');}
+ // Corner label of the probe diagram (Fable 2, Astra 10): « Esquina: sin definir » ran out of the 140-unit « Pieza »
+ // at 18 px; every language at most as long as the French one (16 characters, 125 px at 18 px).
+ assert.equal(i.t('Coin : à définir'),en?'Corner: not set':'Esquina: elegir');
+ assert(i.t('Coin : à définir').length<='Coin : à définir'.length,'corner label no longer than the French one');
  // A translated browser must retain the exact protocol and calculation contracts.
  const runtime={window:s.window};
  ['probe-model.js','coordinate-plan.js'].forEach(name=>vm.runInNewContext(fs.readFileSync(path.join(__dirname,'touch',name),'utf8'),runtime));

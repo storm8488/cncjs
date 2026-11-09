@@ -47,4 +47,17 @@ const compact=fixture(false,true);compact.status(ready);assert(compact.jogs.ever
 compact.jogs[1].events.click();const compactPending=compact.requests.at(-1);compact.transport.transportConnected=false;compact.status(ready);assert(compactPending.aborted);assert(compact.jogs.every(b=>b.disabled));
 compact.transport.transportConnected=true;compact.status(ready);assert(compact.jogs.every(b=>!b.disabled));
 assert(!fs.readFileSync(__dirname+'/touch/app.js','utf8').includes('DRY_RUN'));
+// Lot jog (M6): the controller's state is named with the status strip's words (FR, and translated in ES through the
+// catalogue), never Grbl's English « Run » / « Alarm » / « Hold:0 »; the guard (any state but Idle blocks) is unchanged.
+for(const [change,word] of [[{activeState:'Run',workflow:'running'},'En cours'],[{activeState:'Alarm'},'Alarme'],[{activeState:'Hold:0',workflow:'paused'},'En pause'],[{activeState:'Door:1'},'Porte ouverte'],[{activeState:'Home'},'Prise d’origine'],[{activeState:'Jog'},'Déplacement'],[{activeState:'Check'},'Vérification'],[{activeState:'Sleep'},'Veille'],[{activeState:'Weird'},'Inconnu'],[{activeState:''},'état inconnu']]){
+ const g=fixture();g.status({...ready,...change});assert(g.jogs.every(b=>b.disabled),'still blocked: '+JSON.stringify(change));
+ assert.equal(g.node('jog-msg').textContent,'Contrôleur non prêt ('+word+') : essais bloqués.');
+}
+{
+ const store={'cncjs-touch-language-v1':'es'},ctx={window:{},document:{documentElement:{},title:''},localStorage:{getItem:k=>store[k]||null,setItem(){}}};
+ for(const n of fs.readdirSync(__dirname+'/touch').filter(n=>/^i18n-messages(-[a-z]+)?\.js$/.test(n)&&n!=='i18n-messages-v2.js').sort((a,b)=>(a==='i18n-messages.js'?-1:b==='i18n-messages.js'?1:0)))vm.runInNewContext(fs.readFileSync(__dirname+'/touch/'+n,'utf8'),ctx);
+ vm.runInNewContext(fs.readFileSync(__dirname+'/touch/i18n.js','utf8'),ctx);
+ const es=ctx.window.cncI18n;for(const w of ['Repos','En cours','En pause','Alarme','Porte ouverte','Vérification','Veille','Prise d’origine','Déplacement','Inconnu','état inconnu'])assert.notEqual(es.t(w),w,'ES row for '+w);
+ assert.equal(es.t('Contrôleur non prêt (')+es.t('Alarme')+es.t(') : essais bloqués.'),'Controlador no listo (Alarma): pruebas bloqueadas.');
+}
 console.log('PASS: server preview only, request deduplication, late responses, errors/timeouts, guards, simulation isolation and unchanged render performance.');

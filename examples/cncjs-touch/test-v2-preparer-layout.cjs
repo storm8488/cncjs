@@ -24,15 +24,22 @@ const placed = { version: 1, available: true, identity, current: { wcs: 'G54', o
   q.v2.placement = placed; q.emit('cnc-v2-data', { slot: 'placement' }); await q.flush();
   const set = q.find('pv2-set-xy');
   assert(set.disabled); assert.match(set.getAttribute('title'), /indisponible/);
+  // Lot jog (X2): the reason is shown under the button (a title is not seen on touch); disabled state and relay unchanged.
+  const why = q.find('pv2-set-xy-why');
+  assert(why && !why.hidden); assert.equal(why.textContent, 'Indisponible : « Déplacement réel » non activé sur ce poste.');
   set.handlers.click(); assert.equal(entries, 0);
   entry.hidden = false; q.emit('cnc-v2-data', { slot: 'placement' }); await q.flush();
   assert(!set.disabled); assert.match(set.getAttribute('title'), /X = 0 puis Y = 0, chacun avec sa confirmation/);
+  assert(why.hidden && why.textContent === '', 'no reason while the relay is enabled');
   set.click(); assert.equal(entries, 1, 'relayed to the existing entry once');
   assert.equal(q.calls.updates.length, 0, 'no placement or command from the relay');
   q.status(idle({ workflow: 'running', activeState: 'Run' })); q.v2.safeIdle = false; await q.flush();
   assert(set.disabled, 'not during a job'); set.handlers.click(); assert.equal(entries, 1);
+  // The machine state comes before the hypothesis (not computed outside rest): « not at rest », not « hypothesis ».
+  assert.equal(why.textContent, 'Indisponible : la machine n’est pas au repos.');
   q.v2.safeIdle = true; q.status(idle()); await q.flush();
   q.v2.placement = null; q.emit('cnc-v2-data', { slot: 'placement' }); await q.flush(); assert(set.disabled, 'no hypothesis, no relay');
+  assert.equal(why.textContent, 'Indisponible : hypothèse X Y non calculable.');
   // Tools: relayed to the coordinates card's existing buttons.
   let speed = 0, coords = 0; q.node('ks-jog-settings').addEventListener('click', () => speed++); q.node('coordinate-open').addEventListener('click', () => coords++);
   q.find('pv2-tool-speed').click(); q.find('pv2-tool-coordinates').click(); assert.deepEqual([speed, coords], [1, 1]);

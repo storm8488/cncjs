@@ -43,6 +43,11 @@ body.perf-origin #screen-jog.screen[data-pv2] .pv2-cotes{grid-area:cotes;min-hei
 body.perf-origin #screen-jog.screen[data-pv2] .pv2-summary{grid-area:side;min-height:0}
 body.perf-origin #screen-jog.screen[data-pv2] .pv2-jog-head{grid-area:jhead;min-height:0}
 body.perf-origin #screen-jog.screen[data-pv2="compare"] .ks-motion-arrows,body.perf-origin #screen-jog.screen[data-pv2="compare"] .ks-motion-coordinates{display:none}
+/* The dry-run line describes the cross, hidden beside the comparison (in ES it took two lines and lowered the bar). */
+body.perf-origin #screen-jog[data-pv2="compare"] #jog-msg{display:none}
+/* With that line hidden the title column holds the title alone: it may narrow to its own width so four actions
+   (« Déplacement réel », FR large text) stay on its row; the wrapped row pushed the tools out of the side column. */
+body.perf-origin #screen-jog[data-pv2="compare"] .ks-panel-intro>div:first-child{flex-basis:0;min-width:auto}
 /* Jog zone: the whole cross and Z (3 × 96 px + 2 × 12 px = 312 px) in the 1fr row. */
 body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-arrows{grid-area:jog;height:auto;min-height:0;display:grid;grid-template-columns:auto auto;gap:var(--sp-6);justify-content:center;align-content:center;align-items:center;padding:var(--sp-2) var(--sp-3)!important}
 body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-arrows .jog{min-width:var(--tap-jog);min-height:var(--tap-jog)}
@@ -53,9 +58,11 @@ body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-coordinates{grid-
 body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-coordinates>h2,body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-zero,body.perf-origin #screen-jog.screen[data-pv2="jog"] #coordinate-open{display:none}
 body.perf-origin #screen-jog.screen[data-pv2] [hidden]{display:none!important}
 /* Comparison bar: three exclusive choices (aria-pressed) and the dimensions toggle, 48 px targets. */
-body.perf-origin #screen-jog[data-pv2] .pv2-bar{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;min-width:0}
-body.perf-origin #screen-jog[data-pv2] .pv2-bar-title{margin-right:auto;font:600 var(--fs-18)/1.2 var(--font);color:var(--fg)}
-body.perf-origin #screen-jog[data-pv2] .pv2-bar button,body.perf-origin #screen-jog[data-pv2] .pv2-jog-head button{min-height:var(--tap);padding:0 var(--sp-3);font:600 var(--fs-16)/1 var(--font);color:var(--fg);background:transparent;border:1px solid var(--line-strong);border-radius:var(--r-m)}
+body.perf-origin #screen-jog[data-pv2] .pv2-bar{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:nowrap;min-width:0}
+body.perf-origin #screen-jog[data-pv2] .pv2-bar-title{flex:1 1 0;min-width:0;font:600 var(--fs-18)/1.1 var(--font);color:var(--fg)}
+body.perf-origin #screen-jog[data-pv2] .pv2-bar button,body.perf-origin #screen-jog[data-pv2] .pv2-jog-head button{min-height:var(--tap);padding:0 var(--sp-3);font:600 var(--fs-16)/1 var(--font);color:var(--fg);background:transparent;border:1px solid var(--faint);border-radius:var(--r-m)}
+/* One row in its fixed 48 px track (wrapping put « Cotes » under the scene card): the title takes two lines instead. */
+body.perf-origin #screen-jog[data-pv2] .pv2-bar button{flex:none;white-space:nowrap}
 body.perf-origin #screen-jog[data-pv2] .pv2-bar button[aria-pressed="true"]{background:var(--info-soft);border-color:var(--info);color:var(--info-text);box-shadow:inset 0 -4px 0 var(--info)}
 body.perf-origin #screen-jog[data-pv2] .pv2-bar .pv2-cotes-toggle{margin-left:var(--sp-3)}
 /* Dimensions: one row of at most four, each with its source; hidden without moving the scene. */
@@ -90,7 +97,7 @@ body.perf-origin #screen-jog[data-pv2] .pv2-travel[data-tone="warn"]{border-left
 body.perf-origin #screen-jog[data-pv2] .pv2-travel[data-tone="warn"] b{color:var(--warn-text)}
 body.perf-origin #screen-jog[data-pv2] .pv2-travel[data-tone="danger"]{border-left-color:var(--danger);background:var(--danger-soft)}
 body.perf-origin #screen-jog[data-pv2] .pv2-margins{font-variant-numeric:tabular-nums}
-body.perf-origin #screen-jog[data-pv2] .pv2-jog-open{flex:none;min-height:var(--tap-primary);margin-top:auto;font:600 var(--fs-20)/1 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m)}
+body.perf-origin #screen-jog[data-pv2] .pv2-jog-open{flex:none;min-height:var(--tap-primary);margin-top:auto;font:600 var(--fs-20)/1 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--faint);border-radius:var(--r-m)}
 body.perf-origin #screen-jog[data-pv2] .pv2-jog-head>div{display:flex;flex-direction:column;gap:0;min-width:0}
 /* Round 2 (1366 × 911): compact program head, step 3 and relays; every target 48 px, primary 64 px. */
 body.perf-origin #screen-jog[data-pv2] .pv2-program{padding:var(--sp-2) var(--sp-3)}
@@ -99,9 +106,9 @@ body.perf-origin #screen-jog[data-pv2] .pv2-set-xy{flex:none;min-height:var(--ta
 body.perf-origin #screen-jog[data-pv2] .pv2-final{flex-direction:row;align-items:center;justify-content:space-between;gap:var(--sp-3);padding:var(--sp-2) var(--sp-3)}
 body.perf-origin #screen-jog[data-pv2] .pv2-final h3{margin:0;font:600 var(--fs-18)/1.2 var(--font);color:var(--fg)}
 body.perf-origin #screen-jog[data-pv2] .pv2-final>div{display:flex;flex-direction:column;gap:2px;min-width:0}
-body.perf-origin #screen-jog[data-pv2] .pv2-final button,body.perf-origin #screen-jog[data-pv2] .pv2-tools button{flex:none;min-height:var(--tap);padding:0 var(--sp-3);font:600 var(--fs-16)/1 var(--font);color:var(--fg);background:transparent;border:1px solid var(--line-strong);border-radius:var(--r-m)}
+body.perf-origin #screen-jog[data-pv2] .pv2-final button,body.perf-origin #screen-jog[data-pv2] .pv2-tools button{flex:none;min-height:var(--tap);padding:0 var(--sp-3);font:600 var(--fs-16)/1 var(--font);color:var(--fg);background:transparent;border:1px solid var(--faint);border-radius:var(--r-m)}
 body.perf-origin #screen-jog[data-pv2] .pv2-tools{display:grid;grid-template-columns:1fr 1fr;gap:var(--tap-gap);flex:none}
-body.perf-origin #screen-jog[data-pv2] .pv2-set-xy:disabled,body.perf-origin #screen-jog[data-pv2] .pv2-tools button:disabled{color:var(--disabled-fg);background:var(--disabled-bg);border-color:var(--line)}
+body.perf-origin #screen-jog[data-pv2] .pv2-set-xy:disabled,body.perf-origin #screen-jog[data-pv2] .pv2-tools button:disabled{color:var(--disabled-fg);background:var(--disabled-bg);border-color:var(--line);opacity:1}
 body.perf-origin #screen-jog[data-pv2] .pv2-jog-head{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:var(--sp-3);padding:0 0 0 var(--sp-3);border-left:6px solid var(--info)}
 body.perf-origin #screen-jog[data-pv2] .pv2-jog-head h3{font-size:var(--fs-18)}
 body.perf-origin #screen-jog[data-pv2] .pv2-cotes li{overflow:hidden}

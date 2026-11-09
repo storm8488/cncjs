@@ -144,7 +144,11 @@ const meta = { file: 'a.nc', fingerprint: 'sha256:aa', projection: { units: 'mm'
     const i = context.window.cncI18n;
     assert.equal(i.registerCatalog('performance-v2', JSON.parse(fs.readFileSync(__dirname + '/touch/i18n-messages-v2.js', 'utf8'))), true);
     assert.equal(i.registerCatalog('performance-v2-preparer', P.v2Messages), true, 'no conflicting row');
-    assert.equal(i.t('Déplacer l’outil…'), { fr: 'Déplacer l’outil…', en: 'Move the tool…', es: 'Mover la herramienta…' }[language]);
+    // « Déplacer l’outil… » opened the dry-run cross, which never moves the machine: renamed (lot jog, X1).
+    assert.equal(i.t('Vérifier un déplacement…'), { fr: 'Vérifier un déplacement…', en: 'Check a move…', es: 'Comprobar un desplazamiento…' }[language]);
+    assert.equal(i.t('Vérifier un déplacement'), { fr: 'Vérifier un déplacement', en: 'Check a move', es: 'Comprobar un desplazamiento' }[language]);
+    assert.equal(i.t('Indisponible : hypothèse X Y non calculable.'), { fr: 'Indisponible : hypothèse X Y non calculable.', en: 'Unavailable: the X Y hypothesis cannot be computed.', es: 'No disponible: la hipótesis X Y no se puede calcular.' }[language]);
+    assert(!P.v2Messages.some(r => /Real motion|Movimiento real/.test(r[1] + r[2])), 'one name for « Déplacement réel » in EN / ES (i18n-messages.js)');
   }
   // ---- Style: scoped under body.perf-v2 and body.perf-origin; 96 px jog targets; 24 px from the scene. ----
   {
