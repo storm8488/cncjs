@@ -756,8 +756,11 @@ async function alarmVariant(cdp, summary, arg, kind) {
 // RT (1366 x 768, Éco) and the Surface Pro 3 kiosk (1366 x 911 at 1.58, Performance). Measured as drawn
 // inside the information zone, which clips what overflows it; enforced by --strict (check file-column).
 const FILE_COLUMN_MIN = 120; // about 10 characters of the 20 px strip font
+// Lot Transverses (review): the cells now wrap under the strip, so the column counts only where it is drawn: inside
+// the zone vertically too, and shown (a file wrapped wholly under the zone, or hidden, is drawn on 0 px).
 const FILE_COLUMN = '(function(){var f=document.getElementById("t-file"),z=f&&f.closest(".t-vitals");if(!f||!z)return null;var a=f.getBoundingClientRect(),v=z.getBoundingClientRect();' +
-  'return {text:f.textContent,w:Math.max(0,Math.round(Math.min(a.right,v.right)-Math.max(a.left,v.left))),need:f.scrollWidth};})()';
+  'var shown=f.getClientRects().length>0&&getComputedStyle(f).visibility!=="hidden",h=Math.min(a.bottom,v.bottom)-Math.max(a.top,v.top);' +
+  'return {text:f.textContent,w:shown&&h>0.5?Math.max(0,Math.round(Math.min(a.right,v.right)-Math.max(a.left,v.left))):0,need:f.scrollWidth};})()';
 async function jobFileMeasure(cdp, summary) {
   const fixture = await startFixture(['--replay']);
   summary.jobFile = summary.jobFile || [];
@@ -1705,10 +1708,13 @@ const SCREENS_CLIP = '(function(){var a=document.querySelector("main .screen.act
   'for(var p=el.parentElement;p&&p!==document.body;p=p.parentElement){var cs=getComputedStyle(p);if(cs.overflowX==="visible"&&cs.overflowY==="visible")continue;var b=p.getBoundingClientRect();' +
   'if(r.bottom>b.bottom+0.5||r.right>b.right+0.5){out.push({text:(el.textContent||"").replace(/\\s+/g," ").trim().slice(0,60),tag:el.tagName.toLowerCase(),id:el.id||null,by:p.id?"#"+p.id:"."+String(p.className).split(" ")[0],out:Math.round(Math.max(r.bottom-b.bottom,r.right-b.right)*10)/10});break;}}});return out;})()';
 // Lot Menu (M1, M9): on the Menu, the label and value of each strip cell lie inside the information zone (a cell
-// clipped by the zone showed « F » or « MÁQU », which the own-width truncation check does not see), and the tiles
+// clipped by the zone showed « F » or « MÁQU », which the own-width truncation check does not see). Lot Transverses
+// (M1, M10): a cell that wrapped under the strip lies wholly outside the zone and is not drawn: only a cell, label or
+// value partly inside and partly outside counts as cut. The tiles
 // fill the screen down to its bottom with or without the resume bar (first start: tiles of 192 px over half of it).
 const SCREENS_MENU = '(function(){var out={stripClip:[],resume:null,tiles:[],screenBottom:null};var z=document.querySelector("#real-banner>.t-vitals,#simulation-banner>.t-vitals");' +
-  'if(z&&z.getClientRects().length&&getComputedStyle(z).visibility!=="hidden"){var zr=z.getBoundingClientRect();[].forEach.call(z.querySelectorAll(".t-vital>span,.t-vital>b"),function(el){if(!el.getClientRects().length)return;var r=el.getBoundingClientRect();if(!r.width)return;' +
+  'if(z&&z.getClientRects().length&&getComputedStyle(z).visibility!=="hidden"){var zr=z.getBoundingClientRect();[].forEach.call(z.querySelectorAll(".t-vital,.t-vital>span,.t-vital>b"),function(el){if(!el.getClientRects().length)return;var r=el.getBoundingClientRect();if(!r.width)return;' +
+  'if(r.top>=zr.bottom-0.5||r.bottom<=zr.top+0.5||r.left>=zr.right-0.5||r.right<=zr.left+0.5)return;' +
   'if(r.right>zr.right+0.5||r.left<zr.left-0.5||r.bottom>zr.bottom+0.5||r.top<zr.top-0.5)out.stripClip.push({text:(el.textContent||"").trim().slice(0,40),id:el.id||null,out:Math.round(Math.max(r.right-zr.right,zr.left-r.left,r.bottom-zr.bottom,zr.top-r.top)*10)/10});});}' +
   'var s=document.getElementById("screen-menu"),bar=document.getElementById("ks-resume");if(s){var sr=s.getBoundingClientRect();out.screenBottom=Math.round(sr.bottom*10)/10;out.resume=!!(bar&&bar.getClientRects().length);' +
   'var g=s.querySelector(".ks-tiles"),gr=g&&g.getClientRects().length?g.getBoundingClientRect():null,br=out.resume?bar.getBoundingClientRect():null;out.gridTop=gr?Math.round(gr.top*10)/10:null;out.resumeBottom=br?Math.round(br.bottom*10)/10:null;out.screenTop=Math.round((sr.top+parseFloat(getComputedStyle(s).paddingTop||"0"))*10)/10;' +
@@ -1849,6 +1855,58 @@ async function screensReal(cdp, fx, v, summary) {
   }
   summary.measurements.push({ variant: tag, dir: 'screens-jog-' + v.id + '-reel-*', dpr: 1, results, strict: true, overlap: true, v2: !!v.v2 });
 }
+// Lot Transverses (M7, M10): the usage guide, measured like a screen (text ≥ 16 px, targets, overflow) on each of its
+// four topics, its topic tabs at 48 px at least, the open topic marked, and the mode named by the catalogue's word of
+// the interface language (i18n-messages.js: the English « simulation » is the French word, so no French-word test).
+const SCREENS_GUIDE = '(function(){var g=document.getElementById("screen-guide");if(!g||!g.classList.contains("active"))return null;var on=g.querySelector("[aria-pressed=true]"),p=g.querySelector(".ks-panel-intro p");' +
+  'return {tabs:[].map.call(g.querySelectorAll("[data-guide-page]"),function(b){return Math.round(b.getBoundingClientRect().height*10)/10;}),open:on?on.getAttribute("data-guide-page"):null,active:on?getComputedStyle(on).boxShadow:null,mode:p?p.textContent.trim():""};})()';
+const GUIDE_MODE = { real: { fr: 'interface réelle', en: 'real interface', es: 'interfaz real' }, sim: { fr: 'simulation', en: 'simulation', es: 'simulación' } };
+function guideChecks(g, lang, sim, page) {
+  const out = [], word = GUIDE_MODE[sim ? 'sim' : 'real'][lang];
+  if (!g) return ['guide not shown'];
+  if (g.tabs.length !== 4 || g.tabs.some((h) => h < 48)) out.push('guide tabs ' + g.tabs.join(', ') + ' px (goal 4 × 48)');
+  if (g.open !== String(page)) out.push('topic ' + page + ' not open (' + g.open + ')');
+  if (!/inset/.test(g.active || '')) out.push('open guide topic not marked (' + g.active + ')');
+  if (!word || !g.mode || g.mode.indexOf(word) < 0) out.push('mode « ' + g.mode + ' », expected the ' + lang + ' word « ' + word + ' »');
+  return out;
+}
+const GUIDE_TOPIC = (page) => '(function(){var b=document.querySelector(\'#screen-guide [data-guide-page="' + page + '"]\');if(b)b.click();return !!b;})()';
+async function screensGuide(cdp, v, summary, sim) {
+  const tag = 'screens ' + v.id + ' guide', results = [];
+  for (let page = 0; page < 4; page++) {
+    const dir = 'screens-guide-' + v.id + (page ? '-' + (page + 1) : '');
+    try {
+      // Topic 1 as the guide opens it (index 0), then each tab tapped like the operator; nothing is sent.
+      if (page) { await cdp.evaluate(GUIDE_TOPIC(page)); await sleep(300); }
+      await screensCapture(cdp, dir, 'guide', 'Guide ' + (page + 1), tag, null, results, page ? { stay: true } : null);
+      const g = await cdp.evaluate(SCREENS_GUIDE);
+      guideChecks(g, v.lang, sim, page).forEach((f) => failures.push(tag + ' ' + (page + 1) + ': ' + f));
+      log(tag + ' ' + (page + 1) + ': tabs ' + (g ? g.tabs.join('/') : '—') + ' px, mode « ' + (g ? g.mode : '') + ' »');
+    } catch (e) { failures.push(tag + ' ' + (page + 1) + ': ' + e.message); }
+  }
+  await cdp.evaluate(GUIDE_TOPIC(0)).catch(() => {});
+  summary.measurements.push({ variant: tag, dir: 'screens-guide-' + v.id + '*', dpr: 1, results, strict: true, overlap: true, v2: !!v.v2 });
+}
+// The guide of simulation.html (v1 Éco), at 1366 x 768 and in the compact layout of 1024 x 600 (max-height 650 px).
+const SCREENS_GUIDE_SIM = [
+  { id: 'sim-768-fr-sombre', w: 1366, h: 768, lang: 'fr', theme: 'dark', size: 'standard' },
+  { id: 'sim-768-es-sombre', w: 1366, h: 768, lang: 'es', theme: 'dark', size: 'standard' },
+  { id: 'sim-600-es-sombre', w: 1024, h: 600, lang: 'es', theme: 'dark', size: 'standard' }
+];
+async function screensGuideSim(cdp, fx, summary) {
+  for (const v of SCREENS_GUIDE_SIM) {
+    pageErrors.length = 0;
+    try {
+      await setViewport(cdp, v.w, v.h, 1);
+      await v2Storage(cdp, fx.base, { profile: 'eco', v2: { version: 1, enabled: false } });
+      await settingsStorage(cdp, { lang: v.lang, size: v.size, theme: v.theme });
+      await v2Open(cdp, fx.base + 'simulation.html?screens=' + v.id, false);
+      await screensGuide(cdp, Object.assign({ v2: false }, v), summary, true);
+      if (pageErrors.length) failures.push('screens ' + v.id + ': page exceptions: ' + pageErrors.slice(0, 3).join(' | ').slice(0, 600));
+    } catch (e) { failures.push('screens ' + v.id + ': ' + e.message); log('FAIL screens ' + v.id + ': ' + e.message); }
+  }
+  await cdp.evaluate('localStorage.removeItem("cncjs-touch-language-v1");localStorage.removeItem("cncjs-touch-display-v1");true').catch(() => {});
+}
 async function screensVariant(cdp, fx, v, summary, out) {
   const states = SCREENS_STATES.filter(([, phase]) => !v.states || v.states.indexOf(phase) >= 0);
   const info = { variant: v.id, states: {} }, jogTops = {};
@@ -1869,6 +1927,10 @@ async function screensVariant(cdp, fx, v, summary, out) {
         await sleep(phase === 'running' ? 1500 : 800);
         const page = await cdp.evaluate(SCREENS_PAGE);
         info.states[stateId] = page;
+        // Lot Transverses (M3, M5): a probe cycle has its own word on the strip (it reports Run, no job runs), and the
+        // server's reasons (« Palpage en cours. », the fixture's « Prise d’origine en cours. ») are not left in French.
+        if (phase === 'probing' && /^(En cours|En curso|Running)$/.test(page.stateWord)) failures.push(tag + ': strip word « ' + page.stateWord + ' » during a probe cycle');
+        if (v.lang !== 'fr') { const why = await cdp.evaluate('(function(){var e=document.getElementById("job-reason");return e?e.textContent:"";})()'); if (/Palpage en cours|Prise d’origine en cours/.test(why)) failures.push(tag + ': French server reason on the ' + v.lang + ' page: ' + why); }
         if (page.lang !== v.lang || page.theme !== v.theme || page.large !== (v.size === 'large') || page.perfV2 !== v.v2 || page.kind !== v.kind) failures.push(tag + ': page shown as ' + JSON.stringify(page) + ', expected ' + JSON.stringify({ lang: v.lang, theme: v.theme, size: v.size, v2: v.v2, kind: v.kind }));
         for (const [name, label] of SCREENS_OF_STATES.filter(([n]) => !v.screens || v.screens.indexOf(n) >= 0)) await screensCapture(cdp, 'screens-' + name + '-' + v.id + '-' + stateId, name, label, tag, page, results);
         // Lot Menu: the first-start fixture really measures the Menu without its resume bar.
@@ -1899,7 +1961,7 @@ async function screensVariant(cdp, fx, v, summary, out) {
         log(tag + ': « ' + page.stateWord + ' », ' + results.length + ' screens' + (page.machine ? ' (' + page.machine.workflow + ' / ' + page.machine.activeState + ')' : ' (no machine)'));
       } catch (e) { failures.push(tag + ': ' + e.message); log('FAIL ' + tag + ': ' + e.message); }
       summary.measurements.push({ variant: tag, dir: 'screens-*-' + v.id + '-' + stateId, dpr: 1, results, strict: true, overlap: true, v2: !!v.v2 });
-      if (phase === 'idle') { await screensProbe(cdp, fx, v, summary); await screensReal(cdp, fx, v, summary); }
+      if (phase === 'idle') { await screensProbe(cdp, fx, v, summary); await screensReal(cdp, fx, v, summary); await screensGuide(cdp, v, summary, false); }
     }
     if (!v.screens) await screensServer(cdp, v, summary);
     info.jogTops = jogTops;
@@ -1916,6 +1978,7 @@ async function screensMeasure(summary) {
   try {
     await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: V2_GPU_TRAP });
     for (const v of SCREENS_VARIANTS) await screensVariant(cdp, fx, v, summary, out);
+    await screensGuideSim(cdp, fx, summary);
   } catch (e) { failures.push('screens: ' + (e.stack || e.message)); log('FAIL screens: ' + e.message); }
   finally {
     cdp.close();
@@ -2514,4 +2577,4 @@ async function main() {
 // The measurement scripts (measure-*.cjs) reuse the DevTools client, the browser
 // launcher and the fixture starter; run the harness only as a program.
 if (require.main === module) main().catch((e) => { console.error('browser-run: ' + (e.stack || e.message)); process.exit(1); });
-module.exports = { strictCheck, loadExceptions, GOALS, RESPONSIVE, MEASURE, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors };
+module.exports = { FILE_COLUMN, GUIDE_MODE, guideChecks, strictCheck, loadExceptions, GOALS, RESPONSIVE, MEASURE, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors };

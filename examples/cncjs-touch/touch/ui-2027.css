@@ -22,7 +22,8 @@
 /* Arrêt / danger : 64 px, isolé, texte ≥ 24 px gras. */
 .t-btn--danger{min-height:var(--tap-primary);font-size:var(--fs-24);font-weight:700;background:var(--danger);color:var(--on-danger);border-color:transparent}
 .t-btn--info{background:var(--info);color:var(--on-info);border-color:transparent}
-.t-btn--ghost{background:transparent;border-color:var(--line)}
+/* Contour ≥ 3:1 sur --bg, --surface et --surface-2 (--line : 1,6 à 2,0:1 ; lot Transverses M8, verrou et corrections). */
+.t-btn--ghost{background:transparent;border-color:var(--faint)}
 .t-btn--lg{min-height:var(--tap-primary);font-size:var(--fs-24)}
 .t-btn--block{width:100%}
 /* Désactivé : contraste réduit mais ≥ 4,5, rayures, et cadenas ; la raison vient
@@ -183,7 +184,7 @@
 .t-strip-right .ks-clock{font-size:var(--fs-20);color:var(--fg);margin:0}
 .ks-ui .ks-simulation{font:600 var(--fs-16)/1 var(--font);letter-spacing:.08em;color:var(--warn-text);border:1px solid var(--warn);border-radius:var(--r-s);padding:var(--sp-2) var(--sp-3)}
 .ks-ui .ks-real .ks-simulation,.ks-real .ks-simulation{color:var(--danger-text);border-color:var(--danger)}
-.ks-ui .ks-exit{display:inline-flex;align-items:center;min-height:var(--tap);padding:0 var(--sp-3);border:1px solid var(--line);border-radius:var(--r-m);color:var(--mute);font-size:var(--fs-16);text-decoration:none}
+.ks-ui .ks-exit{display:inline-flex;align-items:center;min-height:var(--tap);padding:0 var(--sp-3);border:1px solid var(--faint);border-radius:var(--r-m);color:var(--mute);font-size:var(--fs-16);text-decoration:none}
 /* The old badge bar of index.html is superseded by the strip; #notice stays (what to do next). */
 .ks-real #status-bar{display:none}
 .ks-ui #notice{margin:0;border-radius:0;border:0;border-bottom:1px solid var(--line);border-left:6px solid var(--warn);background:var(--warn-soft);color:var(--fg);font:var(--fs-18)/var(--lh) var(--font);padding:var(--sp-2) var(--sp-4)}
@@ -889,7 +890,7 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
 .t-pilot[data-state="other"]{border-left-color:var(--warn);background:var(--warn-soft)}
 .t-pilot[data-state="other"] b{color:var(--warn-text)}
 .t-pilot:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
-.ks-ui.t-compact .t-pilot{max-width:150px;min-width:84px}
+.ks-ui.t-compact .t-pilot{max-width:160px;min-width:84px}
 .ks-ui #pilot-dialog{top:var(--statusbar-h)}
 .ks-ui .pilot-form{display:flex;flex-direction:column;gap:var(--sp-2)}
 .ks-ui .pilot-form label{font:600 var(--fs-18)/var(--lh) var(--font);color:var(--fg)}
@@ -1116,3 +1117,14 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
 .ks-ui [data-pilot=other] .t-vital--machine{display:none}
 .ks-ui .t-vital--machine{flex:0 2 auto;min-width:0}
 .ks-ui .t-vital--machine span,.ks-ui .t-vital--machine b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Lot Transverses M1: a strip cell is drawn whole or not at all. The cells wrap (a cell that does not fit goes to a
+ * second line, under the strip, clipped by the zone) in order of importance: the file first (120 px asked, its own
+ * ellipsis; a zone narrower than that, 1024 x 600 with Pilote, Débloquer and Pause, gives it what is left), then the machine (at least 96 px,
+ * ellipsis), the feed, the spindle; the visual order is unchanged (spindle, feed, machine, file). Before: the fixed cells never gave way, so at 1024 x 600 or with Pilote and Débloquer the file
+ * name vanished (0 px) behind a clipped « AVANCE » or « Consigna S ». */
+.ks-ui #real-banner>.t-vitals,.ks-ui #simulation-banner>.t-vitals{height:100%;align-self:stretch;flex-wrap:wrap;flex-direction:row-reverse;justify-content:flex-start;align-content:flex-start;row-gap:0}
+.ks-ui #real-banner>.t-vitals>.t-vital,.ks-ui #simulation-banner>.t-vitals>.t-vital{height:100%;justify-content:center}
+.ks-ui #real-banner>.t-vitals>.t-vital--file,.ks-ui #simulation-banner>.t-vitals>.t-vital--file{order:1;flex:2 1 120px}
+.ks-ui #real-banner>.t-vitals>.t-vital--machine,.ks-ui #simulation-banner>.t-vitals>.t-vital--machine{order:2;flex:1 1 96px;max-width:max-content}
+.ks-ui #real-banner>.t-vitals>.t-vital--feed,.ks-ui #simulation-banner>.t-vitals>.t-vital--feed{order:3}
+.ks-ui #real-banner>.t-vitals>.t-vital--spindle,.ks-ui #simulation-banner>.t-vitals>.t-vital--spindle{order:4}

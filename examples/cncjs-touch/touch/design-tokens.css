@@ -17,7 +17,9 @@
 :root{
   color-scheme:dark;
   /* Surfaces, du plus profond au plus proche. */
-  --bg:#0e1417;--surface:#182028;--surface-2:#222d36;--surface-3:#2c3942;--line:#34434d;--line-strong:#4a5b66;
+  --bg:#0e1417;--surface:#182028;--surface-2:#222d36;--surface-3:#2c3942;--line:#34434d;--line-strong:#5f7280;
+  /* --line-strong, contour des commandes secondaires : ≥ 3:1 sur --bg et --surface (3,72 / 3,30 ; #4a5b66 donnait
+     2,63 / 2,33, lot Transverses). Sur leur propre fond --surface-2, c'est le fond qui les détache. */
   /* Contour d'un contrôle sans fond propre (tuiles du menu) : ≥ 3:1 sur --bg et --surface (3,60 / 3,19). */
   --line-control:#5d707c;
   /* Texte. --faint n'est jamais utilisé sous 16 px pour une information utile. */
@@ -51,7 +53,7 @@
 }
 :root[data-theme="light"]{
   color-scheme:light;
-  --bg:#eef1f4;--surface:#ffffff;--surface-2:#e2e7eb;--surface-3:#d3dae0;--line:#aeb9c1;--line-strong:#7f8f9a;
+  --bg:#eef1f4;--surface:#ffffff;--surface-2:#e2e7eb;--surface-3:#d3dae0;--line:#aeb9c1;--line-strong:#788893; /* 3,23:1 sur --bg, 3,66:1 sur --surface (#7f8f9a : 2,94 sur --bg) */
   --line-control:#6f7f8a; /* 3,65:1 sur --bg, 4,13:1 sur --surface */
   --fg:#101619;--mute:#3f4d56;--faint:#56656f;
   --ok:#15803d;--ok-text:#0d5226;--ok-soft:#dcf5e5;--on-ok:#ffffff;

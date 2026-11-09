@@ -74,6 +74,10 @@ function libraryPage(options = {}) {
   p.status({ name: 'a.nc', originalName: 'Pièce A.nc', revision: 5, fresh: true, workflow: 'running', activeState: 'Run', fingerprint: FP }); p.frame();
   assert.equal(p.find('lv2-match').getAttribute('data-tone'), 'ok'); assert.match(p.find('lv2-match').textContent, /même empreinte/);
   assert.equal(p.find('lv2-load-state').textContent, '▶ En cours'); assert.equal(cell('dims', 'load'), '228 × 148 × 23 mm');
+  // Lot Transverses (review): a probe cycle reports Run with no job running; the strip says « Palpage », the file is loaded, not « En cours ».
+  p.status({ name: 'a.nc', originalName: 'Pièce A.nc', revision: 5, fresh: true, workflow: 'idle', activeState: 'Run', probing: true, fingerprint: FP }); p.frame();
+  assert.equal(p.find('lv2-load-state').textContent, '● Chargé', 'probing: not « En cours »');
+  p.status({ name: 'a.nc', originalName: 'Pièce A.nc', revision: 5, fresh: true, workflow: 'running', activeState: 'Run', fingerprint: FP }); p.frame();
   // Review (Codex): a sheet answered « current » for other bytes (file replaced, fingerprint B) while the
   // preview and the machine still describe A: its tool and material belong to no program shown here.
   const declared = p.window.CNCProjects.declared;

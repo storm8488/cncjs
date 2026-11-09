@@ -17,8 +17,10 @@
   function text(node,value){if(!node||node.textContent===value)return;var n=node.firstChild;if(n&&n.nodeType===3&&!n.nextSibling)n.data=value;else node.textContent=value;}
   function attr(node,name,value){if(node.getAttribute(name)!==value)node.setAttribute(name,value);}
   function prop(node,key,value){if(node[key]!==value)node[key]=value;}
-  // Icons: one shape per tone, so the state is never carried by colour alone.
-  var icons={ok:'M4 12l5 5L20 6',run:'M7 5l12 7-12 7z',warn:'M8 5h3v14H8z M13 5h3v14h-3z',danger:'M12 3L2 21h20z M12 9v5 M12 17v1',off:'M5 5l14 14M19 5L5 19',info:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M12 11v5 M12 8v.5'};
+  // Icons: one shape per tone, so the state is never carried by colour alone. Among the amber states, a
+  // hold (Pause, Porte ouverte) keeps the two bars and an old report or a lost state shows a clock (lot
+  // Transverses M4: « Rapport ancien » drew the pause bars while the job was running).
+  var icons={ok:'M4 12l5 5L20 6',run:'M7 5l12 7-12 7z',hold:'M8 5h3v14H8z M13 5h3v14h-3z',warn:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M12 7v5l3 3',danger:'M12 3L2 21h20z M12 9v5 M12 17v1',off:'M5 5l14 14M19 5L5 19',info:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M12 11v5 M12 8v.5'};
   var state=el('div','t-state','t-state');state.setAttribute('data-tone','off');state.setAttribute('role','status');state.setAttribute('aria-live','polite');
   state.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="'+icons.off+'"/></svg>';
   // The word, and under it a short note (« déduite » for a deduced alarm code, V6).
@@ -28,7 +30,7 @@
   var freshText=el('span','','t-fresh-text');fresh.appendChild(freshText);fresh.title=uiLocale.t('Âge du dernier rapport machine');
   var vitals=el('div','t-vitals');
   function vital(label,id,extra){var box=el('div','t-vital'+(extra||''));var l=el('span');l.textContent=label;var b=el('b','',id);b.textContent='—';box.appendChild(l);box.appendChild(b);vitals.appendChild(box);return b;}
-  var spindle=vital(uiLocale.t('Broche'),'t-spindle'),feed=vital(uiLocale.t('Avance'),'t-feed');
+  var spindle=vital(uiLocale.t('Broche'),'t-spindle',' t-vital--spindle'),feed=vital(uiLocale.t('Avance'),'t-feed',' t-vital--feed');
   // The target machine as the server names it (label · CNC / Laser), PROFILES-CONTRACT.md §2.
   var target=vital(uiLocale.t('Machine'),'t-machine',' t-vital--machine'),file=vital(uiLocale.t('Fichier'),'t-file',' t-vital--file');
   var spindleLabel=spindle.previousSibling;
@@ -128,8 +130,10 @@
     // Grbl sends no report during a homing cycle: the server knows it from the $H sent.
     if(m.homing)return {word:uiLocale.t('Prise d’origine'),tone:'run'};
     if(!m.fresh)return {word:uiLocale.t('Rapport ancien'),tone:'warn'};
-    if(/^hold/i.test(a))return {word:uiLocale.t('Pause'),tone:'warn'};
-    if(/^door/i.test(a))return {word:uiLocale.t('Porte ouverte'),tone:'warn'};
+    if(/^hold/i.test(a))return {word:uiLocale.t('Pause'),tone:'warn',icon:'hold'};
+    if(/^door/i.test(a))return {word:uiLocale.t('Porte ouverte'),tone:'warn',icon:'hold'};
+    // A probe cycle reports Run: it is not « En cours » (no job runs; lot Transverses M3).
+    if(m.probing)return {word:uiLocale.t('Palpage'),tone:'run'};
     if(/^run/i.test(a))return {word:uiLocale.t('En cours'),tone:'run'};
     if(/^home/i.test(a))return {word:uiLocale.t('Prise d’origine'),tone:'run'};
     if(/^jog/i.test(a))return {word:uiLocale.t('Déplacement'),tone:'run'};
@@ -139,6 +143,7 @@
     return {word:a||uiLocale.t('Inconnu'),tone:'info'};
   }
   var tone='',lastDetail=null;
+  var shape='';
   function render(detail){
     lastDetail=detail;
     var m=detail.machine,connected=simulation?!!m:!!detail.transportConnected&&!!m;
@@ -150,7 +155,8 @@
     // (N3); only Resume and Unlock still wait for the stream (usable, below).
     var d=h?{word:uiLocale.t('État perdu'),tone:'warn'}:describe(m,!!m);
     text(stateText,d.word);text(stateNote,d.note||'');prop(stateNote,'hidden',!d.note);
-    if(d.tone!==tone){tone=d.tone;attr(state,'data-tone',tone);state.querySelector('path').setAttribute('d',icons[tone]);}
+    if(d.tone!==tone){tone=d.tone;attr(state,'data-tone',tone);}
+    if((d.icon||d.tone)!==shape){shape=d.icon||d.tone;state.querySelector('path').setAttribute('d',icons[shape]);}
     var age=m&&m.statusAgeMs,known=finite(age)&&age>=0;
     // Whole seconds only: a text that changed at every report (4 per second) would repaint the
     // strip continuously, which costs measurable CPU on the tablet at rest.

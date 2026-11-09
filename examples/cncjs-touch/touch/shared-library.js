@@ -253,7 +253,7 @@
     if (machine && machine.fresh && machine.name === name) {
       labels.push(/^Alarm/.test(machine.activeState || '') ? uiLocale.t('! Alarme · chargé') :
         machine.workflow === 'paused' || /^Hold/.test(machine.activeState || '') ? uiLocale.t('Ⅱ En pause') :
-        machine.workflow === 'running' || /^Run/.test(machine.activeState || '') ? uiLocale.t('▶ En cours') : uiLocale.t('● Chargé'));
+        machine.workflow === 'running' || (/^Run/.test(machine.activeState || '') && !machine.probing) ? uiLocale.t('▶ En cours') : uiLocale.t('● Chargé'));
     }
     var P = projects(), project = P ? P.label(name) : '';
     if (project) labels.push(project);
@@ -809,7 +809,7 @@
     var fresh = v2Fresh(m), loaded = fresh && !!m.name;
     put(n.loadName, !fresh ? tv2('État machine indisponible') : loaded ? m.originalName || m.name : tv2('Aucun programme chargé'));
     put(n.loadState, !loaded ? '' : /^Alarm/.test(m.activeState || '') ? tv2('! Alarme · chargé') : m.workflow === 'paused' || /^Hold/.test(m.activeState || '') ? tv2('Ⅱ En pause') :
-      m.workflow === 'running' || /^Run/.test(m.activeState || '') ? tv2('▶ En cours') : tv2('● Chargé'));
+      m.workflow === 'running' || (/^Run/.test(m.activeState || '') && !m.probing) ? tv2('▶ En cours') : tv2('● Chargé'));
     // Match: different names are different files; the same name needs both fingerprints.
     var selPrint = sel && sel.verdict === 'ok' && sel.fingerprint || '', match = !sel || !loaded ? '' : sel.file !== m.name ? 'different' : !selPrint || !m.fingerprint ? 'unknown' : selPrint === m.fingerprint ? 'same' : 'different';
     var shown = document.getElementById('home-job-image'), pv = shown && shown.cncPreview;
