@@ -56,6 +56,11 @@ status({...c,workflow:'idle',canOverride:false,canRapidOverride:false,overrides:
 // Real feed and spindle speed from Grbl; a pause with the spindle on is flagged.
 status({...c,canOverride:true,feedrate:400,spindleSpeed:12000});assert.match(el('home-live').textContent,/Avance réelle 400 mm\/min · Broche 12.000 tr\/min/);assert.equal(el('home-spindle-warning').hidden,true);
 status({...c,canOverride:true,workflow:'paused',activeState:'Hold:0',feedrate:0,spindleSpeed:12000});assert.equal(el('home-spindle-warning').hidden,false);assert.match(el('home-spindle-warning').textContent,/les axes sont arrêtés mais la broche tourne toujours/);
+// Hold:1 as the server reports it (activeState Hold, subState 1): still decelerating, never said stopped (phase 7).
+status({...c,canOverride:true,workflow:'paused',activeState:'Hold',subState:1,feedrate:600,spindleSpeed:12000});assert.match(el('home-spindle-warning').textContent,/^Pause : les axes ralentissent/);assert.doesNotMatch(el('home-spindle-warning').textContent,/arrêtés/);
+status({...c,canOverride:true,workflow:'paused',activeState:'Hold',subState:0,feedrate:0,spindleSpeed:12000});assert.match(el('home-spindle-warning').textContent,/les axes sont arrêtés mais la broche tourne toujours/);
+// M0 / M6 pause once the board is at rest (Idle): the axes are stopped.
+status({...c,canOverride:true,workflow:'paused',activeState:'Idle',feedrate:0,spindleSpeed:12000});assert.match(el('home-spindle-warning').textContent,/les axes sont arrêtés mais la broche tourne toujours/);
 // Paused on a Grbl error (no feed hold): Grbl still runs, the axes are not said stopped (rehearsal, x06).
 status({...c,canOverride:true,workflow:'paused',activeState:'Run',feedrate:600,spindleSpeed:12000});assert.match(el('home-spindle-warning').textContent,/^Envoi suspendu : Grbl peut encore exécuter/);assert.doesNotMatch(el('home-spindle-warning').textContent,/arrêtés/);
 status({...c,canOverride:true,workflow:'paused',feedrate:0,spindleSpeed:0});assert.equal(el('home-spindle-warning').hidden,true);

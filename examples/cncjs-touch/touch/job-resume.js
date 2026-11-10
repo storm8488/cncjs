@@ -28,7 +28,7 @@
   // Plate probe parameters of the confirmation being prepared (set by the panel below).
   var pendingPlate=null;
   function plateNote(p){
-    return t('Plaque de ')+p.thickness+t(' mm posée sous l’outil et sonde branchée ? Descente de ')+p.search+t(' mm au plus ; le dessus de la plaque deviendra Z = épaisseur, puis l’outil remontera 5 mm au-dessus.');
+    return t('Plaque de ')+p.thickness+t(' mm posée sous l’outil et sonde branchée ? Descente de ')+p.search+t(' mm au plus ; le dessus de la plaque deviendra Z = épaisseur, puis l’outil remontera jusqu’à 5 mm au-dessus, sans dépasser sa hauteur de départ.');
   }
   function lastZeroText(z){
     if(!z)return '';
@@ -100,7 +100,7 @@
   var plate=el('div','home-plate','t-card'),plateTitle=el('p','home-plate-title','','Zéro Z avec une plaque'),
     thickLabel=el('label','home-plate-thickness-label','','Épaisseur de la plaque (mm)'),thick=el('input','home-plate-thickness'),
     searchLabel=el('label','home-plate-search-label','','Descente maximale (mm)'),search=el('input','home-plate-search'),
-    probe=el('button','home-plate-probe','t-btn','Palper le zéro Z…'),plateHelp=el('p','home-plate-help','t-help','Posez la plaque sur la pièce sous l’outil et branchez la sonde. Descente à 100 mm/min, recul 1 mm, seconde touche à 25 mm/min ; le dessus de la plaque devient Z = épaisseur, puis l’outil remonte 5 mm au-dessus.'),
+    probe=el('button','home-plate-probe','t-btn','Palper le zéro Z…'),plateHelp=el('p','home-plate-help','t-help','Posez la plaque sur la pièce sous l’outil et branchez la sonde. Descente à 100 mm/min, recul 1 mm, seconde touche à 25 mm/min ; le dessus de la plaque devient Z = épaisseur, puis l’outil remonte jusqu’à 5 mm au-dessus, sans dépasser sa hauteur de départ.'),
     plateLast=el('p','home-plate-last','t-help'),plateStatus=el('p','home-plate-status','t-notice');
   var THICK_RULES={label:t('Épaisseur de la plaque'),unit:'mm',min:0.01,max:50,negative:false},SEARCH_RULES={label:t('Descente maximale'),unit:'mm',min:1,max:100,negative:false};
   [thick,search].forEach(function(i){i.setAttribute('type','text');i.setAttribute('inputmode','decimal');i.setAttribute('autocomplete','off');});

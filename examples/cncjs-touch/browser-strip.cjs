@@ -397,7 +397,7 @@ if (require.main === module) {
     const sim = await H.startFixture([]), browser = await H.launchBrowser(1366, 768);
     let failures = [];
     try { failures = await run(browser.cdp, H, { simBase: sim.base, out, quick: process.argv.includes('--quick') }); }
-    finally { browser.cdp.close(); try { browser.child.kill(); } catch (_) { /* gone */ } sim.child.kill(); await H.sleep(300); try { fs.rmSync(browser.profile, { recursive: true, force: true }); } catch (_) { /* busy */ } }
+    finally { try { await browser.cdp.send('Browser.close', {}, 3000); } catch (_) { /* closed */ } browser.cdp.close(); try { browser.child.kill(); } catch (_) { /* gone */ } sim.child.kill(); await H.sleep(300); try { fs.rmSync(browser.profile, { recursive: true, force: true }); } catch (_) { /* busy */ } }
     if (failures.length) { console.error('FAILED:\n- ' + failures.join('\n- ')); process.exit(1); }
     console.log('browser-strip: PASS');
   })().catch((e) => { console.error(e); process.exit(2); });

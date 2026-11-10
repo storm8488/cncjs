@@ -262,7 +262,9 @@
     if(homeShown&&simulationPage&&c&&c.workPosition)['x','y','z'].forEach(function(a){set('home-sim-'+a,'textContent',finiteNumber(c.workPosition[a])?c.workPosition[a].toFixed(3):'—');});
     var spinning=!!(c&&c.workflow==='paused'&&rpm!==null&&rpm>0);
     set('home-spindle-warning','hidden',!spinning);
-    set('home-spindle-warning','textContent',spinning?(laser()?uiLocale.t('Pause : la consigne S reste active. En mode laser ($32=1), Grbl coupe l’émission tant que les axes sont arrêtés ; gardez la protection en place.'):/^Hold/.test(String(c.activeState||''))?uiLocale.t('Pause : les axes sont arrêtés mais la broche tourne toujours (Grbl ne l’arrête pas en pause). Ne mettez pas les mains près de l’outil.'):
+    set('home-spindle-warning','textContent',spinning?(laser()?uiLocale.t('Pause : la consigne S reste active. En mode laser ($32=1), Grbl coupe l’émission tant que les axes sont arrêtés ; gardez la protection en place.'):/^Hold/.test(String(c.activeState||''))&&(c.subState===1||/^Hold:1/.test(String(c.activeState||'')))?uiLocale.t('Pause : les axes ralentissent jusqu’à l’arrêt et la broche tourne toujours. Ne mettez pas les mains près de l’outil.'):
+      // Hold:0 (or a hold without sub-state) and Idle (M0 / M6 pause at rest): the axes are stopped (phase 7).
+      /^(Hold|Idle)/.test(String(c.activeState||''))?uiLocale.t('Pause : les axes sont arrêtés mais la broche tourne toujours (Grbl ne l’arrête pas en pause). Ne mettez pas les mains près de l’outil.'):
       // CNCjs pauses its sender on a Grbl error without a feed hold: the planned moves go on (Astra 60, rehearsal).
       uiLocale.t('Envoi suspendu : Grbl peut encore exécuter les mouvements déjà reçus et la broche tourne. Ne mettez pas les mains près de l’outil.')):'');
     set('home-override-note','textContent',overrideOn?uiLocale.t('Pas de ±1 % / ±10 % envoyés au contrôleur en temps réel ; 100 % rétablit la valeur programmée.'):(c&&c.overrideReason?uiLocale.message?uiLocale.message(c.overrideReason):uiLocale.t(c.overrideReason):''));

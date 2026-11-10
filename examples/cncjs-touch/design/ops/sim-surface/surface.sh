@@ -9,6 +9,8 @@
 #                                        machine-cnc, machine-forget, close, clean
 #   bash surface.sh chrome start [url]|stop|status   fenêtre de test (profil /tmp/cnc-measure-v2, 9230)
 #   bash surface.sh tunnel open|close    tunnel PC 127.0.0.1:19230 -> Surface 127.0.0.1:9230 (cdp.mjs)
+#   bash surface.sh endurance start [h]|status|stop   endurance détachée (24 h max), CSV dans
+#                                        /home/pi/endurance/<date>/samples.csv (lien « latest »)
 #   bash surface.sh clean                fin de séance complète, puis vérification
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -41,7 +43,7 @@ case "${1:-}" in
   push)
     remote mkdir -p "$D/grbl-simulator"
     scp "${SSHOPT[@]}" -q "$REPO/grbl-simulator/grbl-server.js" "$REPO/grbl-simulator/grbl-simulator.js" "$REPO/grbl-simulator/package.json" "$H:$D/grbl-simulator/"
-    scp "${SSHOPT[@]}" -q "$HERE/guard.sh" "$HERE/sim.sh" "$HERE/bridge.py" "$HERE/port.cjs" "$HERE/chrome.sh" "$H:$D/"
+    scp "${SSHOPT[@]}" -q "$HERE/guard.sh" "$HERE/sim.sh" "$HERE/bridge.py" "$HERE/port.cjs" "$HERE/chrome.sh" "$HERE/endurance.cjs" "$H:$D/"
     echo "copié dans $H:$D"
     ;;
   guard) remote bash "$D/guard.sh" ;;
@@ -50,6 +52,25 @@ case "${1:-}" in
   port) shift; remote "$NODE" "$D/port.cjs" "$@" ;;
   chrome) shift; remote bash "$D/chrome.sh" "$@" ;;
   tunnel) tunnel "${2:-}" ;;
+  endurance)
+    case "${2:-}" in
+      start)
+        # Simulator running, /tmp/ttyGRBL open and prepared ($X done), machine profile declared.
+        remote bash "$D/guard.sh" || exit 1
+        remote bash -c '
+          pgrep -f "^[^ ]*node [^ ]*endurance[.]cjs" >/dev/null && { echo "endurance déjà lancée"; exit 1; }
+          dir=/home/pi/endurance/$(date +%Y%m%d-%H%M); mkdir -p "$dir"; ln -sfn "$dir" /home/pi/endurance/latest
+          setsid nohup '"$NODE"' '"$D"'/endurance.cjs "$dir" '"${3:-24}"' </dev/null >>"$dir/run.log" 2>&1 &
+          sleep 3; pgrep -af "^[^ ]*node [^ ]*endurance[.]cjs"; echo "dossier : $dir"; cat "$dir/events.log" "$dir/run.log" 2>/dev/null'
+        ;;
+      status)
+        remote bash -c 'pgrep -af "^[^ ]*node [^ ]*endurance[.]cjs" || echo "endurance arrêtée"; d=/home/pi/endurance/latest; readlink -f $d;
+          tail -n 3 $d/samples.csv; echo "--- événements"; tail -n 5 $d/events.log'
+        ;;
+      stop) remote bash -c 'touch /home/pi/endurance/latest/STOP; echo "arrêt demandé (sous 5 s)"' ;;
+      *) echo "usage : surface.sh endurance start [heures]|status|stop"; exit 2 ;;
+    esac
+    ;;
   clean)
     failed=0
     remote "$NODE" "$D/port.cjs" clean || failed=1
@@ -71,5 +92,5 @@ case "${1:-}" in
       exit $rest' || failed=1
     if [ "$failed" = 0 ]; then echo "nettoyage vérifié"; else echo "NETTOYAGE INCOMPLET : voir les lignes ci-dessus"; exit 1; fi
     ;;
-  *) sed -n 2,13p "$0"; exit 2 ;;
+  *) sed -n 2,15p "$0"; exit 2 ;;
 esac

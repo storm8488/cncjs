@@ -155,13 +155,11 @@ const main = async () => {
         writeln('$X');
         await sleep(1500);
       }
-      // The profile is matched on the settings read back ($$): read them before forgetting.
-      const t = await touchEntry();
-      if (t) {
-        const { status } = await http('POST', '/api/touch-job', { port: PORT, action: 'readSettings', generation: t.generation });
-        console.log('readSettings', status);
-        await sleep(2000);
-      }
+      // The profile is matched on the settings read back ($$): read them before forgetting
+      // (console $$ as in prepare; the service's readSettings needs an open Touch stream).
+      writeln('$$');
+      await sleep(2500);
+      console.log('réglages relus', settings && settings.settings && settings.settings.$22 !== undefined ? 'oui' : 'non');
       forgotten = await machine('forget');
     }
     await new Promise((ok) => s.emit('close', PORT, () => ok()));

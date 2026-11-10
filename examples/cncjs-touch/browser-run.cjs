@@ -1672,8 +1672,10 @@ async function v2Measure(summary) {
     }
   } catch (e) { failures.push('v2: ' + (e.stack || e.message)); log('FAIL v2: ' + e.message); }
   finally {
-    cdp.close();
+    // Browser.close before the socket closes: an Edge that handed its session to another
+    // process (update pending) is only closed this way, child.kill() reaches the launcher.
     try { await cdp.send('Browser.close', {}, 3000); } catch (_) { /* closed */ }
+    cdp.close();
     try { browser.child.kill(); } catch (_) { /* gone */ }
     fx.close();
     await sleep(300);
@@ -2095,8 +2097,10 @@ async function screensMeasure(summary) {
     await screensGuideSim(cdp, fx, summary);
   } catch (e) { failures.push('screens: ' + (e.stack || e.message)); log('FAIL screens: ' + e.message); }
   finally {
-    cdp.close();
+    // Browser.close before the socket closes: an Edge that handed its session to another
+    // process (update pending) is only closed this way, child.kill() reaches the launcher.
     try { await cdp.send('Browser.close', {}, 3000); } catch (_) { /* closed */ }
+    cdp.close();
     try { browser.child.kill(); } catch (_) { /* gone */ }
     fx.close();
     await sleep(300);
@@ -2681,8 +2685,10 @@ async function main() {
     if (STRICT) strictResult.violations.forEach((v) => failures.push('layout ' + v.check + ': ' + v.variant + ' · ' + v.screenLabel + ' · ' + v.label + ' — ' + v.detail));
   }
   writeSummary(summary);
+  // Browser.close before the socket closes (see screensMeasure): the only way to an Edge that handed its session over.
+  if (!KEEP) { try { await cdp.send('Browser.close', {}, 3000); } catch (_) { /* closed */ } }
   cdp.close();
-  if (!KEEP) { try { await cdp.send('Browser.close', {}, 3000); } catch (_) { /* closed */ } try { browser.child.kill(); } catch (_) { /* gone */ } }
+  if (!KEEP) { try { browser.child.kill(); } catch (_) { /* gone */ } }
   if (fixture) fixture.child.kill();
   await sleep(300);
   if (!KEEP) { try { fs.rmSync(browser.profile, { recursive: true, force: true }); } catch (_) { /* profile busy */ } }

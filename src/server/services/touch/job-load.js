@@ -164,8 +164,16 @@ export const createLoader = (deps) => {
     delete summary.program;
     summary.preview = { version: 1, fingerprint, fromLine: plan.from, preamble: plan.preamble.slice(), kind: plan.mode };
     // The plan the operator saw: "Charger la reprise" of the same file and line
-    // must rebuild it from the same program (E9).
-    record(c).resumeChecked = { file: body.file, line: Number(body.line), fingerprint };
+    // must rebuild it from the same program (E9). One plan per tracking
+    // connection: another screen's "Vérifier" does not replace it (phase 7).
+    const r = record(c);
+    const checked = r.resumeChecked || (r.resumeChecked = new Map());
+    const key = typeof body.transportId === 'string' ? body.transportId : '';
+    checked.delete(key);
+    checked.set(key, { file: body.file, line: Number(body.line), fingerprint });
+    if (checked.size > 16) {
+      checked.delete(checked.keys().next().value);
+    }
     return summary;
   };
 
@@ -200,7 +208,7 @@ export const createLoader = (deps) => {
       let program = gcode;
       let resume = null;
       if (body.fromLine !== undefined && body.fromLine !== null) {
-        const checked = r.resumeChecked;
+        const checked = r.resumeChecked && r.resumeChecked.get(typeof body.transportId === 'string' ? body.transportId : '');
         if (checked && checked.file === body.file && checked.line === Number(body.fromLine) && !sameProgram(checked.fingerprint, fingerprint)) {
           throw conflict('Fichier modifié depuis « Vérifier » : vérifiez à nouveau la reprise.');
         }

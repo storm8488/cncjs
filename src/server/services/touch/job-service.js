@@ -1127,6 +1127,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       operator: { reportUnits, wcs },
       type: c.type,
       activeState: state.activeState || '',
+      // Hold:1 (decelerating) or Hold:0 (stopped): the tablet tells them apart (phase 7).
+      subState: state.activeState === 'Hold' && Number.isInteger(state.subState) ? state.subState : null,
       feedrate: realtimeValue(state.feedrate),
       spindleSpeed: realtimeValue(state.spindle),
       workflow: c.workflow.state,

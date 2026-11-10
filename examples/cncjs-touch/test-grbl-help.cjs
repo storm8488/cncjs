@@ -6,7 +6,7 @@ const help=require('./touch/grbl-help');
 const a9=help.alarm(9);assert.equal(a9.code,9);assert.match(a9.title,/^Alarme 9 : Prise d’origine/);assert.match(a9.action,/\$23/);
 assert.match(help.alarm(1).action,/\$H/);assert.match(help.alarm(2).action,/\$130/);
 // Critical alarms ("Reset to continue"): the tablet cannot reset, the help says where (E1 / UI-1 of the rehearsal), and unlock comes before moving the axis.
-[1,2].forEach(n=>assert.match(help.alarm(n).action,/Reset dans CNCjs au PC/));assert(help.alarm(1).action.indexOf('($X)')<help.alarm(1).action.indexOf('dégagez'));
+[1,2].forEach(n=>assert.match(help.alarm(n).action,/Reset dans CNCjs au PC/));assert.match(help.alarm(1).action,/Dégagez l’axe \(à la main, ou au jog après \$X\)/);
 const none=help.alarm(null);assert.equal(none.title,'Alarme');assert.match(none.action,/\$H/);
 const other=help.alarm(42);assert.equal(other.title,'Alarme 42');assert.match(other.action,/documentation/);
 assert.match(help.error(24).title,/^Erreur 24 : Deux commandes/);assert.match(help.error(22).action,/avance F/);

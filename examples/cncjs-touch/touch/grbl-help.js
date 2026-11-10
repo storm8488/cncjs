@@ -5,8 +5,8 @@
   // same on Grbl_ESP32) and errors 1-38 of Grbl 1.1. Written for this interface; other
   // codes (another firmware's) get a generic line.
   var ALARMS={
-    1:['Fin de course touchée','La position machine est perdue. Si la carte ne répond plus, touchez Reset dans CNCjs au PC. Puis déverrouillez ($X), dégagez l’axe de la butée et refaites la prise d’origine ($H).'],
-    2:['Limite logicielle dépassée','Le programme ou le déplacement sortait de la course de la machine ($130–$132). Si la carte ne répond plus, touchez Reset dans CNCjs au PC. Vérifiez l’origine de travail et le programme, puis déverrouillez ($X).'],
+    1:['Fin de course touchée','Position perdue. Carte sans réponse : Reset dans CNCjs au PC. Dégagez l’axe (à la main, ou au jog après $X), puis prise d’origine ($H).'],
+    2:['Limite logicielle dépassée','Hors course machine ($130–$132). Carte sans réponse : Reset dans CNCjs au PC. Vérifiez l’origine de travail et le programme, puis déverrouillez ($X).'],
     3:['Réinitialisation pendant un mouvement','Un arrêt ou une réinitialisation a coupé un déplacement : la position peut être fausse. Refaites la prise d’origine ($H) avant de reprendre.'],
     4:['Sonde déjà en contact au départ','Vérifiez la sonde, son câble et l’entrée sonde avant de recommencer le palpage.'],
     5:['Palpage sans contact','La sonde n’a rien touché sur la distance prévue. Rapprochez l’outil de la pièce ou augmentez la distance de recherche.'],

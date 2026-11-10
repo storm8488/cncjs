@@ -96,6 +96,8 @@ class GrblSimulator {
     };
 
     #waitingQueue = [];
+    // Bumped by a reset or a critical alarm: a deferred 'ok' (G4) from before is dropped.
+    #epoch = 0;
 
     // Feed hold (Grbl 1.1): the time the motion was frozen at, or null.
     #hold = null;
@@ -458,11 +460,15 @@ class GrblSimulator {
                 if (typeof result === 'string') {
                     waiting.callback(result);
                 } else if (result && result.waitForPlannerEmpty) {
-                    // Handle dwell
+                    // Handle dwell (never answered after a reset or a critical alarm)
+                    const epoch = this.#epoch;
                     const waitForPlannerEmpty = () => {
+                        if (epoch !== this.#epoch) {
+                            return;
+                        }
                         const plannerEmpty = this.#plannerBuffer.queue.length === 0 && !this.#motionState.active;
                         if (plannerEmpty) {
-                            setTimeout(() => waiting.callback('ok\r\n'), result.duration);
+                            setTimeout(() => epoch === this.#epoch && waiting.callback('ok\r\n'), result.duration);
                         } else {
                             setTimeout(waitForPlannerEmpty, 10);
                         }
@@ -537,12 +543,19 @@ class GrblSimulator {
             callback(result);
         } else if (result && result.isDwell) {
             // G4 Dwell: Wait for planner to empty, then delay, then send ok
+            // (never after a reset or a critical alarm that came meanwhile).
+            const epoch = this.#epoch;
             const waitForPlannerEmpty = () => {
+                if (epoch !== this.#epoch) {
+                    return;
+                }
                 const plannerEmpty = this.#plannerBuffer.queue.length === 0 && !this.#motionState.active;
                 if (plannerEmpty) {
                     // Planner empty - now dwell for specified duration
                     setTimeout(() => {
-                        callback('ok\r\n');
+                        if (epoch === this.#epoch) {
+                            callback('ok\r\n');
+                        }
                     }, result.duration);
                 } else {
                     // Planner still has commands - wait and check again
@@ -1123,9 +1136,24 @@ class GrblSimulator {
         // For "away" probes (G38.4/G38.5), pin SHOULD be triggered initially
         const expectedInitialState = !isToward;
 
-        if (initialProbeState !== expectedInitialState) {
+        // Grbl 1.1 (mc_probe_cycle) checks the pin only once the moves queued before
+        // have ended (protocol_buffer_synchronize): with moves pending, the check waits
+        // in the planner queue, in order; a failure then raises ALARM:4 and flushes.
+        const busy = this.#plannerBuffer.queue.length > 0 || this.#motionState.active || !!this.#plannerBuffer.executing;
+        if (busy) {
+            this.#plannerBuffer.queue.push({
+                endPosition: startPosition,
+                execute: () => {
+                    if (this.probeTriggered !== expectedInitialState) {
+                        this.probeSuccess = false;
+                        this.#plannerBuffer.executing = null;
+                        this.emit('data', this.triggerAlarm(4));
+                    }
+                }
+            });
+        } else if (initialProbeState !== expectedInitialState) {
             // Grbl 1.1 (mc_probe_cycle): ALARM:4 "probe fail initial", no move, no PRB,
-            // then the line's 'ok'. (Real Grbl checks after the queued moves ended.)
+            // then the line's 'ok'.
             this.probeSuccess = false;
             return { error: this.triggerAlarm(4) + 'ok\r\n' };
         }
@@ -1184,14 +1212,10 @@ class GrblSimulator {
                 this.probeSuccess = true;
             },
             onComplete: () => {
-                // Emit PRB response when probe motion completes (simulates real Grbl behavior)
-                const wcsOffset = this.workCoordinateOffsets[this.activeWCS];
-                const workPos = {
-                    x: this.probePosition.x - wcsOffset.x - this.g92Offset.x,
-                    y: this.probePosition.y - wcsOffset.y - this.g92Offset.y,
-                    z: this.probePosition.z - wcsOffset.z - this.g92Offset.z
-                };
-                const prbResponse = `[PRB:${workPos.x.toFixed(3)},${workPos.y.toFixed(3)},${workPos.z.toFixed(3)}:1]\r\n`;
+                // Emit PRB response when probe motion completes; Grbl reports machine
+                // coordinates (report.c, report_probe_parameters).
+                const p = this.probePosition;
+                const prbResponse = `[PRB:${p.x.toFixed(3)},${p.y.toFixed(3)},${p.z.toFixed(3)}:1]\r\n`;
                 this.emit && this.emit('data', prbResponse);
             }
         });
@@ -1232,9 +1256,9 @@ class GrblSimulator {
                 } else {
                     this.probePosition = { ...endPosition };
                 }
-                const wcsOffset = this.workCoordinateOffsets[this.activeWCS];
+                // Machine coordinates, as Grbl reports them.
                 const p = this.probePosition;
-                const prb = `[PRB:${(p.x - wcsOffset.x - this.g92Offset.x).toFixed(3)},${(p.y - wcsOffset.y - this.g92Offset.y).toFixed(3)},${(p.z - wcsOffset.z - this.g92Offset.z).toFixed(3)}:0]\r\n`;
+                const prb = `[PRB:${p.x.toFixed(3)},${p.y.toFixed(3)},${p.z.toFixed(3)}:0]\r\n`;
                 this.emit('data', alarm + prb);
             }
         });
@@ -1272,6 +1296,7 @@ class GrblSimulator {
         const alarm = this.triggerAlarm(1);
         this.#plannerBuffer.executing = null;
         this.#waitingQueue = [];
+        this.#epoch++;
         this.criticalAlarm = true;
         this.emit('data', alarm + '[MSG:Reset to continue]\r\n');
         return true;
@@ -2123,6 +2148,7 @@ class GrblSimulator {
         this.#plannerBuffer.queue = [];
         this.#plannerBuffer.executing = null;
         this.#waitingQueue = [];
+        this.#epoch++;
 
         // Stop current motion
         this.resetMotionState();

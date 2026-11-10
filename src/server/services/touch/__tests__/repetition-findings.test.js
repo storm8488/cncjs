@@ -133,6 +133,24 @@ describe('E9: "Charger la reprise" is not bound to the plan the operator verifie
   });
 });
 
+describe('E9 (phase 7): the verified plan belongs to the screen that verified it', () => {
+  test('another screen’s "Vérifier" after the file changed does not clear the refusal', async () => {
+    const ctx = setup();
+    ctx.report();
+    await ctx.req('resumePlan', { file: 'resume.nc', line: 7 });
+    const original = await fs.readFile(path.join(root, 'resume.nc'), 'utf8');
+    await fs.writeFile(path.join(root, 'resume.nc'), original.replace('G1 X10 F800', 'G1 X12 F800'));
+    try {
+      // Screen B (observer) checks another line of the changed file.
+      await ctx.req('resumePlan', { file: 'resume.nc', line: 8 }, B, 'tB');
+      await expect(ctx.req('load', { file: 'resume.nc', fromLine: 7 })).rejects.toThrow('Fichier modifié depuis « Vérifier » : vérifiez à nouveau la reprise.');
+      expect(ctx.c.commands.map((x) => x[0])).not.toContain('gcode:load');
+    } finally {
+      await fs.writeFile(path.join(root, 'resume.nc'), original);
+    }
+  });
+});
+
 describe('N1: feed hold sent from the PC (`!` only), the tablet pilots', () => {
   test('witness: the server offers a way out without stopping (Pause, then Reprendre)', async () => {
     const ctx = setup();
@@ -160,6 +178,23 @@ describe('N1: feed hold sent from the PC (`!` only), the tablet pilots', () => {
     ctx.c.state.status.activeState = 'Hold';
     ctx.report();
     expect(ctx.state().resumeReason).toBe('Pause donnée hors de cet écran : touchez Pause, puis Reprendre.');
+  });
+});
+
+describe('Hold:1 / Hold:0 (phase 7): the tablet must know whether the axes are still decelerating', () => {
+  test('the snapshot carries the Grbl hold sub-state', async () => {
+    const ctx = setup();
+    await ctx.started();
+    await ctx.req('pause');
+    ctx.c.state.status = { ...ctx.c.state.status, activeState: 'Hold', subState: 1 };
+    ctx.report();
+    expect(ctx.state().subState).toBe(1);
+    ctx.c.state.status = { ...ctx.c.state.status, activeState: 'Hold', subState: 0 };
+    ctx.report();
+    expect(ctx.state().subState).toBe(0);
+    ctx.c.state.status = { ...ctx.c.state.status, activeState: 'Run', subState: 0 };
+    ctx.report();
+    expect(ctx.state().subState).toBe(null);
   });
 });
 

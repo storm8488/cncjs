@@ -70,6 +70,29 @@ describe('Fault injection - limit switch (fake timers)', () => {
         expect(sim.machineState).toBe('Alarm');
     });
 
+    it('a dwell answered after a critical alarm or a reset is dropped (phase 7)', () => {
+        sim.settings[21] = 1;
+        const answers = [];
+        sim.processLineAsync('G4 P0.04', (r) => answers.push(r));
+        jest.advanceTimersByTime(10);
+        expect(sim.setLimitPin('x', true)).toBe(true);
+        jest.advanceTimersByTime(200);
+        expect(answers).toEqual([]);
+        sim.processRealtimeCommand('\x18');
+        sim.processLine('$X');
+        // Reset during a dwell: no late 'ok' either.
+        sim.processLineAsync('G4 P0.04', (r) => answers.push(r));
+        jest.advanceTimersByTime(10);
+        sim.processRealtimeCommand('\x18');
+        jest.advanceTimersByTime(200);
+        expect(answers).toEqual([]);
+        // A dwell left alone is still answered.
+        sim.processLine('$X');
+        sim.processLineAsync('G4 P0.04', (r) => answers.push(r));
+        jest.advanceTimersByTime(200);
+        expect(answers).toEqual(['ok\r\n']);
+    });
+
     it('ignores a pin change in Alarm or during the homing cycle', () => {
         sim.settings[21] = 1;
         sim.settings[22] = 1;
@@ -133,6 +156,50 @@ describe('Fault injection - probe (fake timers)', () => {
         expect(sim.alarmCode).toBe(5);
         expect(sim.machinePosition.z).toBeCloseTo(-5, 6);
         expect(sim.probeSuccess).toBe(false);
+    });
+
+    it('contact already made behind queued moves: the moves end first, then ALARM:4 (phase 7)', () => {
+        const out = collect(sim);
+        sim.processLine('G1 X10 F600');
+        sim.probeTriggered = true;
+        sim.processLine('G38.2 Z-5 F100');
+        jest.advanceTimersByTime(500);
+        expect(sim.machineState).toBe('Run');
+        expect(out).toEqual([]);
+        jest.advanceTimersByTime(700);
+        expect(out.join('')).toBe('ALARM:4\r\n');
+        expect(sim.machineState).toBe('Alarm');
+        expect(sim.alarmCode).toBe(4);
+        expect(sim.machinePosition.x).toBeCloseTo(10, 6);
+        expect(sim.machinePosition.z).toBeCloseTo(0, 6);
+        expect(sim.plannerBuffer.queue.length).toBe(0);
+    });
+
+    it('free probe behind queued moves: the probe runs after them (phase 7)', () => {
+        const out = collect(sim);
+        sim.processLine('G1 X10 F600');
+        sim.processLine('G38.2 Z-10 F600');
+        jest.advanceTimersByTime(4000);
+        expect(out.join('')).toMatch(/^\[PRB:10\.000,0\.000,-[\d.]+:1\]\r\n$/);
+        expect(sim.machineState).toBe('Idle');
+    });
+
+    it('[PRB] is in machine coordinates, with work offsets (phase 7)', () => {
+        const out = collect(sim);
+        sim.processLine('G10 L2 P1 Z10');
+        sim.probeMode = 'miss';
+        sim.processLine('G38.3 Z-5 F600');
+        jest.advanceTimersByTime(1000);
+        // Work Z-5 with G54 Z10 is machine Z5.
+        expect(sim.machinePosition.z).toBeCloseTo(5, 6);
+        expect(out.join('')).toBe('[PRB:0.000,0.000,5.000:0]\r\n');
+        out.length = 0;
+        sim.probeMode = 'contact';
+        sim.processLine('G38.2 Z-20 F600');
+        jest.advanceTimersByTime(3000);
+        const z = Number(/^\[PRB:[-\d.]+,[-\d.]+,([-\d.]+):1\]/.exec(out.join(''))[1]);
+        expect(z).toBeCloseTo(sim.machinePosition.z, 3);
+        expect(z).toBeGreaterThan(-4);
     });
 
     it('miss mode: G38.3 ends without alarm, [PRB:<end>:0]', () => {

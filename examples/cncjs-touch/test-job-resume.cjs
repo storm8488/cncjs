@@ -29,7 +29,7 @@ const catalog={window:{}};['i18n-messages.js','i18n-messages-profiles.js'].forEa
 const keys=new Set(catalog.window.CNCTouchMessages.map(r=>r[0].trim().replace(/\s+/g,' ')));
 for(const p of new Set(phrases))assert(keys.has(p.trim().replace(/\s+/g,' ')),'missing translation: '+p);
 // Plate probe texts.
-assert.equal(R.plateNote({thickness:10.5,search:15}),'Plaque de 10.5 mm posée sous l’outil et sonde branchée ? Descente de 15 mm au plus ; le dessus de la plaque deviendra Z = épaisseur, puis l’outil remontera 5 mm au-dessus.');
+assert.equal(R.plateNote({thickness:10.5,search:15}),'Plaque de 10.5 mm posée sous l’outil et sonde branchée ? Descente de 15 mm au plus ; le dessus de la plaque deviendra Z = épaisseur, puis l’outil remontera jusqu’à 5 mm au-dessus, sans dépasser sa hauteur de départ.');
 R.setPendingPlate({thickness:10.5,search:15});assert.match(R.dialogNote('zeroZ',null),/^Plaque de 10\.5 mm/);R.setPendingPlate(null);assert.equal(R.dialogNote('zeroZ',{}),'');
 assert.equal(R.lastZeroText({thickness:10,wcs:'G54',machineZ:-35.3}),'Dernier zéro Z : plaque 10 mm, repère G54, contact à Z machine -35.3.');
 assert.match(R.lastZeroText({failed:'Alarme pendant le palpage (ALARM:5)'}),/^Dernier palpage échoué : Alarme/);assert.equal(R.lastZeroText(null),'');

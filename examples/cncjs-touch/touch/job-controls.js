@@ -348,7 +348,8 @@
     else if(!current.fresh) reason=uiLocale.t('En attente d’un état récent du contrôleur.');
     else if(!current.name) reason=current.canLoad?(selection?uiLocale.t('Étape suivante : Charger le fichier sélectionné, puis Démarrer.'):uiLocale.t('Sélectionnez un fichier dans la bibliothèque.')):(uiLocale.t(current.loadReason)||uiLocale.t('Chargement indisponible.'));
     else if(current.workflow==='paused') reason=current.canResume?uiLocale.t('Travail en pause. Touchez Reprendre pour confirmer la reprise.'):uiLocale.t(current.resumeReason);
-    else if(current.workflow==='running') reason=uiLocale.t('Travail en cours.');
+    // A feed hold given from the PC leaves CNCjs's workflow running: the server's reason says what to touch (N1). Text only.
+    else if(current.workflow==='running') reason=/^hold/i.test(current.activeState||'')&&current.resumeReason?uiLocale.t(current.resumeReason):uiLocale.t('Travail en cours.');
     // Fichiers has no Démarrer (it lives in Suivi): its reason line says where to start; #file (Suivi) keeps reason.
     else {reason=current.canStart?uiLocale.t('Fichier chargé. Touchez Démarrer pour confirmer.'):uiLocale.t(current.startReason);if(current.canStart)filesReason=uiLocale.t('Fichier chargé : ouvrez le Suivi pour démarrer.');}
     text('job-selected',selectedText);

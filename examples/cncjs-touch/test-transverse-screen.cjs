@@ -87,6 +87,24 @@ const m = (patch) => Object.assign({ port: 'A', activeState: 'Idle', workflow: '
     assert.notEqual(f.el('job-reason').textContent, 'La reprise exige une pause simple confirmée par la machine.');
     assert.equal(f.el('job-resume').disabled, true);
   }
+  // A feed hold given from the PC: CNCjs still runs, the machine holds; the server's reason is shown (N1, phase 7).
+  {
+    const n1 = 'Pause donnée hors de cet écran : touchez Pause, puis Reprendre.';
+    const f = load({ language: 'es' });
+    await f.connect(f.machine({ activeState: 'Hold:0', workflow: 'running', canStart: false, canResume: false, resumeReason: n1, canPause: true, canStop: true }));
+    assert.equal(f.el('job-reason').textContent, es(n1), 'N1 reason shown while running in Hold');
+    assert.equal(f.el('job-resume').disabled, true); assert.equal(f.el('job-pause').disabled, false); assert.equal(f.el('job-stop').disabled, false);
+    // Running and moving: the plain « Travail en cours. » stays.
+    const g = load({ language: 'es' });
+    await g.connect(g.machine({ activeState: 'Run', workflow: 'running', canStart: false, canResume: false, resumeReason: 'La reprise exige une pause simple confirmée par la machine.', canPause: true, canStop: true }));
+    assert.equal(g.el('job-reason').textContent, es('Travail en cours.'));
+  }
+  // Spanish messages of the rehearsal name the buttons with their Spanish labels (phase 7, Astra).
+  for (const [message, button] of [['Fichier modifié depuis « Vérifier » : vérifiez à nouveau la reprise.', 'Vérifier'],
+    ['Aucun contrôleur suivi : ouvrez le port dans CNCjs au PC ou choisissez le contrôleur dans Fichiers. Port fermé, Arrêter n’atteint pas la machine.', 'Arrêter'],
+    ['Pause donnée hors de cet écran : touchez Pause, puis Reprendre.', 'Pause']]) {
+    assert(es(message).includes(es(button)), 'ES « ' + es(message) + ' » names the button « ' + es(button) + ' »');
+  }
   // Every literal refusal of the job service has its catalogue row (read only; the server is not changed).
   const service = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'server', 'services', 'touch', 'job-service.js'), 'utf8');
   const literals = [...service.matchAll(/conflict\('([^']*)'\)/g)].map((x) => x[1]);
