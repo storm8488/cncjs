@@ -12,8 +12,15 @@ const GrblSimulator = require('./grbl-simulator');
 const defaultPort = 5000;
 
 class GrblServer {
-    constructor(port = defaultPort) {
+    constructor(port = defaultPort, options = {}) {
         this.port = port;
+        // Listen address of the Grbl port (all interfaces unless given, as before).
+        this.host = options.host;
+        // Fault-injection control port (always 127.0.0.1), off unless given.
+        this.controlPort = options.controlPort;
+        this.controlServer = null;
+        // Injected silent link: nothing is read from or written to the client.
+        this.muted = false;
         this.server = null;
         this.clients = new Map();
         // IMPORTANT: Single shared simulator for all clients
@@ -26,9 +33,14 @@ class GrblServer {
             this.handleConnection(socket);
         });
 
-        this.server.listen(this.port, () => {
+        this.server.listen(this.port, this.host, () => {
+            this.port = this.server.address().port;
             console.log(`Listening on port ${this.port}`);
         });
+
+        if (this.controlPort !== undefined) {
+            this.startControl();
+        }
 
         this.server.on('error', (err) => {
             if (err.code === 'EADDRINUSE') {
@@ -64,6 +76,7 @@ class GrblServer {
 
         // Listen for async data from simulator (e.g., PRB responses)
         const dataListener = (data) => {
+            if (this.muted) return;
             socket.write(data);
             console.log(`[${clientId}] ASYNC: ${this.escapeString(data)}`);
         };
@@ -71,7 +84,7 @@ class GrblServer {
         this.clients.get(socket).dataListener = dataListener;
 
         // Send startup message
-        socket.write(simulator.getStartupMessage());
+        if (!this.muted) socket.write(simulator.getStartupMessage());
 
         // Handle incoming data
         socket.on('data', (data) => {
@@ -102,7 +115,7 @@ class GrblServer {
 
     handleData(socket, data) {
         const client = this.clients.get(socket);
-        if (!client) return;
+        if (!client || this.muted) return;
 
         const { simulator } = client;
         const input = data.toString();
@@ -120,7 +133,7 @@ class GrblServer {
 
             if (isRealtimeCommand) {
                 const response = simulator.processRealtimeCommand(char);
-                if (response) {
+                if (response && !this.muted) {
                     socket.write(response);
                     console.log(`[${client.id}] RT: ${this.escapeChar(char)} -> ${this.escapeString(response)}`);
                 }
@@ -135,6 +148,7 @@ class GrblServer {
                     if (line) {
                         // Process line and wait for completion (simple send-response protocol)
                         simulator.processLineAsync(line, (response) => {
+                            if (this.muted) return;
                             socket.write(response);
                             console.log(`[${client.id}] CMD: ${line} -> ${this.escapeString(response)}`);
                         });
@@ -180,6 +194,86 @@ class GrblServer {
             .substring(0, 100); // Limit length for logging
     }
 
+    /**
+     * Fault-injection control channel: one command per line on 127.0.0.1, one JSON line back.
+     *   limit <x|y|z> <on|off>   limit switch (ALARM:1 when $21=1, see setLimitPin)
+     *   probe <on|off>           probe contact pin (Pn:P; G38.2 then fails with ALARM:4)
+     *   probe-mode <contact|miss> G38.x touches, or travels without contact (ALARM:5 for G38.2)
+     *   mute <on|off>            silent link: nothing read nor written, connection kept
+     *   drop                     link cut: every Grbl client connection is destroyed
+     *   state                    current state, without change
+     */
+    startControl() {
+        this.controlServer = net.createServer((socket) => {
+            let buffer = '';
+            socket.on('data', (data) => {
+                buffer += data.toString();
+                let i;
+                while ((i = buffer.indexOf('\n')) >= 0) {
+                    const line = buffer.slice(0, i).trim();
+                    buffer = buffer.slice(i + 1);
+                    if (line) socket.write(JSON.stringify(this.control(line)) + '\n');
+                }
+            });
+            socket.on('error', () => {});
+        });
+        this.controlServer.listen(this.controlPort, '127.0.0.1', () => {
+            this.controlPort = this.controlServer.address().port;
+            console.log(`Control on 127.0.0.1:${this.controlPort}`);
+        });
+    }
+
+    control(line) {
+        const sim = this.simulator;
+        const [cmd, arg, value] = line.toLowerCase().split(/\s+/);
+        const onOff = (v) => {
+            if (v !== 'on' && v !== 'off') throw new Error('expected on|off');
+            return v === 'on';
+        };
+        try {
+            let alarm = false;
+            if (cmd === 'limit') {
+                alarm = sim.setLimitPin(arg, onOff(value));
+            } else if (cmd === 'probe') {
+                sim.probeTriggered = onOff(arg);
+            } else if (cmd === 'probe-mode') {
+                if (arg !== 'contact' && arg !== 'miss') throw new Error('expected contact|miss');
+                sim.probeMode = arg;
+            } else if (cmd === 'mute') {
+                this.muted = onOff(arg);
+            } else if (cmd === 'drop') {
+                for (const socket of this.clients.keys()) socket.destroy();
+            } else if (cmd !== 'state') {
+                throw new Error(`unknown command: ${cmd}`);
+            }
+            console.log(`[${new Date().toISOString()}] CONTROL: ${line}`);
+            return {
+                ok: true,
+                alarm,
+                state: sim.machineState,
+                alarmCode: sim.alarmCode,
+                pins: sim.getInputPinStateString(),
+                probeMode: sim.probeMode,
+                muted: this.muted,
+                clients: this.clients.size,
+                hardLimits: sim.settings[21],
+                homing: sim.settings[22]
+            };
+        } catch (err) {
+            return { ok: false, error: err.message };
+        }
+    }
+
+    /**
+     * Close the servers and the client connections without exiting the process (tests).
+     */
+    close(callback) {
+        for (const socket of this.clients.keys()) socket.destroy();
+        if (this.controlServer) this.controlServer.close();
+        this.simulator.stopPlannerExecutor();
+        this.server.close(callback);
+    }
+
     stop() {
         if (this.server) {
             // Close all client connections
@@ -207,11 +301,21 @@ class GrblServer {
 
 // CLI entry point
 if (require.main === module) {
-    const port = parseInt(process.argv[2]) || defaultPort;
+    // node grbl-server.js [port] [--host 127.0.0.1] [--control 5001]
+    const args = process.argv.slice(2);
+    const option = (name) => {
+        const i = args.indexOf(name);
+        return i >= 0 ? args[i + 1] : undefined;
+    };
+    const port = parseInt(args[0]) || defaultPort;
+    const control = option('--control');
 
     console.log('Grbl Simulator - TCP Server');
 
-    const server = new GrblServer(port);
+    const server = new GrblServer(port, {
+        host: option('--host'),
+        controlPort: control === undefined ? undefined : parseInt(control)
+    });
     server.start();
 }
 

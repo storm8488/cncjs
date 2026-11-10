@@ -210,6 +210,12 @@ class GrblSimulator {
         this.probeSuccess = false;
         this.probeTriggered = false; // Simulated probe pin state (can be set for testing)
 
+        // Fault injection (tests): 'contact' = G38.x touches the simulated surface,
+        // 'miss' = no contact over the whole programmed move.
+        this.probeMode = 'contact';
+        // Hard limit hit (Grbl 1.1 critical event): only Ctrl-X is heard until a reset.
+        this.criticalAlarm = false;
+
         // Start planner executor
         this.startPlannerExecutor();
     }
@@ -483,6 +489,12 @@ class GrblSimulator {
      * @param {function} callback - Called with response (must be string)
      */
     processLineAsync(line, callback) {
+        // Critical event (hard limit): Grbl 1.1 executes nothing and answers nothing until
+        // Ctrl-X; the reset then flushes what was received meanwhile.
+        if (this.criticalAlarm) {
+            return;
+        }
+
         // Detect if this is a motion command that uses planner buffer
         // From Grbl source (motion_control.c), only these call mc_line() and use planner:
         // - G0, G1, G2, G3 WITH axis words (X, Y, or Z)
@@ -652,6 +664,12 @@ class GrblSimulator {
      */
     processRealtimeCommand(char) {
         const code = char.charCodeAt(0);
+
+        // Critical event (hard limit): protocol.c blocks everything but the reset,
+        // status reports included.
+        if (this.criticalAlarm && char !== '\x18') {
+            return '';
+        }
 
         switch (char) {
             case '?':
@@ -1106,8 +1124,15 @@ class GrblSimulator {
         const expectedInitialState = !isToward;
 
         if (initialProbeState !== expectedInitialState) {
+            // Grbl 1.1 (mc_probe_cycle): ALARM:4 "probe fail initial", no move, no PRB,
+            // then the line's 'ok'. (Real Grbl checks after the queued moves ended.)
             this.probeSuccess = false;
-            return { error: 'error:4\r\n' }; // Probe fail initial
+            return { error: this.triggerAlarm(4) + 'ok\r\n' };
+        }
+
+        // Injected miss: the probe travels the whole programmed move without contact.
+        if (this.probeMode === 'miss') {
+            return this.queueProbeMiss(startPosition, endPosition, signalError);
         }
 
         // Simulate realistic probe contact with surface warpage
@@ -1172,6 +1197,84 @@ class GrblSimulator {
         });
 
         return { error: null, waitForCompletion: true, duration: probeTime };
+    }
+
+    /**
+     * Queue a probe move that never touches (fault injection, probeMode 'miss').
+     * Grbl 1.1: G38.2/G38.4 end in ALARM:5 then [PRB:...:0] with the previous probe
+     * position; G38.3/G38.5 end without alarm, [PRB:<end>:0].
+     */
+    queueProbeMiss(startPosition, endPosition, signalError) {
+        const distance = Math.hypot(endPosition.x - startPosition.x, endPosition.y - startPosition.y, endPosition.z - startPosition.z);
+        const probeFeedRate = this.feedRate * (this.feedOverride / 100);
+        const probeTime = (distance / probeFeedRate) * 60 * 1000;
+
+        this.#plannerBuffer.queue.push({
+            endPosition,
+            execute: () => {
+                this.machineState = 'Run';
+                this.setMotionState({
+                    active: true,
+                    type: 'linear',
+                    startTime: Date.now(),
+                    endTime: Date.now() + probeTime,
+                    startPosition,
+                    endPosition,
+                    currentFeedRate: probeFeedRate,
+                    data: {},
+                });
+                this.probeSuccess = false;
+            },
+            onComplete: () => {
+                let alarm = '';
+                if (signalError) {
+                    alarm = this.triggerAlarm(5);
+                } else {
+                    this.probePosition = { ...endPosition };
+                }
+                const wcsOffset = this.workCoordinateOffsets[this.activeWCS];
+                const p = this.probePosition;
+                const prb = `[PRB:${(p.x - wcsOffset.x - this.g92Offset.x).toFixed(3)},${(p.y - wcsOffset.y - this.g92Offset.y).toFixed(3)},${(p.z - wcsOffset.z - this.g92Offset.z).toFixed(3)}:0]\r\n`;
+                this.emit('data', alarm + prb);
+            }
+        });
+
+        return { error: null, waitForCompletion: true, duration: probeTime };
+    }
+
+    /**
+     * Set a limit switch (fault injection). With hard limits on ($21=1), outside the
+     * homing cycle and outside Alarm, any pin change - press or release, as Grbl 1.1's
+     * pin-change interrupt without software debounce - kills the motion, flushes the
+     * buffers and reports ALARM:1; then only Ctrl-X is heard (critical event).
+     * @param {string} axis - 'x', 'y' or 'z'
+     * @param {boolean} on - switch pressed
+     * @returns {boolean} true if ALARM:1 was raised
+     */
+    setLimitPin(axis, on) {
+        const pin = String(axis).toLowerCase();
+        if (!['x', 'y', 'z'].includes(pin)) {
+            throw new Error(`unknown limit pin: ${axis}`);
+        }
+        const pressed = !!on;
+        if (this.pinState[pin] === pressed) {
+            return false;
+        }
+        this.pinState[pin] = pressed;
+        if (this.settings[SETTINGS.HARD_LIMITS_ENABLE] !== 1 || this.machineState === 'Alarm' || this.machineState === 'Home') {
+            return false;
+        }
+        // The steppers stop where they are: Grbl keeps that position (homing is then needed).
+        if (this.#motionState.active) {
+            this.machinePosition = this.getCurrentPosition();
+            this.updateWorkPosition();
+        }
+        const alarm = this.triggerAlarm(1);
+        this.#plannerBuffer.executing = null;
+        this.#waitingQueue = [];
+        this.criticalAlarm = true;
+        this.emit('data', alarm + '[MSG:Reset to continue]\r\n');
+        return true;
     }
 
     /**
@@ -2042,6 +2145,13 @@ class GrblSimulator {
             spindle: 'M5',
             coolant: 'M9',
         };
+
+        // Reset after a hard limit: Grbl 1.1 restarts still in Alarm and asks for an unlock.
+        if (this.criticalAlarm) {
+            this.criticalAlarm = false;
+            this.machineState = 'Alarm';
+            return `${this.getStartupMessage()}[MSG:'$H'|'$X' to unlock]\r\n`;
+        }
 
         // If reset during motion, trigger alarm 3
         if (wasInMotion) {
