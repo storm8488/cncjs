@@ -200,7 +200,7 @@
       clearCoords();
       badge('st-ctrl', machine ? uiLocale.t('Contrôleur : ')+machine.port : uiLocale.t('Contrôleur : aucun sélectionné'), 'warn');
       badge('st-state', uiLocale.t('État : données indisponibles'), 'warn');
-      notice(sessionNotice || state.transportReason || (machine ? uiLocale.t('Rapport machine périmé.') : uiLocale.t('Choisissez le contrôleur dans Fichiers.')));
+      notice(sessionNotice || state.transportReason || (machine ? uiLocale.t('Rapport machine périmé.') : uiLocale.t('Aucun contrôleur suivi : ouvrez le port dans CNCjs au PC ou choisissez le contrôleur dans Fichiers. Port fermé, Arrêter n’atteint pas la machine.')));
       return;
     }
     receive(machine.type, {status:{activeState:machine.activeState,wpos:machine.coordinates&&machine.coordinates.wpos,mpos:machine.coordinates&&machine.coordinates.mpos}},machine.port);

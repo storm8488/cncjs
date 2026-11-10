@@ -28,6 +28,15 @@ assert.match(el('home-job-ready').textContent,/^Dernière erreur : Erreur 24 : D
 // CNCjs waiting for replies while Grbl idles: the operator is told, with the duration.
 status({...c,activeState:'Idle',workflow:'running',stalledMs:42000},false);assert.match(el('home-job-ready').textContent,/^Travail bloqué \? Grbl est au repos depuis 42 s/);
 status({...c,activeState:'Run',workflow:'running',stalledMs:null},false);assert.equal(el('home-job-ready').textContent,'Travail en cours.');
+// Rehearsal (UI-5, N2): a start refused for another reason than a reload says so; an old report is not a lost connection.
+select('a.nc');
+status({...c,activeState:'Idle',received:0,workflow:'idle',canStart:false,canLoad:true,startReason:'Broche en marche : arrêtez-la (M5) avant de démarrer.'},false);
+assert.equal(el('home-job-ready').textContent,'Broche en marche : arrêtez-la (M5) avant de démarrer.');
+status({...c,activeState:'Idle',received:0,workflow:'idle',canStart:false,canLoad:true,startReason:'Rechargez le fichier avant un nouveau démarrage.'},false);
+assert.equal(el('home-job-ready').textContent,'Rechargez le fichier pour un nouveau départ.');
+status({...c,activeState:'Idle',workflow:'idle',fresh:false},false);assert.equal(el('home-job-ready').textContent,'État machine trop ancien : attendre un rapport récent.');
+status(null);assert.equal(el('home-job-ready').textContent,'État indisponible : attendre la connexion.');
+select('c.nc');
 // A program that reached its end with lines refused by Grbl is never shown as finished.
 status({...c,received:0,workflow:'idle',canStart:false,finished:false,finishedWithErrors:true,jobErrors:2},false);assert.equal(el('home-job-percent').textContent,'100 %');assert.doesNotMatch(el('home-job-eta').textContent,/Terminé/);assert.match(el('home-job-eta').textContent,/2 erreur/);
 status(null);assert.equal(el('home-job-percent').textContent,'—');assert.match(el('home-job-eta').textContent,/indisponible/);
@@ -46,7 +55,9 @@ assert.equal(el('home-override-rapid').textContent,'25 %');assert.match(el('home
 status({...c,workflow:'idle',canOverride:false,canRapidOverride:false,overrides:{feed:100,rapid:25,spindle:100}},false);assert.equal(el('home-rapid-note').textContent,'');
 // Real feed and spindle speed from Grbl; a pause with the spindle on is flagged.
 status({...c,canOverride:true,feedrate:400,spindleSpeed:12000});assert.match(el('home-live').textContent,/Avance réelle 400 mm\/min · Broche 12.000 tr\/min/);assert.equal(el('home-spindle-warning').hidden,true);
-status({...c,canOverride:true,workflow:'paused',feedrate:0,spindleSpeed:12000});assert.equal(el('home-spindle-warning').hidden,false);assert.match(el('home-spindle-warning').textContent,/broche tourne toujours/);
+status({...c,canOverride:true,workflow:'paused',activeState:'Hold:0',feedrate:0,spindleSpeed:12000});assert.equal(el('home-spindle-warning').hidden,false);assert.match(el('home-spindle-warning').textContent,/les axes sont arrêtés mais la broche tourne toujours/);
+// Paused on a Grbl error (no feed hold): Grbl still runs, the axes are not said stopped (rehearsal, x06).
+status({...c,canOverride:true,workflow:'paused',activeState:'Run',feedrate:600,spindleSpeed:12000});assert.match(el('home-spindle-warning').textContent,/^Envoi suspendu : Grbl peut encore exécuter/);assert.doesNotMatch(el('home-spindle-warning').textContent,/arrêtés/);
 status({...c,canOverride:true,workflow:'paused',feedrate:0,spindleSpeed:0});assert.equal(el('home-spindle-warning').hidden,true);
 status({...c,fresh:false,canOverride:true,workflow:'paused',spindleSpeed:12000});assert.equal(el('home-live').textContent,'');assert.equal(el('home-spindle-warning').hidden,true,'stale data never claims anything');
 status({...c,canOverride:true});assert.equal(el('home-live').textContent,'','simulation snapshots without the fields show nothing');

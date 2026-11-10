@@ -327,6 +327,13 @@ function choice(f, value) { return findAll(f.el('real-motion'), (n) => n.getAttr
     f.push([machine({ control: { owner: { kind: 'touch', id: 't-b-1234', label: 'Tablette B', present: true }, lastChange: { type: 'claim', at: 6 } } })]); await f.flush();
     assert.match(f.lastStatus().pilot.sentence, /Piloté par « Tablette B »/); assert(!/inactivité/.test(f.lastStatus().pilot.sentence));
   }
+  // 11b. Lease ended by absence (control.lastChange.type 'expired', E5 of the rehearsal): told once to this device.
+  {
+    const f = load(); const id = f.controls().clientId();
+    await f.connect(machine({ control: { owner: null, lastChange: { type: 'expired', port: 'COM3', owner: null, at: 7, previous: { kind: 'touch', id, label: 'Tablette ab12' } } } }));
+    assert.equal(f.lastStatus().pilot.state, 'free');
+    assert.match(f.el('job-feedback').textContent, /^Pilotage de cet appareil libéré : appareil absent trop longtemps\./);
+  }
   // 12. The dry-run check stays apart: real-motion never touches the .jog arrows nor the preview endpoint.
   {
     const src = fs.readFileSync(path.join(__dirname, 'touch', 'real-motion.js'), 'utf8');

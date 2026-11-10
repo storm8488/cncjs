@@ -105,6 +105,9 @@
         p.sentence=p.released+' '+p.sentence;
         if(change.previous&&change.previous.kind==='touch'&&change.previous.id===clientId){p.idleNotice=uiLocale.t('Pilotage de cet appareil libéré après ')+minutes+uiLocale.t(' min d’inactivité.');p.changeAt=change.at;}
       }
+      // The lease ended because this device was away (control.js 'expired', E5 of the rehearsal): said once.
+      if(change&&change.type==='expired'&&change.previous&&change.previous.kind==='touch'&&change.previous.id===clientId){
+        p.idleNotice=uiLocale.t('Pilotage de cet appareil libéré : appareil absent trop longtemps. La première action réussie le reprend.');p.changeAt=change.at;}
     }
     else if(owner.kind==='touch'&&owner.id===clientId)p={state:'mine',value:uiLocale.t('Cet appareil'),sentence:uiLocale.t('Piloté par cet appareil (')+clientLabel+').'};
     else{
@@ -368,7 +371,11 @@
     if(!$('job-progress').getAttribute||$('job-progress').getAttribute('aria-label')!==label)$('job-progress').setAttribute('aria-label',label);
     // Unchanged titles are not written again (an attribute write at every report, also while Fichiers is parked).
     prop('job-start','title',current.canStart?'':uiLocale.t(reason));prop('job-load','title',uiLocale.t(current.loadReason||''));
-    if(ticket && (ticket.port!==current.port || !ticketAllowed(ticket,current))) dismiss();
+    if(ticket && (ticket.port!==current.port || !ticketAllowed(ticket,current))){
+      // A plate probe confirmation closed by the server's refusal (probe already in contact...) says why (UI-6).
+      var why=ticket.operation==='zeroZ'&&ticket.port===current.port&&current.zeroZReason?(uiLocale.message||uiLocale.t)(current.zeroZReason):'';
+      dismiss();if(why){text('job-feedback',uiLocale.t('Confirmation annulée : ')+why);setFeedbackState('failed');}
+    }
   }
   // A real jog of the server's (F1) can be stopped even before Grbl reports Jog.
   function jogging(m){return !!(m&&m.motion&&typeof m.motion==='object'&&(m.motion.jog||m.motion.cancelling));}

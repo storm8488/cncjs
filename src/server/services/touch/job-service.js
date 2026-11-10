@@ -174,6 +174,16 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     jobId: j.id, program: j.originalName, file: j.name, fingerprint: j.fingerprint, fromLine: j.resume ? j.resume.from : null
   } : {});
   const SYSTEM = { kind: 'system', id: 'grbl', label: 'machine' };
+  // Line of the original file acknowledged when a job stops, kept for a resume
+  // from a line (preamble lines of a resume are not lines of the file).
+  const stopLine = (c, r) => {
+    const k = Number(c.sender.state.received) || 0;
+    const res = r.job.resume;
+    if (!res) {
+      return k;
+    }
+    return k <= res.preambleLength ? res.from - 1 : res.from + (k - res.preambleLength - 1);
+  };
 
   const changed = () => {
     listeners.forEach((fn) => fn());
@@ -223,6 +233,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         toolChange: null,
         // Line (of the original file) acknowledged when the last job was stopped.
         lastStop: null,
+        // Last resume plan checked (file, line, fingerprint), see job-load.js (E9).
+        resumeChecked: null,
         // Plate probe in progress, and the last one (result or failure).
         probing: null,
         zeroZ: null,
@@ -250,7 +262,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         if (r.homing && clock() - r.homing.since >= HOMING_MIN_MS && /^(Idle|Alarm)/.test(active)) {
           // An error received while our $H was outstanding: never a completed homing
           // (a Home report seen meanwhile still is, see sawHome below).
-          if (active === 'Idle' && !r.homing.refused) {
+          if (active === 'Idle' && !r.homing.refused && !r.homing.interrupted) {
             r.homed = true;
           }
           r.homing = null;
@@ -308,6 +320,12 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
             r.job.aborted = true;
             log({ event: 'aborted', ...jobInfo(r.job), controller: controllerInfo(c, r), result: 'aborted', actor: SYSTEM });
           }
+        }
+        // CNCjs's sender keeps streaming on every `ok` after a restart: a board
+        // back Idle ($22=0) would run the rest of the program from a lost
+        // position, spindle off (N7). Hold the sender; the resume stays refused.
+        if (c.workflow && c.workflow.state === 'running') {
+          c.command('gcode:pause');
         }
         if (payload && typeof payload.firmware === 'string' && typeof payload.version === 'string') {
           r.firmware = (payload.firmware + ' ' + payload.version).slice(0, 63);
@@ -419,8 +437,24 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
           changed();
         }
       };
+      // A stop made outside the service (CNCjs's Stop or Reset on the PC, a macro):
+      // the job is marked stopped with its line like one of ours (E6 / N10). Run
+      // before CNCjs's own listener, which rewinds the sender.
+      r.stopped = () => {
+        const j = r.job;
+        if (j && j.started && !j.stopped && !j.finishedAt && c.sender && c.sender.state && c.sender.state.name === j.name) {
+          const line = stopLine(c, r);
+          r.lastStop = { file: j.name, line };
+          j.stopped = true;
+          log({ event: 'stop', ...jobInfo(j), controller: controllerInfo(c, r), result: 'stopped', line, probing: !!r.probing, actor: SYSTEM });
+          changed();
+        }
+      };
       if (c.workflow && typeof c.workflow.on === 'function') {
         c.workflow.on('start', r.run);
+        if (typeof c.workflow.prependListener === 'function') {
+          c.workflow.prependListener('stop', r.stopped);
+        }
       }
       records.set(c, r);
     }
@@ -483,6 +517,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
     if (c.workflow && typeof c.workflow.removeListener === 'function') {
       c.workflow.removeListener('start', r.run);
+      c.workflow.removeListener('stop', r.stopped);
     }
     if (c.sender) {
       c.sender.removeListener('load', r.file);
@@ -670,6 +705,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     } else {
       const kind = pauseKind(c);
       const state = controllerStatus(c).activeState;
+      if (j.started && !j.external && c.workflow.state === 'running' && state === 'Hold') {
+        // Feed hold sent from the PC (`!` only): CNCjs's workflow still runs (N1).
+        throw conflict('Pause donnée hors de cet écran : touchez Pause, puis Reprendre.');
+      }
       if (!j.started || c.workflow.state !== 'paused') {
         throw conflict('La reprise exige une pause simple confirmée par la machine.');
       }
@@ -1673,12 +1712,17 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       }
       // CNCjs's stop only acts in Run or Hold; a homing cycle needs a soft reset
       // (Grbl then asks for a new homing or $X). Grbl reports nothing during
-      // the cycle, so the $H sent is enough to know it runs.
+      // the cycle, so the $H sent is enough to know it runs. The cycle stays
+      // known (and Arrêter offered) until the banner or an Idle / Alarm report
+      // shows the reset arrived: a lost 0x18 leaves the axes homing (E2 / N6).
       if (c.workflow.state === 'idle' && (activeState === 'Home' || homingActive(r))) {
         r.ticket = null;
-        r.homing = null;
+        if (r.homing) {
+          // Never taken for a completed homing afterwards.
+          r.homing.interrupted = true;
+        }
         c.command('reset');
-        return { message: 'Prise d’origine interrompue (réinitialisation). La carte demandera $H ou $X.' };
+        return { message: 'Réinitialisation envoyée pour interrompre la prise d’origine. Vérifiez l’immobilisation ; la carte demandera $H ou $X.' };
       }
       // Door open: CNCjs's stop sends neither feed hold nor reset in that
       // state, so Grbl would keep its planned moves for the next cycle start.
@@ -1692,13 +1736,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       // stopped (also when the stop interrupts a probe during a pause).
       const markStopped = () => {
         if (c.workflow.state !== 'idle' && r.job) {
-          const k = Number(c.sender.state.received) || 0;
-          const res = r.job.resume;
-          let line = k;
-          if (res) {
-            // Preamble lines are not lines of the file.
-            line = k <= res.preambleLength ? res.from - 1 : res.from + (k - res.preambleLength - 1);
-          }
+          const line = stopLine(c, r);
           r.lastStop = { file: r.job.name, line };
           r.job.started = true;
           r.job.stopped = true;

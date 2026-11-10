@@ -99,8 +99,13 @@ const M=(extra)=>Object.assign({port:'/dev/ttyUSB0',fresh:true,workflow:'idle',a
  f.byText('Relire').click();assert.deepEqual(f.calls,[['readSettings']]);
  f.byText('Passer cette étape').click();assert.equal(f.title(),'Arrêt d’urgence');
  assert.equal(f.data().machines['/dev/ttyUSB0'].results.backup,'skipped');
+ // E-stop: a greyed Déverrouiller says why (critical alarm, no fresh report: UI-1 of the rehearsal).
+ f.send(M({activeState:'Alarm',canUnlock:false,unlockReason:'État machine trop ancien : attendre un rapport récent.'}));
+ assert(f.find(n=>n.textContent==='État machine trop ancien : attendre un rapport récent.'),'the lamp gives the unlock reason');
+ assert(!f.find(n=>n.textContent==='Touchez Déverrouiller ($X)'),'no instruction the greyed button cannot follow');
  // E-stop: alarm, unlock through the confirmation, back to Idle.
  f.send(M({activeState:'Alarm',canUnlock:true,canHome:true}));
+ assert(f.find(n=>n.textContent==='Touchez Déverrouiller ($X)'));
  const unlock=f.byText('Déverrouiller');assert(!unlock.disabled);unlock.click();assert.deepEqual(f.calls.at(-1),['prepare','unlock']);
  assert(f.next().disabled);f.send(M());assert(!f.next().disabled);f.next().click();
  assert.equal(f.title(),'Fins de course');

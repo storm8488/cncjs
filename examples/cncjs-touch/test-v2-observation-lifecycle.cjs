@@ -9,7 +9,7 @@ async function tests() {
       for (let n = 0; n < 4; n++) await p.step();
       p.window.cncShell = {screen: () => 'home'}; p.emit('cnc-screen-change', 'home');
       const pending = p.requests[p.requests.length - 1], requests = p.requests.length;
-      assert.equal(pending.url, 'performance-observation.js?v=v2o');
+      assert.equal(pending.url, 'performance-observation.js?v=v2p');
       assert.equal(p.api.state().ready, false);
       let locked = true; p.window.cncScreenLock = {locked: () => locked};
       p.emit('cnc-screen-lock', true);

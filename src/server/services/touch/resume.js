@@ -589,6 +589,10 @@ export const buildResume = (gcode, from, { name = '', mode = 'cnc' } = {}) => {
   if (s.firstMove && s.firstMove.distance === null) {
     unchosen = s.firstMove.line;
   }
+  if (unchosen === from) {
+    // No move yet before the resume line: it is not "the first move" (it may be a comment, SRV-2).
+    throw refuse('ETOUCH_RESUME_DISTANCE_BEFORE', 'Mode de distance (G90/G91) non fixé avant la ligne ' + from + ' : le mode de la carte est inconnu, reprise impossible.', { from });
+  }
   if (unchosen !== null) {
     throw refuse('ETOUCH_RESUME_DISTANCE', 'Mode de distance (G90/G91) non fixé avant le premier déplacement du programme (ligne ' + unchosen + ') : le mode de la carte est inconnu, reprise impossible.', { line: unchosen, from });
   }

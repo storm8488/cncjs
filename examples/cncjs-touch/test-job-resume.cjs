@@ -70,6 +70,14 @@ byId('home-resume-check').click();
   assert.match(byId('home-program-pause-text').textContent,/^Changement d’outil T2/);assert.equal(byId('home-pause-m5').hidden,false);
   byId('home-pause-m5').click();assert.deepEqual(calls.at(-1),['m5']);
   status({...idle,workflow:'paused',canLoad:false,programPause:m6,canSpindleStop:true,spindleSpeed:0});assert.equal(byId('home-pause-m5').hidden,true);
+  // E3 (rehearsal): at rest, no job, the spindle still reported turning: the notice and the same M5 button.
+  status({...idle,canSpindleStop:true,spindleSpeed:6000});assert.equal(byId('home-program-pause').hidden,false);assert.equal(byId('home-pause-m5').hidden,false);
+  assert.match(byId('home-program-pause-text').textContent,/^La broche tourne encore/);
+  byId('home-pause-m5').click();assert.deepEqual(calls.at(-1),['m5']);
+  status({...idle,canSpindleStop:true,spindleSpeed:6000,machineProfile:{kind:'laser'}});assert.match(byId('home-program-pause-text').textContent,/^Le laser est encore allumé/);
+  status({...idle,canSpindleStop:false,spindleSpeed:6000});assert.equal(byId('home-program-pause').hidden,true,'no notice when the server refuses M5');
+  status({...idle,canSpindleStop:true,spindleSpeed:0});assert.equal(byId('home-program-pause').hidden,true);
+  status({...idle,workflow:'running',canLoad:false,canSpindleStop:true,spindleSpeed:6000});assert.equal(byId('home-program-pause').hidden,true,'a running job keeps Suivi as it was');
   // Open panel closed when the machine is no longer idle; the simulation events are ignored.
   status(idle);byId('home-resume-line').click();status({...idle,workflow:'running',canLoad:false});assert.equal(byId('home-resume-panel').hidden,true);
   listeners['cnc-job-status'].forEach(f=>f({detail:{machine:{...idle,programPause:m6},simulation:true}}));assert.equal(byId('home-program-pause').hidden,true);

@@ -146,6 +146,7 @@ const main = async () => {
     return (await machine('forget')) ? 0 : 1;
   case 'close':
   case 'clean': {
+    let forgotten = action !== 'clean';
     if (action === 'clean') {
       if (((state && state.status && state.status.activeState) || '').startsWith('Alarm')) {
         // After a hard limit, Grbl hears only the reset; $X then unlocks.
@@ -154,10 +155,21 @@ const main = async () => {
         writeln('$X');
         await sleep(1500);
       }
-      await machine('forget');
+      // The profile is matched on the settings read back ($$): read them before forgetting.
+      const t = await touchEntry();
+      if (t) {
+        const { status } = await http('POST', '/api/touch-job', { port: PORT, action: 'readSettings', generation: t.generation });
+        console.log('readSettings', status);
+        await sleep(2000);
+      }
+      forgotten = await machine('forget');
     }
     await new Promise((ok) => s.emit('close', PORT, () => ok()));
     console.log('fermé', PORT);
+    if (!forgotten) {
+      console.log('ÉCHEC : fiche machine non oubliée');
+      return 1;
+    }
     return 0;
   }
   default:

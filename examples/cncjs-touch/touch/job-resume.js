@@ -146,7 +146,11 @@
     var p=machine&&machine.programPause;
     var laser=laserOf(machine),lr=laserResume();
     var text=pauseText(p,machine);if(p&&p.kind==='M6'&&!laser&&machine.canZeroZ)text+=t(' Le zéro Z avec la plaque se règle ci-dessous.');
-    set(pause,'hidden',!p||!text);set(pauseText_,'textContent',text);
+    // Spindle still on with no job (the board finished its buffer after a lost link or CNCjs restart):
+    // the server accepts M5 from anyone, so the same button is offered at rest (E3).
+    var turning=!!(machine&&!p&&machine.workflow==='idle'&&machine.canSpindleStop&&machine.spindleSpeed>0);
+    if(turning)text=laser?t('Le laser est encore allumé alors qu’aucun travail n’est en cours : éteignez-le (M5).'):t('La broche tourne encore alors qu’aucun travail n’est en cours : arrêtez-la (M5).');
+    set(pause,'hidden',!(p||turning)||!text);set(pauseText_,'textContent',text);
     set(plate,'hidden',laser||!(machine&&(machine.canZeroZ||machine.probing)));
     var fc=laser?capabilityOf(machine,'laserFrame'):null,idle=!!(machine&&machine.workflow==='idle');
     set(frame,'hidden',!laser||!idle);
@@ -156,7 +160,7 @@
     set(plateLast,'textContent',lastZeroText(machine&&machine.zeroZ));
     // A refused parameter stays shown until the field changes (reports come several times a second).
     set(plateStatus,'textContent',machine&&machine.probing?t('Palpage en cours… Arrêter interrompt.'):plateMessage);
-    set(m5,'hidden',!(p&&machine.canSpindleStop&&machine.spindleSpeed>0));
+    set(m5,'hidden',!((p||turning)&&machine.canSpindleStop&&machine.spindleSpeed>0));
     set(m5,'textContent',laser?t('Éteindre le laser (M5)'):t('Arrêter la broche (M5)'));
     set(open,'textContent',laser?t('Reprendre à un début de passe…'):t('Reprendre à une ligne…'));
     var can=canResumeFromLine();set(open,'hidden',!can||!panel.hidden);
@@ -174,7 +178,7 @@
     if(!canResumeFromLine()||open.disabled)return;
     var s=suggestedLine(machine,selection.file);input.value=s===null?'':String(s);
     set(hint,'textContent',typeof machine.stoppedAtLine==='number'&&machine.stoppedFile===selection.file?
-      t('Dernier arrêt après la ligne ')+machine.stoppedAtLine+t(' (acquittée). Grbl exécute jusqu’à 15 mouvements plus tard : ligne proposée ')+s+'.':
+      t('Dernier arrêt après la ligne ')+machine.stoppedAtLine+t(' (acquittée). Jusqu’à 15 mouvements acquittés peuvent ne pas avoir été exécutés : ligne proposée ')+s+'.':
       t('Numéro de ligne tel qu’affiché pendant le travail (lignes non vides).')+(laserOf(machine)?' '+t('Laser : le serveur reprend au début de passe qu’il identifie (laser éteint par M5, S0 ou un G0 après une découpe).'):''));
     panel.hidden=false;render();
   });

@@ -51,21 +51,25 @@ case "${1:-}" in
   chrome) shift; remote bash "$D/chrome.sh" "$@" ;;
   tunnel) tunnel "${2:-}" ;;
   clean)
-    remote "$NODE" "$D/port.cjs" clean
+    failed=0
+    remote "$NODE" "$D/port.cjs" clean || failed=1
     remote bash "$D/chrome.sh" stop
     remote bash "$D/sim.sh" stop
     tunnel close
     # Vérification : rien ne reste (processus, lien, profil, fiche, port dans .cncrc).
+    # Sortie 1 tant qu'il reste une trace : « nettoyage vérifié » seulement sans reste.
     remote bash -c '
+      rest=0
       left=$(pgrep -af "[g]rbl-server.js 5000|[b]ridge.py 5000|[u]ser-data-dir=/tmp/cnc-measure-v2")
-      [ -n "$left" ] && echo "RESTE : $left"
-      [ -e /tmp/ttyGRBL ] || [ -L /tmp/ttyGRBL ] && echo "RESTE : /tmp/ttyGRBL"
-      [ -d /tmp/cnc-measure-v2 ] && echo "RESTE : profil /tmp/cnc-measure-v2"
+      [ -n "$left" ] && { echo "RESTE : $left"; rest=1; }
+      if [ -e /tmp/ttyGRBL ] || [ -L /tmp/ttyGRBL ]; then echo "RESTE : /tmp/ttyGRBL"; rest=1; fi
+      [ -d /tmp/cnc-measure-v2 ] && { echo "RESTE : profil /tmp/cnc-measure-v2"; rest=1; }
       n=$(grep -c -e "ttyGRBL" -e "Simulateur Grbl" "$HOME/.cncrc")
-      [ "$n" != 0 ] && echo "RESTE : $n trace(s) du simulateur dans .cncrc"
+      [ "$n" != 0 ] && { echo "RESTE : $n trace(s) du simulateur dans .cncrc"; rest=1; }
       rm -rf /tmp/sim-surface
       bash -c "ls /dev/ttyUSB* /dev/ttyACM* 2>/dev/null" ; /usr/local/sbin/cncjs-idle-check
-      echo "nettoyage vérifié"'
+      exit $rest' || failed=1
+    if [ "$failed" = 0 ]; then echo "nettoyage vérifié"; else echo "NETTOYAGE INCOMPLET : voir les lignes ci-dessus"; exit 1; fi
     ;;
   *) sed -n 2,13p "$0"; exit 2 ;;
 esac

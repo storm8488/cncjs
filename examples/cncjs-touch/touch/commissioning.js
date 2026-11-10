@@ -243,7 +243,8 @@
       other.hidden=!!st.manual;box.appendChild(other);box.appendChild(manual);
       return function(m){
         setLamp(a,st.alarm||st.lost?t('Alarme détectée ✓'):alarm(m)&&!st.armed?t('Déjà en alarme : déverrouillez d’abord ($X)'):t('En attente…'),st.alarm||st.lost?'ok':alarm(m)?'act':'wait');
-        setLamp(b,st.back?t('Fait ✓'):alarm(m)?t('Touchez Déverrouiller ($X)'):t('—'),st.back?'ok':alarm(m)?'act':'wait');
+        // A greyed Déverrouiller says why (a critical alarm needs Reset on the PC first, UI-1).
+        setLamp(b,st.back?t('Fait ✓'):alarm(m)?(m.canUnlock||!m.unlockReason?t('Touchez Déverrouiller ($X)'):(uiLocale.message||t)(m.unlockReason)):t('—'),st.back?'ok':alarm(m)?'act':'wait');
         setLamp(c,st.back?t('Idle ✓'):m?m.activeState||'—':t('Machine non disponible'),st.back?'ok':'wait');
         prop(unlockButton,'disabled',!m||!m.canUnlock);
       };

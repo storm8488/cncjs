@@ -163,6 +163,9 @@ export const createLoader = (deps) => {
     const summary = { ...plan };
     delete summary.program;
     summary.preview = { version: 1, fingerprint, fromLine: plan.from, preamble: plan.preamble.slice(), kind: plan.mode };
+    // The plan the operator saw: "Charger la reprise" of the same file and line
+    // must rebuild it from the same program (E9).
+    record(c).resumeChecked = { file: body.file, line: Number(body.line), fingerprint };
     return summary;
   };
 
@@ -197,6 +200,10 @@ export const createLoader = (deps) => {
       let program = gcode;
       let resume = null;
       if (body.fromLine !== undefined && body.fromLine !== null) {
+        const checked = r.resumeChecked;
+        if (checked && checked.file === body.file && checked.line === Number(body.fromLine) && !sameProgram(checked.fingerprint, fingerprint)) {
+          throw conflict('Fichier modifié depuis « Vérifier » : vérifiez à nouveau la reprise.');
+        }
         const plan = buildResume(gcode, Number(body.fromLine), { name: originalName, mode: resumeMode(c) });
         program = plan.program;
         resume = {

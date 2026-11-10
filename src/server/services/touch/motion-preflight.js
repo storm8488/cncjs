@@ -102,7 +102,8 @@ export const createPreflight = (store, config, sessionState, clock = Date.now) =
       throw failure('SESSION', 'Un chargement ou une confirmation est en attente, ou leur état est inconnu.');
     }
 
-    const events = config.get('events');
+    // No `events` key in .cncrc is CNCjs's normal state (EventTrigger.js reads it as none, SRV-1).
+    const events = config.get('events', []);
     if (!Array.isArray(events) || events.some((event) => !event || event.enabled !== false)) {
       throw failure('EVENTS', 'Automatismes CNCjs à vérifier.');
     }

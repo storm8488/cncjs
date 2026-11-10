@@ -255,14 +255,18 @@ export const createPlateProbe = (deps) => {
         if (now === null || Math.abs(now - p.thickness) > 0.05) {
           throw conflict('Le repère n’a pas pris la valeur attendue (Z ' + now + ' au lieu de ' + p.thickness + ').');
         }
-        return send('G0 Z' + fmt(p.thickness + PLATE.clearance), 15000);
+        // Start height in the new frame: the retract never ends above it (a start
+        // close to the plate at the top of the Z travel would hit the Z switch).
+        r.probing.retract = Math.min(p.thickness + PLATE.clearance, z0 - r.probing.contact + p.thickness);
+        return send('G0 Z' + fmt(r.probing.retract), 15000);
       })
       .then(() => (restore ? send(restore, 15000) : null))
       .then(() => {
         r.zeroZ = { at: Date.now(), thickness: p.thickness, machineZ: r.probing.machineZ, wcs: r.wcs };
+        const retract = r.probing.retract;
         r.probing = null;
         changed();
-        return { message: 'Zéro Z réglé avec la plaque de ' + p.thickness + ' mm (contact à Z machine ' + fmt(r.zeroZ.machineZ) + ', repère ' + r.zeroZ.wcs + '). Outil dégagé à Z ' + fmt(p.thickness + PLATE.clearance) + '.' };
+        return { message: 'Zéro Z réglé avec la plaque de ' + p.thickness + ' mm (contact à Z machine ' + fmt(r.zeroZ.machineZ) + ', repère ' + r.zeroZ.wcs + '). Outil dégagé à Z ' + fmt(retract) + '.' };
       })
       .catch((err) => {
         r.zeroZ = { at: Date.now(), failed: err.message };

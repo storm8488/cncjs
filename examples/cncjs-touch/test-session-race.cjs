@@ -123,6 +123,8 @@ r.store.set({ transportReason: 'Session CNCjs expirée.' });
 assert.match(r.node('notice').textContent, /reconnectez-vous/, 'kept over the stream reason');
 r.store.set({ transportConnected: true, transportReason: '' });
 assert.doesNotMatch(r.node('notice').textContent, /reconnectez-vous/, 'cleared once the stream is back');
+// E7 / N13 (rehearsal): no controller (port closed) is not a selection to make in Fichiers only, and Arrêter cannot reach the machine.
+assert.match(r.node('notice').textContent, /^Aucun contrôleur suivi : ouvrez le port dans CNCjs au PC.*Arrêter n’atteint pas la machine\.$/);
 // A failed renewal request (network): tried again at the next refusal a minute later, not before.
 r.advance(60000);
 r.window.dispatchEvent({ type: 'cnc-session-refused' });

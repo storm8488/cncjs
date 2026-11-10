@@ -864,7 +864,7 @@ describe('job service', () => {
       const ctx = ready();
       ctx.c.state.status.activeState = 'Home';
       expect(ctx.state().canStop).toBe(true);
-      expect((await ctx.req('stop')).message).toMatch(/interrompue/);
+      expect((await ctx.req('stop')).message).toMatch(/interrompre la prise d’origine/);
       ctx.c.state.status.activeState = 'Jog';
       await ctx.req('stop');
       expect(ctx.c.commands).toEqual([['reset'], ['jogCancel']]);
@@ -1180,7 +1180,7 @@ describe('job service', () => {
       ctx.now += 4000;
       expect(ctx.state().canStop).toBe(true);
       expect(ctx.state().homing).toBe(true);
-      expect((await ctx.req('stop')).message).toMatch(/interrompue/);
+      expect((await ctx.req('stop')).message).toMatch(/interrompre la prise d’origine/);
       expect(ctx.c.commands.at(-1)).toEqual(['reset']);
     });
 
@@ -4056,7 +4056,7 @@ describe('job service, re-check of c4c048c7 (xvg)', () => {
       ctx.c.runner.emit('error', { message: '20' });
       ctx.silent(500);
       expect(ctx.state()).toMatchObject({ homing: true, canStop: true });
-      await expect(ctx.req('stop', {}, B)).resolves.toMatchObject({ message: expect.stringMatching(/Prise d’origine interrompue/) });
+      await expect(ctx.req('stop', {}, B)).resolves.toMatchObject({ message: expect.stringMatching(/interrompre la prise d’origine/) });
       expect(ctx.c.commands.map((x) => x[0])).toContain('reset');
     });
 
@@ -4618,7 +4618,7 @@ describe('job service, re-check of 98941288 (xvh)', () => {
     const stopResets = async (ctx) => {
       const n = ctx.cmds().filter((x) => x === 'reset').length;
       const res = await ctx.req('stop', {}, B);
-      expect(res.message).toMatch(/Prise d’origine interrompue/);
+      expect(res.message).toMatch(/interrompre la prise d’origine/);
       expect(ctx.cmds().filter((x) => x === 'reset').length).toBe(n + 1);
     };
 
