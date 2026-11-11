@@ -19,7 +19,7 @@ const tests = [
  'numeric-pad','job-preparation','compact-layout','action-feedback','library-context','bundle',
  'feedback-states','numeric-rules','preparation-keys','strip-messages','job-dialog-strip','real-motion','gcode-corpus','library-page-fit','layout-exceptions',
  'control-attribution','program-check-view','preview-identity','server-history','projects','server-messages',
- 'strip-guard','strip-continuity','preview-notes',
+ 'strip-guard','strip-continuity','preview-notes','no-simulation-access',
  'motion-estimate','preview-inspect','laser-view','preview-gl','preview-sidecar','job-motion','viz-i18n',
  'tablet-profile','tablet-diagnostic','scenario-profiles','simulated-kind','laser-z','wifi-settings','system-updates',
  'preview-3d-gpu','preview-3d-live','preview-3d-overlays','responsive-wide','origin-preview','session-renew','job-stream-no-session','scenario-perf-safety','scenario-perf-defects',

@@ -24,7 +24,7 @@
   document.body.classList.toggle('ks-real',!simulation);
   // The header is the status strip (status-strip.js fills its left part). The
   // screen title stays for assistive technology; the rail shows the place.
-  banner.innerHTML=uiLocale.html('<h1 id="ks-title" class="ks-sr-only">Menu</h1><div class="t-strip-right"><span class="ks-simulation">')+(simulation?uiLocale.t('SIMULATION'):uiLocale.t('MACHINE RÉELLE'))+uiLocale.html('</span><a href="')+(simulation?'index.html':'simulation.html')+'" class="ks-exit">'+(simulation?uiLocale.t('Réel ↗'):uiLocale.t('Simulation ↗'))+uiLocale.html('</a></div>');
+  banner.innerHTML=uiLocale.html('<h1 id="ks-title" class="ks-sr-only">Menu</h1><div class="t-strip-right"><span class="ks-simulation">')+(simulation?uiLocale.t('SIMULATION'):uiLocale.t('MACHINE RÉELLE'))+uiLocale.html('</span>')+(simulation?'<a href="index.html" class="ks-exit">'+uiLocale.t('Réel ↗')+'</a>':'')+uiLocale.html('</div>');
   var menu=document.createElement('section');menu.id='screen-menu';menu.className='screen';
   // Menu (UI 2027): the machine state lives in the strip; the menu is the
   // "resume where I was" shortcut plus six tiles, each with a live indicator.
@@ -134,7 +134,6 @@
   var info=sheet('ks-file-info',uiLocale.t('Détails du fichier et de l’aperçu'));
   ['library-preview-note','library-regenerate','library-regenerate-status','job-state','job-selected'].forEach(function(id){info.content.appendChild(document.getElementById(id));});
   var portLabel=document.querySelector('label[for="job-port"]');info.content.appendChild(portLabel);info.content.appendChild(document.getElementById('job-port'));
-  if(!simulation){var simulationLink=document.querySelector('.library-execution>a');if(simulationLink)info.content.appendChild(simulationLink);}
   var tools=document.createElement('div');tools.className='ks-file-tools';
   var dimensionsPanel=sheet('ks-dimensions',uiLocale.t('Dimensions du parcours XY')),dimensionsContent=document.getElementById('library-dimensions-content');
   dimensionsContent.hidden=false;dimensionsPanel.content.appendChild(dimensionsContent);

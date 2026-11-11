@@ -19,7 +19,7 @@
   function validate(data,targetMode){
     mode(targetMode);
     if(!exact(data,['kind','version','mode','units','profiles'])||data.kind!==kind||data.version!==1||data.units!=='mm-mm/min')fail(uiLocale.t('Format de sauvegarde de profils non reconnu.'));
-    if(mode(data.mode)!==targetMode)fail(uiLocale.t('Ce fichier appartient au mode ')+(data.mode==='simulation'?'SIMULATION':uiLocale.t('RÉEL'))+uiLocale.t('. Ouvrez le même mode pour l’importer.'));
+    if(mode(data.mode)!==targetMode)fail(targetMode==='real'?uiLocale.t('Sauvegarde incompatible avec cette interface.'):uiLocale.t('Ce fichier appartient au mode ')+(data.mode==='simulation'?'SIMULATION':uiLocale.t('RÉEL'))+uiLocale.t('. Ouvrez le même mode pour l’importer.'));
     if(!Array.isArray(data.profiles)||!data.profiles.length||data.profiles.length>8)fail(uiLocale.t('La sauvegarde doit contenir de 1 à 8 profils.'));
     return data.profiles.map(profile);
   }

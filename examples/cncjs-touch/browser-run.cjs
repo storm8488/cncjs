@@ -454,6 +454,7 @@ async function measureScreens(cdp, baseUrl, variant, dirName, dpr, summary, stri
       await goScreen(cdp, name);
       const data = await cdp.evaluate('(' + MEASURE + ')(' + JSON.stringify(GOALS) + ')');
       data.screen = name; data.label = label; data.variant = variant;
+      (await cdp.evaluate(NO_SIMULATION)).forEach((x) => failures.push(variant + ' ' + label + ': simulation trace on the real page: ' + x));
       fs.writeFileSync(path.join(dir, name + '.json'), JSON.stringify(data, null, 1));
       await screenshot(cdp, path.join(dir, name + '.png'));
       const below = data.targets.filter((t) => t.belowGoal), small = data.targets.filter((t) => t.textBelowGoal), gaps = data.targets.filter((t) => t.gapBelowGoal), unreachable = data.targets.filter((t) => !t.reachable);
@@ -1719,7 +1720,10 @@ const SCREENS_VARIANTS = [
   { id: 'v1-768-fr-sombre-laser-agrandi', v2: false, w: 1366, h: 768, lang: 'fr', theme: 'dark', size: 'large', kind: 'laser', states: ['idle'], screens: ['jog'] },
   { id: 'v2-911-fr-clair-cnc-agrandi', v2: true, w: 1366, h: 911, lang: 'fr', theme: 'light', size: 'large', kind: 'cnc', states: ['idle'], screens: ['jog'] },
   // Lot C: Spanish, light, large text: only « alarme après arrêt avec bilan » (Suivi).
-  { id: 'v2-911-es-clair-cnc-agrandi', v2: true, w: 1366, h: 911, lang: 'es', theme: 'light', size: 'large', kind: 'cnc', states: [], screens: ['home'], stopped: true }
+  { id: 'v2-911-es-clair-cnc-agrandi', v2: true, w: 1366, h: 911, lang: 'es', theme: 'light', size: 'large', kind: 'cnc', states: [], screens: ['home'], stopped: true },
+  // Final interface (2026-11-11): English in Éco and Performance too, so the real-page check (NO_SIMULATION) reads the English labels.
+  { id: 'v1-768-en-sombre-laser', v2: false, w: 1366, h: 768, lang: 'en', theme: 'dark', size: 'standard', kind: 'laser', states: ['idle', 'running', 'paused', 'alarm'] },
+  { id: 'v2-911-en-sombre-cnc', v2: true, w: 1366, h: 911, lang: 'en', theme: 'dark', size: 'standard', kind: 'cnc', states: ['idle', 'running', 'paused', 'alarm'], stopped: true }
 ];
 const SCREENS_OF_STATES = SCREENS.filter(([name]) => name !== 'settings');
 const SCREENS_PAGE = '(function(){var m=window.cncState&&window.cncState.get().machine,t=function(id){var e=document.getElementById(id);return e?e.textContent.replace(/\\s+/g," ").trim():null;};' +
@@ -1766,6 +1770,18 @@ const SCREENS_MENU = '(function(){var out={stripClip:[],resume:null,tiles:[],scr
   'out.tiles=[].filter.call(s.querySelectorAll(".ks-tile"),function(t){return t.getClientRects().length&&getComputedStyle(t).visibility!=="hidden";}).map(function(t){var r=t.getBoundingClientRect();return {tile:t.getAttribute("data-ks-tile"),y:Math.round(r.top*10)/10,h:Math.round(r.height*10)/10,bottom:Math.round(r.bottom*10)/10};});}' +
   // Strip machine buttons (lot Menu, review): a button the page does not hide must be drawn (no stylesheet may hide it).
   'out.buttons=["t-pause","t-stop","t-resume","t-unlock"].map(function(id){var b=document.getElementById(id);if(!b)return {id:id,missing:true};var cs=getComputedStyle(b);return {id:id,hidden:b.hidden,disabled:b.disabled,drawn:!!b.getClientRects().length&&cs.visibility!=="hidden"&&parseFloat(cs.opacity)>0};});return out;})()';
+// Final interface (2026-11-11): the real page shows no way into the simulation page and no wording of that mode,
+// visible text or label (title, aria-label, placeholder, alt), in every state and language the step covers. Any link
+// to simulation.html (or one of its own scripts) counts, hidden or not; a program
+// named simulation.nc (href or text) does not, nor the two CNCjs command titles of the fixture
+// (preview-server.cjs, /api/commands: server data the operator names, not page wording). The two limits of the preview stay (collisions, laser power). No effect on simulation.html.
+const NO_SIMULATION = '(function(){if(document.body.getAttribute("data-simulation")==="true")return [];var out=[],bad=/simul|fictif|fictiv|fictic|virtuel|virtual/i,' +
+  'keep=/pas une simulation de collisions|not a collision simulation|no es una simulación de colisiones|Puissance laser non simulée|Laser power not simulated|Potencia láser no simulada|simult[aá]n|Mettre à jour l’interface [(]fictif[)]|Redémarrer la tablette [(]fictif[)]|[A-Za-z0-9_.-]*simul[A-Za-z0-9_.-]*[.](nc|ngc|gcode|gc|tap|cnc|txt)/gi;' +
+  'function shown(e){return !!e&&e.getClientRects().length>0&&getComputedStyle(e).visibility!=="hidden";}function test(v){return bad.test(String(v).replace(keep,""));}' +
+  '[].forEach.call(document.querySelectorAll("a[href]"),function(a){if(/(^|[/])(job-)?simulation[^/?#]*[.](html|js)([?#]|$)/i.test(a.getAttribute("href")))out.push("link "+a.getAttribute("href"));});' +
+  'var w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT),n;while((n=w.nextNode())){var e=n.parentElement;if(!e||/^(SCRIPT|STYLE|NOSCRIPT)$/.test(e.tagName)||!shown(e))continue;if(test(n.nodeValue))out.push("text "+n.nodeValue.trim().slice(0,80));}' +
+  '[].forEach.call(document.querySelectorAll("[title],[aria-label],[placeholder],[alt]"),function(e){if(!shown(e))return;["title","aria-label","placeholder","alt"].forEach(function(k){var v=e.getAttribute(k);if(v&&test(v))out.push(k+" "+v.slice(0,80));});});' +
+  'return out;})()';
 async function screensCapture(cdp, dirName, name, label, tag, page, results, opts) {
   const dir = path.join(OUT, dirName), o = opts || {};
   fs.mkdirSync(dir, { recursive: true });
@@ -1774,6 +1790,7 @@ async function screensCapture(cdp, dirName, name, label, tag, page, results, opt
     if (o.panel) await cdp.evaluate(SCREENS_INERT + '(true)');
     const data = await cdp.evaluate('(' + MEASURE + ')(' + JSON.stringify(GOALS) + ')');
     const overlaps = await cdp.evaluate('(' + V2_OVERLAP + ')()');
+    (await cdp.evaluate(NO_SIMULATION)).forEach((x) => failures.push(tag + ' ' + label + ': simulation trace on the real page: ' + x));
     if (o.panel) await cdp.evaluate(SCREENS_INERT + '(false)');
     const journal = name === 'history' ? await cdp.evaluate(SCREENS_JOURNAL) : null;
     // Préparer (lot jog): top of the first visible cross button, « Cotes » reachable, soft-hyphen breaks.
@@ -2069,7 +2086,8 @@ async function screensVariant(cdp, fx, v, summary, out) {
         if (v.lang !== 'fr' && /’| :|\b(arrêtez|attendez|broche|commande|réglages?)\b|en cours/i.test(mc.reason)) failures.push(tag + ': Machine, French reason on the ' + v.lang + ' page: ' + mc.reason);
         if (phase === 'alarm' && mc.note) failures.push(tag + ': Machine, « consulter CNCjs » shown under a known alarm code');
         if (phase !== 'lost' && (mc.unlockDisabled || mc.homeDisabled) && !mc.reason) failures.push(tag + ': Machine, $X / $H greyed out without a reason line');
-        if (mc.v2state && /\b(Idle|Run|Hold|Jog|Alarm|Door|Check|Home|Sleep)\b/.test(mc.v2state)) failures.push(tag + ': Machine, Grbl word on the v2 State line: ' + mc.v2state);
+        // Not in English: the catalogue's own English words are « Idle », « Alarm » (Repos, Alarme).
+        if (v.lang !== 'en' && mc.v2state && /\b(Idle|Run|Hold|Jog|Alarm|Door|Check|Home|Sleep)\b/.test(mc.v2state)) failures.push(tag + ': Machine, Grbl word on the v2 State line: ' + mc.v2state);
         // Lot Journal: after every state, the journal holds more than two v1 pages (15 events or more).
         const journal = results.find((r) => r.screen === 'history' && r.journal);
         if (!v.states && phase === 'lost' && journal && !(journal.journal.events >= 15)) failures.push(tag + ': journal holds ' + journal.journal.events + ' events, fixture goal 15 (' + journal.journal.page + ')');
@@ -2194,6 +2212,7 @@ async function settingsCaptures(cdp, dir, name, label, results) {
       const data = await cdp.evaluate('(function(){var d=(' + MEASURE + ')(' + JSON.stringify(GOALS) + '),t=document.querySelector("#screen-settings .ks-settings-tabs");' +
         'if(t&&document.querySelector("main").scrollTop>0){var r=t.getBoundingClientRect(),labels=' + JSON.stringify(geo.labels.map((l) => l.slice(0, 60))) + ';d.targets.forEach(function(x){var cy=x.y+x.h/2;if(cy>=r.top&&cy<=r.bottom&&labels.indexOf(x.label)<0){x.offscreen=true;x.underTabs=true;}});}return d;})()');
       const overlaps = (await cdp.evaluate('(' + V2_OVERLAP + ')()')).filter((o) => !at || (geo.labels.indexOf(o.a) < 0 && geo.labels.indexOf(o.b) < 0));
+      (await cdp.evaluate(NO_SIMULATION)).forEach((x) => failures.push(dir + ' ' + where + ': simulation trace on the real page: ' + x));
       fs.writeFileSync(path.join(dir, shot + '.json'), JSON.stringify(Object.assign(data, { overlapsText: overlaps, scrollTop: at }), null, 1));
       await screenshot(cdp, path.join(dir, shot + '.png'));
       const below = data.targets.filter((t) => t.belowGoal), unreachable = data.targets.filter((t) => !t.reachable), fonts = data.targets.map((t) => t.fontPx);

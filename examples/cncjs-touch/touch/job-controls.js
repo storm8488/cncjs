@@ -702,8 +702,5 @@
   // Deferred subscribers can load after the first resolved local snapshot.
   bind(document,'DOMContentLoaded',function(){stateSignature='';render();});
   poll(true);
-  if(!simulation) {
-    var link=document.createElement('a');link.href='simulation.html';link.textContent=uiLocale.t('Ouvrir le mode SIMULATION (sans machine)');panel.insertBefore(link,panel.firstChild);
-  }
 })();
 

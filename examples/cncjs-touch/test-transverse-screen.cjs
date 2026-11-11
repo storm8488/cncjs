@@ -187,7 +187,7 @@ const m = (patch) => Object.assign({ port: 'A', activeState: 'Idle', workflow: '
   // ---- 6. Cache: every file of the lot is asked with the current suffix. ----
   for (const page of ['index.html', 'simulation.html']) {
     const html = touch(page);
-    for (const f of ['status-strip.js', 'job-controls.js', 'interface-guide.js', 'i18n-messages.js', 'ui-2027.css', 'touch-shell.css', 'design-tokens.css']) assert(html.includes(f + '?v=v2p'), page + ': ' + f + '?v=v2p');
+    for (const f of ['status-strip.js', 'job-controls.js', 'interface-guide.js', 'i18n-messages.js', 'ui-2027.css', 'touch-shell.css', 'design-tokens.css']) assert(html.includes(f + '?v=v2q'), page + ': ' + f + '?v=v2q');
   }
-  console.log('PASS transverse screen: probing word, pause / old-report icons, strip buttons unchanged, server reasons translated, guide in Spanish and 16 / 48 px, strip cells whole, outlines at 3:1, cache v2p.');
+  console.log('PASS transverse screen: probing word, pause / old-report icons, strip buttons unchanged, server reasons translated, guide in Spanish and 16 / 48 px, strip cells whole, outlines at 3:1, cache v2q.');
 })().catch((e) => { console.error(e); process.exit(1); });

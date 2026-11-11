@@ -93,7 +93,7 @@
       var plan=transfer.merge(profiles,imported);if(!plan.added)return;
       writeProfiles({version:1,profiles:plan.profiles,selected:selected,diameter:diameter,removed:removed});
       profiles=plan.profiles;storageWarning='';clearImport();list();invalidate();
-      text('probe-transfer-count',profiles.length+uiLocale.t(' / 8 profils enregistrés · ')+(simulation?'simulation':'préparation réelle'));
+      text('probe-transfer-count',profiles.length+uiLocale.t(' / 8 profils enregistrés · ')+(simulation?'simulation':uiLocale.t('préparation réelle')));
       text('probe-import-status',plan.added+uiLocale.t(' profil(s) ajouté(s) et enregistré(s). Sélectionnez le profil dans Palpage avant utilisation.'));
     }catch(error){text('probe-import-status',uiLocale.t('Import non enregistré : ')+error.message+uiLocale.t(' Les profils actuels sont conservés.'));}
   });
@@ -260,10 +260,15 @@
     document.querySelector('#screen-probe-contact h2').textContent=uiLocale.t('Diagnostic de l’entrée sonde');
     document.querySelector('#screen-probe-contact .ks-panel-intro p').textContent=uiLocale.t('Rapports reçus · lecture seule · aucune commande machine');
     document.querySelector('#screen-probe-contact .probe-note').textContent=uiLocale.t('Un champ Pn absent reste inconnu. Le test guidé réel et le lancement restent désactivés jusqu’à validation du firmware et du montage.');
+    // Real page: no wording that points to the test bench of the simulation page.
+    $('probe-progress').setAttribute('aria-label',uiLocale.t('Progression du palpage'));
+    document.querySelector('#screen-probe-report .ks-panel-intro p').textContent=uiLocale.t('Journal de cette page, 100 événements maximum');
+    document.querySelector('#screen-probe-report .probe-note').textContent=uiLocale.t('Ces origines sont propres au banc de palpage. Les coordonnées de la CNC ne sont pas modifiées.');
+    document.querySelectorAll('#screen-probe-transfer .probe-note')[1].textContent=uiLocale.t('Copiez le fichier sur l’autre appareil puis ouvrez ce panneau pour l’importer.');
   }
   $('probe-log-prev').addEventListener('click',function(){page--;renderReport();});$('probe-log-next').addEventListener('click',function(){page++;renderReport();});
-  $('probe-reset').addEventListener('click',function(){if(engine.snapshot().running)return;engine=model.create(simulation?'simulation':'disabled');message=uiLocale.t('Banc fictif réinitialisé. Aucun repère réel modifié.');renderReport();});
-  $('probe-export').addEventListener('click',function(){try{var data=JSON.stringify(engine.report(),null,2);window.CNCDownload.save(new Blob([data],{type:'application/json'}),'cnc-palpage-simulation-'+new Date().toISOString().replace(/[:.]/g,'-')+'.json');text('probe-export-status',uiLocale.t('Sauvegarde proposée au téléchargement.'));}catch(error){text('probe-export-status',uiLocale.t('Export impossible : ')+error.message);}});
+  $('probe-reset').addEventListener('click',function(){if(engine.snapshot().running)return;engine=model.create(simulation?'simulation':'disabled');message=simulation?uiLocale.t('Banc fictif réinitialisé. Aucun repère réel modifié.'):uiLocale.t('Banc réinitialisé. Aucun repère réel modifié.');renderReport();});
+  $('probe-export').addEventListener('click',function(){try{var data=JSON.stringify(engine.report(),null,2);window.CNCDownload.save(new Blob([data],{type:'application/json'}),'cnc-palpage-'+(simulation?'simulation':'preparation')+'-'+new Date().toISOString().replace(/[:.]/g,'-')+'.json');text('probe-export-status',uiLocale.t('Sauvegarde proposée au téléchargement.'));}catch(error){text('probe-export-status',uiLocale.t('Export impossible : ')+error.message);}});
   window.addEventListener('cnc-screen-change',function(e){active=e.detail;if(active!=='probe-profile'&&pendingDelete){showPage(editorPage);text('probe-profile-status',uiLocale.t('Suppression annulée à la sortie du panneau.'));}if(active!=='probe-transfer')clearImport();if(engine.snapshot().running&&active!=='probe'&&active!=='probe-report')interrupt(uiLocale.t('Sortie du panneau de palpage : simulation arrêtée. Aucun retrait automatique.'));render();});
   window.addEventListener('cnc-job-status',function(e){if(!!e.detail.simulation!==simulation)return;if(machine!==e.detail.machine)machineReceived=Date.now();machine=e.detail.machine;busy=!!e.detail.busy;if(engine.snapshot().running&&!available())interrupt(uiLocale.t('État du simulateur incompatible. Cycle interrompu, aucune reprise automatique.'));var signature=JSON.stringify([machine&&machine.port,machine&&machine.activeState,machine&&machine.fresh,busy,simulation?null:liveInput()]);if(signature!==lastState){lastState=signature;render();}});
   window.addEventListener('cnc-probe-interrupt',function(){interrupt(uiLocale.t('Alarme fictive. Cycle interrompu ; aucune origine supplémentaire appliquée.'));});

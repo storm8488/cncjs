@@ -271,9 +271,9 @@ assert.doesNotMatch(responsive,/@media \(max-height:560px\) and \(min-width:600p
     assert.equal(banner.getAttribute('data-pilot'),PILOT[k]?'other':FIX[k]?'mine':'unknown','data-pilot in state '+k);
   }
 }
-// --- 4. Cache: the files of the lot are served as v2p.
+// --- 4. Cache: the files of the lot are served as v2q.
 for(const page of ['index.html','simulation.html']){
   const html=read(page);
-  for(const f of ['design-tokens.css','ui-2027.css','responsive.css','touch-shell.js','header-clock.js','i18n-messages.js'])assert(html.includes(f+'?v=v2p'),page+': '+f+'?v=v2p');
+  for(const f of ['design-tokens.css','ui-2027.css','responsive.css','touch-shell.js','header-clock.js','i18n-messages.js'])assert(html.includes(f+'?v=v2q'),page+': '+f+'?v=v2q');
 }
 console.log('PASS menu screen: tile and resume words for homing, probing, jog, stale, offline and alarm (FR/EN/ES), empty indicators kept in place, full-height tiles, pill, 3:1 outlines, opaque disabled strip buttons, short rail at 650 px, strip cells with their own ellipsis; strip buttons hidden/disabled unchanged in 10 states, none hidden by a stylesheet, disabled text at 4.5:1 on its stripes, no repeated DOM write.');
