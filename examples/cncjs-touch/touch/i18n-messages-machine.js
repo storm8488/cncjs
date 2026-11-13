@@ -3,7 +3,27 @@
 ['Type de machine enregistré : CNC. Aucune commande envoyée à la carte.','Machine type saved: CNC. No command sent to the board.','Tipo de máquina guardado: CNC. Ningún comando enviado a la placa.'],
 ['Type de machine enregistré : laser. Aucune commande envoyée à la carte.','Machine type saved: laser. No command sent to the board.','Tipo de máquina guardado: láser. Ningún comando enviado a la placa.'],
 ['Fiche machine oubliée. Aucune commande envoyée à la carte.','Machine record forgotten. No command sent to the board.','Ficha de máquina olvidada. Ningún comando enviado a la placa.'],
-['Cadrage laser lancé : M5 puis contour du programme, sans émission. Arrêt : bouton Arrêter.','Laser framing started: M5 then the program outline, without emission. Stop: Stop button.','Encuadre láser iniciado: M5 y luego el contorno del programa, sin emisión. Parada: botón Detener.']
+['Cadrage laser lancé : M5 puis contour du programme, sans émission. Arrêt : bouton Arrêter.','Laser framing started: M5 then the program outline, without emission. Stop: Stop button.','Encuadre láser iniciado: M5 y luego el contorno del programa, sin emisión. Parada: botón Detener.'],
+// Connecter la CNC (connect-cnc.js): opening the controller port from the main screen.
+['CNC non connectée','CNC not connected','CNC no conectada'],
+['Port fermé : Arrêter n’atteint pas la machine.','Port closed: Stop does not reach the machine.','Puerto cerrado: Detener no llega a la máquina.'],
+['Connecter la CNC','Connect the CNC','Conectar la CNC'],
+['Connexion CNCjs indisponible sur cette page.','CNCjs connection unavailable on this page.','Conexión CNCjs no disponible en esta página.'],
+['CNCjs ne répond pas. Réessayez.','CNCjs is not answering. Try again.','CNCjs no responde. Inténtelo de nuevo.'],
+['Serveur CNCjs injoignable. Réessayez.','CNCjs server unreachable. Try again.','Servidor CNCjs inaccesible. Inténtelo de nuevo.'],
+['Recherche des ports USB…','Looking for USB ports…','Buscando puertos USB…'],
+['Un port est déjà ouvert dans CNCjs : choisissez le contrôleur dans Fichiers.','A port is already open in CNCjs: choose the controller in Files.','Ya hay un puerto abierto en CNCjs: elija el controlador en Archivos.'],
+['Aucun port USB : vérifiez le câble et l’alimentation de la carte.','No USB port: check the cable and the board power supply.','Ningún puerto USB: compruebe el cable y la alimentación de la placa.'],
+['Choisir le port de la CNC','Choose the CNC port','Elegir el puerto de la CNC'],
+['Port de la mise en service absent. Ne choisissez que le port de la carte CNC.','Commissioned port missing. Choose only the CNC board port.','Puerto de la puesta en servicio ausente. Elija solo el puerto de la placa CNC.'],
+['Ouvrir','Open','Abrir'],
+['La carte redémarre : la machine sera en Alarme jusqu’à la prise d’origine ou le déverrouillage.','The board restarts: the machine will be in Alarm until homing or unlock.','La placa se reinicia: la máquina estará en Alarma hasta la búsqueda de origen o el desbloqueo.'],
+['Ouverture de','Opening','Abriendo'],
+['Port disparu : vérifiez le câble et l’alimentation de la carte.','Port gone: check the cable and the board power supply.','Puerto desaparecido: compruebe el cable y la alimentación de la placa.'],
+['Ouverture refusée :','Opening refused:','Apertura rechazada:'],
+['Port ouvert, la carte redémarre…','Port open, the board is restarting…','Puerto abierto, la placa se reinicia…'],
+['Attente du premier rapport de la machine.','Waiting for the first machine report.','Esperando el primer informe de la máquina.'],
+['Aucun rapport de la carte. Vérifiez son alimentation, puis réessayez.','No report from the board. Check its power supply, then try again.','Ningún informe de la placa. Compruebe su alimentación y vuelva a intentarlo.']
 );
 // Server refusals by stable code (cncI18n.format), machine type and laser (src/server/services/touch:
 // machine-profile.js, resume.js, program-check.js): code, French (the server's message), English, Spanish.

@@ -390,6 +390,16 @@ body.ks-ui.display-large:not(.perf-origin) #screen-jog #jog-msg{flex-basis:100%}
 .ks-resume b{display:block;font-weight:700}
 .ks-resume small{display:block;color:var(--mute);font-size:var(--fs-16);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ks-resume-go{display:inline-flex;align-items:center;min-height:52px;padding:0 var(--sp-4);border:1px solid var(--line-strong);border-radius:var(--r-m);font:600 var(--fs-18)/1 var(--font)}
+/* Connecter la CNC (connect-cnc.js): in the resume bar's place while no controller is followed. */
+.ks-connect{grid-row:1;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:var(--sp-4);min-height:var(--tap-primary);padding:var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-5);background:var(--surface);border:1px solid var(--line);border-left:6px solid var(--warn);border-radius:var(--r-l);color:var(--fg);font:var(--fs-20)/var(--lh-tight) var(--font)}
+.ks-connect[hidden]{display:none}
+.ks-connect-text{min-width:0}
+.ks-connect b{display:block;font-weight:700}
+.ks-connect small{display:block;color:var(--mute);font-size:var(--fs-16)}
+.ks-connect-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:var(--sp-3)}
+.ks-connect-actions button{min-height:56px;padding:0 var(--sp-5);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m);color:var(--fg);font:600 var(--fs-18)/1 var(--font);touch-action:manipulation}
+.ks-connect-actions .ks-connect-go{background:var(--info-soft);border-color:var(--info)}
+.ks-ui .ks-connect:not([hidden])~.ks-resume{display:none}
 .ks-ui .ks-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:var(--sp-4);padding:0;min-height:0}
 .ks-ui .ks-tile{position:relative;display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;gap:var(--sp-3);min-height:0;padding:var(--sp-5);text-align:left;font:var(--fs-28)/var(--lh-tight) var(--font);color:var(--fg);background:var(--surface);border:1px solid var(--line);border-bottom-width:1px;border-radius:var(--r-l)}
 .ks-ui .ks-tile:active{transform:scale(.98);background:var(--surface-2)}
@@ -486,6 +496,8 @@ body.ks-ui.display-large:not(.perf-origin) #screen-jog #jog-msg{flex-basis:100%}
 .ks-ui #screen-settings .ks-panel-intro{border-bottom-color:var(--line)}
 .ks-ui #screen-settings .ks-panel-intro h2{color:var(--fg)}
 .ks-ui #screen-settings .ks-settings-tabs{background:var(--bg);box-shadow:none;border-bottom:1px solid var(--line)}
+/* A short fade under the sticky tabs: a card cut by them no longer reads as an empty card. */
+.ks-ui #screen-settings .ks-settings-tabs::after{content:"";position:absolute;left:0;right:0;top:100%;height:12px;background:linear-gradient(var(--bg),transparent);pointer-events:none}
 .ks-ui #screen-settings .ks-settings-tab{color:var(--mute);background:var(--surface);border:1px solid var(--line);border-bottom:3px solid transparent}
 .ks-ui #screen-settings .ks-settings-tab[aria-selected=true]{color:var(--fg);background:var(--surface-2);border-bottom-color:var(--accent)}
 .ks-ui #screen-settings button,.ks-ui #screen-settings select{color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m);font-family:var(--font)}
@@ -1094,6 +1106,7 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
  * of the empty first row is taken back. */
 .ks-ui .ks-tiles{grid-row:2}
 .ks-ui .ks-resume[hidden]+.ks-tiles{margin-top:calc(-1 * var(--sp-4))}
+.ks-ui .ks-connect:not([hidden])~.ks-tiles{margin-top:0}
 /* 1024 x 600: the hint on one line (ellipsis), the icon and the indicator are no longer squeezed. */
 .ks-ui.t-compact .ks-tile-text{max-width:100%}
 .ks-ui.t-compact .ks-tile small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
