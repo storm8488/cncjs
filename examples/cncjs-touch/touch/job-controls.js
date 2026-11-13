@@ -400,7 +400,15 @@
     else if(/^(idle|hold:0)/i.test(a))motionSeen=null;
     if(!/^alarm/i.test(a)){alarmMemory=null;return m;}
     var code=typeof m.alarmCode==='number'&&isFinite(m.alarmCode)?m.alarmCode:null;
-    if(code!==null){alarmMemory={port:m.port,code:code};return m;}
+    if(code!==null){alarmMemory={port:m.port,code:code,startups:m.startups,generation:m.generation};return m;}
+    // A board restart cleared a hard/soft limit (ALARM:1/2): its « Reset in CNCjs » advice no longer
+    // applies, and the move seen before it is not a reset during a move either. Proven restart only:
+    // the server's startups count rose in the same generation, or a new generation (port reopened,
+    // CNCjs restarted: its count starts at 0) already counted a restart banner. A reconnection
+    // without banner keeps the code. Codes 3/6 may arrive just before the banner that explains them: kept.
+    if(alarmMemory&&alarmMemory.port===m.port&&(alarmMemory.code===1||alarmMemory.code===2)&&
+       typeof m.startups==='number'&&isFinite(m.startups)&&typeof alarmMemory.startups==='number'&&isFinite(alarmMemory.startups)&&
+       (typeof m.generation==='string'&&typeof alarmMemory.generation==='string'&&m.generation!==alarmMemory.generation?m.startups>=1:m.startups>alarmMemory.startups)){alarmMemory=null;motionSeen=null;}
     var known=alarmMemory&&alarmMemory.port===m.port?alarmMemory.code:null,inferred=!!(known!==null&&alarmMemory.inferred);
     if(known===null&&motionSeen&&motionSeen.port===m.port&&Date.now()-motionSeen.at>=0&&Date.now()-motionSeen.at<=INFER_MS){
       known=motionSeen.code;inferred=true;alarmMemory={port:m.port,code:known,inferred:true};

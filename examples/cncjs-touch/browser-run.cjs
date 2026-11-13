@@ -2318,12 +2318,47 @@ async function settingsVariant(cdp, v, realUrl, simUrl, summary, out) {
       info.limits.push({ tab, control: k, need, limit: SETTINGS_LIMITS[k] });
       if (enforce && (need === null || need > SETTINGS_LIMITS[k])) failures.push(tag + ' ' + tab + ': « ' + k + ' » needs ' + (need === null ? 'a control that is not shown' : need + ' px of scroll') + ', goal ' + SETTINGS_LIMITS[k] + ' px');
     }
+    if (v.flows || v.checks) await settingsInteractions(cdp, tag, dir, info);
     if (v.flows) await settingsFlows(cdp, tag, dir, results, info);
     await settingsRequests(cdp, tag, info);
     log(tag + ': ' + results.length + ' captures, placement ' + Object.keys(info.placement).length + ' blocks, scroll ' + info.limits.filter((l) => l.tab === 'display').map((l) => l.control + ' ' + l.need).join(', '));
   } catch (e) { failures.push(tag + ': ' + e.message); log('FAIL ' + tag + ': ' + e.message); }
   summary.measurements.push({ variant: tag, dir: dirName, dpr: 1, results, strict: true, overlap: true });
   out.variants.push(info);
+}
+// Affichage and Machine at rest, on the simulation, real and v2 pages: a vertical swipe that starts on the
+// brightness slider scrolls without setting, and the tablet diagnostic spans the performance card (C2, V1).
+async function settingsInteractions(cdp, tag, dir, info) {
+  const flows = info.interactions = {};
+  // Affichage: a vertical swipe that starts on the brightness slider scrolls the list, leaves the level and sends none.
+  try {
+    await settingsTab(cdp, 'display');
+    const s = await cdp.evaluate('(function(){var s=document.querySelector("#screen-settings .ks-backlight-slider"),m=document.querySelector("main");if(!s||s.disabled)return null;m.scrollTop=0;s.scrollIntoView({block:"center"});' +
+      'return new Promise(function(d){setTimeout(function(){var b=s.getBoundingClientRect();d({x:Math.round(b.left+b.width*0.3),y:Math.round(b.top+b.height/2),value:s.value,top:m.scrollTop,sent:(window.__brRequests||[]).length});},300);});})()');
+    if (!s) failures.push(tag + ': brightness slider missing or disabled');
+    else {
+      await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+      const touch = (type, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x: s.x, y }] });
+      await touch('touchStart', s.y); for (let i = 1; i <= 20; i++) { await touch('touchMove', s.y - i * 12); await sleep(8); } await touch('touchEnd');
+      await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: false });
+      await sleep(700);
+      flows.sliderSwipe = await cdp.evaluate('(function(){var s=document.querySelector("#screen-settings .ks-backlight-slider");return {value:s.value,top:document.querySelector("main").scrollTop,posts:(window.__brRequests||[]).slice(' + s.sent + ').filter(function(r){return r.method==="POST"&&/touch-backlight/.test(r.url)&&!/temporary|wake/.test(r.body||"");}).length};})()');
+      flows.sliderSwipe.scrolled = flows.sliderSwipe.top - s.top; flows.sliderSwipe.before = s.value;
+      if (flows.sliderSwipe.scrolled < 100 || flows.sliderSwipe.value !== s.value || flows.sliderSwipe.posts) failures.push(tag + ': vertical swipe started on the brightness slider: ' + JSON.stringify(flows.sliderSwipe) + ' (expected a scroll, the same level, no level sent)');
+    }
+  } catch (e) { failures.push(tag + ' slider swipe: ' + e.message); log('FAIL ' + tag + ' slider swipe: ' + e.message); }
+  // Machine: the tablet diagnostic spans the performance card, without squeezing its title.
+  try {
+    await settingsTab(cdp, 'machine');
+    const rect = 'function(n){var r=n.getBoundingClientRect();return {l:Math.round(r.left),r:Math.round(r.right),w:Math.round(r.width),h:Math.round(r.height)};}';
+    flows.diagnostic = await cdp.evaluate('(async function(){var R=' + rect + ',c=document.getElementById("ks-performance-card");if(!c)return null;var h=c.querySelector("h2"),d=c.querySelector(".ks-diagnostic"),run=document.getElementById("profile-diagnostic-run");' +
+      'var before=R(h);if(!d||!run||run.disabled)return {before:before,ran:false};run.click();await new Promise(function(r){setTimeout(r,2500);});var cs=getComputedStyle(c),list=document.getElementById("profile-diagnostic-list");' +
+      'return {before:before,ran:!!(list&&list.children.length),h2:R(h),diag:R(d),card:R(c),pad:[parseFloat(cs.paddingLeft),parseFloat(cs.paddingRight)]};})()');
+    const g = flows.diagnostic;
+    if (!g || !g.ran) failures.push(tag + ': tablet diagnostic not run (' + JSON.stringify(g) + ')');
+    else if (Math.abs(g.diag.l - g.h2.l) > 2 || g.diag.r < g.card.r - g.pad[1] - 2 || g.h2.w < g.before.w - 1 || g.h2.h > g.before.h + 1) failures.push(tag + ': tablet diagnostic result squeezes the performance card ' + JSON.stringify(g));
+    await screenshot(cdp, path.join(dir, 'machine-diagnostic.png'));
+  } catch (e) { failures.push(tag + ' diagnostic: ' + e.message); log('FAIL ' + tag + ' diagnostic: ' + e.message); }
 }
 // Système at rest: the Wi-Fi form opened with its keyboard (then Annuler), the first tap of a Tablette command and of
 // the update install (armed, orange), both disarmed by leaving the tab. Nothing is confirmed.
@@ -2403,7 +2438,7 @@ async function settingsMeasure(cdp, realUrl, simUrl, summary) {
     const variants = [];
     for (const lang of ['fr', 'es']) for (const size of ['standard', 'large']) for (const theme of ['dark', 'light']) variants.push({ page: 'sim', w: 1366, h: 768, lang, size, theme, kind: 'laser', flows: true });
     // The real page (Mise en service card), and the Pro 3 size in v1 Éco (v2 CNC: v2SettingsPass).
-    variants.push({ page: 'real', w: 1366, h: 768, lang: 'fr', size: 'standard', theme: 'dark' }, { page: 'real', w: 1366, h: 911, lang: 'es', size: 'standard', theme: 'dark' });
+    variants.push({ page: 'real', w: 1366, h: 768, lang: 'fr', size: 'standard', theme: 'dark', checks: true }, { page: 'real', w: 1366, h: 911, lang: 'es', size: 'standard', theme: 'dark', checks: true });
     for (const v of variants) await settingsVariant(cdp, v, realUrl, simUrl, summary, out);
     for (const lang of ['fr', 'es']) await settingsDuringJob(cdp, lang, simUrl, summary, out);
   } catch (e) { failures.push('settings: ' + (e.stack || e.message)); log('FAIL settings: ' + e.message); }
@@ -2414,14 +2449,17 @@ async function settingsMeasure(cdp, realUrl, simUrl, summary) {
   out.pageErrors = pageErrors.slice(errorsAt).filter((e) => !/Unexpected request in visual fixture: \/api\/custom\/health/.test(e));
   if (out.pageErrors.length) failures.push('settings: page exceptions: ' + out.pageErrors.slice(0, 3).join(' | ').slice(0, 600));
   fs.writeFileSync(path.join(OUT, 'settings.json'), JSON.stringify(out, null, 1));
-  summary.settings = (summary.settings || []).concat(out.variants.map((v) => ({ tag: v.tag, placement: v.placement, limits: v.limits, apply: v.apply, sticky: v.sticky, flows: v.flows, refusal: v.refusal, requests: (v.requests || []).length })));
+  summary.settings = (summary.settings || []).concat(out.variants.map((v) => ({ tag: v.tag, placement: v.placement, limits: v.limits, apply: v.apply, sticky: v.sticky, flows: v.flows, interactions: v.interactions, refusal: v.refusal, requests: (v.requests || []).length })));
 }
-// The same walk on the v2 page at 1366 x 911 (CNC), FR and ES, standard and large text, dark and light: the v2 cards
+// The same walk on the v2 page at 1366 x 911 (CNC), FR and ES, standard and large text, dark and light, and EN: the v2 cards
 // on the Machine tab at rest (§8.3), enforced as v2 measurements.
 async function v2SettingsPass(cdp, fx, summary) {
   const out = [];
   const trap = await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: SETTINGS_TRAP });
-  for (const lang of ['fr', 'es']) for (const [size, theme] of [['standard', 'dark'], ['large', 'dark'], ['standard', 'light']]) {
+  const combos = [];
+  for (const lang of ['fr', 'es']) for (const [size, theme] of [['standard', 'dark'], ['large', 'dark'], ['standard', 'light']]) combos.push([lang, size, theme]);
+  combos.push(['en', 'standard', 'dark']);
+  for (const [lang, size, theme] of combos) {
     const tag = 'v2 settings 1366x911 ' + lang + ' ' + size + ' ' + theme, dirName = tag.replace(/[^A-Za-z0-9]+/g, '-'), dir = path.join(OUT, dirName), results = [], info = { tag, lang, viewport: [1366, 911], tabs: {} };
     fs.mkdirSync(dir, { recursive: true });
     fx.setPhase('idle'); pageErrors.length = 0;
@@ -2435,6 +2473,7 @@ async function v2SettingsPass(cdp, fx, summary) {
       const m = info.tabs.machine;
       if (!m.perfV2 || m.need.v2 === null || m.need.quality === null) failures.push(tag + ': v2 cards not shown on the Machine tab at rest (' + JSON.stringify(m.need) + ')');
       ['#ks-v2-card', '#perf-v2-settings'].forEach((k) => { if (info.placement[k] && info.placement[k] !== 'machine') failures.push(tag + ': ' + k + ' on « ' + info.placement[k] + ' », expected the Machine tab'); });
+      await settingsInteractions(cdp, tag, dir, info);
       await settingsRequests(cdp, tag, info);
       if (pageErrors.length) failures.push(tag + ': page exceptions: ' + pageErrors.slice(0, 3).join(' | ').slice(0, 600));
       log(tag + ': ' + results.length + ' captures, v2 card at ' + m.need.v2 + ' px of scroll on Machine');
@@ -2444,7 +2483,7 @@ async function v2SettingsPass(cdp, fx, summary) {
   }
   await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: trap.identifier }).catch(() => {});
   fs.writeFileSync(path.join(OUT, 'settings-v2.json'), JSON.stringify(out, null, 1));
-  summary.settings = (summary.settings || []).concat(out.map((v) => ({ tag: v.tag, placement: v.placement, limits: [].concat(...SETTINGS_TABS.map((t) => Object.keys((v.tabs[t] && v.tabs[t].need) || {}).map((k) => ({ tab: t, control: k, need: v.tabs[t].need[k] })))), sticky: v.sticky, requests: (v.requests || []).length })));
+  summary.settings = (summary.settings || []).concat(out.map((v) => ({ tag: v.tag, placement: v.placement, limits: [].concat(...SETTINGS_TABS.map((t) => Object.keys((v.tabs[t] && v.tabs[t].need) || {}).map((k) => ({ tab: t, control: k, need: v.tabs[t].need[k] })))), sticky: v.sticky, interactions: v.interactions, requests: (v.requests || []).length })));
   return out.map((v) => v.tag);
 }
 

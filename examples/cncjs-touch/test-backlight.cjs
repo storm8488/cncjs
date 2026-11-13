@@ -47,6 +47,55 @@ up.click();answer(200,{available:true,writable:true,percent:100});up.click();ass
 slider.value='10';slider.handlers.input();answer(200,{available:true,writable:true,percent:10});
 down.click();assert.deepEqual(JSON.parse(posts().at(-1).body),{percent:5},'never below 5 %');answer(200,{available:true,writable:true,percent:5});
 down.click();assert.deepEqual(JSON.parse(posts().at(-1).body),{percent:5});answer(200,{available:true,writable:true,percent:5});
+// A touch on the slider is settled on release: a swipe the browser hands over to the scroll
+// (pointercancel) sends no level and puts the previous one back, in either order of the events.
+{
+  const pointer=(type,pointerType='touch',pointerId=7)=>slider.handlers[type]({type,pointerId,pointerType});
+  const flushTimers=(ms)=>{for(const x of timers)if(x.live&&x.ms===ms){x.live=false;x.f();}};
+  const move=(v)=>{slider.value=v;slider.handlers.input();};
+  let n=posts().length;
+  pointer('pointerdown');move('60');assert.equal(value.textContent,'60 %','the thumb follows the finger');assert.equal(posts().length,n,'nothing sent while the finger is down');
+  move('65');pointer('pointercancel');assert.equal(slider.value,'5');assert.equal(value.textContent,'5 %','vertical swipe: the level is put back');
+  move('40');assert.equal(slider.value,'5','a late input of the cancelled gesture is undone');
+  pointer('pointerup');flushTimers(0);assert.equal(posts().length,n,'a vertical swipe sends no level');
+  flushTimers(500);
+  // The other order: the late input first, then the cancel.
+  pointer('pointerdown');move('30');move('35');pointer('pointercancel');flushTimers(0);flushTimers(500);assert.equal(slider.value,'5');assert.equal(posts().length,n);
+  // Horizontal drag or a deliberate tap: one level, sent once on release.
+  pointer('pointerdown');move('20');move('30');move('45');assert.equal(posts().length,n);
+  pointer('pointerup');assert.equal(posts().length,n,'settled after the release events');flushTimers(0);
+  assert.equal(posts().length,n+1);assert.deepEqual(JSON.parse(posts().at(-1).body),{percent:45});answer(200,{available:true,writable:true,percent:45});
+  pointer('pointerdown');pointer('pointerup');flushTimers(0);assert.equal(posts().length,n+1,'a tap on the current level sends nothing');
+  // An answer arriving during the gesture never moves the thumb under the finger.
+  up.click();n=posts().length;pointer('pointerdown');move('70');answer(200,{available:true,writable:true,percent:55});
+  assert.equal(slider.value,'70');pointer('pointerup');flushTimers(0);assert.deepEqual(JSON.parse(posts().at(-1).body),{percent:70});answer(200,{available:true,writable:true,percent:70});
+  // A gesture interrupted by a tab change is not a setting.
+  n=posts().length;pointer('pointerdown');move('90');handlers['cnc-settings-tab']({detail:'machine'});assert.equal(slider.value,'70');
+  pointer('pointerup');flushTimers(0);assert.equal(posts().length,n,'nothing sent after leaving the tab');
+  // Mouse and keyboard keep the live setting.
+  pointer('pointerdown','mouse',1);move('75');assert.equal(posts().length,n+1,'mouse: sent at once');answer(200,{available:true,writable:true,percent:75});
+  pointer('pointerdown');pointer('pointercancel');slider.handlers.keydown();move('80');assert.equal(posts().length,n+2,'keyboard right after a cancelled touch: sent');answer(200,{available:true,writable:true,percent:80});
+  slider.value='5';slider.handlers.input();answer(200,{available:true,writable:true,percent:5});
+  // A screen change or a hidden page also ends the gesture: nothing sent on the release.
+  for(const leave of [()=>handlers['cnc-screen-change'](),()=>document.handlers.visibilitychange()]){
+    n=posts().length;pointer('pointerdown');move('90');leave();assert.equal(slider.value,'5','the gesture is dropped');
+    answer(200,{available:true,writable:true,percent:5});pointer('pointerup');flushTimers(0);assert.equal(posts().length,n,'nothing sent after leaving');
+  }
+  // A cancelled gesture while a request is refused: once the gesture ends the confirmed level is shown
+  // again, so the next + starts from it (50 → 60, not 70).
+  slider.value='50';slider.handlers.input();answer(200,{available:true,writable:true,percent:50});
+  up.click();assert.deepEqual(JSON.parse(posts().at(-1).body),{percent:60});
+  pointer('pointerdown');pointer('pointercancel');answer(409,{message:'refusé'});
+  assert.equal(requests.at(-1).method,'GET');answer(200,{available:true,writable:true,percent:50});
+  assert.equal(slider.value,'60','held back while the gesture is absorbed');
+  flushTimers(500);assert.equal(slider.value,'50','the confirmed level once the gesture ends');assert.equal(value.textContent,'50 %');
+  up.click();assert.deepEqual(JSON.parse(posts().at(-1).body),{percent:60},'the next + starts from the confirmed level');answer(200,{available:true,writable:true,percent:60});
+  // Same for a tap without change.
+  up.click();pointer('pointerdown');pointer('pointerup');answer(409,{message:'refusé'});answer(200,{available:true,writable:true,percent:60});
+  flushTimers(0);assert.equal(slider.value,'60','a tap without change shows the confirmed level');
+  up.click();assert.deepEqual(JSON.parse(posts().at(-1).body),{percent:70});answer(200,{available:true,writable:true,percent:70});
+  slider.value='5';slider.handlers.input();answer(200,{available:true,writable:true,percent:5});
+}
 
 // A refusal shows the reason and re-reads the status.
 up.click();const before=requests.length;answer(409,{message:'Réglage refusé : le système ne permet pas à CNCjs de modifier la luminosité.'});
@@ -104,5 +153,14 @@ for(const name of ['index.html','simulation.html']){
   const html=fs.readFileSync(__dirname+'/touch/'+name,'utf8');
   assert.equal((html.match(/src="backlight\.js/g)||[]).length,1);
   assert(html.indexOf('display-settings.js')<html.indexOf('backlight.js'),'the settings cards exist before the brightness card');
+}
+// Settings scroll guards (Surface 2026-11): a vertical swipe that starts on the slider scrolls the list
+// (pan-y, never none), the native main scrollbar is moved by the compositor (the WebKit one was repainted
+// at every scroll update, measured before/after with a 4x CPU slowdown), and the tablet diagnostic spans its card.
+{
+  const shell=fs.readFileSync(__dirname+'/touch/touch-shell.css','utf8'),list=fs.readFileSync(__dirname+'/touch/settings-list.css','utf8');
+  assert.match(shell,/\.ks-backlight-slider\{[^}]*touch-action:pan-y/,'the slider lets a vertical swipe scroll');
+  assert.match(list,/(^|\n)main\{scrollbar-width:thin;scrollbar-color:var\(--line-strong\) transparent\}/,'native thin scrollbar on main');
+  assert.match(list,/#ks-performance-card>\.ks-diagnostic\{grid-column:1\/-1\}/,'the diagnostic spans the performance card');
 }
 console.log('PASS backlight: shown-only reads, one request at a time with the last value winning, steps and minimum, read-only and missing panels.');

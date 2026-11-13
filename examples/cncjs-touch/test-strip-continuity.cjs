@@ -8,7 +8,8 @@
 //         xvf-no-replay.cjs, all required);
 //   D5    a confirmed action's line (« Démarrage demandé. ») is cleared once another device
 //         changes the workflow;
-//   D6    an alarm code wiped by the board's restart banner stays shown (kept or inferred).
+//   D6    an alarm code wiped by the board's restart banner stays shown (kept or inferred), except
+//         a stale ALARM:1/2 once the restart is proven (startups changed).
 const assert = require('assert').strict;
 const { load } = require('./job-controls-fixture.cjs');
 const RUNNING = { workflow: 'running', activeState: 'Run', canPause: true, canStop: true, canStart: false, canLoad: false };
@@ -243,8 +244,70 @@ async function dropAndReconnect(f, epoch) {
     f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: 2 })]); await f.flush();
     f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: null })]); await f.flush();
     const m = f.lastStatus().machine;
-    assert.equal(m.alarmCode, 2, 'a received code stays after the banner');
+    assert.equal(m.alarmCode, 2, 'a server without a startups count: the received code stays');
     assert.equal(m.alarmCodeKept, true); assert.notEqual(m.alarmCodeInferred, true);
+  }
+  // Stale ALARM:1/2 after the Reset done at the PC: the restart banner changes `startups`.
+  const buttons = (f) => ['job-load', 'job-start', 'job-resume', 'job-pause', 'job-stop'].map((id) => f.el(id) && [f.el(id).disabled, f.el(id).hidden]);
+  for (const code of [1, 2]) {
+    const f = await connected(RUNNING);
+    f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: code, startups: 4 })]); await f.flush();
+    f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: null, startups: 4 })]); await f.flush();
+    assert.equal(f.lastStatus().machine.alarmCode, code, 'same board session: ALARM:' + code + ' kept');
+    const posts = f.posts().length, before = buttons(f);
+    f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: null, startups: 5 })]); await f.flush();
+    let m = f.lastStatus().machine;
+    assert.equal(m.alarmCode, null, 'after the board restart ALARM:' + code + ' no longer asks for a Reset (and no ALARM:3 from the earlier Run)');
+    assert.notEqual(m.alarmCodeKept, true); assert.notEqual(m.alarmCodeInferred, true);
+    assert.deepEqual(buttons(f), before, 'buttons unchanged'); assert.equal(f.posts().length, posts, 'nothing sent');
+    f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: 9, startups: 5 })]); await f.flush();
+    assert.equal(f.lastStatus().machine.alarmCode, 9, 'a new explicit code wins');
+  }
+  for (const code of [3, 6]) {
+    const f = await connected(RUNNING);
+    f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: code, startups: 4 })]); await f.flush();
+    f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: null, startups: 5 })]); await f.flush();
+    const m = f.lastStatus().machine;
+    assert.equal(m.alarmCode, code, 'ALARM:' + code + ' received just before the banner explains it: kept');
+    assert.equal(m.alarmCodeKept, true); assert.notEqual(m.alarmCodeInferred, true);
+  }
+  for (const [a, b] of [[undefined, 5], [4, undefined], [4, null]]) {
+    const f = await connected(RUNNING);
+    f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: 1, startups: a })]); await f.flush();
+    f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: null, startups: b })]); await f.flush();
+    assert.equal(f.lastStatus().machine.alarmCode, 1, 'no restart proven (startups ' + a + ' → ' + b + '): code kept');
+  }
+  // Port closed and reopened (or CNCjs restarted): the server starts a new record (new generation,
+  // startups from 0). A banner counted in it proves the restart; a reconnection without banner does not.
+  for (const [count, cleared] of [[1, true], [3, true], [0, false]]) {
+    const f = await connected(Object.assign({}, RUNNING, { startups: 1 }));
+    f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: 1, startups: 1 })]); await f.flush();
+    const posts = f.posts().length;
+    f.push([]); await f.flush();
+    f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: null, startups: count, generation: 'gen-2' })]); await f.flush();
+    const m = f.lastStatus().machine;
+    if (cleared) {
+      assert.equal(m.alarmCode, null, 'new generation with ' + count + ' restart(s): ALARM:1 no longer asks for a Reset');
+      assert.notEqual(m.alarmCodeInferred, true, 'and no ALARM:3 from the earlier Run');
+    } else {
+      assert.equal(m.alarmCode, 1, 'reconnection without banner (startups 0): ALARM:1 kept');
+      assert.equal(m.alarmCodeKept, true);
+    }
+    assert.equal(f.posts().length, posts, 'nothing sent');
+  }
+  {
+    // A count that drops in the same generation is no restart.
+    const f = await connected(RUNNING);
+    f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: 1, startups: 4 })]); await f.flush();
+    f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: null, startups: 3 })]); await f.flush();
+    assert.equal(f.lastStatus().machine.alarmCode, 1, 'startups 4 → 3: code kept');
+  }
+  {
+    // A reset during a move is still deduced after a restart (no 1/2 remembered).
+    const f = await connected(Object.assign({}, RUNNING, { startups: 4 }));
+    f.push([f.machine({ activeState: 'Alarm', workflow: 'idle', alarmCode: null, startups: 5 })]); await f.flush();
+    assert.equal(f.lastStatus().machine.alarmCode, 3, 'Run then reset: ALARM:3 still inferred');
+    assert.equal(f.lastStatus().machine.alarmCodeInferred, true);
   }
   {
     const f = await connected({ activeState: 'Home', workflow: 'idle', homing: true, canStop: true });

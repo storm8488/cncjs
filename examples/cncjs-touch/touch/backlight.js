@@ -53,7 +53,7 @@
   function paint(){
     var on=usable();
     [down,up,slider].forEach(function(n){if(n.disabled===on)n.disabled=!on;});
-    if(state&&typeof state.percent==='number'&&!inflight&&pending===null){slider.value=String(state.percent);}
+    if(state&&typeof state.percent==='number'&&!inflight&&pending===null&&!drag){slider.value=String(state.percent);}
     set(value,state&&typeof state.percent==='number'?Number(slider.value)+' %':'—');
     var why=!state?'':!state.available?t('Aucun rétroéclairage réglable sur cet ordinateur.'):!state.writable?t('Réglage bloqué : CNCjs n’a pas le droit de modifier la luminosité (règle udev à installer, voir README).'):'';
     if(why)set(status,why);
@@ -118,12 +118,47 @@
     mode=sleepSelect.value;
     try{localStorage.setItem(KEY,JSON.stringify({sleep:mode}));}catch(_){set(status,t('Choix appliqué ; mémorisation indisponible dans ce navigateur.'));}
   });
-  slider.addEventListener('input',function(){choose(Number(slider.value));});
+  // A touch on the slider is settled on release. A vertical swipe that starts on it scrolls the
+  // list (touch-action:pan-y), and Chromium may move the thumb before it takes the gesture over
+  // (pointercancel): the thumb follows the finger, nothing is sent before the release, and a
+  // cancelled or interrupted gesture puts the previous level back. Mouse, keyboard and ± unchanged.
+  // A gesture that ends without a setting shows the server's confirmed level again (an answer that
+  // came meanwhile was held back so the thumb stays under the finger).
+  var drag=null;
+  function show(){set(value,Number(slider.value)+' %');}
+  function dropDrag(){
+    if(drag&&!drag.cancelled){slider.value=drag.before;show();}
+    if(drag){clearTimeout(drag.timer);drag=null;paint();}
+  }
+  slider.addEventListener('pointerdown',function(e){
+    dropDrag();
+    if(e&&e.pointerType==='touch')drag={id:e.pointerId,before:slider.value,cancelled:false,timer:null};
+  });
+  slider.addEventListener('pointercancel',function(e){
+    if(!drag||e.pointerId!==drag.id||drag.cancelled)return;
+    var d=drag;d.cancelled=true;slider.value=d.before;show();
+    // Kept a moment to absorb the browser's late input/change events of this gesture.
+    d.timer=setTimeout(function(){if(drag===d){drag=null;paint();}},500);
+  });
+  slider.addEventListener('pointerup',function(e){
+    if(!drag||e.pointerId!==drag.id||drag.cancelled)return;
+    var d=drag;
+    d.timer=setTimeout(function(){
+      if(drag!==d||d.cancelled)return;
+      drag=null;
+      if(slider.value!==d.before)choose(Number(slider.value));else paint();
+    },0);
+  });
+  slider.addEventListener('keydown',dropDrag);
+  slider.addEventListener('input',function(){
+    if(drag){if(drag.cancelled)slider.value=drag.before;show();return;}
+    choose(Number(slider.value));
+  });
   down.addEventListener('click',function(){choose(Number(slider.value)-10);});
   up.addEventListener('click',function(){choose(Number(slider.value)+10);});
-  window.addEventListener('cnc-screen-change',load);
-  window.addEventListener('cnc-settings-tab',function(e){if(e&&e.detail==='display')load();});
-  document.addEventListener('visibilitychange',load);
+  window.addEventListener('cnc-screen-change',function(){dropDrag();load();});
+  window.addEventListener('cnc-settings-tab',function(e){dropDrag();if(e&&e.detail==='display')load();});
+  document.addEventListener('visibilitychange',function(){dropDrag();load();});
   window.addEventListener('pagehide',function(e){if(e&&e.persisted)return;disposed=true;});
   paint();load();
   // A page reloaded while the screen saver had the panel off (an update, a crash) wakes it.

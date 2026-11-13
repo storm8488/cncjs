@@ -9,7 +9,7 @@
 (function (root) {
   'use strict';
   var isWorker = typeof root.importScripts === 'function' && typeof root.document === 'undefined' && typeof module === 'undefined' && !root.CNCAsLibrary;
-  if (typeof root.importScripts === 'function' && !root.CNCMotionEstimate) root.importScripts('motion-estimate.js?v=v2q');
+  if (typeof root.importScripts === 'function' && !root.CNCMotionEstimate) root.importScripts('motion-estimate.js?v=v2r');
   var ME = typeof module !== 'undefined' && module.exports ? require('./motion-estimate.js') : root.CNCMotionEstimate;
   var uiLocale = (!isWorker && root.cncI18n) || { t: function (s) { return s; }, locale: 'fr-FR' }, t = uiLocale.t;
 
@@ -474,7 +474,7 @@
   }
   // Page side: reads the program (fingerprint checked against the preview's), interprets it in a worker,
   // gets the typed arrays back (transferred). {promise, cancel}; the promise gives {tooLong, segments, path}.
-  var WORKER_URL = 'preview-inspect.js?v=v2q';
+  var WORKER_URL = 'preview-inspect.js?v=v2r';
   function geometry(meta, options) {
     options = options || {};
     var worker = null, done = false, rejectNow = null, request = null;

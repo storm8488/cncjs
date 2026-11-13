@@ -29,6 +29,8 @@
 .ks-ui #screen-settings .card>h2{grid-column:1;margin:0!important;font-size:22px;font-weight:500;color:var(--fg)}
 .ks-ui #screen-settings .card>p,.ks-ui #screen-settings .card>label{grid-column:1;margin:0;font-size:16px;color:var(--mute)}
 .ks-ui #screen-settings .card>.ks-help{font-size:14px!important;color:var(--mute)}
+/* The tablet diagnostic (tablet-diagnostic.js) spans the card: in the auto column it widened it and squeezed the title. */
+.ks-ui #screen-settings #ks-performance-card>.ks-diagnostic{grid-column:1/-1}
 .ks-ui #screen-settings button,.ks-ui #screen-settings select{min-height:60px;font-size:19px}
 .ks-ui #screen-settings .ks-secondary{font-size:18px;min-height:60px;padding:10px 22px}
 
@@ -101,7 +103,10 @@
   .ks-ui #screen-settings .card>*{grid-column:1!important;grid-row:auto!important}
   .ks-ui #screen-settings .ks-system-grid{grid-template-columns:minmax(0,1fr)}
 }
-/* A thin, visible scrollbar on the scrolling main area. */
+/* A thin, visible scrollbar on the scrolling main area. The standard properties (ignored before Chromium 121,
+ * which keeps the WebKit rules below) give a native bar the compositor moves: the custom one was repainted on
+ * every scroll update. */
+main{scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent}
 main::-webkit-scrollbar{width:10px}main::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:5px}main::-webkit-scrollbar-track{background:transparent}
 .ks-ui #screen-settings .language-settings label{white-space:nowrap}
 .ks-ui #screen-settings .language-settings{flex:0 1 auto;min-width:0;max-width:100%}.ks-ui #screen-settings .language-settings select{width:auto;max-width:260px}

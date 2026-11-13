@@ -1,8 +1,18 @@
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
-let now=0,wallOffset=0,nextId=0,modal=false,focusReturns=0;const timers=new Map(),handlers={},docHandlers={};
+let now=0,wallOffset=0,nextId=0,modal=false,focusReturns=0;const timers=new Map(),docHandlers={};let handlers={};
 const main={tagName:'MAIN',inert:false},alreadyInert={tagName:'NAV',inert:true},focus={isConnected:true,focus(){focusReturns++;}};
 let overlay;const document={hidden:false,activeElement:focus,body:{children:[main,alreadyInert],appendChild(el){this.children.push(el);}},createElement(){return overlay={tagName:'BUTTON',setAttribute(){},focus(){}};},querySelectorAll(){return [{hidden:!modal,getClientRects:()=>modal?[1]:[]}];},addEventListener(n,f){docHandlers[n]=f;}};
-const window={performance:{now:()=>now},addEventListener(n,f){handlers[n]=f;}};
+// Every listener of a type is kept with its options, like in a browser: screen-saver.js swaps passive and blocking
+// touch/wheel listeners. handlers[type](e) runs them in order; a passive one cannot cancel.
+function registry(map){
+  const capture=o=>o===true||!!(o&&o.capture);
+  return {addEventListener(n,f,o){const list=map[n]=map[n]||[];if(!list.some(l=>l.f===f&&l.capture===capture(o)))list.push({f,capture:capture(o),passive:!!(o&&o.passive)});},
+    removeEventListener(n,f,o){map[n]=(map[n]||[]).filter(l=>!(l.f===f&&l.capture===capture(o)));}};
+}
+function dispatcher(map){return new Proxy({},{get:(_,n)=>e=>{let stop=false;for(const l of (map[n]||[]).slice()){if(stop)break;
+  l.f(Object.assign(Object.create(e),{preventDefault:l.passive?()=>{}:()=>e.preventDefault(),stopImmediatePropagation:()=>{stop=true;e.stopImmediatePropagation&&e.stopImmediatePropagation();}}));}}});}
+const listeners={};handlers=dispatcher(listeners);
+const window=Object.assign({performance:{now:()=>now}},registry(listeners));
 vm.runInNewContext(fs.readFileSync(__dirname+'/touch/screen-saver.js','utf8'),{document,window,Date:{now:()=>now+wallOffset},setTimeout(fn,ms){const id=++nextId;timers.set(id,{fn,at:now+ms});return id;},clearTimeout(id){timers.delete(id);}});
 function tick(ms){const end=now+ms;for(;;){let item=[...timers].filter(([,v])=>v.at<=end).sort((a,b)=>a[1].at-b[1].at)[0];if(!item)break;now=item[1].at;timers.delete(item[0]);item[1].fn();}now=end;}
 function event(type,data={}){let stopped=false,prevented=false;handlers[type]({type,...data,preventDefault(){prevented=true;},stopImmediatePropagation(){stopped=true;}});return {stopped,prevented};}
@@ -48,11 +58,31 @@ assert(overlay.hidden);document.hidden=false;docHandlers.visibilitychange();tick
 // The old-browser fallback remains bounded after a backward wall-clock change.
 delete window.performance;wallOffset=0;api.configure(1);tick(30000);wallOffset-=3600000;tick(30000);
 assert(overlay.hidden);assert.equal(timers.size,1);tick(60000);assert(!overlay.hidden);api.configure(0);
+// Touch and wheel: awake, only passive listeners (a scroll never waits for the main thread) that still count as
+// activity; asleep and until the end of the wake, a blocking one shields the page; removed once restored.
+{
+  const SCROLL=['touchstart','touchend','touchcancel','wheel'];
+  const blocking=()=>SCROLL.filter(n=>(listeners[n]||[]).some(l=>!l.passive));
+  api.configure(0);assert.deepEqual(blocking(),[],'awake: no blocking touch/wheel listener');
+  ['pointerdown','pointerup','click','keydown'].forEach(n=>assert((listeners[n]||[]).some(l=>!l.passive&&l.capture),n+' keeps its blocking capture listener'));
+  let r=event('touchstart',{touches:[{}]});assert(!r.prevented&&!r.stopped,'awake touch not cancelled');event('touchend',{touches:[]});
+  r=event('wheel');assert(!r.prevented&&!r.stopped);
+  api.configure(1);tick(59000);event('touchstart',{touches:[{}]});event('touchend',{touches:[]});tick(1000);assert(overlay.hidden,'an awake touch still postpones the sleep');
+  tick(58999);assert(overlay.hidden);tick(1);assert(!overlay.hidden);
+  assert.deepEqual(blocking(),SCROLL,'asleep: blocking touch/wheel listeners');
+  r=event('wheel');assert(r.prevented&&r.stopped,'asleep: the wheel is swallowed');
+  r=event('touchstart',{touches:[{}]});assert(r.prevented&&r.stopped);r=event('touchend',{touches:[]});assert(r.prevented&&r.stopped);
+  tick(200);assert.deepEqual(blocking(),SCROLL,'waking: still shielded');r=event('touchstart',{touches:[{}]});assert(r.prevented&&r.stopped,'a second touch during the wake is swallowed');
+  event('touchend',{touches:[]});tick(450);assert(overlay.hidden);assert.deepEqual(blocking(),[],'restored: blocking listeners removed');
+  SCROLL.forEach(n=>assert.equal((listeners[n]||[]).length,1,n+': one passive listener left'));
+  api.configure(0);
+}
 // Sleep/wake announcements for the backlight: once per change, wake on the first touch.
 {
-  const seen=[],h={};let ov;
+  const seen=[];let ov;
   const doc={hidden:false,activeElement:null,body:{children:[],appendChild(el){this.children.push(el);}},createElement(){return ov={tagName:'BUTTON',setAttribute(){},focus(){}};},querySelectorAll(){return [];},addEventListener(){}};
-  const win={performance:{now:()=>now},addEventListener(n,f){h[n]=f;},dispatchEvent(e){if(e.type==='cnc-screen-saver-sleep')seen.push(e.detail);}};
+  const hl={},h=dispatcher(hl);
+  const win=Object.assign({performance:{now:()=>now},dispatchEvent(e){if(e.type==='cnc-screen-saver-sleep')seen.push(e.detail);}},registry(hl));
   vm.runInNewContext(fs.readFileSync(__dirname+'/touch/screen-saver.js','utf8'),{document:doc,window:win,CustomEvent:function(type,init){this.type=type;this.detail=init.detail;},Date:{now:()=>now},setTimeout(fn,ms){const id=++nextId;timers.set(id,{fn,at:now+ms});return id;},clearTimeout(id){timers.delete(id);}});
   const fire=(type,data={})=>h[type]({type,...data,preventDefault(){},stopImmediatePropagation(){}});
   win.cncScreenSaver.configure(0);assert(win.cncScreenSaver.preview());assert.deepEqual(seen,[true]);
