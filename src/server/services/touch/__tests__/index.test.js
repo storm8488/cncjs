@@ -10,6 +10,23 @@ import settings from '../../../config/settings';
 import touch from '../index';
 
 jest.mock('../system-stats', () => ({ createSystemStats: () => ({ start: jest.fn(), stop: jest.fn(), read: () => ({}) }) }));
+// What the facade tells the job service about the socket commands it allows (full homing cycle or not).
+const mockSocketCommands = [];
+jest.mock('../job-service', () => {
+  const actual = jest.requireActual('../job-service');
+  return {
+    ...actual,
+    createService: (...args) => {
+      const service = actual.createService(...args);
+      const socketCommand = service.socketCommand;
+      service.socketCommand = (port, full) => {
+        mockSocketCommands.push([port, full]);
+        return socketCommand(port, full);
+      };
+      return service;
+    }
+  };
+});
 jest.mock('../backlight', () => ({ createBacklight: () => ({ restore: jest.fn(), status: () => ({}), set: jest.fn(), dim: jest.fn(), wake: jest.fn() }) }));
 
 let dir;
@@ -120,6 +137,40 @@ describe('touch facade (history, control, socket and host-command policies)', ()
     expect(fs.existsSync(file)).toBe(true);
     const text = fs.readFileSync(file, 'utf8');
     expect(text.split('\n').filter(Boolean)).toHaveLength(2);
+  });
+
+  test('refuseSocket : homing et writeln $H annoncent une origine complète ; gcode $H (file du feeder), $HX, une autre commande l’annulent ; un refus ou un arrêt n’annonce rien', async () => {
+    touch.start();
+    const c = fakeController('COM3');
+    store.set('controllers', { COM3: c });
+    c.runner.emit('status');
+    const socket = fakeSocket('s4');
+    mockSocketCommands.splice(0);
+    expect(touch.refuseSocket(socket, 'COM3', 'command', 'homing')).toBeNull();
+    expect(touch.refuseSocket(socket, 'COM3', 'writeln', '$H')).toBeNull();
+    expect(touch.refuseSocket(socket, 'COM3', 'writeln', ' $h ')).toBeNull();
+    expect(mockSocketCommands).toEqual([['COM3', true], ['COM3', true], ['COM3', true]]);
+    mockSocketCommands.splice(0);
+    // Not a full cycle written at once, the intention is cancelled: a $H queued in the feeder
+    // (which feeder:stop or an Alarm may drop), partial cycles, a raw write, a macro.
+    expect(touch.refuseSocket(socket, 'COM3', 'command', 'gcode')).toBeNull();
+    expect(touch.refuseSocket(socket, 'COM3', 'writeln', '$HX')).toBeNull();
+    expect(touch.refuseSocket(socket, 'COM3', 'writeln', '$HZ')).toBeNull();
+    // A non-breaking space: GrblController.writeln sends it as a realtime byte, without the newline.
+    expect(touch.refuseSocket(socket, 'COM3', 'writeln', '\u00a0$H')).toBeNull();
+    expect(touch.refuseSocket(socket, 'COM3', 'writeln', '$H\nG0 X10')).toBeNull();
+    expect(touch.refuseSocket(socket, 'COM3', 'write', '$H\n')).toBeNull();
+    expect(touch.refuseSocket(socket, 'COM3', 'command', 'macro:run')).toBeNull();
+    expect(mockSocketCommands).toEqual([['COM3', false], ['COM3', false], ['COM3', false], ['COM3', false], ['COM3', false], ['COM3', false], ['COM3', false]]);
+    mockSocketCommands.splice(0);
+    // Stops and status queries say nothing; a refused command (another owner) says nothing either.
+    expect(touch.refuseSocket(socket, 'COM3', 'command', 'statusreport')).toBeNull();
+    expect(touch.refuseSocket(socket, 'COM3', 'write', '?')).toBeNull();
+    const tablet = { kind: 'touch', id: 'tablet-A', label: 'Tablette A', user: 'ana' };
+    await touch.action({ port: 'COM3', action: 'control', operation: 'claim' }, tablet);
+    expect(touch.refuseSocket(socket, 'COM3', 'command', 'homing')).not.toBeNull();
+    expect(touch.refuseSocket(socket, 'COM3', 'writeln', '$H')).not.toBeNull();
+    expect(mockSocketCommands).toEqual([]);
   });
 
   test('before start, the policies allow everything (no control module yet)', () => {

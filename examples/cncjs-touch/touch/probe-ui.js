@@ -256,6 +256,8 @@
     document.querySelectorAll('[data-probe-field]').forEach(function(el){var k=el.getAttribute('data-probe-field'),b=model.fields[k];if(el.tagName!=='INPUT'||!b)return;window.CNCNumeric.bind(el,{min:b[0],max:b[1],negative:b[0]<0,unit:k==='fast'||k==='slow'?'mm/min':'mm',label:(el.parentElement&&el.parentElement.textContent||k).trim()});});
     window.CNCNumeric.bind($('probe-diameter'),{min:0.001,max:100,negative:false,unit:'mm',label:uiLocale.t('Outil / pige · diamètre mm')});
   }
+  // The profile name takes the shared text keyboard (text-keyboard.js).
+  if(window.CNCTextKeyboard)window.CNCTextKeyboard.bind($('probe-profile-name'),{label:uiLocale.t('Nom du profil')});
   ['probe-wcs','probe-scenario'].forEach(function(id){$(id).addEventListener('change',invalidate);});$('probe-confirm').addEventListener('change',render);
   $('probe-scenario-label').hidden=!simulation;$('probe-confirm').parentElement.hidden=!simulation;
   if(!simulation){

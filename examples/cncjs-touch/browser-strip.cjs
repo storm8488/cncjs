@@ -60,7 +60,7 @@ const ORIGIN_OPEN = '{disabled:false,click:function(){var c=window.cncJobControl
   'window.__stripIdle=true;var n=0,t=setInterval(function(){var b=document.getElementById("jog-zero-x");if(b&&!b.disabled){clearInterval(t);b.click();setTimeout(function(){window.__stripIdle=false;},300);}else if(++n>40){clearInterval(t);window.__stripIdle=false;}},50);}}';
 // Real move capabilities injected into the replayed reports (the panel opens; nothing moves).
 const CAPABILITIES = `(function(){var o=window.dispatchEvent.bind(window);window.dispatchEvent=function(e){if(e&&e.type==="cnc-job-status"&&e.detail&&e.detail.machine&&!e.detail.machine.capabilities){var m={};Object.keys(e.detail.machine).forEach(function(k){m[k]=e.detail.machine[k];});
-  var c={supported:true,enabled:true,experimental:true,reason:""};m.capabilities={jog:Object.assign({steps:[0.01,0.1,1,10]},c),jogContinuous:c,jogCancel:c,setOrigin:c};
+  var c={supported:true,enabled:true,experimental:true,reason:""};m.capabilities={jog:Object.assign({steps:[0.01,0.1,1,10,25,50,100]},c),jogContinuous:c,jogCancel:c,setOrigin:c};
   m.motion={canJog:false,jogReason:"Travail en cours.",continuousReason:{X:"",Y:"",Z:""},canSetOrigin:false,setOriginReason:"Travail en cours.",maxFeed:{},jog:null,cancelling:false,cancelUnconfirmed:false,lastJog:null,lastOrigin:null};
   if(window.__stripIdle){m.workflow="idle";m.activeState="Idle";m.fresh=true;m.operator={reportUnits:"mm",wcs:"G54"};m.motion.canSetOrigin=true;m.motion.setOriginReason="";m.control={owner:null,lastChange:null};}
   var d={};Object.keys(e.detail).forEach(function(k){d[k]=e.detail[k];});d.machine=m;e=new CustomEvent("cnc-job-status",{detail:d});}return o(e);};return true;})()`;
@@ -174,6 +174,31 @@ async function variant(cdp, H, base, page, w, h, lang, large, fail, rows, log) {
     } catch (e) { fail(ctx + ' · ' + label + ': ' + e.message); }
     await closeAll(cdp, H);
   }
+  if (page === 'index') await stepsRow(cdp, H, ctx, fail, log);
+}
+
+// Finitions (revue P2-4): the row of 7 steps of Préparer (0.1 / 1 / 10 / 25 / 50 / 100 / Continu) on the real page,
+// at every format of VARIANTS (1366 x 768 and the compact 1024 x 600, FR / ES large / EN): the reports shown at rest
+// with the move capabilities (CAPABILITIES, window.__stripIdle), the seven buttons visible, ≥ 44 px, text whole, hit.
+const STEPS_ROW = `(function(){return Array.prototype.map.call(document.querySelectorAll("#steps .step"),function(b){b.scrollIntoView({block:"nearest"});
+  var r=b.getBoundingClientRect(),h=r.width?document.elementFromPoint(r.left+r.width/2,r.top+r.height/2):null;
+  return {step:b.getAttribute("data-step"),text:b.textContent.trim(),shown:!b.hidden&&r.width>0,w:Math.round(r.width*10)/10,h:Math.round(r.height*10)/10,
+    cut:b.scrollWidth>b.clientWidth+1||b.scrollHeight>b.clientHeight+1,inside:r.left>=0&&r.right<=innerWidth+0.5,hit:!!h&&(h===b||b.contains(h))};});})()`;
+async function stepsRow(cdp, H, ctx, fail, log) {
+  try {
+    await H.goScreen(cdp, 'jog');
+    await cdp.evaluate('window.__stripIdle=true;true');
+    await cdp.waitFor('(function(){var b=document.querySelector("#steps [data-step=hold]");return !!b&&!b.hidden&&b.getClientRects().length>0;})()', 10000, '« Continu » offered');
+    await H.sleep(300);
+    const row = await cdp.evaluate(STEPS_ROW);
+    const want = ['0.1', '1', '10', '25', '50', '100', 'hold'];
+    const shown = row.filter((b) => b.shown).map((b) => b.step);
+    if (shown.join() !== want.join()) fail(ctx + ' · steps row: buttons shown ' + shown.join(',') + ', expected ' + want.join(','));
+    const bad = row.filter((b) => b.shown && (b.w < 44 || b.h < 44 || b.cut || !b.inside || !b.hit));
+    if (bad.length) fail(ctx + ' · steps row: ' + JSON.stringify(bad));
+    log(ctx + ' · steps row: ' + row.filter((b) => b.shown).map((b) => b.text + ' ' + b.w + 'x' + b.h).join(' | '));
+  } catch (e) { fail(ctx + ' · steps row: ' + e.message); }
+  finally { await cdp.evaluate('window.__stripIdle=false;true').catch(() => {}); }
 }
 
 // A module that throws while the page loads: the boot message stays, below a usable strip.
@@ -280,10 +305,43 @@ async function stackAndLock(cdp, H, base, w, h, lang, large, fail, log) {
   await key(cdp, 'Escape'); await H.sleep(300);
   let st = await cdp.evaluate('({pad:!document.getElementById("t-numpad").hidden,sheet:!document.getElementById("project-dialog").hidden})');
   if (st.pad || !st.sheet) fail(ctx + ': one Escape must close the pad only (V1): pad ' + st.pad + ', sheet ' + st.sheet);
+  // Finitions (chantier 3): the text keyboard over the same sheet (« Matière »): Pause / Arrêter in its Tab cycle, one
+  // Escape closes the keyboard only, the field unchanged.
+  await clickSel(cdp, '#project-material'); await H.sleep(300);
+  if (!(await cdp.evaluate('!!document.getElementById("t-textpad")&&!document.getElementById("t-textpad").hidden&&!document.getElementById("project-dialog").hidden'))) { fail(ctx + ': text keyboard over the project sheet not opened'); return; }
+  const textTabs = [];
+  for (let i = 0; i < 60; i++) { await key(cdp, 'Tab'); textTabs.push(await cdp.evaluate('(function(){var a=document.activeElement;return a?(a.id||(a.closest("#t-textpad")?"pad":a.tagName)):"";})()')); }
+  if (!textTabs.includes('pad') || !textTabs.includes('t-stop') || textTabs.some((t) => !/^(pad|t-stop|t-pause)$/.test(t))) fail(ctx + ': Tab in the text keyboard does not cycle through it and Pause / Arrêter only: ' + Array.from(new Set(textTabs)).join(','));
+  await key(cdp, 'Escape'); await H.sleep(300);
+  st = await cdp.evaluate('({pad:!document.getElementById("t-textpad").hidden,sheet:!document.getElementById("project-dialog").hidden})');
+  if (st.pad || !st.sheet) fail(ctx + ': one Escape must close the text keyboard only: keyboard ' + st.pad + ', sheet ' + st.sheet);
+  log(ctx + ' · text keyboard over project sheet: Tab reaches ' + Array.from(new Set(textTabs)).join(',') + ' ; Escape closes it, the sheet stays');
   await key(cdp, 'Escape'); await H.sleep(300);
   st = await cdp.evaluate('({sheet:!document.getElementById("project-dialog").hidden,live:' + LIVE + '})');
   if (st.sheet || st.live.main || st.live.tabbar || st.live.lock) fail(ctx + ': after closing both layers the page stays inert (V1): ' + JSON.stringify(st));
   log(ctx + ' · pad over project sheet: Tab reaches ' + Array.from(new Set(tabs)).filter((t) => !/^pad:/.test(t)).join(',') + ' and the pad keys' + ' ; Escape closes the pad, then the sheet ; page live again ' + JSON.stringify(st.live));
+  // Finitions (revue P1-2): the text keyboard over the pilot dialog (« Motif », shown when another device pilots;
+  // forced visible here): the keyboard lies on top (a key and Valider hit), one Escape closes it only, then the dialog.
+  await H.goScreen(cdp, 'home');
+  await clickSel(cdp, '#t-pilot'); await H.sleep(300);
+  if (!(await cdp.evaluate('!document.getElementById("pilot-dialog").hidden'))) fail(ctx + ': pilot dialog not opened');
+  else {
+    await cdp.evaluate('(function(){document.getElementById("pilot-form").hidden=false;return true;})()');
+    await clickSel(cdp, '#pilot-reason'); await H.sleep(300);
+    const over = await cdp.evaluate('(function(){var p=document.getElementById("t-textpad");if(!p||p.hidden)return {open:false};' +
+      'var probe=[p.querySelector(".ks-wifi-key"),Array.prototype.filter.call(p.querySelectorAll(".t-textpad-actions button"),function(b){return b.textContent===window.cncI18n.t("Valider");})[0]];' +
+      // Inert layers are skipped by hit-testing: the painting order is checked too (both are fixed children of body).
+      'var d=document.getElementById("pilot-dialog"),zp=Number(getComputedStyle(p).zIndex),zd=Number(getComputedStyle(d).zIndex);' +
+      'return {open:true,dialog:!d.hidden,above:p.parentNode===d.parentNode&&zp>zd,z:[zp,zd],hits:probe.map(function(b){if(!b)return false;b.scrollIntoView({block:"nearest"});var r=b.getBoundingClientRect(),h=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);return !!h&&(h===b||b.contains(h));})};})()');
+    if (!over.open || !over.dialog || !over.above || over.hits.some((x) => !x)) fail(ctx + ': text keyboard over the pilot dialog not on top (P1-2): ' + JSON.stringify(over));
+    await key(cdp, 'Escape'); await H.sleep(300);
+    st = await cdp.evaluate('({pad:!document.getElementById("t-textpad").hidden,dialog:!document.getElementById("pilot-dialog").hidden})');
+    if (st.pad || !st.dialog) fail(ctx + ': one Escape must close the text keyboard over the pilot dialog only: keyboard ' + st.pad + ', dialog ' + st.dialog);
+    await key(cdp, 'Escape'); await H.sleep(300);
+    st = await cdp.evaluate('({dialog:!document.getElementById("pilot-dialog").hidden,live:' + LIVE + '})');
+    if (st.dialog || st.live.main || st.live.tabbar) fail(ctx + ': after the text keyboard and the pilot dialog the page stays inert: ' + JSON.stringify(st));
+    log(ctx + ' · text keyboard over pilot dialog: painted above (z ' + over.z.join(' > ') + '), hits ' + JSON.stringify(over.hits) + ' ; Escape closes it, then the dialog');
+  }
   // V2: Enter (and Space) on the strip's Pause / Arrêter under the pad.
   await H.goScreen(cdp, 'home');
   await cdp.evaluate(RELAY);

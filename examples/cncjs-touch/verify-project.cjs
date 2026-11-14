@@ -16,7 +16,7 @@ const tests = [
  'viewport-phases','hidden-views','preview-worker','library-payload',
  'library-lifecycle','library-upload-payload','library-regeneration-cancel','history-view',
  'job-stream-client','stream-protocol','library-identity','api-prefix','controller-state','connection-status','operator-tools','i18n','journal-languages','profile-storage','perf-harness','viewport-recall','viewport-warmup','macros','system-monitor','tablet-actions','header-clock','backlight','viewport-scroll','commissioning','kept-screens','viewport-mutation','dom-fixture','interface-guide','grbl-help','travel-check','job-resume','status-strip','screen-lock','job-follow','viewport-throttle','tool-position','preview-depth','preview-3d',
- 'numeric-pad','job-preparation','compact-layout','action-feedback','library-context','bundle',
+ 'numeric-pad','text-keyboard','job-preparation','compact-layout','action-feedback','library-context','bundle',
  'feedback-states','numeric-rules','preparation-keys','strip-messages','job-dialog-strip','real-motion','gcode-corpus','library-page-fit','layout-exceptions',
  'control-attribution','program-check-view','preview-identity','server-history','projects','server-messages',
  'strip-guard','strip-continuity','preview-notes','no-simulation-access','connect-cnc',

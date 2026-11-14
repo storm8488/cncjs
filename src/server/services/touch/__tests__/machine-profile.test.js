@@ -728,6 +728,9 @@ describe('laser framing (§4)', () => {
     ctx.c.state.status.activeState = 'Alarm';
     ctx.report();
     expect(await code(ctx.machine('frame-prepare'))).toBe('ETOUCH_MOTION_ALARM');
+    // An Alarm state forgets the origin: homed again (Home, then Idle).
+    ctx.c.state.status.activeState = 'Home';
+    ctx.report();
     ctx.c.state.status.activeState = 'Idle';
     ctx.report();
     // Someone else pilots: ECONTROL; another device's stream: refused.

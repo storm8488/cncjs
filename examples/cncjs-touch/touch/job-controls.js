@@ -594,6 +594,8 @@
   bind($('pilot-dismiss'),'click',function(){closePilot();});
   bind($('pilot-takeover'),'click',takeOver);
   bind($('pilot-reason'),'input',function(){text('pilot-feedback','');renderPilotDialog();});
+  // A reason of one's own: the shared text keyboard (text-keyboard.js), the kiosk has no system one.
+  if(window.CNCTextKeyboard)window.CNCTextKeyboard.bind($('pilot-reason'),{label:uiLocale.t('Motif de la prise de pilotage (3 caractères au moins, enregistré et montré à l’autre appareil)')});
   ['pilot-reason-a','pilot-reason-b'].forEach(function(id){bind($(id),'click',function(){$('pilot-reason').value=this.textContent;renderPilotDialog();$('pilot-takeover').focus();});});
   // Escape closes, Tab stays inside the open pilot dialog.
   bind(document,'keydown',function(e){

@@ -117,6 +117,13 @@ const overridesOf = (state) => {
 
 // Grbl reports the real feed rate and spindle speed as FS:feed,speed; CNCjs
 // keeps them as status.feedrate and status.spindle.
+// The status report itself gives X, Y and Z (MPos, or WPos turned into MPos by CNCjs): a report
+// without coordinates would leave the ones CNCjs held before, 0 at start.
+const explicitXyz = (payload) => ['mpos', 'wpos'].some((key) => {
+  const p = payload && payload[key];
+  return !!p && ['x', 'y', 'z'].every((axis) => ['string', 'number'].includes(typeof p[axis]) && String(p[axis]).trim() !== '' && Number.isFinite(Number(p[axis])));
+});
+
 // Machine position per axis (X, Y, Z) as CNCjs holds it now, null where not a number.
 const homeMposOf = (c) => {
   const p = controllerStatus(c).mpos || {};
@@ -260,9 +267,23 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         // Machine position at the end of our last full homing cycle ($H, Home seen, then Idle) and
         // the $23 it was homed under, or null: learnt only from a trusted machine position.
         homeMpos: null,
+        // When a socket of another client (CNCjs on the PC) sent a full homing cycle: the command
+        // `homing`, or `writeln` of the single line $H (see socketCommand). Never $HX/$HY/$HZ, never a cycle
+        // seen without its command: only such a cycle may teach homeMpos besides ours.
+        foreignHome: null,
+        // When the last WCO was received (a WPos report needs one received after the $H).
+        wcoAt: null,
         // Status reports received, so a step can wait for a newer one.
         reports: 0,
         generation: crypto.randomBytes(12).toString('hex')
+      };
+      // Where a full homing cycle left the machine, with the $23 it ran under (F1, motion.js
+      // envelopeOf), or null when CNCjs's machine position cannot be trusted.
+      const homeEnd = () => {
+        const settings = allSettings(c);
+        const mask = settings.$23 === undefined || String(settings.$23).trim() === '' ? NaN : Number(settings.$23);
+        return Number.isInteger(mask) && machinePositionKnown(settings, { wcoSeen: r.wcoSeen, wposReported: r.wposReported })
+          ? { ...homeMposOf(c), mask } : null;
       };
       r.status = (payload) => {
         r.seen = clock();
@@ -271,10 +292,18 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         const wco = payload && payload.wco;
         if (wco && ['x', 'y', 'z'].every((axis) => Number.isFinite(Number(wco[axis])) && String(wco[axis]).trim() !== '')) {
           r.wcoSeen = true;
+          r.wcoAt = clock();
         }
         r.reports += 1;
         const active = controllerStatus(c).activeState || '';
         let ownCycle = false;
+        // Our $H outstanding and the board entering Alarm (from another state, no ALARM:n line): the
+        // cycle was cut, an Idle after it ($X) is no completed homing. An Alarm already there when $H
+        // left (board locked by $22=1) is not one: the cycle may still come.
+        if (r.homing && /^Alarm/.test(active) && r.lastActive !== undefined && !/^Alarm/.test(r.lastActive)) {
+          r.homing.interrupted = true;
+        }
+        r.lastActive = active;
         if (r.homing && clock() - r.homing.since >= HOMING_MIN_MS && /^(Idle|Alarm)/.test(active)) {
           // An error received while our $H was outstanding: never a completed homing
           // (a Home report seen meanwhile still is, see sawHome below).
@@ -288,24 +317,39 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
             // Limit: an axis left out of the firmware's own $H cycle keeps 0 after a board restart and
             // cannot be told from a forced origin; the soft limits ($20=1) of the board remain.
             ownCycle = true;
-            const settings = allSettings(c);
-            const mask = settings.$23 === undefined || String(settings.$23).trim() === '' ? NaN : Number(settings.$23);
-            r.homeMpos = r.sawHome && Number.isInteger(mask) && machinePositionKnown(settings, { wcoSeen: r.wcoSeen, wposReported: r.wposReported })
-              ? { ...homeMposOf(c), mask } : null;
+            r.homeMpos = r.sawHome ? homeEnd() : null;
           }
           r.homing = null;
+        }
+        if (/^Alarm/.test(active)) {
+          // An Alarm state without its ALARM:n line (a board restarted unseen, locked by $22=1 at
+          // MPos 0,0,0): the position may be lost, as after r.alarmed. A full $H of the PC sent in
+          // Alarm keeps its intention (foreignHome): its cycle comes next.
+          r.homed = false;
+          r.homeMpos = null;
         }
         if (active === 'Home') {
           r.sawHome = true;
         } else if (r.sawHome && active === 'Idle') {
           r.sawHome = false;
           r.homed = true;
-          // A cycle of another client may have homed some axes only: what ours taught is dropped.
+          // A cycle of another client may have homed some axes only ($HX, $HY…): what ours taught
+          // is dropped, unless the full cycle was seen sent (socketCommand), ran at least
+          // HOMING_MIN_MS and this very report gives the end position. Worst case, an axis taken
+          // for homed at 0 that is not (a firmware whose $H skips it): a step towards + may run
+          // past the real travel into the limit switch ($21=1, 6 switches) → ALARM:1, the board
+          // restarts, homed and homeMpos are forgotten, nothing moves before a new cycle. A limit
+          // alarm, not a crash into the frame (an obstacle within the travel is another matter).
           if (!ownCycle) {
-            r.homeMpos = null;
+            const since = r.foreignHome;
+            const proven = since !== null && clock() - since >= HOMING_MIN_MS && clock() - since <= HOMING_MAX_MS &&
+              explicitXyz(payload) && (machinePositionKnown(allSettings(c), { wposReported: r.wposReported }) || (r.wcoAt !== null && r.wcoAt >= since));
+            r.homeMpos = proven ? homeEnd() : null;
           }
+          r.foreignHome = null;
         } else if (r.sawHome && !/^(Home|Idle)/.test(active)) {
           r.sawHome = false;
+          r.foreignHome = null;
         }
         const s = c.sender && c.sender.state;
         const waiting = c.workflow && c.workflow.state === 'running' && controllerStatus(c).activeState === 'Idle' &&
@@ -321,6 +365,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       r.alarmed = (res) => {
         r.alarm = grblCode(res);
         r.homing = null;
+        r.foreignHome = null;
+        // The board is in Alarm from now on, before its next report: a $H sent next starts from it.
+        r.lastActive = 'Alarm';
         // An alarm may have lost the position (hard/soft limit, abort during a cycle).
         r.homed = false;
         r.homeMpos = null;
@@ -340,7 +387,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         r.homing = null;
         r.homed = false;
         r.homeMpos = null;
+        r.foreignHome = null;
         r.wcoSeen = false;
+        r.wcoAt = null;
         // A Home state seen before the restart says nothing about the new session.
         r.sawHome = false;
         r.startups += 1;
@@ -428,6 +477,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
           r.homing.refused = true;
           changed();
         }
+        // Maybe the refusal of a $H sent from the PC: its cycle teaches nothing.
+        r.foreignHome = null;
         if (r.probing) {
           r.probing.error = grblCode(res);
         }
@@ -452,6 +503,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       // restarts are recorded (bug hunt E-4); one started outside the service is
       // `external`: the PC resumes it, not the tablet (TESTING.md, job follow-up).
       r.run = () => {
+        r.foreignHome = null;
         if (r.job) {
           r.job.started = true;
           // Started by the service (ownStart, consumed here) or from outside.
@@ -1492,6 +1544,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     const c = get(body.port);
     const r = record(c);
     const a = body.action;
+    // Any guarded operation of ours between a $H of the PC and its end: that cycle teaches nothing.
+    if (guarded(body)) {
+      r.foreignHome = null;
+    }
 
     // Attribution of control (F5): a port owned by someone else refuses every
     // operation that moves or prepares the machine; Pause, Stop and M5 never
@@ -1992,6 +2048,25 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     changed();
   };
 
+  // A socket command that needs the lease, allowed on `port` (index.js refuseSocket): `full`
+  // when it is a full homing cycle (`homing`, or `writeln` of the single line $H, both written at once). Any other one ($HX,
+  // a macro, a jog…) cancels a full cycle announced before.
+  const socketCommand = (port, full) => {
+    if (disposed) {
+      return;
+    }
+    const c = controllers()[port];
+    if (!c || c.isClose() || c.type !== 'Grbl') {
+      return;
+    }
+    const r = record(c);
+    r.foreignHome = full && (controllerStatus(c).activeState || '') !== 'Home' ? clock() : null;
+    if (full) {
+      // A Home state seen before this command belongs to another cycle.
+      r.sawHome = false;
+    }
+  };
+
   const dispose = () => {
     disposed = true;
     listeners.clear();
@@ -2017,6 +2092,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     ticketPending,
     reserveSystemCommand: systemCommands.reserve,
     systemCommand: systemCommands.view,
+    socketCommand,
     control,
     dispose
   };

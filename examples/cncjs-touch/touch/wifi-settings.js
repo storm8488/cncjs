@@ -67,41 +67,17 @@
   // First block of Système, under the host status line (stale data, session); test fixtures: before the last child.
   var anchor = (section.querySelector && section.querySelector('.ks-system-grid')) || section.lastChild; section.insertBefore(box, anchor || null);
 
-  // ---- On-screen keyboard: AZERTY letters, then digits and symbols ----
-  var LETTERS = ['azertyuiop', 'qsdfghjklm', 'wxcvbn'], SYMBOLS = ['1234567890', '@#$%&*-_+=', '!?.,;:\'"/\\', '()[]{}<>~|^`'];
-  var layer = 'letters', upper = false, target = password;
+  // ---- On-screen keyboard (text-keyboard.js): AZERTY letters, then digits and symbols ----
+  var target = password;
   function aim(input) { target = input; [ssidInput, password].forEach(function (i) { i.className = i === target ? 'is-target' : ''; }); }
   function type(ch) { if (!(target.maxLength > 0 && target.value.length >= target.maxLength)) target.value += ch; }
-  function key(text, action, cls, name) {
-    var b = el('button', 'ks-wifi-key' + (cls ? ' ' + cls : ''), text); b.type = 'button';
-    if (name) b.setAttribute('aria-label', name);
-    b.addEventListener('click', function () { if (!b.disabled) action(); });
-    return b;
-  }
   function backspace() { target.value = target.value.slice(0, -1); }
-  function drawKeys() {
-    keyboard.textContent = '';
-    var letters = layer === 'letters';
-    (letters ? LETTERS : SYMBOLS).forEach(function (chars, i) {
-      var r = el('div', 'ks-wifi-keyrow');
-      if (letters && i === 2) { var shift = key(t('Maj'), function () { upper = !upper; drawKeys(); }, 'ks-wifi-key--wide', t('Majuscules')); shift.setAttribute('aria-pressed', String(upper)); r.appendChild(shift); }
-      chars.split('').forEach(function (c) { var ch = letters && upper ? c.toUpperCase() : c; r.appendChild(key(ch, function () { type(ch); })); });
-      if (letters && i === 2) r.appendChild(key('⌫', backspace, 'ks-wifi-key--wide', t('Effacer le dernier caractère')));
-      keyboard.appendChild(r);
-    });
-    var last = el('div', 'ks-wifi-keyrow');
-    last.appendChild(key(letters ? '?123' : 'ABC', function () { layer = letters ? 'symbols' : 'letters'; drawKeys(); }, 'ks-wifi-key--wide', letters ? t('Chiffres et symboles') : t('Lettres')));
-    last.appendChild(key(t('Espace'), function () { type(' '); }, 'ks-wifi-key--space'));
-    if (!letters) last.appendChild(key('⌫', backspace, 'ks-wifi-key--wide', t('Effacer le dernier caractère')));
-    keyboard.appendChild(last);
-    disable();
-  }
+  var keys = window.CNCTextKeyboard.keys(keyboard, { type: type, backspace: backspace, after: function () { disable(); } });
   [ssidInput, password].forEach(function (input) {
     input.setAttribute('inputmode', 'none'); // the on-screen keyboard replaces the system one
     input.addEventListener('focus', function () { aim(input); });
     input.addEventListener('click', function () { aim(input); });
   });
-  drawKeys();
 
   var busy = false, chosen = null, loaded = false, networks = [];
   function disable() {
@@ -130,7 +106,7 @@
     label.hidden = row.hidden = !net.hidden && !net.secure && !net.saved;
     keyboard.hidden = row.hidden && ssidInput.hidden;
     forget.hidden = !(net.saved && !net.inUse);
-    layer = 'letters'; upper = false; drawKeys();
+    keys.reset();
     aim(net.hidden ? ssidInput : password);
     form.hidden = false; disable();
   }
@@ -202,5 +178,5 @@
   window.addEventListener('cnc-settings-tab', function (e) { if (e && e.detail === 'system') load(); });
   window.addEventListener('cnc-job-status', disable);
   if (shown() && !loaded) load();
-  window.cncWifiSettings = { load: load, state: function () { return { busy: busy, chosen: chosen ? (chosen.hidden ? '(masqué)' : chosen.ssid) : null, formOpen: !form.hidden, keyboard: !keyboard.hidden && !form.hidden, layer: layer, upper: upper, target: target === ssidInput ? 'ssid' : 'password' }; } };
+  window.cncWifiSettings = { load: load, state: function () { return { busy: busy, chosen: chosen ? (chosen.hidden ? '(masqué)' : chosen.ssid) : null, formOpen: !form.hidden, keyboard: !keyboard.hidden && !form.hidden, layer: keys.state().layer, upper: keys.state().upper, target: target === ssidInput ? 'ssid' : 'password' }; } };
 })();

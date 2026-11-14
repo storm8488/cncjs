@@ -402,6 +402,8 @@
   $('project-open-original').addEventListener('click', function () { var c = current && current.entry && current.entry.compensation; if (c) { try { root.cncLibraryView.selectName(c.original); } catch (_) {} } });
   // Stock fields take the shared numeric pad (window.CNCNumeric), like every other value on the tablet.
   if (root.CNCNumeric && typeof root.CNCNumeric.bind === 'function') ['x', 'y', 'z'].forEach(function (a) { root.CNCNumeric.bind($('project-stock-' + a), { min: 0.001, max: 10000, unit: 'mm', negative: false, label: t('Brut ') + a.toUpperCase() + ' (mm)' }); });
+  // Text fields take the shared text keyboard (text-keyboard.js).
+  if (root.CNCTextKeyboard) [['project-material', t('Matière')], ['project-tool', t('Outil')], ['project-notes', t('Notes')], ['project-comp-tool', t('Outil')]].forEach(function (f) { root.CNCTextKeyboard.bind($(f[0]), { label: f[1] }); });
 
   root.addEventListener('cnc-library-select', function (e) {
     var sel = e && e.detail, file = sel && sel.file || null;

@@ -961,6 +961,256 @@ describe('cross-check 4 · 3. bornes', () => {
     await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/convention de course ambiguë/);
   });
 
+  // A full homing cycle sent from CNCjs on the PC (socket `homing` or `writeln` $H, index.js
+  // refuseSocket → socketCommand), seen running (Home) for `ms`, then an Idle report that gives `end`.
+  const ZERO = { x: '0.000', y: '0.000', z: '0.000' };
+  const homePc = (ctx, { full = true, ms = 1100, end = ZERO, wpos = false, before = () => {} } = {}) => {
+    ctx.service.socketCommand('TEST', full);
+    before();
+    ctx.c.state.status.activeState = 'Home';
+    ctx.tick(ms);
+    ctx.c.state.status.activeState = 'Idle';
+    if (end) {
+      Object.assign(ctx.c.state.status.mpos, end);
+    }
+    ctx.c.runner.emit('status', end ? { activeState: 'Idle', ...(wpos ? { wpos: { ...end } } : {}), mpos: { ...end } } : { activeState: 'Idle' });
+  };
+  const setupPc = () => {
+    const ctx = setup();
+    ctx.c.settings.settings.$23 = '3';
+    Object.assign(ctx.c.state.status.mpos, ZERO);
+    return ctx;
+  };
+
+  test('$23=3, origine complète demandée par CNCjs du PC, Home ≥ 1 s puis Idle à 0,0,0 : X et Y en [0, course], X+ permis depuis 0, X− refusé', async () => {
+    const ctx = setupPc();
+    homePc(ctx);
+    expect(ctx.state().homed).toBe(true);
+    expect(ctx.state().motion.continuousReason.X).toBe('');
+    expect(ctx.state().motion.continuousReason.Y).toBe('');
+    const res = await ctx.motion('jog', { ...STEP, step: 1 });
+    expect(res.command).toBe('$J=G91 G21 X1 F500');
+    ctx.settle();
+    Object.assign(ctx.c.state.status.mpos, ZERO);
+    ctx.report();
+    const before = ctx.c.written.length;
+    await expect(ctx.motion('jog', { ...STEP, direction: -1, step: 0.1 })).rejects.toThrow(/X sortirait de la course \(-0\.1 mm machine, course 0 → 400\)/);
+    await expect(ctx.motion('jog', { ...STEP, axis: 'Y', direction: -1, step: 0.1 })).rejects.toThrow(/Y sortirait de la course \(-0\.1 mm machine, course 0 → 400\)/);
+    // Z (bit 2 clear) keeps its single convention [-80, 0]: nothing above 0.
+    await expect(ctx.motion('jog', { ...STEP, axis: 'Z', step: 0.1 })).rejects.toThrow(/Z sortirait de la course \(0\.1 mm machine, course -80 → 0\)/);
+    expect(ctx.c.written.length).toBe(before);
+    // The tablet's guards are unchanged: spindle turning → steps of 0.1 mm at most, continuous refused.
+    ctx.c.state.status.spindle = 12000;
+    ctx.report();
+    await expect(ctx.motion('jog', { ...STEP, step: 1 })).rejects.toThrow(/Broche en rotation : pas de 0.1 mm au plus/);
+    await expect(ctx.motion('jog-start', HOLD)).rejects.toThrow(/Broche en rotation : maintien continu refusé/);
+    ctx.c.state.status.spindle = 0;
+    ctx.report();
+    // Another tablet still needs the lease.
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 }, B)).rejects.toMatchObject({ code: 'ECONTROL' });
+  });
+
+  test('une origine complète du PC remplace la convention apprise par notre $H', async () => {
+    const ctx = setupPc();
+    await homeOurs(ctx);
+    expect(ctx.state().motion.continuousReason.X).toBe('');
+    homePc(ctx);
+    const res = await ctx.motion('jog', { ...STEP, step: 0.1 });
+    expect(res.command).toBe('$J=G91 G21 X0.1 F500');
+  });
+
+  test('après une origine du PC, une ALARM:1 puis une bannière (injectées) : homed faux, convention oubliée, rien ne bouge', async () => {
+    const ctx = setupPc();
+    homePc(ctx);
+    await ctx.motion('jog', { ...STEP, step: 10 });
+    ctx.settle();
+    // What the limit switch ($21=1) would give (injected here, not simulated): ALARM:1, then the
+    // ESP32 restarts by itself (banner). That the switch stops the move is checked on the machine.
+    ctx.c.runner.emit('alarm', 'ALARM:1');
+    ctx.c.runner.emit('startup', { firmware: 'Grbl', version: '1.1f' });
+    ctx.c.state.status.activeState = 'Idle';
+    Object.assign(ctx.c.state.status.mpos, ZERO);
+    ctx.report();
+    expect(ctx.state().homed).toBe(false);
+    const before = ctx.c.written.length;
+    await expect(ctx.motion('jog', { ...STEP, step: 10 })).rejects.toThrow(/non constaté/);
+    await expect(ctx.motion('jog-start', HOLD)).rejects.toThrow(/non constaté/);
+    expect(ctx.c.written.length).toBe(before);
+    // A Home then Idle without the command seen (board at 0,0,0 after the restart): nothing learnt.
+    ctx.c.state.status.activeState = 'Home';
+    ctx.tick(1100);
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.c.runner.emit('status', { activeState: 'Idle', mpos: { ...ZERO } });
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/convention de course ambiguë/);
+  });
+
+  // Non-regressions: a cycle whose full $H is not proven teaches nothing (X stays ambiguous at 0).
+  test.each([
+    ['puis une commande partielle ($HX) ou une autre commande', (ctx) => ({ before: () => ctx.service.socketCommand('TEST', false) })],
+    ['puis une erreur (refus du $H)', (ctx) => ({ before: () => ctx.c.runner.emit('error', 'error:9') })],
+    ['puis une alarme', (ctx) => ({ before: () => ctx.c.runner.emit('alarm', 'ALARM:9') })],
+    ['puis un redémarrage de la carte', (ctx) => ({ before: () => ctx.c.runner.emit('startup', { firmware: 'Grbl', version: '1.1f' }) })],
+    ['puis un départ de programme', (ctx) => ({ before: () => ctx.c.workflow.emit('start') })],
+    ['puis une opération gardée de la tablette', (ctx) => ({ before: () => ctx.req('prepare', { operation: 'home' }).catch(() => null) })],
+    ['et un Idle avant 1 s', () => ({ ms: 500 })],
+    ['et un Idle après 180 s', () => ({ ms: 181000 })],
+    ['et un rapport Idle sans coordonnées', () => ({ end: null })],
+    ['et une fin ailleurs qu’à 0 (-399)', () => ({ end: { x: '-399.000', y: '-399.000', z: '0.000' } })]
+  ])('origine du PC %s : rien n’est appris', async (name, options) => {
+    const ctx = setupPc();
+    homePc(ctx, options(ctx));
+    // Checked right after the cycle studied: Home then Idle sets homed in every case.
+    Object.assign(ctx.c.state.status.mpos, ZERO);
+    ctx.report();
+    expect(ctx.state().homed).toBe(true);
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/convention de course ambiguë/);
+  });
+
+  test('origine du PC : Home puis un autre état que Idle annule l’intention, un Home → Idle suivant n’apprend rien', async () => {
+    const ctx = setupPc();
+    ctx.service.socketCommand('TEST', true);
+    ctx.c.state.status.activeState = 'Home';
+    ctx.tick(200);
+    ctx.c.state.status.activeState = 'Hold:0';
+    ctx.report();
+    ctx.c.state.status.activeState = 'Home';
+    ctx.tick(1100);
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.c.runner.emit('status', { activeState: 'Idle', mpos: { ...ZERO } });
+    expect(ctx.state().homed).toBe(true);
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/convention de course ambiguë/);
+  });
+
+  test('origine du PC : l’intention sert une fois, un second Home → Idle sans commande oublie la convention', async () => {
+    const ctx = setupPc();
+    homePc(ctx);
+    // No tablet operation in between (it would cancel the intention itself). A partial cycle
+    // ($HX, sent by `gcode`, not seen as full) next: what was learnt is dropped.
+    ctx.c.state.status.activeState = 'Home';
+    ctx.tick(1100);
+    ctx.c.state.status.activeState = 'Idle';
+    Object.assign(ctx.c.state.status.mpos, ZERO);
+    ctx.c.runner.emit('status', { activeState: 'Idle', mpos: { ...ZERO } });
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/convention de course ambiguë/);
+  });
+
+  test('origine du PC : un Home vu avant la commande (rapport suivant pas encore reçu) ne compte pas', async () => {
+    const ctx = setupPc();
+    ctx.c.state.status.activeState = 'Home';
+    ctx.report();
+    // CNCjs already holds Idle, its report has not reached the service yet.
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.service.socketCommand('TEST', true);
+    ctx.tick(1100, { reports: false });
+    ctx.c.runner.emit('status', { activeState: 'Idle', mpos: { ...ZERO } });
+    // That earlier cycle neither homes the machine nor teaches the convention: 10 mm refused.
+    expect(ctx.state().homed).toBe(false);
+    await expect(ctx.motion('jog', { ...STEP, step: 10 })).rejects.toThrow(/non constaté/);
+  });
+
+  test('carte redémarrée sans bannière ni ALARM:n vue : un état Alarm à 0,0,0 oublie homed et la convention, $X ne les rend pas', async () => {
+    const ctx = setupPc();
+    homePc(ctx);
+    expect(ctx.state().homed).toBe(true);
+    ctx.c.state.status.activeState = 'Alarm';
+    Object.assign(ctx.c.state.status.mpos, ZERO);
+    ctx.report();
+    expect(ctx.state().homed).toBe(false);
+    // $X sent from the PC: Idle, still not homed.
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.report();
+    expect(ctx.state().homed).toBe(false);
+    const before = ctx.c.written.length;
+    await expect(ctx.motion('jog', { ...STEP, step: 10 })).rejects.toThrow(/non constaté/);
+    await expect(ctx.motion('jog-start', HOLD)).rejects.toThrow(/non constaté/);
+    expect(ctx.c.written.length).toBe(before);
+  });
+
+  test('origine du PC demandée en Alarm (carte verrouillée par $22=1) : l’intention survit aux rapports Alarm et le cycle apprend', async () => {
+    const ctx = setupPc();
+    ctx.c.state.status.activeState = 'Alarm';
+    ctx.report();
+    ctx.service.socketCommand('TEST', true);
+    ctx.tick(300);
+    ctx.c.state.status.activeState = 'Home';
+    ctx.tick(1100);
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.c.runner.emit('status', { activeState: 'Idle', mpos: { ...ZERO } });
+    expect(ctx.state().homed).toBe(true);
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).resolves.toMatchObject({ command: '$J=G91 G21 X0.1 F500' });
+  });
+
+  test('notre $H coupé par un état Alarm sans ligne ALARM:n (Home puis Alarm avant 1 s), puis $X : ni homed ni convention', async () => {
+    const ctx = setupPc();
+    const ticket = await ctx.req('prepare', { operation: 'home' });
+    await ctx.req('home', { nonce: ticket.nonce });
+    ctx.c.state.status.activeState = 'Home';
+    ctx.tick(200);
+    ctx.c.state.status.activeState = 'Alarm';
+    ctx.tick(300);
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.tick(700);
+    expect(ctx.state().homed).toBe(false);
+    const before = ctx.c.written.length;
+    await expect(ctx.motion('jog', { ...STEP, step: 10 })).rejects.toThrow(/non constaté/);
+    expect(ctx.c.written.length).toBe(before);
+  });
+
+  test('ligne ALARM:8 reçue au repos (dernier rapport Idle), puis notre $H : le rapport Alarm qui suit n’interrompt pas le cycle', async () => {
+    const ctx = setupPc();
+    ctx.c.runner.emit('alarm', 'ALARM:8');
+    ctx.c.state.status.activeState = 'Alarm';
+    const ticket = await ctx.req('prepare', { operation: 'home' });
+    await ctx.req('home', { nonce: ticket.nonce });
+    ctx.tick(400);
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.tick(1000);
+    expect(ctx.state().homed).toBe(true);
+  });
+
+  test('notre $H envoyé carte verrouillée (Alarm, $22=1), cycle sans rapport Home puis Idle : homed vrai comme avant', async () => {
+    const ctx = setupPc();
+    ctx.c.state.status.activeState = 'Alarm';
+    ctx.tick(100);
+    const ticket = await ctx.req('prepare', { operation: 'home' });
+    await ctx.req('home', { nonce: ticket.nonce });
+    ctx.tick(400);
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.tick(1000);
+    expect(ctx.state().homed).toBe(true);
+  });
+
+  test('origine du PC : un Home déjà en cours quand la commande part ne compte pas', async () => {
+    const ctx = setupPc();
+    ctx.c.state.status.activeState = 'Home';
+    ctx.report();
+    ctx.service.socketCommand('TEST', true);
+    ctx.tick(1100);
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.c.runner.emit('status', { activeState: 'Idle', mpos: { ...ZERO } });
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/convention de course ambiguë/);
+  });
+
+  test('origine du PC en WPos : un WCO reçu avant le $H ne suffit pas, un WCO reçu pendant le cycle oui', async () => {
+    const ctx = setupPc();
+    ctx.c.settings.settings.$10 = '0';
+    ctx.c.runner.emit('raw', { raw: '<Idle|WPos:0.000,0.000,0.000|FS:0,0>' });
+    ctx.c.runner.emit('status', { wco: { ...ZERO } });
+    ctx.tick(100);
+    homePc(ctx, { wpos: true });
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/convention de course ambiguë/);
+    homePc(ctx, { wpos: true, before: () => ctx.c.runner.emit('status', { wco: { ...ZERO } }) });
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).resolves.toMatchObject({ command: '$J=G91 G21 X0.1 F500' });
+  });
+
+  test('origine du PC apprise sous $23=3, $23 changé ensuite : la convention ne vaut plus', async () => {
+    const ctx = setupPc();
+    homePc(ctx);
+    ctx.c.settings.settings.$23 = '1';
+    ctx.report();
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/convention de course ambiguë/);
+  });
+
   test('pas > 1 mm : sûr dans les deux conventions et dans la course', async () => {
     const ctx = setup({ homed: true });
     ctx.c.settings.settings.$23 = '1';

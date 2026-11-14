@@ -126,7 +126,7 @@ function load(options = {}) {
 const DISABLED = 'Déplacements réels non activés : validation matérielle supervisée requise (voir HANDOFF.md).';
 function caps(enabled, extra = {}) {
   const c = (more) => Object.assign({ supported: true, enabled, experimental: true, reason: enabled ? '' : DISABLED }, more);
-  return { jog: c({ steps: [0.01, 0.1, 1, 10] }), jogContinuous: c({ keepalivePeriodMs: 100, keepaliveTimeoutMs: 250 }), jogCancel: c(), setOrigin: c({ axes: ['X', 'Y', 'Z'] }), ...extra };
+  return { jog: c({ steps: [0.01, 0.1, 1, 10, 25, 50, 100] }), jogContinuous: c({ keepalivePeriodMs: 100, keepaliveTimeoutMs: 250 }), jogCancel: c(), setOrigin: c({ axes: ['X', 'Y', 'Z'] }), ...extra };
 }
 function machine(patch) {
   return Object.assign({ port: 'COM3', controllerId: 'COM3', generation: 'gen-1', type: 'Grbl', activeState: 'Idle', workflow: 'idle', fresh: true, statusAgeMs: 0, statusObservedAt: 1700000000000,

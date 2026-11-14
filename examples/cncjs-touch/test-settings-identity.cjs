@@ -19,6 +19,7 @@ function page(file, withControls) {
   XHR.prototype.send = function (body) { this.body = body ? JSON.parse(body) : null; };
   const window = { addEventListener: (n, f) => { handlers[n] = f; }, cncState: { get: () => ({ apiBase: '/api', machine: { workflow: 'idle' } }) } };
   if (withControls) window.cncJobControls = controls;
+  vm.runInNewContext(fs.readFileSync(__dirname + '/touch/text-keyboard.js', 'utf8'), { window, document });
   vm.runInNewContext(fs.readFileSync(__dirname + '/touch/' + file, 'utf8'), { window, document, XMLHttpRequest: XHR, Date, JSON, Array,
     localStorage: { getItem: () => JSON.stringify({ state: { session: { token: 'tok' } } }) }, setTimeout: () => 1, clearTimeout() {} });
   const box = section.children[section.children.length - 1];

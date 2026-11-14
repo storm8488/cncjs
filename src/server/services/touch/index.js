@@ -106,6 +106,18 @@ const socketActor = (socket) => {
   };
 };
 
+// A full homing cycle sent by a socket and written to the port at once: the `homing` command or
+// the single line $H by `writeln` (GrblController writes both directly). A $H by the `gcode`
+// command goes through the feeder, which may drop it (feeder:stop, Alarm) after the cycle of an
+// earlier $HX: it is not one. $HX/$HY/$HZ home some axes only and are not one either.
+const fullHoming = (kind, cmdOrData) => {
+  if (kind === 'command') {
+    return cmdOrData === 'homing';
+  }
+  // ASCII spaces only: a character ≥ 0x80 makes writeln send the data without its newline (realtime).
+  return kind === 'writeln' && typeof cmdOrData === 'string' && /^[ \t]*\$h[ \t]*$/i.test(cmdOrData);
+};
+
 const refuseSocket = (socket, port, kind, cmdOrData) => {
   if (!control) {
     return null;
@@ -113,6 +125,11 @@ const refuseSocket = (socket, port, kind, cmdOrData) => {
   const safe = kind === 'command' ? safeCommand(cmdOrData) : safeWrite(cmdOrData);
   try {
     control.authorize(port, socketActor(socket), kind === 'command' ? cmdOrData : kind, { safe });
+    // Allowed: what it sends decides whether a homing cycle seen next may teach the
+    // travel convention (job-service socketCommand). Stops and status queries change nothing.
+    if (!safe) {
+      service.socketCommand(port, fullHoming(kind, cmdOrData));
+    }
     return null;
   } catch (err) {
     if (err.code !== 'ECONTROL') {

@@ -616,6 +616,8 @@
     }).catch(function (error) { status(uiLocale.t('Aperçu non modifié : ') + error.message); }).then(function () { if (current === regenerationId) regenerating = false; });
   });
   $('library-search').addEventListener('input', function () { page = 0; renderList(); });
+  // The kiosk has no system keyboard: the shared text keyboard (text-keyboard.js).
+  if (window.CNCTextKeyboard) window.CNCTextKeyboard.bind($('library-search'), { label: uiLocale.t('Rechercher un fichier') });
   $('library-more').addEventListener('click', function () { page++; renderList(); });
   $('library-prev').addEventListener('click', function () { page=Math.max(0,page-1); renderList(); });
   window.addEventListener('cnc-job-status', function (event) {

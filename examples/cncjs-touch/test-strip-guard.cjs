@@ -122,6 +122,7 @@ function page() {
 const wired = {
   'touch-shell.js': /CNCStripGuard\.isolate\(overlay\)[\s\S]*CNCStripGuard\.tab\(e,openedSheet/,
   'numeric-pad.js': /CNCStripGuard\.isolate\(overlay\)[\s\S]*CNCStripGuard\.tab\(e, modal/,
+  'text-keyboard.js': /CNCStripGuard\.isolate\(overlay\)[\s\S]*CNCStripGuard\.tab\(e, modal/,
   'coordinate-editor.js': /CNCStripGuard\.isolate\(modal\)[\s\S]*CNCStripGuard\.tab\(e,modal/,
   'preview-viewer.js': /CNCStripGuard\.isolate\(overlay\)[\s\S]*CNCStripGuard\.tab\(e,overlay/,
   'projects.js': /CNCStripGuard\.isolate\(\$\('project-dialog'\)\)[\s\S]*CNCStripGuard\.tab\(e, \$\('project-dialog'\)\)/,
@@ -140,6 +141,7 @@ for (const [file, re] of Object.entries({
 })) assert.match(read(file), re, file + ' ignores keys when covered');
 // V2: Enter on the strip's Pause / Arrêter under the pad is theirs.
 assert.match(read('numeric-pad.js'), /if \(e\.key === 'Enter' && root\.CNCStripGuard && root\.CNCStripGuard\.stops\(\)\.indexOf\(document\.activeElement\) >= 0\) return;/);
+assert.doesNotMatch(read('text-keyboard.js'), /e\.key === 'Enter'/, 'Enter on the text keyboard is the focused button (Annuler stays Annuler)');
 // V3-V5: the lock isolates (Pause, Arrêter, padlock), closes the origin dialog of Préparer (stopping a held jog
 // and a step in flight) and refuses the pilot dialog.
 assert.match(read('screen-lock.js'), /restoreLock=window\.CNCStripGuard\.isolate\(shield,keep\)/);
@@ -157,7 +159,7 @@ assert.match(css, /\.t-below-strip \.t-numpad-card\{max-height:calc\(100vh - var
 for (const pageFile of ['index.html', 'simulation.html']) {
   const html = read(pageFile), at = (f) => html.indexOf('src="' + f);
   assert(at('strip-guard.js') > at('i18n.js') && at('i18n.js') > 0, pageFile + ': strip-guard.js after i18n.js');
-  ['numeric-pad.js', 'touch-shell.js', 'coordinate-editor.js', 'preview-viewer.js', 'job-controls.js'].forEach((f) => { if (at(f) >= 0) assert(at('strip-guard.js') < at(f), pageFile + ': strip-guard.js before ' + f); });
+  ['numeric-pad.js', 'text-keyboard.js', 'touch-shell.js', 'coordinate-editor.js', 'preview-viewer.js', 'job-controls.js'].forEach((f) => { if (at(f) >= 0) assert(at('strip-guard.js') < at(f), pageFile + ': strip-guard.js before ' + f); });
   // Degraded start-up (D-B1): the strip stays shown and usable above « Chargement incomplet ».
   assert.match(html, /html\.cnc-degraded body>#real-banner,html\.cnc-degraded body>#simulation-banner\{visibility:visible!important;pointer-events:auto!important;position:fixed!important;left:0;right:0;top:0;z-index:2147483647\}/, pageFile);
   assert.match(html, /html\.cnc-degraded #cnc-boot\{top:var\(--statusbar-h,72px\)\}/, pageFile);

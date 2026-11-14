@@ -58,6 +58,10 @@ body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-coordinates>h2,bo
 /* Move area: the step row keeps its width for « Continu » (EN « Continuous »); the centre of the cross says the step. */
 body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-step>h2{display:none}
 body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-step{grid-template-columns:minmax(0,1fr)}
+/* No room for a second row under the cross: the seven steps stay on one row, 4 px apart, « Continu » at its own width. */
+body.perf-origin #screen-jog.screen[data-pv2="jog"] #steps{display:flex;gap:4px}
+body.perf-origin #screen-jog.screen[data-pv2="jog"] #steps .step{min-height:58px}
+body.perf-origin #screen-jog.screen[data-pv2="jog"] #steps .step[data-step="hold"]{flex:0 0 auto;padding:0 var(--sp-2)}
 body.perf-origin #screen-jog.screen[data-pv2] [hidden]{display:none!important}
 /* Comparison bar: three exclusive choices (aria-pressed) and the dimensions toggle, 48 px targets. */
 body.perf-origin #screen-jog[data-pv2] .pv2-bar{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:nowrap;min-width:0}

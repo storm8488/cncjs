@@ -452,6 +452,9 @@
   // A recent answer to $X / $H asked from this screen first (otherwise a refused $H at rest would hide
   // behind the permanent « $X only in alarm »), else the server's reasons for the disabled buttons.
   var UNKNOWN_SETTINGS=/réglage \$\d+[^:.]*inconnu|\$\d+ inconnu/i;
+  // Grbl version unknown (banner missed after a CNCjs restart): $H stays available, the moves are refused
+  // (same source as Préparer, real-motion.js). The reading is offered here too.
+  function versionMissing(m){var j=m&&m.capabilities&&m.capabilities.jog;return !!(j&&typeof j.reason==='string'&&/^Version Grbl inconnue/.test(j.reason));}
   function commandReason(d){
     if(!machineReason)return;
     var m=d&&d.machine||null,state=d&&d.feedbackState||'',feedback=d&&d.feedback||'',text='',tone='';
@@ -468,6 +471,9 @@
       if(uh&&/^hold/i.test(m.activeState||'')&&m.workflow==='idle')text+=' '+t('Touchez Arrêter, puis $H.');
       // In alarm the reading of $$ (at rest only) needs $X first.
       if(uh&&UNKNOWN_SETTINGS.test(uh))text+=' '+(/^alarm/i.test(m.activeState||'')?t('Touchez Déverrouiller ($X), puis Relire les réglages ($$), puis $H.'):t('Touchez Relire les réglages ($$).'));
+      // The phrase only where it can be followed: in alarm $X first; « touchez Relire » only while the button is usable.
+      else if(versionMissing(m)&&/^alarm/i.test(m.activeState||''))text+=(text?' ':'')+t('Touchez Déverrouiller ($X), puis Relire les réglages ($$), puis $H.');
+      else if(versionMissing(m)&&m.fresh&&m.activeState==='Idle'&&m.workflow==='idle')text+=(text?' ':'')+t('Version de la carte inconnue : touchez Relire les réglages.');
     }
     // The answer to « Relire les réglages » until the reasons change after it.
     if(rereadNote&&rereadNote.key===null)rereadNote.key=text;
@@ -494,7 +500,7 @@
     if(machine&&machine.port!==port){port=machine.port;settingsCard();}
     if(machineUnlock){prop(machineUnlock,'disabled',!machine||!machine.canUnlock);prop(machineUnlock,'title',t(machine&&machine.unlockReason||''));}
     if(machineHome){prop(machineHome,'disabled',!machine||!machine.canHome);prop(machineHome,'title',t(machine&&machine.homeReason||''));}
-    if(machineReread){prop(machineReread,'hidden',!(machine&&!machine.canHome&&UNKNOWN_SETTINGS.test(machine.homeReason||'')));prop(machineReread,'disabled',!machine||!machine.fresh||machine.activeState!=='Idle'||machine.workflow!=='idle');
+    if(machineReread){prop(machineReread,'hidden',!(machine&&(!machine.canHome&&UNKNOWN_SETTINGS.test(machine.homeReason||'')||versionMissing(machine))));prop(machineReread,'disabled',!machine||!machine.fresh||machine.activeState!=='Idle'||machine.workflow!=='idle');
       prop(machineReread,'title',machine&&/^alarm/i.test(machine.activeState||'')?t('Touchez Déverrouiller ($X), puis Relire les réglages ($$), puis $H.'):'');}
     lastStatus=d;commandReason(d);
     if(view){observe(STEPS[index],st,machine);refresh();}

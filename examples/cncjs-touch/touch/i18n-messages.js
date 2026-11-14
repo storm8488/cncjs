@@ -854,6 +854,7 @@ window.CNCTouchMessages.push(
 ['Modifier la fiche','Edit the sheet','Editar la ficha'],
 ['Une fiche décrit le fichier : elle ne change ni les avances, ni la broche, ni les réglages machine.','A sheet describes the file: it changes neither feeds, nor the spindle, nor machine settings.','Una ficha describe el archivo: no cambia ni avances, ni husillo, ni ajustes de máquina.'],
 ['Matière','Stock material','Material'],
+['Retour à la ligne','New line','Salto de línea'],
 ['Brut X (mm)','Stock X (mm)','Bruto X (mm)'],
 ['Brut Y (mm)','Stock Y (mm)','Bruto Y (mm)'],
 ['Brut Z (mm)','Stock Z (mm)','Bruto Z (mm)'],

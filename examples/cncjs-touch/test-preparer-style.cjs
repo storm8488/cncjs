@@ -52,6 +52,17 @@ assert.match(rule(ui, '.ks-ui #screen-jog #jog-msg', true), /line-height:1\.3;mi
 assert.match(rule(origin, 'body.perf-origin #screen-jog[data-pv2="compare"] #jog-msg'), /display:none/);
 // Step segments (O12): 12 px between targets.
 assert.match(rule(ui, '.ks-ui #screen-jog .steps'), /gap:var\(--tap-gap\)/);
+// Seven steps (finitions chantier 4): two rows of four with « Continu » on two columns (v1, compact: 41 px wide on one
+// row at 1024 × 600); one row 4 px apart under the cross of v2 (no room for a second row), « Continu » at its width.
+assert.match(rule(ui, '.ks-ui #screen-jog #steps', true), /^display:grid;grid-template-columns:repeat\(4,minmax\(0,1fr\)\)$/);
+assert.match(rule(ui, '.ks-ui #screen-jog .step[data-step="hold"]', true), /grid-column:span 2/);
+assert.match(rule(ui, '.ks-ui #screen-jog #steps .step', true), /^min-height:var\(--tap\)$/);
+assert.match(rule(origin, 'body.perf-origin #screen-jog.screen[data-pv2="jog"] #steps .step', true), /^min-height:58px$/);
+assert.match(rule(origin, 'body.perf-origin #screen-jog.screen[data-pv2="jog"] #steps', true), /^display:flex;gap:4px$/);
+assert.match(rule(origin, 'body.perf-origin #screen-jog.screen[data-pv2="jog"] #steps .step[data-step="hold"]', true), /flex:0 0 auto/);
+// The three step lists of the fixtures are the server's (motion.js STEPS): the screens show the seven buttons.
+const STEPS = /export const STEPS = \[([^\]]+)\]/.exec(fs.readFileSync(__dirname + '/../../src/server/services/touch/motion.js', 'utf8'))[1].replace(/\s/g, '');
+for (const f of ['browser-run.cjs', 'browser-strip.cjs', 'test-real-motion.cjs']) assert(fs.readFileSync(__dirname + '/' + f, 'utf8').replace(/\s/g, '').includes('steps:[' + STEPS + ']'), f + ': steps of the server');
 // Préparer header (M11 captures, « Déplacement réel » enabled in ES): the actions wrap under the title instead of
 // squeezing it to ~150 px; without that fourth action nothing wraps (20em title + three actions fit at 1366 px).
 assert.match(rule(ui, '.ks-ui #screen-jog .ks-panel-intro', true), /display:flex;flex-wrap:wrap;/);

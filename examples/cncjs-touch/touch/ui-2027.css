@@ -355,6 +355,10 @@
 .ks-ui #screen-jog .ks-motion-step h2{margin:0;font:600 var(--fs-16)/1 var(--font);color:var(--mute);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
 .ks-ui #screen-jog .steps{display:flex;gap:var(--tap-gap);margin:0;padding:3px;background:var(--surface-2);border:1px solid var(--faint);border-radius:var(--r-m)}
 .ks-ui #screen-jog .step{flex:1 1 0;min-height:58px;font:600 var(--fs-24)/1 var(--font-num);color:var(--mute);background:transparent;border:0;border-radius:calc(var(--r-m) - 3px);cursor:pointer;touch-action:manipulation}
+/* Seven steps (0,1 / 1 / 10 / 25 / 50 / 100 / Continu): two rows of four, « Continu » on two columns. */
+.ks-ui #screen-jog #steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+/* Two rows: 48 px targets (not 58) so that Préparer still fits 1366 x 768 in large Spanish text. */
+.ks-ui #screen-jog #steps .step{min-height:var(--tap)}
 .ks-ui #screen-jog .step.active{background:var(--accent);color:var(--bg)}
 .ks-ui #screen-jog .step:active{transform:scale(.96)}
 .ks-ui #screen-jog .ks-motion-zero{display:grid;grid-template-columns:1fr 1fr;gap:var(--tap-gap)}
@@ -758,7 +762,7 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
 /* --- Large text: the type tokens grow inside the screens, sheets and dialogs (the strip
  * and the rail keep their fixed heights). Nothing is shrunk to compensate: the layouts
  * below absorb the growth (Suivi loses its duplicated live tiles, the strip has them). */
-.ks-ui.display-large main,.ks-ui.display-large .ks-sheet,.ks-ui.display-large .job-dialog,.ks-ui.display-large .coordinate-editor,.ks-ui.display-large .t-numpad,.ks-ui.display-large .ks-why,.ks-ui.display-large .t-lock-shield{--fs-16:18px;--fs-18:20px;--fs-20:22px;--fs-24:27px;--fs-28:31px}
+.ks-ui.display-large main,.ks-ui.display-large .ks-sheet,.ks-ui.display-large .job-dialog,.ks-ui.display-large .coordinate-editor,.ks-ui.display-large .t-numpad,.ks-ui.display-large .t-textpad,.ks-ui.display-large .ks-why,.ks-ui.display-large .t-lock-shield{--fs-16:18px;--fs-18:20px;--fs-20:22px;--fs-24:27px;--fs-28:31px}
 .ks-ui.display-large .home-live-tiles{display:none}
 .ks-ui.display-large #home-job-percent{font-size:56px}
 .ks-ui.display-large .home-progress{padding:6px var(--sp-3)!important}
@@ -866,6 +870,24 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
 .t-numpad-error{margin:0;min-height:var(--sp-6);font-size:var(--fs-16);color:var(--mute)}
 .t-numpad-error[data-tone="danger"]{color:var(--danger-text);font-weight:600}
 .t-numpad-actions{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:var(--tap-gap)}
+/* Text keyboard (text-keyboard.js): a modal pad over the page for the text fields, ten keys a row, 48 px high.
+   Above every overlay that holds a bound field (pilot dialog 800, sheets 600), below the .ks-why toast. */
+.t-textpad{position:fixed;inset:0;z-index:850;display:flex;align-items:center;justify-content:center;padding:var(--sp-3);background:rgba(0,0,0,.72)}
+.t-textpad[hidden]{display:none!important}
+.t-textpad-card{width:min(860px,100%);max-height:calc(100vh - 16px);overflow:auto;background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r-l);padding:var(--sp-3);box-shadow:var(--shadow);color:var(--fg);display:flex;flex-direction:column;gap:var(--sp-2)}
+.t-textpad-card header{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3)}
+.t-textpad-card h2{margin:0;min-width:0;font:700 var(--fs-20)/var(--lh-tight) var(--font);color:var(--fg)}
+.t-textpad-card header button{flex:none;min-height:var(--tap);min-width:var(--tap);font:600 var(--fs-18)/1 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m);padding:var(--sp-2) var(--sp-3)}
+.t-textpad-value{display:block;min-height:var(--tap);padding:var(--sp-2) var(--sp-3);font:600 var(--fs-20)/1.3 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m);white-space:pre-wrap;overflow-wrap:anywhere;max-height:5.5em;overflow:auto}
+.t-textpad-keys{display:flex;flex-direction:column;gap:4px;user-select:none}
+.t-textpad-keys .ks-wifi-keyrow{display:flex;gap:4px}
+.t-textpad-keys .ks-wifi-key{flex:1 1 0;min-width:0;min-height:48px;padding:0;font:600 var(--fs-20)/1 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m);cursor:pointer;touch-action:manipulation}
+.t-textpad-keys .ks-wifi-key:active{transform:scale(.96)}
+.t-textpad-keys .ks-wifi-key--wide{flex-grow:1.6;font-size:var(--fs-16)}
+.t-textpad-keys .ks-wifi-key--space{flex-grow:6;font-size:var(--fs-16)}
+.t-textpad-keys .ks-wifi-key[aria-pressed="true"]{background:var(--info);color:var(--on-info);border-color:var(--info)}
+.t-textpad-actions{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:var(--tap-gap)}
+.t-below-strip .t-textpad-card{max-height:calc(100vh - var(--statusbar-h) - 24px)}
 .ks-ui.t-compact .t-numpad-keys button{min-height:var(--tap)}
 .ks-ui.t-compact .t-numpad-card{gap:var(--sp-2);padding:var(--sp-3)}
 /* Fields bound to the pad (plate thickness and search, resume line): the value and its unit side by side. */
@@ -952,7 +974,7 @@ body.ks-real.ks-ui #screen-jog .jog[data-held="true"],body.ks-real.ks-ui #screen
 .ks-ui #screen-jog #jog-feedback[data-state="confirmed"]{color:var(--ok-text)}
 .ks-ui #screen-jog #jog-feedback[data-state="uncertain"]{color:var(--warn-text)}
 /* « Continu » in the row of the steps: a word among numbers. */
-.ks-ui #screen-jog .step[data-step="hold"]{flex:1.5 1 0;font-size:var(--fs-18);padding:0 var(--sp-1)}
+.ks-ui #screen-jog .step[data-step="hold"]{flex:1.5 1 0;grid-column:span 2;font-size:var(--fs-18);padding:0 var(--sp-1)}
 /* --- Layout audit 31: every command keeps its own room at scale 1 (1366 x 768 and 1024 x 600,
  * standard and large text). Measured by browser-run.cjs --strict. --- */
 /* app.css sets every card heading to 23 px in large text (body.display-large main .card h2); the

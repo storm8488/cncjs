@@ -118,6 +118,36 @@ const STATES={
   p.status(STATES.travail);const w=p.dom.stats.writes;p.status(STATES.travail);assert.equal(p.dom.stats.writes,w,'no unchanged DOM writes');
 }
 {
+  // Finitions chantier 2: Grbl version unknown after a CNCjs restart (the banner went before the service).
+  // $H stays available (homeReady does not read the version) but the moves are refused: the existing
+  // « Relire les réglages » button shows on Machine too, with the phrase Préparer already says.
+  const VERSION='Version Grbl inconnue : attendez la bannière de démarrage ou lisez les réglages ($I).';
+  const noVersion={...base,capabilities:{jog:{enabled:false,reason:VERSION}}};
+  const p=machinePage('fr'),reread=p.panel.children.find(c=>/ks-machine-commands/.test(c.className)).children.find(b=>b.id==='ks-machine-reread');
+  p.status(noVersion);
+  assert.equal(reread.hidden,false,'version unknown: « Relire les réglages » shown');assert.equal(reread.disabled,false);
+  assert.equal(p.home.disabled,false,'$H still available');
+  assert.equal(p.reason.hidden,false);
+  assert.equal(p.reason.textContent,'Le déverrouillage ($X) ne sert qu’en alarme. Version de la carte inconnue : touchez Relire les réglages.');
+  // One tap: readSettings once, nothing else; its refusal on the line.
+  let refuse=null;p.onRead=()=>({then:(ok,ko)=>{refuse=()=>ko(Object.assign(new Error('Machine pilotée par Tablette B.'),{code:'ECONTROL'}));}});
+  const before=p.calls.length;reread.click();assert.deepEqual(p.calls.slice(before),[['readSettings']]);
+  refuse();assert.equal(p.reason.textContent,'Machine pilotée par Tablette B.');assert.equal(p.reason.getAttribute('data-feedback'),'failed');
+  // Version received: button and phrase gone.
+  p.status(base);assert.equal(reread.hidden,true);assert.equal(p.reason.textContent,'Le déverrouillage ($X) ne sert qu’en alarme.');
+  p.status({...base,capabilities:{jog:{enabled:true,reason:''}}});assert.equal(reread.hidden,true);
+  // Alarm (at rest only: $X first), stale report, job: greyed.
+  p.status({...noVersion,activeState:'Alarm',alarmCode:1,canUnlock:true,unlockReason:''});
+  assert.equal(reread.hidden,false);assert.equal(reread.disabled,true);
+  assert.equal(p.reason.textContent,'Touchez Déverrouiller ($X), puis Relire les réglages ($$), puis $H.');
+  p.status({...noVersion,fresh:false});assert.equal(reread.disabled,true);
+  assert(!/Relire/.test(p.reason.textContent),'stale report: no « touchez Relire » under a greyed button: '+p.reason.textContent);
+  p.status({...noVersion,workflow:'running',activeState:'Run',canHome:false,homeReason:'Travail en cours.',unlockReason:'Travail en cours.'});assert.equal(reread.disabled,true);
+  assert(!/Relire/.test(p.reason.textContent),'job: no « touchez Relire » under a greyed button: '+p.reason.textContent);
+  // ES: the existing catalogue rows.
+  const es=machinePage('es');es.status(noVersion);assert(es.reason.textContent.endsWith('Versión de la placa desconocida: toque Volver a leer los ajustes.'),es.reason.textContent);
+}
+{
   // (b) An alarm during a job (the RT capture: $X / $H striped while the notice says to use them): the reason shows, ES.
   const p=machinePage('es');p.status(STATES['alarme-travail']);
   assert.equal(p.reason.hidden,false);

@@ -1094,7 +1094,7 @@ function startV2Fixture() {
       if (!fx.real) return c;
       const rest = c.workflow === 'idle' && /^Idle/.test(c.activeState || '') && c.fresh !== false && !c.homing && !c.probing;
       const why = rest ? '' : 'Travail en cours ou en pause : déplacement réel refusé.';
-      c.capabilities = { jog: { supported: true, enabled: true, experimental: true, reason: '', steps: [0.01, 0.1, 1, 10] }, jogContinuous: { supported: true, enabled: true, experimental: true, reason: '', keepalivePeriodMs: 100 },
+      c.capabilities = { jog: { supported: true, enabled: true, experimental: true, reason: '', steps: [0.01, 0.1, 1, 10, 25, 50, 100] }, jogContinuous: { supported: true, enabled: true, experimental: true, reason: '', keepalivePeriodMs: 100 },
         jogCancel: { supported: true, enabled: true, experimental: true, reason: '' }, setOrigin: { supported: true, enabled: true, experimental: true, reason: '', axes: ['X', 'Y', 'Z'] } };
       c.motion = { canJog: rest, jogReason: why, continuousReason: { X: why, Y: why, Z: why }, canSetOrigin: rest, setOriginReason: why,
         maxFeed: { X: { max: 2000, source: 'settings' }, Y: { max: 2000, source: 'settings' }, Z: { max: 500, source: 'settings' } }, jog: null, cancelling: false, cancelUnconfirmed: false, lastJog: null, lastOrigin: null };

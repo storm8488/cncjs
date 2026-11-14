@@ -3,7 +3,7 @@
 // request, a protected network asks its password, a saved or open one does not, the password field
 // is emptied as soon as it is sent, a job blocks every button; requests go to api/touch-wifi only.
 const assert = require('assert').strict, fs = require('fs'), path = require('path'), vm = require('vm');
-const source = fs.readFileSync(path.join(__dirname, 'touch', 'wifi-settings.js'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, 'touch', 'wifi-settings.js'), 'utf8'), keyboardSource = fs.readFileSync(path.join(__dirname, 'touch', 'text-keyboard.js'), 'utf8');
 
 function el(tag) {
   const n = { tagName: tag.toUpperCase(), children: [], parentNode: null, hidden: false, disabled: false, value: '', type: '', id: '', className: '', attrs: {}, handlers: {},
@@ -35,6 +35,7 @@ function setup(state, filled, t) {
   XMLHttpRequest.prototype.send = function (body) { requests.push(this); this.body = body ? JSON.parse(body) : null; };
   const answer = (x, status, data) => { x.status = status; x.responseText = JSON.stringify(data); x.onload(); };
   const localStorage = { getItem: () => JSON.stringify({ state: { session: { token: 'tok' } } }) };
+  vm.runInNewContext(keyboardSource, { window, document });
   vm.runInNewContext(source, { window, document, XMLHttpRequest, localStorage, JSON, setTimeout: (f) => f(), Array });
   const box = filled ? section.children.find((c) => c.className === 'ks-system-block ks-wifi') : section.children[0];
   const by = (text) => find(box, (c) => c.tagName === 'BUTTON' && c.textContent === text);
