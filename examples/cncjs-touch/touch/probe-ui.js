@@ -251,6 +251,11 @@
   $('probe-profile').addEventListener('change',function(){selected=Number(this.value);persist();invalidate();});
   $('probe-diameter').value=diameter===null?'':String(diameter);
   $('probe-diameter').addEventListener('change',function(){var value=parse(this.value);diameter=typeof value==='number'&&isFinite(value)&&value>0&&value<=100?value:null;persist();invalidate();});
+  // The kiosk has no system keyboard: every measured value takes the shared numeric pad (numeric-pad.js).
+  if(window.CNCNumeric&&typeof window.CNCNumeric.bind==='function'){
+    document.querySelectorAll('[data-probe-field]').forEach(function(el){var k=el.getAttribute('data-probe-field'),b=model.fields[k];if(el.tagName!=='INPUT'||!b)return;window.CNCNumeric.bind(el,{min:b[0],max:b[1],negative:b[0]<0,unit:k==='fast'||k==='slow'?'mm/min':'mm',label:(el.parentElement&&el.parentElement.textContent||k).trim()});});
+    window.CNCNumeric.bind($('probe-diameter'),{min:0.001,max:100,negative:false,unit:'mm',label:uiLocale.t('Outil / pige · diamètre mm')});
+  }
   ['probe-wcs','probe-scenario'].forEach(function(id){$(id).addEventListener('change',invalidate);});$('probe-confirm').addEventListener('change',render);
   $('probe-scenario-label').hidden=!simulation;$('probe-confirm').parentElement.hidden=!simulation;
   if(!simulation){

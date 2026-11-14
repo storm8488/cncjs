@@ -34,7 +34,7 @@ import crypto from 'crypto';
 import { controllerStatus } from './motion-preflight.js';
 
 export const AXES = ['X', 'Y', 'Z'];
-export const STEPS = [0.01, 0.1, 1, 10];
+export const STEPS = [0.01, 0.1, 1, 10, 25, 50, 100];
 // Largest discrete step allowed without a referenced machine and a known travel.
 export const MAX_UNREFERENCED_STEP_MM = 1;
 // The server cancels a continuous jog when no keepalive came for this long…
@@ -413,7 +413,7 @@ export const createMotion = (deps) => {
   const jogParams = (c, body, continuous) => {
     if (!AXES.includes(body.axis) || ![-1, 1].includes(body.direction) ||
         (!continuous && !STEPS.includes(body.step))) {
-      throw conflict(continuous ? 'Axe ou sens invalide.' : 'Axe, sens ou pas invalide (pas : 0,01 / 0,1 / 1 / 10 mm).');
+      throw conflict(continuous ? 'Axe ou sens invalide.' : 'Axe, sens ou pas invalide (pas : 0,01 / 0,1 / 1 / 10 / 25 / 50 / 100 mm).');
     }
     const feed = number(body.feed);
     const limit = maxFeedOf(allSettings(c), body.axis);

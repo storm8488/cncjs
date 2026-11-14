@@ -259,6 +259,21 @@ describe('real jog (F1)', () => {
     expect(ctx.c.written).toEqual(['$J=G91 G21 X10 F500\n']);
   });
 
+  test('25, 50 and 100 mm steps: referenced machine only, inside the travel, within 60 s', async () => {
+    const ctx = setup();
+    await expect(ctx.motion('jog', { ...STEP, step: 100 })).rejects.toThrow(/Pas de 100 mm refusé.*référencement/);
+    await expect(ctx.motion('jog', { ...STEP, step: 30 })).rejects.toThrow(/pas invalide \(pas : 0,01 \/ 0,1 \/ 1 \/ 10 \/ 25 \/ 50 \/ 100 mm\)/);
+    ctx.home();
+    ctx.c.state.status.mpos.x = '-50.000';
+    await expect(ctx.motion('jog', { ...STEP, step: 100 })).rejects.toThrow(/sortirait de la course \(50 mm machine, course -400 → 0\)/);
+    await expect(ctx.motion('jog', { ...STEP, direction: -1, step: 100, feed: 50 })).rejects.toThrow(/Pas trop lent/);
+    for (const step of [25, 50]) {
+      await ctx.motion('jog', { ...STEP, direction: -1, step });
+      ctx.settle();
+    }
+    expect(ctx.c.written).toEqual(['$J=G91 G21 X-25 F500\n', '$J=G91 G21 X-50 F500\n']);
+  });
+
   test('a 1 mm step without referencing is allowed (Grbl soft limits are the only bound then)', async () => {
     const ctx = setup();
     ctx.c.settings.settings.$22 = '0';

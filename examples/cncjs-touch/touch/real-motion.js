@@ -1,7 +1,7 @@
 /* Préparer, real page: the arrows, steps, speed and Zéro buttons of #screen-jog (index.html) move
  * the machine and set the work origin through the server's real path (F1, src/server/services/touch/
  * motion.js), never through a check without movement. This module is their only driver.
- *   - steps: one `jog` per tap (0.1 / 1 / 10 mm), one request at a time; a step stays "in flight"
+ *   - steps: one `jog` per tap (0.1 / 1 / 10 / 25 / 50 / 100 mm), one request at a time; a step stays "in flight"
  *     until a report shows the machine free again (or its nominal duration plus 2 s): leaving the
  *     screen, locking it, hiding the page, losing the stream or the pilot meanwhile sends jog-stop;
  *   - continuous (« Continu », offered only when the server enables it): `jog-start` on pointerdown,
