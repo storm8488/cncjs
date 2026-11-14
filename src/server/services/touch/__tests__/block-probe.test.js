@@ -555,6 +555,10 @@ describe('block probe: pure parts', () => {
     expect(wide.envelope.X).toEqual([59, 141]);
     expect(wide.reach).toBe(44);
     expect(() => blockParams({ ...XYZ, profile: { ...PROFILE, faceX: -31 } })).toThrow(/faceX hors des limites/);
+    // A large block: the side step follows the search distance up to 30 mm (window 28 mm).
+    const far = blockPlan(blockParams({ ...XYZ, profile: { ...PROFILE, search: 30 } }), { x: 100, y: 100, z: -90 }, limits, settings);
+    expect(far).toMatchObject({ window: 28, lateral: 32 });
+    expect(far.envelope.X).toEqual([59.1, 140.9]);
     // Z, X alone: only the moving axis in the envelope.
     expect(blockPlan(blockParams({ ...XYZ, axes: 'Z' }), { x: 100, y: 100, z: -110 }, limits, settings)).toMatchObject({ envelope: { Z: [-121, -110] }, steps: 7, direction: {}, reach: null, window: null });
     expect(blockPlan(blockParams({ ...XYZ, axes: 'X' }), { x: 90, y: 100, z: -122 }, limits, settings)).toMatchObject({ envelope: { X: [90, 101] }, direction: { X: 1 }, clearance: null });

@@ -33,7 +33,7 @@ const CORNERS = { '--': [-1, -1], '+-': [1, -1], '-+': [-1, 1], '++': [1, 1] };
 // largest gap between fast and slow contacts, largest rest beyond a contact.
 const MARGIN = 1;
 const OVER = 1;
-const W_MAX = 10;
+const W_MAX = 28;
 const MIN_BACKOFF = 0.2;
 const POS_TOL = 0.01;
 const TOUCH_AGREE = 0.3;
