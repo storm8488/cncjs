@@ -56,6 +56,7 @@ for(const language of ['fr','en','es']){
   assert(!/<a[\s>]|href=/.test(real.banner.innerHTML),language+': link in the real header');
   assert(!FORBIDDEN.test(real.banner.innerHTML.replace(/class="[^"]*"/g,'')),language+': simulation wording in the real header: '+real.banner.innerHTML);
   assert(/ks-simulation/.test(real.banner.innerHTML),language+': the badge (clock anchor) stays');
+  assert(/<span class="ks-simulation" hidden><\/span>/.test(real.banner.innerHTML),language+': no mode badge on the real page (empty, hidden clock anchor): '+real.banner.innerHTML);
   const sim={banner:{},uiLocale,simulation:true};vm.runInNewContext(statement,sim);
   assert(/href="index\.html"/.test(sim.banner.innerHTML),language+': way back to the real page');
 }

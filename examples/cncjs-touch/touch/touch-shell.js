@@ -23,8 +23,9 @@
   document.body.classList.add('ks-ui');
   document.body.classList.toggle('ks-real',!simulation);
   // The header is the status strip (status-strip.js fills its left part). The
-  // screen title stays for assistive technology; the rail shows the place.
-  banner.innerHTML=uiLocale.html('<h1 id="ks-title" class="ks-sr-only">Menu</h1><div class="t-strip-right"><span class="ks-simulation">')+(simulation?uiLocale.t('SIMULATION'):uiLocale.t('MACHINE RÉELLE'))+uiLocale.html('</span>')+(simulation?'<a href="index.html" class="ks-exit">'+uiLocale.t('Réel ↗')+'</a>':'')+uiLocale.html('</div>');
+  // screen title stays for assistive technology; the rail shows the place. The real page
+  // shows no mode badge: its empty, hidden span only anchors the clock (header-clock.js).
+  banner.innerHTML=uiLocale.html('<h1 id="ks-title" class="ks-sr-only">Menu</h1><div class="t-strip-right"><span class="ks-simulation"'+(simulation?'':' hidden')+'>')+(simulation?uiLocale.t('SIMULATION'):'')+uiLocale.html('</span>')+(simulation?'<a href="index.html" class="ks-exit">'+uiLocale.t('Réel ↗')+'</a>':'')+uiLocale.html('</div>');
   var menu=document.createElement('section');menu.id='screen-menu';menu.className='screen';
   // Menu (UI 2027): the machine state lives in the strip; the menu is the
   // "resume where I was" shortcut plus six tiles, each with a live indicator.
