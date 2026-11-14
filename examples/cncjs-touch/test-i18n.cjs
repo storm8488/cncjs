@@ -40,7 +40,7 @@ for(const language of ['en','es']){
  assert.equal(i.t('Machine : ')+'1.000'+i.t(' mm · Travail : ')+'2.000 mm',en?'Machine: 1.000 mm · Work: 2.000 mm':'Máquina: 1.000 mm · Trabajo: 2.000 mm');
  assert.equal(i.t('Déplacement ')+i.t('fictif.'),en?'Movement simulated.':'Movimiento ficticio.');
  assert.equal(i.t('Supprimer…'),en?'Delete…':'Eliminar…');
- for(const r of ['Contact signalé par le champ Pn du rapport Grbl.','Champ Pn explicite : entrée P non active.','Champ Pn absent : entrée libre non confirmée. Capacité du firmware à valider.','Rapport sonde non reconnu : état inconnu.',' · rapport ancien : attendez un rapport récent avant une origine'])assert.notEqual(i.message(r),r,'translated: '+r);
+ for(const r of ['Contact signalé par le champ Pn du rapport Grbl.','Champ Pn explicite : entrée P non active.','Champ Pn absent : entrée libre non confirmée. Capacité du firmware à valider.','Rapport sonde non reconnu : état inconnu.'])assert.notEqual(i.message(r),r,'translated: '+r);
  assert.equal(i.t('repère inconnu'),en?'unknown work frame':'G5x ?');
  {const ce=fs.readFileSync(path.join(__dirname,'touch','coordinate-editor.js'),'utf8'),pu=fs.readFileSync(path.join(__dirname,'touch','probe-ui.js'),'utf8');
   assert(!/'Machine : '\+|\?'fictif\.'/.test(ce),'coordinate-editor: no untranslated literal');
@@ -50,7 +50,8 @@ for(const language of ['en','es']){
   // the status strip's word (« Reposo »), never Grbl's « Idle ».
   const rm=fs.readFileSync(path.join(__dirname,'touch','real-motion.js'),'utf8');
   assert(!/machine\?machine\.activeState:/.test(pu)&&(pu.match(/machine\?stateWord\(machine\):/g)||[]).length===2,'probe-ui: state in the strip\'s words');
-  assert(!/'État observé : '\)\+\(machine\.activeState/.test(rm)&&/t\('État observé : '\)\+\(stateWord\(machine\)/.test(rm),'real-motion: state in the strip\'s words');}
+  // Préparer (real-motion.js) names a state other than Idle with the strip's word; the old « État observé » line left with the panel.
+  assert(!/'État observé : '/.test(rm)&&/t\('La machine doit être au repos : état '\)\+stateWord\(machine\)/.test(rm),'real-motion: state in the strip\'s words');}
  // Corner label of the probe diagram (Fable 2, Astra 10): « Esquina: sin definir » ran out of the 140-unit « Pieza »
  // at 18 px; every language at most as long as the French one (16 characters, 125 px at 18 px).
  assert.equal(i.t('Coin : à définir'),en?'Corner: not set':'Esquina: elegir');

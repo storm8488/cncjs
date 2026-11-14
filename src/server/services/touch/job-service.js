@@ -16,7 +16,7 @@ import { checkProgram } from './program-check.js';
 // eslint-disable-next-line import/extensions
 import { createControl, SAFE_ACTIONS } from './control.js';
 // eslint-disable-next-line import/extensions
-import { createMotion, maxFeedOf, MAX_JOG_MS, MIN_FEED } from './motion.js';
+import { createMotion, maxFeedOf, machinePositionKnown, MAX_JOG_MS, MIN_FEED } from './motion.js';
 // eslint-disable-next-line import/extensions
 import { createProfiles, describeProfile, machineRefusal, KINDS } from './machine-profile.js';
 // Parts of the service behind explicit contracts (audit 31, E2): the
@@ -117,6 +117,18 @@ const overridesOf = (state) => {
 
 // Grbl reports the real feed rate and spindle speed as FS:feed,speed; CNCjs
 // keeps them as status.feedrate and status.spindle.
+// Machine position per axis (X, Y, Z) as CNCjs holds it now, null where not a number.
+const homeMposOf = (c) => {
+  const p = controllerStatus(c).mpos || {};
+  const out = {};
+  ['X', 'Y', 'Z'].forEach((axis) => {
+    const v = p[axis.toLowerCase()];
+    const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
+    out[axis] = typeof n === 'number' && Number.isFinite(n) ? n : null;
+  });
+  return out;
+};
+
 const realtimeValue = (value) => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null);
 
 // Only names and ids leave the server; macro contents stay in the configuration.
@@ -245,6 +257,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         // travel check (F2). $22=1 alone means enabled, not done.
         homed: false,
         sawHome: false,
+        // Machine position at the end of our last full homing cycle ($H, Home seen, then Idle) and
+        // the $23 it was homed under, or null: learnt only from a trusted machine position.
+        homeMpos: null,
         // Status reports received, so a step can wait for a newer one.
         reports: 0,
         generation: crypto.randomBytes(12).toString('hex')
@@ -259,11 +274,24 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         }
         r.reports += 1;
         const active = controllerStatus(c).activeState || '';
+        let ownCycle = false;
         if (r.homing && clock() - r.homing.since >= HOMING_MIN_MS && /^(Idle|Alarm)/.test(active)) {
           // An error received while our $H was outstanding: never a completed homing
           // (a Home report seen meanwhile still is, see sawHome below).
           if (active === 'Idle' && !r.homing.refused && !r.homing.interrupted) {
             r.homed = true;
+            // Where our own full cycle ($H, every axis), seen running (Home reported), left the
+            // machine (F1, motion.js envelopeOf): an axis homed towards its negative end ($23 bit
+            // set) found at 0 tells a firmware that forces the origin there, whose travel is then
+            // [0, $13x] only. A cycle of another client ($HX, $HY…) may home some axes only: not used.
+            // A position derived from WPos without any WCO yet is off by the work offset: not used.
+            // Limit: an axis left out of the firmware's own $H cycle keeps 0 after a board restart and
+            // cannot be told from a forced origin; the soft limits ($20=1) of the board remain.
+            ownCycle = true;
+            const settings = allSettings(c);
+            const mask = settings.$23 === undefined || String(settings.$23).trim() === '' ? NaN : Number(settings.$23);
+            r.homeMpos = r.sawHome && Number.isInteger(mask) && machinePositionKnown(settings, { wcoSeen: r.wcoSeen, wposReported: r.wposReported })
+              ? { ...homeMposOf(c), mask } : null;
           }
           r.homing = null;
         }
@@ -272,6 +300,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         } else if (r.sawHome && active === 'Idle') {
           r.sawHome = false;
           r.homed = true;
+          // A cycle of another client may have homed some axes only: what ours taught is dropped.
+          if (!ownCycle) {
+            r.homeMpos = null;
+          }
         } else if (r.sawHome && !/^(Home|Idle)/.test(active)) {
           r.sawHome = false;
         }
@@ -291,6 +323,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         r.homing = null;
         // An alarm may have lost the position (hard/soft limit, abort during a cycle).
         r.homed = false;
+        r.homeMpos = null;
         r.sawHome = false;
         if (r.job && r.job.started && !r.job.stopped && !r.job.finishedAt) {
           log({ event: 'alarm', ...jobInfo(r.job), controller: controllerInfo(c, r), code: r.alarm, actor: SYSTEM });
@@ -306,6 +339,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         r.stall = null;
         r.homing = null;
         r.homed = false;
+        r.homeMpos = null;
         r.wcoSeen = false;
         // A Home state seen before the restart says nothing about the new session.
         r.sawHome = false;

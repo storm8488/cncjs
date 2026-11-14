@@ -10,7 +10,7 @@
 //   - the overlay starts below the strip and its card fits in the window (own scroll);
 //   - Tab from the overlay reaches Pause and Arrêter and never leaves overlay + strip stops;
 // then, on the real page: stacked layers (pad over the project sheet: Escape, Tab, Enter on
-// Pause / Arrêter), the screen lock (real move panel closed, Pilote and the content out of
+// Pause / Arrêter), the screen lock (origin confirmation of Préparer closed, Pilote and the content out of
 // reach); a module failing at load leaves « Chargement incomplet » shown
 // below a usable strip (D-B1), and the browser's offline flag keeps Pause / Arrêter shown
 // and sent (R-S2). Used by browser-run.cjs (step « strip »), or on its own:
@@ -44,17 +44,25 @@ const OVERLAYS = [
   ['sheet: preview details', 'files', 'Array.prototype.filter.call(document.querySelectorAll(".ks-file-tools button"),function(b){return b.textContent===window.cncI18n.t("Détails de l’aperçu");})[0]'],
   ['sheet: dimensions', 'files', 'Array.prototype.filter.call(document.querySelectorAll(".ks-file-tools button"),function(b){return b.textContent===window.cncI18n.t("Dimensions XY");})[0]'],
   ['project sheet', 'files', 'document.getElementById("project-open")'],
-  ['coordinate editor', 'jog', 'document.getElementById("coordinate-open")'],
   ['numeric pad', 'home', '(function(){var i=document.getElementById("strip-run-input");if(!i){i=document.createElement("input");i.id="strip-run-input";document.getElementById("screen-home").appendChild(i);}return {disabled:false,click:function(){window.CNCNumeric.open(i,{label:"Test",unit:"mm",min:0,max:50});}};})()'],
   ['preview viewer', 'home', 'document.querySelector("#screen-home .preview-open")'],
 ];
+// The coordinate editor stays on simulation.html only (the real page has no local coordinate preparation).
+const SIMULATION_ONLY = [['coordinate editor', 'jog', 'document.getElementById("coordinate-open")']];
+// The origin confirmation of Préparer (real-motion.js, Zéro X): opened by ORIGIN_OPEN; the padlock stays in its
+// Tab cycle with Pause / Arrêter (locking closes it, V3).
 const REAL_ONLY = [['sheet: job preparation', 'files', 'document.getElementById("ks-preparation-open")'], ['pilot dialog', 'home', 'document.getElementById("t-pilot")'],
-  // The real move panel keeps the whole strip active (real-motion.js) and has no Tab trap of its own.
-  ['real move panel', 'jog', 'document.getElementById("real-motion-open")', { tab: false }]];
+  ['origin confirmation', 'jog', 'ORIGIN_OPEN', { wait: 1800, keep: ['t-lock'] }]];
+// Zéro X is offered at rest only, and the strip offers Pause / Arrêter during a job: the reports are shown at rest
+// (window.__stripIdle, CAPABILITIES) just long enough to tap Zéro X, whose ticket the harness answers itself
+// (cncJobControls.origin wrapped: nothing reaches the fixture), then the job shows again under the open dialog.
+const ORIGIN_OPEN = '{disabled:false,click:function(){var c=window.cncJobControls;if(!c.__stripOrigin){var o=c.origin;c.origin=function(x){if(x&&x.axes)return Promise.resolve({nonce:"strip-origin",name:"Origine "+x.axes.join(" ")+" du repère G54 à la position actuelle (G10 L20 P1 X0)",expiresIn:15,generation:(window.cncState.get().machine||{}).generation});return o.call(c,x);};c.__stripOrigin=true;}'+
+  'window.__stripIdle=true;var n=0,t=setInterval(function(){var b=document.getElementById("jog-zero-x");if(b&&!b.disabled){clearInterval(t);b.click();setTimeout(function(){window.__stripIdle=false;},300);}else if(++n>40){clearInterval(t);window.__stripIdle=false;}},50);}}';
 // Real move capabilities injected into the replayed reports (the panel opens; nothing moves).
 const CAPABILITIES = `(function(){var o=window.dispatchEvent.bind(window);window.dispatchEvent=function(e){if(e&&e.type==="cnc-job-status"&&e.detail&&e.detail.machine&&!e.detail.machine.capabilities){var m={};Object.keys(e.detail.machine).forEach(function(k){m[k]=e.detail.machine[k];});
   var c={supported:true,enabled:true,experimental:true,reason:""};m.capabilities={jog:Object.assign({steps:[0.01,0.1,1,10]},c),jogContinuous:c,jogCancel:c,setOrigin:c};
   m.motion={canJog:false,jogReason:"Travail en cours.",continuousReason:{X:"",Y:"",Z:""},canSetOrigin:false,setOriginReason:"Travail en cours.",maxFeed:{},jog:null,cancelling:false,cancelUnconfirmed:false,lastJog:null,lastOrigin:null};
+  if(window.__stripIdle){m.workflow="idle";m.activeState="Idle";m.fresh=true;m.operator={reportUnits:"mm",wcs:"G54"};m.motion.canSetOrigin=true;m.motion.setOriginReason="";m.control={owner:null,lastChange:null};}
   var d={};Object.keys(e.detail).forEach(function(k){d[k]=e.detail[k];});d.machine=m;e=new CustomEvent("cnc-job-status",{detail:d});}return o(e);};return true;})()`;
 
 async function key(cdp, k, shift) {
@@ -71,7 +79,7 @@ async function click(cdp, x, y) {
 async function closeAll(cdp, H) {
   await key(cdp, 'Escape'); await H.sleep(120);
   await cdp.evaluate(`(function(){try{window.cncShell.closeSheet();}catch(e){}try{window.CNCNumeric.close();}catch(e){}
-    [['real-motion-close','real-motion'],['coordinate-close','coordinate-editor'],['preview-viewer-close','preview-viewer'],['project-dialog-close','project-dialog'],['pilot-dismiss','pilot-dialog']].forEach(function(p){var b=document.getElementById(p[0]),o=document.getElementById(p[1]);if(b&&o&&!o.hidden)b.click();});return true;})()`);
+    [['real-motion-origin-cancel','real-motion-ticket'],['coordinate-close','coordinate-editor'],['preview-viewer-close','preview-viewer'],['project-dialog-close','project-dialog'],['pilot-dismiss','pilot-dialog']].forEach(function(p){var b=document.getElementById(p[0]),o=document.getElementById(p[1]);if(b&&o&&!o.hidden)b.click();});return true;})()`);
   await H.sleep(150);
 }
 
@@ -107,7 +115,7 @@ async function probe(cdp, H, ctx, label, fail, rows, opts) {
     for (let i = 0; i < 40; i++) {
       await key(cdp, 'Tab');
       const at = await cdp.evaluate(`(function(){var a=document.activeElement,o=document.querySelector(${JSON.stringify(m.overlays[m.overlays.length - 1].id)});return {id:a&&a.id||'',inside:!!(o&&o.contains(a)),stop:!!(a&&/^t-(pause|stop)$/.test(a.id))};})()`);
-      if (at.stop) seen.add(at.id); else if (!at.inside && !escaped) escaped = at.id || 'body';
+      if (at.stop) seen.add(at.id); else if (!at.inside && !escaped && !((opts && opts.keep) || []).includes(at.id)) escaped = at.id || 'body';
     }
     row.tab = { reached: Array.from(seen), escaped };
     const offered = m.buttons.filter((b) => b.shown && !b.disabled).map((b) => b.id);
@@ -152,16 +160,16 @@ async function variant(cdp, H, base, page, w, h, lang, large, fail, rows, log) {
   await startJob(cdp, H, page);
   await H.sleep(800);
   await cdp.evaluate(RELAY);
-  for (const [label, screen, opener, opts] of OVERLAYS.concat(page === 'index' ? REAL_ONLY : [])) {
+  for (const [label, screen, opener, opts] of OVERLAYS.concat(page === 'index' ? REAL_ONLY : SIMULATION_ONLY)) {
     try {
       await H.goScreen(cdp, screen);
-      const r = await cdp.evaluate('(function(){var b=' + opener + ';if(!b)return "absent";if(b.disabled)return "disabled";b.click();return "ok";})()');
+      const r = await cdp.evaluate('(function(){var b=' + (opener === 'ORIGIN_OPEN' ? ORIGIN_OPEN : opener) + ';if(!b)return "absent";if(b.disabled)return "disabled";b.click();return "ok";})()');
       if (r !== 'ok') {
         // No macro on the replay page (Macros disabled): the sheet code is the same, measured on the simulation.
         if (!(page === 'index' && label === 'sheet: macros')) fail(ctx + ' · ' + label + ': not opened (' + r + ')');
         continue;
       }
-      await H.sleep(450);
+      await H.sleep(opts && opts.wait || 450);
       log(ctx + ' · ' + await probe(cdp, H, ctx, label, fail, rows, opts));
     } catch (e) { fail(ctx + ' · ' + label + ': ' + e.message); }
     await closeAll(cdp, H);
@@ -295,14 +303,14 @@ async function stackAndLock(cdp, H, base, w, h, lang, large, fail, log) {
     }
   }
   log(ctx + ' · keys under the pad: ' + keys.join(' ; '));
-  // V3: lock with the real move panel open: the panel closes.
+  // V3: lock with the origin confirmation of Préparer open: it closes, nothing is set.
   await openReal(cdp, H, base, w, h, lang, large);
   await H.goScreen(cdp, 'jog');
-  await clickSel(cdp, '#real-motion-open'); await H.sleep(400);
-  if (!(await cdp.evaluate('!document.getElementById("real-motion").hidden'))) fail(ctx + ': real move panel not opened');
+  await cdp.evaluate('(function(){var b=' + ORIGIN_OPEN + ';b.click();return true;})()'); await H.sleep(1800);
+  if (!(await cdp.evaluate('(function(){var d=document.getElementById("real-motion-ticket");return !!(d&&!d.hidden);})()'))) fail(ctx + ': origin confirmation not opened');
   await clickSel(cdp, '#t-lock'); await H.sleep(300);
-  st = await cdp.evaluate('({locked:window.cncScreenLock.locked(),panel:!document.getElementById("real-motion").hidden})');
-  if (!st.locked || st.panel) fail(ctx + ': locking with the real move panel open (V3): ' + JSON.stringify(st));
+  st = await cdp.evaluate('({locked:window.cncScreenLock.locked(),panel:!document.getElementById("real-motion-ticket").hidden})');
+  if (!st.locked || st.panel) fail(ctx + ': locking with the origin confirmation open (V3): ' + JSON.stringify(st));
   // V4: the Pilote chip does nothing under the lock; V5: Tab reaches only Pause, Arrêter, padlock.
   const chip = await clickSel(cdp, '#t-pilot'); await H.sleep(300);
   const pilotOpen = await cdp.evaluate('!document.getElementById("pilot-dialog").hidden');

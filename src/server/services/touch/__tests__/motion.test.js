@@ -6,7 +6,7 @@ import { createControl } from '../control';
 import GrblRunner from '../../../controllers/Grbl/GrblRunner';
 import {
   capabilitiesOf, envelopeOf, limitsAt, maxFeedOf, grblVersion, jogLine, originLine, motionEnabled,
-  DISABLED_MESSAGE, KEEPALIVE_TIMEOUT_MS, FALLBACK_MAX_FEED
+  DISABLED_MESSAGE, KEEPALIVE_TIMEOUT_MS, FALLBACK_MAX_FEED, SESSION_MARGIN_MS
 } from '../motion';
 import { catalogCodes, expectCatalogMatch } from './touch-codes-catalog';
 
@@ -168,6 +168,21 @@ describe('motion capabilities (F1)', () => {
     expect(limitsAt(y, 0, 'Y')).toMatchObject({ limits: { low: 0, high: 0 } });
     expect(limitsAt(envelopeOf(s, true).X, 5, 'X')).toMatchObject({ limits: null, outside: true, reason: expect.stringMatching(/hors de la course supposée \(-400 → 0\)/) });
     expect(limitsAt(envelopeOf(s, true).X, null, 'X')).toMatchObject({ limits: null, reason: 'position machine X inconnue' });
+    // The end of the homing cycle seen decides for an axis homed towards its negative end ($23 bit):
+    // found at 0, the firmware forces the origin there ([0, T] only); elsewhere, both stay.
+    expect(envelopeOf(s, true, { homeAt: { X: 0, Y: 0, Z: 0, mask: 2 } }).Y.candidates).toEqual([{ low: 0, high: 300 }]);
+    expect(envelopeOf(s, true, { homeAt: { X: 0, Y: 0.005, Z: 0, mask: 2 } }).Y.candidates).toEqual([{ low: 0, high: 300 }]);
+    expect(envelopeOf(s, true, { homeAt: { X: 0, Y: -299, Z: 0, mask: 2 } }).Y.candidates).toEqual([{ low: -300, high: 0 }, { low: 0, high: 300 }]);
+    expect(envelopeOf(s, true, { homeAt: { X: 0, Y: 0.5, Z: 0, mask: 2 } }).Y.candidates).toHaveLength(2);
+    expect(envelopeOf(s, true, { homeAt: { X: 0, Y: null, Z: 0, mask: 2 } }).Y.candidates).toHaveLength(2);
+    expect(envelopeOf(s, true, { homeAt: null }).Y.candidates).toHaveLength(2);
+    // An axis without its $23 bit keeps [-T, 0], whatever the homing end.
+    expect(envelopeOf(s, true, { homeAt: { X: 0, Y: 0, Z: 0, mask: 2 } }).X.candidates).toEqual([{ low: -400, high: 0 }]);
+    // Learnt under another $23 (homeAt.mask): another convention, both stay.
+    expect(envelopeOf(s, true, { homeAt: { X: 0, Y: 0, Z: 0, mask: 3 } }).Y.candidates).toHaveLength(2);
+    expect(envelopeOf(s, true, { homeAt: { X: 0, Y: 0, Z: 0 } }).Y.candidates).toHaveLength(2);
+    // Not referenced: no envelope at all, whatever homeAt says.
+    expect(envelopeOf(s, false, { homeAt: { X: 0, Y: 0, Z: 0, mask: 2 } }).Y.candidates).toBe(null);
     expect(maxFeedOf({ $110: '800' }, 'X')).toEqual({ max: 800, source: '$110' });
     expect(maxFeedOf({}, 'Z')).toEqual({ max: FALLBACK_MAX_FEED, source: 'fallback' });
     expect(jogLine('X', 1, 500)).toBe('$J=G91 G21 X1 F500');
@@ -353,6 +368,63 @@ describe('continuous jog (F1)', () => {
     ctx.service.closeTransport('tA');
     expect(ctx.c.written).toEqual(['$J=G91 G21 X99 F500\n', '\x85']);
     expect(ctx.state().motion.lastJog.reason).toBe('transport');
+  });
+
+  // Contre-revue P2-1 : un pas en vol retarde le renouvellement de son flux (touch-stream.js), sinon
+  // la fermeture du flux renouvelé l'annulait en route.
+  test('a step in flight holds its stream from rotation until it settles', async () => {
+    const ctx = setup({ homed: true });
+    expect(ctx.service.ticketPending('tA')).toBe(false);
+    await ctx.motion('jog', { ...STEP, step: 10 });
+    ctx.c.state.status.activeState = 'Jog';
+    expect(ctx.service.ticketPending('tA')).toBe(true);
+    expect(ctx.service.ticketPending('tA2')).toBe(false);
+    ctx.settle();
+    expect(ctx.service.ticketPending('tA')).toBe(false);
+  });
+
+  // Contre-revue M1 : un pas est surveillé comme un continu (prise de pilotage, rapport ancien).
+  test('a takeover of the control lease or a stale report cancels a step in flight', async () => {
+    const ctx = setup({ homed: true });
+    await ctx.motion('jog', { ...STEP, step: 10, feed: 100 });
+    ctx.ok();
+    ctx.c.state.status.activeState = 'Jog';
+    ctx.tick(200);
+    expect(ctx.cancels()).toBe(0);
+    await ctx.req('control', { operation: 'takeover', reason: 'atelier' }, B);
+    ctx.tick(50);
+    expect(ctx.cancels()).toBeGreaterThanOrEqual(1);
+    expect(ctx.state().motion.lastJog.reason).toBe('control');
+
+    const ctx2 = setup({ homed: true });
+    await ctx2.motion('jog', { ...STEP, step: 10, feed: 100 });
+    ctx2.ok();
+    ctx2.c.state.status.activeState = 'Jog';
+    ctx2.tick(2000, { reports: false });
+    expect(ctx2.cancels()).toBe(0);
+    ctx2.tick(600, { reports: false });
+    expect(ctx2.cancels()).toBeGreaterThanOrEqual(1);
+    expect(ctx2.state().motion.lastJog.reason).toBe('stale');
+  });
+
+  // Contre-revue M6 : une échéance fixe, non renouvelée par les keepalives.
+  test('a continuous jog is cancelled at its planned duration plus SESSION_MARGIN_MS, keepalives or not', async () => {
+    const ctx = setup({ homed: true });
+    // X99 at F500: 11.88 s planned.
+    const res = await running(ctx);
+    let t = 0;
+    while (t < 11880 + SESSION_MARGIN_MS - 200) {
+      ctx.tick(100);
+      t += 100;
+      await ctx.motion('jog-keepalive', { jogId: res.jogId });
+    }
+    expect(ctx.cancels()).toBe(0);
+    for (let i = 0; i < 4 && !ctx.cancels(); i++) {
+      ctx.tick(100);
+      await ctx.motion('jog-keepalive', { jogId: res.jogId }).catch(() => null);
+    }
+    expect(ctx.cancels()).toBeGreaterThanOrEqual(1);
+    expect(ctx.state().motion.lastJog.reason).toBe('duration');
   });
 
   test('a takeover of the control lease cancels the jog', async () => {
@@ -780,6 +852,98 @@ describe('cross-check 4 · 3. bornes', () => {
     ctx.c.state.status.mpos.x = '150.000';
     const res = await ctx.motion('jog-start', HOLD);
     expect(res.command).toBe('$J=G91 G21 X249 F500');
+  });
+
+  // Our own full homing cycle ($H through the ticket), seen running (Home) for at least HOMING_MIN_MS, then Idle.
+  const homeOurs = async (ctx) => {
+    const ticket = await ctx.req('prepare', { operation: 'home' });
+    await ctx.req('home', { nonce: ticket.nonce });
+    ctx.c.state.status.activeState = 'Home';
+    ctx.tick(1100);
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.report();
+  };
+
+  test('$23 bit X, notre prise d’origine ($H) vue finie à MPos X 0 (origine forcée par le firmware) : course [0, 400] seule, pas depuis 0 permis', async () => {
+    const ctx = setup();
+    ctx.c.settings.settings.$23 = '1';
+    ctx.c.state.status.mpos.x = '0.000';
+    // $H, Home then Idle, the machine found at X 0 (HOMING_FORCE_SET_ORIGIN or Grbl_ESP32 home_mpos 0).
+    await homeOurs(ctx);
+    expect(ctx.state().homed).toBe(true);
+    expect(ctx.state().motion.continuousReason.X).toBe('');
+    const res = await ctx.motion('jog', { ...STEP, step: 1 });
+    expect(res.command).toBe('$J=G91 G21 X1 F500');
+    ctx.settle();
+    // Below 0 is outside the only convention left: refused, nothing written.
+    const before = ctx.c.written.length;
+    await expect(ctx.motion('jog', { ...STEP, direction: -1, step: 0.1 })).rejects.toThrow(/X sortirait de la course \(-0\.1 mm machine, course 0 → 400\)/);
+    expect(ctx.c.written.length).toBe(before);
+    // An alarm forgets it with the homing: nothing moves until a new homing cycle is seen.
+    ctx.c.runner.emit('alarm', 'ALARM:1');
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.report();
+    await expect(ctx.motion('jog', { ...STEP, step: 10 })).rejects.toThrow(/non constaté/);
+    // A cycle of another client ($HY alone may leave X where it was): homed, but nothing learnt from it.
+    ctx.home();
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/Pas refusé : convention de course ambiguë/);
+    // Our own $H again: [0, 400] again.
+    await homeOurs(ctx);
+    await ctx.motion('jog', { ...STEP, step: 0.1 });
+  });
+
+  test('$23 bit X, prise d’origine finie ailleurs qu’à 0 (Grbl standard, -399) : les deux conventions restent candidates', async () => {
+    const ctx = setup();
+    ctx.c.settings.settings.$23 = '1';
+    ctx.c.state.status.mpos.x = '-399.000';
+    await homeOurs(ctx);
+    // Moved to 0 afterwards: ambiguous as before, the homing end proved nothing about 0.
+    ctx.c.state.status.mpos.x = '0.000';
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/Pas refusé : convention de course ambiguë/);
+  });
+
+  // Contre-revue C1 : rapports en WPos sans WCO reçu, la MPos de CNCjs vaut WPos ; la fin de cycle à
+  // « 0 » n'est pas une preuve. Avant correction, X passait à [0, 400] et X10 partait depuis 0.
+  test('$23 bit X, $H fini à X 0 en WPos sans WCO reçu : rien n’est appris, la course reste ambiguë', async () => {
+    const ctx = setup();
+    ctx.c.settings.settings.$23 = '1';
+    ctx.c.settings.settings.$10 = '0';
+    ctx.c.runner.emit('raw', { raw: '<Idle|WPos:0.000,0.000,0.000|FS:0,0>' });
+    ctx.c.state.status.mpos.x = '0.000';
+    await homeOurs(ctx);
+    expect(ctx.state().homed).toBe(true);
+    // The real WCO arrives: the machine is in fact at -399 (standard Grbl).
+    ctx.c.state.status.mpos.x = '-399.000';
+    ctx.c.runner.emit('status', { wco: { x: '-399.000', y: '0.000', z: '0.000' } });
+    ctx.c.state.status.mpos.x = '0.000';
+    ctx.report();
+    await expect(ctx.motion('jog', { ...STEP, step: 10 })).rejects.toThrow(/convention de course ambiguë/);
+    await expect(ctx.motion('jog-start', HOLD)).rejects.toThrow(/convention de course ambiguë/);
+  });
+
+  test('$23 changé après notre $H : la convention apprise ne vaut plus', async () => {
+    const ctx = setup();
+    ctx.c.settings.settings.$23 = '1';
+    ctx.c.state.status.mpos.x = '0.000';
+    await homeOurs(ctx);
+    await ctx.motion('jog', { ...STEP, step: 0.1 });
+    ctx.settle();
+    ctx.c.state.status.mpos.x = '0.000';
+    ctx.c.settings.settings.$23 = '3';
+    ctx.report();
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/convention de course ambiguë/);
+  });
+
+  test('une prise d’origine d’un autre client après la nôtre efface la convention apprise', async () => {
+    const ctx = setup();
+    ctx.c.settings.settings.$23 = '1';
+    ctx.c.state.status.mpos.x = '0.000';
+    await homeOurs(ctx);
+    expect(ctx.state().motion.continuousReason.X).toBe('');
+    // No alarm in between: only the foreign cycle (Home then Idle) drops it.
+    ctx.home();
+    expect(ctx.state().homed).toBe(true);
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/convention de course ambiguë/);
   });
 
   test('pas > 1 mm : sûr dans les deux conventions et dans la course', async () => {

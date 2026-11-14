@@ -70,7 +70,14 @@ for(const lang of ['fr','en','es']){
   // Repos: unchanged words.
   p.show(STATES.repos,'home');
   assert.deepEqual(p.tile('home'),{tone:'ok',text:t('Prêt à démarrer'),empty:'false'});
-  assert.deepEqual(p.tile('jog'),{tone:'warn',text:t('Déplacements à blanc'),empty:'false'});
+  // Préparer moves the machine for real (2026-11-14): the tile says whether the server accepts a move now.
+  assert.deepEqual(p.tile('jog'),{tone:'warn',text:t('Déplacement indisponible'),empty:'false'},'no motion state: unavailable');
+  p.show({...STATES.repos,motion:{canJog:true}},'home');
+  assert.deepEqual(p.tile('jog'),{tone:'ok',text:t('Prêt à déplacer'),empty:'false'});
+  p.show({...STATES.repos,motion:{canJog:false,jogReason:'Rapports en pouces ($13=1) ou réglage $13 inconnu : le déplacement réel exige $13=0.'}},'home');
+  assert.deepEqual(p.tile('jog'),{tone:'warn',text:t('Déplacement indisponible'),empty:'false'});
+  assert.notEqual(t('Prêt à déplacer'),lang==='fr'?'':'Prêt à déplacer');
+  p.show(STATES.repos,'home');
   assert.deepEqual(p.tile('machine'),{tone:'warn',text:t('Mise en service en cours'),empty:'false'});
   assert.equal(p.tile('files').text,t('Chargé : ')+'Parcours_de_test_1.gcode');
   assert.equal(p.els['ks-resume-hint'].textContent,'Parcours_de_test_1.gcode'+t(' · prêt à démarrer'));
@@ -271,9 +278,9 @@ assert.doesNotMatch(responsive,/@media \(max-height:560px\) and \(min-width:600p
     assert.equal(banner.getAttribute('data-pilot'),PILOT[k]?'other':FIX[k]?'mine':'unknown','data-pilot in state '+k);
   }
 }
-// --- 4. Cache: the files of the lot are served as v2r.
+// --- 4. Cache: the files of the lot are served as v2s.
 for(const page of ['index.html','simulation.html']){
   const html=read(page);
-  for(const f of ['design-tokens.css','ui-2027.css','responsive.css','touch-shell.js','header-clock.js','i18n-messages.js'])assert(html.includes(f+'?v=v2r'),page+': '+f+'?v=v2r');
+  for(const f of ['design-tokens.css','ui-2027.css','responsive.css','touch-shell.js','header-clock.js','i18n-messages.js'])assert(html.includes(f+'?v=v2s'),page+': '+f+'?v=v2s');
 }
 console.log('PASS menu screen: tile and resume words for homing, probing, jog, stale, offline and alarm (FR/EN/ES), empty indicators kept in place, full-height tiles, pill, 3:1 outlines, opaque disabled strip buttons, short rail at 650 px, strip cells with their own ellipsis; strip buttons hidden/disabled unchanged in 10 states, none hidden by a stylesheet, disabled text at 4.5:1 on its stripes, no repeated DOM write.');

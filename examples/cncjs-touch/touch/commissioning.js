@@ -395,12 +395,22 @@
       e.status==='skipped'?t('Passée le ')+dateText(e.date)+t(' sous la responsabilité de l’opérateur.'):t('En cours : étape ')+((e.step||0)+1)+' / '+STEPS.length+'.');
     if(settingsButton)set(settingsButton,e&&e.status==='progress'?t('Reprendre l’assistant'):e?t('Relancer l’assistant'):t('Lancer l’assistant'));
   }
-  var overview=document.querySelector('.ks-machine-overview'),machineUnlock=null,machineHome=null,machineReason=null,asked='',waiting=false,answered='',lastStatus=null;
+  var overview=document.querySelector('.ks-machine-overview'),machineUnlock=null,machineHome=null,machineReread=null,machineReason=null,asked='',waiting=false,answered='',lastStatus=null,rereadNote=null;
   if(overview&&overview.appendChild){
     var tools=el('div','ks-wiz-row ks-machine-commands');
     machineUnlock=button(t('Déverrouiller ($X)…'),'ks-secondary',function(){command(function(c){c.prepareCommand('unlock');});});
     machineHome=button(t('Prise d’origine ($H)…'),'ks-secondary',function(){command(function(c){c.prepareCommand('home');});});
-    tools.appendChild(machineUnlock);tools.appendChild(machineHome);tools.appendChild(button(t('Mise en service…'),'ks-secondary',open));
+    // CNCjs forgets the board's settings after a restart: $H is then refused (« Réglage $22 inconnu »).
+    // The reading of $$ is offered where that refusal shows, only then (before « Mise en service… », the last of the row).
+    // Its answer (sent, refused, done) shows on the line under the commands, like the answers to $X / $H.
+    machineReread=button(t('Relire les réglages ($$)'),'ks-secondary',function(){
+      var c=jc();if(!c||typeof c.readSettings!=='function')return;
+      rereadNote={text:t('Relecture des réglages de la carte ($$)…'),tone:'sent'};if(lastStatus)commandReason(lastStatus);
+      var done=function(text,tone){rereadNote={text:text,tone:tone,key:null};if(lastStatus)commandReason(lastStatus);};
+      try{c.readSettings().then(function(r){done(r&&r.message?shown(r.message):t('Réglages relus.'),'confirmed');},function(e){done(shown(e&&e.message||''),e&&e.uncertain?'uncertain':'failed');});}
+      catch(e){done(shown(e&&e.message||''),'failed');}
+    });machineReread.id='ks-machine-reread';machineReread.hidden=true;
+    tools.appendChild(machineUnlock);tools.appendChild(machineHome);tools.appendChild(machineReread);tools.appendChild(button(t('Mise en service…'),'ks-secondary',open));
     overview.appendChild(tools);
     // Why $X / $H are greyed out (a title is not shown on touch), or the answer to a request sent from
     // here: one status line under the commands. Text only: handlers, guards and disabled are above.
@@ -410,7 +420,8 @@
     // Which answer is ours: marked in the capture phase (before the handler above publishes « Demande
     // envoyée… »), dropped after it when nothing was sent (busy, no state). The confirmation dialog of that
     // request continues it. Listeners only: what the buttons send and when they are enabled is unchanged.
-    var ask=function(phase){return function(){asked=phase;waiting=true;answered='';};};
+    // A new $X / $H request ends the answer of « Relire » (its own answer must show).
+    var ask=function(phase){return function(){asked=phase;waiting=true;answered='';rereadNote=null;};};
     var unanswered=function(){if(!waiting)return;waiting=false;asked='';if(lastStatus)commandReason(lastStatus);};
     machineUnlock.addEventListener('click',ask('prepare'),true);machineHome.addEventListener('click',ask('prepare'),true);
     machineUnlock.addEventListener('click',unanswered);machineHome.addEventListener('click',unanswered);
@@ -440,6 +451,7 @@
   }
   // A recent answer to $X / $H asked from this screen first (otherwise a refused $H at rest would hide
   // behind the permanent « $X only in alarm »), else the server's reasons for the disabled buttons.
+  var UNKNOWN_SETTINGS=/réglage \$\d+[^:.]*inconnu|\$\d+ inconnu/i;
   function commandReason(d){
     if(!machineReason)return;
     var m=d&&d.machine||null,state=d&&d.feedbackState||'',feedback=d&&d.feedback||'',text='',tone='';
@@ -452,8 +464,16 @@
       else if(uh)text=t('$H indisponible : ')+reasonText(uh);
       // Alarm during a job: Arrêter (strip) ends it and makes $X available; the server's reason is kept.
       if(ux&&uh&&/^alarm/i.test(m.activeState||'')&&m.workflow!=='idle')text+=' '+t('Touchez Arrêter, puis $X.');
+      // Hold without a job (a stopped job left Hold:0): Arrêter (strip) resets the board, then $H.
+      if(uh&&/^hold/i.test(m.activeState||'')&&m.workflow==='idle')text+=' '+t('Touchez Arrêter, puis $H.');
+      // In alarm the reading of $$ (at rest only) needs $X first.
+      if(uh&&UNKNOWN_SETTINGS.test(uh))text+=' '+(/^alarm/i.test(m.activeState||'')?t('Touchez Déverrouiller ($X), puis Relire les réglages ($$), puis $H.'):t('Touchez Relire les réglages ($$).'));
     }
-    if(answer(state,feedback,text)){text=feedback;tone=state;}
+    // The answer to « Relire les réglages » until the reasons change after it.
+    if(rereadNote&&rereadNote.key===null)rereadNote.key=text;
+    if(rereadNote&&rereadNote.key!==undefined&&rereadNote.key!==text)rereadNote=null;
+    if(rereadNote){text=rereadNote.text;tone=rereadNote.tone;}
+    else if(answer(state,feedback,text)){text=feedback;tone=state;}
     set(machineReason,text);prop(machineReason,'hidden',!text);
     if((machineReason.getAttribute('data-feedback')||'')!==tone){if(tone)machineReason.setAttribute('data-feedback',tone);else machineReason.removeAttribute('data-feedback');}
   }
@@ -466,7 +486,7 @@
     var was=current;current=e&&e.detail;
     if(was==='commissioning'&&current!=='commissioning'){stopSpindle();view=null;}
     // The answer line only follows a request made from Machine while Machine stays open.
-    if(asked&&current!=='machine'){asked='';waiting=false;if(lastStatus)commandReason(lastStatus);}
+    if((asked||rereadNote)&&current!=='machine'){asked='';waiting=false;rereadNote=null;if(lastStatus)commandReason(lastStatus);}
   });
   window.addEventListener('cnc-job-status',function(e){
     var d=e&&e.detail||{};if(d.simulation)return;
@@ -474,6 +494,8 @@
     if(machine&&machine.port!==port){port=machine.port;settingsCard();}
     if(machineUnlock){prop(machineUnlock,'disabled',!machine||!machine.canUnlock);prop(machineUnlock,'title',t(machine&&machine.unlockReason||''));}
     if(machineHome){prop(machineHome,'disabled',!machine||!machine.canHome);prop(machineHome,'title',t(machine&&machine.homeReason||''));}
+    if(machineReread){prop(machineReread,'hidden',!(machine&&!machine.canHome&&UNKNOWN_SETTINGS.test(machine.homeReason||'')));prop(machineReread,'disabled',!machine||!machine.fresh||machine.activeState!=='Idle'||machine.workflow!=='idle');
+      prop(machineReread,'title',machine&&/^alarm/i.test(machine.activeState||'')?t('Touchez Déverrouiller ($X), puis Relire les réglages ($$), puis $H.'):'');}
     lastStatus=d;commandReason(d);
     if(view){observe(STEPS[index],st,machine);refresh();}
     // First real controller seen on this port: open the assistant once, from the menu.

@@ -155,16 +155,16 @@
   }
   bindSheet('ks-origin-help-sheet',uiLocale.t('Comprendre l’origine'),'ks-origin-explanation','ks-origin-info');
   var preparationActions=document.createElement('div');preparationActions.className='ks-preparation-actions';
-  var probeEntry=document.querySelector('#screen-jog .probe-entry');if(probeEntry){probeEntry.textContent=uiLocale.t('Palpage X / Y / Z');preparationActions.appendChild(probeEntry);}
+  var probeEntry=document.querySelector('#screen-jog .probe-entry');if(probeEntry){probeEntry.textContent=simulation?uiLocale.t('Palpage X / Y / Z'):uiLocale.t('Sonde');preparationActions.appendChild(probeEntry);}
   var originInfo=document.getElementById('ks-origin-info');originInfo.textContent=uiLocale.t('Aide aux repères');preparationActions.appendChild(originInfo);
   document.querySelector('#screen-jog .ks-panel-intro').appendChild(preparationActions);
-  var originProbe=document.createElement('button');originProbe.type='button';originProbe.className='ks-secondary';originProbe.textContent=uiLocale.t('Ouvrir le palpage X / Y / Z');originProbe.addEventListener('click',function(){go('probe');});document.getElementById('ks-origin-explanation').appendChild(originProbe);
+  var originProbe=document.createElement('button');originProbe.type='button';originProbe.className='ks-secondary';originProbe.textContent=simulation?uiLocale.t('Ouvrir le palpage X / Y / Z'):uiLocale.t('Ouvrir la sonde');originProbe.addEventListener('click',function(){go('probe');});document.getElementById('ks-origin-explanation').appendChild(originProbe);
   if(simulation){
     bindSheet('ks-origin-reset-sheet',uiLocale.t('Réinitialiser la simulation'),'ks-origin-reset-content','ks-origin-reset');
     bindSheet('ks-machine-help-sheet',uiLocale.t('Test d’alarme fictive'),'ks-machine-explanation','ks-machine-info');
   }else{
     bindSheet('ks-machine-help-sheet',uiLocale.t('Fonctions de la machine'),'ks-machine-explanation','ks-machine-info');
-    bindSheet('ks-jog-settings-sheet',uiLocale.t('Vitesse du test à blanc'),'ks-jog-settings-content','ks-jog-settings');
+    bindSheet('ks-jog-settings-sheet',uiLocale.t('Vitesse de déplacement'),'ks-jog-settings-content','ks-jog-settings');
   }
   bindSheet('ks-history-export-sheet',uiLocale.t('Exporter le journal'),'ks-history-export-content','ks-history-export');
   if(!simulation){
@@ -239,7 +239,8 @@
     live('home',off?'off':alarm?'danger':stale?'warn':running?'info':paused?'warn':moving?'info':m.canStart?'ok':'',
       off?uiLocale.t('Hors ligne'):alarm?uiLocale.t('Alarme'):stale?uiLocale.t('Rapport ancien')+share:running?uiLocale.t('En cours')+share:paused?uiLocale.t('En pause'):moving?word.word:m.canStart?uiLocale.t('Prêt à démarrer'):file||uiLocale.t('Aucun fichier chargé'));
     live('files',off?'off':file?'ok':'',off?uiLocale.t('État du fichier indisponible'):file?uiLocale.t('Chargé : ')+file:uiLocale.t('Choisir un parcours'));
-    live('jog',alarm?'danger':off?'off':running||paused||moving?'warn':simulation?'':'warn',alarm?uiLocale.t('Bloqué : alarme'):off?uiLocale.t('Hors ligne'):running||paused?uiLocale.t('Bloqué : travail en cours'):moving?uiLocale.t('Machine en mouvement'):simulation?uiLocale.t('Simulateur'):uiLocale.t('Déplacements à blanc'));
+    var canJog=!!(m&&m.motion&&m.motion.canJog===true);
+    live('jog',alarm?'danger':off?'off':running||paused||moving?'warn':simulation?'':canJog?'ok':'warn',alarm?uiLocale.t('Bloqué : alarme'):off?uiLocale.t('Hors ligne'):running||paused?uiLocale.t('Bloqué : travail en cours'):moving?uiLocale.t('Machine en mouvement'):simulation?uiLocale.t('Simulateur'):canJog?uiLocale.t('Prêt à déplacer'):uiLocale.t('Déplacement indisponible'));
     var commissioning=!simulation&&window.cncCommissioning&&typeof window.cncCommissioning.status==='function'?window.cncCommissioning.status():null;
     var toDo=commissioning&&(commissioning.state==='none'||commissioning.state==='progress');
     // The tiles have no « run » style: a moving machine is shown in the info tone.

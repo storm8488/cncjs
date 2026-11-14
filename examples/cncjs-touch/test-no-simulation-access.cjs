@@ -1,12 +1,12 @@
 'use strict';
 // Final interface (2026-11-11): the real page (index.html) offers no way into the
 // simulation page and shows no wording of that mode. simulation.html stays in the
-// repository as a test bench for the harness; the six files below are not deployed
+// repository as a test bench for the harness; the files below are not deployed
 // on the tablet. Offline, no browser: sources, the header statement and the guide.
 const fs=require('fs'),path=require('path'),vm=require('vm'),assert=require('assert').strict;
 const acorn=require('acorn');
 const dir=path.join(__dirname,'touch'),read=name=>fs.readFileSync(path.join(dir,name),'utf8');
-const SIMULATION_ONLY=['job-simulation.js','simulation-history.js','simulation-machine.js','simulation-motion.js','simulation-report.js'];
+const SIMULATION_ONLY=['coordinate-editor.js','coordinate-plan.js','job-simulation.js','simulation-history.js','simulation-machine.js','simulation-motion.js','simulation-report.js'];
 const FORBIDDEN=/simul|fictif|fictiv|fictic|virtuel|virtual/i;
 function scripts(html){return [...html.matchAll(/<script[^>]*\ssrc="([^"?]+)/g)].map(m=>m[1]);}
 
@@ -34,9 +34,9 @@ for(const file of fs.readdirSync(dir).filter(n=>n.endsWith('.js')&&SIMULATION_ON
 const simulationScripts=scripts(read('simulation.html')),indexScripts=scripts(index);
 assert.deepEqual(simulationScripts.filter(s=>indexScripts.indexOf(s)<0).sort(),SIMULATION_ONLY.slice().sort());
 SIMULATION_ONLY.concat('simulation.html').forEach(f=>assert(fs.existsSync(path.join(dir,f)),f+' kept in the repository for the harness'));
-// The versioned list the tablet deployment applies holds exactly these six files.
+// The versioned list the tablet deployment applies holds exactly these files.
 const listed=fs.readFileSync(path.join(__dirname,'tablet-exclude.txt'),'utf8').split(/\r?\n/).map(l=>l.trim()).filter(l=>l&&l[0]!=='#');
-assert.deepEqual(listed,excluded,'tablet-exclude.txt lists the six files, simulation.html first');
+assert.deepEqual(listed,excluded,'tablet-exclude.txt lists the excluded files, simulation.html first');
 
 // The translation catalogue, in a given language, as the page builds it.
 function locale(language){

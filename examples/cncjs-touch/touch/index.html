@@ -16,8 +16,8 @@ html.cnc-degraded #cnc-boot{top:var(--statusbar-h,72px)}
 <script src="startup.js?v=a31f"></script>
 <link rel="stylesheet" href="app.css?v=theme1">
 <link rel="stylesheet" href="files-touch.css?v=review1">
-<link rel="stylesheet" href="shared-library.css?v=v2r">
-<link rel="stylesheet" href="viewport-fit.css?v=kept2"><link rel="stylesheet" href="touch-shell.css?v=v2r"><link rel="stylesheet" href="preview-viewer.css?v=v2r"><link rel="stylesheet" href="probe.css?v=v2r"><link rel="stylesheet" href="operator-tools.css?v=ui1"><link rel="stylesheet" href="settings-list.css?v=v2r"><link rel="stylesheet" href="commissioning.css?v=ui1"><link rel="stylesheet" href="design-tokens.css?v=v2r"><link rel="stylesheet" href="ui-2027.css?v=v2r"><link rel="stylesheet" href="preview-3d.css?v=v2r"><link rel="stylesheet" href="preview-advanced.css?v=v2r"><link rel="stylesheet" href="responsive.css?v=v2r"></head>
+<link rel="stylesheet" href="shared-library.css?v=v2s">
+<link rel="stylesheet" href="viewport-fit.css?v=kept2"><link rel="stylesheet" href="touch-shell.css?v=v2s"><link rel="stylesheet" href="preview-viewer.css?v=v2s"><link rel="stylesheet" href="probe.css?v=v2s"><link rel="stylesheet" href="operator-tools.css?v=ui1"><link rel="stylesheet" href="settings-list.css?v=v2s"><link rel="stylesheet" href="commissioning.css?v=ui1"><link rel="stylesheet" href="design-tokens.css?v=v2s"><link rel="stylesheet" href="ui-2027.css?v=v2s"><link rel="stylesheet" href="preview-3d.css?v=v2s"><link rel="stylesheet" href="preview-advanced.css?v=v2s"><link rel="stylesheet" href="responsive.css?v=v2s"></head>
 <body><div id="cnc-boot" role="status"><strong>CNCjs TOUCH</strong><p id="cnc-boot-message">Chargement de l’interface…</p><a href="index.html">Réessayer</a><noscript>JavaScript doit être activé pour utiliser l’interface.</noscript></div><header id="real-banner"></header>
 <header id="status-bar">
   <span id="st-server" class="badge">Serveur : …</span>
@@ -44,13 +44,13 @@ html.cnc-degraded #cnc-boot{top:var(--statusbar-h,72px)}
   </section>
 
   <section id="screen-jog" class="screen">
- <div class="card wide ks-panel-intro"><div><h2>Déplacer et définir l’origine <span id="dry-tag" class="tag">VÉRIFICATION SEULE</span></h2><p id="jog-msg" role="status">Machine non prête.</p></div><button id="ks-origin-info" class="ks-secondary">Repères et origine</button></div>
- <div class="card ks-motion-coordinates"><h2>Coordonnées du contrôleur · mm</h2><table class="ks-coordinate-table"><thead><tr><th>Axe</th><th>Machine</th><th>Travail</th><th><span class="ks-sr-only">Définir le zéro</span></th></tr></thead><tbody>
- <tr><th scope="row">X</th><td data-coordinate="machine"><b data-machine-copy="mx">—</b></td><td data-coordinate="work"><b id="jx" data-machine-copy="wx">—</b></td><td><button disabled title="Origines non activées">Zéro X</button></td></tr>
-<tr><th scope="row">Y</th><td data-coordinate="machine"><b data-machine-copy="my">—</b></td><td data-coordinate="work"><b id="jy" data-machine-copy="wy">—</b></td><td><button disabled title="Origines non activées">Zéro Y</button></td></tr>
-<tr><th scope="row">Z</th><td data-coordinate="machine"><b data-machine-copy="mz">—</b></td><td data-coordinate="work"><b id="jz" data-machine-copy="wz">—</b></td><td><button disabled title="Origines non activées">Zéro Z</button></td></tr>
- </tbody></table><div class="ks-motion-step"><h2>Pas de déplacement · mm</h2><div class="steps" id="steps"><button class="step" data-step="0.1">0.1</button><button class="step active" data-step="1">1</button><button class="step" data-step="10">10</button></div></div>
- <div class="ks-motion-zero"><button class="ks-secondary ks-origin-zero" disabled title="Origines non activées">Zéro XYZ</button><button id="ks-jog-settings" class="ks-secondary">Vitesse du test…</button></div><p id="jog-controller" class="ks-help">Contrôleur suivi : aucun</p><p id="jog-feedback" class="ks-help" role="status">Aucun déplacement réel. Origines et palpage non activés.</p></div>
+ <div class="card wide ks-panel-intro"><div><h2>Déplacer et définir l’origine</h2><p id="jog-msg" role="status">Machine non prête.</p></div><button id="ks-origin-info" class="ks-secondary">Repères et origine</button></div>
+ <div class="card ks-motion-coordinates"><h2>Coordonnées du contrôleur</h2><table class="ks-coordinate-table"><thead><tr><th>Axe</th><th>Machine</th><th>Travail</th><th><span class="ks-sr-only">Définir le zéro</span></th></tr></thead><tbody>
+ <tr><th scope="row">X</th><td data-coordinate="machine"><b data-machine-copy="mx">—</b></td><td data-coordinate="work"><b id="jx" data-machine-copy="wx">—</b></td><td><button id="jog-zero-x" disabled data-origin data-axis="x">Zéro X</button></td></tr>
+<tr><th scope="row">Y</th><td data-coordinate="machine"><b data-machine-copy="my">—</b></td><td data-coordinate="work"><b id="jy" data-machine-copy="wy">—</b></td><td><button id="jog-zero-y" disabled data-origin data-axis="y">Zéro Y</button></td></tr>
+<tr><th scope="row">Z</th><td data-coordinate="machine"><b data-machine-copy="mz">—</b></td><td data-coordinate="work"><b id="jz" data-machine-copy="wz">—</b></td><td><button id="jog-zero-z" disabled data-origin data-axis="z">Zéro Z</button></td></tr>
+ </tbody></table><div class="ks-motion-step"><h2>Pas · mm</h2><div class="steps" id="steps"><button class="step" data-step="0.1">0.1</button><button class="step active" data-step="1">1</button><button class="step" data-step="10">10</button><button class="step ks-step-hold" data-step="hold" hidden>Continu</button></div></div>
+ <div class="ks-motion-zero"><button id="jog-zero-xyz" class="ks-secondary ks-origin-zero" disabled data-origin data-axis="xyz">Zéro XYZ</button><button id="ks-jog-settings" class="ks-secondary">Vitesse…</button></div><p id="jog-controller" class="ks-help">Contrôleur suivi : aucun</p><p id="jog-feedback" class="ks-help" role="status"></p></div>
  <div class="card ks-motion-arrows">
       <h2>Axes X / Y</h2>
       <div class="pad">
@@ -71,8 +71,8 @@ html.cnc-degraded #cnc-boot{top:var(--statusbar-h,72px)}
       </div>
     </div>
   
- <div id="ks-origin-explanation" hidden><p>La position machine et la position de travail proviennent du contrôleur. Définir un zéro de travail change le repère de la pièce sans déplacer les axes.</p><p>Les commandes d’origine et de palpage restent désactivées. Les flèches testent le choix d’axe, de pas et de vitesse sans envoyer de commande.</p><h2>Palpage X / Y / Z</h2><p>Les cotes, profils enregistrés et diagnostics sont regroupés dans le panneau Palpage. Son lancement réel reste désactivé.</p></div>
- <div id="ks-jog-settings-content" hidden><p>Vitesse choisie pour l’essai à blanc. Aucun déplacement réel n’est envoyé.</p><h2>Vitesse · mm/min</h2><div class="steps" id="feeds"><button class="step" data-feed="200">200</button><button class="step active" data-feed="800">800</button><button class="step" data-feed="1500">1500</button></div></div>
+ <div id="ks-origin-explanation" hidden><p>La position machine et la position de travail proviennent du contrôleur. Définir un zéro de travail change le repère de la pièce sans déplacer les axes.</p><p>Les flèches déplacent la machine du pas choisi, à la vitesse choisie ; en continu, tant que le doigt reste posé. Arrêter (bandeau) annule un déplacement en cours.</p><p>Machine non référencée : pas de 1 mm au plus et pas de continu. Faites la prise d’origine dans Machine.</p><p>L’arrêt d’urgence physique reste le seul arrêt garanti.</p><h2>Sonde</h2><p>Zéro Z avec une plaque : dans Suivi, machine au repos. Profils et diagnostic de la sonde : panneau Sonde.</p></div>
+ <div id="ks-jog-settings-content" hidden><p>Vitesse des déplacements manuels. Elle ne change pas les vitesses d’un programme.</p><h2>Vitesse · mm/min</h2><div class="steps" id="feeds"></div><p id="jog-feed-limits" class="ks-help"></p></div>
 </section>
 <section id="screen-files" class="screen">
     <div class="card wide">
@@ -100,7 +100,7 @@ html.cnc-degraded #cnc-boot{top:var(--statusbar-h,72px)}
  <div class="card wide ks-panel-intro"><div><h2>Contrôleur CNCjs</h2><p>Connexion, coordonnées et commandes $X/$H</p></div><button id="ks-machine-info" class="ks-secondary">Fonctions disponibles</button></div>
  <div class="card ks-machine-overview"><h2>Connexion et état</h2><p data-machine-copy="st-server">Serveur : …</p><p data-machine-copy="st-ctrl">Contrôleur : …</p><p class="ks-real-state" data-machine-copy="st-state">État : …</p><button id="ks-machine-follow" class="ks-secondary">Ouvrir le suivi →</button></div>
  <div class="card ks-machine-coordinates"><h2>Coordonnées du contrôleur · mm</h2><table class="ks-coordinate-table"><thead><tr><th>Axe</th><th>Machine</th><th>Travail</th></tr></thead><tbody><tr><th scope="row">X</th><td><b data-machine-copy="mx">—</b></td><td><b data-machine-copy="wx">—</b></td></tr><tr><th scope="row">Y</th><td><b data-machine-copy="my">—</b></td><td><b data-machine-copy="wy">—</b></td></tr><tr><th scope="row">Z</th><td><b data-machine-copy="mz">—</b></td><td><b data-machine-copy="wz">—</b></td></tr></tbody></table><p class="ks-help">En cas d’alarme, consulter sa cause dans CNCjs.</p></div>
- <div id="ks-machine-explanation" hidden><p>Lecture seule : coordonnées, état et paramètres du contrôleur. Aucun paramètre n’est modifié ici.</p><p>Commandes réelles, chacune avec sa confirmation : Déverrouiller ($X) et Prise d’origine ($H) sur cet écran ; Déplacement réel, Origine ici et Palpage X / Y / Z depuis Préparer, quand ils sont activés.</p><p>Fichiers : bibliothèque partagée, chargement et exécution réels. Le démarrage et la reprise demandent une confirmation et un état machine compatible.</p><p>Ce panneau n’est pas un arrêt d’urgence. Conserver l’accès à l’arrêt physique de la machine.</p></div>
+ <div id="ks-machine-explanation" hidden><p>Lecture seule : coordonnées, état et paramètres du contrôleur. Aucun paramètre n’est modifié ici.</p><p>Commandes réelles : Déverrouiller ($X) et Prise d’origine ($H) sur cet écran, chacune avec sa confirmation ; déplacements et zéros de travail depuis Préparer ; zéro Z avec plaque depuis Suivi.</p><p>Fichiers : bibliothèque partagée, chargement et exécution réels. Le démarrage et la reprise demandent une confirmation et un état machine compatible.</p><p>Ce panneau n’est pas un arrêt d’urgence. Conserver l’accès à l’arrêt physique de la machine.</p></div>
 </section>
 
 
@@ -133,24 +133,24 @@ html.cnc-degraded #cnc-boot{top:var(--statusbar-h,72px)}
   <button data-screen="settings" class="tab">Réglages</button>
 </nav>
 
-<script defer src="i18n-messages.js?v=v2r"></script><script defer src="i18n-messages-machine.js?v=v2r"></script><script defer src="i18n-messages-profiles.js?v=v2r"></script><script defer src="i18n-messages-viz.js?v=fix3"></script><script defer src="i18n-messages-origin.js?v=perfui2"></script><script defer src="i18n.js?v=v2r"></script><script defer src="tablet-profile.js?v=v2r"></script><script defer src="strip-guard.js?v=a31h"></script><script defer src="numeric-pad.js?v=a31g"></script><script defer src="download-file.js?v=downloads16"></script><script defer src="cnc-state.js?v=network11"></script><script defer src="job-stream.js?v=fix3"></script>
+<script defer src="i18n-messages.js?v=v2s"></script><script defer src="i18n-messages-machine.js?v=v2s"></script><script defer src="i18n-messages-profiles.js?v=v2s"></script><script defer src="i18n-messages-viz.js?v=fix3"></script><script defer src="i18n-messages-origin.js?v=perfui2"></script><script defer src="i18n.js?v=v2s"></script><script defer src="tablet-profile.js?v=v2s"></script><script defer src="strip-guard.js?v=a31h"></script><script defer src="numeric-pad.js?v=a31g"></script><script defer src="download-file.js?v=downloads16"></script><script defer src="cnc-state.js?v=network11"></script><script defer src="job-stream.js?v=fix3"></script>
 <script defer src="/socket.io/socket.io.js"></script>
-<script defer src="app.js?v=v2r"></script><script defer src="coordinate-plan.js?v=network11"></script><script defer src="dry-motion.js?v=v2r"></script>
-<script defer src="toolpath-3d.js?v=depth3"></script><script defer src="library-preview.js?v=v2r"></script>
-<script defer src="library-payload.js?v=network11"></script><script defer src="shared-library.js?v=v2r"></script><script defer src="projects.js?v=v2r"></script>
-<script defer src="grbl-help.js?v=v2r"></script>
-<script defer src="travel-check.js?v=v2r"></script><script defer src="program-check-view.js?v=msg31a"></script>
-<script defer src="job-controls.js?v=v2r"></script>
-<script defer src="job-dashboard.js?v=v2r"></script>
-<script defer src="job-resume.js?v=v2r"></script>
+<script defer src="app.js?v=v2s"></script>
+<script defer src="toolpath-3d.js?v=depth3"></script><script defer src="library-preview.js?v=v2s"></script>
+<script defer src="library-payload.js?v=network11"></script><script defer src="shared-library.js?v=v2s"></script><script defer src="projects.js?v=v2s"></script>
+<script defer src="grbl-help.js?v=v2s"></script>
+<script defer src="travel-check.js?v=v2s"></script><script defer src="program-check-view.js?v=msg31a"></script>
+<script defer src="job-controls.js?v=v2s"></script>
+<script defer src="job-dashboard.js?v=v2s"></script>
+<script defer src="job-resume.js?v=v2s"></script>
 
 <script defer src="coordinate-display.js?v=network12"></script>
 
-<script defer src="screen-saver.js?v=v2r"></script><script defer src="display-settings.js?v=v2r"></script><script defer src="tablet-diagnostic.js?v=v2r"></script><script defer src="laser-z.js?v=prof7"></script><script defer src="backlight.js?v=v2r"></script>
+<script defer src="screen-saver.js?v=v2s"></script><script defer src="display-settings.js?v=v2s"></script><script defer src="tablet-diagnostic.js?v=v2s"></script><script defer src="laser-z.js?v=prof7"></script><script defer src="backlight.js?v=v2s"></script>
 
-<script defer src="session-journal.js?v=v2r"></script><script defer src="real-history.js?v=v2r"></script>
-<script defer src="machine-limits.js?v=v2r"></script><script defer src="probe-model.js?v=network11"></script><script defer src="probe-transfer.js?v=v2r"></script><script defer src="probe-profiles.js?v=network11"></script><script defer src="probe-diagram.js?v=pass2a"></script><script defer src="probe-preparation.js?v=network11"></script><script defer src="profile-storage.js?v=network11"></script><script defer src="probe-ui.js?v=v2r"></script><script defer src="interface-guide.js?v=v2r"></script><script defer src="touch-shell.js?v=v2r"></script><script defer src="connect-cnc.js?v=v2r"></script><script defer src="header-clock.js?v=v2r"></script><script defer src="status-strip.js?v=v2r"></script>
-<script defer src="macros.js?v=review2"></script><script defer src="job-preparation.js?v=v2r"></script><script defer src="language-settings.js?v=v2r"></script><script defer src="system-monitor.js?v=v2r"></script><script defer src="tablet-actions.js?v=fix2"></script><script defer src="wifi-settings.js?v=v2r"></script><script defer src="system-updates.js?v=v2r"></script><script defer src="commissioning.js?v=v2r"></script><script defer src="screen-lock.js?v=a31h"></script><script defer src="job-follow.js?v=v2r"></script><script defer src="connection-status.js?v=v2r"></script><script defer src="preview-viewer.js?v=audit1"></script><script defer src="viewport-fit.js?v=prof2"></script><script defer src="coordinate-editor.js?v=v2r"></script><script defer src="real-motion.js?v=v2r"></script><script defer src="tool-position.js?v=v2r"></script><script defer src="preview-3d.js?v=v2r"></script><script defer src="motion-estimate.js?v=v2r"></script><script defer src="preview-inspect.js?v=v2r"></script><script defer src="laser-view.js?v=v2r"></script><script defer src="perf-harness.js?v=review1"></script><script defer src="startup-ready.js?v=network11"></script></body>
+<script defer src="session-journal.js?v=v2s"></script><script defer src="real-history.js?v=v2s"></script>
+<script defer src="machine-limits.js?v=v2s"></script><script defer src="probe-model.js?v=network11"></script><script defer src="probe-transfer.js?v=v2s"></script><script defer src="probe-profiles.js?v=network11"></script><script defer src="probe-diagram.js?v=pass2a"></script><script defer src="probe-preparation.js?v=network11"></script><script defer src="profile-storage.js?v=network11"></script><script defer src="probe-ui.js?v=v2s"></script><script defer src="interface-guide.js?v=v2s"></script><script defer src="touch-shell.js?v=v2s"></script><script defer src="connect-cnc.js?v=v2s"></script><script defer src="header-clock.js?v=v2s"></script><script defer src="status-strip.js?v=v2s"></script>
+<script defer src="macros.js?v=review2"></script><script defer src="job-preparation.js?v=v2s"></script><script defer src="language-settings.js?v=v2s"></script><script defer src="system-monitor.js?v=v2s"></script><script defer src="tablet-actions.js?v=fix2"></script><script defer src="wifi-settings.js?v=v2s"></script><script defer src="system-updates.js?v=v2s"></script><script defer src="commissioning.js?v=v2s"></script><script defer src="screen-lock.js?v=a31h"></script><script defer src="job-follow.js?v=v2s"></script><script defer src="connection-status.js?v=v2s"></script><script defer src="preview-viewer.js?v=audit1"></script><script defer src="viewport-fit.js?v=prof2"></script><script defer src="real-motion.js?v=v2s"></script><script defer src="tool-position.js?v=v2s"></script><script defer src="preview-3d.js?v=v2s"></script><script defer src="motion-estimate.js?v=v2s"></script><script defer src="preview-inspect.js?v=v2s"></script><script defer src="laser-view.js?v=v2s"></script><script defer src="perf-harness.js?v=review1"></script><script defer src="startup-ready.js?v=network11"></script></body>
 </html>
 
 

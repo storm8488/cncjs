@@ -2,8 +2,8 @@
 // D2 (L7, round 2): at 1366 × 911 the v2 Préparer right column was crushed by the v1 coordinates card
 // (« Déplacer l'outil… » behind a scroll, jog cross clipped). Composition of the mockup
 // performance-v2-preparer.html: steps 1–3 and « Déplacer l'outil… » in the right column, « Poser X Y
-// ici… » relayed to the existing « Déplacement réel » entry (X = 0 / Y = 0 keep their own ticket and
-// confirmation), « Contrôle final… » opening the guided preparation sheet. Then a budget computed from
+// ici… » opening the move area, whose Zéro X / Zéro Y keep their own ticket and
+// confirmation (real-motion.js), « Contrôle final… » opening the guided preparation sheet. Then a budget computed from
 // the CSS (rows, tokens, documented content heights at normal text) at 1366 × 911 and 1728 × 1152; the
 // browser harness measures the real rectangles.
 const assert = require('assert').strict, fs = require('fs');
@@ -14,37 +14,51 @@ const placed = { version: 1, available: true, identity, current: { wcs: 'G54', o
 (async () => {
   // ---- Composition and relays. ----
   const q = preparerPage(); q.status(idle()); await q.flush(); q.resolveLoads(); await q.flush();
-  const ids = ['pv2-summary', 'pv2-state', 'pv2-offset-x', 'pv2-offset-y', 'pv2-set-xy', 'pv2-travel', 'pv2-final-open', 'pv2-jog-open', 'pv2-tool-speed', 'pv2-tool-coordinates'];
+  const ids = ['pv2-summary', 'pv2-state', 'pv2-offset-x', 'pv2-offset-y', 'pv2-set-xy', 'pv2-travel', 'pv2-final-open', 'pv2-jog-open', 'pv2-tool-speed'];
   ids.forEach(id => assert(q.find(id), 'missing ' + id));
   const summary = q.find('pv2-summary'), order = summary.querySelectorAll('*').filter(e => e.id && ids.includes(e.id)).map(e => e.id);
-  assert.deepEqual(order, ['pv2-state', 'pv2-offset-x', 'pv2-offset-y', 'pv2-set-xy', 'pv2-travel', 'pv2-final-open', 'pv2-jog-open', 'pv2-tool-speed', 'pv2-tool-coordinates'], 'mockup order: step 2, travel, step 3, Déplacer l’outil…');
+  assert.deepEqual(order, ['pv2-state', 'pv2-offset-x', 'pv2-offset-y', 'pv2-set-xy', 'pv2-travel', 'pv2-final-open', 'pv2-jog-open', 'pv2-tool-speed'], 'mockup order: step 2, travel, step 3, Déplacer l’outil…');
   assert(summary.querySelectorAll('*').some(e => e.textContent === '3 · Origine Z et contrôle final'));
-  // « Poser X Y ici… »: disabled while « Déplacement réel » is not shown, or without an XY hypothesis.
-  const entry = q.node('real-motion-open'); entry.hidden = true; let entries = 0; entry.addEventListener('click', () => entries++);
+  // « Poser X Y ici… »: disabled while Zéro X is not usable (origin refused by the machine), or without an XY hypothesis.
+  // The local coordinate preparation is gone from the real page: no « Coordonnées… » tool.
+  assert(!q.find('pv2-tool-coordinates'), 'no « Coordonnées… » tool');
+  const entry = q.node('jog-zero-x'); entry.disabled = true; let entries = 0; entry.addEventListener('click', () => entries++);
   q.v2.placement = placed; q.emit('cnc-v2-data', { slot: 'placement' }); await q.flush();
   const set = q.find('pv2-set-xy');
-  assert(set.disabled); assert.match(set.getAttribute('title'), /indisponible/);
+  assert(set.disabled); assert.match(set.getAttribute('title'), /^Indisponible/);
   // Lot jog (X2): the reason is shown under the button (a title is not seen on touch); disabled state and relay unchanged.
   const why = q.find('pv2-set-xy-why');
-  assert(why && !why.hidden); assert.equal(why.textContent, 'Indisponible : « Déplacement réel » non activé sur ce poste.');
+  assert(why && !why.hidden); assert.equal(why.textContent, 'Indisponible : origine de travail refusée par la machine.');
   set.handlers.click(); assert.equal(entries, 0);
-  entry.hidden = false; q.emit('cnc-v2-data', { slot: 'placement' }); await q.flush();
-  assert(!set.disabled); assert.match(set.getAttribute('title'), /X = 0 puis Y = 0, chacun avec sa confirmation/);
+  entry.disabled = false; q.emit('cnc-v2-data', { slot: 'placement' }); await q.flush();
+  assert(!set.disabled); assert.match(set.getAttribute('title'), /Zéro X puis Zéro Y, chacun avec sa confirmation/);
   assert(why.hidden && why.textContent === '', 'no reason while the relay is enabled');
-  set.click(); assert.equal(entries, 1, 'relayed to the existing entry once');
+  // It opens the move area (Zéro X / Zéro Y shown with the cross), never a zero by itself.
+  set.click(); await q.flush(); assert.equal(entries, 0, 'no zero clicked for the operator');
+  assert.equal(q.node('screen-jog').getAttribute('data-pv2'), 'jog', 'the move area is open');
+  q.find('pv2-jog-close').click(); await q.flush();
   assert.equal(q.calls.updates.length, 0, 'no placement or command from the relay');
   q.status(idle({ workflow: 'running', activeState: 'Run' })); q.v2.safeIdle = false; await q.flush();
-  assert(set.disabled, 'not during a job'); set.handlers.click(); assert.equal(entries, 1);
+  assert(set.disabled, 'not during a job'); set.handlers.click(); await q.flush(); assert.equal(q.node('screen-jog').getAttribute('data-pv2'), 'compare', 'nothing opened during a job');
   // The machine state comes before the hypothesis (not computed outside rest): « not at rest », not « hypothesis ».
   assert.equal(why.textContent, 'Indisponible : la machine n’est pas au repos.');
   q.v2.safeIdle = true; q.status(idle()); await q.flush();
   q.v2.placement = null; q.emit('cnc-v2-data', { slot: 'placement' }); await q.flush(); assert(set.disabled, 'no hypothesis, no relay');
   assert.equal(why.textContent, 'Indisponible : hypothèse X Y non calculable.');
-  // Tools: relayed to the coordinates card's existing buttons.
-  let speed = 0, coords = 0; q.node('ks-jog-settings').addEventListener('click', () => speed++); q.node('coordinate-open').addEventListener('click', () => coords++);
-  q.find('pv2-tool-speed').click(); q.find('pv2-tool-coordinates').click(); assert.deepEqual([speed, coords], [1, 1]);
-  q.node('coordinate-open').disabled = true; q.emit('cnc-v2-data', { slot: 'placement' }); await q.flush();
-  assert(q.find('pv2-tool-coordinates').disabled);
+  // Tool: relayed to the coordinates card's existing speed button.
+  let speed = 0; q.node('ks-jog-settings').addEventListener('click', () => speed++);
+  q.find('pv2-tool-speed').click(); assert.equal(speed, 1); assert.equal(q.find('pv2-tool-speed').textContent, 'Vitesse…');
+  q.node('ks-jog-settings').disabled = true; q.emit('cnc-v2-data', { slot: 'placement' }); await q.flush();
+  assert(q.find('pv2-tool-speed').disabled);
+  // Contre-revue M3: « Zéro XYZ » (hidden in the coordinates card beside the comparison) is offered here, its
+  // label copied (« Zéro XY » in laser), enabled with its target; its click is real-motion.js's (test-real-motion).
+  const zeroTarget = q.node('jog-zero-xyz'); zeroTarget.textContent = 'Zéro XY'; zeroTarget.disabled = false;
+  let direct = 0; zeroTarget.addEventListener('click', () => direct++);
+  q.emit('cnc-v2-data', { slot: 'placement' }); await q.flush();
+  const zeroTool = q.find('pv2-tool-zero'); assert(zeroTool && !zeroTool.disabled && !zeroTool.hidden); assert.equal(zeroTool.textContent, 'Zéro XY');
+  zeroTool.click(); assert.equal(direct, 0, 'never a click on the hidden zero'); assert.equal(q.calls.updates.length, 0);
+  zeroTarget.disabled = true; q.emit('cnc-v2-data', { slot: 'placement' }); await q.flush();
+  assert(zeroTool.disabled, 'refused origin: greyed out');
   // Step 3 opens the guided preparation sheet (nothing sent).
   q.find('pv2-final-open').click(); assert.deepEqual(q.calls.sheets, ['ks-preparation']); assert.equal(q.calls.updates.length, 0);
 
@@ -85,5 +99,5 @@ const placed = { version: 1, available: true, identity, current: { wcs: 'G54', o
   }
   assert(24 + T.sp3 >= 24, 'camera to the nearest jog target: 24 px gap + the card padding');
   assert.match(css, /\[data-pv2="jog"\] \.ks-motion-arrows \.jog\{min-width:var\(--tap-jog\);min-height:var\(--tap-jog\)\}/);
-  console.log('PASS v2 préparer layout: mockup steps 1–3 with « Poser X Y ici… » relayed to « Déplacement réel » at Idle only, « Contrôle final… », tools relayed; CSS budget at 1366 × 911 and 1728 × 1152 keeps the summary and the whole jog cross visible, scene constant.');
+  console.log('PASS v2 préparer layout: mockup steps 1–3 with « Poser X Y ici… » opening the move area at Idle only, « Contrôle final… », tools relayed; CSS budget at 1366 × 911 and 1728 × 1152 keeps the summary and the whole jog cross visible, scene constant.');
 })().catch(e => { console.error(e); process.exitCode = 1; });

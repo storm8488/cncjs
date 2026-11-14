@@ -68,7 +68,9 @@ const phrases=[...source.matchAll(/\bt\('((?:[^'\\]|\\.)*)'\)/g)].map(m=>m[1]);
 const catalog={window:{}};vm.runInNewContext(fs.readFileSync(__dirname+'/touch/i18n-messages.js','utf8'),catalog);
 const keys=new Set(catalog.window.CNCTouchMessages.map(r=>r[0].trim().replace(/\s+/g,' ')));
 for(const p of new Set(phrases))if(/[a-zà-ÿ]{2}/i.test(p))assert(keys.has(p.trim().replace(/\s+/g,' ')),'missing translation: '+p);
-for(const name of ['index.html','simulation.html']){const html=fs.readFileSync(__dirname+'/touch/'+name,'utf8');assert(html.indexOf('numeric-pad.js')>html.indexOf('i18n.js')&&html.indexOf('numeric-pad.js')<html.indexOf('job-resume.js'),name+': numeric-pad.js before job-resume.js');assert(html.indexOf('numeric-pad.js')<html.indexOf('coordinate-editor.js'));}
+for(const name of ['index.html','simulation.html']){const html=fs.readFileSync(__dirname+'/touch/'+name,'utf8');assert(html.indexOf('numeric-pad.js')>html.indexOf('i18n.js')&&html.indexOf('numeric-pad.js')<html.indexOf('job-resume.js'),name+': numeric-pad.js before job-resume.js');if(html.indexOf('coordinate-editor.js')>=0)assert(html.indexOf('numeric-pad.js')<html.indexOf('coordinate-editor.js'));}
+// The real page no longer loads the coordinate editor (local preparation without movement); simulation.html keeps it.
+assert(fs.readFileSync(__dirname+'/touch/index.html','utf8').indexOf('coordinate-editor.js')<0&&fs.readFileSync(__dirname+'/touch/simulation.html','utf8').indexOf('coordinate-editor.js')>0);
 // The coordinate editor builds its keys from the shared pad (no second key pad).
 const editor=fs.readFileSync(__dirname+'/touch/coordinate-editor.js','utf8');
 assert(editor.includes("CNCNumeric.keys(pad"),'coordinate editor uses the shared keys');assert(!/\['7','8','9'/.test(editor),'no private key list left');

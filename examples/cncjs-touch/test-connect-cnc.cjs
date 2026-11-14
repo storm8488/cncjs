@@ -143,8 +143,8 @@ function setup({ simulation = false, commissioned = ['/dev/ttyUSB0'], io = true 
 // Loaded on the real page after touch-shell.js (which builds #screen-menu), with the lot's cache version.
 {
   const html = fs.readFileSync(__dirname + '/touch/index.html', 'utf8');
-  const shell = html.indexOf('touch-shell.js?v='), mine = html.indexOf('connect-cnc.js?v=v2r');
+  const shell = html.indexOf('touch-shell.js?v='), mine = html.indexOf('connect-cnc.js?v=v2s');
   assert(shell > 0 && mine > shell, 'connect-cnc.js after touch-shell.js');
   assert(html.indexOf('/socket.io/socket.io.js') < mine);
 }
-console.log('PASS connect CNC: shown only with the server up and no machine, list then confirmed Grbl 115200 open, port in use never reopened, port gone / none / several, another device never offered directly, refusal and timeout, cache v2r.');
+console.log('PASS connect CNC: shown only with the server up and no machine, list then confirmed Grbl 115200 open, port in use never reopened, port gone / none / several, another device never offered directly, refusal and timeout, cache v2s.');

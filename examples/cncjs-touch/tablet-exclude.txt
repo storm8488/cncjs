@@ -1,8 +1,11 @@
-# Files of touch/ that the CNC tablet must not serve (final interface, 2026-11-11).
+# Files of touch/ that the CNC tablet must not serve (final interface, 2026-11-11; the local coordinate
+# preparation of Préparer left the real page on 2026-11-14).
 # One path relative to touch/ per line. Deploying the tablet removes them from every
 # served copy (/touch, /touch-next and any copy embedded in the installed package),
 # not only skips them. Checked by test-no-simulation-access.cjs.
 simulation.html
+coordinate-editor.js
+coordinate-plan.js
 job-simulation.js
 simulation-history.js
 simulation-machine.js

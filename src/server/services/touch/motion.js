@@ -83,6 +83,7 @@ const STOP_REASONS = {
   disabled: 'déplacements réels désactivés',
   late: 'maintien reçu après l’échéance',
   pause: 'bouton Pause',
+  duration: 'durée maximale d’un déplacement continu atteinte',
   state: 'machine sortie du repos (Idle) pendant le cadrage',
   dispose: 'service arrêté'
 };
@@ -148,7 +149,24 @@ export const capabilitiesOf = ({ type, firmware, version, enabled }) => {
 // the convention of the firmware seen is certain, such an axis has both
 // candidates, and a move must be safe in every candidate that contains the
 // current position (see limitsAt).
-export const envelopeOf = (settings, homed, { wcoSeen = false, wposReported = false } = {}) => {
+// The homing cycle seen tells it (`homeAt`, the machine position when Home
+// gave way to Idle): standard Grbl leaves an axis homed towards its negative
+// end at -travel + pull-off, never at 0; found at 0 (within
+// HOME_ORIGIN_TOLERANCE_MM), the firmware forces the origin there and that
+// axis travels in [0, travel] only.
+export const HOME_ORIGIN_TOLERANCE_MM = 0.01;
+// $10 bit 0 set and no WPos report seen: Grbl reports MPos. Otherwise CNCjs
+// derives MPos from WPos and the last WCO received, taken as 0 until one comes.
+const reportsMposOf = (settings, wposReported) => {
+  const report = number((settings || {}).$10);
+  return !wposReported && report !== null && report >= 0 && Math.floor(report) === report && report % 2 === 1;
+};
+// CNCjs's machine position can be trusted: reported as such, or a WCO received
+// since the board started (F1). What a homing cycle teaches (homeAt) needs it.
+export const machinePositionKnown = (settings, { wcoSeen = false, wposReported = false } = {}) => (
+  reportsMposOf(settings, wposReported) || wcoSeen === true
+);
+export const envelopeOf = (settings, homed, { wcoSeen = false, wposReported = false, homeAt = null } = {}) => {
   const s = settings || {};
   let global = '';
   const homing = number(s.$22);
@@ -159,7 +177,7 @@ export const envelopeOf = (settings, homed, { wcoSeen = false, wposReported = fa
   const report = number(s.$10);
   // The last status line received decides when it says WPos: CNCjs's copy of
   // $10 is refreshed only by a $$ reply and may be stale.
-  const reportsMpos = !wposReported && report !== null && report >= 0 && Math.floor(report) === report && report % 2 === 1;
+  const reportsMpos = reportsMposOf(s, wposReported);
   if (homing === null) {
     global = 'réglage $22 inconnu';
   } else if (homing !== 1) {
@@ -185,9 +203,13 @@ export const envelopeOf = (settings, homed, { wcoSeen = false, wposReported = fa
     } else if (travel === null || travel <= 0) {
       axes[axis] = { candidates: null, travel: null, reason: 'course $' + (130 + i) + ' inconnue' };
     } else {
-      const candidates = [{ low: -travel, high: 0 }];
+      let candidates = [{ low: -travel, high: 0 }];
       if (Math.floor(mask / (2 ** i)) % 2 === 1) {
-        candidates.push({ low: 0, high: travel });
+        // Learnt under the same $23 only (homeAt.mask): another direction mask is another convention.
+        const home = homeAt && number(homeAt.mask) === mask ? number(homeAt[axis]) : null;
+        candidates = home !== null && Math.abs(home) <= HOME_ORIGIN_TOLERANCE_MM
+          ? [{ low: 0, high: travel }]
+          : candidates.concat([{ low: 0, high: travel }]);
       }
       axes[axis] = { candidates, travel, reason: '' };
     }
@@ -231,6 +253,8 @@ export const limitsAt = (env, pos, axis) => {
 // Longest planned duration of one `$J`: an unconfirmed cancel is repeated for
 // at least that long, and a jog never outlives its supervision by much.
 export const MAX_JOG_MS = 60000;
+// A continuous jog is cancelled this long after its planned duration at the latest.
+export const SESSION_MARGIN_MS = 5000;
 
 // $110-$112 when known, else the documented fallback.
 export const maxFeedOf = (settings, axis) => {
@@ -401,7 +425,7 @@ export const createMotion = (deps) => {
   };
 
   // One discrete step.
-  const step = (c, r, body) => {
+  const step = (c, r, body, actor) => {
     jogReady(c, r);
     const p = jogParams(c, body, false);
     if (p.step > MAX_SPINDLE_STEP_MM && spindleOn(c)) {
@@ -410,7 +434,7 @@ export const createMotion = (deps) => {
         { max: fmt(MAX_SPINDLE_STEP_MM) });
     }
     const pos = positionOf(c, 'mpos', p.axis);
-    const at = limitsAt(envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen, wposReported: r.wposReported })[p.axis], pos, p.axis);
+    const at = limitsAt(envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen, wposReported: r.wposReported, homeAt: r.homeMpos })[p.axis], pos, p.axis);
     if (at.outside) {
       throw conflict('Pas refusé : ' + at.reason + '.');
     }
@@ -438,13 +462,16 @@ export const createMotion = (deps) => {
     }
     const line = jogLine(p.axis, distance, p.feed);
     const pending = send(c, r, 'jog', line, ms + 10000);
-    watchStep(c, r, pending, body.transportId);
+    // Its stream is not rotated while it runs (holds, touch-stream.js): a rotation would cancel it.
+    pending.transportId = body.transportId;
+    watchStep(c, r, pending, body.transportId, actor);
     return { message: 'Pas de ' + fmt(p.step) + ' mm en ' + p.axis + (p.direction > 0 ? '+' : '−') + ' envoyé (' + line + ').', command: line };
   };
 
-  // A discrete step in progress is watched too: the function disabled or the
-  // stream of the device that sent it closing cancels it (0x85).
-  const watchStep = (c, r, pending, transportId) => {
+  // A discrete step in progress is watched too: the function disabled, the
+  // stream of the device that sent it closing, a takeover of the control lease
+  // or a stale report cancels it (0x85), like a continuous jog.
+  const watchStep = (c, r, pending, transportId, actor) => {
     const s = stateOf(r);
     const check = () => {
       if (s.pending !== pending || s.session || s.cancel || !connected(c) || settle(c, r)) {
@@ -456,6 +483,15 @@ export const createMotion = (deps) => {
       }
       if (!transports.has(transportId)) {
         cancel(c, r, 'transport');
+        return;
+      }
+      const owner = control.inspect(c.options.port).owner;
+      if (owner && actor && keyOf(owner) !== keyOf(actor)) {
+        cancel(c, r, 'control');
+        return;
+      }
+      if (!fresh(r)) {
+        cancel(c, r, 'stale');
         return;
       }
       later(c, r, check, STEP_WATCH_MS);
@@ -572,6 +608,11 @@ export const createMotion = (deps) => {
     if (clock() > session.deadline) {
       return 'keepalive';
     }
+    // Fixed at its start, never renewed: the planned duration (MAX_JOG_MS at
+    // most) plus a margin for acceleration, whatever the keepalives say.
+    if (clock() > session.until) {
+      return 'duration';
+    }
     if (!transports.has(session.transportId)) {
       return 'transport';
     }
@@ -625,7 +666,7 @@ export const createMotion = (deps) => {
     if (spindleOn(c)) {
       return 'Broche en rotation : maintien continu refusé ; pas de ' + fmt(MAX_SPINDLE_STEP_MM) + ' mm au plus.';
     }
-    const at = limitsAt(envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen, wposReported: r.wposReported })[axis], positionOf(c, 'mpos', axis), axis);
+    const at = limitsAt(envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen, wposReported: r.wposReported, homeAt: r.homeMpos })[axis], positionOf(c, 'mpos', axis), axis);
     if (!at.limits) {
       return 'Maintien continu impossible : ' + at.reason + '.' + (at.outside ? '' : ' Utilisez les pas (' + MAX_UNREFERENCED_STEP_MM + ' mm au plus).');
     }
@@ -640,7 +681,7 @@ export const createMotion = (deps) => {
     if (why) {
       throw conflict(why);
     }
-    const env = envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen, wposReported: r.wposReported })[p.axis];
+    const env = envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen, wposReported: r.wposReported, homeAt: r.homeMpos })[p.axis];
     const pos = positionOf(c, 'mpos', p.axis);
     const { limits, ambiguous } = limitsAt(env, pos, p.axis);
     // Safe in every plausible convention, never more than the travel itself,
@@ -668,7 +709,8 @@ export const createMotion = (deps) => {
       distanceMm: room,
       command: line,
       since: Date.now(),
-      deadline: clock() + KEEPALIVE_TIMEOUT_MS
+      deadline: clock() + KEEPALIVE_TIMEOUT_MS,
+      until: clock() + Math.min(MAX_JOG_MS, 60000 * room / p.feed) + SESSION_MARGIN_MS
     };
     const s = stateOf(r);
     send(c, r, 'jog', line, 60000 * room / p.feed + 10000);
@@ -760,7 +802,7 @@ export const createMotion = (deps) => {
       return keepalive(c, r, body, actor);
     }
     bound(body, actor);
-    return op === 'jog' ? step(c, r, body) : start(c, r, body, actor);
+    return op === 'jog' ? step(c, r, body, actor) : start(c, r, body, actor);
   };
 
   // Laser framing (PROFILES-CONTRACT §4): `M5`, then bounded absolute jogs
@@ -1059,8 +1101,9 @@ export const createMotion = (deps) => {
     }
   };
 
-  // A continuous jog keeps its stream from being rotated (see touch-stream).
-  const holds = (id) => (r) => !!(r.motion && r.motion.session && r.motion.session.transportId === id);
+  // A continuous jog or a step in progress keeps its stream from being rotated (see touch-stream).
+  const holds = (id) => (r) => !!(r.motion && ((r.motion.session && r.motion.session.transportId === id) ||
+    (r.motion.pending && r.motion.pending.kind === 'jog' && r.motion.pending.transportId === id)));
 
   // The controller record is dropped (port closed, or the service disposed):
   // its answer listeners go with it. A jog of ours on a controller still

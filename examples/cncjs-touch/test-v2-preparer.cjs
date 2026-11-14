@@ -80,7 +80,7 @@ const meta = { file: 'a.nc', fingerprint: 'sha256:aa', projection: { units: 'mm'
   p.emit('cnc-v2-data', { slot: 'placement' }); await p.flush();
   assert.equal(p.find('pv2-travel').getAttribute('data-tone'), 'danger'); assert.match(p.find('pv2-travel').children[2].textContent, /X −12,0 \/ 4,0 mm/);
   // ---- Jog zone: opened and closed by the operator only, focus moved, never switched automatically. ----
-  assert.equal(p.find('pv2-jog-open').textContent, 'Vérifier un déplacement sans bouger…');
+  assert.equal(p.find('pv2-jog-open').textContent, 'Déplacer la machine…');
   p.find('pv2-jog-open').click(); p.frame();
   assert.equal(p.node('screen-jog').getAttribute('data-pv2'), 'jog'); assert(p.find('pv2-summary').hidden); assert(!p.find('pv2-jog-head').hidden);
   assert.equal(p.document.activeElement, p.find('pv2-jog-close'));
@@ -122,11 +122,15 @@ const meta = { file: 'a.nc', fingerprint: 'sha256:aa', projection: { units: 'mm'
   assert(!/cncJobControls|XMLHttpRequest|fetch\(/.test(source), 'the presenter never commands');
   // Clicks: the v1 sheet's job-load relay, and the v2 relays to existing entries only (each opens its own dialog).
   const clicks = [...source.matchAll(/[^\n]*\.click\(\)[^\n]*/g)].map(m => m[0]);
-  assert.equal(clicks.length, 3, clicks.join('\n'));
+  assert.equal(clicks.length, 2, clicks.join('\n'));
   assert(clicks[0].includes("getElementById('job-load')") || clicks[0].includes('b && !b.disabled'));
-  assert(clicks[1].includes("relayTarget('real-motion-open')") && clicks[1].includes("v2Phase(v2.machine) === 'idle'"), 'Poser X Y ici… only relays to « Déplacement réel » at Idle');
-  assert(clicks[2].includes('relayTarget(x[1])'));
-  assert.match(source, /\[\['speed', 'ks-jog-settings', [^\]]*\], \['coordinates', 'coordinate-open', [^\]]*\]\]/, 'the tools relay only to the two existing coordinate-card buttons');
+  assert(clicks[1].includes('relayTarget(x[1])'));
+  // « Poser X Y ici… » opens the move area at Idle (Zéro X / Zéro Y keep their own confirmation), never clicks a zero.
+  assert(source.includes("n.setXY.addEventListener('click', function () { if (relayTarget('jog-zero-x') && v2Phase(v2.machine) === 'idle') { v2.jog = true;"), 'Poser X Y ici… opens the move area at Idle only');
+  // Two tools (contre-revue M3, « Zéro XYZ » added): the speed button of the coordinates card, and « Zéro XYZ »
+  // whose click real-motion.js handles (its ticket and confirmation); never a click on the hidden zero button.
+  assert.match(source, /\[\['speed', 'ks-jog-settings', [^\]]*\], \['zero', 'jog-zero-xyz', ''\]\]\.forEach/, 'the tools: speed and Zéro XYZ');
+  assert.match(source, /if \(target && x\[0\] !== 'zero'\) target\.click\(\);/, 'the zero tool clicks nothing: real-motion.js handles it');
   // ---- Declarations: a preview of another version is never passed (L2 would reset the placement). ----
   {
     const q = preparerPage({ preview: { ...meta, fingerprint: 'sha256:other' } });
@@ -145,10 +149,11 @@ const meta = { file: 'a.nc', fingerprint: 'sha256:aa', projection: { units: 'mm'
     const i = context.window.cncI18n;
     assert.equal(i.registerCatalog('performance-v2', JSON.parse(fs.readFileSync(__dirname + '/touch/i18n-messages-v2.js', 'utf8'))), true);
     assert.equal(i.registerCatalog('performance-v2-preparer', P.v2Messages), true, 'no conflicting row');
-    // « Déplacer l’outil… » opened the dry-run cross, which never moves the machine: renamed (lot jog, X1).
-    // Static wording (lot D, point 2): the button never sends, in « Vérification seule » as with « Déplacement réel » shown above it.
-    assert.equal(i.t('Vérifier un déplacement sans bouger…'), { fr: 'Vérifier un déplacement sans bouger…', en: 'Check a move without moving…', es: 'Comprobar un desplazamiento sin mover…' }[language]);
-    assert.equal(i.t('Vérifier un déplacement'), { fr: 'Vérifier un déplacement', en: 'Check a move', es: 'Comprobar un desplazamiento' }[language]);
+    // Real page (2026-11-14): the cross of the move area moves the machine (real-motion.js); the button
+    // itself still sends nothing, it only shows the zone. No « without moving » wording is left.
+    assert.equal(i.t('Déplacer la machine…'), { fr: 'Déplacer la machine…', en: 'Move the machine…', es: 'Mover la máquina…' }[language]);
+    assert.equal(i.t('Déplacer la machine'), { fr: 'Déplacer la machine', en: 'Move the machine', es: 'Mover la máquina' }[language]);
+    assert(!P.v2Messages.some(r => /sans bouger|Vitesse du test|Coordonnées…|Déplacement réel/.test(r[0])), 'no wording of the check-only mode');
     assert.equal(i.t('Indisponible : hypothèse X Y non calculable.'), { fr: 'Indisponible : hypothèse X Y non calculable.', en: 'Unavailable: the X Y hypothesis cannot be computed.', es: 'No disponible: la hipótesis X Y no se puede calcular.' }[language]);
     assert(!P.v2Messages.some(r => /Real motion|Movimiento real/.test(r[1] + r[2])), 'one name for « Déplacement réel » in EN / ES (i18n-messages.js)');
   }

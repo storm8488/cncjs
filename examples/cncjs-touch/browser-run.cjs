@@ -1130,6 +1130,14 @@ function startV2Fixture() {
           fx.commands.push({ at: Date.now(), method: req.method, path: url.pathname, body: body.slice(0, 400), phase: fx.phase });
           // Read-only motion preview of the real service stays answered by the upstream fixture.
           if (url.pathname === '/api/touch-motion/preview') return pass(req, res, body);
+          // Real moves enabled (fx.real, screensReal): « prepare set-origin » answers with a ticket, like the server,
+          // so that the origin confirmation of Préparer is measured. Nothing else is answered; no machine behind it.
+          let parsed = {}; try { parsed = JSON.parse(body); } catch (_) { parsed = {}; }
+          if (fx.real && url.pathname === '/api/touch-job' && parsed.action === 'prepare' && parsed.operation === 'set-origin' && Array.isArray(parsed.axes)) {
+            res.setHeader('Content-Type', 'application/json');
+            return res.end(JSON.stringify({ nonce: 'browser-run-origin', operation: 'set-origin', expiresIn: 15, generation: parsed.generation,
+              name: 'Origine ' + parsed.axes.join(' ') + ' du repère G54 à la position actuelle (G10 L20 P1 ' + parsed.axes.map((x) => x + '0').join(' ') + ')' }));
+          }
           res.statusCode = 403; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ message: 'Refusé par le banc browser-run (aucune commande machine).' }));
         });
         return;
@@ -1140,7 +1148,8 @@ function startV2Fixture() {
       }
       if (url.pathname === '/api/touch-job') {
         if (fx.phase === 'lost') { res.statusCode = 503; return res.end(); }
-        res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify(fx.packet()));
+        res.setHeader('Content-Type', 'application/json');
+        return res.end(JSON.stringify(fx.packet()));
       }
       if (url.pathname === '/api/touch-events') return stream(req, res);
       if (url.pathname === '/visual-fixture.js') {
@@ -1148,7 +1157,10 @@ function startV2Fixture() {
         // v2 catalogue (an XHR, tablet-profile.js) would never settle. The harness lets it reach the server.
         return http.get({ host: up.hostname, port: up.port, path: req.url }, (r) => {
           let text = ''; r.setEncoding('utf8'); r.on('data', (d) => { text += d; });
-          r.on('end', () => { res.setHeader('Content-Type', 'text/javascript'); res.end(text.replace("if(xhr.url==='/api/touch-motion/preview'", "if(/^i18n-messages-v2\\.js/.test(xhr.url)||xhr.url==='/api/touch-motion/preview'")); });
+          r.on('end', () => { res.setHeader('Content-Type', 'text/javascript'); res.end(text.replace("if(xhr.url==='/api/touch-motion/preview'", "if(/^i18n-messages-v2\\.js/.test(xhr.url)||xhr.url==='/api/touch-motion/preview'")
+            // Real moves of Préparer (screensReal only, window.__brRealMoves): its POST touch-job reaches this harness
+            // fixture, which answers « prepare set-origin » with a ticket and nothing else; no machine is behind it.
+            .replace("(xhr.url==='/api/touch-job'&&xhr.method==='GET')", "(xhr.url==='/api/touch-job'&&(xhr.method==='GET'||window.__brRealMoves===true))")); });
         }).on('error', (e) => { res.statusCode = 502; res.end(String(e.message)); });
       }
       return pass(req, res);
@@ -1379,7 +1391,7 @@ async function v2RealPass(cdp, fx, w, h, summary, report, v1) {
       }
       await v2Capture(cdp, ctx, null, 'Préparer', 'idle-comparison', results);
       const openJog = await cdp.evaluate('(function(){var b=document.getElementById("pv2-jog-open");if(!b||!b.getClientRects().length)return false;b.click();return true;})()');
-      if (!openJog) failures.push('v2 ' + ctx + ': « Vérifier un déplacement sans bouger… » not shown');
+      if (!openJog) failures.push('v2 ' + ctx + ': « Déplacer la machine… » not shown');
       else {
         await sleep(500);
         await v2Capture(cdp, ctx, null, 'Préparer', 'idle-jog-panel', results);
@@ -1745,7 +1757,7 @@ const SCREENS_MACHINE = '(function(){var v=function(e){return !!(e&&e.getClientR
   'var n=document.querySelector("#screen-machine .ks-machine-coordinates>.ks-help"),r=$("ks-machine-command-reason"),b=document.querySelectorAll("#screen-machine .ks-machine-commands button"),s=document.querySelector("#v2m-condition .v2m-state");' +
   'var nt=$("ks-machine-alarm-title"),na=$("ks-machine-alarm-action");' +
   'return {notice:v($("ks-machine-alarm")),noticeTitle:nt?nt.textContent.trim():"",noticeAction:na?na.textContent.trim():"",note:v(n),reason:v(r)?r.textContent:"",unlockDisabled:!!(b[0]&&b[0].disabled),homeDisabled:!!(b[1]&&b[1].disabled),v2state:s&&v(s)?s.textContent:null};})()';
-// Lot jog (M11): with the « Déplacement réel » panel open, what lies under it is inert (real-motion.js openPanel);
+// With the origin confirmation of Préparer open, what lies under it is inert (real-motion.js openPanel);
 // it is marked aria-hidden for the measure only (the panel and the status strip are measured), then restored.
 const SCREENS_INERT = '(function(on){[].forEach.call(document.querySelectorAll(on?"[inert]":"[data-br-inert]"),function(n){if(on){n.setAttribute("data-br-inert",n.getAttribute("aria-hidden")||"");n.setAttribute("aria-hidden","true");}else{var a=n.getAttribute("data-br-inert");n.removeAttribute("data-br-inert");if(a)n.setAttribute("aria-hidden",a);else n.removeAttribute("aria-hidden");}});return true;})';
 // Words cut at a soft hyphen (U+00AD) on the screen and the rail: chosen breaks the text-fit check accepts, listed
@@ -1775,9 +1787,12 @@ const SCREENS_MENU = '(function(){var out={stripClip:[],resume:null,tiles:[],scr
 // to simulation.html (or one of its own scripts) counts, hidden or not; a program
 // named simulation.nc (href or text) does not, nor the two CNCjs command titles of the fixture
 // (preview-server.cjs, /api/commands: server data the operator names, not page wording). The two limits of the preview stay (collisions, laser power). No effect on simulation.html.
+// Real interface (2026-11-14): no wording of the old check-only modes either (badge « VÉRIFICATION SEULE », dry-run
+// arrows and speed, « EXPÉRIMENTAL » entry, local coordinate preparation, disabled real probing), FR / EN / ES.
 const NO_SIMULATION = '(function(){if(document.body.getAttribute("data-simulation")==="true")return [];var out=[],bad=/simul|fictif|fictiv|fictic|virtuel|virtual/i,' +
+  'old=/vérification seule|check only|solo comprobación|expérimental|experimental|à blanc|dry[- ]run|sin ejecución|vitesse du test|test speed|velocidad de (la )?prueba|aucun déplacement réel|no real movement|sin movimiento real|préparer sans mouvement|prepare without moving|preparar sin movimiento|sans bouger|without moving|aucun mouvement envoyé|no motion sent|sin movimiento enviado|préparation locale|local preparation|preparación local|palpage réel non activé|real probing disabled|sondeo real desactivado/i,' +
   'keep=/pas une simulation de collisions|not a collision simulation|no es una simulación de colisiones|Puissance laser non simulée|Laser power not simulated|Potencia láser no simulada|simult[aá]n|Mettre à jour l’interface [(]fictif[)]|Redémarrer la tablette [(]fictif[)]|[A-Za-z0-9_.-]*simul[A-Za-z0-9_.-]*[.](nc|ngc|gcode|gc|tap|cnc|txt)/gi;' +
-  'function shown(e){return !!e&&e.getClientRects().length>0&&getComputedStyle(e).visibility!=="hidden";}function test(v){return bad.test(String(v).replace(keep,""));}' +
+  'function shown(e){return !!e&&e.getClientRects().length>0&&getComputedStyle(e).visibility!=="hidden";}function test(v){var s=String(v).replace(keep,"");return bad.test(s)||old.test(s);}' +
   '[].forEach.call(document.querySelectorAll("a[href]"),function(a){if(/(^|[/])(job-)?simulation[^/?#]*[.](html|js)([?#]|$)/i.test(a.getAttribute("href")))out.push("link "+a.getAttribute("href"));});' +
   'var w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT),n;while((n=w.nextNode())){var e=n.parentElement;if(!e||/^(SCRIPT|STYLE|NOSCRIPT)$/.test(e.tagName)||!shown(e))continue;if(test(n.nodeValue))out.push("text "+n.nodeValue.trim().slice(0,80));}' +
   '[].forEach.call(document.querySelectorAll("[title],[aria-label],[placeholder],[alt]"),function(e){if(!shown(e))return;["title","aria-label","placeholder","alt"].forEach(function(k){var v=e.getAttribute(k);if(v&&test(v))out.push(k+" "+v.slice(0,80));});});' +
@@ -1848,7 +1863,9 @@ async function screensServer(cdp, v, summary) {
 }
 // Lot jog (M11): the probe screens of Préparer at rest (never measured before), with the Pn report of the fixture.
 // Each one opened by its own button, like the operator; nothing is sent (the real page has no probe command).
-const SCREENS_PROBE = [['probe-profile', 'Profils de sonde', 'probe-profiles'], ['probe-contact', 'Test du contact', 'probe-test'], ['probe-report', 'Résultats du palpage', 'probe-result'], ['probe-preparation', 'Préparation du palpage', 'probe-preparation-open']];
+// Real page (2026-11-14): the bench results and the probing preparation are no longer reachable (no real launch of
+// probing here: the Z zero with a plate is in Suivi); profiles and the input diagnostic stay.
+const SCREENS_PROBE = [['probe-profile', 'Profils de sonde', 'probe-profiles'], ['probe-contact', 'Test du contact', 'probe-test']];
 async function screensProbe(cdp, fx, v, summary) {
   const tag = 'screens ' + v.id + ' palpage-ecrans', results = [];
   fx.probeInput = true;
@@ -1867,22 +1884,30 @@ async function screensProbe(cdp, fx, v, summary) {
   finally { fx.probeInput = false; }
   summary.measurements.push({ variant: tag, dir: 'screens-probe*-' + v.id + '-repos', dpr: 1, results, strict: true, overlap: true, v2: !!v.v2 });
 }
-// Lot jog (M11): « Déplacement réel » enabled by the fixture (fx.real), at rest: Préparer with its entry, then the
-// panel in step mode and in hold mode (a mode choice, nothing sent), then a stale report with the panel open (M10:
-// the position line says so; a report at rest grown old, fx.staleIdle). Closed at the end; the fixture goes back to rest
-// without the capability.
-const SCREENS_REAL_OPEN = '(function(){var p=document.getElementById("real-motion"),e=document.getElementById("real-motion-open");if(p&&!p.hidden)return true;if(!e||e.hidden)return false;e.click();p=document.getElementById("real-motion");return !!(p&&!p.hidden);})()';
-const SCREENS_STALE_WORDS = '(function(){return window.cncI18n.t(" · rapport ancien : attendez un rapport récent avant une origine");})()';
+// Real moves of Préparer (2026-11-14), enabled by the fixture (fx.real), at rest: the arrows, steps and Zéro buttons of
+// the screen itself (real-motion.js; no separate entry or panel). Measured: at rest (step 1 mm), during a job (v1: the
+// cross must not move), « Continu » chosen (a mode choice, nothing sent), the origin confirmation open (the fixture
+// answers « prepare set-origin » with a ticket; what lies under the dialog is inert and marked aria-hidden for the
+// measure), then a stale report at rest: every control greyed out with its sentence. The fixture goes back to rest
+// without the capability at the end.
+const SCREENS_REAL_READY = '(function(){var b=document.querySelector("#screen-jog .jog");return !!(b&&!b.disabled&&b.getClientRects().length);})()';
+const SCREENS_REAL_STATE = '(function(){var $=function(id){return document.getElementById(id);},a=[].slice.call(document.querySelectorAll("#screen-jog .jog")),z=[].slice.call(document.querySelectorAll("#screen-jog [data-origin]"));' +
+  'return {msg:($("jog-msg")||{}).textContent||"",arrows:a.filter(function(b){return !b.disabled;}).length,zeros:z.filter(function(b){return !b.disabled;}).length,mid:(document.querySelector("#screen-jog .pad-mid")||{}).textContent||"",' +
+  'hold:!!(document.querySelector("#steps [data-step=hold]")&&!document.querySelector("#steps [data-step=hold]").hidden),ticket:!!($("real-motion-ticket")&&!$("real-motion-ticket").hidden)};})()';
 async function screensReal(cdp, fx, v, summary) {
   const tag = 'screens ' + v.id + ' reel', results = [], at = (s) => 'screens-jog-' + v.id + '-' + s;
   fx.real = true;
   try {
     await cdp.waitFor('(function(){var m=window.cncState&&window.cncState.get().machine;return !!(m&&m.capabilities&&m.motion&&' + SCREENS_READY.idle + ');})()', 20000, 'real-move capability');
     await goScreen(cdp, 'jog');
-    await cdp.waitFor('(function(){var e=document.getElementById("real-motion-open");return !!(e&&!e.hidden&&e.getClientRects().length);})()', 10000, 'real-move entry');
+    // v2 Préparer: the cross is in the move area, opened by the operator (« Déplacer la machine… »).
+    if (v.v2) { await cdp.evaluate('(function(){var b=document.getElementById("pv2-jog-open");if(b&&b.getClientRects().length)b.click();return true;})()'); await sleep(600); }
+    await cdp.waitFor(SCREENS_REAL_READY, 10000, 'real arrows enabled');
+    let state = await cdp.evaluate(SCREENS_REAL_STATE);
+    if (state.zeros < 1 || !state.hold) failures.push(tag + ': at rest, Zéro buttons or « Continu » not offered: ' + JSON.stringify(state));
     let page = await cdp.evaluate(SCREENS_PAGE);
     await screensCapture(cdp, at('reel-repos'), 'jog', 'Préparer', tag, page, results);
-    // Review (Astra 5): the cross stays in place between rest and a job with the capability too (its entry stays).
+    // Review (Astra 5): the cross stays in place between rest and a job with the capability too.
     if (!v.v2) {
       const restTop = (results[results.length - 1].jog || {}).top;
       fx.setPhase('running');
@@ -1890,30 +1915,43 @@ async function screensReal(cdp, fx, v, summary) {
       await sleep(1500);
       await screensCapture(cdp, at('reel-travail'), 'jog', 'Préparer · travail', tag, await cdp.evaluate(SCREENS_PAGE), results);
       const runTop = (results[results.length - 1].jog || {}).top;
-      if (typeof restTop !== 'number' || typeof runTop !== 'number' || Math.abs(runTop - restTop) > 0.5) failures.push(tag + ': Préparer with « Déplacement réel », the cross moved from ' + restTop + ' at rest to ' + runTop + ' during the job');
+      if (typeof restTop !== 'number' || typeof runTop !== 'number' || Math.abs(runTop - restTop) > 0.5) failures.push(tag + ': Préparer with real moves, the cross moved from ' + restTop + ' at rest to ' + runTop + ' during the job');
+      state = await cdp.evaluate(SCREENS_REAL_STATE);
+      if (state.arrows || state.zeros) failures.push(tag + ': arrows or zeros enabled during a job: ' + JSON.stringify(state));
       fx.setPhase('idle');
       await cdp.waitFor('(function(){var m=window.cncState&&window.cncState.get().machine;return !!(m&&m.capabilities&&m.motion&&' + SCREENS_READY.idle + ');})()', 20000, 'state idle (real move)');
-      await cdp.waitFor('(function(){var e=document.getElementById("real-motion-open");return !!(e&&!e.hidden&&e.getClientRects().length);})()', 10000, 'real-move entry after the job');
+      await cdp.waitFor(SCREENS_REAL_READY, 10000, 'real arrows after the job');
       await sleep(800);
     }
-    if (!await cdp.evaluate(SCREENS_REAL_OPEN)) throw new Error('real-move panel not opened');
+    if (!await cdp.evaluate('(function(){var b=document.querySelector("#steps [data-step=hold]");if(!b||b.hidden||b.disabled)return false;b.click();return true;})()')) throw new Error('« Continu » not offered');
     await sleep(500);
-    await screensCapture(cdp, at('reel-pas'), 'jog', 'Déplacement réel · pas', tag, page, results, { stay: true, panel: true });
-    if (!await cdp.evaluate('(function(){var b=document.querySelector("#real-motion .real-motion-choice[data-value=hold]");if(!b||b.disabled)return false;b.click();return true;})()')) throw new Error('hold mode not offered');
-    await sleep(500);
-    await screensCapture(cdp, at('reel-maintien'), 'jog', 'Déplacement réel · maintien', tag, page, results, { stay: true, panel: true });
-    await cdp.evaluate('(function(){var b=document.querySelector("#real-motion .real-motion-choice[data-value=step]");if(b&&!b.disabled)b.click();return true;})()');
+    state = await cdp.evaluate(SCREENS_REAL_STATE);
+    if (state.mid.trim() !== await cdp.evaluate('window.cncI18n.t("continu")')) failures.push(tag + ': « Continu » chosen, the centre of the cross says ' + state.mid);
+    await screensCapture(cdp, at('reel-continu'), 'jog', 'Préparer · continu', tag, await cdp.evaluate(SCREENS_PAGE), results, { stay: true });
+    await cdp.evaluate('(function(){var b=document.querySelector("#steps [data-step=\\"1\\"]");if(b&&!b.disabled)b.click();return true;})()');
+    await sleep(300);
+    // The origin confirmation (Zéro X): measured with the page under it inert.
+    if (!await cdp.evaluate('(function(){var b=document.getElementById("jog-zero-x");if(!b||b.disabled)return false;window.__brRealMoves=true;b.click();return true;})()')) throw new Error('Zéro X not offered');
+    try { await cdp.waitFor('(function(){var d=document.getElementById("real-motion-ticket");return !!(d&&!d.hidden);})()', 10000, 'origin confirmation'); }
+    catch (e) { throw new Error(e.message + ' (answer: ' + await cdp.evaluate('(document.getElementById("jog-feedback")||{}).textContent') + ')'); }
+    finally { await cdp.evaluate('window.__brRealMoves=false;true'); }
+    await sleep(400);
+    await screensCapture(cdp, at('reel-origine'), 'jog', 'Préparer · confirmation d’origine', tag, await cdp.evaluate(SCREENS_PAGE), results, { stay: true, panel: true });
+    await cdp.evaluate('(function(){var b=document.getElementById("real-motion-origin-cancel");if(b)b.click();return true;})()');
+    await sleep(300);
+    if ((await cdp.evaluate(SCREENS_REAL_STATE)).ticket) failures.push(tag + ': origin confirmation not closed by Annuler');
     fx.staleSince = Date.now(); fx.staleIdle = true; await sleep(4500);
-    if (!await cdp.evaluate('(function(){var p=document.getElementById("real-motion");return !!(p&&!p.hidden);})()')) throw new Error('real-move panel closed by the stale report');
+    state = await cdp.evaluate(SCREENS_REAL_STATE);
+    if (state.arrows || state.zeros) failures.push(tag + ': stale report, arrows or zeros still enabled: ' + JSON.stringify(state));
+    const words = await cdp.evaluate('window.cncI18n.t("État machine trop ancien : attendez un rapport récent.")');
+    if (state.msg.trim() !== words.trim()) failures.push(tag + ': stale report not said on the status line: ' + state.msg);
     page = await cdp.evaluate(SCREENS_PAGE);
-    const where = await cdp.evaluate('document.getElementById("real-motion-frame").textContent'), words = await cdp.evaluate(SCREENS_STALE_WORDS);
-    if (!/\d s · /.test(where) || where.indexOf(words.trim()) < 0) failures.push(tag + ': stale report not said on the position line: ' + where);
-    await screensCapture(cdp, at('reel-perime'), 'jog', 'Déplacement réel · rapport ancien', tag, page, results, { stay: true, panel: true });
-    log(tag + ': ' + results.length + ' captures, position line « ' + where + ' »');
+    await screensCapture(cdp, at('reel-perime'), 'jog', 'Préparer · rapport ancien', tag, page, results, { stay: true });
+    log(tag + ': ' + results.length + ' captures, status line « ' + state.msg + ' »');
   } catch (e) { failures.push(tag + ': ' + e.message); log('FAIL ' + tag + ': ' + e.message); }
   finally {
     fx.real = false; fx.staleIdle = false; fx.setPhase('idle');
-    try { await cdp.evaluate('(function(){var b=document.getElementById("real-motion-close"),p=document.getElementById("real-motion");if(b&&p&&!p.hidden)b.click();return true;})()'); } catch (_) { /* reloaded */ }
+    try { await cdp.evaluate('(function(){var b=document.getElementById("real-motion-origin-cancel"),p=document.getElementById("real-motion-ticket");if(b&&p&&!p.hidden)b.click();return true;})()'); } catch (_) { /* reloaded */ }
   }
   summary.measurements.push({ variant: tag, dir: 'screens-jog-' + v.id + '-reel-*', dpr: 1, results, strict: true, overlap: true, v2: !!v.v2 });
 }

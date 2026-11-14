@@ -25,7 +25,8 @@ function machinePage(language){
   const dom=createDOM(['machine']),handlers={},calls=[],uiLocale=locale(language);
   dom.document.body.getAttribute=()=>null;
   // job-controls.js prepare() → command(): « Demande envoyée… » is published synchronously, inside the click.
-  const controls={prepareCommand:op=>{calls.push(['prepare',op]);if(page.onPrepare)page.onPrepare(op);}};
+  const controls={prepareCommand:op=>{calls.push(['prepare',op]);if(page.onPrepare)page.onPrepare(op);},
+    readSettings:()=>{calls.push(['readSettings']);return page.onRead?page.onRead():Promise.resolve({});}};
   // job-controls.js (loaded first) binds the dialog's Confirmer before commissioning.js: the confirmed command is sent.
   dom.node('job-confirm').addEventListener('click',()=>{if(page.onConfirm)page.onConfirm();});
   const window={addEventListener:(n,f)=>handlers[n]=f,cncJobControls:controls,cncI18n:uiLocale,cncShell:{go(){}}};
@@ -33,7 +34,7 @@ function machinePage(language){
   const panel=dom.node('panel'),buttons=panel.children.find(c=>/ks-machine-commands/.test(c.className)).children;
   const reason=panel.children.find(c=>c.id==='ks-machine-command-reason');
   handlers['cnc-screen-change']({detail:'machine'}); // on Machine: the assistant does not open by itself
-  const page={dom,handlers,calls,panel,unlock:buttons[0],home:buttons[1],reason,confirm:dom.node('job-confirm'),onPrepare:null,onConfirm:null,
+  const page={dom,handlers,calls,panel,unlock:buttons[0],home:buttons[1],reason,confirm:dom.node('job-confirm'),onPrepare:null,onConfirm:null,onRead:null,
     status(machine,extra){handlers['cnc-job-status']({detail:Object.assign({machine,simulation:false,transportConnected:true,feedback:'',feedbackState:''},extra||{})});},
     screen(name){handlers['cnc-screen-change']({detail:name});}};
   return page;
@@ -79,7 +80,32 @@ const STATES={
   p.status(STATES.repos);assert.equal(p.reason.textContent,'Le déverrouillage ($X) ne sert qu’en alarme.');
   p.status(STATES.travail);assert.equal(p.reason.textContent,'$X et $H indisponibles : Travail en cours.');
   p.status(STATES.palpage);assert.equal(p.reason.textContent,'$X et $H indisponibles : Palpage en cours.');
-  p.status(STATES['sans-22']);assert.equal(p.reason.textContent,'$X indisponible : Le déverrouillage ($X) ne sert qu’en alarme. · $H indisponible : Réglage $22 inconnu : relisez les réglages de la carte.');
+  // $22 forgotten by CNCjs (board restart): the reading of $$ is offered there, in one button, only then.
+  const reread=p.panel.children.find(c=>/ks-machine-commands/.test(c.className)).children.find(b=>b.id==='ks-machine-reread');
+  assert(reread&&reread.hidden,'« Relire les réglages » hidden at rest');
+  p.status(STATES['sans-22']);assert.equal(p.reason.textContent,'$X indisponible : Le déverrouillage ($X) ne sert qu’en alarme. · $H indisponible : Réglage $22 inconnu : relisez les réglages de la carte. Touchez Relire les réglages ($$).');
+  assert.equal(reread.hidden,false);assert.equal(reread.textContent,'Relire les réglages ($$)');assert.equal(reread.disabled,false);
+  // Contre-revue m2: the answer of « Relire » shows on this line (here a refusal: another device pilots).
+  let refuse=null;p.onRead=()=>({then:(ok,ko)=>{refuse=()=>ko(Object.assign(new Error('Machine pilotée par Tablette B.'),{code:'ECONTROL'}));}});
+  reread.click();assert.equal(p.reason.textContent,'Relecture des réglages de la carte ($$)…');
+  refuse();
+  assert.equal(p.reason.textContent,'Machine pilotée par Tablette B.');assert.equal(p.reason.getAttribute('data-feedback'),'failed');
+  p.status(STATES['sans-22']);assert.equal(p.reason.textContent,'Machine pilotée par Tablette B.','kept while the reasons stay the same');
+  // A new $X / $H request ends it: its own answer shows.
+  p.unlock.disabled=false;p.unlock.click();p.status(STATES['sans-22'],{feedback:'Refusé : pilotage attribué à « Tablette B ».',feedbackState:'failed'});
+  assert.notEqual(p.reason.textContent,'Machine pilotée par Tablette B.','« Relire » answer gone after a new request');
+  p.onRead=null;
+  // Contre-revue P2-2: in alarm the reading (at rest only) needs $X first, said on the line and on the greyed button.
+  p.status({...STATES['sans-22'],activeState:'Alarm',alarmCode:1,canUnlock:true,unlockReason:''});
+  assert.equal(p.reason.textContent,'$H indisponible : Réglage $22 inconnu : relisez les réglages de la carte. Touchez Déverrouiller ($X), puis Relire les réglages ($$), puis $H.');
+  assert.equal(reread.hidden,false);assert.equal(reread.disabled,true);assert.equal(reread.title,'Touchez Déverrouiller ($X), puis Relire les réglages ($$), puis $H.');
+  // Any case: « réglage $22 inconnu » lower-case too.
+  p.status({...STATES['sans-22'],homeReason:'réglage $22 inconnu'});assert.equal(reread.hidden,false);
+  // Hold without a job (a stopped job left Hold:0 for hours): the server's words, then what to do (Arrêter, then $H).
+  p.status({...base,activeState:'Hold:0',canHome:false,homeReason:'La prise d’origine exige une machine au repos ou en alarme.'});
+  assert.equal(p.reason.textContent,'$X indisponible : Le déverrouillage ($X) ne sert qu’en alarme. · $H indisponible : La prise d’origine exige une machine au repos ou en alarme. Touchez Arrêter, puis $H.');
+  assert.equal(reread.hidden,true);
+  p.status(STATES.repos);assert(!/Touchez Arrêter, puis \$H/.test(p.reason.textContent),'not at rest');
   p.status(STATES.homing);assert.equal(p.reason.textContent,'$X indisponible : Le déverrouillage ($X) ne sert qu’en alarme. · $H indisponible : La prise d’origine exige une machine au repos ou en alarme.');
   // Alarm during a job (lot D, point 3): the server's words kept, then the missing step (Arrêter, then $X).
   p.status(STATES['alarme-travail']);assert.equal(p.reason.textContent,'$X et $H indisponibles : Impossible pendant un travail ou avec des commandes en attente. Touchez Arrêter, puis $X.');
@@ -194,9 +220,9 @@ const STATES={
   assert(!/lecture seule<\/p>/.test(machine)&&!/commandes désactivées/.test(machine),'no read-only claim above $X / $H');
   const texts=[...machine.matchAll(/<p>([^<]+)<\/p>/g)].map(m=>m[1]).filter(s=>/[a-z]/.test(s));
   assert(texts.includes('Connexion, coordonnées et commandes $X/$H'));
-  assert(texts.some(s=>/^Commandes réelles/.test(s)&&s.includes('Déverrouiller ($X)')&&s.includes('Prise d’origine ($H)')&&s.includes('Déplacement réel')&&s.includes('Origine ici')&&s.includes('Palpage X / Y / Z')&&s.includes('Préparer')));
+  assert(texts.some(s=>/^Commandes réelles/.test(s)&&s.includes('Déverrouiller ($X)')&&s.includes('Prise d’origine ($H)')&&s.includes('Préparer')&&s.includes('Suivi')&&!/Déplacement réel|Origine ici|quand ils sont activés/.test(s)));
   for(const language of ['en','es']){const L=locale(language);for(const s of texts)assert.notEqual(L.t(s),s,language+' row for: '+s);}
-  for(const label of ['Déverrouiller ($X)…','Prise d’origine ($H)…','Déplacement réel','Origine ici','Palpage X / Y / Z','Préparer']){
+  for(const label of ['Déverrouiller ($X)…','Prise d’origine ($H)…','Préparer']){
     const es=locale('es').t(label).replace(/…$/,''),en=locale('en').t(label).replace(/…$/,'');
     assert(locale('es').t(texts.find(s=>/^Commandes réelles/.test(s))).includes(es),'ES sheet names '+es);
     assert(locale('en').t(texts.find(s=>/^Commandes réelles/.test(s))).toLowerCase().includes(en.toLowerCase()),'EN sheet names '+en);

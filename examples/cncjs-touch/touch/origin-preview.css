@@ -43,19 +43,21 @@ body.perf-origin #screen-jog.screen[data-pv2] .pv2-cotes{grid-area:cotes;min-hei
 body.perf-origin #screen-jog.screen[data-pv2] .pv2-summary{grid-area:side;min-height:0}
 body.perf-origin #screen-jog.screen[data-pv2] .pv2-jog-head{grid-area:jhead;min-height:0}
 body.perf-origin #screen-jog.screen[data-pv2="compare"] .ks-motion-arrows,body.perf-origin #screen-jog.screen[data-pv2="compare"] .ks-motion-coordinates{display:none}
-/* The dry-run line describes the cross, hidden beside the comparison (in ES it took two lines and lowered the bar). */
+/* The status line describes the cross, hidden beside the comparison (in ES it took two lines and lowered the bar). */
 body.perf-origin #screen-jog[data-pv2="compare"] #jog-msg{display:none}
 /* With that line hidden the title column holds the title alone: it may narrow to its own width so four actions
-   (« Déplacement réel », FR large text) stay on its row; the wrapped row pushed the tools out of the side column. */
+   (FR large text) stay on its row; the wrapped row pushed the tools out of the side column. */
 body.perf-origin #screen-jog[data-pv2="compare"] .ks-panel-intro>div:first-child{flex-basis:0;min-width:auto}
 /* Jog zone: the whole cross and Z (3 × 96 px + 2 × 12 px = 312 px) in the 1fr row. */
 body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-arrows{grid-area:jog;height:auto;min-height:0;display:grid;grid-template-columns:auto auto;gap:var(--sp-6);justify-content:center;align-content:center;align-items:center;padding:var(--sp-2) var(--sp-3)!important}
 body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-arrows .jog{min-width:var(--tap-jog);min-height:var(--tap-jog)}
-/* Coordinates under the cross: the work/machine table and the step; the heading, « Zéro XYZ » (disabled
- * here) / « Vitesse du test… » and « Coordonnées… » give their rows to the cross (the last two are relayed
- * by the summary). */
+/* Coordinates under the cross: the work/machine table (with its Zéro X / Y / Z) and the step; the heading,
+ * « Zéro XYZ » / « Vitesse… » give their rows to the cross (« Vitesse… » is relayed by the summary). */
 body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-coordinates{grid-area:coords;height:auto;min-height:0;align-self:end}
 body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-coordinates>h2,body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-zero,body.perf-origin #screen-jog.screen[data-pv2="jog"] #coordinate-open{display:none}
+/* Move area: the step row keeps its width for « Continu » (EN « Continuous »); the centre of the cross says the step. */
+body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-step>h2{display:none}
+body.perf-origin #screen-jog.screen[data-pv2="jog"] .ks-motion-step{grid-template-columns:minmax(0,1fr)}
 body.perf-origin #screen-jog.screen[data-pv2] [hidden]{display:none!important}
 /* Comparison bar: three exclusive choices (aria-pressed) and the dimensions toggle, 48 px targets. */
 body.perf-origin #screen-jog[data-pv2] .pv2-bar{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:nowrap;min-width:0}

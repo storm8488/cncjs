@@ -254,6 +254,20 @@
   ['probe-wcs','probe-scenario'].forEach(function(id){$(id).addEventListener('change',invalidate);});$('probe-confirm').addEventListener('change',render);
   $('probe-scenario-label').hidden=!simulation;$('probe-confirm').parentElement.hidden=!simulation;
   if(!simulation){
+    // Real page: the server's only real probing is the Z zero with a plate, from Suivi. This
+    // screen keeps what is real here (profiles, their transfer, the input diagnostic) and says so.
+    document.querySelector('#screen-probe .ks-panel-intro h2').textContent=uiLocale.t('Sonde : profils et diagnostic');
+    document.querySelector('#screen-probe .ks-panel-intro p').textContent=uiLocale.t('Zéro Z avec une plaque : dans Suivi, machine au repos');
+    ['probe-phase','probe-progress','probe-message','probe-start','probe-stop','probe-result','probe-preparation-open'].forEach(function(id){$(id).hidden=true;});
+    var zeroZ=document.createElement('button');zeroZ.type='button';zeroZ.id='probe-zero-z';zeroZ.className='ks-secondary';zeroZ.textContent=uiLocale.t('Zéro Z avec plaque → Suivi');zeroZ.disabled=true;
+    $('probe-test').parentNode.appendChild(zeroZ);
+    zeroZ.addEventListener('click',function(){if(!zeroZ.disabled)go('home');});
+    window.addEventListener('cnc-job-status',function(e){
+      var d=e&&e.detail;if(!d||d.simulation)return;var m=d.machine,laser=!!(m&&m.machineProfile&&m.machineProfile.kind==='laser');
+      if(zeroZ.hidden!==laser)zeroZ.hidden=laser;
+      var can=!!(m&&m.canZeroZ===true);if(zeroZ.disabled!==!can)zeroZ.disabled=!can;
+      var why=can?'':uiLocale.t(m&&m.zeroZReason||'Indisponible dans l’état actuel de la machine.');if(zeroZ.title!==why)zeroZ.title=why;
+    });
     text('probe-test',uiLocale.t('Diagnostic de l’entrée'));
     $('probe-free').hidden=$('probe-touch').hidden=true;
     document.querySelector('#screen-probe-contact .probe-contact-steps').hidden=true;
