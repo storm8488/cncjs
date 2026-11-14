@@ -430,6 +430,15 @@
     return { seconds: left * factor, factor: factor, corrected: corrected, rapidKnown: t.rapidKnown || !(est.rapid && est.rapid.count), known: t.known,
       unknownsAhead: (t.unknowns || []).filter(function (u) { return u.line > line; }) };
   }
+  // Share of the program executed, from the running time against the motion model (upper bound,
+  // so the bar never runs ahead of the model's slowest case), never above the acknowledged lines
+  // (Grbl acknowledges a line when it enters its buffer: a short program is "98 %" at once on a
+  // large ESP32 buffer) and below 100 until the server reports the end; null without an estimate.
+  function executedPercent(est, rates, activeSeconds, ackedPercent) {
+    var t = total(est, rates);
+    if (!t || !(t.high > 0) || typeof activeSeconds !== 'number' || !(activeSeconds >= 0) || typeof ackedPercent !== 'number') return null;
+    return Math.max(0, Math.min(ackedPercent, 99, 100 * activeSeconds / t.high));
+  }
   // A sidecar estimate is kept only with the expected shape (older sidecars have none).
   function valid(est) {
     return !!(est && typeof est === 'object' && est.version === 1 && typeof est.seconds === 'number' && isFinite(est.seconds) && typeof est.known === 'boolean' && Array.isArray(est.unknowns));
@@ -437,7 +446,7 @@
 
   var api = { createInterpreter: createInterpreter, createEstimator: createEstimator, estimate: estimate, moveLength: moveLength, arcPoints: arcPoints,
     createSequenceCollector: createSequenceCollector, createSequences: createSequences, sequences: sequences,
-    ratesFrom: ratesFrom, rapidBounds: rapidBounds, total: total, at: at, remaining: remaining, valid: valid };
+    ratesFrom: ratesFrom, rapidBounds: rapidBounds, total: total, at: at, remaining: remaining, executedPercent: executedPercent, valid: valid };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.CNCMotionEstimate = api;
 })(typeof self !== 'undefined' ? self : typeof window !== 'undefined' ? window : this);

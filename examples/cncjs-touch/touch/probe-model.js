@@ -99,6 +99,20 @@
     function report(){return {version:1,mode:mode==='simulation'?'simulation-palpage':'preparation-palpage',exportedAt:new Date(clock()).toISOString(),parameters:settings?copy(settings):null,state:snapshot(),events:copy(log),note:uiLocale.t('Banc fictif indépendant : aucun G-code, aucune trajectoire ni origine machine réelle. Coordonnées de contact synthétiques en mm.')};}
     return {snapshot:snapshot,resetContact:resetContact,contact:contact,start:start,advance:advance,stop:stop,report:report};
   }
-  var api={empty:empty,demo:demo,normalize:normalize,validate:validate,compensate:compensate,create:create,fields:fields};
+  // Real probe input as the diagnostic shows it (read only, never a probing decision): a fresh
+  // report (2.5 s) without Pn means no input triggered (Grbl 1.1), shown as free.
+  function liveInput(p,elapsed){
+    if(!p.fresh||typeof p.ageMs!=='number'||p.ageMs<0||elapsed<0||p.ageMs+elapsed>2500)return {state:'unknown',reason:p.fresh?uiLocale.t('Rapport trop ancien : entrée sonde inconnue.'):p.reason||uiLocale.t('Attendre un nouveau rapport Grbl.')};
+    if(p.code==='MISSING')return {state:'free',reason:uiLocale.t('Aucun contact signalé par la carte.')};
+    return {state:p.state==='free'||p.state==='contact'?p.state:'unknown',reason:p.reason||uiLocale.t('Rapport sonde non reconnu.')};
+  }
+  // A brief contact stays shown CONTACT_HOLD_MS: {signal, seen (last contact time), recheck (ms, 0 = none)}.
+  var CONTACT_HOLD_MS=1500;
+  function heldSignal(signal,seen,now){
+    if(signal==='contact')return {signal:'contact',seen:now,recheck:0};
+    var left=CONTACT_HOLD_MS-(now-seen);
+    return left>0&&left<=CONTACT_HOLD_MS?{signal:'contact',seen:seen,recheck:left}:{signal:signal,seen:seen,recheck:0};
+  }
+  var api={empty:empty,demo:demo,normalize:normalize,validate:validate,compensate:compensate,create:create,fields:fields,liveInput:liveInput,heldSignal:heldSignal,CONTACT_HOLD_MS:CONTACT_HOLD_MS};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.CNCProbe=api;
 })(typeof window==='undefined'?this:window);

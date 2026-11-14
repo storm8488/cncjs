@@ -166,7 +166,7 @@
   // ---- Motion-based estimate (motion-estimate.js), shown next to the rhythm-based one ----
   // Model of the program (lengths / programmed feeds, G4 dwells, rapids from $110-$112 when known,
   // no acceleration); corrected during the job by the time observed per acknowledged line.
-  var motionTrack=null,motionLeft=null;
+  var motionTrack=null,motionLeft=null,runTrack=null;
   var UNKNOWN_TEXT={pause:'pause M0','optional-pause':'pause optionnelle M1',toolchange:'changement d’outil M6',home:'retour G28/G30',probe:'palpage G38',machine:'déplacement G53',frame:'changement de repère G10/G92',position:'position inconnue',feed:'avance F absente',dwell:'pause G4 sans durée',code:'code non pris en charge',arc:'arc illisible'};
   function unknownsText(list){
     var counts={},order=[];
@@ -273,6 +273,15 @@
     // A program that reached its end with lines refused by Grbl (error:N) is not "finished".
     var failed=!simulation&&c&&c.finishedWithErrors===true&&finiteNumber(c.jobErrors)&&c.jobErrors>0;
     if(valid&&(c.finished===true||failed)&&c.workflow==='idle')p=100;
+    // Real job without resume: the bar follows the running time against the motion estimate of the
+    // preview (CNCMotionEstimate.executedPercent), never ahead of the acknowledged lines.
+    if(valid&&!simulation&&p<100&&!c.resume){
+      var runKey=c.port+':'+c.name+':'+c.revision+':'+c.total,pvRun=$('home-job-image')&&$('home-job-image').cncPreview,MEr=window.CNCMotionEstimate;
+      if(!runTrack||runTrack.key!==runKey||c.workflow==='idle')runTrack={key:runKey,active:0,last:now};
+      var runDt=(now-runTrack.last)/1000;if(runDt>0&&runDt<=3&&c.workflow==='running'&&!/^alarm/i.test(String(c.activeState||'')))runTrack.active+=runDt;runTrack.last=now;
+      var runP=MEr&&typeof MEr.executedPercent==='function'&&pvRun&&pvRun.file===c.name&&pvRun.estimate?MEr.executedPercent(pvRun.estimate,MEr.ratesFrom(c.settings),runTrack.active,p):null;
+      if(runP!==null)p=runP;
+    }
     var percent=valid?Math.floor(p)+' %':'—',remaining=null,eta=uiLocale.t('Temps restant : —');
     var key=c?simulation+':'+c.port+':'+c.name+':'+c.revision+':'+c.total:'',alarmNow=!!(c&&/^alarm/i.test(String(c.activeState||'')));
     if(!valid){track=null;eta=c&&c.fresh&&!c.name?uiLocale.t('Temps restant : chargez un fichier'):uiLocale.t('Temps restant : état indisponible');}

@@ -128,4 +128,15 @@ context.self = context; vm.createContext(context);
 vm.runInContext(fs.readFileSync(path.join(__dirname, 'touch', 'motion-estimate.js'), 'utf8'), context);
 assert.equal(typeof context.CNCMotionEstimate.estimate, 'function');
 close(context.CNCMotionEstimate.estimate('G1 X10 F600').feedSeconds, 1, 1e-6);
+// Executed share for the Suivi bar: running time against the model, never above the acknowledged
+// lines (a large Grbl buffer acknowledges a short program at once), below 100 until the server's end.
+{
+  const total = ME.total(job, null).high;
+  assert.equal(ME.executedPercent(job, null, 0, 98), 0, 'start: 0 % although 98 % of the lines are acknowledged');
+  close(ME.executedPercent(job, null, total / 2, 98), 50, 0.01, 'half the model time: 50 %');
+  assert.equal(ME.executedPercent(job, null, total / 2, 30), 30, 'never ahead of the acknowledged lines');
+  assert.equal(ME.executedPercent(job, null, total * 3, 100), 99, 'stays below 100 until the server reports the end');
+  assert.equal(ME.executedPercent(null, null, 10, 50), null, 'no estimate: null (the caller keeps the acknowledged share)');
+  assert.equal(ME.executedPercent(job, null, -1, 50), null);
+}
 console.log('PASS motion estimate: lines, plunges, arcs, helices, G18, G20, G91, G93, dwells, unknown durations with lines, rapids exact or bounded, remaining time corrected by acknowledged progress, tools/operations, laser summary, worker globals.');

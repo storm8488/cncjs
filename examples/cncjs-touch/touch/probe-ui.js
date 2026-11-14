@@ -1,6 +1,7 @@
 (function(){
   'use strict';
   var uiLocale=(typeof window!=='undefined'&&window.cncI18n)||{t:function(s){return s;},html:function(s){return s;}};
+  var contactSeen=-1e9,contactTimer=null;
   var model=window.CNCProbe,simulation=document.body.getAttribute('data-simulation')==='true';
   if(!model)return;
   var engine=model.create(simulation?'simulation':'disabled'),main=document.querySelector('main');
@@ -126,8 +127,7 @@
   function liveInput(){
     var p=machine&&machine.probeInput,elapsed=Date.now()-machineReceived;
     if(!machine||!p)return {state:'unknown',reason:uiLocale.t('Diagnostic indisponible : connectez un contrôleur Grbl dans CNCjs.')};
-    if(!p.fresh||typeof p.ageMs!=='number'||p.ageMs<0||elapsed<0||p.ageMs+elapsed>2500)return {state:'unknown',reason:p.fresh?uiLocale.t('Rapport trop ancien : entrée sonde inconnue.'):p.reason||uiLocale.t('Attendre un nouveau rapport Grbl.')};
-    return {state:p.state==='free'||p.state==='contact'?p.state:'unknown',reason:p.reason||uiLocale.t('Rapport sonde non reconnu.')};
+    return model.liveInput(p,elapsed);
   }
   function release(){if(locked&&window.cncJobSimulation){window.cncJobSimulation.releaseProbe();locked=false;}if(timer){clearInterval(timer);timer=null;}}
   function renderPreparation(){
@@ -164,6 +164,9 @@
     if(active==='probe-report'){renderReport();return;}
     if(active==='probe'&&diagram)diagram.update(p,operation,diameter);
     var live=liveInput(),signal=simulation?s.probe:live.state;
+    // A brief real contact stays visible 1.5 s; the badge colour follows the state.
+    if(!simulation){var held=model.heldSignal(signal,contactSeen,Date.now());contactSeen=held.seen;signal=held.signal;if(held.recheck){clearTimeout(contactTimer);contactTimer=setTimeout(render,held.recheck+50);}}
+    if($('probe-signal').getAttribute('data-signal')!==signal)$('probe-signal').setAttribute('data-signal',signal);
     text('probe-signal',uiLocale.t('Sonde : ')+(signal==='free'?uiLocale.t('libre')+(simulation?uiLocale.t(' (fictive)'):uiLocale.t(' · signal reçu')):signal==='contact'?uiLocale.t('contact')+(simulation?uiLocale.t(' (fictif)'):uiLocale.t(' · signal reçu')):uiLocale.t('inconnu')));
     text('probe-machine',simulation?uiLocale.t('Contrôleur virtuel · ')+(machine?stateWord(machine):uiLocale.t('indisponible')):uiLocale.t('Contrôleur réel · ')+(machine?stateWord(machine):uiLocale.t('déconnecté')));
     text('probe-summary',(selected===-1?uiLocale.t('Valeurs de démonstration · '):uiLocale.t('Profil : '))+p.name+uiLocale.t(' · coin ')+(p.corner||uiLocale.t('à définir'))+' · X '+(p.directionX===1?'+':p.directionX===-1?'−':'?')+' / Y '+(p.directionY===1?'+':p.directionY===-1?'−':'?'));

@@ -42,4 +42,16 @@ const mutated=P.create('simulation'),mutable=JSON.parse(JSON.stringify(base));ch
 const log=P.create('simulation');for(let i=0;i<150;i++)log.contact(i%2?'contact':'free');assert.equal(log.report().events.length,100);
 // No browser/network facilities exist in this VM. The module remains pure.
 const isolated={window:{}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'touch/probe-model.js'),'utf8'),isolated);assert.equal(typeof isolated.window.CNCProbe.create,'function');
+// Real input diagnostic: a fresh report without Pn is free; old or unreported stays unknown; a brief
+// contact stays shown CONTACT_HOLD_MS, then the real state comes back.
+{
+  assert.equal(P.liveInput({fresh:true,ageMs:100,state:'unknown',code:'MISSING'},200).state,'free');
+  assert.equal(P.liveInput({fresh:true,ageMs:100,state:'contact',code:'EXPLICIT'},200).state,'contact');
+  assert.equal(P.liveInput({fresh:true,ageMs:2000,state:'unknown',code:'MISSING'},600).state,'unknown','older than 2.5 s');
+  assert.equal(P.liveInput({fresh:false,ageMs:null,state:'unknown',code:'WAITING'},0).state,'unknown');
+  let h=P.heldSignal('contact',-1e9,1000);assert.deepEqual(h,{signal:'contact',seen:1000,recheck:0});
+  h=P.heldSignal('free',h.seen,1300);assert.equal(h.signal,'contact');assert.equal(h.recheck,P.CONTACT_HOLD_MS-300);
+  h=P.heldSignal('free',h.seen,1000+P.CONTACT_HOLD_MS);assert.equal(h.signal,'free');assert.equal(h.recheck,0);
+  assert.equal(P.heldSignal('unknown',-1e9,5000).signal,'unknown');
+}
 console.log('PASS: signed XY compensation, Z thickness, profiles, all operations/faults, no partial success, bounded journal, no transport.');
