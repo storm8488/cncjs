@@ -45,7 +45,7 @@ const fmt = (n) => String(Math.round(n * 1000) / 1000);
 //   grblCode(res)           the numeric code of an error:n / ALARM:n
 //   probeInput              probe pin observer (inspect(port))
 //   moving(c, r)            a jog of the service sent and not over (motion.js)
-// Returns { zeroZReady(c), plateParams(body), answers(c, r), zeroZ(c, ticket) }.
+// Returns { zeroZReady(c), plateParams(body), answers(c, r), zeroZ(c, ticket), quiet(c, r, t, ms) }.
 export const createPlateProbe = (deps) => {
   const {
     config, clock, conflict, controllers, record, later, changed, available, spindleStill,
@@ -280,5 +280,5 @@ export const createPlateProbe = (deps) => {
       });
   };
 
-  return { zeroZReady, plateParams, answers, zeroZ };
+  return { zeroZReady, plateParams, answers, zeroZ, quiet };
 };

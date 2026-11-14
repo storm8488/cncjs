@@ -168,7 +168,8 @@ export const createStream = (service, options = {}) => {
       }
       client.closed = true;
       clients.delete(client);
-      service.closeTransport(client.id);
+      // A rotation is not a lost tablet (block probe, job-service.js).
+      service.closeTransport(client.id, rotate === true);
       res.removeListener('close', onClose);
       req.removeListener('aborted', onClose);
       if (rotate && !res.destroyed) {

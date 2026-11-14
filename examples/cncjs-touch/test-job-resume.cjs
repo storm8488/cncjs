@@ -96,6 +96,13 @@ byId('home-resume-check').click();
   status({...idle,canZeroZ:true,zeroZ:{thickness:10.5,wcs:'G54',machineZ:-35.3}});assert.match(byId('home-plate-last').textContent,/^Dernier zéro Z : plaque 10\.5 mm/);
   status({...idle,workflow:'paused',canLoad:false,programPause:m6,canZeroZ:true});assert.match(byId('home-program-pause-text').textContent,/se règle ci-dessous\.$/);
   status({...idle,canZeroZ:false});assert.equal(byId('home-plate').hidden,true);
+  // « Zéro Z avec plaque → Suivi » (Sonde, cnc-plate-show): on the next frame, the visible plate card centred and its probe button focused.
+  const frames=[],scrolls=[];window.requestAnimationFrame=(f)=>frames.push(f);byId('home-plate').scrollIntoView=(o)=>scrolls.push(o);
+  status({...idle,canZeroZ:true,zeroZ:null});document.activeElement=null;
+  listeners['cnc-plate-show'].forEach(f=>f({type:'cnc-plate-show',detail:null}));assert.equal(scrolls.length,0,'after the layout of Suivi');
+  frames.shift()();assert.equal(JSON.stringify(scrolls),'[{"block":"center"}]');assert.equal(document.activeElement,byId('home-plate-probe'),'Palper le zéro Z… focused');
+  status({...idle,canZeroZ:false});listeners['cnc-plate-show'].forEach(f=>f({type:'cnc-plate-show',detail:null}));frames.shift()();
+  assert.equal(scrolls.length,1,'nothing when the plate card is hidden');delete window.requestAnimationFrame;
   // Both pages load the module after the dashboard that creates #home-job-ready.
   for(const name of ['index.html','simulation.html']){const html=fs.readFileSync(__dirname+'/touch/'+name,'utf8'),at=f=>html.indexOf(f+'?v=');assert(at('job-resume.js')>at('job-dashboard.js')&&at('job-dashboard.js')>0,name);}
   console.log('PASS job resume: pause texts, suggested line after a stop, check then load, M5 during a tool change, dialog note, translations and page order.');

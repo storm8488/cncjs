@@ -108,7 +108,8 @@ for(const language of ['fr','en','es']){
 // three languages; the import of a simulation backup is still refused, without
 // sending the operator to the removed mode.
 const probe=read('probe-ui.js');
-['Progression du palpage','Journal de cette page, 100 événements maximum','Ces origines sont propres au banc de palpage. Les coordonnées de la CNC ne sont pas modifiées.',
+// Block probing (2026-11-14): the Results screen of the real page shows the last block probe read from the machine.
+['Progression du palpage','Dernier palpage au bloc · lu dans l’état de la machine','Valeurs relevées et écrites par le serveur CNCjs. Vérifiez la position de travail avant d’usiner.',
  'Copiez le fichier sur l’autre appareil puis ouvrez ce panneau pour l’importer.','Banc réinitialisé. Aucun repère réel modifié.'].forEach(text=>{
   assert(probe.includes("uiLocale.t('"+text+"')"),'probe-ui.js real wording: '+text);
   for(const language of ['fr','en','es']){const t=locale(language).t(text);assert(language==='fr'||t!==text,language+': no translation for '+text);assert(!FORBIDDEN.test(t),language+': '+t);}

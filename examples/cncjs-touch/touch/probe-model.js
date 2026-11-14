@@ -113,6 +113,6 @@
     var left=CONTACT_HOLD_MS-(now-seen);
     return left>0&&left<=CONTACT_HOLD_MS?{signal:'contact',seen:seen,recheck:left}:{signal:signal,seen:seen,recheck:0};
   }
-  var api={empty:empty,demo:demo,normalize:normalize,validate:validate,compensate:compensate,create:create,fields:fields,liveInput:liveInput,heldSignal:heldSignal,CONTACT_HOLD_MS:CONTACT_HOLD_MS};
+  var api={empty:empty,demo:demo,normalize:normalize,validate:validate,compensate:compensate,create:create,fields:fields,fieldNames:fieldNames,liveInput:liveInput,heldSignal:heldSignal,CONTACT_HOLD_MS:CONTACT_HOLD_MS};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.CNCProbe=api;
 })(typeof window==='undefined'?this:window);

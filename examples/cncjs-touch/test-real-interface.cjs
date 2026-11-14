@@ -25,18 +25,25 @@ const loaded = [...html.matchAll(/<script defer src="([a-z0-9-]+\.js)\?/g)].map(
 for (const n of ['real-motion.js', 'touch-shell.js', 'interface-guide.js', 'job-preparation.js', 'probe-ui.js', 'commissioning.js']) {
   assert(loaded.includes(n), 'index.html loads ' + n);
   const src = read(n), hits = [...src.matchAll(/\b(?:t|tv2|uiLocale\.t)\('((?:[^'\\]|\\.)*)'\)/g)].map((m) => m[1]).filter((p) => MODE_WORDS.test(p));
-  // A word of the old modes may only remain in a simulation-only phrase (probe-ui.js, its bench).
-  const allowed = { 'probe-ui.js': /^Palpage réel non activé$/ };
-  assert.deepEqual(hits.filter((p) => !(allowed[n] && allowed[n].test(p) && /simulation\?[^;]*'Palpage réel non activé'/.test(src))), [], n + ': no mode word of the old checks');
+  assert.deepEqual(hits, [], n + ': no mode word of the old checks');
 }
-// Palpage of the real page (probe-ui.js): no fake launch; profiles and input diagnostic, and the only real probing
-// (Z zero with a plate) reached in Suivi, offered only when the server allows it, never for a laser.
+// Sonde of the real page (probe-ui.js, 2026-11-14): the launch is real (server block probe, probe-real.js), labelled
+// « Palper <op>… »; the fictitious bench (scenario, its confirmation box, the preparation) never starts outside the simulation.
 {
-  const pu = read('probe-ui.js'), real = pu.slice(pu.indexOf("if(!simulation){\n    // Real page: the server's only real probing"));
-  assert(pu.indexOf("if(!simulation){\n    // Real page: the server's only real probing") > 0, 'the real-page block of probe-ui.js');
-  assert(real.includes("['probe-phase','probe-progress','probe-message','probe-start','probe-stop','probe-result','probe-preparation-open'].forEach(function(id){$(id).hidden=true;})"), 'the bench launch, its progress and results are hidden on the real page');
-  assert(real.includes('var can=!!(m&&m.canZeroZ===true)') && real.includes("kind==='laser'") && real.includes("go('home')"), 'Zéro Z avec plaque → Suivi follows canZeroZ, hidden for a laser');
-  assert(real.indexOf("uiLocale.t('Sonde : profils et diagnostic')") > 0);
+  const START = "  if(!simulation){\n    // Real page: block probing Z / X / Y / XYZ run by the server";
+  const pu = read('probe-ui.js'), at = pu.indexOf(START), real = pu.slice(at);
+  assert(at > 0, 'the real-page block of probe-ui.js');
+  assert(!real.includes("['probe-phase','probe-progress','probe-message','probe-start','probe-stop','probe-result','probe-preparation-open'].forEach(function(id){$(id).hidden=true;})"), 'launch, progress, stop and results are shown on the real page');
+  assert(real.includes("$('probe-preparation-open').hidden=true;"), 'the bench preparation stays hidden');
+  assert(pu.includes("$('probe-scenario-label').hidden=!simulation;$('probe-confirm').parentElement.hidden=!simulation;"), 'scenario and bench confirmation hidden outside the simulation');
+  assert(pu.includes("if(!simulation){realLaunch();return;}"), 'Palper… of the real page goes to the server (never engine.start)');
+  assert(/function realLaunch\(\)\{[^]*?prepareCommand\('blockProbe'/.test(pu), 'the real launch prepares the blockProbe confirmation');
+  // The bench engine refuses any start outside the simulation (probe-model.js).
+  const model = require('./touch/probe-model.js'), bench = model.create('disabled');
+  assert.throws(() => bench.start({ profile: model.demo(), operation: 'Z', diameter: 6, wcs: 'G54', scenario: 'success', confirmed: true, idle: true }), /Palpage réel non raccordé/);
+  assert(real.includes('var can=!!(m&&m.canZeroZ===true)') && real.includes("kind==='laser'") && real.includes("go('home')") && real.includes("'cnc-plate-show'"), 'Zéro Z avec plaque → Suivi follows canZeroZ, hidden for a laser, shows the plate card');
+  assert(real.indexOf("uiLocale.t('Sonde : palpage, profils et diagnostic')") > 0);
+  assert(html.indexOf('probe-real.js?v=') > 0 && html.indexOf('probe-real.js?v=') < html.indexOf('probe-ui.js?v='), 'probe-real.js loaded before probe-ui.js');
 }
 // The English and Spanish rows of the texts the page shows (the HTML phrases of Préparer and Machine).
 {
@@ -50,4 +57,4 @@ for (const n of ['real-motion.js', 'touch-shell.js', 'interface-guide.js', 'job-
     const r = rows.get(text); assert(r && r[1] && r[2], 'EN / ES row for « ' + text + ' »');
   }
 }
-console.log('PASS real interface: index.html without dry-run, coordinate preparation, check-only badge or experimental entry; real Zéro buttons and Continu; mode words gone from the real scripts; EN/ES rows of the Préparer and Machine texts.');
+console.log('PASS real interface: index.html without dry-run, coordinate preparation, check-only badge or experimental entry; real Zéro buttons and Continu; mode words gone from the real scripts; real block probing launch, bench locked outside the simulation; EN/ES rows of the Préparer and Machine texts.');

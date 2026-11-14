@@ -9,7 +9,7 @@ const tests = [
  'arcs','dashboard','real-interface','home-actions','job-dialog','job-display',
  'library-transitions','library-file-state','machine-limits',
  'preview-dimensions','preview-viewer','preview','probe-diagram',
- 'probe-lock','probe-model','probe-preparation','probe-profiles','probe-transfer',
+ 'probe-lock','probe-model','probe-preparation','probe-profiles','probe-transfer','probe-real','probe-real-ui','block-probe-dialog',
  'real-history','screen-saver','simulation-alarm','simulation-history',
  'simulation-motion','simulation-report','simulation-ui','simulation',
  'transition-performance','viewport-fit','startup','display-settings','download-file',

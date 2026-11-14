@@ -175,11 +175,12 @@
     // event stream, so they stay offered while the page reads the state by HTTP. Resume and
     // Unlock need confirmations bound to the stream.
     var running=!!(m&&m.workflow&&m.workflow!=='idle'),usable=!!(m&&connected),reachable=!!m;
-    // Stop also covers a homing cycle or a jog (the server ends them); Pause only a running job.
+    // Stop also covers a homing cycle or a jog (the server ends them); Pause a running job, or whatever the
+    // server says it pauses (canPause: a block probe, where Pause interrupts the cycle for good).
     // In a pause, Resume takes the place of Pause (which is then inactive anyway).
     // A real jog of the server's (F1) is stoppable before Grbl reports Jog too.
     var jogging=!!(m&&m.motion&&typeof m.motion==='object'&&(m.motion.jog||m.motion.cancelling));
-    var stopShown=reachable?(running||!!m.canStop||jogging):!!(h&&h.canStop),pauseShown=reachable?m.workflow==='running':!!(h&&h.workflow==='running');
+    var stopShown=reachable?(running||!!m.canStop||jogging):!!(h&&h.canStop),pauseShown=reachable?(m.workflow==='running'||m.canPause===true):!!(h&&(h.workflow==='running'||h.canPause));
     var resumeShown=usable&&!screenLocked&&m.workflow==='paused'&&!!m.canResume;
     var unlockShown=usable&&!screenLocked&&!running&&/^alarm/i.test(String(m.activeState||''))&&!!m.canUnlock;
     prop(pause,'hidden',!pauseShown);prop(stop,'hidden',!stopShown);prop(resume,'hidden',!resumeShown);prop(unlock,'hidden',!unlockShown);

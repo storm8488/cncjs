@@ -4,6 +4,13 @@
 // A status report older than this is not trusted to describe the probe input.
 const MAX_REPORT_AGE_MS = 2500;
 
+// Contact test (block probe, block-probe.js): consecutive recognized reports
+// free → contact → free date it. Free: Pn without P, or Pn left out ($6 set as
+// verified on the machine). Anything unrecognized in between starts it over.
+const TEST_IDLE = 0;
+const TEST_FREE = 1;
+const TEST_CONTACT = 2;
+
 // Only modern, pipe-separated reports are interpreted. PRB is never read.
 const STATUS_REPORT = /^<(?:Idle|Run|Hold(?::\d+)?|Jog|Alarm|Door(?::\d+)?|Check|Home|Sleep)\|[^<>\r\n]+>$/;
 
@@ -33,16 +40,19 @@ export const createProbeInput = (store, clock = Date.now) => {
   };
 
   const watch = (port, c) => {
-    const record = { controller: c, seen: null, state: 'unknown', code: 'WAITING', pins: null };
+    const record = { controller: c, seen: null, state: 'unknown', code: 'WAITING', pins: null, stage: TEST_IDLE, testedAt: null };
     record.reset = () => {
       record.seen = null;
       record.state = 'unknown';
       record.code = 'WAITING';
       record.pins = null;
+      // A board restart: the test is due again.
+      record.stage = TEST_IDLE;
+      record.testedAt = null;
     };
     // Read the raw report: GrblRunner fills a missing pinState with an empty
     // string, which would hide the difference between "free" and "unreported".
-    record.status = (report) => {
+    const read = (report) => {
       record.seen = clock();
       record.state = 'unknown';
       record.code = 'MALFORMED';
@@ -72,6 +82,21 @@ export const createProbeInput = (store, clock = Date.now) => {
       record.code = 'EXPLICIT';
       record.pins = value.replace(/[^XYZP]/g, '');
     };
+    record.status = (report) => {
+      read(report);
+      const contact = record.code === 'EXPLICIT' && record.state === 'contact';
+      const free = record.code === 'MISSING' || (record.code === 'EXPLICIT' && record.state === 'free');
+      if (contact) {
+        record.stage = record.stage === TEST_IDLE ? TEST_IDLE : TEST_CONTACT;
+      } else if (free) {
+        if (record.stage === TEST_CONTACT) {
+          record.testedAt = clock();
+        }
+        record.stage = TEST_FREE;
+      } else {
+        record.stage = TEST_IDLE;
+      }
+    };
     observed.set(port, record);
     c.runner.on('status', record.status);
     c.runner.on('startup', record.reset);
@@ -91,7 +116,10 @@ export const createProbeInput = (store, clock = Date.now) => {
       readOnly: true,
       canProbe: false,
       // Triggered limit and probe inputs (X, Y, Z, P) from a fresh report, or null.
-      pins: null
+      pins: null,
+      // Contact test free → contact → free (block probe): when (service clock), and how long ago.
+      testedAt: null,
+      test: { done: false, ageMs: null }
     };
 
     if (!c || c.type !== 'Grbl' || !c.options || c.options.port !== port ||
@@ -105,6 +133,10 @@ export const createProbeInput = (store, clock = Date.now) => {
 
     const record = observed.get(port);
     const now = clock();
+    if (record.testedAt !== null) {
+      result.testedAt = record.testedAt;
+      result.test = { done: true, ageMs: Number.isFinite(now) && now >= record.testedAt ? now - record.testedAt : null };
+    }
     result.observedAt = Number.isFinite(record.seen) ? record.seen : null;
     result.ageMs = (Number.isFinite(now) && result.observedAt !== null && now >= record.seen)
       ? now - record.seen

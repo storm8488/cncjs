@@ -73,6 +73,9 @@
   // Last alarm code per port (D6): Grbl's restart banner after ALARM:3 makes the server forget
   // the code; the alarm's help stays shown while the controller remains in Alarm.
   var alarmMemory=null;
+  // Port of a confirmed block probe whose answer is awaited (up to 240 s): the server may move before the first
+  // state of the cycle reaches this page, so Pause and Arrêter target it at once (also when the state is lost).
+  var probeRun=null;
   // Action feedback state (ui-2027.css .t-sent): sent → confirmed | failed | uncertain (no answer).
   function setFeedbackState(state){feedbackState=state;if(state!=='confirmed'){feedbackExpect=null;feedbackReached=false;}var node=$('job-feedback');if(node&&typeof node.setAttribute==='function'&&typeof node.getAttribute==='function'&&node.getAttribute('data-state')!==state)node.setAttribute('data-state',state);}
   // A planned stream renewal (every minute) is not a disconnection: for up to 3 s
@@ -151,8 +154,9 @@
     return new Promise(function(resolve,reject) {
       var credential=token();
       if (!credential) {reject(new Error(uiLocale.t('Session CNCjs requise.')));return;}
-      // The plate probe is answered once its whole sequence is over (up to about 3 min).
-      var xhr=new XMLHttpRequest(); requests.push(xhr); xhr.open(method,(store?store.get().apiBase:'/api')+'/touch-job',true); xhr.timeout=body&&body.action==='zeroZ'?180000:30000;
+      // The plate probe is answered once its whole sequence is over (up to about 3 min), the block probe
+      // once its cycle and its stop are over (240 s at most on the server).
+      var xhr=new XMLHttpRequest(); requests.push(xhr); xhr.open(method,(store?store.get().apiBase:'/api')+'/touch-job',true); xhr.timeout=body&&body.action==='zeroZ'?180000:body&&body.action==='blockProbe'?270000:30000;
       xhr.setRequestHeader('Authorization','Bearer '+credential);
       function done(){var i=requests.indexOf(xhr);if(i>=0)requests.splice(i,1);}
       if(body) xhr.setRequestHeader('Content-Type','application/json');
@@ -191,6 +195,7 @@
     home:[uiLocale.t('La prise d’origine ($H) déplace chaque axe jusqu’à ses capteurs. Dégagez la zone de travail.'),uiLocale.t('Je suis devant la machine et la zone est dégagée.')],
     spindle:[uiLocale.t('Le test fait tourner la broche. Tenez mains et objets à distance de l’outil.'),uiLocale.t('Je suis devant la machine et l’outil peut tourner.')],
     zeroZ:[uiLocale.t('Le palpage descend Z jusqu’au contact avec la plaque. Vérifiez la plaque et la pince.'),uiLocale.t('Je suis devant la machine, la plaque et la pince sont en place.')],
+    blockProbe:[uiLocale.t('Le palpage déplace l’outil jusqu’au contact avec le bloc. Dégagez la zone autour du bloc.'),uiLocale.t('Je suis devant la machine, le bloc et la pince sont en place.')],
     // Laser framing (PROFILES-CONTRACT.md §4): XY moves around the program, M5 first, never emits.
     frame:[uiLocale.t('Le cadrage déplace la tête en XY autour du programme chargé, à la hauteur actuelle, laser éteint (M5 envoyé d’abord). Arrêter interrompt le mouvement.'),uiLocale.t('Je suis devant la machine et la zone est dégagée.')]
   };
@@ -270,7 +275,7 @@
   }
   // Whether the machine state still allows what a ticket was issued for.
   // Commissioning commands confirmed through the same dialog (no loaded program involved).
-  var COMMANDS={unlock:'canUnlock',home:'canHome',spindle:'canSpindleTest',zeroZ:'canZeroZ'};
+  var COMMANDS={unlock:'canUnlock',home:'canHome',spindle:'canSpindleTest',zeroZ:'canZeroZ',blockProbe:'canBlockProbe'};
   // Laser framing: a ticket of the machine action (frame-prepare, then frame with its nonce).
   function laserFrame(state){var c=state&&state.machineProfile&&state.machineProfile.capabilities;return !!(c&&c.laserFrame&&c.laserFrame.supported===true);}
   function standalone(operation){return operation==='macro'||operation==='frame'||Object.prototype.hasOwnProperty.call(COMMANDS,operation);}
@@ -313,6 +318,7 @@
       next.statusAgeMs+=elapsed+lastTransit;
       if(next.statusAgeMs>2500){next.fresh=false;next.canLoad=next.canStart=next.canResume=next.canPreviewMotion=false;next.loadReason=next.startReason=next.resumeReason=uiLocale.t('État machine trop ancien : attendre un rapport récent.');}
     }
+    if(probeRun&&next.port===probeRun){next.canStop=true;next.canPause=true;}
     if(next.probeInput){var p={};Object.keys(next.probeInput).forEach(function(key){p[key]=next.probeInput[key];});if(typeof p.ageMs==='number')p.ageMs+=elapsed+lastTransit;if(p.ageMs===null||p.ageMs>2500){p.fresh=false;p.state='unknown';}next.probeInput=p;}
     return next;
   }
@@ -328,7 +334,7 @@
     renderPilotDialog();previewIdentity(online?current:null);
     if(online&&current.fresh!==false)halt=haltOf(current);
     var lost=!online&&halt&&!simulation?halt:null;
-    var detail={machine:online?current:null,observedAt:lastSeen,transportConnected:transportConnected,simulation:!!simulation,busy:busy,feedback:$('job-feedback').textContent,feedbackState:feedbackState,systemCommand:command,pilot:pilot,halt:lost};
+    var detail={machine:online?current:null,observedAt:lastSeen,transportConnected:transportConnected,simulation:!!simulation,busy:busy,feedback:$('job-feedback').textContent,feedbackState:feedbackState,systemCommand:command,pilot:pilot,halt:lost,probeRun:probeRun};
     if(store)store.set({machine:detail.machine,controllerId:detail.machine?detail.machine.port:null,transportConnected:transportConnected,transportReason:grace?'':(streamReason||(browserOffline?uiLocale.t('Le navigateur signale le réseau coupé : le suivi continue tant que CNCjs répond.'):'')),systemCommand:command});
     var line=command?uiLocale.t('Commande système en cours : ')+command.title:'';
     if(systemLine.textContent!==line)systemLine.textContent=line;if(systemLine.hidden!==!line)systemLine.hidden=!line;
@@ -374,7 +380,7 @@
     prop('job-start','title',current.canStart?'':uiLocale.t(reason));prop('job-load','title',uiLocale.t(current.loadReason||''));
     if(ticket && (ticket.port!==current.port || !ticketAllowed(ticket,current))){
       // A plate probe confirmation closed by the server's refusal (probe already in contact...) says why (UI-6).
-      var why=ticket.operation==='zeroZ'&&ticket.port===current.port&&current.zeroZReason?(uiLocale.message||uiLocale.t)(current.zeroZReason):'';
+      var why=ticket.port!==current.port?'':ticket.operation==='zeroZ'&&current.zeroZReason?(uiLocale.message||uiLocale.t)(current.zeroZReason):ticket.operation==='blockProbe'&&current.blockProbeReason?(uiLocale.message||uiLocale.t)(current.blockProbeReason):'';
       dismiss();if(why){text('job-feedback',uiLocale.t('Confirmation annulée : ')+why);setFeedbackState('failed');}
     }
   }
@@ -493,7 +499,7 @@
       return api('POST',target);
     }
     if(!current || sinceSeen()>=3000)return Promise.reject(new Error('État indisponible.'));
-    if(!simulation&&(['prepare','start','resume','macro','override','unlock','home','spindle','readSettings','set-origin','machine'].indexOf(action)>=0||(action==='motion'&&!(extra&&extra.operation==='jog-stop')))&&(!current.generation||!transportId||!stream||!stream.alive()))return Promise.reject(new Error(uiLocale.t('Suivi continu interrompu. Nouvelle confirmation requise.')));
+    if(!simulation&&(['prepare','start','resume','macro','override','unlock','home','spindle','readSettings','set-origin','machine','blockProbe'].indexOf(action)>=0||(action==='motion'&&!(extra&&extra.operation==='jog-stop')))&&(!current.generation||!transportId||!stream||!stream.alive()))return Promise.reject(new Error(uiLocale.t('Suivi continu interrompu. Nouvelle confirmation requise.')));
     var body={action:action,port:current.port};
     if(current.generation)body.generation=current.generation;
     if(transportId)body.transportId=transportId;
@@ -517,20 +523,22 @@
       .then(function(data){finish();return data;},function(e){finish();throw e;});
   }
   // operation: 'start' | 'resume' (the loaded program) | 'macro' (extra.macroId).
+  // The promise never rejects: {opened: true} once the dialog is shown, else {opened: false, error}
+  // (error null when the confirmation was dropped silently: another dialog, a new stream, a hidden page).
   function prepare(operation,extra) {
-    if(busy||!current)return;
+    if(busy||!current)return Promise.resolve({opened:false,error:new Error(busy?uiLocale.t('Opération en cours…'):uiLocale.t('État indisponible.'))});
     var port=current.port,revision=current.revision, ownGeneration=generation, ownConfirmation=++confirmation, started=elapsedClock(),origin=document.activeElement;
     var request=operation==='macro'?{operation:'macro',macroId:extra&&extra.macroId}:standalone(operation)?{operation:operation}:{operation:operation,revision:revision};
     // Commands with parameters (the plate probe: thickness and search distance).
     if(standalone(operation)&&operation!=='macro'&&extra)Object.keys(extra).forEach(function(k){request[k]=extra[k];});
     preparing++;
-    (operation==='frame'?command('machine',{operation:'frame-prepare'}):command('prepare',request)).then(function(data){
+    return (operation==='frame'?command('machine',{operation:'frame-prepare'}):command('prepare',request)).then(function(data){
       preparing--;
-      if(ownGeneration!==generation||ownConfirmation!==confirmation||document.hidden||!current||current.port!==port||(!standalone(operation)&&current.revision!==revision))return;
+      if(ownGeneration!==generation||ownConfirmation!==confirmation||document.hidden||!current||current.port!==port||(!standalone(operation)&&current.revision!==revision))return {opened:false,error:null};
       until=started+Math.min(15,Number(data.expiresIn)||0)*1000;
-      if(elapsedClock()<started||elapsedClock()>=until){text('job-feedback',uiLocale.t('Confirmation expirée. Préparez une nouvelle confirmation.'));setFeedbackState('failed');render();return;}
+      if(elapsedClock()<started||elapsedClock()>=until){var late=uiLocale.t('Confirmation expirée. Préparez une nouvelle confirmation.');text('job-feedback',late);setFeedbackState('failed');render();return {opened:false,error:new Error(late)};}
       ticket={nonce:data.nonce,operation:operation,port:port,revision:revision,generation:generation,started:started};
-      if(!confirmable()||otherDialog()){dismiss(false);return;}
+      if(!confirmable()||otherDialog()){dismiss(false);return {opened:false,error:null};}
       dialogReturn=origin;
       // One stack of layers with the other overlays (strip-guard.js): a confirmation opened from a
       // sheet (macros) and closed in any order gives back exactly the values it found.
@@ -542,9 +550,9 @@
       if(keep.length&&$('job-dialog').style){$('job-dialog').style.top='var(--statusbar-h,0px)';var card=$('job-dialog').querySelector&&$('job-dialog').querySelector('.job-dialog-card');if(card&&card.style)card.style.maxHeight='calc(100vh - var(--statusbar-h,0px) - 48px)';}
       // What this operation does, and what the operator confirms (N4: an unlock moves nothing).
       if(!simulation){var words=DIALOG_TEXT[operation]||DIALOG_TEXT.start;if($('job-warning'))$('job-warning').textContent=words[0];if($('job-check-text'))$('job-check-text').textContent=words[1];}
-      $('job-dialog-title').textContent=({start:uiLocale.t('Confirmer le démarrage'),macro:uiLocale.t('Exécuter la macro'),unlock:uiLocale.t('Déverrouiller la machine'),home:uiLocale.t('Lancer la prise d’origine'),spindle:uiLocale.t('Démarrer la broche'),zeroZ:uiLocale.t('Régler le zéro Z avec la plaque'),frame:uiLocale.t('Cadrer le programme (laser éteint)')})[operation]||uiLocale.t('Confirmer la reprise');
+      $('job-dialog-title').textContent=operation==='blockProbe'?uiLocale.t('Lancer le palpage ')+String(data.blockProbe&&data.blockProbe.axes||request.axes||''):({start:uiLocale.t('Confirmer le démarrage'),macro:uiLocale.t('Exécuter la macro'),unlock:uiLocale.t('Déverrouiller la machine'),home:uiLocale.t('Lancer la prise d’origine'),spindle:uiLocale.t('Démarrer la broche'),zeroZ:uiLocale.t('Régler le zéro Z avec la plaque'),frame:uiLocale.t('Cadrer le programme (laser éteint)')})[operation]||uiLocale.t('Confirmer la reprise');
       // The target machine (label and kind, from the server's profile) and the piloting device.
-      $('job-dialog-file').textContent=(data.name||current.originalName||current.name||'')+' · '+port+(simulation?'':' · '+targetText(current)+' · '+uiLocale.t('Pilote : ')+(pilot.value||'—'));
+      $('job-dialog-file').textContent=(operation==='blockProbe'&&data.name?(uiLocale.message||uiLocale.t)(data.name):data.name||current.originalName||current.name||'')+' · '+port+(simulation?'':' · '+targetText(current)+' · '+uiLocale.t('Pilote : ')+(pilot.value||'—'));
       // Start of a real job: the server's travel pre-check of this exact program (F2), joined to the
       // ticket; unknown is never shown as a green light. Without it (older server), the client's
       // XY estimate from the preview of this program version.
@@ -553,10 +561,12 @@
       if(window.CNCTravelCheck){var img=$('home-job-image'),pv=img&&samePreview(img.cncPreview,current)?img.cncPreview:null;
         window.CNCTravelCheck.show($('job-travel'),operation==='start'&&!simulation&&!checked?window.CNCTravelCheck.check(pv,current):null);}
       // Tool change resume or a resume from a line: what will happen, in one line.
-      var note=window.CNCJobResume&&!simulation?window.CNCJobResume.dialogNote(operation,current,request):'';if($('job-note')){$('job-note').textContent=note;$('job-note').hidden=!note;}
+      // Block probe: the server's numbers of this ticket (search, lateral move, depth, reach).
+      var note=operation==='blockProbe'?(window.CNCProbeReal?window.CNCProbeReal.dialogNote(data.blockProbe):''):window.CNCJobResume&&!simulation?window.CNCJobResume.dialogNote(operation,current,request):'';if($('job-note')){$('job-note').textContent=note;$('job-note').hidden=!note;}
       countdown(Math.max(0,Math.ceil((until-elapsedClock())/1000)));
       $('job-check').checked=false;$('job-confirm').disabled=true;$('job-dialog').hidden=false;$('job-dismiss').focus();
-    },function(){preparing--;});
+      return {opened:true,error:null};
+    },function(e){preparing--;var stale=ownGeneration!==generation||ownConfirmation!==confirmation||!current||current.port!==port;return {opened:false,error:stale?null:e||null};});
   }
   bind(window,'cnc-library-select',function(event){selection=event.detail;if(store)store.set({selection:selection});render();});
   bind($('job-port'),'change',function(){generation++;explicitPort=!!$('job-port').value;halt=null;dismiss();latestMachine=machines.filter(function(m){return m.port===$('job-port').value;})[0]||null;render();});
@@ -575,7 +585,10 @@
   bind($('job-confirm'),'click',function(){
     if(!confirmable()){dismiss();return;}
     if(!$('job-check').checked)return;
-    var t=ticket;dismiss();(t.operation==='frame'?command('machine',{operation:'frame',nonce:t.nonce}):command(t.operation,{nonce:t.nonce})).then(function(){
+    var t=ticket;dismiss();if(t.operation==='blockProbe'){probeRun=t.port;halt={port:t.port,generation:current&&current.generation||null,workflow:'idle',canPause:true,canStop:true};}
+    var sent=t.operation==='frame'?command('machine',{operation:'frame',nonce:t.nonce}):command(t.operation,{nonce:t.nonce});
+    if(t.operation==='blockProbe')sent.then(function(){if(probeRun===t.port)probeRun=null;render();},function(){if(probeRun===t.port)probeRun=null;render();});
+    sent.then(function(){
       // Tells the commissioning assistant which confirmed command the server accepted.
       if(Object.prototype.hasOwnProperty.call(COMMANDS,t.operation))window.dispatchEvent(new CustomEvent('cnc-command-sent',{detail:t.operation}));
     }).catch(function(){});
@@ -667,7 +680,7 @@
     // Commissioning: unlock ($X), home ($H) or spindle test (M3), each after the confirmation dialog.
     // Closes an open confirmation and drops a prepare still on its way.
     cancel:function(){dismiss(false);},
-    prepareCommand:function(operation,extra){if(Object.prototype.hasOwnProperty.call(COMMANDS,operation))prepare(operation,extra);},
+    prepareCommand:function(operation,extra){return Object.prototype.hasOwnProperty.call(COMMANDS,operation)?prepare(operation,extra):Promise.resolve({opened:false,error:new Error(uiLocale.t('Commande inconnue.'))});},
     // Laser framing (frame-prepare → confirmation → frame); offered only when the server says so.
     prepareFrame:function(){if(simulation||!current||!laserFrame(current))return false;prepare('frame');return true;},
     // Machine kind (PROFILES-CONTRACT.md §2): written in .cncrc by the server, nothing sent to the

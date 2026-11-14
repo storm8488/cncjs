@@ -1089,6 +1089,12 @@ function startV2Fixture() {
     fx.controller = function () {
       const c = plain();
       if (fx.probeInput) c.probeInput = { fresh: true, ageMs: 120, state: 'free', code: 'MISSING', pins: '', reason: 'Champ Pn absent : entrée libre non confirmée. Capacité du firmware à valider.' };
+      // Block probing (palpage au bloc, job-service.js blockReady): refused at rest until the contact test (a laser:
+      // refused), refused outside rest; fx.blockProbe (screensProbe) replaces these fields with one state of the cycle.
+      const atRest = c.workflow === 'idle' && !c.probing && !c.homing;
+      Object.assign(c, { canBlockProbe: false, blockProbe: null, blockProbeReason: !atRest ? 'Palpage au bloc : machine au repos uniquement, sans programme en cours ni en pause.'
+        : (fx.profile || V2_PROFILE).kind === 'laser' ? 'Machine déclarée laser : pas de palpage Z avec plaque.' : 'Test du contact à faire : touchez l’outil avec le bloc puis relâchez (contact vu, puis libre) avant de palper.' });
+      if (fx.blockProbe) Object.assign(c, fx.blockProbe);
       // A stale report at rest (fx.staleIdle): unlike the phase « stale » (built on the job), no job starts or ends.
       if (fx.staleIdle) Object.assign(c, { fresh: false, statusAgeMs: Date.now() - fx.staleSince + 40, statusObservedAt: fx.staleSince - 40 });
       if (!fx.real) return c;
@@ -1866,6 +1872,23 @@ async function screensServer(cdp, v, summary) {
 // Real page (2026-11-14): the bench results and the probing preparation are no longer reachable (no real launch of
 // probing here: the Z zero with a plate is in Suivi); profiles and the input diagnostic stay.
 const SCREENS_PROBE = [['probe-profile', 'Profils de sonde', 'probe-profiles'], ['probe-contact', 'Test du contact', 'probe-test']];
+// Block probing (2026-11-14): the real Sonde screen in each state of the server's cycle (contract of the conception
+// § 3.3), XYZ chosen, on a CNC: ready, contact test refused, running at step 8 / 22, stopping, done, failed, then its
+// results. The operator's block profile and tool diameter are in the page's storage (PROBE_STORE). Nothing is sent.
+const PROBE_STORE = { version: 1, profiles: [{ name: 'Bloc de coin XYZ', corner: '--', directionX: 1, directionY: 1, thickness: 5, faceX: -9.9, faceY: -9.9, fast: 100, slow: 25, search: 10, retract: 2, clearance: 5 }], selected: 0, diameter: 6, removed: null };
+const BLOCK_RUN = { id: 'browser-run-b1', axes: 'XYZ', wcs: 'G54', state: 'running', step: { index: 8, total: 22, code: 'X_FAST' }, startedAt: 1, endedAt: null, contacts: { Z: -119.565 }, written: 'no', origin: null, values: null, command: null, work: null, failure: null, needsHoming: false };
+const BLOCK_CYCLE = { canBlockProbe: false, blockProbeReason: 'Palpage en cours.', probing: true, activeState: 'Run', canStop: true, canPause: true, canStart: false, startReason: 'Palpage en cours.', canLoad: false, loadReason: 'Palpage en cours.', canZeroZ: false, zeroZReason: 'Palpage en cours.' };
+const SCREENS_BLOCK = [
+  ['pret', { canBlockProbe: true, blockProbeReason: '' }],
+  ['refus-contact', {}],
+  ['en-cours', Object.assign({ blockProbe: BLOCK_RUN }, BLOCK_CYCLE)],
+  ['arret', Object.assign({ blockProbe: Object.assign({}, BLOCK_RUN, { state: 'stopping', failure: { code: 'ETOUCH_PROBE_STOPPED', params: {}, message: 'Palpage interrompu par Arrêter. Origine de travail inchangée. Refaites la prise d’origine ($H) avant de recommencer.' }, needsHoming: true }) }, BLOCK_CYCLE)],
+  ['termine', { canBlockProbe: true, blockProbeReason: '', blockProbe: Object.assign({}, BLOCK_RUN, { state: 'done', step: { index: 22, total: 22, code: 'VERIFY' }, endedAt: 2, written: 'yes', contacts: { Z: -119.565, X: 93, Y: 92 },
+    origin: { X: 105.9, Y: 104.9, Z: -124.565 }, values: { X: 0, Y: 0, Z: 10 }, command: 'G10 L20 P1 X0 Y0 Z10', work: { x: 0, y: 0, z: 10 } }) }],
+  ['echec', { blockProbe: Object.assign({}, BLOCK_RUN, { state: 'failed', step: { index: 9, total: 22, code: 'X_RETRACT' }, endedAt: 2, failure: { code: 'ETOUCH_PROBE_NO_CONTACT', params: { axis: 'X', search: 10 }, message: 'Aucun contact en X sur 10 mm : rapprochez l’outil et vérifiez la pince. Origine de travail inchangée.' } }) }]
+];
+const PROBE_XYZ = '(function(){var b=document.querySelector(\'[data-probe-operation="XYZ"]\');if(b&&!b.disabled)b.click();return !!b;})()';
+const PROBE_SHOWN = '(function(){var s=document.getElementById("probe-start"),p=document.getElementById("probe-phase");return {start:!!s&&!s.hidden,disabled:!!(s&&s.disabled),label:s?s.textContent:"",phase:p&&!p.hidden?p.textContent:""};})()';
 async function screensProbe(cdp, fx, v, summary) {
   const tag = 'screens ' + v.id + ' palpage-ecrans', results = [];
   fx.probeInput = true;
@@ -1879,9 +1902,32 @@ async function screensProbe(cdp, fx, v, summary) {
       await cdp.waitFor('(function(){var s=document.getElementById("screen-' + name + '");return !!(s&&s.classList.contains("active"));})()', 10000, name);
       await screensCapture(cdp, 'screens-' + name + '-' + v.id + '-repos', name, label, tag, page, results);
     }
+    if (v.kind === 'cnc') {
+      await goScreen(cdp, 'probe');
+      if (!await cdp.evaluate(PROBE_XYZ)) throw new Error('no XYZ operation button');
+      for (const [state, patch] of SCREENS_BLOCK) {
+        fx.blockProbe = patch;
+        const want = patch.blockProbe ? patch.blockProbe.state : null;
+        await cdp.waitFor('(function(){var m=window.cncState&&window.cncState.get().machine,b=m&&m.blockProbe;return !!m&&(b?b.state:null)===' + JSON.stringify(want) + '&&m.canBlockProbe===' + !!patch.canBlockProbe + ';})()', 10000, 'block probe ' + state);
+        await sleep(600);
+        const shown = await cdp.evaluate(PROBE_SHOWN);
+        // Ready: Palper XYZ… usable; during the cycle: inactive, its step shown.
+        if (state === 'pret' && (!shown.start || shown.disabled)) failures.push(tag + ': block probe ready but « ' + shown.label + ' » ' + (shown.start ? 'disabled' : 'hidden'));
+        if (state === 'en-cours' && (!shown.disabled || !/8 \/ 22/.test(shown.phase))) failures.push(tag + ': block probe running, launch ' + (shown.disabled ? 'inactive' : 'ACTIVE') + ', phase « ' + shown.phase + ' »');
+        await screensCapture(cdp, 'screens-probe-' + v.id + '-bloc-' + state, 'probe', 'Palpage (bloc ' + state + ')', tag, page, results, { stay: true });
+      }
+      // Results of the last block probe (real page): one line per axis, the G10 line, the work position read back.
+      fx.blockProbe = SCREENS_BLOCK.find(([state]) => state === 'termine')[1];
+      await cdp.waitFor('(function(){var m=window.cncState&&window.cncState.get().machine;return !!(m&&m.blockProbe&&m.blockProbe.state==="done");})()', 10000, 'block probe done');
+      await sleep(400);
+      if (!await cdp.evaluate('(function(){var b=document.getElementById("probe-result");if(!b||b.disabled)return false;b.click();return true;})()')) throw new Error('no usable probe-result after a block probe');
+      await cdp.waitFor('(function(){var s=document.getElementById("screen-probe-report");return !!(s&&s.classList.contains("active"));})()', 10000, 'probe-report');
+      await screensCapture(cdp, 'screens-probe-report-' + v.id + '-bloc-termine', 'probe-report', 'Résultats du palpage', tag, page, results, { stay: true });
+      fx.blockProbe = null;
+    }
     log(tag + ': ' + results.length + ' probe screens');
   } catch (e) { failures.push(tag + ': ' + e.message); log('FAIL ' + tag + ': ' + e.message); }
-  finally { fx.probeInput = false; }
+  finally { fx.probeInput = false; fx.blockProbe = null; }
   summary.measurements.push({ variant: tag, dir: 'screens-probe*-' + v.id + '-repos', dpr: 1, results, strict: true, overlap: true, v2: !!v.v2 });
 }
 // Real moves of Préparer (2026-11-14), enabled by the fixture (fx.real), at rest: the arrows, steps and Zéro buttons of
@@ -2086,6 +2132,8 @@ async function screensVariant(cdp, fx, v, summary, out) {
     await setViewport(cdp, v.w, v.h, 1);
     await v2Storage(cdp, fx.base, { profile: v.v2 ? 'performance' : 'eco', v2: { version: 1, enabled: !!v.v2 }, kind: null });
     await settingsStorage(cdp, { lang: v.lang, size: v.size, theme: v.theme });
+    // The operator's block profile and tool diameter (Sonde of the real page; probe-ui.js reads them at load).
+    await cdp.evaluate('localStorage.setItem("cnc-touch-probes-v1-real",' + JSON.stringify(JSON.stringify(PROBE_STORE)) + ');true');
     if (v.firstStart) await cdp.evaluate('localStorage.removeItem("cncjs-touch-last-screen");true');
     await v2Open(cdp, fx.base + 'index.html?screens=' + v.id, v.v2);
     for (const [stateId, phase] of states) {

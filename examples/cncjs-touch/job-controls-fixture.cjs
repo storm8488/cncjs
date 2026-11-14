@@ -49,9 +49,10 @@ function load(options = {}) {
     location: { origin: 'http://192.168.1.29:8000', reload: () => reloads.push(now) }, CustomEvent: function (type, o) { this.type = type; this.detail = o.detail; },
     Date: class extends Date { static now() { return now; } }, Math, Promise, JSON, setInterval: window.setInterval, clearInterval: window.clearInterval };
   vm.createContext(context);
-  // options.language ('en' / 'es'): the page's catalog and cncI18n are loaded first, as in index.html.
+  // options.language ('en' / 'es'): the page's catalog and cncI18n are loaded first, as in index.html
+  // (options.catalogs: the per-lot i18n-messages-*.js loaded between them).
   if (options.language) { storage.set('cncjs-touch-language-v1', options.language); doc.documentElement = {}; doc.title = ''; }
-  for (const file of (options.language ? ['i18n-messages.js', 'i18n.js'] : []).concat(['cnc-state.js', 'job-stream.js'], options.app ? ['app.js'] : [], ['program-check-view.js', 'job-controls.js'])) vm.runInContext(fs.readFileSync(path.join(__dirname, 'touch', file), 'utf8'), context);
+  for (const file of (options.language ? ['i18n-messages.js'].concat(options.catalogs || [], ['i18n.js']) : []).concat(['cnc-state.js', 'job-stream.js'], options.app ? ['app.js'] : [], ['program-check-view.js', 'job-controls.js'])) vm.runInContext(fs.readFileSync(path.join(__dirname, 'touch', file), 'utf8'), context);
   const isStream = (url) => /\/touch-events(\?clientId=[^&]+)?$/.test(url);
   const flush = () => new Promise(setImmediate);
   function answer(xhr, data, status = 200) { xhr.status = status; xhr.responseText = JSON.stringify(data); xhr.onload(); }

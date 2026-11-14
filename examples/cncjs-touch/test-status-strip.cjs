@@ -54,6 +54,12 @@ f.listeners['cnc-screen-lock']({detail:true});assert(f.byId('t-resume').hidden);
 f.listeners['cnc-screen-lock']({detail:false});assert(!f.byId('t-resume').hidden);
 // Homing or a jog with the workflow idle: Stop is offered (the server ends them), Pause is not.
 f.send({machine:m({activeState:'Home',canStop:true}),transportConnected:true});assert(!f.byId('t-stop').hidden&&f.byId('t-pause').hidden);
+// A block probe (palpage au bloc) runs with the workflow idle: the server offers Pause (it ends the cycle for good) and Stop.
+f.clock.now+=1000;f.send({machine:m({activeState:'Run',probing:true,canStop:true,canPause:true}),transportConnected:true});assert(!f.byId('t-pause').hidden&&!f.byId('t-pause').disabled&&!f.byId('t-stop').hidden,'Pause and Stop during a block probe');
+f.byId('t-pause').click();assert.equal(f.clicks.pause,2,'relayed to #job-pause');
+// The same state lost (stream down): the kept target still offers Pause.
+f.send({machine:null,transportConnected:false,halt:{port:'/dev/ttyUSB0',workflow:'idle',canPause:true,canStop:true}});assert(!f.byId('t-pause').hidden,'Pause kept for a lost block probe');
+f.send({machine:m({activeState:'Idle',canStop:false,canPause:false}),transportConnected:true});assert(f.byId('t-pause').hidden,'at rest: no Pause');
 // Grbl sends no report during homing: the stale report still says Idle, the server says homing.
 f.send({machine:m({activeState:'Idle',fresh:false,statusAgeMs:4000,homing:true,canStop:true}),transportConnected:true});assert.equal(f.byId('t-state-text').textContent,'Prise d’origine');assert(!f.byId('t-stop').hidden&&!f.byId('t-stop').disabled);
 // Alarm: Unlock opens the $X confirmation through cncJobControls.

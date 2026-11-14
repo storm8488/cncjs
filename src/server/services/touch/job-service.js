@@ -28,6 +28,8 @@ import { createHalt } from './halt.js';
 // eslint-disable-next-line import/extensions
 import { createPlateProbe } from './plate-probe.js';
 // eslint-disable-next-line import/extensions
+import { createBlockProbe, blockParams } from './block-probe.js';
+// eslint-disable-next-line import/extensions
 import { createSystemCommands } from './system-command.js';
 
 // Kept exported from here for the existing callers and tests.
@@ -164,7 +166,7 @@ const monotonic = () => performance.now();
 // Actions that need the control lease when the port is owned by someone
 // else; a touch client that identifies itself claims a free port with them.
 // `machine`: type of machine and laser framing (PROFILES-CONTRACT §2, §4).
-const GUARDED_ACTIONS = ['load', 'prepare', 'start', 'resume', 'macro', 'override', 'unlock', 'home', 'spindle', 'zeroZ', 'readSettings', 'set-origin', 'machine'];
+const GUARDED_ACTIONS = ['load', 'prepare', 'start', 'resume', 'macro', 'override', 'unlock', 'home', 'spindle', 'zeroZ', 'blockProbe', 'readSettings', 'set-origin', 'machine'];
 
 // Real moves (F1, motion.js): every `motion` operation is guarded like the
 // actions above, except `jog-stop`, which is free for everyone like Stop.
@@ -257,6 +259,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         // Plate probe in progress, and the last one (result or failure).
         probing: null,
         zeroZ: null,
+        // Block probe (block-probe.js): the last one, in progress or over, and
+        // when the last one failed (a new contact test is due after it).
+        blockProbe: null,
+        blockProbeFailedAt: null,
         // Homing cycle sent ($H) and not yet over (see HOMING_MIN_MS).
         homing: null,
         // A homing cycle was seen complete (ours, or a Home state followed by
@@ -586,6 +592,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
   const remove = (c, r) => {
     records.delete(c);
     moves.forget(c, r);
+    blockProbe.forget(c, r);
     Array.from(r.timers).forEach((entry) => {
       clearTimeout(entry.handle);
       r.timers.delete(entry);
@@ -1009,7 +1016,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
 
   // Z zero with a touch plate, and the tracking of Grbl's answers to the
   // lines the service sends itself: see plate-probe.js.
-  const { zeroZReady, plateParams, answers, zeroZ } = createPlateProbe({
+  const { zeroZReady, plateParams, answers, zeroZ, quiet } = createPlateProbe({
     config,
     clock,
     conflict,
@@ -1056,6 +1063,32 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     modalWcs,
     // Turning, or maybe turning: no FS speed reported and no fresh $G to tell.
     spindleOn: (c) => spindleOn(c) || (realtimeValue(controllerStatus(c).spindle) === null && !modalFresh(record(c)))
+  });
+
+  // Real probing at the corner block, Z / X / Y / XYZ: see block-probe.js.
+  const blockProbe = createBlockProbe({
+    config,
+    clock,
+    conflict,
+    controllers,
+    record,
+    later,
+    changed,
+    log,
+    controllerInfo,
+    allSettings,
+    modalWcs,
+    probeInput,
+    control,
+    transports,
+    transportActors,
+    zeroZReady,
+    answers,
+    quiet,
+    haltPlan,
+    halt,
+    homingActive,
+    requireCapability
   });
 
   const findMacro = (id) => {
@@ -1109,6 +1142,15 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         requireCapability(c, 'plateProbe');
         return zeroZ(c, t, actor);
       }
+    },
+    // Block probe: the origin written once, at the end (block-probe.js).
+    blockProbe: {
+      guard: blockProbe.blockReady,
+      params: blockParams,
+      bind: blockProbe.bind,
+      name: blockProbe.name,
+      ticket: blockProbe.ticket,
+      run: blockProbe.run
     },
     // Work origin at the current position (F1, motion.js).
     'set-origin': moves.originOperation
@@ -1164,6 +1206,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     const spindleReason = reason(() => spindleReady(c));
     const spindleStopReason = reason(() => spindleStopReady(c));
     const zeroZReason = reason(() => plateReady(c));
+    const blockProbeReason = reason(() => blockProbe.blockReady(c));
 
     const jobErrors = (r.job && r.job.errors) || 0;
     const ended = Boolean(r.job && r.job.finishedAt && !r.job.stopped && c.workflow.state === 'idle');
@@ -1261,7 +1304,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       resume: r.job && r.job.resume ? { ...r.job.resume } : null,
       stoppedAtLine: r.lastStop ? r.lastStop.line : null,
       stoppedFile: r.lastStop ? r.lastStop.file : null,
-      canPause: c.workflow.state === 'running',
+      // A block probe is interrupted by Pause (it cannot be resumed).
+      canPause: c.workflow.state === 'running' || !!(r.probing && r.probing.kind === 'block'),
       // A macro waiting in a dwell (CNCjs queue not empty) can be stopped too.
       canStop: c.workflow.state !== 'idle' || ['Run', 'Hold', 'Home', 'Jog'].includes(state.activeState) || /^Door/.test(state.activeState || '') ||
         !!r.probing || homingActive(r) || !!(feederState.queue || feederState.pending) ||
@@ -1293,6 +1337,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       zeroZReason,
       probing: !!r.probing,
       zeroZ: r.zeroZ ? { ...r.zeroZ } : null,
+      // Block probe (block-probe.js): ready or why not, and the last one.
+      canBlockProbe: !blockProbeReason,
+      blockProbeReason,
+      blockProbe: r.blockProbe ? { ...r.blockProbe } : null,
       // Machine type bound to this board's identity, and what it allows (PROFILES-CONTRACT §2, §3).
       machineProfile: machineProfileOf(c, r),
       // Real moves (F1): `capabilities` (jog, jogContinuous, jogCancel, setOrigin)
@@ -1583,7 +1631,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       return machineAction(c, r, body, actor);
     }
 
-    if (['prepare', 'start', 'resume', 'macro', 'override', 'unlock', 'home', 'spindle', 'zeroZ', 'readSettings', 'set-origin'].includes(a) ||
+    if (['prepare', 'start', 'resume', 'macro', 'override', 'unlock', 'home', 'spindle', 'zeroZ', 'blockProbe', 'readSettings', 'set-origin'].includes(a) ||
         (guarded(body) && a === 'motion')) {
       if (typeof body.generation !== 'string' || body.generation !== r.generation) {
         throw conflict('Le contrôleur a changé ou son identité manque. Choisissez-le à nouveau.');
@@ -1628,11 +1676,13 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
 
     if (a === 'prepare') {
-      if (!['start', 'resume', 'macro', 'unlock', 'home', 'spindle', 'zeroZ', 'set-origin'].includes(body.operation)) {
+      if (!['start', 'resume', 'macro', 'unlock', 'home', 'spindle', 'zeroZ', 'blockProbe', 'set-origin'].includes(body.operation)) {
         throw conflict('Action invalide.');
       }
       const nonce = crypto.randomBytes(24).toString('hex');
       let name;
+      // What an operation adds to its confirmation (block probe: the plan).
+      let extra = {};
       if (COMMISSIONING[body.operation]) {
         const op = COMMISSIONING[body.operation];
         let params = op.params ? op.params(body) : undefined;
@@ -1640,6 +1690,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         // What the confirmation is bound to, read once the guard passed.
         params = op.bind ? op.bind(c, params) : params;
         name = op.name(c, params);
+        extra = op.ticket ? op.ticket(c, params, { actor, transportId: body.transportId }) : {};
         r.ticket = {
           nonce,
           operation: body.operation,
@@ -1663,7 +1714,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         programCheck: programCheck || null
       });
       if (COMMISSIONING[body.operation] || body.operation === 'macro') {
-        return ticketOf(null);
+        return { ...ticketOf(null), ...extra };
       }
       const j = readyFor(c, body.operation, body.revision);
       name = j.originalName;
@@ -1715,6 +1766,12 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
 
     if (a === 'spindleStop') {
+      // During a block probe: the same stop as Arrêter, without an M5 that
+      // would join the queue (its ok would be taken for the cycle's line).
+      if (r.probing && r.probing.kind === 'block') {
+        r.ticket = null;
+        return blockProbe.stop(c, r, 'spindle');
+      }
       spindleStopReady(c);
       c.command('gcode', 'M5');
       return { message: 'Arrêt broche (M5) envoyé.' };
@@ -1776,6 +1833,11 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
 
     if (a === 'pause') {
+      // A block probe cannot be resumed: Pause interrupts it like Arrêter.
+      if (r.probing && r.probing.kind === 'block') {
+        r.ticket = null;
+        return blockProbe.stop(c, r, 'pause');
+      }
       // Grbl cannot hold a jog: a Pause during one of ours cancels it (0x85) and says so.
       if (c.workflow.state === 'idle' && moves.moving(c, r)) {
         r.ticket = null;
@@ -1792,6 +1854,11 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
 
     if (a === 'stop') {
       const activeState = controllerStatus(c).activeState;
+      // A block probe: feed hold then reset (block-probe.js), whatever the state.
+      if (r.probing && r.probing.kind === 'block') {
+        r.ticket = null;
+        return blockProbe.stop(c, r, 'stop');
+      }
       // A jog of ours, even one Grbl has not reported yet (report still Idle).
       if (c.workflow.state === 'idle' && moves.moving(c, r)) {
         r.ticket = null;
@@ -1991,7 +2058,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         s.name, s.total, s.sent, s.received, s.hold, idOf(s.holdReason), idOf(s.context),
         feeder.queue, feeder.pending,
         r ? [r.loading, r.seen === null, r.modalSeen === null, r.wcs, r.ticket && r.ticket.nonce, r.firmware, r.startups, r.alarm, r.stall && r.stall.since,
-          idOf(r.toolChange), r.lastStop && r.lastStop.line, idOf(r.probing), idOf(r.zeroZ), r.homing && r.homing.since, moves.signature(r)].join(',') : '',
+          idOf(r.toolChange), r.lastStop && r.lastStop.line, idOf(r.probing), idOf(r.zeroZ), idOf(r.blockProbe), r.homing && r.homing.since, moves.signature(r)].join(',') : '',
         j ? [idOf(j), j.started, j.stopped, j.finishedAt, j.errors].join(',') : ''
       ].join(';');
     }).join('|');
@@ -2018,6 +2085,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
 
   const ticketPending = (id) => {
     const jogging = moves.holds(id);
+    const probing = blockProbe.holds(id);
     for (const r of records.values()) {
       if (r.ticket && r.ticket.transportId === id && clock() <= r.ticket.expires) {
         return true;
@@ -2026,12 +2094,17 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       if (jogging(r)) {
         return true;
       }
+      // A block probe of this stream's device: the rotation waits for its end.
+      if (probing(r)) {
+        return true;
+      }
     }
     return false;
   };
 
-  // Closing a transport revokes every confirmation it was issued.
-  const closeTransport = (id) => {
+  // Closing a transport revokes every confirmation it was issued. `rotated`:
+  // closed by the stream itself to renew it (touch-stream.js), not lost.
+  const closeTransport = (id, rotated = false) => {
     transports.delete(id);
     const actor = transportActors.get(id);
     if (actor) {
@@ -2044,6 +2117,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       }
       // The owner's stream closing stops its continuous jog (0x85).
       moves.transportClosed(c, r, id);
+      // Its block probe stops at once, unless the stream is only renewed.
+      blockProbe.transportClosed(c, r, actor, rotated === true);
     });
     changed();
   };

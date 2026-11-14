@@ -212,6 +212,15 @@
   [thick,search].forEach(function(field){field.addEventListener('input',function(){if(plateMessage){plateMessage='';render();}});});
   m5.addEventListener('click',function(){var c=controls();if(c&&typeof c.spindleStop==='function')c.spindleStop().catch(function(){});});
   window.addEventListener('cnc-job-status',function(e){var d=e&&e.detail||{};if(d.simulation)return;machine=d.machine||null;render();});
+  // « Zéro Z avec plaque → Suivi » (probe-ui.js): once Suivi is laid out, its plate card centred and its probe button focused.
+  window.addEventListener('cnc-plate-show',function(){
+    function show(){
+      if(plate.hidden||!plate.parentNode)return;
+      if(typeof plate.scrollIntoView==='function')plate.scrollIntoView({block:'center'});
+      if(!probe.disabled&&typeof probe.focus==='function')probe.focus({preventScroll:true});
+    }
+    if(typeof window.requestAnimationFrame==='function')window.requestAnimationFrame(show);else show();
+  });
   window.addEventListener('cnc-library-select',function(e){selection=e&&e.detail||null;if(checked&&(!selection||checked.file!==selection.file))close();render();});
   render();
 })(typeof window==='object'?window:this);
