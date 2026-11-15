@@ -80,7 +80,10 @@ export const postJob = authorized((req, res) => {
         ? { code: err.code, ...(err.params && typeof err.params === 'object' ? { params: err.params } : {}) } : {};
       // Coded reasons behind a refusal ({code, params, message}, like a program check's codedReasons).
       const reasons = Array.isArray(err.reasons) ? { reasons: err.reasons } : {};
-      res.status(err.status || ERR_BAD_REQUEST).send({ message: err.message, ...control, ...coded, ...reasons });
+      const block = err.blockProbe && typeof err.blockProbe === 'object' ? {
+        blockProbe: { failure: err.blockProbe.failure, written: err.blockProbe.written, needsHoming: err.blockProbe.needsHoming }
+      } : {};
+      res.status(err.status || ERR_BAD_REQUEST).send({ message: err.message, ...control, ...coded, ...reasons, ...block });
     });
 });
 
@@ -133,12 +136,26 @@ export const getSystem = authorized((req, res) => {
 });
 
 // Screen backlight of the computer running CNCjs (settings screen).
+// Trust only the TCP peer, never Express's proxy-aware req.ip or a forwarded header.
+export const localRequest = (req) => {
+  const headers = req.headers || {};
+  if (Object.keys(headers).some((key) => ['x-forwarded-for', 'forwarded', 'x-real-ip'].includes(key.toLowerCase()))) {
+    return false;
+  }
+  const address = req.socket && req.socket.remoteAddress;
+  if (address === '::1') {
+    return true;
+  }
+  const match = typeof address === 'string' && /^(?:::ffff:)?(127\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(address);
+  return !!match && match[1].split('.').every((part) => Number(part) <= 255);
+};
+
 export const getBacklight = authorized((req, res) => {
   try {
     res.set('Cache-Control', 'no-store');
-    res.send(touch.backlightStatus());
+    res.send({ ...touch.backlightStatus(), local: localRequest(req) });
   } catch (err) {
-    res.status(ERR_INTERNAL_SERVER_ERROR).send({ message: 'Luminosité indisponible.' });
+    res.status(ERR_INTERNAL_SERVER_ERROR).send({ message: 'Luminosité indisponible.', local: localRequest(req) });
   }
 });
 
@@ -146,19 +163,24 @@ export const getBacklight = authorized((req, res) => {
 // screen saver dimming (never stored); { wake: true } puts the operator's level back.
 export const postBacklight = authorized((req, res) => {
   const body = req.body || {};
+  const local = localRequest(req);
   try {
     if (body.wake === true) {
-      res.send(touch.wakeBacklight());
+      res.send({ ...touch.wakeBacklight(), local });
     } else if (body.temporary === true) {
-      res.send(touch.dimBacklight(body.percent));
+      if (!local) {
+        res.status(ERR_CONFLICT).send({ message: 'La veille distante ne peut pas modifier l’écran du kiosque.', code: 'ETOUCH_BACKLIGHT_REMOTE', local });
+        return;
+      }
+      res.send({ ...touch.dimBacklight(body.percent), local });
     } else {
-      res.send(touch.setBacklight(body.percent));
+      res.send({ ...touch.setBacklight(body.percent), local });
     }
   } catch (err) {
     if (err.status) {
-      res.status(err.status).send({ message: err.message });
+      res.status(err.status).send({ message: err.message, local });
     } else {
-      res.status(ERR_INTERNAL_SERVER_ERROR).send({ message: 'Luminosité non modifiée.' });
+      res.status(ERR_INTERNAL_SERVER_ERROR).send({ message: 'Luminosité non modifiée.', local });
     }
   }
 });

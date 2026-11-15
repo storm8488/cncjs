@@ -33,6 +33,13 @@ const of = (language) => {
 
 export const catalogCodes = () => of('fr').CNCTouchCodes.map((row) => row[0]);
 
+// Plain server replies use the same load order as the page (base catalog, then machine rows).
+export const expectMessageTranslation = (message, en, es) => {
+  expect(of('fr').cncI18n.t(message)).toBe(message);
+  expect(of('en').cncI18n.t(message)).toBe(en);
+  expect(of('es').cncI18n.t(message)).toBe(es);
+};
+
 // Checks one coded refusal or reason ({ code, params, message }): a catalog
 // row exists, its French template filled with params is the message itself,
 // and the English and Spanish texts are filled (no placeholder left).

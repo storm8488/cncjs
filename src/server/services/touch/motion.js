@@ -9,7 +9,7 @@
 //
 // What it does, on Grbl 1.1 or later only:
 //   - discrete steps: one `$J=G91 G21 <axis><distance> F<feed>` per request,
-//     0.01/0.1/1/10 mm; above 1 mm only on a referenced machine whose travel
+//     0.01/0.1/1/10/25/50/100 mm; above 1 mm only on a referenced machine whose travel
 //     ($130-$132) is known, and never out of that travel;
 //   - continuous jog while a button is held: one `$J=` bounded by the known,
 //     referenced travel (stopping EDGE_MARGIN_MM before its end), kept alive by
@@ -76,7 +76,8 @@ const PENDING_MARGIN_MS = 60000;
 const STEP_WATCH_MS = 50;
 const WCS_P = { G54: 1, G55: 2, G56: 3, G57: 4, G58: 5, G59: 6 };
 
-export const DISABLED_MESSAGE = 'Déplacements réels non activés : validation matérielle supervisée requise (voir HANDOFF.md).';
+export const DISABLED_MESSAGE = 'Déplacements réels non activés : validation matérielle supervisée requise.';
+export const HOMING_MESSAGE = 'Prise d’origine en cours : attendez sa fin avant tout déplacement ou zéro.';
 
 const STOP_REASONS = {
   operator: 'relâchement ou arrêt demandé',
@@ -248,9 +249,7 @@ export const limitsAt = (env, pos, axis) => {
     // Several conventions fit this position (an axis with its $23 bit set, at 0):
     // only what is safe in all of them is allowed, which may be nothing.
     ambiguous: plausible.length > 1
-      ? 'convention de course ambiguë à cette position (' + axis + ' ' + fmt(pos) + ', bit $23 à 1 : ' +
-        plausible.map((e) => fmt(e.low) + ' → ' + fmt(e.high)).join(' ou ') + ') : aucun déplacement n’y est sûr dans les deux ; ' +
-        'déplacez l’axe depuis l’interface classique et faites vérifier la convention (étape 0 de HANDOFF.md)'
+      ? 'Position de l’axe ' + axis + ' inconnue : refaites la prise d’origine depuis la tablette.'
       : '',
     reason: ''
   };
@@ -278,13 +277,13 @@ export const maxFeedOf = (settings, axis) => {
 
 export const jogLine = (axis, distance, feed) => '$J=G91 G21 ' + axis + fmt(distance) + ' F' + fmt(feed);
 
-export const originLine = (p, axes) => 'G10 L20 P' + p + ' ' + axes.map((axis) => axis + '0').join(' ');
+export const originLine = (p, axes, at = 'here') => 'G10 L' + (at === 'machine' ? '2' : '20') + ' P' + p + ' ' + axes.map((axis) => axis + '0').join(' ');
 
 // deps: the job service's helpers (see job-service.js).
 export const createMotion = (deps) => {
   const {
     config, clock, conflict, controllers, record, later, answers, changed, available,
-    hasAutomations, control, transports, transportActors, log, controllerInfo, allSettings, modalWcs, spindleOn, referenceReady
+    hasAutomations, control, transports, transportActors, log, controllerInfo, allSettings, modalWcs, spindleOn, referenceReady, homingActive, offsetReady
   } = deps;
 
   // A refusal with a stable code (ETOUCH_MOTION_*) and the values of its
@@ -347,6 +346,9 @@ export const createMotion = (deps) => {
     // two reports after it show no Jog.
     const refused = !!p.t.error && r.reports >= p.t.reportsAtError + 2 && state !== 'Jog';
     if (refused || answered || lost || restarted || expired) {
+      if (p.t.error && p.axis && !s.session) {
+        s.lastJog = { result: 'refused', reason: 'error:' + p.t.error, message: 'Grbl a refusé le jog (error:' + p.t.error + ')', at: Date.now(), axis: p.axis };
+      }
       p.t.done();
       s.pending = null;
       return true;
@@ -367,6 +369,9 @@ export const createMotion = (deps) => {
   const gate = (c, r, name) => {
     const cap = capabilities(c, r)[name];
     if (!cap.enabled) {
+      if (cap.supported && !motionEnabled(config)) {
+        throw refusal(DISABLED_MESSAGE, 'ETOUCH_MOTION_DISABLED', {});
+      }
       throw conflict(cap.reason);
     }
   };
@@ -374,6 +379,9 @@ export const createMotion = (deps) => {
   // Common to every real move from rest.
   const atRest = (c, r) => {
     available(c);
+    if (homingActive(r)) {
+      throw refusal(HOMING_MESSAGE, 'ETOUCH_MOTION_HOMING', {});
+    }
     const s = stateOf(r);
     if (r.probing) {
       throw conflict('Palpage en cours.');
@@ -461,7 +469,7 @@ export const createMotion = (deps) => {
       const usable = usableOf(at.limits);
       if ((distance < 0 && target < usable.low - 1e-6) || (distance > 0 && target > usable.high + 1e-6)) {
         if (at.ambiguous) {
-          throw conflict('Pas refusé : ' + at.ambiguous + '.');
+          throw refusal(at.ambiguous, 'ETOUCH_MOTION_AMBIGUOUS', { axis: p.axis });
         }
         throw refusal('Pas refusé : ' + p.axis + ' sortirait de la course (' + fmt(target) + ' mm machine, course ' + fmt(usable.low) + ' → ' + fmt(usable.high) + ').',
           'ETOUCH_MOTION_STEP_OUTSIDE',
@@ -477,6 +485,7 @@ export const createMotion = (deps) => {
     }
     const line = jogLine(p.axis, distance, p.feed);
     const pending = send(c, r, 'jog', line, ms + 10000);
+    pending.axis = p.axis;
     // Its stream is not rotated while it runs (holds, touch-stream.js): a rotation would cancel it.
     pending.transportId = body.transportId;
     watchStep(c, r, pending, body.transportId, actor);
@@ -704,7 +713,7 @@ export const createMotion = (deps) => {
     const toEdge = p.direction > 0 ? limits.high - EDGE_MARGIN_MM - pos : pos - (limits.low + EDGE_MARGIN_MM);
     const room = Math.floor(Math.min(toEdge, env.travel - EDGE_MARGIN_MM, p.feed * MAX_JOG_MS / 60000) * 1000) / 1000;
     if (!(room >= MIN_CONTINUOUS_MM) && ambiguous) {
-      throw conflict('Maintien continu impossible : ' + ambiguous + '.');
+      throw refusal(ambiguous, 'ETOUCH_MOTION_AMBIGUOUS', { axis: p.axis });
     }
     if (!(room >= MIN_CONTINUOUS_MM)) {
       throw refusal('Fin de course proche : pas de maintien continu vers ' + p.axis + (p.direction > 0 ? '+' : '−') + ' (' + fmt(Math.max(0, room)) + ' mm disponibles).',
@@ -953,19 +962,40 @@ export const createMotion = (deps) => {
 
   const originParams = (body) => {
     const axes = body && body.axes;
+    const at = body.at === undefined ? 'here' : body.at;
+    if (at !== 'here' && at !== 'machine') {
+      throw conflict('Action invalide.');
+    }
     if (!Array.isArray(axes) || !axes.length || axes.length > AXES.length ||
         axes.some((axis) => !AXES.includes(axis)) || new Set(axes).size !== axes.length) {
       throw conflict('Axes invalides : choisissez X, Y et/ou Z.');
     }
-    return { axes: AXES.filter((axis) => axes.includes(axis)) };
+    return { axes: AXES.filter((axis) => axes.includes(axis)), at };
+  };
+
+  const machineOriginReady = (c, params) => {
+    if (params.at !== 'machine') {
+      return;
+    }
+    const r = record(c);
+    if (!r.homed) {
+      throw refusal('Machine non référencée : faites la prise d’origine avant de poser une origine.', 'ETOUCH_ORIGIN_NOT_HOMED', {});
+    }
+    offsetReady(c);
+    const offsets = (c.settings && c.settings.parameters) || {};
+    const g92 = offsets.G92 || {};
+    if (params.axes.some((axis) => number(g92[axis.toLowerCase()]) !== 0) || (params.axes.includes('Z') && number(offsets.TLO) !== 0)) {
+      throw refusal('Zéro à l’origine machine refusé : annulez les décalages temporaires et le décalage d’outil sur les axes choisis.', 'ETOUCH_ORIGIN_OFFSETS', {});
+    }
   };
 
   // After the guard: the offset and the position the confirmation shows.
   const originBind = (c, params) => {
+    machineOriginReady(c, params);
     const r = record(c);
     const wcs = modalWcs(r);
     const machine = {};
-    params.axes.forEach((axis) => {
+    (params.at === 'machine' ? AXES : params.axes).forEach((axis) => {
       const v = positionOf(c, 'mpos', axis);
       if (v === null) {
         throw refusal('Position machine ' + axis + ' inconnue.', 'ETOUCH_MOTION_POSITION_UNKNOWN', { axis });
@@ -978,22 +1008,31 @@ export const createMotion = (deps) => {
   const originRun = (c, t, actor) => {
     originReady(c);
     const r = record(c);
-    const { axes, wcs, p, machine } = t.params;
+    machineOriginReady(c, t.params);
+    const { axes, wcs, p, machine, at } = t.params;
     const now = modalWcs(r);
     if (now !== wcs) {
       throw refusal('Le repère actif a changé depuis la confirmation (' + wcs + ' → ' + (now || 'inconnu') + ') : confirmez à nouveau.',
         'ETOUCH_MOTION_WCS_CHANGED',
         { from: wcs, to: now || 'inconnu' });
     }
-    if (axes.some((axis) => positionOf(c, 'mpos', axis) === null || Math.abs(positionOf(c, 'mpos', axis) - machine[axis]) > ORIGIN_MOVED_MM)) {
+    if (Object.keys(machine).some((axis) => positionOf(c, 'mpos', axis) === null || Math.abs(positionOf(c, 'mpos', axis) - machine[axis]) > ORIGIN_MOVED_MM)) {
       throw conflict('La machine a bougé depuis la confirmation : confirmez à nouveau à la position actuelle.');
     }
-    const line = originLine(p, axes);
+    const line = originLine(p, axes, at);
     const s = stateOf(r);
-    const pending = send(c, r, 'origin', line, ORIGIN_LIMIT_MS);
-    const entry = { event: 'origin', controller: controllerInfo(c, r), wcs, axes, machine, command: line, actor: actor || null };
+    const pending = send(c, r, 'origin', line, at === 'machine' ? 5000 : ORIGIN_LIMIT_MS);
+    r.originChecking = at === 'machine';
+    const entry = { event: 'origin', controller: controllerInfo(c, r), wcs, axes, machine, at, command: line, actor: actor || null };
     return new Promise((resolve, reject) => {
       const fail = (message) => {
+        r.originChecking = false;
+        if (at === 'machine') {
+          pending.t.done();
+          if (s.pending === pending) {
+            s.pending = null;
+          }
+        }
         // The G10 may have been written: the offset is proven anew (D2).
         r.offset.invalidate('zero');
         s.lastOrigin = { at: Date.now(), wcs, axes, failed: message };
@@ -1007,14 +1046,20 @@ export const createMotion = (deps) => {
           return;
         }
         const error = pending.t.error;
-        if (s.pending !== pending || settle(c, r)) {
+        const settled = s.pending !== pending || settle(c, r);
+        const provenReport = at !== 'machine' || (pending.t.oks >= 1 && r.wco && r.wco.report > pending.t.reportsAtOk);
+        if (at === 'machine' && (r.startups !== pending.startups || !r.homed || activeOf(c) !== 'Idle' || modalWcs(r) !== wcs)) {
+          fail('Définition d’origine sans réponse à temps : vérifiez la machine et le repère.');
+          return;
+        }
+        if (settled && (error || provenReport)) {
           if (error) {
             fail('Grbl a refusé la définition d’origine (error:' + error + ').');
             return;
           }
           // G10 L20 changes an offset, never the machine position: a firmware
           // (or simulator) that took the line for a move must not pass the check below.
-          const moved = axes.filter((axis) => {
+          const moved = Object.keys(machine).filter((axis) => {
             const m = positionOf(c, 'mpos', axis);
             return m === null || Math.abs(m - machine[axis]) > ORIGIN_MOVED_MM;
           });
@@ -1024,25 +1069,37 @@ export const createMotion = (deps) => {
           }
           const off = axes.filter((axis) => {
             const w = positionOf(c, 'wpos', axis);
-            return w === null || Math.abs(w) > ORIGIN_TOLERANCE;
+            const expected = at === 'machine' ? positionOf(c, 'mpos', axis) : 0;
+            return w === null || expected === null || Math.abs(w - expected) > ORIGIN_TOLERANCE ||
+              (at === 'machine' && Math.abs(r.wco[axis.toLowerCase()]) > ORIGIN_TOLERANCE);
           });
           if (off.length) {
-            fail('Le repère n’a pas pris la valeur attendue (' + off.map((axis) => axis + ' ' + positionOf(c, 'wpos', axis)).join(', ') + ' au lieu de 0).');
+            fail(at === 'machine' ? 'Le zéro à l’origine machine n’a pas été confirmé : vérifiez le repère.'
+              : 'Le repère n’a pas pris la valeur attendue (' + off.map((axis) => axis + ' ' + positionOf(c, 'wpos', axis)).join(', ') + ' au lieu de 0).');
             return;
           }
           s.lastOrigin = { at: Date.now(), wcs, axes, machine };
+          r.originChecking = false;
           // The G10 loads the offset again: it is proven anew (D2).
           r.offset.invalidate('zero');
           log({ ...entry, result: 'set' });
           changed();
-          resolve({ message: 'Origine ' + axes.join(' ') + ' du repère ' + wcs + ' réglée à la position actuelle (' + line + ').' });
+          if (at === 'machine') {
+            resolve({ message: 'Zéro réglé à l’origine machine, sans mouvement.', command: line });
+            return;
+          }
+          resolve({ message: 'Origine ' + axes.join(' ') + ' du repère ' + wcs +
+            ' réglée à la position actuelle (' + line + ').' });
           return;
         }
-        if (clock() - pending.sentAt > ORIGIN_LIMIT_MS) {
+        if (clock() - pending.sentAt > pending.limitMs) {
           fail('Définition d’origine sans réponse à temps : vérifiez la machine et le repère.');
           return;
         }
-        later(c, r, check, 100, () => reject(conflict('Définition d’origine abandonnée (service arrêté ou contrôleur retiré) : vérifiez le repère.')));
+        later(c, r, check, 100, () => {
+          r.originChecking = false;
+          reject(conflict('Définition d’origine abandonnée (service arrêté ou contrôleur retiré) : vérifiez le repère.'));
+        });
       };
       check();
     });
@@ -1052,7 +1109,8 @@ export const createMotion = (deps) => {
     guard: originReady,
     params: originParams,
     bind: originBind,
-    name: (c, params) => 'Origine ' + params.axes.join(' ') + ' du repère ' + params.wcs + ' à la position actuelle (' + originLine(params.p, params.axes) + ')',
+    name: (c, params) => 'Origine ' + params.axes.join(' ') + ' du repère ' + params.wcs +
+      (params.at === 'machine' ? ' à l’origine machine (' : ' à la position actuelle (') + originLine(params.p, params.axes, params.at) + ')',
     run: originRun
   };
 

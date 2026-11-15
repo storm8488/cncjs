@@ -525,6 +525,13 @@ export const checkProgram = (analysis, machine = {}) => {
   const modal = machine.modal || null;
   const global = [];
   const info = [];
+  // As elsewhere in the service, a machine without a laser declaration uses
+  // CNC semantics. This is information only: it changes no travel verdict.
+  const spindle = analysis.spindle || {};
+  const sMax = number(s.$30);
+  if (!machine.laser && sMax !== null && sMax > 0 && spindle.sMax > sMax) {
+    info.push(reason('ETOUCH_CHECK_S_ABOVE_MAX', { s: fmt(spindle.sMax), line: spindle.sMaxLine, max: fmt(sMax) }, 'Consigne S' + fmt(spindle.sMax) + ' (ligne ' + spindle.sMaxLine + ') au-dessus du maximum de la carte (' + fmt(sMax) + ') : la broche tournera au maximum.'));
+  }
   const axesOut = {};
   const homingSetting = number(s.$22);
   if (homingSetting === null) {

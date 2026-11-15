@@ -199,12 +199,12 @@ describe('control attribution (F5)', () => {
   });
 
   test('socket commands and raw writes are classed: stops, holds, resets and status are free; motion needs the lease', () => {
-    ['pause', 'gcode:pause', 'stop', 'gcode:stop', 'feedhold', 'reset', 'feeder:stop', 'jogCancel', 'statusreport', 'sleep'].forEach((cmd) => {
+    ['pause', 'gcode:pause', 'stop', 'gcode:stop', 'feedhold', 'reset', 'feeder:stop', 'jogCancel', 'statusreport'].forEach((cmd) => {
       expect(safeCommand(cmd)).toBe(true);
     });
     ['gcode:start', 'gcode:resume', 'cyclestart', 'start', 'resume', 'gcode', 'gcode:load', 'homing', 'unlock', 'feedOverride',
       'spindleOverride', 'rapidOverride', 'macro:run', 'macro:load', 'feeder:feed', 'feeder:start', 'lasertest:on', 'tool:change',
-      'autolevel:start', 'watchdir:load', 'gcode:unload'].forEach((cmd) => {
+      'autolevel:start', 'watchdir:load', 'gcode:unload', 'sleep', 'lasertest:off', 'close'].forEach((cmd) => {
       expect(safeCommand(cmd)).toBe(false);
     });
     expect(safeWrite('?')).toBe(true);
@@ -216,6 +216,7 @@ describe('control attribution (F5)', () => {
     expect(safeWrite('$X')).toBe(false);
     expect(safeWrite('$J=X10 F500')).toBe(false);
     expect(safeWrite('\x91')).toBe(false);
+    expect(safeWrite('\x9e')).toBe(false);
     expect(safeWrite('')).toBe(false);
     expect(safeWrite(undefined)).toBe(false);
   });
@@ -349,9 +350,9 @@ describe('control (F5), cross-check 3', () => {
   });
 
   describe('classement des écritures brutes', () => {
-    test('SAFE_WRITES : ?, !, ^X, 0x84, 0x85, 0x9E ; ~ et les overrides (0x90-0x9D, 0xA0-0xA2) exigent le bail', () => {
-      expect(SAFE_WRITES).toEqual(['?', '!', '\x18', '\x84', '\x85', '\x9e']);
-      expect(safeWrite('\x9e')).toBe(true); // spindle stop toggle pendant un hold
+    test('SAFE_WRITES: status, hold, reset, door and jog cancel; spindle toggle and overrides require the lease', () => {
+      expect(SAFE_WRITES).toEqual(['?', '!', '\x18', '\x84', '\x85']);
+      expect(safeWrite('\x9e')).toBe(false);
       expect(safeWrite('!?')).toBe(true); // ligne de plusieurs caractères temps réel
       expect(safeWrite('!G0 X1')).toBe(false);
       ['~', '\x90', '\x91', '\x92', '\x93', '\x94', '\x95', '\x96', '\x97', '\x98', '\x99', '\x9a', '\x9b', '\x9c', '\x9d', '\xa0', '\xa1', '\xa2'].forEach((ch) => {
@@ -360,7 +361,7 @@ describe('control (F5), cross-check 3', () => {
       expect(safeWrite('M5')).toBe(false); // M5 par écriture brute n'est PAS sûr côté socket (seul l'action Touch spindleStop l'est)
       expect(safeCommand('gcode:resume')).toBe(false);
       expect(safeCommand('cyclestart')).toBe(false);
-      expect(safeCommand('lasertest:off')).toBe(true);
+      expect(safeCommand('lasertest:off')).toBe(false);
     });
   });
 });

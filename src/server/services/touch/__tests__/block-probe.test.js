@@ -5,8 +5,9 @@ import path from 'path';
 import vm from 'vm';
 import { createService } from '../job-service';
 import { createControl } from '../control';
-import { blockParams, blockPlan, originOf, MESSAGES } from '../block-probe';
+import { blockParams, blockPlan, originOf, MESSAGES, createBlockProbe, refusal } from '../block-probe';
 import { provenOffset } from './support/proven-offset';
+import { expectCatalogMatch } from './touch-codes-catalog';
 
 // The page's side of the contract: its pure module and its catalog of the server's codes.
 const TOUCH = path.join(__dirname, '../../../../../examples/cncjs-touch/touch');
@@ -584,7 +585,7 @@ const PLAN_XYZ = {
   clearance: 5,
   toolRadius: 3,
   reach: 23.9,
-  envelope: { X: [79.1, 120.9], Y: [79.1, 120.9], Z: [-125, -104] },
+  envelope: { X: [88, 109.9], Y: [88, 109.9], Z: [-125, -104] },
   feeds: { fast: 100, slow: 25, travelXY: 600, travelZ: 500 },
   steps: 22
 };
@@ -679,13 +680,13 @@ describe('block probe: pure parts', () => {
     expect(plan.seconds).toBeLessThanOrEqual(180);
     expect(plan.timeoutMs).toBe(Math.min(240000, plan.seconds * 2000 + 30000));
     const wide = blockPlan(blockParams({ ...XYZ, profile: { ...PROFILE, faceX: -30, faceY: -30 } }), { x: 100, y: 100, z: -110 }, limits, settings);
-    expect(wide.envelope.X).toEqual([59, 141]);
+    expect(wide.envelope.X).toEqual([88, 130]);
     expect(wide.reach).toBe(44);
     expect(() => blockParams({ ...XYZ, profile: { ...PROFILE, faceX: -31 } })).toThrow(/faceX hors des limites/);
     // A large block: the side step follows the search distance up to 30 mm (window 28 mm).
     const far = blockPlan(blockParams({ ...XYZ, profile: { ...PROFILE, search: 30 } }), { x: 100, y: 100, z: -90 }, limits, settings);
     expect(far).toMatchObject({ window: 28, lateral: 32 });
-    expect(far.envelope.X).toEqual([59.1, 140.9]);
+    expect(far.envelope.X).toEqual([68, 109.9]);
     // Z, X alone: only the moving axis in the envelope.
     expect(blockPlan(blockParams({ ...XYZ, axes: 'Z' }), { x: 100, y: 100, z: -110 }, limits, settings)).toMatchObject({ envelope: { Z: [-121, -110] }, steps: 7, direction: {}, reach: null, window: null });
     expect(blockPlan(blockParams({ ...XYZ, axes: 'X' }), { x: 90, y: 100, z: -122 }, limits, settings)).toMatchObject({ envelope: { X: [90, 101] }, direction: { X: 1 }, clearance: null });
@@ -698,9 +699,9 @@ describe('block probe: pure parts', () => {
         return [err.code, err.params];
       }
     };
-    expect(travel({ x: 21.9, y: 100, z: -110 })).toBeNull();
-    expect(travel({ x: 21.8, y: 100, z: -110 })).toEqual(['ETOUCH_PROBE_TRAVEL', { axis: 'X', min: '0.9', max: '42.7', low: '0', high: '408' }]);
-    expect(travel({ x: 100, y: 380, z: -110 })).toEqual(['ETOUCH_PROBE_TRAVEL', { axis: 'Y', min: '359.1', max: '400.9', low: '0', high: '396' }]);
+    expect(travel({ x: 13, y: 100, z: -110 })).toBeNull();
+    expect(travel({ x: 12.9, y: 100, z: -110 })).toEqual(['ETOUCH_PROBE_TRAVEL', { axis: 'X', min: '0.9', max: '22.8', low: '0', high: '408' }]);
+    expect(travel({ x: 100, y: 385.2, z: -110 })).toEqual(['ETOUCH_PROBE_TRAVEL', { axis: 'Y', min: '373.2', max: '395.1', low: '0', high: '396' }]);
     expect(travel({ x: 100, y: 100, z: -7 })).toBeNull();
     expect(travel({ x: 100, y: 100, z: -6 })).toEqual(['ETOUCH_PROBE_TRAVEL', { axis: 'Z', min: '-21', max: '0', low: '-130', high: '0' }]);
     // Feeds bounded by $11x.
@@ -714,7 +715,97 @@ describe('block probe: pure parts', () => {
   });
 });
 
+describe('XYZ probe travel at the machine edges', () => {
+  const limits = { X: { low: 0, high: 408 }, Y: { low: 0, high: 396 }, Z: { low: -130, high: 0 } };
+  const settings = { $110: 4000, $111: 4000, $112: 800 };
+
+  test('T7: Y 15 fits the real path, while Y 12.5 still violates the 1 mm margin', () => {
+    const plan = blockPlan(blockParams(XYZ), { x: 100, y: 15, z: -110 }, limits, settings);
+    expect(plan.lateral).toBe(12);
+    expect(plan.envelope.Y).toEqual([3, 24.9]);
+    expect(plan.envelope.Y[0]).toBeGreaterThanOrEqual(1);
+    expect(() => blockPlan(blockParams(XYZ), { x: 100, y: 12.5, z: -110 }, limits, settings)).toThrow(/hors de la course/);
+  });
+
+  test.each(['--', '+-', '-+', '++'])('corner %s mirrors the envelope and includes the slow search overshoot', (corner) => {
+    const [cX, cY] = { '--': [-1, -1], '+-': [1, -1], '-+': [-1, 1], '++': [1, 1] }[corner];
+    const profile = { ...PROFILE, corner, faceX: cX * 9.9, faceY: cY * 9.9, directionX: -cX, directionY: -cY, retract: 2 };
+    const plan = blockPlan(blockParams({ ...XYZ, profile }), { x: 100, y: 100, z: -110 }, limits, settings);
+    ['X', 'Y'].forEach((axis) => {
+      expect(plan.envelope[axis]).toEqual(profile['direction' + axis] === 1 ? [88, 109.9] : [90.1, 112]);
+    });
+    // A small tool makes -L + search + 1 positive; a zero face alone cannot bound it.
+    const short = blockPlan(blockParams({ ...XYZ, diameter: 0.5, profile: { ...profile, faceX: 0, faceY: 0, search: 4 } }),
+      { x: 100, y: 100, z: -110 },
+limits,
+settings);
+    ['X', 'Y'].forEach((axis) => {
+      expect(short.envelope[axis]).toEqual(profile['direction' + axis] === 1 ? [96.75, 101.75] : [98.25, 103.25]);
+    });
+  });
+});
+
+describe('coded block probe refusals', () => {
+  test('an ambiguous plan is coded with its axis, without an embedded French reason', () => {
+    const limits = { X: { low: 0, high: 0, ambiguous: 'legacy detail' } };
+    const err = (() => {
+      try {
+        blockPlan(blockParams(XYZ), { x: 0, y: 100, z: -110 }, limits, { $110: 4000, $111: 4000, $112: 800 });
+        return null;
+      } catch (e) {
+        return e;
+      }
+    })();
+    expect(err).toMatchObject({ status: 409, code: 'ETOUCH_PROBE_AMBIGUOUS', params: { axis: 'X' } });
+    expectCatalogMatch(err);
+  });
+
+  test('unknown travel is coded before any line is sent', async () => {
+    const ctx = await setup();
+    delete ctx.c.settings.settings.$131;
+    await ctx.tick(100);
+    const err = await ctx.prepare().then(() => null, (e) => e);
+    expect(err).toMatchObject({ code: 'ETOUCH_PROBE_TRAVEL_UNKNOWN', params: { axis: 'Y' } });
+    expectCatalogMatch(err);
+    expect(ctx.g.sent).toEqual([]);
+    expect(ctx.state().refusals.blockProbe).toMatchObject({ code: err.code, params: err.params });
+  });
+
+  test('an unknown active system is null, and the catalog handles null alarm and system values', () => {
+    const probe = createBlockProbe({ record: () => ({}), modalWcs: () => null });
+    let err;
+    try {
+      probe.bind({}, { wcs: 'G54' });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toMatchObject({ code: 'ETOUCH_PROBE_WCS', params: { wcs: 'G54', active: null } });
+    expectCatalogMatch(err);
+    expect(err.message).not.toMatch(/inconnu|\{active\}/);
+    const alarm = refusal('ETOUCH_PROBE_ALARM', { alarm: null });
+    expectCatalogMatch(alarm);
+    expect(alarm.message).toBe('Alarme pendant le palpage.');
+  });
+});
+
 describe('block probe: real cycle on a fake Grbl', () => {
+  test('LUNYEE: T7 completes near Y 15 without collisions, overlaps or an ALARM:2 restart', async () => {
+    const solid = block();
+    const ctx = await setup({ world: { lunyee: true, start: { x: 100, y: 15, z: -110 }, solids: [{ ...solid, y0: solid.y0 - 85, y1: solid.y1 - 85 }] } });
+    ctx.g.offsetVoid = null;
+    ctx.g.wcoCounter = 0;
+    await ctx.tick(600);
+    await ctx.launch();
+    const { ok, err } = await ctx.finish();
+    expect(err).toBeUndefined();
+    expect(ok.blockProbe).toMatchObject({ state: 'done', written: 'yes' });
+    expect(ctx.g.collisions).toEqual([]);
+    expect(ctx.g.overlaps).toEqual([]);
+    expect(ctx.g.sent.filter((line) => /^G10/.test(line))).toHaveLength(1);
+    expect(ctx.history.filter((entry) => entry.event === 'alarm')).toEqual([]);
+    expect(ctx.state().homed).toBe(true);
+  });
+
   test('S1 XYZ at the -- corner: the exact lines, one G10 last, the work position read back, nothing ever touched', async () => {
     const ctx = await setup();
     expect(ctx.state()).toMatchObject({ canBlockProbe: true, blockProbeReason: '', homed: true });
@@ -1012,9 +1103,9 @@ describe('block probe: real cycle on a fake Grbl', () => {
   }, 30000);
 
   test('S16 out of travel: refused at prepare, nothing sent', async () => {
-    const ctx = await setup({ world: { start: { x: 15, y: 100, z: -110 } } });
+    const ctx = await setup({ world: { start: { x: 12.5, y: 100, z: -110 } } });
     await expect(ctx.prepare()).rejects.toMatchObject({
-      code: 'ETOUCH_PROBE_TRAVEL', params: { axis: 'X', min: '-5.9', max: '35.9', low: '0', high: '408' }
+      code: 'ETOUCH_PROBE_TRAVEL', params: { axis: 'X', min: '0.5', max: '22.4', low: '0', high: '408' }
     });
     ctx.g.m = { x: 100, y: 100, z: -5 };
     await ctx.tick(100);
@@ -1073,7 +1164,7 @@ describe('block probe: real cycle on a fake Grbl', () => {
     ctx.g.modal.wcs = 'G55';
     await ctx.tick(600);
     await expect(ctx.req('blockProbe', { nonce: ticket.nonce })).rejects.toMatchObject({ code: 'ETOUCH_PROBE_WCS', params: { wcs: 'G54', active: 'G55' } });
-    await expect(ctx.prepare()).rejects.toMatchObject({ code: 'ETOUCH_PROBE_WCS', message: 'Le repère choisi (G54) n’est pas le repère actif (G55) : choisissez G55.' });
+    await expect(ctx.prepare()).rejects.toMatchObject({ code: 'ETOUCH_PROBE_WCS', message: 'Le repère choisi (G54) n’est pas le repère actif (G55) : sélectionnez le repère actif.' });
     expect(ctx.g.sent).toEqual([]);
     expect(ctx.state().probing).toBe(false);
   }, 30000);
@@ -1116,7 +1207,7 @@ describe('block probe: real cycle on a fake Grbl', () => {
   test('S22 contact test: missing, too old', async () => {
     const ctx = await setup({ tested: false });
     expect(ctx.state().blockProbeReason).toBe('Test du contact à faire : touchez l’outil avec le bloc puis relâchez (contact vu, puis libre) avant de palper.');
-    expect(ctx.state().probeInput.test).toEqual({ done: false, ageMs: null });
+    expect(ctx.state().probeInput.test).toEqual({ done: false, ageMs: null, stage: 'free' });
     ctx.g.pinForced = true;
     await ctx.tick(100);
     ctx.g.pinForced = null;
@@ -1225,6 +1316,12 @@ describe('block probe: real cycle on a fake Grbl', () => {
     expect(state.motion.jogReason).toMatch(/Palpage en cours/);
     expect(ctx.service.ticketPending('tA')).toBe(true);
     expect(ctx.service.ticketPending('tB')).toBe(false);
+    const commands = ctx.c.commands.slice();
+    await expect(ctx.req('load', { file: 'piece.nc' })).rejects.toThrow('Palpage en cours.');
+    await expect(ctx.req('prepare', { operation: 'macro', macroId: 'test' })).rejects.toThrow('Palpage en cours.');
+    await expect(ctx.req('motion', { operation: 'jog', axis: 'X', direction: 1, step: 1, feed: 100 })).rejects.toThrow('Palpage en cours.');
+    expect(() => ctx.service.reserveSystemCommand({ id: 'test', title: 'test', commands: [] })).toThrow(/Palpage en cours/);
+    expect(ctx.c.commands).toEqual(commands);
     await expect(ctx.prepare()).rejects.toThrow('Palpage en cours.');
     await expect(ctx.req('prepare', { operation: 'zeroZ', thickness: 5, search: 10 })).rejects.toThrow('Palpage en cours.');
     const { ok } = await ctx.finish();
@@ -1393,12 +1490,44 @@ describe('block probe: real cycle on a fake Grbl', () => {
 
   test('S38 a retract answered ok once planned, the reports late: no line leaves before two newer reports at rest', async () => {
     const ctx = await setup();
+    let paused = false;
+    let intercepted = false;
+    const emit = ctx.c.runner.emit.bind(ctx.c.runner);
+    ctx.c.runner.emit = (event, ...args) => {
+      if (paused && !intercepted && event === 'ok') {
+        intercepted = true;
+        return true;
+      }
+      return emit(event, ...args);
+    };
     ctx.g.onStart = (line) => {
-      if (/^G53 G1/.test(line)) {
-        ctx.g.silentUntil = ctx.now + 200;
+      if (!intercepted && /^G53 G1/.test(line)) {
+        paused = true;
+        ctx.g.silent = true;
+        // No automatic status or parser poll during the manual ok / Idle / Idle sequence.
+        ctx.g.lastPoll = Infinity;
       }
     };
     await ctx.launch();
+    await ctx.until(() => intercepted && ctx.g.active === 'Idle');
+    const sent = ctx.g.sent.slice();
+    expect(sent).toEqual(EXPECTED_XYZ.slice(0, 3));
+    // Even two Idle reports before the ok cannot release the retract.
+    ctx.g.report();
+    ctx.g.report();
+    await ctx.tick(100);
+    expect(ctx.g.sent).toEqual(sent);
+    emit('ok');
+    await ctx.tick(100);
+    expect(ctx.g.sent).toEqual(sent);
+    ctx.g.report();
+    await ctx.tick(100);
+    expect(ctx.g.sent).toEqual(sent);
+    ctx.g.report();
+    await ctx.tick(100);
+    expect(ctx.g.sent).toEqual(EXPECTED_XYZ.slice(0, 4));
+    ctx.g.silent = false;
+    ctx.g.lastPoll = ctx.now;
     const { ok, err } = await ctx.finish();
     expect(err).toBeUndefined();
     expect(ok.blockProbe.state).toBe('done');
@@ -1459,6 +1588,8 @@ describe('block probe: real cycle on a fake Grbl', () => {
     const { err } = await ctx.finish();
     expect(set).toBe(true);
     expect(err.code).toBe('ETOUCH_PROBE_ALARM');
+    expect(err.params).toEqual({ alarm: null });
+    expectCatalogMatch({ code: err.code, params: err.params, message: 'Alarme pendant le palpage.' });
     await ctx.tick(1000);
     expect(ctx.g.sent).toEqual(['$#', 'G38.3 Z-20 F100', 'G53 G1 Z-117.565 F500']);
   }, 30000);
@@ -1681,6 +1812,8 @@ describe('block probe: the LUNYEE options of the fake Grbl (PLAN-CORRECTIONS § 
     expect(ctx.g.m).toEqual(ZERO);
     expect(ctx.g.active).toBe('Alarm');
     expect(ctx.state().homed).toBe(false);
+    expect(ctx.state().lastAlarm).toMatchObject({ code: 2, at: expect.any(Number), restarted: true });
+    expect(ctx.history.filter((entry) => entry.event === 'alarm')).toEqual([expect.objectContaining({ code: 2 })]);
     // The stored offset is loaded by the restart.
     await ctx.tick(600);
     expect(seen.wco.at(-1)).toEqual([20, 30, -100]);

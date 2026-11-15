@@ -25,6 +25,30 @@ const setup = () => {
 };
 
 describe('probe input', () => {
+  test('D4: stages and uninterrupted contact facts, reset by gaps, free reports and restart', () => {
+    const ctx = setup();
+    expect(ctx.read()).toMatchObject({ contactMs: null, stuck: false, lastContactAgeMs: null, test: { stage: 'idle' } });
+    ctx.emit('<Idle|MPos:0,0,0>');
+    expect(ctx.read().test.stage).toBe('free');
+    ctx.emit('<Idle|Pn:P>');
+    expect(ctx.read()).toMatchObject({ contactMs: 0, lastContactAgeMs: 0, test: { stage: 'contact', done: false } });
+    for (let i = 0; i < 5; i++) {
+      ctx.now += 1000;
+      ctx.emit('<Idle|Pn:P>');
+    }
+    expect(ctx.read()).toMatchObject({ contactMs: 5000, stuck: true });
+    ctx.now += 2501;
+    expect(ctx.read()).toMatchObject({ contactMs: null, stuck: false, test: { stage: 'idle' } });
+    ctx.emit('<Idle|Pn:P>');
+    expect(ctx.read().contactMs).toBe(0);
+    ctx.emit('<Idle|Pn:X>');
+    expect(ctx.read()).toMatchObject({ contactMs: null, stuck: false, test: { stage: 'free' } });
+    ctx.now += 50;
+    expect(ctx.read().lastContactAgeMs).toBe(50);
+    ctx.c.runner.emit('startup', {});
+    expect(ctx.read()).toMatchObject({ lastContactAgeMs: null, test: { stage: 'idle', done: false } });
+  });
+
   test('reads the P pin from an explicit Pn field, in any machine state', () => {
     const ctx = setup();
     expect(ctx.read().state).toBe('unknown');

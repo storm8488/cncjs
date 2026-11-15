@@ -17,6 +17,35 @@ const machine = ({ settings, ...over } = {}) => ({
 
 const SQUARE = ['G21 G90 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-3 F100', 'G1 X40 F500', 'G1 Y30', 'G1 X0', 'G1 Y0', 'G0 Z5', 'M30'].join('\n');
 
+describe('CNC spindle setpoint above the board maximum', () => {
+  test('S18000 against $30=1000 is coded information, with no effect on any travel verdict', () => {
+    const plain = programCheck(SQUARE, machine({ settings: { $30: 1000 } }));
+    const check = programCheck('M3 S18000\n' + SQUARE, machine({ settings: { $30: 1000 } }));
+    const info = check.info.find((item) => item.code === 'ETOUCH_CHECK_S_ABOVE_MAX');
+    expect(info).toEqual({ code: 'ETOUCH_CHECK_S_ABOVE_MAX',
+      params: { s: '18000', line: 1, max: '1000' },
+      message: 'Consigne S18000 (ligne 1) au-dessus du maximum de la carte (1000) : la broche tournera au maximum.' });
+    expectCatalogMatch(info);
+    expect(check.verdict).toBe(plain.verdict);
+    expect(check.axes).toEqual(plain.axes);
+    expect(check.codedReasons).toEqual(plain.codedReasons);
+    expect(check.blocking).toEqual(plain.blocking);
+    expect(check.overridable).toBe(plain.overridable);
+    expect(plain.info.some((item) => item.code === 'ETOUCH_CHECK_S_ABOVE_MAX')).toBe(false);
+  });
+
+  test.each([undefined, 0, -1, 18000, 24000])('$30=%s does not add the CNC information when no excess is known', (max) => {
+    const check = programCheck('M3 S18000\n' + SQUARE, machine({ settings: { $30: max } }));
+    expect(check.info.some((item) => item.code === 'ETOUCH_CHECK_S_ABOVE_MAX')).toBe(false);
+  });
+
+  test('a laser retains its own coded warning and never gets the CNC information', () => {
+    const check = programCheck('M3 S18000\n' + SQUARE, machine({ settings: { $30: 1000 }, laser: { sMax: 1000 } }));
+    expect(check.info.some((item) => item.code === 'ETOUCH_CHECK_S_ABOVE_MAX')).toBe(false);
+    expect(check.laser.codedReasons.some((item) => item.code === 'ETOUCH_LASER_CHECK_S_ABOVE_MAX')).toBe(true);
+  });
+});
+
 describe('program check (F2): analysis', () => {
   test('a plain square is followed: units, mode, offset, XYZ extent, Z depth and clearance', () => {
     const a = analyzeProgram(SQUARE);
@@ -524,8 +553,9 @@ describe('program check (F2): coded reasons (ETOUCH_CHECK_*)', () => {
 
   test('every ETOUCH_CHECK_* row of the client catalog is emitted by one case above', () => {
     const catalog = catalogCodes().filter((code) => /^ETOUCH_CHECK_/.test(code)).sort();
-    expect(cases.map(([code]) => code).sort()).toEqual(catalog);
-    expect(catalog).toHaveLength(32);
+    // The additional code is informational, exercised above rather than a blocking reason.
+    expect(cases.map(([code]) => code).concat(['ETOUCH_CHECK_S_ABOVE_MAX']).sort()).toEqual(catalog);
+    expect(catalog).toHaveLength(33);
   });
 
   test('French reasons and verdicts are those of the uncoded check; a validated program has none', () => {

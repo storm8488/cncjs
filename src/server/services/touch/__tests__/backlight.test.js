@@ -68,6 +68,33 @@ const manualTimers = () => {
 const FILE = '/sys/class/backlight/backlight/brightness';
 
 describe('backlight', () => {
+  test('D3: wake lights an unremembered dark panel and then becomes idempotent', () => {
+    const fs = makeFs({ level: '0' });
+    const write = jest.spyOn(fs, 'writeFileSync');
+    const backlight = createBacklight({ fs });
+    expect(backlight.status().temporary).toBe(false);
+    expect(backlight.wake().percent).toBe(50);
+    backlight.wake();
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+
+  test('D3: restore lights a dark panel without a stored level and never saves it', () => {
+    const fs = makeFs({ level: '0' });
+    const config = makeConfig();
+    const backlight = createBacklight({ fs, config });
+    expect(backlight.restore()).toBe(true);
+    expect(backlight.status()).toMatchObject({ percent: 50, temporary: false });
+    expect(config.set).not.toHaveBeenCalled();
+  });
+
+  test('D3: wake recovers a panel darkened outside this service', () => {
+    const fs = makeFs();
+    const backlight = createBacklight({ fs });
+    backlight.set(70);
+    fs.files[FILE] = '1';
+    expect(backlight.wake().percent).toBe(70);
+  });
+
   test('reports the panel level as a percentage', () => {
     const backlight = createBacklight({ fs: makeFs() });
     expect(backlight.status()).toEqual({ available: true, writable: true, device: 'backlight', percent: 50, userPercent: 50, temporary: false, minPercent: MIN_PERCENT });

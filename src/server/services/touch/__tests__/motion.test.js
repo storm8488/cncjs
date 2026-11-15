@@ -8,7 +8,7 @@ import {
   capabilitiesOf, envelopeOf, limitsAt, maxFeedOf, grblVersion, jogLine, originLine, motionEnabled,
   DISABLED_MESSAGE, KEEPALIVE_TIMEOUT_MS, FALLBACK_MAX_FEED, SESSION_MARGIN_MS
 } from '../motion';
-import { catalogCodes, expectCatalogMatch } from './touch-codes-catalog';
+import { catalogCodes, expectCatalogMatch, expectMessageTranslation } from './touch-codes-catalog';
 import { provenOffset } from './support/proven-offset';
 
 // A fake Grbl controller: `written` holds the exact bytes GrblController
@@ -63,7 +63,7 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-const setup = ({ enabled = true, homed = false, hasKey = true } = {}) => {
+const setup = ({ enabled = true, homed = false, hasKey = true, workOffset = provenOffset } = {}) => {
   jest.useFakeTimers();
   const ctx = { now: 10000, enabled, c: fakeController(), history: [] };
   ctx.controllers = { TEST: ctx.c };
@@ -72,7 +72,7 @@ const setup = ({ enabled = true, homed = false, hasKey = true } = {}) => {
     { get: () => ctx.controllers },
     { get: (key) => ({ ...(hasKey ? { 'touch.motion.enabled': ctx.enabled } : {}), events: [], macros: [] }[key]) },
     () => ctx.now,
-    { workOffset: provenOffset, control: ctx.control, history: { record: (event) => ctx.history.push(event) } }
+    { workOffset, control: ctx.control, history: { record: (event) => ctx.history.push(event) } }
   );
   services.push(ctx.service);
   ctx.generation = ctx.service.list()[0].generation;
@@ -120,6 +120,150 @@ const setup = ({ enabled = true, homed = false, hasKey = true } = {}) => {
 const STEP = { axis: 'X', direction: 1, step: 1, feed: 500 };
 const HOLD = { axis: 'X', direction: 1, feed: 500 };
 const J = '$J=G91 G21 X99 F500\n';
+
+describe('a discrete step refused by Grbl', () => {
+  test('error:15 is published before releasing the pending line, after two later reports', async () => {
+    const ctx = setup({ homed: true });
+    await ctx.motion('jog', STEP);
+    ctx.c.runner.emit('error', { message: '15' });
+    ctx.tick(50);
+    expect(ctx.state().motion.canJog).toBe(false);
+    ctx.tick(50);
+    expect(ctx.state().motion.lastJog).toMatchObject({ result: 'refused', reason: 'error:15', axis: 'X', message: 'Grbl a refusé le jog (error:15)' });
+    expect(ctx.state().motion.canJog).toBe(true);
+    expect(ctx.c.written).toEqual(['$J=G91 G21 X1 F500\n']);
+    await ctx.motion('jog', { ...STEP, axis: 'Y' });
+    ctx.settle();
+    expect(ctx.state().motion.lastJog.reason).toBe('error:15'); // no invented success for the next step
+    expect(ctx.history).toEqual([]); // discrete steps are not continuous-session history entries
+  });
+});
+
+describe('operator wording for real motion refusals', () => {
+  test('disabled motion has a translated code and no internal document name', async () => {
+    const ctx = setup({ enabled: false });
+    const err = await ctx.motion('jog', STEP).then(() => null, (e) => e);
+    expect(err).toMatchObject({ code: 'ETOUCH_MOTION_DISABLED', params: {} });
+    expect(err.message).not.toMatch(/HANDOFF|\.md/);
+    expectCatalogMatch(err);
+    expectMessageTranslation(err.message, 'Real moves are not enabled: supervised hardware validation required.', 'Desplazamientos reales no activados: se requiere validación supervisada en la máquina.');
+    expect(ctx.c.written).toEqual([]);
+  });
+
+  test.each(['jog', 'jog-start'])('%s explains an ambiguous axis with a code, without sending a line', async (operation) => {
+    const ctx = setup({ homed: true });
+    ctx.c.settings.settings.$23 = '1';
+    ctx.c.state.status.mpos.x = '0.000';
+    const err = await ctx.motion(operation, STEP).then(() => null, (e) => e);
+    expect(err).toMatchObject({ code: 'ETOUCH_MOTION_AMBIGUOUS', params: { axis: 'X' } });
+    expect(err.message).toBe('Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette.');
+    expectCatalogMatch(err);
+    expect(ctx.c.written).toEqual([]);
+  });
+});
+
+describe('D4: axis zero at the machine origin', () => {
+  const ready = () => {
+    const ctx = setup({ homed: true });
+    ctx.c.settings.parameters = { G92: { x: 0, y: 0, z: 0 }, TLO: 0 };
+    ctx.modal();
+    return ctx;
+  };
+  const prepare = (ctx, axes = ['X']) => ctx.req('prepare', { operation: 'set-origin', at: 'machine', axes });
+
+  test('G10 L2 uses the active system; waits for WCO after ok, logs at=machine, leaves every axis still', async () => {
+    const ctx = ready();
+    ctx.modal('G55');
+    const ticket = await prepare(ctx, ['X', 'Z']);
+    expect(ticket.name).toContain('à l’origine machine (G10 L2 P2 X0 Z0)');
+    const done = ctx.req('set-origin', { nonce: ticket.nonce });
+    expect(ctx.c.written).toEqual(['G10 L2 P2 X0 Z0\n']);
+    ctx.c.state.status.wpos.x = ctx.c.state.status.mpos.x;
+    ctx.c.state.status.wpos.z = ctx.c.state.status.mpos.z;
+    ctx.c.runner.emit('status', { wco: { x: 0, y: -105, z: 0 } }); // before ok: not proof
+    ctx.ok();
+    ctx.tick(300);
+    expect(ctx.history).toHaveLength(0);
+    await expect(prepare(ctx)).rejects.toThrow(/commandes sont en attente/);
+    expect(ctx.service.socketRefusal('TEST').message).toMatch(/commandes sont en attente/);
+    ctx.c.runner.emit('status', { wco: { x: 0, y: -105, z: 0 } });
+    ctx.tick(100);
+    await expect(done).resolves.toMatchObject({ message: 'Zéro réglé à l’origine machine, sans mouvement.', command: 'G10 L2 P2 X0 Z0' });
+    expectMessageTranslation('Zéro réglé à l’origine machine, sans mouvement.',
+      'Zero set at the machine origin, without movement.',
+'Cero ajustado en el origen máquina, sin movimiento.');
+    expect(ctx.history).toEqual([expect.objectContaining({ event: 'origin', at: 'machine', result: 'set', wcs: 'G55', command: 'G10 L2 P2 X0 Z0' })]);
+    expect(ctx.c.state.status.mpos).toEqual({ x: '-100.000', y: '-100.000', z: '-10.000' });
+  });
+
+  test('machine reference is required even when $22=0; G92 and TLO are checked only on selected axes', async () => {
+    const ctx = setup();
+    ctx.c.settings.settings.$22 = '0';
+    ctx.modal();
+    await expect(prepare(ctx)).rejects.toMatchObject({ code: 'ETOUCH_ORIGIN_NOT_HOMED' });
+    ctx.home();
+    ctx.c.settings.parameters = { G92: { x: 1, y: 0, z: 0 }, TLO: 2 };
+    await expect(prepare(ctx)).rejects.toMatchObject({ code: 'ETOUCH_ORIGIN_OFFSETS' });
+    await expect(prepare(ctx, ['Z'])).rejects.toMatchObject({ code: 'ETOUCH_ORIGIN_OFFSETS' });
+    await expect(prepare(ctx, ['Y'])).resolves.toHaveProperty('nonce');
+    expect(ctx.c.written).toEqual([]);
+  });
+
+  test('offsets and movement are rechecked after confirmation, including an unselected axis', async () => {
+    const ctx = ready();
+    let ticket = await prepare(ctx);
+    ctx.c.settings.parameters.G92.x = 1;
+    await expect(ctx.req('set-origin', { nonce: ticket.nonce })).rejects.toMatchObject({ code: 'ETOUCH_ORIGIN_OFFSETS' });
+    ctx.c.settings.parameters.G92.x = 0;
+    ticket = await prepare(ctx);
+    ctx.c.state.status.mpos.y = '-90';
+    await expect(ctx.req('set-origin', { nonce: ticket.nonce })).rejects.toThrow(/bougé depuis/);
+    expect(ctx.c.written).toEqual([]);
+  });
+
+  test.each(['missing WCO', 'wrong WCO', 'moved', 'restart'])('the origin is never reported set with %s', async (mode) => {
+    const ctx = ready();
+    const ticket = await prepare(ctx);
+    const done = ctx.req('set-origin', { nonce: ticket.nonce });
+    const rejected = expect(done).rejects.toThrow();
+    ctx.ok();
+    ctx.c.state.status.wpos.x = ctx.c.state.status.mpos.x;
+    if (mode === 'moved') {
+ ctx.c.state.status.mpos.y = '-90';
+}
+    if (mode === 'restart') {
+ ctx.c.runner.emit('startup', {});
+}
+    if (mode !== 'missing WCO') {
+ ctx.c.runner.emit('status', { wco: { x: mode === 'wrong WCO' ? 1 : 0, y: 0, z: 0 } });
+}
+    for (let t = 0; t < 5200; t += 100) {
+      ctx.modal();
+      ctx.tick(100);
+    }
+    await rejected;
+    expect(ctx.history.at(-1)).toMatchObject({ event: 'origin', result: 'failed', at: 'machine' });
+    expect(ctx.history.some((event) => event.result === 'set')).toBe(false);
+  });
+
+  test('invalid at and unknown compensation values refuse without writing', async () => {
+    const ctx = ready();
+    await expect(ctx.req('prepare', { operation: 'set-origin', axes: ['X'], at: 'invalid' })).rejects.toThrow(/invalide/);
+    ctx.c.settings.parameters = {};
+    await expect(prepare(ctx)).rejects.toMatchObject({ code: 'ETOUCH_ORIGIN_OFFSETS' });
+    expect(ctx.c.written).toEqual([]);
+  });
+
+  test('D2 must be proven for the machine-origin mode', async () => {
+    const ctx = setup({ homed: true,
+workOffset: () => ({ ...provenOffset(),
+      refusal: () => Object.assign(new Error('Work offset not proven'), { status: 409, code: 'ETOUCH_OFFSET_CHECKING' }) }) });
+    ctx.modal();
+    ctx.c.settings.parameters = { G92: { x: 0, y: 0, z: 0 }, TLO: 0 };
+    await expect(prepare(ctx)).rejects.toMatchObject({ code: 'ETOUCH_OFFSET_CHECKING' });
+    expect(ctx.c.written).toEqual([]);
+  });
+});
 
 // Starts a continuous jog that Grbl acknowledged and reports in Jog.
 const running = async (ctx, body = HOLD) => {
@@ -888,10 +1032,10 @@ describe('cross-check 4 · 3. bornes', () => {
     ctx.c.settings.settings.$23 = '1';
     ctx.c.state.status.mpos.x = '0.000';
     // L1: refused (safe), and the message says why.
-    await expect(ctx.motion('jog-start', HOLD)).rejects.toThrow(/Maintien continu impossible : convention de course ambiguë à cette position \(X 0, bit \$23 à 1 : -400 → 0 ou 0 → 400\).*étape 0 de HANDOFF\.md/);
-    await expect(ctx.motion('jog-start', { ...HOLD, direction: -1 })).rejects.toThrow(/convention de course ambiguë/);
-    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/Pas refusé : convention de course ambiguë/);
-    await expect(ctx.motion('jog', { ...STEP, direction: -1, step: 0.01 })).rejects.toThrow(/convention de course ambiguë/);
+    await expect(ctx.motion('jog-start', HOLD)).rejects.toThrow(/Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette/);
+    await expect(ctx.motion('jog-start', { ...HOLD, direction: -1 })).rejects.toThrow(/Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette/);
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette/);
+    await expect(ctx.motion('jog', { ...STEP, direction: -1, step: 0.01 })).rejects.toThrow(/Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette/);
     // Away from 0, only one convention remains: [0, 400] at X 150 (Grbl_ESP32 style).
     ctx.c.state.status.mpos.x = '150.000';
     const res = await ctx.motion('jog-start', HOLD);
@@ -930,7 +1074,7 @@ describe('cross-check 4 · 3. bornes', () => {
     await expect(ctx.motion('jog', { ...STEP, step: 10 })).rejects.toThrow(/non constaté/);
     // A cycle of another client ($HY alone may leave X where it was): homed, but nothing learnt from it.
     ctx.home();
-    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/Pas refusé : convention de course ambiguë/);
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette/);
     // Our own $H again: [0, 400] again.
     await homeOurs(ctx);
     await ctx.motion('jog', { ...STEP, step: 0.1 });
@@ -943,7 +1087,7 @@ describe('cross-check 4 · 3. bornes', () => {
     await homeOurs(ctx);
     // Moved to 0 afterwards: ambiguous as before, the homing end proved nothing about 0.
     ctx.c.state.status.mpos.x = '0.000';
-    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/Pas refusé : convention de course ambiguë/);
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette/);
   });
 
   // Contre-revue C1 : rapports en WPos sans WCO reçu, la MPos de CNCjs vaut WPos ; la fin de cycle à
@@ -961,8 +1105,8 @@ describe('cross-check 4 · 3. bornes', () => {
     ctx.c.runner.emit('status', { wco: { x: '-399.000', y: '0.000', z: '0.000' } });
     ctx.c.state.status.mpos.x = '0.000';
     ctx.report();
-    await expect(ctx.motion('jog', { ...STEP, step: 10 })).rejects.toThrow(/convention de course ambiguë/);
-    await expect(ctx.motion('jog-start', HOLD)).rejects.toThrow(/convention de course ambiguë/);
+    await expect(ctx.motion('jog', { ...STEP, step: 10 })).rejects.toThrow(/Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette/);
+    await expect(ctx.motion('jog-start', HOLD)).rejects.toThrow(/Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette/);
   });
 
   test('$23 changé après notre $H : la convention apprise ne vaut plus', async () => {
@@ -975,7 +1119,7 @@ describe('cross-check 4 · 3. bornes', () => {
     ctx.c.state.status.mpos.x = '0.000';
     ctx.c.settings.settings.$23 = '3';
     ctx.report();
-    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/convention de course ambiguë/);
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette/);
   });
 
   test('une prise d’origine d’un autre client après la nôtre efface la convention apprise', async () => {
@@ -987,7 +1131,7 @@ describe('cross-check 4 · 3. bornes', () => {
     // No alarm in between: only the foreign cycle (Home then Idle) drops it.
     ctx.home();
     expect(ctx.state().homed).toBe(true);
-    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/convention de course ambiguë/);
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette/);
   });
 
   // A full homing cycle sent from CNCjs on the PC (socket `homing` or `writeln` $H, index.js
@@ -1070,7 +1214,7 @@ describe('cross-check 4 · 3. bornes', () => {
     ctx.tick(1100);
     ctx.c.state.status.activeState = 'Idle';
     ctx.c.runner.emit('status', { activeState: 'Idle', mpos: { ...ZERO } });
-    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/convention de course ambiguë/);
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette/);
   });
 
   // Non-regressions: a cycle whose full $H is not proven teaches nothing (X stays ambiguous at 0).
@@ -1092,7 +1236,7 @@ describe('cross-check 4 · 3. bornes', () => {
     Object.assign(ctx.c.state.status.mpos, ZERO);
     ctx.report();
     expect(ctx.state().homed).toBe(true);
-    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/convention de course ambiguë/);
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette/);
   });
 
   test('origine du PC : Home puis un autre état que Idle annule l’intention, un Home → Idle suivant n’apprend rien', async () => {
@@ -1107,7 +1251,7 @@ describe('cross-check 4 · 3. bornes', () => {
     ctx.c.state.status.activeState = 'Idle';
     ctx.c.runner.emit('status', { activeState: 'Idle', mpos: { ...ZERO } });
     expect(ctx.state().homed).toBe(true);
-    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/convention de course ambiguë/);
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette/);
   });
 
   test('origine du PC : l’intention sert une fois, un second Home → Idle sans commande oublie la convention', async () => {
@@ -1120,7 +1264,7 @@ describe('cross-check 4 · 3. bornes', () => {
     ctx.c.state.status.activeState = 'Idle';
     Object.assign(ctx.c.state.status.mpos, ZERO);
     ctx.c.runner.emit('status', { activeState: 'Idle', mpos: { ...ZERO } });
-    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/convention de course ambiguë/);
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette/);
   });
 
   test('origine du PC : un Home vu avant la commande (rapport suivant pas encore reçu) ne compte pas', async () => {
@@ -1217,7 +1361,7 @@ describe('cross-check 4 · 3. bornes', () => {
     ctx.tick(1100);
     ctx.c.state.status.activeState = 'Idle';
     ctx.c.runner.emit('status', { activeState: 'Idle', mpos: { ...ZERO } });
-    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/convention de course ambiguë/);
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette/);
   });
 
   test('origine du PC en WPos : un WCO reçu avant le $H ne suffit pas, un WCO reçu pendant le cycle oui', async () => {
@@ -1227,7 +1371,7 @@ describe('cross-check 4 · 3. bornes', () => {
     ctx.c.runner.emit('status', { wco: { ...ZERO } });
     ctx.tick(100);
     homePc(ctx, { wpos: true });
-    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/convention de course ambiguë/);
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette/);
     homePc(ctx, { wpos: true, before: () => ctx.c.runner.emit('status', { wco: { ...ZERO } }) });
     await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).resolves.toMatchObject({ command: '$J=G91 G21 X0.1 F500' });
   });
@@ -1237,7 +1381,7 @@ describe('cross-check 4 · 3. bornes', () => {
     homePc(ctx);
     ctx.c.settings.settings.$23 = '1';
     ctx.report();
-    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/convention de course ambiguë/);
+    await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette/);
   });
 
   test('pas > 1 mm : sûr dans les deux conventions et dans la course', async () => {
@@ -1797,16 +1941,16 @@ describe('cross-check 6 · 1. aucune distance hors course, quelle que soit la co
     expect(res['Y200.000+']).toMatch(/^REFUS: .*hors de la course/);
     expect(res['Y-200.000+']).toBe('$J=G91 G21 Y199 F400');
     expect(res['Z40.000+']).toBe('$J=G91 G21 Z39 F400');
-    expect(res['Z0.000+']).toMatch(/^REFUS: .*convention de course ambiguë/);
-    expect(res['Z0.000-']).toMatch(/^REFUS: .*convention de course ambiguë/);
+    expect(res['Z0.000+']).toMatch(/^REFUS: Position de l’axe Z inconnue/);
+    expect(res['Z0.000-']).toMatch(/^REFUS: Position de l’axe Z inconnue/);
     expect(res['Z-0.500-']).toBe('$J=G91 G21 Z-78.5 F400');
   });
 
-  test('L1 : bit $23 à 1, X exactement 0 : tout refusé (sûr), et le message dit pourquoi (étape 0 de HANDOFF)', async () => {
+  test('L1: $23 bit set at X0: every request is refused and asks for homing from the tablet', async () => {
     for (const [op, extra] of [['jog-start', {}], ['jog', { step: 0.01 }], ['jog', { step: 1 }]]) {
       for (const direction of [1, -1]) {
         const ctx = fresh({ $23: '1' }, { x: '0.000' });
-        await expect(ctx.motion(op, { axis: 'X', direction, feed: 500, ...extra })).rejects.toThrow(/convention de course ambiguë à cette position .*étape 0 de HANDOFF\.md/);
+        await expect(ctx.motion(op, { axis: 'X', direction, feed: 500, ...extra })).rejects.toThrow(/Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette/);
         expect(ctx.c.written).toEqual([]);
       }
     }
@@ -2541,10 +2685,26 @@ describe('real moves (F1): stable refusal codes (ETOUCH_MOTION_*)', () => {
     const source = require('fs').readFileSync(require('path').join(__dirname, '../motion.js'), 'utf8');
     const emitted = Array.from(new Set(source.match(/'ETOUCH_MOTION_[A-Z_]+'/g).map((s) => s.slice(1, -1)))).sort();
     expect(emitted).toEqual(catalog);
-    expect(emitted).toHaveLength(8);
+    expect(emitted).toHaveLength(11);
     const ctx = setup();
     const err = await ctx.motion('jog', { ...STEP, step: 0.5 }).then(() => null, (e) => e);
     expect(err).toMatchObject({ status: 409, message: expect.stringMatching(/pas invalide/) });
     expect(err.code).toBeUndefined();
+  });
+});
+// The legacy API, websocket and origin guards must see the $H before the first Home report.
+describe('S4 homing announced before the first Home report', () => {
+  test('a step, continuous jog and work zero are refused while the last report still says Idle', async () => {
+    const ctx = setup({ homed: true });
+    const home = await ctx.req('prepare', { operation: 'home' });
+    await ctx.req('home', { nonce: home.nonce });
+    expect(ctx.c.state.status.activeState).toBe('Idle');
+    const written = ctx.c.written.slice();
+    for (const operation of ['jog', 'jog-start']) {
+      await expect(ctx.motion(operation, { axis: 'X', direction: 1, step: 1, feed: 100 })).rejects.toMatchObject({ code: 'ETOUCH_MOTION_HOMING' });
+    }
+    await expect(ctx.req('prepare', { operation: 'set-origin', axes: ['X'] })).rejects.toMatchObject({ code: 'ETOUCH_MOTION_HOMING' });
+    expect(ctx.c.written).toEqual(written);
+    expectCatalogMatch({ code: 'ETOUCH_MOTION_HOMING', params: {}, message: ctx.state().motion.jogReason });
   });
 });

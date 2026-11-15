@@ -258,6 +258,10 @@ mode: plan.mode
         startActor: null,
         resume
       };
+      // C-59: only the rebuilt preamble can set G94 before its first move. A G94 later in the
+      // original program does not protect that preamble from an inherited G93 on the board.
+      r.job.resumeFeedMode = !resume || program.split('\n').slice(0, resume.preambleLength)
+        .some((line) => /G0*94(?![\d.])/.test(codeOf(line).replace(/\s/g, '')));
       log({ event: 'load', ...jobInfo(r.job), controller: controllerInfo(c, r), actor: actor || null });
       return { message: resume ? 'Reprise à la ligne ' + resume.from + ' chargée dans CNCjs. Aucun démarrage envoyé.' : 'Fichier chargé dans CNCjs. Aucun démarrage envoyé.' };
     } finally {

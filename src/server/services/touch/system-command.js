@@ -67,6 +67,9 @@ export const createSystemCommands = (deps) => {
         if (r.probing) {
           throw conflict('Palpage en cours sur ' + port + ' : commande système refusée.');
         }
+        if (r.settingsRead || r.originChecking) {
+          throw conflict('Commandes en attente sur ' + port + ' : commande système refusée.');
+        }
         if (r.loading) {
           throw conflict('Chargement en cours sur ' + port + ' : commande système refusée.');
         }

@@ -7,6 +7,10 @@ import { EventEmitter } from 'events';
 import { createService } from '../job-service';
 import { createControl } from '../control';
 import { provenOffset } from './support/proven-offset';
+import { expectCatalogMatch } from './touch-codes-catalog';
+import { bridge } from './support/sim-bridge';
+
+const GrblSimulator = require('../../../../../grbl-simulator/grbl-simulator');
 
 const LUNYEE = {
   $10: '1',
@@ -139,6 +143,36 @@ const setup = (m) => {
   return ctx;
 };
 
+test('D4: permanent contact refuses both plate and block before any line is written', async () => {
+  const ctx = setup({ x: 100, y: 100, z: -110 });
+  for (let i = 0; i <= 5; i++) {
+    ctx.now += 1000;
+    ctx.c.runner.emit('status', { raw: '<Idle|MPos:100,100,-110|Pn:P>' });
+  }
+  ctx.modal();
+  const snapshot = ctx.state();
+  expect(snapshot.probeInput).toMatchObject({ stuck: true, contactMs: 5000 });
+  expect(snapshot.refusals).toMatchObject({ zeroZ: { code: 'ETOUCH_PROBE_CONTACT_STUCK' }, blockProbe: { code: 'ETOUCH_PROBE_CONTACT_STUCK' } });
+  const refused = await ctx.req('prepare', { operation: 'zeroZ', thickness: 1, search: 10 }).catch((err) => err);
+  expect(refused).toMatchObject({ code: 'ETOUCH_PROBE_CONTACT_STUCK', params: { seconds: '5' } });
+  expectCatalogMatch(refused);
+  await expect(ctx.req('prepare', { operation: 'blockProbe',
+axes: 'Z',
+wcs: 'G54',
+    profile: { thickness: 10, fast: 100, slow: 25, search: 10, retract: 1, clearance: 5 } })).rejects.toMatchObject({ code: 'ETOUCH_PROBE_CONTACT_STUCK' });
+  expect(ctx.c.commands).toEqual([]);
+});
+
+test('D4: no automatic settings write between lines of a plate sequence', async () => {
+  const ctx = setup({ x: 100, y: 100, z: -110 });
+  await ctx.start({ thickness: 1, search: 10 });
+  ctx.c.settings.version = '';
+  ctx.c.writeln = jest.fn();
+  ctx.service.observe();
+  expect(ctx.c.writeln).not.toHaveBeenCalled();
+  expect(ctx.lines()[0]).toMatch(/^G38\.2/);
+});
+
 describe('plate probe: every stop ends the sequence (PLAN-CORRECTIONS § 1.6)', () => {
   test('C-08 Arrêter right after the G38.2 left, the report still Idle: a feed hold, then the reset; the lock holds until the banner proves the stop', async () => {
     const ctx = setup({ x: 150, y: 120, z: -100 });
@@ -221,4 +255,285 @@ describe('plate probe: every stop ends the sequence (PLAN-CORRECTIONS § 1.6)', 
     expect(ctx.service.socketRefusal('TEST')).toBeNull();
     expect(ctx.lines()).toEqual(['G38.2 Z-5 F100']);
   });
+});
+
+describe('plate probe: the search against the Z travel, the supervision (C-07, C-17, C-55)', () => {
+  // Time goes by without any report from the board.
+  const silence = async (ctx, ms) => {
+    for (let t = 0; t < ms; t += 50) {
+      ctx.now += 50;
+      // eslint-disable-next-line no-await-in-loop
+      await jest.advanceTimersByTimeAsync(50);
+    }
+  };
+  // The refusal of a confirmation, or null when a ticket was issued.
+  const refusalOf = (ctx, params) => ctx.req('prepare', { operation: 'zeroZ', ...params }).then(() => null, (err) => err);
+
+  test('C-07 homed, Z machine −60, search 100 (target −160 for a travel of −130): refused with the longest search allowed, no G38.2', async () => {
+    const ctx = setup({ x: 150, y: 120, z: -60 });
+    expect(ctx.state().homed).toBe(true);
+    const err = await refusalOf(ctx, { thickness: 10, search: 100 });
+    expect(err).toMatchObject({ status: 409, code: 'ETOUCH_PLATE_TRAVEL', params: { search: '100', max: '69' } });
+    expect(err.message).toBe('Recherche de 100 mm trop longue : l’outil sortirait de la course en Z. Au plus 69 mm d’ici.');
+    expectCatalogMatch(err);
+    expect(ctx.lines()).toEqual([]);
+    // 69 mm: the target stays 1 mm above the low end (machine −129).
+    await ctx.start({ thickness: 10, search: 69 });
+    expect(ctx.lines()).toEqual(['G38.2 Z-14 F100']);
+  });
+
+  test('C-07 checked again at the run: the tool lowered after the confirmation, nothing is sent', async () => {
+    const ctx = setup({ x: 150, y: 120, z: -60 });
+    const ticket = await ctx.req('prepare', { operation: 'zeroZ', thickness: 10, search: 50 });
+    ctx.m = { ...ctx.m, z: -100 };
+    ctx.report();
+    const err = await ctx.req('zeroZ', { nonce: ticket.nonce }).then(() => null, (e) => e);
+    expect(err).toMatchObject({ code: 'ETOUCH_PLATE_TRAVEL', params: { search: '50', max: '29' } });
+    expect(ctx.lines()).toEqual([]);
+    expect(ctx.state().probing).toBe(false);
+  });
+
+  test('C-07 a machine whose Z travel is not known ($22=0: never referenced) keeps the plate probe as before', async () => {
+    const ctx = setup({ x: 150, y: 120, z: -60 });
+    ctx.c.settings.settings.$22 = '0';
+    ctx.report();
+    await ctx.start({ thickness: 10, search: 100 });
+    expect(ctx.lines()).toEqual(['G38.2 Z-45 F100']);
+  });
+
+  test('C-17 the stream of the tablet that launched the probe closes during the descent: stopped at once', async () => {
+    const ctx = setup({ x: 150, y: 120, z: -100 });
+    await ctx.launch({ thickness: 10, search: 20 });
+    expect(ctx.lines()).toEqual(['G38.2 Z-5 F100']);
+    expect(ctx.state().probing).toBe(true);
+    expect(ctx.service.ticketPending('tA')).toBe(true);
+    expect(ctx.service.ticketPending('tB')).toBe(false);
+    ctx.service.closeTransport('tA');
+    expect(ctx.names()).toEqual(expect.arrayContaining(['feeder:stop', 'gcode:stop', 'feedhold']));
+    ctx.active = 'Idle';
+    await ctx.tick(300);
+    ctx.banner();
+    await ctx.tick(100);
+    expect(ctx.outcome.err).toMatchObject({ code: 'ETOUCH_PLATE_STREAM', message: 'Palpage arrêté : la tablette qui l’a lancé ne suit plus la machine (connexion perdue). Le zéro Z n’est pas réglé.' });
+    expectCatalogMatch(ctx.outcome.err);
+    expect(ctx.state().zeroZ).toMatchObject({ code: 'ETOUCH_PLATE_STREAM', failed: ctx.outcome.err.message });
+    expect(ctx.lines()).toEqual(['G38.2 Z-5 F100']);
+  });
+
+  test('C-17 a rotation of the stream reopened within 3 s goes on; one not reopened stops the probe after 3 s', async () => {
+    let ctx = setup({ x: 150, y: 120, z: -100 });
+    await ctx.launch({ thickness: 10, search: 20 });
+    ctx.service.closeTransport('tA', true);
+    await ctx.tick(1000);
+    ctx.service.openTransport('tA2', A);
+    await ctx.tick(3000);
+    expect(ctx.stops()).toEqual([]);
+    expect(ctx.state().probing).toBe(true);
+    services.splice(0).forEach((service) => service.dispose());
+
+    ctx = setup({ x: 150, y: 120, z: -100 });
+    await ctx.launch({ thickness: 10, search: 20 });
+    ctx.service.closeTransport('tA', true);
+    await ctx.tick(2800);
+    expect(ctx.stops()).toEqual([]);
+    await ctx.tick(400);
+    expect(ctx.names()).toContain('feedhold');
+    ctx.active = 'Idle';
+    await ctx.tick(300);
+    ctx.banner();
+    await ctx.tick(100);
+    expect(ctx.outcome.err.code).toBe('ETOUCH_PLATE_STREAM');
+  });
+
+  test('C-17 another device takes control during the descent: stopped at once', async () => {
+    const ctx = setup({ x: 150, y: 120, z: -100 });
+    await ctx.launch({ thickness: 10, search: 20 });
+    expect(ctx.control.inspect('TEST').owner).toMatchObject({ id: 'tablette-A' });
+    await ctx.req('control', { operation: 'takeover', reason: 'essai de reprise en main' }, B);
+    expect(ctx.control.inspect('TEST').owner).toMatchObject({ id: 'tablette-B' });
+    expect(ctx.names()).toContain('feedhold');
+    ctx.active = 'Idle';
+    await ctx.tick(300);
+    ctx.banner();
+    await ctx.tick(100);
+    expect(ctx.outcome.err).toMatchObject({ code: 'ETOUCH_PLATE_CONTROL' });
+    expectCatalogMatch(ctx.outcome.err);
+  });
+
+  test('C-17 another open stream of the confirming device keeps the probe watched', async () => {
+    const ctx = setup({ x: 150, y: 120, z: -100 });
+    await ctx.launch({ thickness: 10, search: 20 });
+    ctx.service.openTransport('tA2', A);
+    expect(ctx.service.ticketPending('tA2')).toBe(true);
+    ctx.service.closeTransport('tA');
+    await ctx.tick(500);
+    expect(ctx.stops()).toEqual([]);
+    ctx.service.closeTransport('tA2');
+    expect(ctx.names()).toContain('feedhold');
+    ctx.active = 'Idle';
+    await ctx.tick(300);
+    ctx.banner();
+    await ctx.tick(100);
+    expect(ctx.outcome.err.code).toBe('ETOUCH_PLATE_STREAM');
+  });
+
+  test('C-17 the reports stop for more than 2.5 s: stopped', async () => {
+    const ctx = setup({ x: 150, y: 120, z: -100 });
+    await ctx.launch({ thickness: 10, search: 20 });
+    await silence(ctx, 2400);
+    expect(ctx.stops()).toEqual([]);
+    await silence(ctx, 300);
+    expect(ctx.names()).toContain('feedhold');
+    ctx.active = 'Idle';
+    await ctx.tick(300);
+    ctx.banner();
+    await ctx.tick(100);
+    expect(ctx.outcome.err).toMatchObject({ code: 'ETOUCH_PLATE_STALE' });
+    expectCatalogMatch(ctx.outcome.err);
+  });
+
+  test('C-17 a line past its time limit (search 20 mm at 100 mm/min, plus 15 s) is stopped, not only given up', async () => {
+    const ctx = setup({ x: 150, y: 120, z: -100 });
+    await ctx.launch({ thickness: 10, search: 20 });
+    // The board says Run and never answers the G38.2.
+    await ctx.tick(26000);
+    expect(ctx.stops()).toEqual([]);
+    await ctx.tick(1500);
+    expect(ctx.names()).toContain('feedhold');
+    ctx.active = 'Idle';
+    await ctx.tick(300);
+    ctx.banner();
+    await ctx.tick(100);
+    expect(ctx.outcome.err).toMatchObject({ code: 'ETOUCH_PLATE_TIMEOUT' });
+    expectCatalogMatch(ctx.outcome.err);
+  });
+
+  test('C-55 a probe failed at rest without a reset (no clear contact): G0 without any axis word, so G38.2 does not stay the motion mode', async () => {
+    const ctx = setup({ x: 150, y: 120, z: -100 });
+    await ctx.launch({ thickness: 10, search: 20 });
+    // The G38.2 answered without moving (no clear contact).
+    ctx.active = 'Idle';
+    ctx.c.runner.emit('ok');
+    await ctx.tick(300);
+    expect(ctx.outcome.err.message).toMatch(/^Palpage sans contact net/);
+    expect(ctx.lines()).toEqual(['G38.2 Z-5 F100', 'G0']);
+    expect(ctx.state().probing).toBe(false);
+  });
+});
+// Real protocol through GrblRunner and the repository's LUNYEE simulator, without a port.
+test('S4 two Idle reports after the ok are required before the plate retract leaves', async () => {
+  const ctx = setup({ x: 150, y: 120, z: -100 });
+  await ctx.launch({ thickness: 10, search: 20 });
+  ctx.m = { ...ctx.m, z: -105 };
+  ctx.active = 'Idle';
+  // Reports before the ok do not count either.
+  await ctx.tick(100);
+  expect(ctx.lines()).toEqual(['G38.2 Z-5 F100']);
+  ctx.c.runner.emit('ok');
+  ctx.now += 100;
+  await jest.advanceTimersByTimeAsync(100);
+  expect(ctx.lines()).toEqual(['G38.2 Z-5 F100']);
+  ctx.report();
+  ctx.now += 100;
+  await jest.advanceTimersByTimeAsync(100);
+  expect(ctx.lines()).toEqual(['G38.2 Z-5 F100']);
+  ctx.report();
+  ctx.now += 100;
+  await jest.advanceTimersByTimeAsync(100);
+  expect(ctx.lines()).toEqual(['G38.2 Z-5 F100', 'G0 Z11']);
+});
+
+test('S4 C-19 the plate refuses an announced homing before its first Home report', async () => {
+  const ctx = setup({ x: 150, y: 120, z: -100 });
+  const ticket = await ctx.req('prepare', { operation: 'home' });
+  await ctx.req('home', { nonce: ticket.nonce });
+  expect(ctx.c.state.status.activeState).toBe('Idle');
+  await expect(ctx.req('prepare', { operation: 'zeroZ', thickness: 10, search: 20 })).rejects.toMatchObject({ code: 'ETOUCH_MOTION_HOMING' });
+  expect(ctx.lines()).toEqual([]);
+});
+
+describe('plate probe on the LUNYEE simulator', () => {
+  let sim;
+  let c;
+  let service;
+  const wait = (ms) => new Promise((resolve) => {
+ setTimeout(resolve, ms);
+});
+  const until = async (check) => {
+    const deadline = Date.now() + 12000;
+    while (!check() && Date.now() < deadline) {
+      // eslint-disable-next-line no-await-in-loop
+      await wait(25);
+    }
+    expect(check()).toBe(true);
+  };
+  const state = () => service.list()[0];
+  const req = (action, extra = {}) => service.action({ port: 'SIM', generation: state().generation, transportId: 'tA', action, ...extra }, A);
+  beforeEach(async () => {
+    jest.useRealTimers();
+    sim = new GrblSimulator({ profile: 'lunyee', homingMs: 1200 });
+    c = bridge(sim);
+    // No sender or feeder queue on this bench; these commands empty those queues in CNCjs.
+    const command = c.command;
+    c.command = (name, ...args) => {
+      if (name !== 'feeder:stop' && name !== 'gcode:stop') {
+        command(name, ...args);
+      }
+    };
+    service = createService(
+      { get: () => ({ SIM: c }) },
+      { get: (key) => ({ events: [], macros: [], 'touch.motion.enabled': true }[key]) },
+      undefined,
+{ control: createControl(), workOffset: provenOffset }
+    );
+    service.list();
+    service.openTransport('tA', A);
+    await until(() => state().fresh);
+    const ticket = await req('prepare', { operation: 'home' });
+    await req('home', { nonce: ticket.nonce });
+    await until(() => state().homed && state().canZeroZ);
+  });
+  afterEach(() => {
+    if (service) {
+ service.dispose();
+}
+    if (c) {
+ c.close();
+}
+    if (sim) {
+ sim.stopPlannerExecutor();
+}
+  });
+
+  test('C-07 a search below the LUNYEE travel is refused before the board can raise ALARM:2', async () => {
+    c.command('gcode', 'G53 G0 Z-60');
+    await until(() => state().activeState === 'Idle' && Number(state().coordinates.mpos.z) === -60);
+    const before = c.written.slice();
+    await expect(req('prepare', { operation: 'zeroZ', thickness: 1, search: 100 })).rejects.toMatchObject({
+      code: 'ETOUCH_PLATE_TRAVEL', params: { search: '100', max: '69' }
+    });
+    expect(c.written).toEqual(before);
+    expect(state()).toMatchObject({ homed: true, activeState: 'Idle' });
+  }, 20000);
+
+  test('a bounded search completes both touches and sets Z without an alarm', async () => {
+    const ticket = await req('prepare', { operation: 'zeroZ', thickness: 1, search: 5 });
+    await req('zeroZ', { nonce: ticket.nonce });
+    expect(c.written.filter((line) => /^G38/.test(line))).toHaveLength(2);
+    expect(c.written).toContain('G10 L20 P0 Z1\n');
+    expect(state()).toMatchObject({ probing: false, homed: true, activeState: 'Idle', zeroZ: { thickness: 1 } });
+  }, 20000);
+
+  test('C-17 losing the stream during a descent sends hold and reset and no later probe line', async () => {
+    const ticket = await req('prepare', { operation: 'zeroZ', thickness: 1, search: 20 });
+    const result = req('zeroZ', { nonce: ticket.nonce }).then(() => null, (err) => err);
+    await until(() => state().activeState === 'Run');
+    service.closeTransport('tA');
+    const err = await result;
+    expect(err).toMatchObject({ code: 'ETOUCH_PLATE_STREAM' });
+    expect(c.written).toEqual(expect.arrayContaining(['!', '\x18']));
+    expect(c.written.filter((line) => /^G38/.test(line))).toHaveLength(1);
+    expect(c.written.some((line) => /^G10/.test(line))).toBe(false);
+    expect(state().probing).toBe(false);
+  }, 20000);
 });

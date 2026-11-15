@@ -62,6 +62,9 @@ beforeEach(async () => {
 
   const parse = (line) => controller.runner.parse(line);
   parse(BANNER);
+  // D4 reads an empty settings cache automatically; this fixture starts with settings read.
+  parse('$13=0');
+  controller.settings = controller.runner.settings;
   parse('[GC:G0 G54 G17 G21 G90 G94 M5 M9 T0 F0 S0]');
   parse(IDLE);
   const generation = service.list()[0].generation;

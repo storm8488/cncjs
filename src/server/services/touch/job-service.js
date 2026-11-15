@@ -165,6 +165,7 @@ export const START_MESSAGES = {
   ETOUCH_START_NO_OVERRIDE: 'Départ hors course impossible : les limites logicielles de la carte ($20) ne sont pas actives, rien n’arrêterait le dépassement.',
   ETOUCH_START_OVERRIDE_CHANGED: 'Le programme, l’origine ou la machine ont changé depuis la confirmation du départ hors course : confirmez à nouveau.',
   ETOUCH_START_NOT_HOMED: 'Machine non référencée : faites la prise d’origine avant de démarrer.',
+  ETOUCH_START_FEED_MODE: 'Reprise à une ligne refusée : la machine doit être en avance par minute (G94). Relisez son état ou remettez-la en G94.',
   ETOUCH_ORIGIN_NOT_HOMED: 'Machine non référencée : faites la prise d’origine avant de poser une origine.'
 };
 
@@ -182,6 +183,8 @@ const startRefusal = (code, params = {}, reasons) => {
 // shown by CNCjs's own interface.
 const SOCKET_PROBE_BUSY = 'Palpage en cours sur la tablette : commande refusée jusqu’à sa fin (Arrêter reste possible).';
 const SOCKET_SYSTEM_BUSY = 'Commande système en cours sur la tablette : commande refusée jusqu’à sa fin (Arrêter reste possible).';
+// Shared by the start rejection and the response to the stop that cancelled it.
+const START_CANCELLED = 'Départ annulé.';
 
 const hasAutomations = (config) => {
   return (config.get('events') || []).some((event) => event.enabled !== false);
@@ -273,13 +276,20 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         wcs: null,
         job: null,
         loading: false,
+        // C-13: a confirmed start re-reading its file, cancellable before gcode:start.
+        starting: null,
         ticket: null,
         // Firmware seen in the startup banner or a $I reply, and how many
         // times the board restarted (an E-stop wired to reset restarts it).
         firmware: '',
         startups: 0,
+        settingsRead: null,
+        settingsAttempts: 0,
+        settingsRetryAt: 0,
         // Last ALARM:n code, kept until the board restarts.
         alarm: null,
+        // Incident retained through restarts and unlocks, until a homing completes.
+        lastAlarm: null,
         // Since when Grbl is idle while the job waits for acknowledgements.
         stall: null,
         // Spindle state when a tool change (M6) pause began, to restart it on resume.
@@ -371,6 +381,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
           // (a Home report seen meanwhile still is, see sawHome below).
           if (active === 'Idle' && !r.homing.refused && !r.homing.interrupted) {
             r.homed = true;
+            r.lastAlarm = null;
             r.referenceLost = null;
             // Where our own full cycle ($H, every axis), seen running (Home reported), left the
             // machine (F1, motion.js envelopeOf): an axis homed towards its negative end ($23 bit
@@ -402,6 +413,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         } else if (r.sawHome && active === 'Idle') {
           r.sawHome = false;
           r.homed = true;
+          r.lastAlarm = null;
           r.referenceLost = null;
           r.offset.invalidate('homing');
           // A cycle of another client may have homed some axes only ($HX, $HY…): what ours taught
@@ -441,6 +453,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       };
       r.alarmed = (res) => {
         r.alarm = grblCode(res);
+        r.lastAlarm = { code: r.alarm, at: Date.now(), restarted: false };
         r.homing = null;
         r.foreignHome = null;
         // The board is in Alarm from now on, before its next report: a $H sent next starts from it.
@@ -453,17 +466,22 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         r.homeMpos = null;
         r.sawHome = false;
         r.offset.invalidate('alarm');
-        if (r.job && r.job.started && !r.job.stopped && !r.job.finishedAt) {
-          log({ event: 'alarm', ...jobInfo(r.job), controller: controllerInfo(c, r), code: r.alarm, actor: SYSTEM });
-        }
+        const job = r.job && r.job.started && !r.job.stopped && !r.job.finishedAt ? r.job : null;
+        log({ event: 'alarm', ...jobInfo(job), controller: controllerInfo(c, r), code: r.alarm, actor: SYSTEM });
         changed();
       };
       r.reset = (payload) => {
+        endSettingsRead(r);
+        r.settingsAttempts = 0;
+        r.settingsRetryAt = 0;
         r.seen = null;
         r.modalSeen = null;
         r.wcs = null;
         r.ticket = null;
         r.alarm = null;
+        if (r.lastAlarm) {
+          r.lastAlarm = { ...r.lastAlarm, restarted: true };
+        }
         r.stall = null;
         r.homing = null;
         r.homed = false;
@@ -677,6 +695,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
   };
 
   const remove = (c, r) => {
+    endSettingsRead(r);
     records.delete(c);
     moves.forget(c, r);
     blockProbe.forget(c, r);
@@ -732,6 +751,12 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       throw conflict('Connexion machine indisponible.');
     }
     const r = record(c);
+    if (r.settingsRead) {
+      throw settingsReading();
+    }
+    if (r.originChecking) {
+      throw conflict('Des commandes sont en attente.');
+    }
     if (!Number.isFinite(r.seen) || clock() < r.seen || clock() - r.seen > MAX_REPORT_AGE_MS) {
       throw conflict('État machine trop ancien : attendre un rapport récent.');
     }
@@ -854,7 +879,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       return null;
     }
     const feeder = c.feeder.toJSON();
-    if (feeder.queue || feeder.pending || systemCommands.current() || r.loading || r.probing || homingActive(r) || moves.moving(c, r) ||
+    if (feeder.queue || feeder.pending || systemCommands.current() || r.settingsRead || r.originChecking || r.loading ||
+        r.probing || homingActive(r) || moves.moving(c, r) ||
         (r.ticket && clock() <= r.ticket.expires) || spindleOn(c) || !modalWcs(r)) {
       return null;
     }
@@ -915,6 +941,11 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         const now = resumeMode(c);
         if (now !== loaded) {
           throw machineRefusal('ETOUCH_MACHINE_RESUME_MODE_CHANGED', { loaded: loaded === 'laser' ? 'laser' : 'CNC', now: now === 'laser' ? 'laser' : 'CNC' });
+        }
+        const r = record(c);
+        const modal = ((c.runner.state && c.runner.state.parserstate) || {}).modal || {};
+        if (!j.resumeFeedMode && (!modalFresh(r) || modal.feedrate !== 'G94')) {
+          throw startRefusal('ETOUCH_START_FEED_MODE');
         }
       } else {
         const profile = profileOf(c, record(c));
@@ -1093,8 +1124,91 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
   };
 
   const readSettingsReady = (c) => {
-    idle(c);
     noJob(c);
+    const r = record(c);
+    const state = controllerStatus(c).activeState || '';
+    if (!/^(Idle|Alarm)(?::\d+)?$/.test(state) || homingActive(r) || (r.ticket && clock() <= r.ticket.expires)) {
+      throw conflict('La relecture exige une machine au repos ou en alarme, sans confirmation en attente.');
+    }
+  };
+
+  const settingsReading = () => Object.assign(conflict('Lecture de la version et des réglages en cours : patientez quelques secondes.'), {
+    code: 'ETOUCH_SETTINGS_READING', params: {}
+  });
+  const endSettingsRead = (r) => {
+    if (r.settingsRead) {
+      r.settingsRead.t.done();
+      r.settingsRead = null;
+    }
+  };
+
+  // Direct writes also work in Alarm, where CNCjs drops feeder lines. One line at a time,
+  // with an answer listener installed before writing (some test controllers answer synchronously).
+  // The reservation is published only after a successful write; every wait is bounded to 1.5 s.
+  const beginSettingsRead = (c, r, lines) => {
+    const read = { t: answers(c, r), index: 0, deadline: clock() + 1500 };
+    try {
+      c.writeln(lines[0]);
+    } catch (err) {
+      read.t.done();
+      throw err;
+    }
+    r.settingsRead = read;
+    changed();
+    const check = () => {
+      if (r.settingsRead !== read) {
+        return;
+      }
+      if (controllers()[c.options.port] !== c || c.isClose() || !c.runner || read.t.error || clock() >= read.deadline) {
+        endSettingsRead(r);
+        changed();
+        return;
+      }
+      if (read.t.oks) {
+        read.t.done();
+        read.index += 1;
+        if (read.index === lines.length) {
+          r.settingsRead = null;
+          changed();
+          return;
+        }
+        read.t = answers(c, r);
+        try {
+          c.writeln(lines[read.index]);
+        } catch (_) {
+          endSettingsRead(r);
+          changed();
+          return;
+        }
+        if (read.t.oks) {
+          check();
+          return;
+        }
+      }
+      later(c, r, check, 25, () => endSettingsRead(r));
+    };
+    check();
+  };
+
+  const autoReadSettings = (c) => {
+    const r = record(c);
+    const versionMissing = !r.firmware && !firmwareOf(c);
+    const settingsMissing = !Object.keys(allSettings(c)).length;
+    if ((!versionMissing && !settingsMissing) || r.settingsAttempts >= 3 || clock() < r.settingsRetryAt) {
+      return;
+    }
+    try {
+      readSettingsReady(c);
+    } catch (_) {
+      return;
+    }
+    r.settingsAttempts += 1;
+    r.settingsRetryAt = clock() + 5000;
+    try {
+      beginSettingsRead(c, r, ['$I'].concat(settingsMissing ? ['$$'] : []));
+    } catch (_) {
+      // A failed port write must never escape into CNCjs's status/heartbeat listeners.
+    }
   };
 
   const unlockReady = (c) => {
@@ -1176,7 +1290,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       throw machineRefusal('ETOUCH_MACHINE_STALE');
     }
     const feeder = c.feeder.toJSON();
-    if (systemCommands.current() || r.loading || r.probing || homingActive(r) || moves.moving(c, r) ||
+    if (systemCommands.current() || r.settingsRead || r.originChecking || r.loading || r.probing || homingActive(r) || moves.moving(c, r) ||
         c.workflow.state !== 'idle' || feeder.queue || feeder.pending) {
       throw machineRefusal('ETOUCH_MACHINE_BUSY');
     }
@@ -1218,7 +1332,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
 
   // Z zero with a touch plate, and the tracking of Grbl's answers to the
   // lines the service sends itself: see plate-probe.js.
-  const { zeroZReady, plateParams, answers, zeroZ, quiet, stop: plateStop } = createPlateProbe({
+  const plateProbe = createPlateProbe({
     config,
     clock,
     conflict,
@@ -1238,8 +1352,13 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     moving: (c, r) => moves.moving(c, r),
     referenceReady,
     haltPlan,
-    halt
+    halt,
+    homingActive,
+    control,
+    transports,
+    transportActors
   });
+  const { zeroZReady, plateParams, answers, zeroZ, quiet, stop: plateStop } = plateProbe;
   // The plate probe turns no spindle but is a CNC operation (contract §3).
   const plateReady = (c) => {
     requireCapability(c, 'plateProbe');
@@ -1270,6 +1389,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     allSettings,
     modalWcs,
     referenceReady,
+    homingActive,
+    offsetReady,
     // Turning, or maybe turning: no FS speed reported and no fresh $G to tell.
     spindleOn: (c) => spindleOn(c) || (realtimeValue(controllerStatus(c).spindle) === null && !modalFresh(record(c)))
   });
@@ -1347,6 +1468,11 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     zeroZ: {
       guard: plateReady,
       params: plateParams,
+      // C-07: the search fits in the Z travel from here (checked again at the run).
+      bind: (c, params) => {
+        plateProbe.plateTravel(c, params);
+        return params;
+      },
       name: (c, params) => 'Zéro Z avec plaque de ' + params.thickness + ' mm (recherche ' + params.search + ' mm)',
       run: (c, t, actor) => {
         requireCapability(c, 'plateProbe');
@@ -1426,9 +1552,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     const homeReason = reason(() => homeReady(c), refusals, 'home');
     const spindleReason = reason(() => spindleReady(c), refusals, 'spindle');
     const spindleStopReason = reason(() => spindleStopReady(c));
+    const spindleAlarm = /^Alarm/.test(state.activeState || '') ? 'La broche est arrêtée par l’alarme.' : '';
     const zeroZReason = reason(() => plateReady(c), refusals, 'zeroZ');
     const blockProbeReason = reason(() => blockProbe.blockReady(c), refusals, 'blockProbe');
-    reason(() => readSettingsReady(c), refusals, 'readSettings');
+    const readSettingsReason = reason(() => readSettingsReady(c), refusals, 'readSettings');
     reason(() => moves.originOperation.guard(c), refusals, 'setOrigin');
     reason(() => moves.jogReady(c, r), refusals, 'jog');
 
@@ -1507,6 +1634,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       received: sender.received,
       probeInput: probeInput.inspect(c.options.port),
       loading: r.loading,
+      canReadSettings: !readSettingsReason,
+      readSettingsReason,
       canPreviewMotion: motionState.available,
       motionReason: motionState.reason,
       canLoad: !loadReason,
@@ -1525,6 +1654,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       jobLastError: (r.job && r.job.lastError) || null,
       // ALARM:n while the controller is in alarm (null: no code received, e.g. homing lock).
       alarmCode: /^Alarm/.test(state.activeState || '') ? r.alarm : null,
+      lastAlarm: r.lastAlarm ? { ...r.lastAlarm } : null,
       stalledMs: r.stall && Number.isFinite(r.seen) && r.seen - r.stall.since >= STALL_MS ? r.seen - r.stall.since : null,
       programPause: programPauseOf(c, r),
       resume: r.job && r.job.resume ? { ...r.job.resume } : null,
@@ -1534,7 +1664,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       canPause: c.workflow.state === 'running' || !!(r.probing && r.probing.kind === 'block'),
       // A macro waiting in a dwell (CNCjs queue not empty) can be stopped too.
       canStop: c.workflow.state !== 'idle' || ['Run', 'Hold', 'Home', 'Jog'].includes(state.activeState) || /^Door/.test(state.activeState || '') ||
-        !!r.probing || homingActive(r) || !!(feederState.queue || feederState.pending) ||
+        !!r.probing || !!r.starting || homingActive(r) || !!(feederState.queue || feederState.pending) ||
         // A jog sent by the service may run before Grbl reports Jog (F1).
         moves.moving(c, r),
       homing: homingActive(r),
@@ -1557,7 +1687,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       canSpindleTest: !spindleReason,
       spindleReason,
       spindleTestSpeed: spindleTestSpeed(allSettings(c)),
-      canSpindleStop: !spindleStopReason,
+      canSpindleStop: !spindleStopReason && !spindleAlarm,
+      spindleStopReason: spindleStopReason || spindleAlarm,
       // Z zero with a touch plate (guarded like the commissioning commands).
       canZeroZ: !zeroZReason,
       zeroZReason,
@@ -1852,11 +1983,14 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         const before = keyOf(control.inspect(c.options.port).owner);
         const out = op === 'release' ? control.release(c.options.port, actor) : control.takeover(c.options.port, actor, body.reason);
         // The device that lost the lease loses its sequence in the same synchronous step, before any
-        // other command can be read (C-12): the block probe's supervisor check runs now, not at its
-        // next tick; a plate probe stops (feed hold then reset).
+        // other command can be read (C-12): the supervisor's checks of the block probe and of the
+        // plate probe run now, not at their next tick.
         if (keyOf(control.inspect(c.options.port).owner) !== before) {
+          if (r.starting) {
+            r.starting.cancelled = true;
+          }
           blockProbe.supervise(c, r);
-          plateStop(c, r);
+          plateProbe.supervise(c, r);
         }
         return out;
       }
@@ -1924,7 +2058,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
 
     if (a === 'readSettings') {
       readSettingsReady(c);
-      c.command('gcode', record(c).firmware ? '$$' : ['$I', '$$']);
+      beginSettingsRead(c, r, (r.firmware || firmwareOf(c)) ? ['$$'] : ['$I', '$$']);
       return { message: 'Lecture des réglages ($$) demandée.' };
     }
 
@@ -2038,6 +2172,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         return blockProbe.stop(c, r, 'spindle');
       }
       spindleStopReady(c);
+      if (/^Alarm/.test(controllerStatus(c).activeState || '')) {
+        return { message: 'La broche est arrêtée par l’alarme.' };
+      }
       c.command('gcode', 'M5');
       return { message: 'Arrêt broche (M5) envoyé.' };
     }
@@ -2087,7 +2224,22 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       // A start sends the loaded program: the file on disk is read again
       // (cached fingerprint) first, and the machine re-checked after that
       // asynchronous step (A5).
+      const pending = { cancelled: false };
+      r.starting = pending;
+      const ownerKey = (owner) => (owner ? owner.kind + ':' + owner.id : '');
+      const owner = ownerKey(control.inspect(c.options.port).owner);
+      changed();
       return sameFileAsLoaded(j).then(() => {
+        if (pending.cancelled || r.starting !== pending) {
+          throw conflict(START_CANCELLED);
+        }
+        if (!transports.has(body.transportId)) {
+          throw conflict('Connexion de suivi interrompue. Confirmez à nouveau.');
+        }
+        control.authorize(c.options.port, actor, a);
+        if (ownerKey(control.inspect(c.options.port).owner) !== owner) {
+          throw conflict(START_CANCELLED);
+        }
         readyFor(c, a, t.revision, travel);
         // Still outside now (the override was needed): logged before anything is sent.
         const { check } = travel ? travelOf(c, r, j) : { check: null };
@@ -2103,6 +2255,11 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         j.startActor = actor || null;
         c.command('gcode:start');
         return { message: 'Démarrage demandé.' };
+      }).finally(() => {
+        if (r.starting === pending) {
+          r.starting = null;
+        }
+        changed();
       });
     }
 
@@ -2128,6 +2285,11 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
 
     if (a === 'stop') {
       const activeState = controllerStatus(c).activeState;
+      const starting = r.starting;
+      if (starting) {
+        starting.cancelled = true;
+        r.ticket = null;
+      }
       // A block probe: feed hold then reset (block-probe.js), whatever the state.
       if (r.probing && r.probing.kind === 'block') {
         r.ticket = null;
@@ -2189,6 +2351,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       }
       const feeder = c.feeder.toJSON();
       if (c.workflow.state === 'idle' && !['Run', 'Hold'].includes(activeState) && !feeder.queue && !feeder.pending) {
+        if (starting) {
+          return { message: START_CANCELLED };
+        }
         throw conflict('Aucun travail à arrêter.');
       }
       r.ticket = null;
@@ -2273,6 +2438,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
     const open = Object.values(registry).filter((c) => c && !c.isClose() && c.type === 'Grbl');
     open.forEach(record);
+    open.forEach(autoReadSettings);
     // The probe-input observer forgets closed controllers here too (counter-review 2).
     probeInput.sync();
     // Leases whose grace delay is over end here, every heartbeat (F5), and so
@@ -2349,7 +2515,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         feeder.queue, feeder.pending,
         r ? [r.loading, r.seen === null, r.modalSeen === null, r.wcs, r.ticket && r.ticket.nonce, r.firmware, r.startups, r.alarm, r.stall && r.stall.since,
           idOf(r.toolChange), r.lastStop && r.lastStop.line, idOf(r.probing), idOf(r.zeroZ), idOf(r.blockProbe), r.homing && r.homing.since, moves.signature(r),
-          r.offset.signature()].join(',') : '',
+          idOf(r.lastAlarm), r.offset.signature()].join(',') : '',
         j ? [idOf(j), j.started, j.stopped, j.finishedAt, j.errors].join(',') : ''
       ].join(';');
     }).join('|');
@@ -2377,6 +2543,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
   const ticketPending = (id) => {
     const jogging = moves.holds(id);
     const probing = blockProbe.holds(id);
+    const plate = plateProbe.holds(id);
     for (const r of records.values()) {
       if (r.ticket && r.ticket.transportId === id && clock() <= r.ticket.expires) {
         return true;
@@ -2387,6 +2554,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       }
       // A block probe of this stream's device: the rotation waits for its end.
       if (probing(r)) {
+        return true;
+      }
+      // A plate probe of this stream's device too (C-17).
+      if (plate(r)) {
         return true;
       }
     }
@@ -2410,6 +2581,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       moves.transportClosed(c, r, id);
       // Its block probe stops at once, unless the stream is only renewed.
       blockProbe.transportClosed(c, r, actor, rotated === true);
+      // Its plate probe as well (C-17).
+      plateProbe.transportClosed(c, r, actor, rotated === true);
     });
     changed();
   };
@@ -2447,6 +2620,12 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
     const c = controllers()[port];
     const r = c && records.get(c);
+    if (r && r.settingsRead) {
+      return settingsReading();
+    }
+    if (r && r.originChecking) {
+      return conflict('Des commandes sont en attente.');
+    }
     if (r && r.probing) {
       return conflict(SOCKET_PROBE_BUSY);
     }
@@ -2464,6 +2643,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       return;
     }
     r.offset.cancel();
+    if (r.starting) {
+      r.starting.cancelled = true;
+    }
     if (r.probing && r.probing.kind === 'block') {
       blockProbe.stop(c, r, 'stop');
     } else if (r.probing) {

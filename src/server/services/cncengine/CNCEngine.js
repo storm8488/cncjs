@@ -190,7 +190,7 @@ class CNCEngine {
           // event lets a newer client show the owner.
           socket.emit('serialport:read', 'error: ' + refusal.message);
           socket.emit('touch:control:refused', { port, kind, message: refusal.message, owner: refusal.owner });
-          return true;
+          return refusal;
         };
 
         socket.emit('startup', {
@@ -330,6 +330,11 @@ class CNCEngine {
           }
 
           // System Trigger: Close a serial port
+          const refusal = refused(port, 'command', 'close');
+          if (refusal) {
+            callback(new Error(refusal.message));
+            return;
+          }
           this.event.trigger('port:close');
 
           // Leave the room

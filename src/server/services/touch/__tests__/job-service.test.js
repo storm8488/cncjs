@@ -11,6 +11,7 @@ import { fingerprint as sha256 } from '../program-identity';
 import monitor from '../../monitor';
 import { provenOffset } from './support/proven-offset';
 import { offsetRefusal, MESSAGES } from '../work-offset';
+import { expectCatalogMatch, expectMessageTranslation } from './touch-codes-catalog';
 
 // A fake Grbl controller that records commands and mimics the sender/workflow
 // transitions the service observes. It never touches a serial port.
@@ -25,12 +26,14 @@ const fakeController = (port = 'TEST') => {
     workflow: Object.assign(new EventEmitter(), { state: 'idle' }),
     state: { status: { activeState: 'Idle' } },
     feeder: { toJSON: () => ({ queue: 0, pending: false }) },
-    settings: { settings: { $110: 1000, $111: 1000, $112: 200 } },
-    commands: []
+    settings: { version: 'Grbl 1.1h', settings: { $110: 1000, $111: 1000, $112: 200 } },
+    commands: [],
+    writeln: jest.fn()
   };
   c.runner.state = c.state;
   c.sender.state = { name: '', context: {}, total: 0 };
   c.sender.toJSON = () => ({ ...c.sender.state });
+  c.writeln = jest.fn(() => c.runner.emit('ok'));
   c.command = (name, ...args) => {
     c.commands.push([name, ...args]);
     if (name === 'gcode:load') {
@@ -122,6 +125,92 @@ const setup = (options = {}) => {
   };
   return ctx;
 };
+
+describe('last alarm across a board restart', () => {
+  test('our confirmed homing clears the incident only after its completed cycle', async () => {
+    const ctx = setup();
+    ctx.c.settings.settings.$22 = 1;
+    ctx.report();
+    ctx.c.runner.emit('startup');
+    expect(ctx.state().lastAlarm).toBeNull();
+    ctx.c.runner.emit('alarm', { message: '9' });
+    ctx.report();
+    const ticket = await ctx.req('prepare', { operation: 'home' });
+    await ctx.req('home', { nonce: ticket.nonce });
+    ctx.c.state.status.activeState = 'Home';
+    ctx.report();
+    expect(ctx.state().lastAlarm.code).toBe(9);
+    ctx.now += 1200;
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.report();
+    expect(ctx.state()).toMatchObject({ homed: true, lastAlarm: null });
+  });
+
+  test('an idle alarm is logged and kept through banners and unlock, until a completed homing', () => {
+    const events = [];
+    const ctx = setup({ history: { record: (entry) => events.push(entry) } });
+    ctx.report();
+    expect(ctx.state().lastAlarm).toBeNull();
+    ctx.c.runner.emit('alarm', { message: '2' });
+    const alarm = ctx.state().lastAlarm;
+    expect(alarm).toEqual({ code: 2, at: expect.any(Number), restarted: false });
+    expect(events.filter((entry) => entry.event === 'alarm')).toEqual([
+      expect.objectContaining({ code: 2, actor: { kind: 'system', id: 'grbl', label: 'machine' } })
+    ]);
+    ctx.c.runner.emit('startup');
+    ctx.c.state.status.activeState = 'Alarm';
+    ctx.report();
+    expect(ctx.state()).toMatchObject({ alarmCode: null, lastAlarm: { ...alarm, restarted: true } });
+    ctx.c.runner.emit('startup');
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.report();
+    expect(ctx.state().lastAlarm).toEqual({ ...alarm, restarted: true });
+    ctx.c.state.status.activeState = 'Home';
+    ctx.report();
+    expect(ctx.state().lastAlarm).not.toBeNull();
+    ctx.c.state.status.activeState = 'Alarm'; // interrupted homing does not clear it
+    ctx.report();
+    expect(ctx.state().lastAlarm).toEqual({ ...alarm, restarted: true });
+    ctx.homed();
+    expect(ctx.state().lastAlarm).toBeNull();
+  });
+
+  test('an alarm during work is logged once, and a later alarm replaces its code and restart flag', async () => {
+    const events = [];
+    const ctx = setup({ history: { record: (entry) => events.push(entry) } });
+    const state = await ctx.loaded();
+    const ticket = await ctx.req('prepare', { operation: 'start', revision: state.revision });
+    await ctx.req('start', { nonce: ticket.nonce });
+    ctx.c.runner.emit('alarm', { message: '2' });
+    ctx.c.runner.emit('startup');
+    ctx.c.runner.emit('alarm', { message: '1' });
+    expect(ctx.state().lastAlarm).toEqual({ code: 1, at: expect.any(Number), restarted: false });
+    expect(events.filter((entry) => entry.event === 'alarm').map((entry) => entry.code)).toEqual([2, 1]);
+    expect(events.find((entry) => entry.event === 'alarm')).toMatchObject({ file: 'test.nc' });
+  });
+});
+
+describe('spindle stop in alarm', () => {
+  test('no M5 is sent in alarm; the reply and unavailable reason say why in all three languages', async () => {
+    const ctx = setup();
+    ctx.c.state.status.activeState = 'Alarm';
+    ctx.report();
+    expect(ctx.state().canSpindleStop).toBe(false);
+    expect(ctx.state().spindleStopReason).toBe('La broche est arrêtée par l’alarme.');
+    await expect(ctx.req('spindleStop')).resolves.toEqual({ message: 'La broche est arrêtée par l’alarme.' });
+    expectMessageTranslation('La broche est arrêtée par l’alarme.', 'The spindle is stopped by the alarm.', 'El husillo está detenido por la alarma.');
+    expect(ctx.c.commands).toEqual([]);
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.report();
+    expect(ctx.state().spindleStopReason).toBe('');
+    expect(ctx.state().canSpindleStop).toBe(true);
+    await ctx.req('spindleStop');
+    expect(ctx.c.commands).toEqual([['gcode', 'M5']]);
+    ctx.c.workflow.state = 'running';
+    expect(ctx.state().spindleStopReason).toBe('Pendant un travail, utilisez Pause ou Arrêter.');
+    await expect(ctx.req('spindleStop')).rejects.toThrow(/Pause ou Arrêter/);
+  });
+});
 
 describe('job service', () => {
   test('a controller destroyed by CNCjs (runner and sender set to null) is forgotten, not fatal', () => {
@@ -812,7 +901,7 @@ describe('job service', () => {
       expect(ctx.state().canSpindleTest).toBe(false);
       await expect(ctx.req('prepare', { operation: 'spindle' })).rejects.toThrow(/repos/);
       ctx.c.state.status.activeState = 'Idle';
-      ctx.c.settings.settings = {};
+      ctx.c.settings.settings = { $13: '0' };
       expect(ctx.state().spindleReason).toMatch(/\$30/);
     });
 
@@ -826,14 +915,30 @@ describe('job service', () => {
       const result = await ctx.req('settings');
       expect(result.settings).toEqual({ $22: 1, $30: 24000, $31: 6000, $110: 1000, $111: 1000, $112: 200 });
       // Firmware unknown (CNCjs connected after the banner): $I is asked too.
+      ctx.c.settings.version = '';
+      ctx.c.writeln = jest.fn();
       await ctx.req('readSettings');
-      expect(ctx.c.commands).toEqual([['gcode', ['$I', '$$']]]);
+      expect(ctx.c.commands).toEqual([]);
+      expect(ctx.c.writeln).toHaveBeenCalledWith('$I');
+      ctx.c.runner.emit('ok');
+      await new Promise((resolve) => {
+ setTimeout(resolve, 40);
+});
+      expect(ctx.c.writeln).toHaveBeenLastCalledWith('$$');
+      ctx.c.runner.emit('ok');
+      await new Promise((resolve) => {
+ setTimeout(resolve, 40);
+});
       ctx.c.runner.emit('raw', { raw: '[VER:1.3a.20210424:]' });
       expect(ctx.state().firmware).toBe('Grbl 1.3a.20210424');
       await ctx.req('readSettings');
-      expect(ctx.c.commands.at(-1)).toEqual(['gcode', '$$']);
+      expect(ctx.c.writeln).toHaveBeenLastCalledWith('$$');
+      ctx.c.runner.emit('ok');
+      await new Promise((resolve) => {
+ setTimeout(resolve, 40);
+});
       ctx.c.workflow.state = 'running';
-      await expect(ctx.req('readSettings')).rejects.toThrow(/repos/);
+      await expect(ctx.req('readSettings')).rejects.toThrow(/travail/);
     });
   });
 
@@ -1464,6 +1569,7 @@ describe('job service', () => {
         c.runner.state = c.state;
       };
       const original = c.command;
+      c.writeln = jest.fn(() => c.runner.emit('ok'));
       c.command = (name, ...args) => {
         if (name !== 'gcode') {
           original(name, ...args);
@@ -2871,6 +2977,7 @@ describe('job service F5, cross-check 3', () => {
     c.runner.state = c.state;
     c.sender.state = { name: '', context: {}, total: 0 };
     c.sender.toJSON = () => ({ ...c.sender.state });
+    c.writeln = jest.fn(() => c.runner.emit('ok'));
     c.command = (name, ...args) => {
       c.commands.push([name, ...args]);
       if (name === 'gcode:load') {
@@ -3185,6 +3292,7 @@ describe('job service A5 and F2, cross-check 3', () => {
     c.runner.state = c.state;
     c.sender.state = { name: '', context: {}, total: 0 };
     c.sender.toJSON = () => ({ ...c.sender.state });
+    c.writeln = jest.fn(() => c.runner.emit('ok'));
     c.command = (name, ...args) => {
       c.commands.push([name, ...args]);
       if (name === 'gcode:load') {
@@ -3432,6 +3540,7 @@ commands: []
     c.runner.state = c.state;
     c.sender.state = { name: '', context: {}, total: 0 };
     c.sender.toJSON = () => ({ ...c.sender.state });
+    c.writeln = jest.fn(() => c.runner.emit('ok'));
     c.command = (name, ...args) => {
       c.commands.push([name, ...args]);
       if (name === 'gcode:load') {
@@ -3632,6 +3741,7 @@ describe('job service F5, cross-check 7', () => {
     c.runner.state = c.state;
     c.sender.state = { name: '', context: {}, total: 0 };
     c.sender.toJSON = () => ({ ...c.sender.state });
+    c.writeln = jest.fn(() => c.runner.emit('ok'));
     c.command = (name, ...args) => {
       c.commands.push([name, ...args]);
       if (name === 'gcode:load') {
@@ -3792,6 +3902,7 @@ describe('job service, final cross-check (xvf)', () => {
     c.runner.state = c.state;
     c.sender.state = { name: '', context: {}, total: 0 };
     c.sender.toJSON = () => ({ ...c.sender.state });
+    c.writeln = jest.fn(() => c.runner.emit('ok'));
     c.command = (name, ...args) => {
       c.commands.push([name, ...args]);
       if (name === 'gcode') {
@@ -4001,6 +4112,7 @@ describe('job service, re-check of c4c048c7 (xvg)', () => {
     c.runner.state = c.state;
     c.sender.state = { name: '', context: {}, total: 0 };
     c.sender.toJSON = () => ({ ...c.sender.state });
+    c.writeln = jest.fn(() => c.runner.emit('ok'));
     c.command = (name, ...args) => {
       c.commands.push([name, ...args]);
       if (name === 'gcode') {
@@ -4243,6 +4355,8 @@ describe('job service, re-check of c4c048c7 (xvg)', () => {
       ctx.c.state.status.activeState = 'Idle';
       ctx.tick(150);
       await expect(ctx.req('prepare', { operation: 'home' })).resolves.toMatchObject({ operation: 'home' });
+      ctx.service.closeTransport('tA', true);
+      ctx.service.openTransport('tA', A);
       await expect(ctx.req('readSettings')).resolves.toMatchObject({ message: expect.any(String) });
       expect(() => ctx.service.reserveSystemCommand({ id: 'x', title: 'R', commands: 'true' }).release()).not.toThrow();
     });
@@ -4372,6 +4486,7 @@ describe('job service, re-check of 98941288 (xvh)', () => {
     c.runner.state = c.state;
     c.sender.state = { name: '', context: {}, total: 0 };
     c.sender.toJSON = () => ({ ...c.sender.state });
+    c.writeln = jest.fn(() => c.runner.emit('ok'));
     c.command = (name, ...args) => {
       c.commands.push([name, ...args]);
       if (name === 'gcode') {
@@ -4872,7 +4987,9 @@ describe('job service: the coded refusal behind each reason (snapshot `refusals`
     expect(now).toMatchObject({ canStart: false, startReason: MESSAGES.ETOUCH_OFFSET_UNCONFIRMED, canMacro: false });
     expect(now.refusals).toEqual({
       start: { code: 'ETOUCH_OFFSET_UNCONFIRMED', params: { detail: 'no-report' } },
-      macro: { code: 'ETOUCH_OFFSET_UNCONFIRMED', params: { detail: 'no-report' } }
+      macro: { code: 'ETOUCH_OFFSET_UNCONFIRMED', params: { detail: 'no-report' } },
+      jog: { code: 'ETOUCH_MOTION_DISABLED', params: {} },
+      setOrigin: { code: 'ETOUCH_MOTION_DISABLED', params: {} }
     });
     // Refused too, by a French text without a code: not published in `refusals`.
     expect(now.canResume).toBe(false);
@@ -4880,6 +4997,117 @@ describe('job service: the coded refusal behind each reason (snapshot `refusals`
     expect(now.canUnlock).toBe(false);
     expect(now.unlockReason).toBeTruthy();
     refusal = null;
-    expect(ctx.state().refusals).toEqual({});
+    expect(ctx.state().refusals).toEqual({
+      jog: { code: 'ETOUCH_MOTION_DISABLED', params: {} },
+      setOrigin: { code: 'ETOUCH_MOTION_DISABLED', params: {} }
+    });
+  });
+});
+describe('S4 starts in preparation (C-13) and inherited feed mode (C-59)', () => {
+  const A = { kind: 'touch', id: 'start-A', user: 'op' };
+  const B = { kind: 'touch', id: 'start-B', user: 'op' };
+  const pendingStart = async () => {
+    const text = 'G21 G90\nG1 X1 F100\nM2';
+    let finish;
+    let paused = false;
+    const control = createControl();
+    const ctx = setup({
+      control,
+      files: {
+        readProgram: () => Promise.resolve({ text, fingerprint: sha256(text) }),
+        fingerprintOf: () => (paused ? new Promise((resolve) => {
+          finish = () => resolve({ fingerprint: sha256(text) });
+        }) : Promise.resolve({ fingerprint: sha256(text) }))
+      }
+    });
+    ctx.service.openTransport(ctx.transportId, A);
+    await ctx.loaded();
+    const t = await ctx.req('prepare', { operation: 'start', revision: ctx.state().revision }, A);
+    paused = true;
+    const result = ctx.req('start', { nonce: t.nonce }, A).then((ok) => ({ ok }), (err) => ({ err }));
+    expect(finish).toBeDefined();
+    return { ...ctx, finish, result, control };
+  };
+
+  test.each(['stop', 'socket'])('a %s during the file re-read cancels the pending start, visible to Arrêter', async (kind) => {
+    const ctx = await pendingStart();
+    expect(ctx.state().canStop).toBe(true);
+    if (kind === 'stop') {
+      await expect(ctx.req('stop', {}, B)).resolves.toMatchObject({ message: 'Départ annulé.' });
+    } else {
+      ctx.service.socketStop('TEST');
+    }
+    ctx.finish();
+    expect((await ctx.result).err).toMatchObject({ message: 'Départ annulé.' });
+    expectMessageTranslation('Départ annulé.', 'Start cancelled.', 'Inicio cancelado.');
+    expect(ctx.c.commands.some(([name]) => name === 'gcode:start')).toBe(false);
+    expect(ctx.state().canStop).toBe(false);
+  });
+
+  test('a lost stream during the file re-read cancels the start', async () => {
+    const ctx = await pendingStart();
+    ctx.service.closeTransport(ctx.transportId);
+    ctx.finish();
+    expect((await ctx.result).err.message).toMatch(/Connexion de suivi interrompue/);
+    expect(ctx.c.commands.some(([name]) => name === 'gcode:start')).toBe(false);
+  });
+
+  test.each(['takeover', 'release'])('a %s during the file re-read cancels the start', async (operation) => {
+    const ctx = await pendingStart();
+    await ctx.req('control', { operation, reason: 'another device' }, operation === 'release' ? A : B);
+    ctx.finish();
+    expect((await ctx.result).err).toBeDefined();
+    expect(ctx.c.commands.some(([name]) => name === 'gcode:start')).toBe(false);
+  });
+
+  test('no interruption during the re-read: the start still succeeds', async () => {
+    const ctx = await pendingStart();
+    ctx.finish();
+    expect((await ctx.result).ok).toMatchObject({ message: 'Démarrage demandé.' });
+    expect(ctx.c.commands.filter(([name]) => name === 'gcode:start')).toHaveLength(1);
+  });
+
+  test('a resume whose preamble omits G94 requires a recent G94 at prepare and at start', async () => {
+    const ctx = setup();
+    const text = (await fs.readFile(path.join(root, 'resume.nc'), 'utf8')).replace(' G94', '');
+    await fs.writeFile(path.join(root, 'resume-no-g94.nc'), text);
+    ctx.report();
+    await ctx.req('load', { file: 'resume-no-g94.nc', fromLine: 7 });
+    const modal = (mode) => {
+      ctx.c.state.parserstate = { modal: { units: 'G21', distance: 'G90', feedrate: mode } };
+      ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
+    };
+    modal('G93');
+    await expect(ctx.req('prepare', { operation: 'start', revision: ctx.state().revision })).rejects.toMatchObject({ code: 'ETOUCH_START_FEED_MODE' });
+    expectCatalogMatch({ code: 'ETOUCH_START_FEED_MODE', params: {}, message: ctx.state().startReason });
+    modal('G94');
+    ctx.now += 3000;
+    ctx.report();
+    await expect(ctx.req('prepare', { operation: 'start', revision: ctx.state().revision })).rejects.toMatchObject({ code: 'ETOUCH_START_FEED_MODE' });
+    modal('G94');
+    const ticket = await ctx.req('prepare', { operation: 'start', revision: ctx.state().revision });
+    modal('G93');
+    await expect(ctx.req('start', { nonce: ticket.nonce })).rejects.toMatchObject({ code: 'ETOUCH_START_FEED_MODE' });
+    expect(ctx.c.commands.some(([name]) => name === 'gcode:start')).toBe(false);
+    modal('G94');
+    const again = await ctx.req('prepare', { operation: 'start', revision: ctx.state().revision });
+    await ctx.req('start', { nonce: again.nonce });
+    expect(ctx.c.commands.filter(([name]) => name === 'gcode:start')).toHaveLength(1);
+  });
+
+  test('a rebuilt preamble that sets G94 may start with an inherited G93; an ordinary file keeps its guards', async () => {
+    const ctx = setup();
+    ctx.report();
+    ctx.c.state.parserstate = { modal: { units: 'G21', distance: 'G90', feedrate: 'G93' } };
+    ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
+    await ctx.req('load', { file: 'resume.nc', fromLine: 7 });
+    const ticket = await ctx.req('prepare', { operation: 'start', revision: ctx.state().revision });
+    await ctx.req('start', { nonce: ticket.nonce });
+    expect(ctx.c.commands.filter(([name]) => name === 'gcode:start')).toHaveLength(1);
+    await ctx.req('stop');
+    await ctx.req('load', { file: 'test.nc' });
+    const normal = await ctx.req('prepare', { operation: 'start', revision: ctx.state().revision });
+    await ctx.req('start', { nonce: normal.nonce });
+    expect(ctx.c.commands.filter(([name]) => name === 'gcode:start')).toHaveLength(2);
   });
 });

@@ -82,7 +82,7 @@ export const MESSAGES = {
   ETOUCH_PROBE_START_CLOSE: 'Départ à moins de 0,2 mm de la surface en {axis} : reculez l’outil.',
   ETOUCH_PROBE_POSITION: 'Position {axis} inattendue après un déplacement : palpage arrêté.',
   ETOUCH_PROBE_WINDOW: 'Palpage XYZ : la face {axis} touchée n’est pas là où le départ la place (centre de l’outil au-dessus du bloc, à {window} mm au plus du bord). Paroi du trou ou mauvais coin : placez l’outil au-dessus du coin extérieur, loin du trou.',
-  ETOUCH_PROBE_ALARM: 'Alarme {alarm} pendant le palpage.',
+  ETOUCH_PROBE_ALARM: 'Alarme[ {alarm}] pendant le palpage.',
   ETOUCH_PROBE_ERROR: 'Grbl a refusé une ligne du palpage (error:{error}).',
   ETOUCH_PROBE_STOPPED: 'Palpage interrompu par Arrêter.',
   ETOUCH_PROBE_PAUSED: 'Palpage interrompu par Pause : un palpage ne se reprend pas.',
@@ -101,7 +101,9 @@ export const MESSAGES = {
   ETOUCH_PROBE_RETRACT: 'Le retrait doit être inférieur à la recherche maximale.',
   ETOUCH_PROBE_APPROACH: 'Palpage XYZ : faces extérieures du bloc seulement. Pour ce coin, les deux recherches doivent aller vers la pièce. Sinon palpez Z, X et Y séparément.',
   ETOUCH_PROBE_FACE_SIGN: 'Palpage XYZ : le décalage de face {axis} a le mauvais signe pour une face extérieure. Vérifiez-le dans le profil.',
-  ETOUCH_PROBE_WCS: 'Le repère choisi ({wcs}) n’est pas le repère actif ({active}) : choisissez {active}.',
+  ETOUCH_PROBE_WCS: 'Le repère choisi ({wcs}) n’est pas le repère actif[ ({active})] : sélectionnez le repère actif.',
+  ETOUCH_PROBE_AMBIGUOUS: 'Position de l’axe {axis} inconnue : refaites la prise d’origine depuis la tablette.',
+  ETOUCH_PROBE_TRAVEL_UNKNOWN: 'Course de l’axe {axis} inconnue ou position hors course : relisez les réglages et refaites la prise d’origine depuis la tablette.',
   ETOUCH_PROBE_TRAVEL: 'Palpage refusé : {axis} irait de {min} à {max} mm machine, hors de la course ({low} à {high}, marge 1 mm). Déplacez l’outil ou réduisez les distances.',
   ETOUCH_PROBE_FEED: 'Vitesse {feed} mm/min supérieure au maximum de l’axe {axis} ({max} mm/min).',
   ETOUCH_PROBE_TOO_SLOW: 'Palpage trop long ({seconds} s, {max} s au plus) : augmentez les vitesses ou réduisez les distances.',
@@ -145,7 +147,12 @@ const num = (v) => {
 };
 const keyOf = (who) => (who && who.kind && who.id ? who.kind + ':' + who.id : '');
 
-const fill = (template, params) => template.replace(/\{(\w+)\}/g, (all, k) => (params && params[k] !== undefined && params[k] !== null ? String(params[k]) : all));
+const fill = (template, params) => template.replace(/\[([^\]]*)\]|\{(\w+)\}/g, (all, part, key) => {
+  if (part !== undefined) {
+    return (part.match(/\{\w+\}/g) || []).some((name) => params && params[name.slice(1, -1)] === null) ? '' : fill(part, params);
+  }
+  return params && params[key] !== undefined && params[key] !== null ? String(params[key]) : all;
+});
 
 // A refusal with a stable code (ETOUCH_PROBE_*) and the values of its French message.
 export const refusal = (code, params = {}) => {
@@ -307,8 +314,18 @@ export const blockPlan = (p, start, limits, settings) => {
     depth = Math.min(p.thickness - 1, 5);
     const rX = Math.max(lateral, s + OVER + Math.abs(p.faceX));
     const rY = Math.max(lateral, s + OVER + Math.abs(p.faceY));
-    envelope.X = [start.x - rX, start.x + rX];
-    envelope.Y = [start.y - rY, start.y + rY];
+    // In the approach direction, u = d * (position - start): the outward
+    // traverse reaches -L, the slow search at most -L + s + OVER, and the
+    // return to the work corner spans [-window - d*face, -d*face]. Keep
+    // the conservative reach and duration estimates; inside() still checks every target.
+    ['X', 'Y'].forEach((axis) => {
+      const d = p['direction' + axis];
+      const face = p['face' + axis];
+      const lo = Math.min(-lateral, -window - d * face);
+      const hi = Math.max(0, -lateral + s + OVER, -d * face);
+      const a0 = start[axis.toLowerCase()];
+      envelope[axis] = [a0 + d * lo, a0 + d * hi].sort((a, b) => a - b);
+    });
     envelope.Z = [start.z - s - OVER - depth, start.z + cl + OVER];
     direction.X = p.directionX;
     direction.Y = p.directionY;
@@ -326,9 +343,7 @@ export const blockPlan = (p, start, limits, settings) => {
     const [lo, hi] = envelope[axis];
     if (!at || lo < at.low + EDGE_MARGIN_MM - 1e-9 || hi > at.high - EDGE_MARGIN_MM + 1e-9) {
       if (at && at.ambiguous) {
-        const err = new Error('Palpage refusé : ' + at.ambiguous + '.');
-        err.status = 409;
-        throw err;
+        throw refusal('ETOUCH_PROBE_AMBIGUOUS', { axis });
       }
       throw refusal('ETOUCH_PROBE_TRAVEL', {
         axis, min: fmt(lo), max: fmt(hi), low: at ? fmt(at.low) : '?', high: at ? fmt(at.high) : '?'
@@ -431,7 +446,7 @@ export const createBlockProbe = (deps) => {
     AXES.forEach((axis) => {
       const at = travel[axis];
       if (!at.limits || at.outside) {
-        throw conflict('Palpage refusé : ' + at.reason + '.');
+        throw refusal('ETOUCH_PROBE_TRAVEL_UNKNOWN', { axis });
       }
     });
     if (AXES.some((axis) => maxFeedOf(settings, axis).source === 'fallback')) {
@@ -464,7 +479,7 @@ export const createBlockProbe = (deps) => {
     const r = record(c);
     const active = modalWcs(r);
     if (params.wcs !== active) {
-      throw refusal('ETOUCH_PROBE_WCS', { wcs: params.wcs, active: active || 'inconnu' });
+      throw refusal('ETOUCH_PROBE_WCS', { wcs: params.wcs, active: active || null });
     }
     const m = positionOf(c, 'mpos');
     const start = { x: m.X, y: m.Y, z: m.Z };
@@ -504,7 +519,7 @@ export const createBlockProbe = (deps) => {
     const device = pilot(c, actor, t.transportId, true);
     const active = modalWcs(r);
     if (active !== params.wcs) {
-      throw refusal('ETOUCH_PROBE_WCS', { wcs: params.wcs, active: active || 'inconnu' });
+      throw refusal('ETOUCH_PROBE_WCS', { wcs: params.wcs, active: active || null });
     }
     const here = positionOf(c, 'mpos');
     const S = params.start;
@@ -611,7 +626,7 @@ export const createBlockProbe = (deps) => {
       const n = Number(res && res.message);
       const code = Number.isInteger(n) && n > 0 && n < 1000 ? n : null;
       probing.alarm = code || -1;
-      abort('ETOUCH_PROBE_ALARM', { alarm: code ? 'ALARM:' + code : 'inconnue' }, false);
+      abort('ETOUCH_PROBE_ALARM', { alarm: code ? 'ALARM:' + code : null }, false);
     };
     runner.on('startup', onStartup);
     runner.on('alarm', onAlarm);
@@ -630,10 +645,10 @@ export const createBlockProbe = (deps) => {
       if (r.startups !== probing.startups) {
         abort('ETOUCH_PROBE_RESTART', {}, false);
       } else if (probing.alarm) {
-        abort('ETOUCH_PROBE_ALARM', { alarm: probing.alarm > 0 ? 'ALARM:' + probing.alarm : 'inconnue' }, false);
+        abort('ETOUCH_PROBE_ALARM', { alarm: probing.alarm > 0 ? 'ALARM:' + probing.alarm : null }, false);
       } else if (/^Alarm/.test(activeOf(c))) {
         // A report in Alarm without its ALARM:n line.
-        abort('ETOUCH_PROBE_ALARM', { alarm: r.alarm ? 'ALARM:' + r.alarm : 'inconnue' }, false);
+        abort('ETOUCH_PROBE_ALARM', { alarm: r.alarm ? 'ALARM:' + r.alarm : null }, false);
       } else if (session.lostSince !== null && clock() - session.lostSince >= STREAM_GRACE_MS) {
         abort('ETOUCH_PROBE_STREAM');
       } else if (!owner || keyOf(owner) !== session.deviceKey) {
@@ -685,7 +700,7 @@ export const createBlockProbe = (deps) => {
         return failure('ETOUCH_PROBE_LOST');
       }
       if (/^Alarm/.test(activeOf(c)) || probing.alarm) {
-        return failure('ETOUCH_PROBE_ALARM', { alarm: r.alarm ? 'ALARM:' + r.alarm : 'inconnue' });
+        return failure('ETOUCH_PROBE_ALARM', { alarm: r.alarm ? 'ALARM:' + r.alarm : null });
       }
       const error = probing.error || (tracker && tracker.error);
       if (error) {

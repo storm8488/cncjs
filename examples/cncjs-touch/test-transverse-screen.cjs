@@ -1,29 +1,57 @@
-'use strict';
 // Lot Transverses (design/PROMPT-ECRANS-MULTIAGENT.md): status strip, lock, page switch link, guide, design tokens.
 // One check per bug fixed; appearance and words only: the strip buttons keep their hidden / disabled state and the
 // job buttons their guards (checked below on the same fixtures).
 const assert = require('assert').strict, fs = require('fs'), path = require('path'), vm = require('vm');
+
 const touch = (name) => fs.readFileSync(path.join(__dirname, 'touch', name), 'utf8');
 const strip = (css) => css.replace(/\/\*[\s\S]*?\*\//g, '');
 const ui = strip(touch('ui-2027.css')), shell = strip(touch('touch-shell.css')), tokens = strip(touch('design-tokens.css'));
 // The last rule naming the selector (the one that wins among equal specificities).
 function rule(css, selector) {
   let found = null;
-  for (const m of css.matchAll(/([^{}]+)\{([^}]*)\}/g)) if (m[1].split(',').map((s) => s.trim()).includes(selector)) found = m[2];
-  if (found === null) throw new Error('no rule for ' + selector);
+  for (const m of css.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+ if (m[1].split(',').map((s) => s.trim()).includes(selector)) {
+ found = m[2];
+}
+}
+  if (found === null) {
+ throw new Error('no rule for ' + selector);
+}
   return found;
 }
 // Catalogue: source phrase → [en, es], as the page loads it.
-const catalogue = (() => { const window = {}; for (const f of fs.readdirSync(path.join(__dirname, 'touch')).filter((n) => /^i18n-messages.*\.js$/.test(n))) vm.runInNewContext(touch(f), { window }); const map = new Map(); (window.CNCTouchMessages || []).forEach((r) => map.set(r[0], r)); return map; })();
-const es = (s) => { const r = catalogue.get(s); return r ? r[2] : s; };
+const catalogue = (() => {
+ const window = {}; for (const f of ['i18n-messages.js'].concat(fs.readdirSync(path.join(__dirname, 'touch')).filter((n) => /^i18n-messages-.*\.js$/.test(n)))) {
+ vm.runInNewContext(touch(f), { window });
+} const map = new Map(); (window.CNCTouchMessages || []).forEach((r) => map.set(r[0], r)); return map;
+})();
+const es = (s) => {
+ const r = catalogue.get(s); return r ? r[2] : s;
+};
 
 // ---- 1. Strip state word and icon (status-strip.js). ----
 function stripFixture(t) {
   const { document, node, element } = require('./dom-fixture.cjs').createDOM(['home']);
   document.body.getAttribute = () => null;
   const banner = node('real-banner'), listeners = {};
-  const window = { cncI18n: { t: t || ((s) => s), html: (s) => s, locale: 'fr-FR' }, addEventListener(n, f) { listeners[n] = f; }, removeEventListener(n) { delete listeners[n]; } };
-  document.createElement = (tag) => { const e = element(tag); Object.defineProperty(e, 'innerHTML', { set() { e._path = { attributes: {}, setAttribute(k, v) { this.attributes[k] = v; } }; }, get() { return ''; } }); e.querySelector = () => e._path; return e; };
+  const window = { cncI18n: { t: t || ((s) => s), html: (s) => s, locale: 'fr-FR' },
+addEventListener(n, f) {
+ listeners[n] = f;
+},
+removeEventListener(n) {
+ delete listeners[n];
+} };
+  document.createElement = (tag) => {
+ const e = element(tag); Object.defineProperty(e, 'innerHTML', { set() {
+ e._path = { attributes: {},
+setAttribute(k, v) {
+ this.attributes[k] = v;
+} };
+},
+get() {
+ return '';
+} }); e.querySelector = () => e._path; return e;
+};
   vm.runInNewContext(touch('status-strip.js'), { document, window, Date });
   const byId = (id) => banner.querySelectorAll('*').find((e) => e.id === id);
   const send = (detail) => listeners['cnc-job-status']({ detail: Object.assign({ simulation: false }, detail) });
@@ -72,6 +100,8 @@ const m = (patch) => Object.assign({ port: 'A', activeState: 'Idle', workflow: '
   const { load } = require('./job-controls-fixture.cjs');
   for (const [language, word] of [['es', 'Palpando.'], ['en', 'Probing in progress.'], ['fr', 'Palpage en cours.']]) {
     const f = load(language === 'fr' ? {} : { language });
+    // Each language has its own connected fixture; the assertions follow that connection.
+    // eslint-disable-next-line no-await-in-loop
     await f.connect(f.machine({ activeState: 'Run', probing: true, canStart: false, startReason: 'Palpage en cours.', canLoad: false, loadReason: 'Palpage en cours.', canStop: true }));
     f.controls().render && f.controls().render();
     assert.equal(f.el('job-reason').textContent, word, language + ': job-reason in the interface language');
@@ -109,17 +139,46 @@ const m = (patch) => Object.assign({ port: 'A', activeState: 'Idle', workflow: '
   const service = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'server', 'services', 'touch', 'job-service.js'), 'utf8');
   const literals = [...service.matchAll(/conflict\('([^']*)'\)/g)].map((x) => x[1]);
   assert(literals.length > 40, 'literal refusals found: ' + literals.length);
-  for (const s of new Set(literals)) assert(catalogue.has(s), 'catalogue row for the server reason « ' + s + ' »');
+  for (const s of new Set(literals)) {
+ assert(catalogue.has(s), 'catalogue row for the server reason « ' + s + ' »');
+}
   // The start reason of the harness's homing phase (browser-run.cjs) as well.
   assert.equal(es('Prise d’origine en cours.'), 'Búsqueda de origen en curso.');
 
   // ---- 3. Guide (interface-guide.js, touch-shell.css, M7). ----
   {
-    const main = { children: [], appendChild(c) { this.children.push(c); return c; } };
-    const el = () => ({ children: [], attributes: {}, textContent: '', appendChild(c) { this.children.push(c); return c; }, setAttribute(k, v) { this.attributes[k] = v; }, getAttribute(k) { return this.attributes[k]; }, addEventListener() {}, querySelectorAll: () => [] });
+    const main = { children: [],
+appendChild(c) {
+ this.children.push(c); return c;
+} };
+    const el = () => ({ children: [],
+attributes: {},
+textContent: '',
+appendChild(c) {
+ this.children.push(c); return c;
+},
+setAttribute(k, v) {
+ this.attributes[k] = v;
+},
+getAttribute(k) {
+ return this.attributes[k];
+},
+addEventListener() {},
+querySelectorAll: () => [] });
     const byId = {};
-    const document = { body: { getAttribute: (k) => (k === 'data-simulation' ? 'true' : null) }, createElement: () => { const e = el(); Object.defineProperty(e, 'innerHTML', { set(v) { e.html = v; } }); return e; },
-      getElementById: (id) => byId[id] || (byId[id] = el()), querySelector: (s) => (s === 'main' ? main : el()) };
+    const document = { body: { getAttribute: (k) => (k === 'data-simulation' ? 'true' : null) },
+createElement: () => {
+ const e = el(); Object.defineProperty(e, 'innerHTML', { set(v) {
+ e.html = v;
+} }); return e;
+},
+      getElementById: (id) => {
+        if (!byId[id]) {
+          byId[id] = el();
+        }
+        return byId[id];
+      },
+querySelector: (s) => (s === 'main' ? main : el()) };
     // Simulation page with the Spanish catalogue: « Modo actual: simulación », not the French literal « simulation ».
     vm.runInNewContext(touch('interface-guide.js'), { window: { cncI18n: { t: es, html: es }, dispatchEvent() {} }, document, CustomEvent: function () {} });
     // (The fake html() leaves the markup as is; the mode word is the part written by uiLocale.t.)
@@ -143,23 +202,41 @@ const m = (patch) => Object.assign({ port: 'A', activeState: 'Idle', workflow: '
   assert.match(rule(ui, B('>.t-vital--file')), /order:1;flex:2 1 120px/, 'the file asks 120 px first (a basis: a narrower zone, 1024 x 600 with Pilote, Débloquer and Pause, gives it less) and comes first');
   assert.match(rule(ui, B('>.t-vital--machine')), /order:2;flex:1 1 96px;max-width:max-content/);
   assert.match(rule(ui, B('>.t-vital--feed')), /order:3/); assert.match(rule(ui, B('>.t-vital--spindle')), /order:4/);
-  for (const sel of [B(''), B('>.t-vital'), B('>.t-vital--file')]) rule(ui, sel.replace('#real-banner', '#simulation-banner'));
+  for (const sel of [B(''), B('>.t-vital'), B('>.t-vital--file')]) {
+ rule(ui, sel.replace('#real-banner', '#simulation-banner'));
+}
   assert.equal(rule(ui, '.ks-ui .t-vitals'), 'overflow:hidden', 'the zone still clips');
   assert.match(rule(ui, '.ks-ui.t-compact .t-pilot'), /max-width:160px/, '« Este dispositivo » fits at 1024 x 600');
   assert.match(rule(ui, '.t-btn--ghost'), /border-color:var\(--faint\)/, 'lock and override buttons: outline ≥ 3:1');
   assert.match(rule(ui, '.ks-ui .ks-exit'), /border:1px solid var\(--faint\)/);
   assert.match(rule(ui, '.t-btn:disabled'), /border-color:var\(--line\)/, 'the disabled style is unchanged');
   // No rule of the lot hides or greys a strip machine button.
-  for (const mm of ui.matchAll(/([^{}]+)\{([^}]*)\}/g)) if (/#t-(pause|stop|resume|unlock|lock)\b/.test(mm[1])) assert.doesNotMatch(mm[2], /display:none|visibility:hidden|pointer-events:none/, mm[1]);
+  for (const mm of ui.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+ if (/#t-(pause|stop|resume|unlock|lock)\b/.test(mm[1])) {
+ assert.doesNotMatch(mm[2], /display:none|visibility:hidden|pointer-events:none/, mm[1]);
+}
+}
 
   // ---- 5. Tokens: outlines of secondary controls (--line-strong) and ghost (--faint) at 3:1. ----
-  function theme(selector) { const b = tokens.slice(tokens.indexOf(selector)), body = b.slice(b.indexOf('{') + 1, b.indexOf('}')), out = {}; for (const x of body.matchAll(/--([a-z0-9-]+):\s*(#[0-9a-f]{6})/gi)) out[x[1]] = x[2]; return out; }
-  const lum = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4))).reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0);
-  const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  function theme(selector) {
+ const b = tokens.slice(tokens.indexOf(selector)), body = b.slice(b.indexOf('{') + 1, b.indexOf('}')), out = {}; for (const x of body.matchAll(/--([a-z0-9-]+):\s*(#[0-9a-f]{6})/gi)) {
+ out[x[1]] = x[2];
+} return out;
+}
+  const lum = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
+    .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4))
+    .reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0);
+  const ratio = (a, b) => {
+ const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+};
   const dark = theme(':root{'), light = Object.assign({}, dark, theme(':root[data-theme="light"]'));
   for (const [name, t] of [['dark', dark], ['light', light]]) {
-    for (const bg of ['bg', 'surface']) assert(ratio(t['line-strong'], t[bg]) >= 3, name + ' --line-strong on --' + bg + ' ' + ratio(t['line-strong'], t[bg]).toFixed(2));
-    for (const bg of ['bg', 'surface', 'surface-2']) assert(ratio(t.faint, t[bg]) >= 3, name + ' --faint on --' + bg);
+    for (const bg of ['bg', 'surface']) {
+ assert(ratio(t['line-strong'], t[bg]) >= 3, name + ' --line-strong on --' + bg + ' ' + ratio(t['line-strong'], t[bg]).toFixed(2));
+}
+    for (const bg of ['bg', 'surface', 'surface-2']) {
+ assert(ratio(t.faint, t[bg]) >= 3, name + ' --faint on --' + bg);
+}
   }
   // The old values were the defect (dark 2.63 / 2.33, light 2.94 on --bg).
   assert(ratio('#4a5b66', dark.bg) < 3 && ratio('#7f8f9a', light.bg) < 3);
@@ -167,15 +244,17 @@ const m = (patch) => Object.assign({ port: 'A', activeState: 'Idle', workflow: '
   // ---- 5b. Harness checks (browser-run.cjs, review). ----
   const H = require('./browser-run.cjs');
   // The file column counts only where it is drawn: a file wrapped wholly under the zone, or hidden, is drawn on 0 px.
-  const column = (fr, shown) => { const zone = { left: 0, right: 200, top: 0, bottom: 72 }, f = { textContent: 'job.nc', scrollWidth: 150, getBoundingClientRect: () => fr, getClientRects: () => (shown === false ? [] : [fr]), closest: () => ({ getBoundingClientRect: () => zone }) };
-    return vm.runInNewContext(H.FILE_COLUMN, { document: { getElementById: () => f }, getComputedStyle: () => ({ visibility: 'visible' }), Math }); };
+  const column = (fr, shown) => {
+ const zone = { left: 0, right: 200, top: 0, bottom: 72 }, f = { textContent: 'job.nc', scrollWidth: 150, getBoundingClientRect: () => fr, getClientRects: () => (shown === false ? [] : [fr]), closest: () => ({ getBoundingClientRect: () => zone }) };
+    return vm.runInNewContext(H.FILE_COLUMN, { document: { getElementById: () => f }, getComputedStyle: () => ({ visibility: 'visible' }), Math });
+};
   assert.equal(column({ left: 0, right: 150, top: 72, bottom: 110 }).w, 0, 'a file under the zone is not drawn (it counted 150 px)');
   assert.equal(column({ left: 0, right: 150, top: 10, bottom: 60 }, false).w, 0, 'a hidden file is not drawn');
   assert.equal(column({ left: 120, right: 270, top: 10, bottom: 60 }).w, 80, 'a file inside the zone: its visible width');
   // The guide's mode word: the catalogue's word of each language (the English « simulation » is the French word), never empty.
   const g = (mode) => ({ tabs: [48, 48, 48, 48], open: '0', active: 'rgb(0, 0, 0) 0px -4px 0px 0px inset', mode });
   for (const [lang, sim, row] of [['fr', true, 'simulation'], ['en', true, 'simulation'], ['es', true, 'simulation'], ['fr', false, 'interface réelle'], ['en', false, 'interface réelle'], ['es', false, 'interface réelle']]) {
-    const r = catalogue.get(row), word = lang === 'fr' ? r[0] : lang === 'en' ? r[1] : r[2];
+    const r = catalogue.get(row), word = r[['fr', 'en', 'es'].indexOf(lang)];
     assert.equal(H.GUIDE_MODE[sim ? 'sim' : 'real'][lang], word, 'harness word = catalogue word, ' + lang);
     assert.deepEqual(H.guideChecks(g('Mode : ' + word), lang, sim, 0), [], lang + (sim ? ' simulation' : ' real') + ': the right word passes');
   }
@@ -187,7 +266,11 @@ const m = (patch) => Object.assign({ port: 'A', activeState: 'Idle', workflow: '
   // ---- 6. Cache: every file of the lot is asked with the current suffix. ----
   for (const page of ['index.html', 'simulation.html']) {
     const html = touch(page);
-    for (const f of ['status-strip.js', 'job-controls.js', 'interface-guide.js', 'i18n-messages.js', 'ui-2027.css', 'touch-shell.css', 'design-tokens.css']) assert(html.includes(f + '?v=v2u'), page + ': ' + f + '?v=v2u');
+    for (const f of ['status-strip.js', 'job-controls.js', 'interface-guide.js', 'i18n-messages.js', 'ui-2027.css', 'touch-shell.css', 'design-tokens.css']) {
+ assert(html.includes(f + '?v=v2u'), page + ': ' + f + '?v=v2u');
+}
   }
   console.log('PASS transverse screen: probing word, pause / old-report icons, strip buttons unchanged, server reasons translated, guide in Spanish and 16 / 48 px, strip cells whole, outlines at 3:1, cache v2u.');
-})().catch((e) => { console.error(e); process.exit(1); });
+})().catch((e) => {
+ console.error(e); process.exit(1);
+});

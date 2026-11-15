@@ -6,6 +6,10 @@
 // module with Node's native ES module loader, outside of Babel.
 // eslint-disable-next-line import/extensions
 import { controllerStatus } from './motion-preflight.js';
+// eslint-disable-next-line import/extensions
+import { envelopeOf, limitsAt, HOMING_MESSAGE } from './motion.js';
+// eslint-disable-next-line import/extensions
+import { probeContactRefusal } from './probe-input.js';
 
 // Z zero with a touch plate: a fast probe down, a 1 mm back-off, a slow probe,
 // then the work Z is set so that the plate top reads its thickness, and the
@@ -33,6 +37,26 @@ const fmt = (n) => String(Math.round(n * 1000) / 1000);
 // a newer report at rest in Idle (like the block probe's released()).
 const RELEASE_MS = 7000;
 
+// The first G38.2 target stays this far above the low end of the Z travel (C-07).
+const EDGE_MM = 1;
+
+// Supervision of the probe (C-17), like the block probe: a stream of the device that confirmed it
+// may be gone this long (a rotation), the reports this old; checked every SUPERVISE_MS.
+const STREAM_GRACE_MS = 3000;
+const STALE_MS = 2500;
+const SUPERVISE_MS = 100;
+
+// Coded refusals and stops of the plate probe: French message (the server's), with its values.
+export const PLATE_MESSAGES = {
+  ETOUCH_PLATE_TRAVEL: 'Recherche de {search} mm trop longue : l’outil sortirait de la course en Z. Au plus {max} mm d’ici.',
+  ETOUCH_PLATE_STREAM: 'Palpage arrêté : la tablette qui l’a lancé ne suit plus la machine (connexion perdue). Le zéro Z n’est pas réglé.',
+  ETOUCH_PLATE_CONTROL: 'Palpage arrêté : le pilotage a changé de main. Le zéro Z n’est pas réglé.',
+  ETOUCH_PLATE_STALE: 'Palpage arrêté : la machine ne donne plus de nouvelles (rapports trop anciens). Le zéro Z n’est pas réglé.',
+  ETOUCH_PLATE_TIMEOUT: 'Palpage arrêté : une ligne n’a pas fini à temps. Vérifiez la machine ; le zéro Z n’est pas réglé.'
+};
+
+const keyOf = (who) => (who && who.kind && who.id ? who.kind + ':' + who.id : '');
+
 // deps (from job-service.js):
 //   config                  CNCjs configuration (automations)
 //   clock()                 monotonic time, in ms
@@ -52,13 +76,22 @@ const RELEASE_MS = 7000;
 //   moving(c, r)            a jog of the service sent and not over (motion.js)
 //   referenceReady(c)       throws on a machine without its reference while $22=1 (C-18)
 //   haltPlan(c), halt(c, plan)  the stop sequence (halt.js)
-// Returns { zeroZReady(c), plateParams(body), answers(c, r), zeroZ(c, ticket), quiet(c, r, t, ms), stop(c, r) }.
+//   control, transports, transportActors  the lease and the open streams (who confirmed the probe)
+// Returns { zeroZReady(c), plateParams(body), plateTravel(c, params), answers(c, r), zeroZ(c, ticket, actor),
+//   quiet(c, r, t, ms), stop(c, r, code), supervise(c, r), holds(transportId), transportClosed(c, r, actor, rotated) }.
 export const createPlateProbe = (deps) => {
   const {
     config, clock, conflict, controllers, record, later, changed, available, spindleStill,
     pauseKind, modalFresh, allSettings, settingNumber, hasAutomations, grblCode, probeInput, moving, referenceReady,
-    haltPlan, halt
+    haltPlan, halt, control, transports, transportActors, homingActive
   } = deps;
+
+  const refusal = (code, params = {}) => {
+    const err = conflict(PLATE_MESSAGES[code].replace(/\{(\w+)\}/g, (all, name) => String(params[name])));
+    err.code = code;
+    err.params = params;
+    return err;
+  };
 
   const connected = (c) => controllers()[c.options.port] === c && !c.isClose() && !!c.runner;
 
@@ -68,6 +101,12 @@ export const createPlateProbe = (deps) => {
   const zeroZReady = (c) => {
     available(c);
     const r = record(c);
+    if (homingActive(r)) {
+      const err = conflict(HOMING_MESSAGE);
+      err.code = 'ETOUCH_MOTION_HOMING';
+      err.params = {};
+      throw err;
+    }
     if (r.probing) {
       throw conflict('Palpage en cours.');
     }
@@ -119,6 +158,10 @@ export const createPlateProbe = (deps) => {
       throw conflict('Position Z inconnue.');
     }
     const probe = probeInput.inspect(c.options.port);
+    const stuck = probeContactRefusal(probe);
+    if (stuck) {
+      throw stuck;
+    }
     if (!probe.fresh) {
       throw conflict('Entrée sonde : rapport trop ancien.');
     }
@@ -143,6 +186,24 @@ export const createPlateProbe = (deps) => {
       throw conflict('Distance de recherche invalide (' + PLATE.minSearch + ' à ' + PLATE.maxSearch + ' mm).');
     }
     return { thickness: Math.round(thickness * 1000) / 1000, search: Math.round(search * 1000) / 1000 };
+  };
+
+  // C-07: on a machine whose Z travel and convention are known (homed, $22=1, $132, $23), the first
+  // G38.2 target (machine Z − search) stays EDGE_MM above the low end; `max` is the longest search
+  // allowed from here. A position outside the assumed travel allows none. Travel unknown: no check.
+  const plateTravel = (c, params) => {
+    const r = record(c);
+    const mpos = controllerStatus(c).mpos;
+    const z = axisNumber(mpos && mpos.z);
+    const env = envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen, wposReported: r.wposReported, homeAt: r.homeMpos }).Z;
+    const at = limitsAt(env, z, 'Z');
+    if (!at.limits && !at.outside) {
+      return;
+    }
+    const room = at.limits ? z - (at.limits.low + EDGE_MM) : 0;
+    if (params.search > room) {
+      throw refusal('ETOUCH_PLATE_TRAVEL', { search: fmt(params.search), max: fmt(Math.max(0, Math.floor(room * 1000) / 1000)) });
+    }
   };
 
   // Grbl's answers to lines the touch service sends through CNCjs's feeder:
@@ -231,20 +292,81 @@ export const createPlateProbe = (deps) => {
     }
     const r = record(c);
     const p = t.params;
+    // C-07: the search fits in the Z travel, checked again at the run.
+    plateTravel(c, p);
     const zOf = () => axisNumber(controllerStatus(c).wpos && controllerStatus(c).wpos.z);
     // outstanding: a line sent and not over (C-08: a stop while the report still says Idle holds it).
     // halted: the stop sent a feed hold or a reset, and what it is proven against.
-    const probing = { kind: 'plate', contact: null, error: null, outstanding: false, cancelled: false, halted: null };
+    // abort: the code of a stop by the supervisor (C-17), null for Arrêter or a socket stop.
+    // The probe is bound to the device whose stream confirmed it, and to the lease as it was then.
+    const device = (typeof t.transportId === 'string' && transportActors.get(t.transportId)) || null;
+    const probing = {
+      kind: 'plate',
+      contact: null,
+      error: null,
+      outstanding: false,
+      probed: false,
+      cancelled: false,
+      abort: null,
+      halted: null,
+      deadline: null,
+      done: false,
+      startups: r.startups,
+      transportId: t.transportId,
+      deviceKey: keyOf(device),
+      owner: keyOf(control.inspect(c.options.port).owner),
+      lostSince: null
+    };
+    // A stream of the device is open (or, for a client without identity, the one that confirmed).
+    const streamOpen = () => (probing.deviceKey
+      ? Array.from(transports).some((id) => keyOf(transportActors.get(id)) === probing.deviceKey)
+      : transports.has(probing.transportId));
+    probing.streamOpen = streamOpen;
+    // What stops the probe now, in this order: the stream lost past its grace, the lease changed,
+    // stale reports, a line past its time limit (C-17).
+    const verdict = () => {
+      if (streamOpen()) {
+        probing.lostSince = null;
+      } else if (probing.lostSince === null) {
+        probing.lostSince = clock();
+      }
+      if (probing.lostSince !== null && clock() - probing.lostSince >= STREAM_GRACE_MS) {
+        stop(c, r, 'ETOUCH_PLATE_STREAM');
+      } else if (keyOf(control.inspect(c.options.port).owner) !== probing.owner) {
+        stop(c, r, 'ETOUCH_PLATE_CONTROL');
+      } else if (!Number.isFinite(r.seen) || clock() - r.seen > STALE_MS) {
+        stop(c, r, 'ETOUCH_PLATE_STALE');
+      } else if (probing.deadline !== null && clock() > probing.deadline) {
+        stop(c, r, 'ETOUCH_PLATE_TIMEOUT');
+      }
+    };
+    probing.verdict = () => {
+      if (r.probing === probing && !probing.done && !probing.cancelled) {
+        verdict();
+      }
+    };
+    const watch = () => {
+      if (r.probing !== probing || probing.done) {
+        return;
+      }
+      probing.verdict();
+      later(c, r, watch, SUPERVISE_MS);
+    };
     const send = (line, limitMs) => {
-      // Stopped between two lines (Arrêter, a socket stop): nothing more leaves.
+      // The supervisor's checks at that very moment, then: stopped (Arrêter, a socket stop, the
+      // supervisor), nothing more leaves.
+      probing.verdict();
       if (probing.cancelled) {
         return Promise.reject(conflict('Palpage interrompu par l’opérateur.'));
       }
       const t = answers(c, r);
       probing.outstanding = true;
+      probing.probed = probing.probed || /^G38/.test(line);
+      probing.deadline = clock() + limitMs;
       c.command('gcode', line);
       return quiet(c, r, t, limitMs).then(() => {
         probing.outstanding = false;
+        probing.deadline = null;
         t.done();
       }, (err) => {
         // A line Grbl refused (error:n) never ran.
@@ -256,6 +378,7 @@ export const createPlateProbe = (deps) => {
       });
     };
     r.probing = probing;
+    later(c, r, watch, SUPERVISE_MS);
     changed();
     const z0 = zOf();
     // What the paused program expects back (see zeroZReady).
@@ -291,6 +414,7 @@ export const createPlateProbe = (deps) => {
       })
       .then(() => (restore ? send(restore, 15000) : null))
       .then(() => {
+        probing.done = true;
         r.zeroZ = { at: Date.now(), thickness: p.thickness, machineZ: r.probing.machineZ, wcs: r.wcs };
         const retract = r.probing.retract;
         r.probing = null;
@@ -299,9 +423,22 @@ export const createPlateProbe = (deps) => {
         changed();
         return { message: 'Zéro Z réglé avec la plaque de ' + p.thickness + ' mm (contact à Z machine ' + fmt(r.zeroZ.machineZ) + ', repère ' + r.zeroZ.wcs + '). Outil dégagé à Z ' + fmt(retract) + '.' };
       })
-      .catch((err) => {
+      .catch((failure) => {
+        // A line past its time limit may still move: stopped like the supervisor does (C-17).
+        if (!probing.cancelled && probing.deadline !== null && clock() > probing.deadline) {
+          stop(c, r, 'ETOUCH_PLATE_TIMEOUT');
+        }
+        // A stop of the supervisor gives its own coded reason.
+        const err = probing.abort ? refusal(probing.abort) : failure;
         const failed = () => {
-          r.zeroZ = { at: Date.now(), failed: err.message };
+          const state = controllerStatus(c).activeState || '';
+          // C-55: stopped at rest without a reset, G38.2 must not stay the motion mode (a later line
+          // of axis words alone would probe). No move; never without the device's stream.
+          if (!probing.halted && probing.probed && connected(c) && streamOpen() && r.startups === probing.startups && state === 'Idle') {
+            c.command('gcode', 'G0');
+          }
+          probing.done = true;
+          r.zeroZ = { at: Date.now(), failed: err.message, code: err.code || null };
           // The modal state the paused program relies on is no longer known.
           if (inPause && r.job) {
             r.job.probeFailed = true;
@@ -335,10 +472,11 @@ export const createPlateProbe = (deps) => {
     check();
   });
 
-  // Arrêter, a socket stop, the lease changed (job-service.js): the plate probe in progress sends
-  // no further line, and a feed hold then a reset (halt.js) stop a move that may run, a line just
-  // sent whose report still says Idle included (C-08, C-09). False when no plate probe runs.
-  const stop = (c, r) => {
+  // Arrêter, a socket stop (job-service.js), the supervisor (`code`, C-17): the plate probe in
+  // progress sends no further line, and a feed hold then a reset (halt.js) stop a move that may
+  // run, a line just sent whose report still says Idle included (C-08, C-09). False when no plate
+  // probe runs.
+  const stop = (c, r, code = null) => {
     const probing = r.probing;
     if (!probing || probing.kind !== 'plate') {
       return false;
@@ -347,6 +485,7 @@ export const createPlateProbe = (deps) => {
       return true;
     }
     probing.cancelled = true;
+    probing.abort = code;
     if (connected(c)) {
       let plan = haltPlan(c);
       if (!plan && probing.outstanding) {
@@ -363,5 +502,32 @@ export const createPlateProbe = (deps) => {
     return true;
   };
 
-  return { zeroZReady, plateParams, answers, zeroZ, quiet, stop };
+  // The lease changed (job-service.js, release or takeover): the supervisor's checks now (C-12).
+  const supervise = (c, r) => {
+    if (r.probing && r.probing.kind === 'plate' && r.probing.verdict) {
+      r.probing.verdict();
+    }
+  };
+
+  // A plate probe of this stream's device keeps the stream from being rotated (touch-stream.js).
+  const holds = (transportId) => {
+    const key = keyOf(transportActors.get(transportId));
+    return (r) => {
+      const probing = r.probing;
+      return !!(probing && probing.kind === 'plate' && !probing.done && !probing.cancelled &&
+        (key ? probing.deviceKey === key : probing.transportId === transportId));
+    };
+  };
+
+  // A stream closed (job-service closeTransport, after its removal): unless the server rotated it,
+  // the tablet is gone, and with the device's last stream the probe stops at once (C-17).
+  const transportClosed = (c, r, actor, rotated) => {
+    const probing = r.probing;
+    if (rotated || !probing || probing.kind !== 'plate' || probing.done || probing.cancelled || !probing.streamOpen || probing.streamOpen()) {
+      return;
+    }
+    stop(c, r, 'ETOUCH_PLATE_STREAM');
+  };
+
+  return { zeroZReady, plateParams, plateTravel, answers, zeroZ, quiet, stop, supervise, holds, transportClosed };
 };

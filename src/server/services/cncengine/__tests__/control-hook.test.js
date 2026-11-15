@@ -6,6 +6,7 @@ import { EventEmitter } from 'events';
 import touch from '../../touch';
 import store from '../../../store';
 import CNCEngine from '../CNCEngine';
+import { createControl, safeCommand, safeWrite } from '../../touch/control';
 
 jest.mock('serialport', () => ({ SerialPort: { list: jest.fn(() => Promise.resolve([])) } }));
 jest.mock('socketio-jwt', () => ({ authorize: () => (socket, next) => next() }));
@@ -77,7 +78,9 @@ const fakeController = () => ({
   write: jest.fn(),
   writeln: jest.fn(),
   addConnection: jest.fn(),
-  removeConnection: jest.fn()
+  removeConnection: jest.fn(),
+  close: jest.fn((cb) => cb()),
+  destroy: jest.fn()
 });
 
 describe('CNCEngine socket hook for the attribution of control', () => {
@@ -146,5 +149,65 @@ describe('CNCEngine socket hook for the attribution of control', () => {
     socket.emit('command', 'COM9', 'gcode:start');
     expect(touch.refuseSocket).not.toHaveBeenCalled();
     expect(controller.command).not.toHaveBeenCalled();
+  });
+
+  test('close requires the lease before triggering anything or leaving the room', () => {
+    touch.refuseSocket.mockReturnValue({ message: 'Lease held by tablet', owner: { id: 'tablet' } });
+    const callback = jest.fn();
+    socket.emit('close', 'COM3', callback);
+    expect(touch.refuseSocket).toHaveBeenCalledWith(socket, 'COM3', 'command', 'close');
+    expect(controller.close).not.toHaveBeenCalled();
+    expect(controller.destroy).not.toHaveBeenCalled();
+    expect(socket.leave).not.toHaveBeenCalled();
+    expect(store.get('controllers').COM3).toEqual(controller);
+    expect(callback).toHaveBeenCalledWith(expect.any(Error));
+    expect(socket.emitted.some(([event]) => event === 'touch:control:refused')).toBe(true);
+  });
+
+  test('an allowed close still closes, destroys and acknowledges the port', () => {
+    const callback = jest.fn();
+    socket.emit('close', 'COM3', callback);
+    expect(touch.refuseSocket).toHaveBeenCalledWith(socket, 'COM3', 'command', 'close');
+    expect(controller.close).toHaveBeenCalledTimes(1);
+    expect(controller.destroy).toHaveBeenCalledTimes(1);
+    expect(socket.leave).toHaveBeenCalledWith('COM3');
+    expect(callback).toHaveBeenCalledWith(null);
+    expect(store.get('controllers').COM3).toBeUndefined();
+  });
+
+  test('the real lease policy prevents PC sleep, laser off and spindle toggle during a tablet job', () => {
+    const control = createControl();
+    const tablet = { kind: 'touch', id: 'tablet' };
+    const pc = { kind: 'socket', id: socket.id };
+    control.claim('COM3', tablet);
+    controller.workflow = { state: 'running' };
+    touch.refuseSocket.mockImplementation((client, port, kind, value) => {
+      if (kind === 'command' ? safeCommand(value) : safeWrite(value)) {
+        return null;
+      }
+      try {
+        control.authorize(port, pc, value);
+        return null;
+      } catch (err) {
+        return err;
+      }
+    });
+    socket.emit('command', 'COM3', 'sleep');
+    socket.emit('command', 'COM3', 'lasertest:off');
+    socket.emit('write', 'COM3', '\x9e');
+    expect(controller.command).not.toHaveBeenCalled();
+    expect(controller.write).not.toHaveBeenCalled();
+    expect(controller.workflow.state).toBe('running');
+    socket.emit('command', 'COM3', 'feedhold');
+    expect(controller.command).toHaveBeenCalledWith('feedhold');
+    control.release('COM3', tablet);
+    control.claim('COM3', pc);
+    socket.emit('command', 'COM3', 'sleep');
+    socket.emit('command', 'COM3', 'lasertest:off');
+    socket.emit('write', 'COM3', '\x9e');
+    expect(controller.command).toHaveBeenCalledWith('sleep');
+    expect(controller.command).toHaveBeenCalledWith('lasertest:off');
+    expect(controller.write).toHaveBeenCalledWith('\x9e', {});
+    control.dispose();
   });
 });

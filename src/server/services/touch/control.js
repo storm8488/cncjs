@@ -41,12 +41,12 @@ export const SAFE_ACTIONS = ['pause', 'stop', 'spindleStop', 'settings', 'resume
 // G-code, tool change, autolevel start, loading) needs the lease when the
 // port is owned.
 export const SAFE_COMMANDS = ['pause', 'gcode:pause', 'stop', 'gcode:stop', 'feedhold', 'reset', 'feeder:stop',
-  'jogCancel', 'statusreport', 'sleep', 'lasertest:off', 'autolevel:stop', 'autolevel:getProbeState'];
+  'jogCancel', 'statusreport', 'autolevel:stop', 'autolevel:getProbeState'];
 
 // Raw lines free for everyone: status (?), feed hold (!), soft reset (^X),
-// safety door (0x84), jog cancel (0x85), spindle stop toggle during a hold
-// (0x9E). Cycle start (~), overrides and coolant toggles need the lease.
-export const SAFE_WRITES = ['?', '!', '\x18', '\x84', '\x85', '\x9e'];
+// safety door (0x84), jog cancel (0x85). The spindle toggle during a hold
+// (0x9E), cycle start (~), overrides and coolant toggles need the lease.
+export const SAFE_WRITES = ['?', '!', '\x18', '\x84', '\x85'];
 
 const KIND_LABELS = { touch: 'tablette', socket: 'interface CNCjs', http: 'client HTTP', system: 'système' };
 
@@ -80,7 +80,9 @@ export const describeOwner = (owner) => {
   return '« ' + name + ' » (' + (KIND_LABELS[owner.kind] || owner.kind) + (owner.user && owner.user !== name ? ', ' + owner.user : '') + ')';
 };
 
-export const createControl = ({ now = Date.now, elapsed = () => performance.now(), graceMs = GRACE_MS, idleMs = IDLE_MS, isAdmin = () => false, onEvent } = {}) => {
+export const createControl = ({
+  now = Date.now, elapsed = () => performance.now(), graceMs = GRACE_MS, idleMs = IDLE_MS, isAdmin = () => false, onEvent
+} = {}) => {
   // port → { who, key, since, graceEnd (elapsed() when the lease ends, null
   // while present), absent (the owner's presence vanished, not merely never seen) }
   const leases = new Map();

@@ -50,6 +50,8 @@ export const createHalt = (deps) => {
     return spindleOn(c) ? 'reset' : '';
   };
   const halt = (c, plan) => {
+    const r = record(c);
+    const startups = r.startups;
     if (plan === 'reset') {
       c.command('reset');
       return;
@@ -61,13 +63,12 @@ export const createHalt = (deps) => {
       c.command('feedhold');
     }
     const deadline = clock() + HALT_MS;
-    const r = record(c);
     const mark = r.reports;
     // A feed hold byte lost on the link (seen with the simulator) would leave the axes
     // running until the time limit: while a newer report still says Run, it is sent again.
     let heldAt = clock();
     const wait = () => {
-      if (controllers()[c.options.port] !== c || c.isClose() || !c.runner) {
+      if (controllers()[c.options.port] !== c || c.isClose() || !c.runner || r.startups !== startups) {
         return;
       }
       if (r.reports <= mark && clock() <= deadline) {

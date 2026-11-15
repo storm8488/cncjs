@@ -1,6 +1,6 @@
 /* eslint-env jest */
 import touch from '../../services/touch';
-import { getHealth, getJob, postJob, previewMotion, getEvents, getHistory, getSystem, getBacklight, postBacklight, actorOf } from '../api.touch';
+import { getHealth, getJob, postJob, previewMotion, getEvents, getHistory, getSystem, getBacklight, postBacklight, localRequest, actorOf } from '../api.touch';
 
 // babel-jest hoists this above the imports above.
 jest.mock('../../services/touch', () => ({
@@ -22,7 +22,7 @@ jest.mock('../../services/touch', () => ({
   }
 }));
 
-const makeReq = ({ user = { id: 'test' }, body = {} } = {}) => ({ user, body });
+const makeReq = ({ user = { id: 'test' }, body = {}, socket = { remoteAddress: '127.0.0.1' }, headers = {} } = {}) => ({ user, body, socket, headers });
 
 const makeRes = () => {
   const res = { statusCode: 200, payload: undefined };
@@ -48,6 +48,56 @@ const settled = () => new Promise((resolve) => {
 });
 
 const handlers = { getHealth, getJob, postJob, previewMotion, getEvents, getHistory, getSystem, getBacklight, postBacklight };
+
+describe('D3: only a direct loopback request may dim the kiosk', () => {
+  test.each([
+    ['127.0.0.1', true], ['127.20.30.40', true], ['::1', true],
+    ['::ffff:127.0.0.1', true], ['192.168.1.50', false],
+    ['::ffff:192.168.1.50', false], ['127.999.0.1', false], ['127.0.0.1.evil', false]
+  ])('socket address %s has local=%s', (address, local) => {
+    const req = makeReq({ socket: { remoteAddress: address }, body: { temporary: true, percent: 0 } });
+    expect(localRequest(req)).toBe(local);
+    const res = makeRes();
+    touch.dimBacklight.mockClear();
+    postBacklight(req, res);
+    expect(res.statusCode).toBe(local ? 200 : 409);
+    expect(res.payload.local).toBe(local);
+    expect(touch.dimBacklight).toHaveBeenCalledTimes(local ? 1 : 0);
+  });
+
+  test.each(['x-forwarded-for', 'forwarded', 'x-real-ip'])('%s disqualifies even loopback', (header) => {
+    ['', '127.0.0.1'].forEach((value) => {
+      expect(localRequest(makeReq({ headers: { [header]: value } }))).toBe(false);
+    });
+  });
+
+  test('missing socket is remote; req.ip and connection are never trusted', () => {
+    expect(localRequest({ ip: '127.0.0.1', connection: { remoteAddress: '127.0.0.1' } })).toBe(false);
+  });
+
+  test.each([0, 5, 80])('remote temporary percent %s is refused without a write', (percent) => {
+    touch.dimBacklight.mockClear();
+    const req = makeReq({ socket: { remoteAddress: '192.168.1.50' }, body: { temporary: true, percent } });
+    const res = makeRes();
+    postBacklight(req, res);
+    expect(res.statusCode).toBe(409);
+    expect(res.payload).toMatchObject({ code: 'ETOUCH_BACKLIGHT_REMOTE', local: false });
+    expect(touch.dimBacklight).not.toHaveBeenCalled();
+    getBacklight(req, res);
+    expect(res.payload.local).toBe(false);
+  });
+
+  test('remote wake and explicit slider remain accepted', () => {
+    const req = makeReq({ socket: { remoteAddress: '192.168.1.50' }, body: { wake: true } });
+    const res = makeRes();
+    postBacklight(req, res);
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).toMatchObject({ percent: 60, local: false });
+    req.body = { percent: 50 };
+    postBacklight(req, res);
+    expect(res.payload).toMatchObject({ percent: 50, local: false });
+  });
+});
 
 describe('api.touch', () => {
   beforeEach(() => {
@@ -138,6 +188,23 @@ describe('api.touch', () => {
     expect(res.payload).toEqual({ message: internal.message });
   });
 
+  test.each([['no', false], ['uncertain', true], ['uncertain', false]])('postJob keeps a failed block probe outcome (%s, homing %s)', async (written, needsHoming) => {
+    const failure = { code: 'ETOUCH_PROBE_ALARM', params: { alarm: null }, message: 'Alarme pendant le palpage.' };
+    const err = Object.assign(new Error(failure.message), {
+      code: failure.code,
+      params: failure.params,
+      status: 409,
+      blockProbe: { failure, written, needsHoming, contacts: { Z: -20 }, command: 'private detail' }
+    });
+    touch.action.mockRejectedValueOnce(err);
+    const res = makeRes();
+    postJob(makeReq({ body: { action: 'blockProbe' } }), res);
+    await settled();
+    expect(res.statusCode).toBe(409);
+    expect(res.payload).toEqual({ message: err.message, code: err.code, params: err.params, blockProbe: { failure, written, needsHoming } });
+    expect(touch.publish).not.toHaveBeenCalled();
+  });
+
   test('previewMotion answers 409 for a coded refusal and 500 otherwise', () => {
     let res = makeRes();
     previewMotion(makeReq({ body: { port: 'A' } }), res);
@@ -193,7 +260,7 @@ describe('api.touch', () => {
   test('getBacklight sends the panel status, uncached', () => {
     const res = makeRes();
     getBacklight(makeReq(), res);
-    expect(res.payload).toEqual({ available: true, writable: true, percent: 50 });
+    expect(res.payload).toEqual({ available: true, writable: true, percent: 50, local: true });
     expect(res.headers['Cache-Control']).toBe('no-store');
   });
 
@@ -210,7 +277,7 @@ describe('api.touch', () => {
     res = makeRes();
     postBacklight(makeReq({ body: { percent: 70 } }), res);
     expect(res.statusCode).toBe(409);
-    expect(res.payload).toEqual({ message: 'Réglage refusé.' });
+    expect(res.payload).toEqual({ message: 'Réglage refusé.', local: true });
 
     touch.setBacklight.mockImplementationOnce(() => {
       throw new Error('private');

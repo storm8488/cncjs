@@ -99,6 +99,12 @@ describe('touch facade (history, control, socket and host-command policies)', ()
     expect(refusal.owner.id).toBe('tablet-A');
     expect(touch.refuseSocket(socket, 'COM3', 'write', 'G0 X1')).not.toBeNull();
     expect(touch.refuseSocket(socket, 'COM3', 'writeln', '$H')).not.toBeNull();
+      ['sleep', 'lasertest:off', 'close'].forEach((command) => {
+        expect(touch.refuseSocket(socket, 'COM3', 'command', command)).toMatchObject({ owner: { id: 'tablet-A' } });
+        expect(touch.refuseSocket(socket, 'COM4', 'command', command)).toBeNull();
+      });
+      expect(touch.refuseSocket(socket, 'COM3', 'write', '\x9e')).toMatchObject({ owner: { id: 'tablet-A' } });
+      expect(touch.refuseSocket(socket, 'COM4', 'write', '\x9e')).toBeNull();
     // Stops, holds, resets and status queries are never refused.
     ['gcode:pause', 'gcode:stop', 'feedhold', 'reset', 'jogCancel', 'statusreport'].forEach((cmd) => {
       expect(touch.refuseSocket(socket, 'COM3', 'command', cmd)).toBeNull();
