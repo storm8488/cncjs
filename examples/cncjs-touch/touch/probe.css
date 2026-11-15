@@ -20,3 +20,73 @@
 .ks-ui #probe-signal[data-signal=contact]{background:var(--danger);border-color:var(--danger);color:#fff;font-weight:700}.ks-ui #probe-signal[data-signal=free]{background:var(--ok-soft);border-color:var(--ok);color:var(--ok-text)}
 
 /* Current content hosts retain the existing card rules. */
+/* One probe card in the common work-zero grid, in both renderers. */
+body.ks-real.ks-ui #probe-card{display:flex;flex-direction:column;gap:12px;width:100%;min-width:0}
+body.ks-real.ks-ui #probe-card[hidden],#probe-card [hidden],#ks-probe-setup [hidden],#ks-probe-test [hidden],#ks-plate [hidden],#job-probe-diagram[hidden]{display:none!important}
+body.ks-real.ks-ui #probe-card button{min-height:48px;font-size:var(--fs-16);padding:8px 10px}
+body.ks-real.ks-ui #probe-card #probe-start,body.ks-real.ks-ui #probe-card #probe-stop,body.ks-real.ks-ui #probe-card #probe-plate-start{min-height:64px;width:100%}
+body.ks-real.ks-ui #probe-card #probe-start.is-primary:not(:disabled){background:var(--fg);color:var(--bg)}
+body.ks-real.ks-ui #probe-card #probe-stop{background:var(--danger);color:var(--on-danger)}
+.zero-probe-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px}
+.zero-probe-row label{display:flex;align-items:center;gap:8px;min-width:0;font-size:var(--fs-16)}
+#probe-diameter{min-height:48px;width:66px;min-width:0;font-size:var(--fs-18)}
+.zero-probe-ops{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+body.ks-real.ks-ui #probe-card .zero-probe-ops button{min-height:64px;padding:4px}
+.zero-probe-ops [aria-pressed="true"],.zero-probe-corners [aria-pressed="true"]{outline:2px solid var(--accent);outline-offset:-2px}
+#probe-signal{font-size:var(--fs-16)}
+#probe-signal[data-signal="stuck"]{color:var(--warn)}
+#probe-zone{height:148px;min-height:148px;overflow:auto;position:relative;flex:none}
+#probe-diagram-host{height:100%;display:flex;flex-direction:column;justify-content:center;border:2px solid transparent;border-radius:var(--r-m)}
+#probe-diagram-host[data-highlight="true"]{border-color:var(--warn)}
+.probe-start-diagram{display:block;width:100%;height:calc(100% - 40px);min-height:70px}
+.probe-start-diagram .probe-piece{fill:var(--surface-3);stroke:var(--line-strong);stroke-width:2}
+.probe-start-diagram .probe-plate{fill:var(--surface-2);stroke:var(--fg);stroke-width:2}
+.probe-start-diagram text{fill:var(--fg);font:16px var(--font)}
+.probe-start-diagram .probe-direction{fill:none;stroke:var(--warn);stroke-width:3}
+.probe-start-caption{font-size:var(--fs-16);line-height:1.2;margin:0}
+.probe-hole{fill:var(--bg);stroke:var(--fg);stroke-width:2}
+.probe-hole-cross{fill:none;stroke:var(--danger);stroke-width:3}
+.probe-tool{fill:var(--accent);stroke:var(--fg);stroke-width:2}
+.probe-start-zone{stroke:var(--warn);stroke-width:2}
+.probe-zone-line{stroke:var(--warn);stroke-width:2}
+#probe-cause .ks-refus{padding:0;border:0;gap:8px;font-size:var(--fs-16)}
+#probe-cause .ks-refus button{min-height:48px}
+#probe-outcome{font-size:var(--fs-16);line-height:1.3}
+#probe-outcome button{margin:8px 12px 0 0}
+.zero-contact-checks{font-size:var(--fs-16)}
+.zero-measures{display:grid;grid-template-columns:minmax(260px,400px) minmax(220px,1fr);gap:24px}
+.zero-measures-drawing{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-m);height:300px}
+.zero-measures-drawing svg{width:100%;height:100%;fill:var(--fg);font:16px var(--font)}
+.zero-measures-drawing svg .probe-piece{fill:var(--surface-3);stroke:var(--line-strong);stroke-width:2}
+.zero-measures-drawing svg .probe-direction{stroke:var(--mute);stroke-width:2;fill:none}
+#probe-measures-drawing[data-measure="probe-measure-thickness"] [data-dimension="thickness"],#probe-measures-drawing[data-measure="probe-measure-wallX"] [data-dimension="wallX"],#probe-measures-drawing[data-measure="probe-measure-wallY"] [data-dimension="wallY"],#probe-measures-drawing[data-measure="probe-measure-diameter"] [data-dimension="diameter"]{color:var(--accent)}
+#probe-measures-drawing[data-measure] g{fill:var(--mute)}
+#probe-measures-drawing[data-measure="probe-measure-thickness"] [data-dimension="thickness"] .probe-direction,#probe-measures-drawing[data-measure="probe-measure-wallX"] [data-dimension="wallX"] .probe-direction,#probe-measures-drawing[data-measure="probe-measure-wallY"] [data-dimension="wallY"] .probe-direction,#probe-measures-drawing[data-measure="probe-measure-diameter"] [data-dimension="diameter"] .probe-direction{stroke:var(--accent);stroke-width:4}
+#probe-measures-drawing g text{fill:currentColor}
+#plate-measures-drawing[data-measure="plate-thickness"] [data-dimension="thickness"],#plate-measures-drawing[data-measure="plate-search"] [data-dimension="search"]{color:var(--accent)}
+#plate-measures-drawing g text{fill:currentColor}
+#plate-measures-drawing[data-measure="plate-thickness"] [data-dimension="thickness"] path,#plate-measures-drawing[data-measure="plate-search"] [data-dimension="search"] path{stroke:var(--accent);stroke-width:4}
+.zero-measure-fields{display:flex;flex-direction:column;gap:12px}
+.zero-measure-fields label{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:var(--fs-16)}
+.zero-measure-fields input{min-height:48px;width:110px;font-size:var(--fs-18);color:var(--fg);background:var(--bg);border:1px solid var(--line-control);border-radius:var(--r-m)}
+.zero-probe-corners{display:grid;grid-template-columns:repeat(2,200px);gap:12px}
+.zero-probe-corners button{min-height:120px;display:flex;flex-direction:column;align-items:center;gap:12px}
+.zero-corner-drawing{display:block;width:72px;height:42px;border:8px solid var(--mute);border-top-width:0;border-right-width:0}
+.zero-corner-drawing[data-corner="+-"]{transform:scaleX(-1)}
+.zero-corner-drawing[data-corner="-+"]{transform:scaleY(-1)}
+.zero-corner-drawing[data-corner="++"]{transform:scale(-1)}
+#ks-probe-setup .ks-sheet-card,#ks-plate .ks-sheet-card{width:min(960px,calc(100vw - 48px));margin-left:16px}
+#ks-probe-setup,#ks-plate{justify-content:flex-start}
+#ks-probe-setup .ks-sheet-content,#ks-probe-test .ks-sheet-content,#ks-probe-list .ks-sheet-content,#ks-probe-transfer .ks-sheet-content,#ks-plate .ks-sheet-content{display:flex;flex-direction:column;gap:12px;font-size:var(--fs-16)}
+#ks-probe-setup button,#ks-probe-test button,#ks-probe-list button,#ks-probe-transfer button,#ks-plate button{min-height:48px;font-size:var(--fs-16)}
+#probe-setup-save,#plate-save,#probe-test-next{min-height:64px!important}
+.zero-probe-footer{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+#probe-test-instruction{font-size:20px;line-height:1.4}
+#probe-test-signal{min-height:96px;width:300px;display:flex;align-items:center;justify-content:center;font-size:24px;background:var(--surface-2);border-radius:var(--r-m)}
+#probe-import-preview{white-space:pre-wrap;overflow-wrap:anywhere}
+#job-probe-diagram{height:300px;max-width:552px;margin:auto;font-size:16px}
+#job-probe-diagram .probe-start-diagram{height:180px}
+.t-numpad[data-dock="right"]{background:transparent;justify-content:flex-end;align-items:center;padding:0 12px;pointer-events:none}
+.t-numpad[data-dock="right"] .t-numpad-card{pointer-events:auto;width:340px;max-height:calc(100vh - 88px)}
+@media(min-height:850px){#probe-zone{height:291px;min-height:291px}#job-probe-diagram{height:360px}#job-probe-diagram .probe-start-diagram{height:240px}}
+@media(max-width:1099px){.zero-measures{grid-template-columns:minmax(200px,1fr) minmax(180px,1fr)}#ks-probe-setup .ks-sheet-card,#ks-plate .ks-sheet-card{margin:0;width:calc(100vw - 24px)}}

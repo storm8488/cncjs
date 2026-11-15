@@ -67,6 +67,11 @@ const optional=document.createElement('input');optional.value='8';let changes=0;
 Pad.bind(optional,{optional:true,min:1,max:10});optional.handlers.click();key('Effacer').click();all.find(e=>e.textContent==='Valider').click();
 assert(modal.hidden,'C-44: optional empty draft accepted');assert.equal(optional.value,'');assert.equal(changes,1);
 optional.value='0';optional.handlers.click();all.find(e=>e.textContent==='Valider').click();assert(!modal.hidden,'optional zero is range checked');all.find(e=>e.textContent==='Annuler').click();
+// Probe sheets use the same modal isolation/focus, with a right-hand visual dock.
+Pad.open(optional,{dock:'right',label:'Measured plate',unit:'mm',min:1,max:10});
+assert.equal(modal.getAttribute('data-dock'),'right');assert.equal(byId('t-numpad-title').textContent,'Measured plate');
+all.find(e=>e.textContent==='Annuler').click();assert.equal(optional.value,'0');
+Pad.open(optional);assert.equal(modal.getAttribute('data-dock'),'');all.find(e=>e.textContent==='Annuler').click();
 // Every phrase is in the FR/EN/ES catalog.
 const source=fs.readFileSync(__dirname+'/touch/numeric-pad.js','utf8');
 const phrases=[...source.matchAll(/\bt\('((?:[^'\\]|\\.)*)'\)/g)].map(m=>m[1]);

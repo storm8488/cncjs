@@ -14,9 +14,11 @@
   function icon(name){return uiLocale.html('<svg viewBox="0 0 24 24" aria-hidden="true"><path d="')+paths[name]+uiLocale.html('"/></svg>');}
   var simulation=document.body.getAttribute('data-simulation')==='true';
   var names={more:uiLocale.t('Plus'),check:uiLocale.t('Contrôle'),home:uiLocale.t('Usinage'),files:uiLocale.t('Fichier'),jog:uiLocale.t('Zéro pièce'),machine:uiLocale.t('Machine'),history:uiLocale.t('Journal'),settings:uiLocale.t('Réglages'),limits:uiLocale.t('Limites')};
+  if(simulation){
   names.probe=uiLocale.t('Palpage');names['probe-profile']=uiLocale.t('Profils de sonde');names['probe-contact']=uiLocale.t('Test du contact');names['probe-report']=uiLocale.t('Résultats du palpage');
   names['probe-transfer']=uiLocale.t('Sauvegarde des profils');
   names['probe-preparation']=uiLocale.t('Préparation du palpage');
+  }
   names['guide']=uiLocale.t('Guide d’utilisation');
   names['commissioning']=uiLocale.t('Mise en service');
   var main=document.querySelector('main'),nav=document.getElementById('tabbar'),banner=document.getElementById(simulation?'simulation-banner':'real-banner');

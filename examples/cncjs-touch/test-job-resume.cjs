@@ -42,7 +42,7 @@ const stored=new Map();
 const window={cncLibrarySelection:{file:'a.nc',name:'a.nc'},addEventListener:(n,f)=>(listeners[n]=listeners[n]||[]).push(f),
   cncJobControls:{resumePlan:(f,l)=>{calls.push(['plan',f,l]);return planResult;},loadFrom:(f,l)=>{calls.push(['load',f,l]);return Promise.resolve({});},spindleStop:()=>{calls.push(['m5']);return Promise.resolve({});},prepareCommand:(op,extra)=>{calls.push(['prepare',op,extra]);}}};
 vm.runInNewContext(source,{window,document,localStorage:{getItem:k=>stored.has(k)?stored.get(k):null,setItem:(k,v)=>stored.set(k,v)}});
-const ids=parent.children.map(c=>c.id);assert.deepEqual(ids,['home-job-ready','home-program-pause','home-resume-line','home-resume-panel','home-plate','home-frame']);
+const ids=parent.children.map(c=>c.id);assert.deepEqual(ids,['home-job-ready','home-program-pause','home-resume-line','home-resume-panel','home-frame']);
 const byId=id=>parent.querySelectorAll('*').find(c=>c.id===id);
 const status=machine=>listeners['cnc-job-status'].forEach(f=>f({detail:{machine,simulation:false}}));
 const idle={fresh:true,workflow:'idle',canLoad:true,stoppedAtLine:200,stoppedFile:'a.nc',programPause:null};
@@ -81,28 +81,9 @@ byId('home-resume-check').click();
   // Open panel closed when the machine is no longer idle; the simulation events are ignored.
   status(idle);byId('home-resume-line').click();status({...idle,workflow:'running',canLoad:false});assert.equal(byId('home-resume-panel').hidden,true);
   listeners['cnc-job-status'].forEach(f=>f({detail:{machine:{...idle,programPause:m6},simulation:true}}));assert.equal(byId('home-program-pause').hidden,true);
-  // Z zero with a plate: shown when the server allows it, parameters checked and remembered, confirmation prepared.
-  assert.equal(byId('home-plate').hidden,true);
-  status({...idle,canZeroZ:true,zeroZ:null});assert.equal(byId('home-plate').hidden,false);assert.equal(byId('home-plate-search').value,'10');
-  byId('home-plate-probe').click();assert.match(byId('home-plate-status').textContent,/épaisseur/);assert.notEqual(calls.at(-1)[0],'prepare');
-  status({...idle,canZeroZ:true,zeroZ:null});assert.match(byId('home-plate-status').textContent,/épaisseur/,'the refusal stays shown after the next report');
-  byId('home-plate-thickness').value='10,5';byId('home-plate-search').value='15';byId('home-plate-probe').click();
-  assert.equal(JSON.stringify(calls.at(-1)),JSON.stringify(['prepare','zeroZ',{thickness:10.5,search:15}]));assert.deepEqual(JSON.parse(stored.get('cncjs-touch-plate-v1')),{thickness:10.5,search:15});
-  assert.match(window.CNCJobResume.dialogNote('zeroZ',idle),/^Plaque de 10\.5 mm/);
-  // The note follows the prepared request, not a later tap.
+  // Plate fields/guards/persistence moved to test-zero-piece and test-probe-assistant.
+  assert.equal(byId('home-plate'),undefined);
   assert.match(window.CNCJobResume.dialogNote('zeroZ',idle,{operation:'zeroZ',thickness:7,search:15}),/^Plaque de 7 mm/);
-  byId('home-plate-search').value='500';byId('home-plate-probe').click();assert.match(byId('home-plate-status').textContent,/Descente maximale invalide/);
-  status({...idle,canZeroZ:false,probing:true,canLoad:false});assert.equal(byId('home-plate').hidden,false);assert.equal(byId('home-plate-probe').disabled,true);assert.match(byId('home-plate-status').textContent,/Palpage en cours/);
-  status({...idle,canZeroZ:true,zeroZ:{thickness:10.5,wcs:'G54',machineZ:-35.3}});assert.match(byId('home-plate-last').textContent,/^Dernier zéro Z : plaque 10\.5 mm/);
-  status({...idle,workflow:'paused',canLoad:false,programPause:m6,canZeroZ:true});assert.match(byId('home-program-pause-text').textContent,/se règle ci-dessous\.$/);
-  status({...idle,canZeroZ:false});assert.equal(byId('home-plate').hidden,true);
-  // « Zéro Z avec plaque → Suivi » (Sonde, cnc-plate-show): on the next frame, the visible plate card centred and its probe button focused.
-  const frames=[],scrolls=[];window.requestAnimationFrame=(f)=>frames.push(f);byId('home-plate').scrollIntoView=(o)=>scrolls.push(o);
-  status({...idle,canZeroZ:true,zeroZ:null});document.activeElement=null;
-  listeners['cnc-plate-show'].forEach(f=>f({type:'cnc-plate-show',detail:null}));assert.equal(scrolls.length,0,'after the layout of Suivi');
-  frames.shift()();assert.equal(JSON.stringify(scrolls),'[{"block":"center"}]');assert.equal(document.activeElement,byId('home-plate-probe'),'Palper le zéro Z… focused');
-  status({...idle,canZeroZ:false});listeners['cnc-plate-show'].forEach(f=>f({type:'cnc-plate-show',detail:null}));frames.shift()();
-  assert.equal(scrolls.length,1,'nothing when the plate card is hidden');delete window.requestAnimationFrame;
   // Both pages load the module after the dashboard that creates #home-job-ready.
   for(const name of ['index.html','simulation.html']){const html=fs.readFileSync(__dirname+'/touch/'+name,'utf8'),at=f=>html.indexOf(f+'?v=');assert(at('job-resume.js')>at('job-dashboard.js')&&at('job-dashboard.js')>0,name);}
   // A2-9: stopped file is the default even with another library selection.

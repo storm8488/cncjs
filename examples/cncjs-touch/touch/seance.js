@@ -111,7 +111,7 @@
     if(zeroDone&&!(m&&m.probing)){
       var trace=traces.slice().sort(function(a,b){return (b.endedAt||b.at||0)-(a.endedAt||a.at||0);})[0],at=trace.endedAt||trace.at;
       if(typeof at==='number'&&at>0)words.jog=t('Posé à {heure}').replace('{heure}',new Date(at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}));
-      zeroContext=trace===m.zeroZ?t('plaque : Z seul'):t(trace===m.blockProbe?'bloc {axes}':'à la main : {axes}').replace('{axes}',Array.isArray(trace.axes)?trace.axes.join(''):trace.operation||'—');
+      zeroContext=trace===m.zeroZ?t('plaque : Z seul'):t(trace===m.blockProbe?'bloc {axes}':'à la main : {axes}').replace('{axes}',Array.isArray(trace.axes)?trace.axes.join(''):typeof trace.axes==='string'?trace.axes:trace.operation||'—');
     }
     if(m&&m.workflow==='running')words.home=t('En cours')+' · '+(m.total>0?Math.min(99,Math.floor((m.received||0)/m.total*100)):'—')+' %';
     if(m&&m.jobStopped&&typeof m.stoppedAtLine==='number')words.home=t('Arrêté ligne {n}').replace('{n}',String(m.stoppedAtLine));
@@ -230,7 +230,7 @@
   var legacy={'ma-sonde':'probe-profile','tester-sonde':'probe-contact','pourquoi-sonde':'probe-contact','dessin-depart':'probe','relancer-palpage':'probe'};Object.keys(legacy).forEach(function(id){handlers[id]=function(){window.cncShell.go(legacy[id]);};});
   handlers.vitesse=function(){var b=document.getElementById('ks-jog-settings');if(b&&!b.disabled)b.click();};
   handlers['type-machine']=function(){window.cncShell.go('settings');};
-  handlers.plaque=function(){window.cncShell.go('home');window.dispatchEvent(new CustomEvent('cnc-plate-show',{detail:null}));};
+  handlers.plaque=function(){if(window.cncZeroPiece)window.cncZeroPiece.plate(true);};
   handlers['changer-ligne']=function(){window.cncShell.go('home');var b=document.getElementById('home-resume-line');if(b&&!b.disabled)b.click();};
   handlers['reprendre-debut']=handlers['recharger-fichier'];handlers['reessayer-controle']=function(){window.cncShell.go('check');};
   handlers.recommencer=function(){if(lastAction&&lastAction!=='recommencer')return lancer(lastAction);return lancer('details');};

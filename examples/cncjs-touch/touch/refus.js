@@ -23,6 +23,7 @@
     if(error.code==='ETOUCH_PROBE_TRAVEL'){
       var over=Math.max(Number(params.low)-Number(params.min),Number(params.max)-Number(params.high));
       values.N=isFinite(over)?String(Math.ceil(Math.max(0,over)*10)/10):'—';
+      if(isFinite(over)&&over>0)values.axe+=(Number(params.low)-Number(params.min)>=Number(params.max)-Number(params.high)?'−':'+');
     }
     var jogError=/Grbl a refusé le jog \(error:(\d+)\)/.exec(message);
     if(jogError){phrase=t('La machine a refusé le déplacement (erreur {n}).');values.n=jogError[1];remedies=['details'];}

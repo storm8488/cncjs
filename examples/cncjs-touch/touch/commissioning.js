@@ -267,14 +267,8 @@
       };
     },
     probe:function(box){
-      box.appendChild(para(t('Branchez la sonde, puis touchez la plaque avec la pince (ou la fraise reliée). Le contact doit s’afficher, puis disparaître quand vous la relâchez.')));
-      var l=lamp(t('Sonde (P)'));box.appendChild(l.box);
-      var warn=para('','ks-wiz-alert');box.appendChild(warn);
-      return function(m){
-        var on=st.active&&st.active.P;
-        setLamp(l,on===null||on===undefined?t('non lue'):on?t('CONTACT'):(st.seen.P?t('vu puis relâché ✓'):t('libre')),result('probe',st)?'ok':on?'act':'wait');
-        set(warn,on&&!st.free.P?t('Contact actif sans appui : vérifiez la sonde ou l’inversion de l’entrée ($6).'):'');
-      };
+      var b=button(t('Tester la sonde'),'ks-secondary',function(){if(window.cncZeroPiece)window.cncZeroPiece.test();});box.appendChild(b);
+      return function(){};
     },
     homing:function(box){
       box.appendChild(para(t('La machine va se déplacer seule vers ses fins de course (Z d’abord), puis s’en dégager.')));

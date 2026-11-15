@@ -22,28 +22,24 @@ assert(html.indexOf('real-motion.js') > html.indexOf('touch-shell.js'), 'real-mo
 // The texts the real page's scripts produce: no mode word of the old checks, outside simulation branches.
 const MODE_WORDS = /vérification seule|expériment|à blanc|préparer sans mouvement|aucun mouvement envoyé|sans bouger|vitesse du test|préparation locale|palpage réel non activé/i;
 const loaded = [...html.matchAll(/<script defer src="([a-z0-9-]+\.js)\?/g)].map((m) => m[1]).filter((n) => !/^i18n-messages/.test(n));
-for (const n of ['real-motion.js', 'touch-shell.js', 'interface-guide.js', 'job-preparation.js', 'probe-ui.js', 'commissioning.js']) {
+for (const n of ['real-motion.js', 'touch-shell.js', 'interface-guide.js', 'job-preparation.js', 'zero-piece.js', 'commissioning.js']) {
   assert(loaded.includes(n), 'index.html loads ' + n);
   const src = read(n), hits = [...src.matchAll(/\b(?:t|tv2|uiLocale\.t)\('((?:[^'\\]|\\.)*)'\)/g)].map((m) => m[1]).filter((p) => MODE_WORDS.test(p));
   assert.deepEqual(hits, [], n + ': no mode word of the old checks');
 }
-// Sonde of the real page (probe-ui.js, 2026-11-14): the launch is real (server block probe, probe-real.js), labelled
-// « Palper <op>… »; the fictitious bench (scenario, its confirmation box, the preparation) never starts outside the simulation.
+// The real page loads only the work-zero owner; the virtual bench is simulation-only.
 {
-  const START = "  if(!simulation){\n    // Real page: block probing Z / X / Y / XYZ run by the server";
-  const pu = read('probe-ui.js'), at = pu.indexOf(START), real = pu.slice(at);
-  assert(at > 0, 'the real-page block of probe-ui.js');
-  assert(!real.includes("['probe-phase','probe-progress','probe-message','probe-start','probe-stop','probe-result','probe-preparation-open'].forEach(function(id){$(id).hidden=true;})"), 'launch, progress, stop and results are shown on the real page');
-  assert(real.includes("$('probe-preparation-open').hidden=true;"), 'the bench preparation stays hidden');
-  assert(pu.includes("$('probe-scenario-label').hidden=!simulation;$('probe-confirm').parentElement.hidden=!simulation;"), 'scenario and bench confirmation hidden outside the simulation');
-  assert(pu.includes("if(!simulation){realLaunch();return;}"), 'Palper… of the real page goes to the server (never engine.start)');
-  assert(/function realLaunch\(\)\{[^]*?prepareCommand\('blockProbe'/.test(pu), 'the real launch prepares the blockProbe confirmation');
-  // The bench engine refuses any start outside the simulation (probe-model.js).
-  const model = require('./touch/probe-model.js'), bench = model.create('disabled');
-  assert.throws(() => bench.start({ profile: model.demo(), operation: 'Z', diameter: 6, wcs: 'G54', scenario: 'success', confirmed: true, idle: true }), /Palpage réel non raccordé/);
-  assert(real.includes('var can=!!(m&&m.canZeroZ===true)') && real.includes("kind==='laser'") && real.includes("go('home')") && real.includes("'cnc-plate-show'"), 'Zéro Z avec plaque → Suivi follows canZeroZ, hidden for a laser, shows the plate card');
-  assert(real.indexOf("uiLocale.t('Sonde : palpage, profils et diagnostic')") > 0);
-  assert(html.indexOf('probe-real.js?v=') > 0 && html.indexOf('probe-real.js?v=') < html.indexOf('probe-ui.js?v='), 'probe-real.js loaded before probe-ui.js');
+ const pu=read('probe-ui.js'),real=read('zero-piece.js');
+ assert(pu.includes('if(!model||!simulation)return;'));
+ assert(!pu.includes('function realLaunch'));
+ assert(!html.includes('probe-ui.js')&&!html.includes('probe-preparation.js'));
+ assert(/prepare\('blockProbe',real.request/.test(real));
+ assert(real.includes("prepare('zeroZ',plate)"));
+ assert(!real.includes('engine.start'));
+ assert(!real.includes('screen-probe'));
+ assert(html.indexOf('probe-real.js?v=')>0&&html.indexOf('probe-real.js?v=')<html.indexOf('zero-piece.js?v='));
+ const model=require('./touch/probe-model.js'),bench=model.create('disabled');
+ assert.throws(()=>bench.start({profile:model.demo(),operation:'Z',diameter:6,wcs:'G54',scenario:'success',confirmed:true,idle:true}),/Palpage réel non raccordé/);
 }
 // The English and Spanish rows of the texts the page shows (the HTML phrases of Préparer and Machine).
 {

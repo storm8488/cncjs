@@ -97,22 +97,7 @@
   plan.setAttribute('role','status');open.hidden=true;panel.hidden=true;load.disabled=true;
   var lineRow=el('div','home-resume-row','t-field-row');lineRow.appendChild(input);var lineUnit=el('span');lineUnit.textContent=t('n° de ligne, 2 ou plus');lineRow.appendChild(lineUnit);
   [label,lineRow,hint,check,load,cancel,plan].forEach(function(n){panel.appendChild(n);});
-  // Z zero with a touch plate: thickness and search distance, remembered on this device.
-  var plate=el('div','home-plate','t-card'),plateTitle=el('p','home-plate-title','','Zéro Z avec une plaque'),
-    thickLabel=el('label','home-plate-thickness-label','','Épaisseur de la plaque (mm)'),thick=el('input','home-plate-thickness'),
-    searchLabel=el('label','home-plate-search-label','','Descente maximale (mm)'),search=el('input','home-plate-search'),
-    probe=el('button','home-plate-probe','t-btn','Palper le zéro Z…'),plateHelp=el('p','home-plate-help','t-help','Posez la plaque sur la pièce sous l’outil et branchez la sonde. Descente à 100 mm/min, recul 1 mm, seconde touche à 25 mm/min ; le dessus de la plaque devient Z = épaisseur, puis l’outil remonte jusqu’à 5 mm au-dessus, sans dépasser sa hauteur de départ.'),
-    plateLast=el('p','home-plate-last','t-help'),plateStatus=el('p','home-plate-status','t-notice');
-  var THICK_RULES={label:t('Épaisseur de la plaque'),unit:'mm',min:0.01,max:50,negative:false},SEARCH_RULES={label:t('Descente maximale'),unit:'mm',min:1,max:100,negative:false};
-  [thick,search].forEach(function(i){i.setAttribute('type','text');i.setAttribute('inputmode','decimal');i.setAttribute('autocomplete','off');});
-  function fieldRow(field,rules){var row=el('div','','t-field-row');row.appendChild(field);var unit=el('span');unit.textContent=rules.unit+' · '+(window.CNCNumeric?window.CNCNumeric.limits(rules):'');row.appendChild(unit);return row;}
-  plateStatus.setAttribute('role','status');plate.hidden=true;
-  [plateTitle,thickLabel,fieldRow(thick,THICK_RULES),searchLabel,fieldRow(search,SEARCH_RULES),probe,plateHelp,plateLast,plateStatus].forEach(function(n){plate.appendChild(n);});
-  if(window.CNCNumeric&&typeof window.CNCNumeric.bind==='function'){window.CNCNumeric.bind(thick,THICK_RULES);window.CNCNumeric.bind(search,SEARCH_RULES);window.CNCNumeric.bind(input,LINE_RULES);}
-  var PLATE_KEY='cncjs-touch-plate-v1';
-  function loadPlate(){try{var v=JSON.parse(localStorage.getItem(PLATE_KEY)||'null');if(v&&typeof v==='object'){thick.value=v.thickness>0?String(v.thickness):'';search.value=v.search>0?String(v.search):'10';return;}}catch(_){/* Storage is optional. */}
-    thick.value='';search.value='10';}
-  function savePlate(p){try{localStorage.setItem(PLATE_KEY,JSON.stringify(p));}catch(_){/* Storage is optional. */}}
+  if(window.CNCNumeric&&typeof window.CNCNumeric.bind==='function')window.CNCNumeric.bind(input,LINE_RULES);
   // Shared parser (numeric-pad.js): {state, value, message}; only 'ok' carries a value.
   function parsed(v,rules){
     if(window.CNCNumeric&&typeof window.CNCNumeric.parse==='function')return window.CNCNumeric.parse(v,rules);
@@ -133,9 +118,8 @@
   frameWhy.setAttribute('role','status');frame.hidden=true;
   [frameTitle,frameStart,frameHelp,frameWhy].forEach(function(n){frame.appendChild(n);});
   frameStart.addEventListener('click',function(){var c=controls();if(frameStart.disabled||!c||typeof c.prepareFrame!=='function')return;c.prepareFrame();});
-  loadPlate();
-  after(ready,pause);after(pause,open);after(open,panel);after(panel,plate);after(plate,frame);
-  var machine=null,selection=window.cncLibrarySelection||null,checked=null,sequence=0,plateMessage='',resumeFile='';
+  after(ready,pause);after(pause,open);after(open,panel);after(panel,frame);
+  var machine=null,selection=window.cncLibrarySelection||null,checked=null,sequence=0,resumeFile='';
   function controls(){return window.cncJobControls;}
   function set(node,key,value){if(node[key]!==value)node[key]=value;}
   function targetFile(){return machine&&typeof machine.stoppedFile==='string'&&machine.stoppedFile?machine.stoppedFile:selection&&selection.file||'';}
@@ -150,21 +134,16 @@
   function render(){
     var p=machine&&machine.programPause;
     var laser=laserOf(machine),lr=laserResume();
-    var text=pauseText(p,machine);if(p&&p.kind==='M6'&&!laser&&machine.canZeroZ)text+=t(' Le zéro Z avec la plaque se règle ci-dessous.');
+    var text=pauseText(p,machine);
     // Spindle still on with no job (the board finished its buffer after a lost link or CNCjs restart):
     // the server accepts M5 from anyone, so the same button is offered at rest (E3).
     var turning=!!(machine&&!p&&machine.workflow==='idle'&&machine.canSpindleStop&&machine.spindleSpeed>0);
     if(turning)text=laser?t('Le laser est encore allumé alors qu’aucun travail n’est en cours : éteignez-le (M5).'):t('La broche tourne encore alors qu’aucun travail n’est en cours : arrêtez-la (M5).');
     set(pause,'hidden',!(p||turning)||!text);set(pauseText_,'textContent',text);
-    set(plate,'hidden',laser||!(machine&&(machine.canZeroZ||machine.probing)));
     var fc=laser?capabilityOf(machine,'laserFrame'):null,idle=!!(machine&&machine.workflow==='idle');
     set(frame,'hidden',!laser||!idle);
     var frameReason=fc&&!fc.supported?(fc.reason||t('Cadrage indisponible.')):'';
     set(frameStart,'disabled',!!frameReason);set(frameStart,'title',frameReason);set(frameWhy,'textContent',frameReason);
-    set(probe,'disabled',!(machine&&machine.canZeroZ));
-    set(plateLast,'textContent',lastZeroText(machine&&machine.zeroZ));
-    // A refused parameter stays shown until the field changes (reports come several times a second).
-    set(plateStatus,'textContent',machine&&machine.probing?t('Palpage en cours… Arrêter interrompt.'):plateMessage);
     set(m5,'hidden',!((p||turning)&&machine.canSpindleStop&&machine.spindleSpeed>0));
     set(m5,'textContent',laser?t('Éteindre le laser (M5)'):t('Arrêter la broche (M5)'));
     set(open,'textContent',laser?t('Reprendre à un début de passe…'):t('Reprendre à une ligne…'));
@@ -176,7 +155,7 @@
     else set(load,'disabled',!checked||!can);
     if(!panel.hidden)set(hint,'textContent',resumeHint());
     // Presentation only (performance-v2.css): an open plate or resume form gets its room in the v2 messages slot.
-    var left=document.getElementById('home-left'),board=left&&left.parentNode,form=!plate.hidden||!panel.hidden?'1':'0';
+    var left=document.getElementById('home-left'),board=left&&left.parentNode,form=!panel.hidden?'1':'0';
     if(board&&typeof board.setAttribute==='function'&&board.getAttribute('data-v2-form')!==form)board.setAttribute('data-v2-form',form);
   }
   function line(){var p=parsed(input.value,LINE_RULES);return p.state==='ok'?p.value:null;}
@@ -203,28 +182,8 @@
     var target=checked;set(load,'disabled',true);
     c.loadFrom(target.file,target.line).then(function(){close();render();},function(e){set(plan,'textContent',e.message);set(load,'disabled',false);});
   });
-  probe.addEventListener('click',function(){
-    var c=controls();if(!c||typeof c.prepareCommand!=='function'||probe.disabled)return;
-    // Empty, unreadable and out-of-range values are told apart; none of them becomes a number.
-    var th=parsed(thick.value,THICK_RULES),se=parsed(search.value,SEARCH_RULES);
-    if(th.state!=='ok'){plateMessage=t('Indiquez l’épaisseur de la plaque (mm).')+(th.message?' '+th.message:'');render();return;}
-    if(se.state!=='ok'){plateMessage=t('Descente maximale invalide (1 à 100 mm).')+(se.message?' '+se.message:'');render();return;}
-    var params={thickness:Math.round(th.value*1000)/1000,search:Math.round(se.value*1000)/1000};
-    savePlate(params);pendingPlate=params;plateMessage='';render();
-    c.prepareCommand('zeroZ',params);
-  });
-  [thick,search].forEach(function(field){field.addEventListener('input',function(){if(plateMessage){plateMessage='';render();}});});
   m5.addEventListener('click',function(){var c=controls();if(c&&typeof c.spindleStop==='function')c.spindleStop().catch(function(){});});
   window.addEventListener('cnc-job-status',function(e){var d=e&&e.detail||{};if(d.simulation)return;machine=d.machine||null;render();});
-  // « Zéro Z avec plaque → Suivi » (probe-ui.js): once Suivi is laid out, its plate card centred and its probe button focused.
-  window.addEventListener('cnc-plate-show',function(){
-    function show(){
-      if(plate.hidden||!plate.parentNode)return;
-      if(typeof plate.scrollIntoView==='function')plate.scrollIntoView({block:'center'});
-      if(!probe.disabled&&typeof probe.focus==='function')probe.focus({preventScroll:true});
-    }
-    if(typeof window.requestAnimationFrame==='function')window.requestAnimationFrame(show);else show();
-  });
   window.addEventListener('cnc-library-select',function(e){selection=e&&e.detail||null;if(!panel.hidden&&resumeFile!==targetFile())close();render();});
   render();
 })(typeof window==='object'?window:this);

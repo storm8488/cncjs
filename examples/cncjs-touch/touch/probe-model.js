@@ -115,6 +115,15 @@
     var left=CONTACT_HOLD_MS-(now-seen);
     return left>0&&left<=CONTACT_HOLD_MS?{signal:'contact',seen:seen,recheck:left}:{signal:signal,seen:seen,recheck:0};
   }
-  var api={empty:empty,demo:demo,normalize:normalize,validate:validate,compensate:compensate,create:create,fields:fields,fieldNames:fieldNames,liveInput:liveInput,heldSignal:heldSignal,CONTACT_HOLD_MS:CONTACT_HOLD_MS};
+  // Measured wall widths are unsigned; the mounting corner determines the server's signed faces.
+  function fromCorner(profile,corner,wallX,wallY){
+    var p=copy(profile);
+    if(['--','+-','-+','++'].indexOf(corner)<0)return p;
+    p.corner=corner;p.directionX=corner[0]==='-'?1:-1;p.directionY=corner[1]==='-'?1:-1;
+    p.faceX=validNumber(wallX,[0,100])?-p.directionX*wallX:null;
+    p.faceY=validNumber(wallY,[0,100])?-p.directionY*wallY:null;
+    return p;
+  }
+  var api={fromCorner:fromCorner,empty:empty,demo:demo,normalize:normalize,validate:validate,compensate:compensate,create:create,fields:fields,fieldNames:fieldNames,liveInput:liveInput,heldSignal:heldSignal,CONTACT_HOLD_MS:CONTACT_HOLD_MS};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.CNCProbe=api;
 })(typeof window==='undefined'?this:window);

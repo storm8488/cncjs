@@ -28,6 +28,11 @@ function fixture(saved){
   tick(index){const boxes=all(find(n=>n.className==='ks-wiz-content')).filter(n=>n.tagName==='INPUT');const i=boxes[index];i.checked=true;i.handlers.change();}};
 }
 const M=(extra)=>Object.assign({port:'/dev/ttyUSB0',fresh:true,workflow:'idle',activeState:'Idle',probeInput:{fresh:true,pins:''},canUnlock:false,canReadSettings:true,canHome:true,canSpindleTest:true,canSpindleStop:true,spindleTestSpeed:6000,spindleSpeed:0,settingsCount:34,firmware:'Grbl 1.1h'},extra);
+// The probe step delegates the diagnostic to the same sheet as Work zero.
+{
+ const f=fixture(JSON.stringify({machines:{'/dev/ttyUSB0':{status:'progress',step:4,results:{}}}}));let opened=0;
+ f.window.cncZeroPiece={test(){opened++;}};f.send(M());f.window.cncCommissioning.open();assert.equal(f.title(),'Sonde');f.byText('Tester la sonde').click();assert.equal(opened,1);assert(!f.calls.some(c=>c[0]==='prepare'));
+}
 
 // ---- Model ----
 {

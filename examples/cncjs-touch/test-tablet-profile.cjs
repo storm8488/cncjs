@@ -285,10 +285,10 @@ async function gating() {
   const status = (m) => listeners['cnc-job-status'].forEach((fn) => fn({ detail: { machine: m, simulation: false } }));
   const idle = { canLoad: true, canZeroZ: true, programPause: null };
   status(Object.assign({}, cnc, idle));
-  assert.equal(byId('home-plate').hidden, false); assert.equal(byId('home-frame').hidden, true); assert.equal(byId('home-resume-line').textContent, 'Reprendre à une ligne…');
+  assert.equal(byId('home-plate'), undefined, 'plate migrated to zero-piece'); assert.equal(byId('home-frame').hidden, true); assert.equal(byId('home-resume-line').textContent, 'Reprendre à une ligne…');
   const refused = machine('laser', idle); refused.machineProfile.capabilities.laserFrame = capability(false, 'Programme non vérifié dans la course machine.'); refused.machineProfile.capabilities.laserResume = capability(false, 'Aucun début de passe identifiable.');
   status(refused);
-  assert.equal(byId('home-plate').hidden, true, 'no plate Z zero for a laser'); assert.equal(byId('home-frame').hidden, false);
+  assert.equal(byId('home-plate'), undefined, 'no legacy plate for a laser'); assert.equal(byId('home-frame').hidden, false);
   assert.equal(byId('home-frame-start').disabled, true); assert.equal(byId('home-frame-start').title, 'Programme non vérifié dans la course machine.');
   assert.equal(byId('home-frame-why').textContent, 'Programme non vérifié dans la course machine.');
   assert.equal(byId('home-resume-line').textContent, 'Reprendre à un début de passe…'); assert.equal(byId('home-resume-line').disabled, true); assert.equal(byId('home-resume-line').title, 'Aucun début de passe identifiable.');

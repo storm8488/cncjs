@@ -1095,6 +1095,14 @@ function startV2Fixture() {
       Object.assign(c, { canBlockProbe: false, blockProbe: null, blockProbeReason: !atRest ? 'Palpage au bloc : machine au repos uniquement, sans programme en cours ni en pause.'
         : (fx.profile || V2_PROFILE).kind === 'laser' ? 'Machine déclarée laser : pas de palpage Z avec plaque.' : 'Test du contact à faire : touchez l’outil avec le bloc puis relâchez (contact vu, puis libre) avant de palper.' });
       if (fx.blockProbe) Object.assign(c, fx.blockProbe);
+      if(fx.probeParcours){
+        const contact=fx.probeState==='contact'||fx.probeState==='permanent';
+        if(contact)fx.probeSawContact=true;
+        if(!contact&&fx.probeSawContact)fx.probeTestDone=true;
+        c.probeInput={fresh:true,ageMs:0,state:contact?'contact':'free',code:'EXPLICIT',pins:contact?'P':'',stuck:fx.probeState==='permanent',test:{stage:contact?'contact':'free',done:!!fx.probeTestDone}};
+        Object.assign(c,{homed:true,canBlockProbe:!!fx.probeTestDone&&!contact,blockProbeReason:fx.probeTestDone&&!contact?'':'Test du contact à faire',canZeroZ:true,zeroZ:fx.zeroZ||null,finished:!!fx.probeFinished});
+      }
+
       // A stale report at rest (fx.staleIdle): unlike the phase « stale » (built on the job), no job starts or ends.
       if (fx.staleIdle) Object.assign(c, { fresh: false, statusAgeMs: Date.now() - fx.staleSince + 40, statusObservedAt: fx.staleSince - 40 });
       if (!fx.real) return c;
@@ -1139,6 +1147,17 @@ function startV2Fixture() {
           // Real moves enabled (fx.real, screensReal): « prepare set-origin » answers with a ticket, like the server,
           // so that the origin confirmation of Préparer is measured. Nothing else is answered; no machine behind it.
           let parsed = {}; try { parsed = JSON.parse(body); } catch (_) { parsed = {}; }
+          // Probe parcours: synthetic snapshots/tickets only, never forwarded to a controller.
+          if(fx.probeParcours&&url.pathname==='/api/touch-job'&&parsed.action==='prepare'&&['blockProbe','zeroZ'].includes(parsed.operation)){
+            fx.probeTicket={operation:parsed.operation,params:parsed,nonce:'browser-probe-'+Date.now()};
+            const params=parsed.operation==='blockProbe'?{axes:parsed.axes,wcs:parsed.wcs,search:parsed.profile.search,window:28,lateral:12,depth:4,reach:22}:null;
+            res.setHeader('Content-Type','application/json');return res.end(JSON.stringify({nonce:fx.probeTicket.nonce,name:'Probe fixture',expiresIn:15,generation:parsed.generation,blockProbe:params}));
+          }
+          if(fx.probeParcours&&fx.probeTicket&&parsed.action===fx.probeTicket.operation&&parsed.nonce===fx.probeTicket.nonce){
+            if(parsed.action==='blockProbe')fx.blockProbe={canBlockProbe:true,blockProbe:{id:'browser-parcours-'+Date.now(),axes:fx.probeTicket.params.axes,wcs:fx.probeTicket.params.wcs,state:'done',written:'yes',endedAt:Date.now(),work:{x:0,y:0,z:10}}};
+            else fx.zeroZ={at:Date.now(),thickness:fx.probeTicket.params.thickness,wcs:'G54'};
+            fx.probeTicket=null;res.setHeader('Content-Type','application/json');return res.end(JSON.stringify({snapshot:fx.packet()}));
+          }
           if (fx.real && url.pathname === '/api/touch-job' && parsed.action === 'prepare' && parsed.operation === 'set-origin' && Array.isArray(parsed.axes)) {
             res.setHeader('Content-Type', 'application/json');
             return res.end(JSON.stringify({ nonce: 'browser-run-origin', operation: 'set-origin', expiresIn: 15, generation: parsed.generation,
@@ -1854,7 +1873,7 @@ async function screensServer(cdp, v, summary) {
 // Each one opened by its own button, like the operator; nothing is sent (the real page has no probe command).
 // Real page (2026-11-14): the bench results and the probing preparation are no longer reachable (no real launch of
 // probing here: the Z zero with a plate is in Suivi); profiles and the input diagnostic stay.
-const SCREENS_PROBE = [['probe-profile', 'Profils de sonde', 'probe-profiles'], ['probe-contact', 'Test du contact', 'probe-test']];
+const SCREENS_PROBE = [['ks-probe-setup', 'Ma sonde', 'probe-setup-open'], ['ks-probe-test', 'Tester la sonde', 'probe-test']];
 // Block probing (2026-11-14): the real Sonde screen in each state of the server's cycle (contract of the conception
 // § 3.3), XYZ chosen, on a CNC: ready, contact test refused, running at step 8 / 22, stopping, done, failed, then its
 // results. The operator's block profile and tool diameter are in the page's storage (PROBE_STORE). Nothing is sent.
@@ -1873,45 +1892,32 @@ const SCREENS_BLOCK = [
 const PROBE_XYZ = '(function(){var b=document.querySelector(\'[data-probe-operation="XYZ"]\');if(b&&!b.disabled)b.click();return !!b;})()';
 const PROBE_SHOWN = '(function(){var s=document.getElementById("probe-start"),p=document.getElementById("probe-phase");return {start:!!s&&!s.hidden,disabled:!!(s&&s.disabled),label:s?s.textContent:"",phase:p&&!p.hidden?p.textContent:""};})()';
 async function screensProbe(cdp, fx, v, summary) {
-  const tag = 'screens ' + v.id + ' palpage-ecrans', results = [];
-  fx.probeInput = true;
-  try {
-    await sleep(800);
-    const page = await cdp.evaluate(SCREENS_PAGE);
-    await screensCapture(cdp, 'screens-probe-' + v.id + '-repos', 'probe', 'Palpage', tag, page, results);
-    for (const [name, label, button] of SCREENS_PROBE) {
-      await goScreen(cdp, 'probe');
-      if (!await cdp.evaluate('(function(){var b=document.getElementById(' + JSON.stringify(button) + ');if(!b||b.disabled)return false;b.click();return true;})()')) throw new Error('no usable ' + button);
-      await cdp.waitFor('(function(){var s=document.getElementById("screen-' + name + '");return !!(s&&s.classList.contains("active"));})()', 10000, name);
-      await screensCapture(cdp, 'screens-' + name + '-' + v.id + '-repos', name, label, tag, page, results);
+  if(v.kind!=='cnc')return;
+  const tag='screens '+v.id+' sonde',results=[];
+  fx.probeInput=true;
+  try{
+    await sleep(800);await goScreen(cdp,'jog');const page=await cdp.evaluate(SCREENS_PAGE);
+    await screensCapture(cdp,'screens-jog-'+v.id+'-sonde','jog','Zero piece',tag,page,results,{stay:true});
+    for(const [id,label,button] of SCREENS_PROBE){
+      if(!await cdp.evaluate('(function(){var b=document.getElementById('+JSON.stringify(button)+');if(!b||b.disabled)return false;b.click();return true;})()'))throw Error('no usable '+button);
+      await cdp.waitFor('!document.getElementById('+JSON.stringify(id)+').hidden',5000,id);
+      await screensCapture(cdp,'screens-jog-'+v.id+'-'+id,'jog',label,tag,page,results,{stay:true});
+      await cdp.evaluate('window.cncShell.closeSheet();true');
     }
-    if (v.kind === 'cnc') {
-      await goScreen(cdp, 'probe');
-      if (!await cdp.evaluate(PROBE_XYZ)) throw new Error('no XYZ operation button');
-      for (const [state, patch] of SCREENS_BLOCK) {
-        fx.blockProbe = patch;
-        const want = patch.blockProbe ? patch.blockProbe.state : null;
-        await cdp.waitFor('(function(){var m=window.cncState&&window.cncState.get().machine,b=m&&m.blockProbe;return !!m&&(b?b.state:null)===' + JSON.stringify(want) + '&&m.canBlockProbe===' + !!patch.canBlockProbe + ';})()', 10000, 'block probe ' + state);
-        await sleep(600);
-        const shown = await cdp.evaluate(PROBE_SHOWN);
-        // Ready: Palper XYZ… usable; during the cycle: inactive, its step shown.
-        if (state === 'pret' && (!shown.start || shown.disabled)) failures.push(tag + ': block probe ready but « ' + shown.label + ' » ' + (shown.start ? 'disabled' : 'hidden'));
-        if (state === 'en-cours' && (!shown.disabled || !/8 \/ 22/.test(shown.phase))) failures.push(tag + ': block probe running, launch ' + (shown.disabled ? 'inactive' : 'ACTIVE') + ', phase « ' + shown.phase + ' »');
-        await screensCapture(cdp, 'screens-probe-' + v.id + '-bloc-' + state, 'probe', 'Palpage (bloc ' + state + ')', tag, page, results, { stay: true });
-      }
-      // Results of the last block probe (real page): one line per axis, the G10 line, the work position read back.
-      fx.blockProbe = SCREENS_BLOCK.find(([state]) => state === 'termine')[1];
-      await cdp.waitFor('(function(){var m=window.cncState&&window.cncState.get().machine;return !!(m&&m.blockProbe&&m.blockProbe.state==="done");})()', 10000, 'block probe done');
-      await sleep(400);
-      if (!await cdp.evaluate('(function(){var b=document.getElementById("probe-result");if(!b||b.disabled)return false;b.click();return true;})()')) throw new Error('no usable probe-result after a block probe');
-      await cdp.waitFor('(function(){var s=document.getElementById("screen-probe-report");return !!(s&&s.classList.contains("active"));})()', 10000, 'probe-report');
-      await screensCapture(cdp, 'screens-probe-report-' + v.id + '-bloc-termine', 'probe-report', 'Résultats du palpage', tag, page, results, { stay: true });
-      fx.blockProbe = null;
+    await cdp.evaluate(PROBE_XYZ);
+    for(const [state,patch] of SCREENS_BLOCK){
+      fx.blockProbe=patch;const want=patch.blockProbe?patch.blockProbe.state:null;
+      await cdp.waitFor('(function(){var m=window.cncState.get().machine,b=m&&m.blockProbe;return !!m&&(b?b.state:null)==='+JSON.stringify(want)+'&&m.canBlockProbe==='+!!patch.canBlockProbe+';})()',10000,'block probe '+state);
+      await sleep(600);const shown=await cdp.evaluate(PROBE_SHOWN);
+      if(state==='pret'&&(!shown.start||shown.disabled))failures.push(tag+': ready block launch disabled/hidden');
+      if(state==='en-cours'&&(!shown.disabled||!/8 \/ 22/.test(shown.phase)))failures.push(tag+': incorrect running block progress');
+      await screensCapture(cdp,'screens-jog-'+v.id+'-bloc-'+state,'jog','Block '+state,tag,page,results,{stay:true});
     }
-    log(tag + ': ' + results.length + ' probe screens');
-  } catch (e) { failures.push(tag + ': ' + e.message); log('FAIL ' + tag + ': ' + e.message); }
-  finally { fx.probeInput = false; fx.blockProbe = null; }
-  summary.measurements.push({ variant: tag, dir: 'screens-probe*-' + v.id + '-repos', dpr: 1, results, strict: true, overlap: true, v2: !!v.v2 });
+    if(!await cdp.evaluate('document.querySelectorAll("section[id^=screen-probe]").length===0'))throw Error('legacy probe screen on real page');
+    log(tag+': '+results.length+' card/sheet states');
+  }catch(e){failures.push(tag+': '+e.message);log('FAIL '+tag+': '+e.message);}
+  finally{fx.probeInput=false;fx.blockProbe=null;}
+  summary.measurements.push({variant:tag,dir:'screens-jog-'+v.id+'-bloc-*',dpr:1,results,strict:true,overlap:true,v2:!!v.v2});
 }
 // Real moves of Préparer (2026-11-14), enabled by the fixture (fx.real), at rest: the arrows, steps and Zéro buttons of
 // the screen itself (real-motion.js; no separate entry or panel). Measured: at rest (step 1 mm), during a job (v1: the
@@ -2760,6 +2766,34 @@ function writeSummary(summary) {
   fs.writeFileSync(path.join(OUT, 'summary.json'), JSON.stringify(summary, null, 1));
 }
 
+async function probeParcoursMeasure(cdp,summary){
+ const fx=await startV2Fixture();fx.probeParcours=true;fx.probeInput=true;fx.profile=V2_PROFILE;
+ try{
+  await setViewport(cdp,1366,911,1);await navigate(cdp,fx.base+'index.html');await waitReady(cdp);
+  await cdp.evaluate('localStorage.removeItem("cnc-touch-probes-v1-real");localStorage.setItem("cncjs-touch-plate-v1",JSON.stringify({thickness:5,search:10}));true');
+  await navigate(cdp,fx.base+'index.html');await waitReady(cdp);await cdp.evaluate('window.__brRealMoves=true;window.cncShell.go("files");true');
+  let touches=0;
+  const tap=async(selector)=>{await cdp.waitFor('(function(){var b=document.querySelector('+JSON.stringify(selector)+');return !!b&&!b.disabled&&!b.closest("[hidden]");})()',10000,selector);if(selector==='#job-confirm')await sleep(650);await cdp.evaluate('document.querySelector('+JSON.stringify(selector)+').click();true');touches++;};
+  const confirm=async()=>{await cdp.waitFor('!document.getElementById("job-dialog").hidden',10000,'probe dialog');await tap('#job-check');await tap('#job-confirm');await cdp.waitFor('!window.cncState.get().busy',10000,'probe answered');};
+  await tap('[data-ks-screen="jog"]');await tap('#probe-start');await tap('button[data-corner="--"]');
+  for(const [name,value] of [['thickness','5'],['wallX','9.9'],['wallY','9.9'],['diameter','6']]){
+    await tap('#probe-measure-'+name);
+    if(!await cdp.evaluate('(function(){var a=document.getElementById("probe-measures-drawing").getBoundingClientRect(),b=document.querySelector("#t-numpad .t-numpad-card").getBoundingClientRect();return a.right<=b.left||a.bottom<=b.top||a.top>=b.bottom;})()'))throw Error('probe drawing covered by numeric pad');
+    await cdp.evaluate('(function(){document.querySelector("[data-numpad-key=Effacer]").click();'+JSON.stringify(value.split(''))+'.forEach(function(k){[].slice.call(document.querySelectorAll("[data-numpad-key]")).filter(function(b){return b.getAttribute("data-numpad-key")===k;})[0].click();});return true;})()');
+    await tap('#t-numpad .t-numpad-actions button:last-child');
+  }
+  fx.probeState='contact';await cdp.waitFor('window.cncState.get().machine.probeInput.test.stage==="contact"',10000,'contact');fx.probeState='free';
+  await cdp.waitFor('window.cncState.get().machine.canBlockProbe',10000,'test released');await tap('#probe-setup-save');await confirm();
+  if(touches!==14)throw Error('P3 expected 14 touches, got '+touches);const P3=touches;
+  await cdp.evaluate('window.cncShell.go("files");true');touches=0;await tap('[data-ks-screen="jog"]');await tap('#probe-start');await confirm();if(touches!==4)throw Error('P4 expected 4 touches');const P4=touches;
+  touches=0;await tap('#probe-plate-start');await confirm();if(touches!==3)throw Error('P5 from work zero expected 3 touches');const P5=touches;
+  fx.probeFinished=true;await cdp.evaluate('window.cncShell.go("home");true');touches=0;await tap('#home-finish-plate-start');await confirm();if(touches!==3)throw Error('P5 from completion expected 3 touches');
+  fx.probeState='permanent';await cdp.waitFor('window.cncState.get().machine.probeInput.stuck',10000,'permanent contact');await cdp.evaluate('window.cncShell.go("jog");true');touches=0;await tap('#probe-test');await tap('#probe-test-next');
+  fx.probeState='free';await cdp.waitFor('document.getElementById("probe-test-instruction").textContent===window.cncI18n.t("C’est la broche : elle relie la fraise à la masse.")',10000,'spindle diagnosis');if(touches!==2)throw Error('P10 expected 2 touches');
+  summary.parcoursProbe={P3,physicalMeasurements:4,P4,P5FromZero:P5,P5FromCompletion:3,P10:touches,syntheticTicketsAndOutcomes:true,physicalMachine:false};
+ }finally{fx.close();}
+}
+
 async function parcoursMeasure(cdp,summary){
   const fixture=await startFixture([], 'parcours-server.cjs');
   try{
@@ -2833,7 +2867,7 @@ async function main() {
     // Pause / Arrêter over every overlay, degraded start-up, offline flag (browser-strip.cjs).
     if (ONLY.includes('strip') && !URL_BASE) { await setViewport(cdp, 1366, 768, 1); const list = await require('./browser-strip.cjs').run(cdp, module.exports, { simBase: base, out: path.join(OUT, 'strip'), log }); list.forEach((f) => failures.push(f)); summary.strip = list; }
     if (ONLY.includes('startup')) { await setViewport(cdp, 1366, 768, 1); await measureStartup(cdp, realUrl, summary); }
-    if(ONLY.includes('parcours'))await parcoursMeasure(cdp,summary);
+    if(ONLY.includes('parcours')){await parcoursMeasure(cdp,summary);await probeParcoursMeasure(cdp,summary);}
     if (ONLY.includes('e2e')) { await setViewport(cdp, 1366, 768, 1); for (const lang of ['fr', 'en', 'es']) await e2e(cdp, simUrl, lang, summary); await cdp.evaluate('localStorage.removeItem("cncjs-touch-language-v1");true').catch(() => {}); }
     // Performance v2 in its own browser (software WebGL flags, simulated hardware probe), on its fixture.
     if (ONLY.includes('v2') && !URL_BASE) await v2Measure(summary);

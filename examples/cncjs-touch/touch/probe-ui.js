@@ -3,7 +3,7 @@
   var uiLocale=(typeof window!=='undefined'&&window.cncI18n)||{t:function(s){return s;},html:function(s){return s;}};
   var contactSeen=-1e9,contactTimer=null;
   var model=window.CNCProbe,simulation=document.body.getAttribute('data-simulation')==='true';
-  if(!model)return;
+  if(!model||!simulation)return;
   var engine=model.create(simulation?'simulation':'disabled'),main=document.querySelector('main');
   var key='cnc-touch-probes-v1-'+(simulation?'simulation':'real'),profiles=[],selected=simulation?-1:0,diameter=null;
   var operation='Z',machine=null,busy=false,timer=null,locked=false,active='',page=0;
@@ -12,8 +12,6 @@
   var manager=window.CNCProbeProfiles,removed=null,pendingDelete=null,editorPage=0;
   var preparation=window.CNCProbePreparation,preparationPage=0,preparationKey='';
   var profileStore=null;
-  // Real page: block probing run by the server (probe-real.js); pilot and stream as job-controls.js publishes them.
-  var real=window.CNCProbeReal,realPilot=null,realHalt=null,realConnected=false,realPending=false,realRefusal='',wcsTouched=false,realAwaiting=false;
   // The controller's state in the status strip's words (« Repos », « Alarme »…), Grbl's word without the strip. Text only.
   function stateWord(m){var w=null;try{w=window.cncStatusStrip&&window.cncStatusStrip.describe(m,true);}catch(_){w=null;}return w&&w.word?w.word:m.activeState;}
   try{profileStore=window.CNCProfileStorage.open(localStorage,key);var saved=JSON.parse(profileStore.read()||'null');if(saved){if(saved.version!==1)throw Error('version');profiles=transfer.decode(transfer.encode(saved.profiles,simulation?'simulation':'real'),simulation?'simulation':'real');selected=typeof saved.selected==='number'?saved.selected:selected;diameter=typeof saved.diameter==='number'&&saved.diameter>0&&saved.diameter<=100?saved.diameter:null;}}catch(_){profileStore=null;storageWarning=uiLocale.t('Profils locaux illisibles : paramètres à vérifier.');}
@@ -182,37 +180,8 @@
     text('probe-contact-title',simulation?uiLocale.t('Entrée de sonde fictive'):uiLocale.t('Entrée réelle : ')+(signal==='free'?uiLocale.t('libre signalé'):signal==='contact'?uiLocale.t('contact signalé'):uiLocale.t('état inconnu')));
     text('probe-contact-instruction',simulation?uiLocale.t('Utilisez les boutons pour simuler libre → contact → libre. Aucun mouvement.'):uiLocale.t('Lecture seule des rapports CNCjs existants. Ce diagnostic ne valide ni le câblage ni un cycle de palpage.'));
     text('probe-contact-status',simulation?s.message:(uiLocale.message||uiLocale.t)(live.reason));$('probe-free').disabled=$('probe-touch').disabled=!simulation||s.running;
-    if(!simulation)renderReal();
   }
-  function block(){var b=machine&&machine.blockProbe;return b&&typeof b==='object'?b:null;}
-  // Real page: launch, progress and result of the server's block probe (contract of the conception, § 3.3 / § 4.2).
-  function renderReal(){
-    // A confirmed launch whose first state of the cycle has not arrived yet counts as the cycle (Arrêter offered at once).
-    var b=block(),cycle=!!(real&&real.cycle(machine))||realAwaiting;
-    var launch=real?real.launchState({machine:machine,connected:realConnected,pilot:realPilot,profile:profile(),operation:operation,diameter:diameter,wcs:$('probe-wcs').value,pending:realPending||busy,validate:model.validate}):{ready:false,reason:uiLocale.t('Module du palpage réel absent : rechargez la page.')};
-    text('probe-start',uiLocale.t('Palper ')+operation+'…');$('probe-start').disabled=!launch.ready||cycle;
-    text('probe-availability',launch.reason||(cycle?'':real.startHint(operation)));
-    // The phase and its bar only once a block probe exists (the card fits its screen at rest).
-    var sum=real&&b?real.summary(b):null;
-    if($('probe-phase').hidden!==!b)$('probe-phase').hidden=$('probe-progress').hidden=!b;
-    text('probe-phase',sum?sum.phase:'');var value=b?real.progress(b):0;if($('probe-progress').value!==value)$('probe-progress').value=value;
-    var line=realRefusal&&!cycle?realRefusal:sum?sum.message:'';text('probe-message',line);if($('probe-message').hidden!==!line)$('probe-message').hidden=!line;
-    // A lost state keeps the last busy target (job-controls.js detail.halt): Arrêter stays offered, like the strip's.
-    $('probe-stop').disabled=!(cycle&&machine&&machine.canStop||!machine&&realHalt&&realHalt.canStop);
-    $('probe-result').disabled=!b||cycle;
-    // During the cycle only Arrêter acts on this screen.
-    ['probe-profile','probe-wcs','probe-diameter','probe-profiles','probe-transfer-open','probe-test'].forEach(function(id){if(cycle)$(id).disabled=true;});
-    if(cycle)document.querySelectorAll('[data-probe-operation]').forEach(function(el){el.disabled=true;});
-  }
-  function realLaunch(){
-    var c=window.cncJobControls;if(!real||!c||typeof c.prepareCommand!=='function'||$('probe-start').disabled)return;
-    realPending=true;realRefusal='';render();
-    // The promise never rejects (job-controls.js): {opened} or {opened:false, error}.
-    Promise.resolve(c.prepareCommand('blockProbe',real.request(profile(),operation,diameter,$('probe-wcs').value))).then(function(r){
-      realPending=false;if(r&&r.opened===false&&r.error)realRefusal=real.refusalText(r.error,model.fieldNames);render();
-    },function(){realPending=false;render();});
-  }
-  function invalidate(){engine.resetContact();$('probe-confirm').checked=false;message='';realRefusal='';render();}
+  function invalidate(){engine.resetContact();$('probe-confirm').checked=false;message='';render();}
   function showEditor(){
     if(engine.snapshot().running)return;
     $('probe-profile-name').value=selected===-1?uiLocale.t('Copie du bloc fictif'):profile().name;
@@ -221,13 +190,6 @@
   }
   function showPage(n){editorPage=n;pendingDelete=null;$('probe-delete-confirm').hidden=true;$('probe-editor-tabs').hidden=false;$('probe-editor-actions').hidden=false;document.querySelectorAll('[data-probe-pane]').forEach(function(el){el.hidden=el.getAttribute('data-probe-pane')!==String(n);});document.querySelectorAll('[data-probe-page]').forEach(function(b){b.setAttribute('aria-pressed',String(b.getAttribute('data-probe-page')===String(n)));});render();}
   function renderReport(){
-    if(!simulation){
-      var b=block(),sum=real&&b?real.summary(b):null,rows=real?real.resultLines(b):[];
-      text('probe-result-summary',sum?sum.phase+' · '+sum.message:'');
-      var host=$('probe-result-values'),key=JSON.stringify(rows);
-      if(host.getAttribute('data-key')!==key){host.textContent='';rows.forEach(function(row){var el=document.createElement('p');el.textContent=row;host.appendChild(el);});host.setAttribute('data-key',key);}
-      return;
-    }
     var r=engine.report(),s=r.state,events=r.events,per=3;
     page=Math.min(page,Math.max(0,Math.ceil(events.length/per)-1));
     text('probe-result-summary',s.uncertain?uiLocale.t('Origine fictive partiellement appliquée : à vérifier. Réinitialisez le banc avant un nouvel essai.'):s.phase==='done'?s.message:s.message+uiLocale.t(' Aucune réussite annoncée.'));
@@ -238,7 +200,6 @@
   }
   function finishStep(){var s=engine.advance();if(!s.running)release();render();}
   $('probe-start').addEventListener('click',function(){
-    if(!simulation){realLaunch();return;}
     if($('probe-start').disabled)return;
     try{
       if(!window.cncJobSimulation||typeof window.cncJobSimulation.acquireProbe!=='function')throw Error(uiLocale.t('Verrou du simulateur indisponible.'));
@@ -248,8 +209,7 @@
     }catch(e){release();message=e.message;render();}
   });
   function interrupt(reason){if(engine.snapshot().running){engine.stop(reason);release();message='';render();}}
-  // Real page: Arrêter of this screen is the strip's (#job-stop: feed hold then reset by the server).
-  $('probe-stop').addEventListener('click',function(){if(!simulation){var stop=$('job-stop');if(!$('probe-stop').disabled&&stop&&!stop.disabled&&window.cncJobControls)window.cncJobControls.stop();return;}interrupt(uiLocale.t('Arrêt utilisateur fictif. Aucun retrait automatique.'));});
+  $('probe-stop').addEventListener('click',function(){interrupt(uiLocale.t('Arrêt utilisateur fictif. Aucun retrait automatique.'));});
   $('probe-report-stop').addEventListener('click',function(){interrupt(uiLocale.t('Arrêt utilisateur fictif. Aucun retrait automatique.'));});
   $('probe-test').addEventListener('click',function(){engine.resetContact();message='';go('probe-contact');});
   $('probe-free').addEventListener('click',function(){engine.contact('free');render();});$('probe-touch').addEventListener('click',function(){engine.contact('contact');render();});
@@ -303,53 +263,12 @@
   if(window.CNCTextKeyboard)window.CNCTextKeyboard.bind($('probe-profile-name'),{label:uiLocale.t('Nom du profil')});
   ['probe-wcs','probe-scenario'].forEach(function(id){$(id).addEventListener('change',invalidate);});$('probe-confirm').addEventListener('change',render);
   $('probe-scenario-label').hidden=!simulation;$('probe-confirm').parentElement.hidden=!simulation;
-  if(!simulation){
-    // Real page: block probing Z / X / Y / XYZ run by the server (action blockProbe, probe-real.js), confirmed through
-    // the job dialog; the Z zero with a plate stays in Suivi. Profiles, their transfer and the input diagnostic are kept.
-    document.querySelector('#screen-probe .ks-panel-intro h2').textContent=uiLocale.t('Sonde : palpage, profils et diagnostic');
-    document.querySelector('#screen-probe .ks-panel-intro p').textContent=uiLocale.t('Palpage réel au bloc · exécuté par la machine');
-    $('probe-preparation-open').hidden=true;
-    var zeroZ=document.createElement('button');zeroZ.type='button';zeroZ.id='probe-zero-z';zeroZ.className='ks-secondary';zeroZ.textContent=uiLocale.t('Zéro Z avec plaque → Suivi');zeroZ.disabled=true;
-    $('probe-test').parentNode.appendChild(zeroZ);
-    // Suivi, with its plate card scrolled into view and its probe button focused (job-resume.js, cnc-plate-show).
-    zeroZ.addEventListener('click',function(){if(zeroZ.disabled)return;go('home');window.dispatchEvent(new CustomEvent('cnc-plate-show',{detail:null}));});
-    window.addEventListener('cnc-job-status',function(e){
-      var d=e&&e.detail;if(!d||d.simulation)return;var m=d.machine,laser=!!(m&&m.machineProfile&&m.machineProfile.kind==='laser');
-      if(zeroZ.hidden!==laser)zeroZ.hidden=laser;
-      var can=!!(m&&m.canZeroZ===true);if(zeroZ.disabled!==!can)zeroZ.disabled=!can;
-      var why=can?'':uiLocale.t(m&&m.zeroZReason||'Indisponible dans l’état actuel de la machine.');if(zeroZ.title!==why)zeroZ.title=why;
-    });
-    // The work frame follows the active one until the operator picks another.
-    $('probe-wcs').addEventListener('change',function(){wcsTouched=true;});
-    text('probe-test',uiLocale.t('Diagnostic de l’entrée'));
-    $('probe-free').hidden=$('probe-touch').hidden=true;
-    document.querySelector('#screen-probe-contact .probe-contact-steps').hidden=true;
-    // The corner and the directions do drive the real XYZ sequence here (server, block-probe.js).
-    var cornerNote=document.querySelector('[data-probe-pane="1"] > p');if(cornerNote)cornerNote.textContent=uiLocale.t('Z : recherche vers le bas sur le dessus du bloc. XYZ réel : ce coin et les sens fixent les faces extérieures touchées et les déplacements ; le serveur refuse un couple incohérent.');
-    document.querySelector('#screen-probe-contact h2').textContent=uiLocale.t('Diagnostic de l’entrée sonde');
-    document.querySelector('#screen-probe-contact .ks-panel-intro p').textContent=uiLocale.t('Rapports reçus · lecture seule · aucune commande machine');
-    document.querySelector('#screen-probe-contact .probe-note').textContent=uiLocale.t('Avant un palpage au bloc : touchez l’outil avec le bloc puis relâchez (contact vu, puis libre). Sans champ Pn, un rapport récent vaut libre.');
-    // Real page: no wording that points to the test bench of the simulation page.
-    $('probe-progress').setAttribute('aria-label',uiLocale.t('Progression du palpage'));
-    // Results of the last block probe read from the machine state: no bench journal, export or reset here.
-    document.querySelector('#screen-probe-report .ks-panel-intro p').textContent=uiLocale.t('Dernier palpage au bloc · lu dans l’état de la machine');
-    document.querySelector('#screen-probe-report .probe-note').textContent=uiLocale.t('Valeurs relevées et écrites par le serveur CNCjs. Vérifiez la position de travail avant d’usiner.');
-    ['probe-log','probe-log-prev','probe-log-page','probe-log-next','probe-report-stop','probe-export','probe-reset','probe-export-status'].forEach(function(id){$(id).hidden=true;});
-    document.querySelectorAll('#screen-probe-transfer .probe-note')[1].textContent=uiLocale.t('Copiez le fichier sur l’autre appareil puis ouvrez ce panneau pour l’importer.');
-  }
   $('probe-log-prev').addEventListener('click',function(){page--;renderReport();});$('probe-log-next').addEventListener('click',function(){page++;renderReport();});
   $('probe-reset').addEventListener('click',function(){if(engine.snapshot().running)return;engine=model.create(simulation?'simulation':'disabled');message=simulation?uiLocale.t('Banc fictif réinitialisé. Aucun repère réel modifié.'):uiLocale.t('Banc réinitialisé. Aucun repère réel modifié.');renderReport();});
   $('probe-export').addEventListener('click',function(){try{var data=JSON.stringify(engine.report(),null,2);window.CNCDownload.save(new Blob([data],{type:'application/json'}),'cnc-palpage-'+(simulation?'simulation':'preparation')+'-'+new Date().toISOString().replace(/[:.]/g,'-')+'.json');text('probe-export-status',uiLocale.t('Sauvegarde proposée au téléchargement.'));}catch(error){text('probe-export-status',uiLocale.t('Export impossible : ')+error.message);}});
   window.addEventListener('cnc-screen-change',function(e){active=e.detail;if(active!=='probe-profile'&&pendingDelete){showPage(editorPage);text('probe-profile-status',uiLocale.t('Suppression annulée à la sortie du panneau.'));}if(active!=='probe-transfer')clearImport();if(engine.snapshot().running&&active!=='probe'&&active!=='probe-report')interrupt(uiLocale.t('Sortie du panneau de palpage : simulation arrêtée. Aucun retrait automatique.'));render();});
   window.addEventListener('cnc-job-status',function(e){if(!!e.detail.simulation!==simulation)return;if(machine!==e.detail.machine)machineReceived=Date.now();machine=e.detail.machine;busy=!!e.detail.busy;if(engine.snapshot().running&&!available())interrupt(uiLocale.t('État du simulateur incompatible. Cycle interrompu, aucune reprise automatique.'));
-    if(!simulation){
-      realPilot=e.detail.pilot||null;realHalt=e.detail.halt||null;realConnected=e.detail.transportConnected===true;realAwaiting=!!(machine&&e.detail.probeRun&&machine.port===e.detail.probeRun);
-      var active=machine&&machine.operator&&/^G5[4-9]$/.test(String(machine.operator.wcs||''))?machine.operator.wcs:'';
-      if(active&&!wcsTouched&&!(real&&real.cycle(machine))&&$('probe-wcs').value!==active)$('probe-wcs').value=active;
-    }
-    var b=machine&&machine.blockProbe,real_=simulation||!machine?null:[machine.canBlockProbe,machine.blockProbeReason,b&&b.id,b&&b.state,b&&b.step&&b.step.index,machine.operator&&machine.operator.wcs,machine.probing,machine.canStop,machine.probeInput&&machine.probeInput.test,realPilot&&realPilot.state,realPilot&&realPilot.name,realConnected,realAwaiting];
-    if(!simulation&&!machine)real_=[e.detail.halt&&e.detail.halt.canStop];
-    var signature=JSON.stringify([machine&&machine.port,machine&&machine.activeState,machine&&machine.fresh,busy,simulation?null:liveInput(),real_]);if(signature!==lastState){lastState=signature;render();}});
+    var signature=JSON.stringify([machine&&machine.port,machine&&machine.activeState,machine&&machine.fresh,busy,liveInput()]);if(signature!==lastState){lastState=signature;render();}});
   window.addEventListener('cnc-probe-interrupt',function(){interrupt(uiLocale.t('Alarme fictive. Cycle interrompu ; aucune origine supplémentaire appliquée.'));});
   document.addEventListener('visibilitychange',function(){if(document.hidden)interrupt(uiLocale.t('Page masquée : simulation interrompue, aucune reprise automatique.'));});
   window.addEventListener('beforeunload',function(){release();});

@@ -6,7 +6,7 @@
 const fs=require('fs'),path=require('path'),vm=require('vm'),assert=require('assert').strict;
 const acorn=require('acorn');
 const dir=path.join(__dirname,'touch'),read=name=>fs.readFileSync(path.join(dir,name),'utf8');
-const SIMULATION_ONLY=['coordinate-editor.js','coordinate-plan.js','job-simulation.js','simulation-history.js','simulation-machine.js','simulation-motion.js','simulation-report.js'];
+const SIMULATION_ONLY=['coordinate-editor.js','coordinate-plan.js','probe-ui.js','probe-preparation.js','job-simulation.js','simulation-history.js','simulation-machine.js','simulation-motion.js','simulation-report.js'];
 const FORBIDDEN=/simul|fictif|fictiv|fictic|virtuel|virtual/i;
 function scripts(html){return [...html.matchAll(/<script[^>]*\ssrc="([^"?]+)/g)].map(m=>m[1]);}
 
@@ -107,16 +107,12 @@ for(const language of ['fr','en','es']){
 // h. Probing (display only): on the real page the bench wording is replaced, in the
 // three languages; the import of a simulation backup is still refused, without
 // sending the operator to the removed mode.
-const probe=read('probe-ui.js');
-// Block probing (2026-11-14): the Results screen of the real page shows the last block probe read from the machine.
-['Progression du palpage','Dernier palpage au bloc · lu dans l’état de la machine','Valeurs relevées et écrites par le serveur CNCjs. Vérifiez la position de travail avant d’usiner.',
- 'Copiez le fichier sur l’autre appareil puis ouvrez ce panneau pour l’importer.','Banc réinitialisé. Aucun repère réel modifié.'].forEach(text=>{
-  assert(probe.includes("uiLocale.t('"+text+"')"),'probe-ui.js real wording: '+text);
-  for(const language of ['fr','en','es']){const t=locale(language).t(text);assert(language==='fr'||t!==text,language+': no translation for '+text);assert(!FORBIDDEN.test(t),language+': '+t);}
-});
-assert(probe.includes("'cnc-palpage-'+(simulation?'simulation':'preparation')+'-'"),'real probing export not named simulation');
-// The profile count after an import is translated like the one shown on opening.
-assert(!/[^(]'préparation réelle'/.test(probe)&&probe.split("uiLocale.t('préparation réelle')").length===3,'probe-ui.js: « préparation réelle » translated in both counts');
+const probe=read('zero-piece.js');
+assert(!/screen-probe|cnc-plate-show/.test(probe),'real owner has no probe screens or plate relay');
+for(const text of ['Palper au bloc {axes}…','Zéro Z à la plaque…','Sauvegarde des sondes']){
+ for(const language of ['fr','en','es']){const translated=locale(language).t(text);assert(language==='fr'||translated!==text);assert(!FORBIDDEN.test(translated));}
+}
+
 {
   const model=require('./touch/probe-model.js'),transfer=require('./touch/probe-transfer.js');
   const backup=JSON.stringify({kind:'cnc-touch-probe-profiles',version:1,mode:'simulation',units:'mm-mm/min',profiles:[model.demo()]});

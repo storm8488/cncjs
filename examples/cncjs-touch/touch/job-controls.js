@@ -148,7 +148,7 @@
     var e=new Error((data&&data.code&&uiLocale.format?uiLocale.format(data.code,data.params,fallback):fallback)+(why.length?' '+why.join(' '):''));
     if(data&&typeof data.code==='string'){e.code=data.code;e.params=data.params||null;e.reasons=data.reasons||[];}
     if(data&&data.blockProbe&&window.CNCProbeReal&&typeof window.CNCProbeReal.failureText==='function'){
-      var b=data.blockProbe;e.message=window.CNCProbeReal.failureText(b.failure,b.written,b.needsHoming);
+      var b=data.blockProbe;e.blockProbe=b;e.message=window.CNCProbeReal.failureText(b.failure,b.written,b.needsHoming);
     }
     return e;
   }
@@ -535,7 +535,7 @@
         if(data.snapshot)apply(data.snapshot,Date.now()-started);
       }
       return data;
-    }).catch(function(e){showRefusal(e,host);if(ownGeneration===generation&&id>=feedbackSequence){feedbackSequence=id;text('job-feedback',e.message);setFeedbackState(e&&e.uncertain?'uncertain':'failed');if(e&&e.control)controlFeedback=e;}throw e;})
+    }).catch(function(e){showRefusal(e,host);if(ownGeneration===generation&&id>=feedbackSequence){feedbackSequence=id;text('job-feedback',e.message);setFeedbackState(e&&e.uncertain?'uncertain':'failed');if(e&&e.control)controlFeedback=e;if(action==='blockProbe'&&e.blockProbe&&window.cncZeroPiece)window.cncZeroPiece.failure(e.blockProbe,current);}throw e;})
       .then(function(data){finish();return data;},function(e){finish();throw e;});
   }
   // operation: 'start' | 'resume' (the loaded program) | 'macro' (extra.macroId).
@@ -583,7 +583,7 @@
       $('job-dialog-file').textContent=(operation==='blockProbe'&&data.name?(uiLocale.message||uiLocale.t)(data.name):data.name||current.originalName||current.name||'')+' · '+port+(simulation?'':' · '+targetText(current)+' · '+uiLocale.t('Pilote : ')+(pilot.value||'—'));
       var identity=$('job-dialog-file').textContent;$('job-dialog-file').setAttribute('data-details',identity);$('job-dialog-file').textContent=data.name||current.originalName||current.name||'';
       if(!$('job-dialog-details')){var detailsButton=document.createElement('button');detailsButton.type='button';detailsButton.id='job-dialog-details';detailsButton.textContent=uiLocale.t('Détails');$('job-dialog-file').parentNode&&$('job-dialog-file').parentNode.insertBefore(detailsButton,$('job-warning'));}
-      if($('job-dialog-details'))$('job-dialog-details').onclick=function(){if(window.cncShell)window.cncShell.details({lignes:[{libelle:uiLocale.t('Machine'),valeur:identity}]});};
+      if($('job-dialog-details'))$('job-dialog-details').onclick=function(){if(window.cncShell)window.cncShell.details({lignes:[{libelle:uiLocale.t('Machine'),valeur:identity}].concat(operation==='blockProbe'?[{libelle:uiLocale.t('Sonde'),valeur:note}]:[]),brut:operation==='blockProbe'?data.blockProbe:null});};
 
       // Start of a real job: the server's travel pre-check of this exact program (F2), joined to the
       // ticket; unknown is never shown as a green light. Without it (older server), the client's
@@ -595,6 +595,8 @@
       // Tool change resume or a resume from a line: what will happen, in one line.
       // Block probe: the server's numbers of this ticket (search, lateral move, depth, reach).
       var note=operation==='blockProbe'?(window.CNCProbeReal?window.CNCProbeReal.dialogNote(data.blockProbe):''):window.CNCJobResume&&!simulation?window.CNCJobResume.dialogNote(operation,current,request):'';if($('job-note')){$('job-note').textContent=note;$('job-note').hidden=!note;}
+      var drawing=$('job-probe-diagram');if(!drawing&&$('job-note')){drawing=document.createElement('div');drawing.id='job-probe-diagram';$('job-note').parentNode.insertBefore(drawing,$('job-note'));}
+      if(drawing){drawing.hidden=operation!=='blockProbe';if(operation==='blockProbe'&&window.CNCProbeDiagram){var planDrawing=window.CNCProbeDiagram.attach(drawing,{mode:'plan'});planDrawing.update(request.profile,axes,request.diameter,data.blockProbe);$('job-note').hidden=true;}}
       countdown(Math.max(0,Math.ceil((until-elapsedClock())/1000)));
       dialogShownAt=elapsedClock();
       $('job-check').checked=false;$('job-confirm').disabled=true;$('job-dialog').hidden=false;
@@ -620,7 +622,7 @@
   bind($('job-pause'),'click',pause);
   bind($('job-stop'),'click',stop);
   bind($('job-dismiss'),'click',dismiss);
-  bind($('job-dialog-modify'),'click',function(){if(!ticket||ticket.operation!=='zeroZ')return;dismiss();if(window.cncSeance)window.cncSeance.lancer('plaque');else{window.dispatchEvent(new CustomEvent('cnc-navigate',{detail:'home'}));window.dispatchEvent(new CustomEvent('cnc-plate-show',{detail:null}));}});
+  bind($('job-dialog-modify'),'click',function(){if(!ticket||ticket.operation!=='zeroZ')return;dismiss();if(window.cncSeance)window.cncSeance.lancer('plaque');else if(window.cncZeroPiece)window.cncZeroPiece.plate(true);});
   bind($('job-check'),'change',function(){$('job-confirm').disabled=!this.checked||!confirmable();});
   bind($('job-confirm'),'click',function(){
     if(ticket&&elapsedClock()-dialogShownAt<600)return;

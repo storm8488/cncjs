@@ -101,5 +101,14 @@ const body = { axes: 'XYZ', wcs: 'G54', diameter: 6, profile: { thickness: 5, fa
   await opened; assert.equal(g.el('job-dialog-title').textContent, 'Probe the block Z');
   assert.equal(g.el('job-warning').textContent, 'Probing moves the tool until it touches the block. Clear the area around the block.');
   g.controls().dispose();
+  // The HTTP failure carries only the server's three outcome fields (K14), before a new snapshot.
+  {
+    const h=load(),outcomes=[];h.window.CNCProbeReal=require('./touch/probe-real.js');h.window.cncZeroPiece={failure:(b,m)=>outcomes.push({b,m})};
+    await h.connect(h.machine({canBlockProbe:true,operator:{wcs:'G54'}}));
+    const opened=h.controls().prepareCommand('blockProbe',body);h.answer(h.posts().at(-1),{nonce:'fail-card',expiresIn:15,name:'Probe',blockProbe:ticket});await opened;
+    h.advance(600);h.el('job-check').checked=true;h.el('job-check').fire('change');h.el('job-confirm').click();
+    const b={failure:{code:'ETOUCH_PROBE_WRITE_UNCERTAIN',params:{}},written:'uncertain',needsHoming:true};h.answer(h.posts().at(-1),{message:'failed',blockProbe:b},409);await h.flush();
+    assert.equal(outcomes.length,1);assert.deepEqual(JSON.parse(JSON.stringify(outcomes[0].b)),b);assert.equal(outcomes[0].m.port,'COM3');h.controls().dispose();
+  }
   console.log('PASS block probe dialog: prepare with the operation fields, title / warning / box / server numbers in the note, run waits 270 s, prepareCommand resolves {opened} and never rejects, coded refusal, closed with the server reason, other commands unchanged, English.');
 })().catch((e) => { console.error(e); process.exitCode = 1; });

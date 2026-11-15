@@ -6,6 +6,8 @@
 simulation.html
 coordinate-editor.js
 coordinate-plan.js
+probe-ui.js
+probe-preparation.js
 job-simulation.js
 simulation-history.js
 simulation-machine.js

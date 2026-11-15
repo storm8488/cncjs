@@ -33,7 +33,7 @@ for(const invalid of ['{',JSON.stringify({version:2,profiles:[model.empty()]}),J
  assert.match(screen.node('probe-profile-status').textContent,/illisible/);
 }
 for(const name of ['index.html','simulation.html']){
- const html=fs.readFileSync(__dirname+'/touch/'+name,'utf8');assert(html.indexOf('profile-storage.js')>=0);assert(html.indexOf('profile-storage.js')<html.indexOf('probe-ui.js'));
+ const owner=name==='index.html'?'zero-piece.js':'probe-ui.js';const html=fs.readFileSync(__dirname+'/touch/'+name,'utf8');assert(html.indexOf('profile-storage.js')>=0);assert(html.indexOf('profile-storage.js')<html.indexOf(owner));
 }
 console.log('PASS: stale-tab writes rejected, own writes advance baseline, readback/permission/quota failures, actual UI save guard and invalid storage preserved.');
 // The probe measures take the shared numeric pad: the kiosk has no system keyboard.

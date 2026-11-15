@@ -596,10 +596,10 @@
     },
     {
       "id": "PA-01",
-      "sort": "inchangé",
-      "ecran": "Suivi › Zéro Z avec une plaque",
-      "selecteur": "#home-plate-probe (+ champs #home-plate-thickness, #home-plate-search)",
-      "etat": "Carte visible hors laser si canZeroZ ou palpage en cours (masquée sinon, sans raison) ; bouton désactivé si !canZeroZ ; épaisseur 0,01–50 et descente 1–100 vérifiées par la page, mémorisées dans le navigateur.",
+      "sort": "déplacé",
+      "ecran": "Zéro pièce (shared sheets and pause/completion plate entries)",
+      "selecteur": "#probe-plate-start",
+      "etat": "Visible on the CNC probe card; canZeroZ and the existing fresh stream/pilot guards; unchanged thickness/search, checkbox, nonce and server guards.",
       "requete": {
         "canal": "http",
         "methode": "POST",
@@ -618,26 +618,27 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Ticket à usage unique : nonce, même opération, 15 s, même flux ; zeroZReady : available, pas de palpage / jog / chargement, repos ou pause M0/M1/M6, Idle, file vide, broche arrêtée, $G récent, G90, G21, $13 = 0, G0/G1+F en pause, repère connu, Z connu, sonde rapportée fraîche et libre, pas d’automatisme. Ni référence, ni contrôle de course.",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L3b",
+      "fait": true
     },
     {
       "id": "PA-02",
-      "sort": "inchangé",
-      "ecran": "Sonde",
-      "selecteur": "#probe-zero-z",
+      "sort": "supprimé",
+      "ecran": "Zéro pièce (shared sheets and pause/completion plate entries)",
+      "selecteur": null,
       "etat": "Masqué en laser ; désactivé si !canZeroZ. Navigation vers Suivi + focus sur PA-01.",
       "requete": null,
       "refus": "Action indisponible dans cet état.",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L3b",
+      "fait": true,
+      "remplace": "PA-01, same plate owner on Work zero; no navigation to a hidden Suivi card."
     },
     {
       "id": "PA-03",
-      "sort": "inchangé",
-      "ecran": "Sonde",
-      "selecteur": "#probe-start (choix [data-probe-operation] Z / X / Y / XYZ, #probe-wcs, #probe-diameter, profil)",
-      "etat": "Actif si launchState.ready : machine fraîche, pas pilotée par un autre, profil valide, repère choisi = repère actif, canBlockProbe, rien en attente, pas de cycle.",
+      "sort": "déplacé",
+      "ecran": "Zéro pièce (shared sheets and pause/completion plate entries)",
+      "selecteur": "#probe-start",
+      "etat": "XYZ on each arrival; missing measurements open setup without an API request. Otherwise canBlockProbe and existing fresh stream/pilot guards; active operator.wcs only; unchanged request, checkbox, nonce and server guards.",
       "requete": {
         "canal": "http",
         "methode": "POST",
@@ -670,15 +671,15 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Ticket à usage unique : nonce, même opération, 15 s, même flux ; blockReady : capacité plateProbe, jog activé, zeroZReady, workflow idle, pas de homing, M5, G94, machine référencée, course connue et position dedans, $110–$112 connus, MPos connue, test du contact fait (< 10 min et après le dernier échec) ; Paramètres, plan et pilote",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L3b",
+      "fait": true
     },
     {
       "id": "PA-04",
-      "sort": "inchangé",
-      "ecran": "Sonde",
+      "sort": "déplacé",
+      "ecran": "Zéro pièce (shared sheets and pause/completion plate entries)",
       "selecteur": "#probe-stop",
-      "etat": "Actif pendant un cycle si canStop (ou état perdu avec halt.canStop).",
+      "etat": "Direct cncJobControls.stop(), including a remembered busy target after stream loss.",
       "requete": {
         "canal": "http",
         "methode": "POST",
@@ -688,19 +689,19 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Action libre pour tous (SAFE_ACTIONS), même port piloté par un autre ; generation / transportId vérifiés seulement s’ils sont fournis ; tolérés périmés pour pause, stop, spindleStop, jog-stop",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L3b",
+      "fait": true
     },
     {
       "id": "PA-05",
-      "sort": "inchangé",
-      "ecran": "Sonde, Profils, Diagnostic, Transfert",
-      "selecteur": "#probe-test, [data-probe-operation], #probe-profile, #probe-save, #probe-profiles-import/-export…",
-      "etat": "Local au navigateur (profils, choix) ; le diagnostic lit les rapports (Pn) sans commande. Le « test du contact » exigé par blockReady est déduit côté serveur des rapports.",
+      "sort": "déplacé",
+      "ecran": "Zéro pièce (shared sheets and pause/completion plate entries)",
+      "selecteur": "#probe-test",
+      "etat": "Shared signal-driven diagnostic and local profile/backup sheets; no motion command.",
       "requete": null,
       "refus": "Action indisponible dans cet état.",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L3b",
+      "fait": true
     },
     {
       "id": "PA-06",

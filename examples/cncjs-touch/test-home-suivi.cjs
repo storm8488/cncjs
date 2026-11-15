@@ -87,7 +87,7 @@ const STATES = {
   perime: {...base, fresh: false, canStart: true, canLoad: true},
   jog: {...base, motion: {jog: true}, canStop: false, canStart: false, canLoad: false}
 };
-const BUTTONS = ['home-job-load', 'home-job-start', 'home-job-pause', 'home-job-resume', 'home-job-stop', 'home-job-primary-row', 'home-job-resume-row', 'home-plate', 'home-plate-probe', 'home-frame', 'home-frame-start', 'home-resume-line', 'home-pause-m5', 'home-program-pause'];
+const BUTTONS = ['home-job-load', 'home-job-start', 'home-job-pause', 'home-job-resume', 'home-job-stop', 'home-job-primary-row', 'home-job-resume-row', 'home-frame', 'home-frame-start', 'home-resume-line', 'home-pause-m5', 'home-program-pause'];
 // D = disabled, H = hidden, in the order of BUTTONS, then | the overrides card (H) and its buttons (D): feed ×5,
 // spindle ×5, rapids ×3; recorded with job-dashboard.js and job-resume.js of commit 44c6a67c.
 const EXPECTED = {
@@ -118,7 +118,8 @@ for (const lang of [null, 'es']) {
     p.emit('cnc-job-status', {machine: null, halt: {canPause: true, canStop: true, port: 'P'}, simulation: false}); seen[kind + ':horsLigne'] = snap();
     p.send(null); seen[kind + ':aucun'] = snap();
   }
-  assert.deepEqual(seen, EXPECTED, 'disabled / hidden of every machine button unchanged (' + (lang || 'fr') + ')');
+  const migrated=Object.fromEntries(Object.entries(EXPECTED).map(([k,v])=>{const [buttons,overrides]=v.split(' | ');return [k,buttons.split(' ').filter((_,i)=>i!==7&&i!==8).join(' ')+' | '+overrides];}));
+  assert.deepEqual(seen, migrated, 'disabled / hidden of every machine button unchanged (' + (lang || 'fr') + ')');
 }
 
 // ---- Behaviour, v1 (French) ----
@@ -171,7 +172,7 @@ for (const lang of [null, 'es']) {
   // CNC: a speed, with its unit.
   p.send({...run, spindleSpeed: 12000}); assert.match(p.node('home-live-spindle').textContent, /^12.000 tr\/min$/u);
   // Plate or resume form open: the v2 messages slot gives it room (performance-v2.css reads data-v2-form).
-  p.send(STATES.palpage); assert.equal(board.getAttribute('data-v2-form'), '1', 'plate shown during a probe');
+  p.send(STATES.palpage); assert.equal(board.getAttribute('data-v2-form'), '0', 'plate now uses a shared sheet');
   p.send(run); assert.equal(board.getAttribute('data-v2-form'), '0');
 }
 {

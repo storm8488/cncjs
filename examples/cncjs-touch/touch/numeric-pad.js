@@ -128,9 +128,11 @@
     if (target && target.isConnected && typeof target.focus === 'function') target.focus({ preventScroll: true });
   }
   function open(input, rules) {
+    rules = rules || {};
     if (!modal) build();
     if (input.disabled) return;
     bound = { input: input, rules: rules || {} }; draft = input.value || ''; returnTo = input;
+    modal.setAttribute('data-dock',rules.dock==='right'?'right':'');
     title.textContent = rules.label || input.getAttribute('aria-label') || '';
     bounds.textContent = limits(rules) ? t('Valeur attendue : ') + limits(rules) + (rules.integer ? t(' (entier)') : '') : (rules.integer ? t('Nombre entier') : '');
     unit.textContent = rules.unit || '';

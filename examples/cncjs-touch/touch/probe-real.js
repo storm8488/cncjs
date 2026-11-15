@@ -117,6 +117,11 @@
     }
     return String(e.message||'');
   }
-  var api={request:request,launchState:launchState,startHint:startHint,dialogNote:dialogNote,stepLabel:stepLabel,progress:progress,summary:summary,resultLines:resultLines,failureText:failureText,refusalText:refusalText,cycle:cycle};
+  // The shared refusal card names a measured field in workshop terms; the raw response stays in Details.
+  function cause(error,fieldNames){
+    if(!error||!/^ETOUCH_PROBE_(PARAM|MISSING)$/.test(error.code||'')||!error.params||!fieldNames||!fieldNames[error.params.field])return error;
+    return {code:error.code,message:error.message,params:Object.assign({},error.params,{field:fieldNames[error.params.field]})};
+  }
+  var api={cause:cause,request:request,launchState:launchState,startHint:startHint,dialogNote:dialogNote,stepLabel:stepLabel,progress:progress,summary:summary,resultLines:resultLines,failureText:failureText,refusalText:refusalText,cycle:cycle};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.CNCProbeReal=api;
 })(typeof window==='undefined'?this:window);
