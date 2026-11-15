@@ -25,7 +25,10 @@
 ['Attente du premier rapport de la machine.','Waiting for the first machine report.','Esperando el primer informe de la máquina.'],
 ['Aucun rapport de la carte. Vérifiez son alimentation, puis réessayez.','No report from the board. Check its power supply, then try again.','Ningún informe de la placa. Compruebe su alimentación y vuelva a intentarlo.'],
 // Work offset proven against $# (D2, src/server/services/touch/job-service.js verifyOffset).
-['Vérification de l’origine de la pièce relancée.','Work origin check started again.','Verificación del origen de la pieza reiniciada.']
+['Vérification de l’origine de la pièce relancée.','Work origin check started again.','Verificación del origen de la pieza reiniciada.'],
+// Socket.IO commands refused while the server holds the machine (C-12, C-60, src/server/services/touch/job-service.js socketRefusal).
+['Palpage en cours sur la tablette : commande refusée jusqu’à sa fin (Arrêter reste possible).','Probing in progress on the tablet: command refused until it ends (Stop remains possible).','Sondeo en curso en la tableta: comando rechazado hasta que termine (Detener sigue siendo posible).'],
+['Commande système en cours sur la tablette : commande refusée jusqu’à sa fin (Arrêter reste possible).','Host command in progress on the tablet: command refused until it ends (Stop remains possible).','Comando del sistema en curso en la tableta: comando rechazado hasta que termine (Detener sigue siendo posible).']
 );
 // Server refusals by stable code (cncI18n.format), machine type and laser (src/server/services/touch:
 // machine-profile.js, resume.js, program-check.js): code, French (the server's message), English, Spanish.

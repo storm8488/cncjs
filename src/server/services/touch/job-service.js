@@ -178,6 +178,11 @@ const startRefusal = (code, params = {}, reasons) => {
   return err;
 };
 
+// Socket.IO commands that are not safe, refused while the server holds the machine (C-12, C-60):
+// shown by CNCjs's own interface.
+const SOCKET_PROBE_BUSY = 'Palpage en cours sur la tablette : commande refusée jusqu’à sa fin (Arrêter reste possible).';
+const SOCKET_SYSTEM_BUSY = 'Commande système en cours sur la tablette : commande refusée jusqu’à sa fin (Arrêter reste possible).';
+
 const hasAutomations = (config) => {
   return (config.get('events') || []).some((event) => event.enabled !== false);
 };
@@ -1213,7 +1218,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
 
   // Z zero with a touch plate, and the tracking of Grbl's answers to the
   // lines the service sends itself: see plate-probe.js.
-  const { zeroZReady, plateParams, answers, zeroZ, quiet } = createPlateProbe({
+  const { zeroZReady, plateParams, answers, zeroZ, quiet, stop: plateStop } = createPlateProbe({
     config,
     clock,
     conflict,
@@ -1231,7 +1236,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     grblCode,
     probeInput,
     moving: (c, r) => moves.moving(c, r),
-    referenceReady
+    referenceReady,
+    haltPlan,
+    halt
   });
   // The plate probe turns no spindle but is a CNC operation (contract §3).
   const plateReady = (c) => {
@@ -1840,11 +1847,18 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       if (op === 'claim') {
         return control.claim(c.options.port, actor);
       }
-      if (op === 'release') {
-        return control.release(c.options.port, actor);
-      }
-      if (op === 'takeover') {
-        return control.takeover(c.options.port, actor, body.reason);
+      if (op === 'release' || op === 'takeover') {
+        const keyOf = (owner) => (owner ? owner.kind + ':' + owner.id : '');
+        const before = keyOf(control.inspect(c.options.port).owner);
+        const out = op === 'release' ? control.release(c.options.port, actor) : control.takeover(c.options.port, actor, body.reason);
+        // The device that lost the lease loses its sequence in the same synchronous step, before any
+        // other command can be read (C-12): the block probe's supervisor check runs now, not at its
+        // next tick; a plate probe stops (feed hold then reset).
+        if (keyOf(control.inspect(c.options.port).owner) !== before) {
+          blockProbe.supervise(c, r);
+          plateStop(c, r);
+        }
+        return out;
       }
       throw conflict('Opération de pilotage inconnue.');
     }
@@ -2165,16 +2179,12 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
           r.offset.invalidate('stop');
         }
       };
-      // A plate probe in progress: feed hold then reset, and the sequence gives
-      // up at its next step.
+      // A plate probe in progress: feed hold then reset, a line just sent included (C-08), and
+      // the sequence gives up at its next step (plate-probe.js).
       if (r.probing) {
         r.ticket = null;
-        r.probing.cancelled = true;
         markStopped();
-        const plan = haltPlan(c);
-        c.command('feeder:stop');
-        c.command('gcode:stop');
-        halt(c, plan);
+        plateStop(c, r);
         return { message: 'Palpage interrompu. Vérifiez l’immobilisation ; le zéro Z n’est pas réglé.' };
       }
       const feeder = c.feeder.toJSON();
@@ -2425,20 +2435,39 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     r.offset.invalidate('socket');
   };
 
-  // index.js refuseSocket: a command that is not safe waits while the D2 transaction writes
-  // its lines (null when allowed, else the coded refusal).
+  // index.js refuseSocket: a command that is not safe waits, whoever owns the port, while a
+  // sequence of the server runs (plate or block probe, C-12), the D2 transaction writes its lines,
+  // or a host command holds the machine (C-60). Null when allowed, else the refusal.
   const socketRefusal = (port) => {
-    const c = !disposed && controllers()[port];
+    if (disposed) {
+      return null;
+    }
+    if (systemCommands.current()) {
+      return conflict(SOCKET_SYSTEM_BUSY);
+    }
+    const c = controllers()[port];
     const r = c && records.get(c);
+    if (r && r.probing) {
+      return conflict(SOCKET_PROBE_BUSY);
+    }
     return r && r.offset.checking() ? r.offset.refusal() : null;
   };
 
-  // index.js refuseSocket: a stop from a socket ends the D2 transaction where it is.
+  // index.js refuseSocket: a stop from a socket (gcode:stop, stop, feeder:stop, feedhold, pause,
+  // reset, `!`, 0x18) first ends, synchronously, the sequence of the server in progress: the block
+  // probe and the plate probe (feed hold then reset, PLAN-CORRECTIONS § 1.6, C-09), the D2
+  // transaction. The command then goes its own way.
   const socketStop = (port) => {
     const c = !disposed && controllers()[port];
     const r = c && records.get(c);
-    if (r) {
-      r.offset.cancel();
+    if (!r) {
+      return;
+    }
+    r.offset.cancel();
+    if (r.probing && r.probing.kind === 'block') {
+      blockProbe.stop(c, r, 'stop');
+    } else if (r.probing) {
+      plateStop(c, r);
     }
   };
 

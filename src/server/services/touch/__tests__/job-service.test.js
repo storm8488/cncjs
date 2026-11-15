@@ -1467,6 +1467,10 @@ describe('job service', () => {
       c.command = (name, ...args) => {
         if (name !== 'gcode') {
           original(name, ...args);
+          // Like Grbl, a soft reset ends with the board's banner (a stop of the plate probe waits for it).
+          if (name === 'reset') {
+            setTimeout(() => c.runner.emit('startup', { firmware: 'Grbl', version: '1.1h' }), 1);
+          }
           return;
         }
         const line = args[0];

@@ -28,6 +28,11 @@ const axisNumber = (v) => {
 
 const fmt = (n) => String(Math.round(n * 1000) / 1000);
 
+// After a stop that sent a feed hold or a reset, the lock is kept until the stop is proven: the
+// board's banner, a newer report in Alarm, or, once the reset delay of halt.js plus 2 s is over,
+// a newer report at rest in Idle (like the block probe's released()).
+const RELEASE_MS = 7000;
+
 // deps (from job-service.js):
 //   config                  CNCjs configuration (automations)
 //   clock()                 monotonic time, in ms
@@ -46,12 +51,16 @@ const fmt = (n) => String(Math.round(n * 1000) / 1000);
 //   probeInput              probe pin observer (inspect(port))
 //   moving(c, r)            a jog of the service sent and not over (motion.js)
 //   referenceReady(c)       throws on a machine without its reference while $22=1 (C-18)
-// Returns { zeroZReady(c), plateParams(body), answers(c, r), zeroZ(c, ticket), quiet(c, r, t, ms) }.
+//   haltPlan(c), halt(c, plan)  the stop sequence (halt.js)
+// Returns { zeroZReady(c), plateParams(body), answers(c, r), zeroZ(c, ticket), quiet(c, r, t, ms), stop(c, r) }.
 export const createPlateProbe = (deps) => {
   const {
     config, clock, conflict, controllers, record, later, changed, available, spindleStill,
-    pauseKind, modalFresh, allSettings, settingNumber, hasAutomations, grblCode, probeInput, moving, referenceReady
+    pauseKind, modalFresh, allSettings, settingNumber, hasAutomations, grblCode, probeInput, moving, referenceReady,
+    haltPlan, halt
   } = deps;
+
+  const connected = (c) => controllers()[c.options.port] === c && !c.isClose() && !!c.runner;
 
   // The plate probe runs at rest, or during a pause the program asked for
   // (tool change) once the machine has stopped, with the probe free, the
@@ -223,15 +232,30 @@ export const createPlateProbe = (deps) => {
     const r = record(c);
     const p = t.params;
     const zOf = () => axisNumber(controllerStatus(c).wpos && controllerStatus(c).wpos.z);
+    // outstanding: a line sent and not over (C-08: a stop while the report still says Idle holds it).
+    // halted: the stop sent a feed hold or a reset, and what it is proven against.
+    const probing = { kind: 'plate', contact: null, error: null, outstanding: false, cancelled: false, halted: null };
     const send = (line, limitMs) => {
+      // Stopped between two lines (Arrêter, a socket stop): nothing more leaves.
+      if (probing.cancelled) {
+        return Promise.reject(conflict('Palpage interrompu par l’opérateur.'));
+      }
       const t = answers(c, r);
+      probing.outstanding = true;
       c.command('gcode', line);
-      return quiet(c, r, t, limitMs).then(() => t.done(), (err) => {
+      return quiet(c, r, t, limitMs).then(() => {
+        probing.outstanding = false;
+        t.done();
+      }, (err) => {
+        // A line Grbl refused (error:n) never ran.
+        if (t.error) {
+          probing.outstanding = false;
+        }
         t.done();
         throw err;
       });
     };
-    r.probing = { contact: null, error: null };
+    r.probing = probing;
     changed();
     const z0 = zOf();
     // What the paused program expects back (see zeroZReady).
@@ -276,18 +300,68 @@ export const createPlateProbe = (deps) => {
         return { message: 'Zéro Z réglé avec la plaque de ' + p.thickness + ' mm (contact à Z machine ' + fmt(r.zeroZ.machineZ) + ', repère ' + r.zeroZ.wcs + '). Outil dégagé à Z ' + fmt(retract) + '.' };
       })
       .catch((err) => {
-        r.zeroZ = { at: Date.now(), failed: err.message };
-        // The modal state the paused program relies on is no longer known.
-        if (inPause && r.job) {
-          r.job.probeFailed = true;
-        }
-        r.probing = null;
-        // The G10 may have been written (D2).
-        r.offset.invalidate('zero');
-        changed();
-        throw err;
+        const failed = () => {
+          r.zeroZ = { at: Date.now(), failed: err.message };
+          // The modal state the paused program relies on is no longer known.
+          if (inPause && r.job) {
+            r.job.probeFailed = true;
+          }
+          if (r.probing === probing) {
+            r.probing = null;
+          }
+          // The G10 may have been written (D2).
+          r.offset.invalidate('zero');
+          changed();
+          throw err;
+        };
+        // A stop that sent a feed hold or a reset keeps the lock until it is proven (C-08).
+        return probing.halted ? released(c, r, probing.halted).then(failed) : failed();
       });
   };
 
-  return { zeroZReady, plateParams, answers, zeroZ, quiet };
+  // Resolves once a stop is proven (see RELEASE_MS), or the controller or its record is gone.
+  const released = (c, r, halted) => new Promise((resolve) => {
+    const since = clock();
+    const check = () => {
+      const newer = r.reports > halted.reports;
+      const state = controllerStatus(c).activeState || '';
+      if (!connected(c) || r.startups !== halted.startups || (newer && /^Alarm/.test(state)) ||
+          (newer && clock() - since >= RELEASE_MS && state === 'Idle')) {
+        resolve();
+        return;
+      }
+      later(c, r, check, 50, resolve);
+    };
+    check();
+  });
+
+  // Arrêter, a socket stop, the lease changed (job-service.js): the plate probe in progress sends
+  // no further line, and a feed hold then a reset (halt.js) stop a move that may run, a line just
+  // sent whose report still says Idle included (C-08, C-09). False when no plate probe runs.
+  const stop = (c, r) => {
+    const probing = r.probing;
+    if (!probing || probing.kind !== 'plate') {
+      return false;
+    }
+    if (probing.cancelled) {
+      return true;
+    }
+    probing.cancelled = true;
+    if (connected(c)) {
+      let plan = haltPlan(c);
+      if (!plan && probing.outstanding) {
+        plan = 'hold';
+      }
+      c.command('feeder:stop');
+      c.command('gcode:stop');
+      halt(c, plan);
+      if (plan) {
+        probing.halted = { startups: r.startups, reports: r.reports };
+      }
+    }
+    changed();
+    return true;
+  };
+
+  return { zeroZReady, plateParams, answers, zeroZ, quiet, stop };
 };

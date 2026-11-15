@@ -373,7 +373,7 @@ const publicPlan = (plan) => {
 //   controllerInfo(c, r), allSettings(c), modalWcs(r), probeInput, control, transports, transportActors,
 //   zeroZReady(c), answers(c, r), quiet(c, r, t, ms), haltPlan(c), halt(c, plan), homingActive(r), requireCapability(c, name),
 //   offsetReady(c)  throws while the work offset is not proven equal to `$#` (D2, work-offset.js)
-// Returns { blockReady, bind, name, ticket, run, stop, forget, holds, transportClosed }.
+// Returns { blockReady, bind, name, ticket, run, stop, forget, holds, transportClosed, supervise }.
 export const createBlockProbe = (deps) => {
   const {
     config, clock, conflict, controllers, record, later, changed, log, controllerInfo, allSettings, modalWcs,
@@ -656,6 +656,12 @@ export const createBlockProbe = (deps) => {
       later(c, r, supervise, SUPERVISE_MS);
     };
     later(c, r, supervise, SUPERVISE_MS);
+    // The supervisor's checks now (the lease changed, job-service.js), not at its next tick.
+    session.supervise = () => {
+      if (live() && !probing.abort) {
+        verdict();
+      }
+    };
 
     // Before every line, at that very moment: the supervisor's checks.
     const ensure = () => {
@@ -1150,6 +1156,15 @@ export const createBlockProbe = (deps) => {
     session.abort('ETOUCH_PROBE_STREAM', {}, true);
   };
 
+  // The lease changed (job-service.js, release or takeover): the cycle of the device that lost it
+  // stops in the same synchronous step (C-12), not at the supervisor's next tick.
+  const supervise = (c, r) => {
+    const session = sessions.get(r);
+    if (session && !session.done && session.supervise) {
+      session.supervise();
+    }
+  };
+
   // A block probe of this stream's device keeps the stream from being rotated.
   const holds = (transportId) => {
     const key = keyOf(transportActors.get(transportId));
@@ -1159,5 +1174,5 @@ export const createBlockProbe = (deps) => {
     };
   };
 
-  return { blockReady, bind, name, ticket, run, stop, forget, holds, transportClosed };
+  return { blockReady, bind, name, ticket, run, stop, forget, holds, transportClosed, supervise };
 };

@@ -133,20 +133,24 @@ const refuseSocket = (socket, port, kind, cmdOrData) => {
     return null;
   }
   const safe = kind === 'command' ? safeCommand(cmdOrData) : safeWrite(cmdOrData);
-  // A stop ends the work offset check (D2) where it is, then goes its own way.
+  // A stop first ends the sequence of the server in progress (plate or block probe, work offset
+  // check D2), synchronously, then goes its own way (PLAN-CORRECTIONS § 1.6).
   if (safe && socketStopping(kind, cmdOrData)) {
     service.socketStop(port);
   }
   try {
-    control.authorize(port, socketActor(socket), kind === 'command' ? cmdOrData : kind, { safe });
-    // Allowed: what it sends decides whether a homing cycle seen next may teach the
-    // travel convention (job-service socketCommand). Stops and status queries change nothing.
+    // Nothing that moves or writes passes, whoever owns the port, while a sequence of the server
+    // runs or a host command holds the machine (C-12, C-60).
     if (!safe) {
-      // Nothing that moves or writes passes between two lines of the work offset check (D2).
       const busy = service.socketRefusal(port);
       if (busy) {
         return { message: busy.message, code: busy.code };
       }
+    }
+    control.authorize(port, socketActor(socket), kind === 'command' ? cmdOrData : kind, { safe });
+    // Allowed: what it sends decides whether a homing cycle seen next may teach the
+    // travel convention (job-service socketCommand). Stops and status queries change nothing.
+    if (!safe) {
       service.socketCommand(port, fullHoming(kind, cmdOrData));
     }
     return null;

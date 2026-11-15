@@ -1463,6 +1463,43 @@ describe('block probe: real cycle on a fake Grbl', () => {
     expect(ctx.g.sent).toEqual(['$#', 'G38.3 Z-20 F100', 'G53 G1 Z-117.565 F500']);
   }, 30000);
 
+  test('S49 C-09 a socket stop at rest between two lines (retract over, slow touch announced): no line leaves afterwards', async () => {
+    const ctx = await setup();
+    // CNCjs's Stop on the PC (index.js refuseSocket calls socketStop before the command goes its
+    // way), in the same instant the cycle announces its next line, before any supervisor tick.
+    let stopped = null;
+    ctx.service.subscribe(() => {
+      const b = ctx.service.list()[0].blockProbe;
+      if (!stopped && b && b.step.code === 'Z_SLOW') {
+        stopped = { sent: ctx.g.sent.slice(), active: ctx.g.active };
+        ctx.service.socketStop('TEST');
+      }
+    });
+    await ctx.launch({ axes: 'Z', wcs: 'G54', profile: PROFILE });
+    const { err } = await ctx.finish();
+    expect(stopped).toEqual({ sent: ['$#', 'G38.3 Z-20 F100', 'G53 G1 Z-117.565 F500'], active: 'Idle' });
+    expect(err.code).toBe('ETOUCH_PROBE_STOPPED');
+    await ctx.tick(1000);
+    // Nothing was moving: no hold, only the G0 that keeps G38.3 from staying the motion mode.
+    expect(ctx.g.sent).toEqual(stopped.sent.concat(['G0']));
+    expect(ctx.state().probing).toBe(false);
+  }, 30000);
+
+  test('S50 C-12 the lease released during the cycle: stopped in the same step, a socket command that is not safe refused until the stop is proven', async () => {
+    const ctx = await setup();
+    await ctx.launch();
+    await ctx.until(() => ctx.step() === 'Z_FAST' && ctx.g.active === 'Run');
+    expect(ctx.service.socketRefusal('TEST')).toMatchObject({ message: 'Palpage en cours sur la tablette : commande refusée jusqu’à sa fin (Arrêter reste possible).' });
+    await ctx.req('control', { operation: 'release' });
+    // Before any supervisor tick: the feed hold is out, `M3 S1000` from the PC would be refused.
+    expect(ctx.g.realtime).toEqual(['!']);
+    expect(ctx.state().blockProbe).toMatchObject({ state: 'stopping', failure: { code: 'ETOUCH_PROBE_CONTROL' } });
+    expect(ctx.service.socketRefusal('TEST')).not.toBeNull();
+    const { err } = await ctx.finish();
+    expect(err.code).toBe('ETOUCH_PROBE_CONTROL');
+    expect(ctx.service.socketRefusal('TEST')).toBeNull();
+  }, 30000);
+
   test('S41 the page and the server agree: the page request, the confirmation note, progress, result and failure texts', async () => {
     const ctx = await setup();
     const body = real.request(PROFILE, 'XYZ', 6, 'G54');
