@@ -680,3 +680,9 @@ SPEC-REFONTE.md governs the common rail, More, stage headers/footers and confirm
 All installed resource suffixes now agree with ADVANCED_VERSION (v2v for L1), including workers and CSS imports; test-cache-version reads that variable instead of freezing it. Once eligible v2 placement is established, status packets no longer request a layout frame. Hidden/locked pages request none. A capability loss keeps the current geometry during activity and returns to v1 at safe idle.
 
 The opening latch now follows SPEC-REFONTE section 3.1 exactly: only running or paused workflows latch v1. Other operations delay the unchanged safe-idle/bootstrap guards. This explicitly supersedes the broader P2 conservative latch and its corresponding older assertions.
+
+## L2 Machine details supersession (2026-11-15)
+
+The Machine screen has the same checklist, incident panel and secondary commands in Eco and Performance. The v2 machine slot now mounts inside ks-machine-details, with that sheet as its root; all v2m- class names remain unchanged. Its presenter consumes cnc-sheet-change {id,open}, retains the latest snapshot while closed, drops its freshness deadline on close and paints once on reopening. No v2 image, timer or RAF is created just because the Machine step is visible.
+
+Controlled comparison using ten reports while Machine is visible and its details sheet is closed: HEAD's presenter requests 10 extra RAFs and owns 1 freshness timer; L2 requests 0 extra RAFs and owns 0 timers. test-v2-machine-frames performs the same input sequence; in-memory substitution of HEAD's module makes the assertion fail. The page adds no periodic request, script or image. Coordinate copies and report-detail text now follow the sheet visibility as well. Two dead commissioning.css rules are removed; C5/L6 owns the remaining obsolete layout selectors. This supersedes descriptions that place the v2 Machine zones on screen-machine.

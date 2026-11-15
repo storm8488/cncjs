@@ -27,9 +27,9 @@
     // Who pilots the machine (F5), opened from the strip: details, and an explicit takeover with a reason.
     uiLocale.html('<div id="pilot-dialog" class="job-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-dialog-title" aria-describedby="pilot-dialog-text" hidden>') +
     uiLocale.html('<div class="job-dialog-card"><h2 id="pilot-dialog-title">La main</h2><p id="pilot-dialog-text"></p>') +
-    uiLocale.html('<div id="pilot-form" class="pilot-form" hidden><label for="pilot-reason">Motif de la prise de pilotage (3 caractères au moins, enregistré et montré à l’autre appareil)</label><input id="pilot-reason" type="text" maxlength="200" autocomplete="off">') +
+    uiLocale.html('<div id="pilot-form" class="pilot-form" hidden><div id="pilot-custom" hidden><label for="pilot-reason">Motif de la prise de pilotage (3 caractères au moins, enregistré et montré à l’autre appareil)</label><input id="pilot-reason" type="text" maxlength="200" autocomplete="off"></div>') +
     uiLocale.html('<div class="pilot-reasons"><button type="button" id="pilot-reason-a" class="t-btn">Prendre la main — je suis devant la machine</button><button type="button" id="pilot-reason-b" class="t-btn">Prendre la main — l’autre appareil est hors service</button><button type="button" id="pilot-other" class="t-btn">Autre motif…</button></div></div>') +
-    uiLocale.html('<p id="pilot-feedback" role="status"></p><div class="job-dialog-actions"><button id="pilot-dismiss" class="t-btn t-btn--ghost t-btn--lg">Fermer</button><button id="pilot-takeover" class="t-btn t-btn--warn t-btn--lg" hidden disabled>Prendre le pilotage</button></div></div></div>');
+    uiLocale.html('<p id="pilot-feedback" role="status"></p><div class="job-dialog-actions"><button id="pilot-dismiss" class="t-btn t-btn--ghost t-btn--lg">Fermer</button><button id="pilot-takeover" class="t-btn t-btn--warn t-btn--lg" hidden disabled>Prendre la main</button></div></div></div>');
   var $ = function(id) {return document.getElementById(id);};
   // Status line for a host command running on the server (fixed under the strip, ui-2027.css).
   var systemLine=document.createElement('p');systemLine.id='t-system-command';systemLine.className='t-system-command';systemLine.setAttribute('role','status');systemLine.hidden=true;
@@ -221,11 +221,14 @@
   // Pilot dialog (F5): who pilots, and for another owner an explicit takeover with a reason of
   // 3 characters at least. Never automatic: only the Take control button sends it.
   function pilotReason(){return String($('pilot-reason').value||'').trim();}
+  var pilotCustom=false;
   function renderPilotDialog(){
     if($('pilot-dialog').hidden)return;
-    text('pilot-dialog-text',(pilot.sentence||uiLocale.t('Pilotage : état machine indisponible.'))+(pilot.takenOver?' '+pilot.takenOver:'')+(pilot.state==='other'&&current?(current.probing?uiLocale.t(' Un palpage est en cours : prendre la main l’arrête.'):jogging(current)?uiLocale.t(' Un déplacement est en cours : prendre la main l’arrête.'):current.workflow!=='idle'?uiLocale.t(' L’usinage continue.'):''):''));
+    var owner=current&&current.control&&current.control.owner,sentence=pilot.state==='mine'?uiLocale.t('Cet appareil a la main.'):pilot.state==='free'?uiLocale.t('Personne n’a la main : la première commande la prend.'):pilot.sentence||uiLocale.t('Pilotage : état machine indisponible.');
+    if(pilot.state==='other'&&owner)sentence=uiLocale.t('C’est « {appareil} » qui a la main depuis {heure}.').replace('{appareil}',function(){return ownerName(owner);}).replace('{heure}',typeof owner.since==='number'?hourOf(owner.since):'—')+' '+uiLocale.t('Pause et Arrêter restent possibles ici.');
+    text('pilot-dialog-text',sentence+(pilot.takenOver?' '+pilot.takenOver:'')+(pilot.state==='other'&&current?(current.probing?uiLocale.t(' Un palpage est en cours : prendre la main l’arrête.'):current.motion&&current.motion.frame?' '+uiLocale.t('Un cadrage est en cours : prendre la main l’arrête.'):jogging(current)?uiLocale.t(' Un déplacement est en cours : prendre la main l’arrête.'):current.workflow!=='idle'?uiLocale.t(' L’usinage continue.'):''):''));
     var other=pilot.state==='other';
-    prop('pilot-form','hidden',!other);prop('pilot-takeover','hidden',!other);
+    prop('pilot-form','hidden',!other);prop('pilot-custom','hidden',!other||!pilotCustom);prop('pilot-takeover','hidden',!other||!pilotCustom);
     prop('pilot-takeover','disabled',!other||pilotSending||pilotReason().length<3);
     ['pilot-reason-a','pilot-reason-b'].forEach(function(id){prop(id,'disabled',!other||pilotSending);});
   }
@@ -240,7 +243,7 @@
     // confirmation; otherwise the whole strip.
     if(window.CNCStripGuard&&typeof window.CNCStripGuard.isolate==='function'){var restore=window.CNCStripGuard.isolate($('pilot-dialog'));pilotBackground=[{restore:restore}];}
     else pilotBackground=Array.prototype.filter.call(document.body.children||[],function(node){return node!==$('pilot-dialog')&&node.id!=='real-banner'&&!/^(SCRIPT|LINK|STYLE)$/.test(node.tagName);}).map(function(node){var entry={node:node,inert:node.inert};node.inert=true;return entry;});
-    $('pilot-reason').value='';text('pilot-feedback','');$('pilot-dialog').hidden=false;renderPilotDialog();
+    pilotCustom=false;$('pilot-reason').value='';text('pilot-feedback','');$('pilot-dialog').hidden=false;renderPilotDialog();
     (pilot.state==='other'?$('pilot-reason-a'):$('pilot-dismiss')).focus();
     return true;
   }
@@ -645,7 +648,7 @@
   bind(document,'focusin',function(e){if(!$('job-dialog').hidden&&!(window.CNCStripGuard&&window.CNCStripGuard.covered($('job-dialog')))&&!$('job-dialog').contains(e.target)&&stripStops().indexOf(e.target)<0)$('job-dismiss').focus();});
   bind($('pilot-dismiss'),'click',function(){closePilot();});
   bind($('pilot-takeover'),'click',takeOver);
-  bind($('pilot-other'),'click',function(){if(pilotSending||pilot.state!=='other')return;if(window.CNCTextKeyboard&&window.CNCTextKeyboard.open)window.CNCTextKeyboard.open($('pilot-reason'),{label:uiLocale.t('Autre motif…')});else $('pilot-reason').focus();});
+  bind($('pilot-other'),'click',function(){if(pilotSending||pilot.state!=='other')return;pilotCustom=true;renderPilotDialog();if(window.CNCTextKeyboard&&window.CNCTextKeyboard.open)window.CNCTextKeyboard.open($('pilot-reason'),{label:uiLocale.t('Autre motif…')});else $('pilot-reason').focus();});
   bind($('pilot-reason'),'input',function(){text('pilot-feedback','');renderPilotDialog();});
   // A reason of one's own: the shared text keyboard (text-keyboard.js), the kiosk has no system one.
   if(window.CNCTextKeyboard)window.CNCTextKeyboard.bind($('pilot-reason'),{label:uiLocale.t('Motif de la prise de pilotage (3 caractères au moins, enregistré et montré à l’autre appareil)')});
@@ -657,7 +660,7 @@
     if(window.CNCStripGuard&&typeof window.CNCStripGuard.covered==='function'&&window.CNCStripGuard.covered($('pilot-dialog')))return;
     if(e.key==='Escape'){closePilot();e.preventDefault();e.stopImmediatePropagation();return;}
     if(e.key!=='Tab')return;
-    var order=['pilot-reason','pilot-reason-a','pilot-reason-b','pilot-dismiss','pilot-takeover'].map($).filter(function(n){return n&&!n.hidden&&!n.disabled&&!(pilot.state!=='other'&&/^pilot-reason/.test(n.id));});
+    var order=['pilot-reason','pilot-reason-a','pilot-reason-b','pilot-other','pilot-dismiss','pilot-takeover'].map($).filter(function(n){return n&&!n.hidden&&!n.disabled&&!(n.id==='pilot-reason'&&!pilotCustom)&&!(pilot.state!=='other'&&/^pilot-reason|^pilot-other/.test(n.id));});
     // One cycle with the strip's Pause / Arrêter first, as for the confirmation (U5).
     order=stripStops().concat(order);
     if(order.length){var at=order.indexOf(document.activeElement),next=order[at<0?(e.shiftKey?order.length-1:0):(at+(e.shiftKey?order.length-1:1))%order.length];e.preventDefault();next.focus();e.stopImmediatePropagation();return;}

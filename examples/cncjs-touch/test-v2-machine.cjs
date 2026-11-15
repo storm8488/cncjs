@@ -19,7 +19,7 @@ function machinePage(o={}){
     if(!seen.has(key))seen.set(key,{t0:p.mono,a0:m.statusAgeMs});
     const s=seen.get(key),ageMs=s.a0+p.mono-s.t0;return {known:true,fresh:ageMs<=2500,ageMs};
   };
-  p.run('grbl-help.js');p.run('machine-limits.js');return p;
+  p.run('grbl-help.js');p.run('machine-limits.js');const show=p.show;p.show=screen=>{show(screen);p.emit('cnc-sheet-change',{id:'ks-machine-details',open:screen==='machine'});};return p;
 }
 const settings={'$110':'5000','$111':'5000','$112':'800','$120':'100','$121':'100','$122':'50','$130':'600','$131':'400','$20':'1','$21':'0','$22':'1'};
 const alarm={port:'A',generation:'g1',fresh:true,statusAgeMs:100,statusObservedAt:1,activeState:'Alarm',workflow:'idle',alarmCode:2,settings};
@@ -28,18 +28,18 @@ const pilot={state:'mine',value:'Cet appareil',sentence:'Piloté par cet apparei
   // RT / v1: no v2 frame, mount or presenter attribute.
   for(const o of [{noV2:true},{eligible:false}]){
     const p=machinePage(o);p.status(alarm,{pilot});p.emit('cnc-v2-change',{});
-    assert.equal(p.frames.size,0);assert.equal(p.node('screen-machine').getAttribute('data-v2-presenter'),null);
+    assert.equal(p.frames.size,0);assert.equal(p.node('ks-machine-details').getAttribute('data-v2-presenter'),null);
   }
   const p=machinePage();p.open();const content=p.mount('machine').content;
   p.show('machine');p.status(alarm,{pilot});assert.equal(content.children.length,0,'no rendering in a state handler');
-  p.frame();assert.equal(content.hidden,false);assert.equal(p.node('screen-machine').getAttribute('data-v2-presenter'),'on');
+  p.frame();assert.equal(content.hidden,false);assert.equal(p.node('ks-machine-details').getAttribute('data-v2-presenter'),'on');
   const condition=find(content,'v2m-condition'),params=find(content,'v2m-parameters');
   let c=text(condition);
   // Lot écrans 4 (A4): the readable title and the explanation are those of the v1 notice, now shown in v2 too
   // (settings-list.css no longer hides it, checked below); the block adds the code's origin and a short next
   // action that points at the $X / $H buttons above (with their confirmation dialog, unchanged).
   assert(!/Limite logicielle dépassée/.test(c),'readable title: in the v1 notice above, not repeated');assert.match(c,/rapporté par Grbl/,'reported origin');
-  assert(!/Vérifiez l’origine de travail/.test(c),'explanation: in the v1 notice above, not repeated');assert.match(c,/\$X ou \$H plus haut/,'next action points at $X / $H');assert(!/Cet écran n’envoie rien/.test(c));
+  assert(!/Vérifiez l’origine de travail/.test(c),'explanation: in the v1 notice above, not repeated');assert.match(c,/prise d’origine dans Machine/,'next action points at Machine');assert(!/Cet écran n’envoie rien/.test(c));
   assert.match(c,/Rapport frais/);assert.match(c,/Piloté par cet appareil/);
   // Known and unknown parameters with their units, never a fabricated value.
   const t=text(params);assert.match(t,/mm\/min/);assert.match(t,/mm\/s²/);assert.match(t,/\bmm\b/);
@@ -81,7 +81,7 @@ const pilot={state:'mine',value:'Cet appareil',sentence:'Piloté par cet apparei
   // Released with the gate: static, same rectangle, no new timer.
   p.st.open=false;p.emit('cnc-v2-change',p.base.state());p.timers.clear();p.status({...alarm,activeState:'Idle',alarmCode:null},{pilot});p.frame();
   assert.match(text(condition),/Rapport non suivi/,'released: explicitly not followed');assert(!/Limite logicielle|Rapport frais/.test(text(condition)));
-  assert.equal(p.node('screen-machine').getAttribute('data-v2-presenter'),'off','presenter off: the v2 grid row is released');
+  assert.equal(p.node('ks-machine-details').getAttribute('data-v2-presenter'),'off','presenter off: the v2 grid row is released');
   assert.equal(p.timers.size,0);assert.equal(content.hidden,false);
   // Lot écrans 4 (M1): the v1 alarm notice (cause and what to do) is never hidden in v2: it was hidden while the
   // presenter was on, which left the cause in the inner-scrolled third row, cut at 911 px.

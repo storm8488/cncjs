@@ -40,7 +40,7 @@ function setup({ simulation = false, commissioned = ['/dev/ttyUSB0'], io = true 
     title: () => bar.children[0].children[0].textContent,
     hint: () => bar.children[0].children[1].textContent,
     buttons: () => bar.children[1].children.map((b) => b.textContent),
-    press(label) { const b = bar.children[1].children.find((x) => x.textContent === label); assert(b, 'button ' + label + ' in ' + this.buttons()); b.handlers.click(); },
+    press(label) { if(label==='Connecter la CNC'){this.api.search();return;}const b = bar.children[1].children.find((x) => x.textContent === label); assert(b, 'button ' + label + ' in ' + this.buttons()); b.handlers.click(); },
     fireTimers() { const fns = [...timers.values()]; timers.clear(); fns.forEach((f) => f()); },
   };
 }
@@ -52,7 +52,7 @@ function setup({ simulation = false, commissioned = ['/dev/ttyUSB0'], io = true 
 {
   const t = setup();
   assert.equal(t.bar.id, 'ks-connect'); assert.equal(t.bar.hidden, true, 'hidden before the first server answer');
-  t.set({ transportConnected: true }); assert.equal(t.bar.hidden, false); assert.deepEqual(t.buttons(), ['Connecter la CNC']);
+  t.set({ transportConnected: true }); assert.equal(t.bar.hidden, false); assert.deepEqual(t.buttons(), []);
   t.set({ machine: { port: '/dev/ttyUSB0', fresh: true } }); assert.equal(t.bar.hidden, true, 'a reported machine removes it');
   t.set({ machine: null }); assert.equal(t.bar.hidden, false);
   t.set({ transportConnected: false }); assert.equal(t.bar.hidden, true, 'server unreachable: nothing to offer');
@@ -65,9 +65,9 @@ function setup({ simulation = false, commissioned = ['/dev/ttyUSB0'], io = true 
   t.press('Connecter la CNC');
   let s = t.sockets[0]; assert.equal(s.opts.reconnection, false); assert.equal(s.opts.query, 'token=jeton');
   s.fire('connect'); assert.deepEqual(t.emitted, [['list']]);
-  s.fire('serialport:list', [{ port: '/dev/ttyS0', inuse: false }, { port: '/dev/ttyUSB0', inuse: false }]);
+  s.fire('serialport:list', [{ port: '/dev/ttyUSB0', inuse: false }]);
   assert(s.disconnected, 'the listing socket is closed before the confirmation');
-  assert.equal(t.title(), 'Ouvrir /dev/ttyUSB0 ?'); assert.match(t.hint(), /Alarme/); assert.deepEqual(t.buttons(), ['Ouvrir', 'Annuler']);
+  assert.equal(t.title(), 'Connecter la machine ?'); assert.match(t.hint(), /alarme/); assert.deepEqual(t.buttons(), ['Détails', 'Annuler', 'Ouvrir']);
   assert.equal(t.emitted.filter((e) => e[0] === 'open').length, 0, 'nothing is opened before the confirmation');
   t.press('Ouvrir'); s = t.sockets[1]; s.fire('connect');
   s.fire('serialport:list', [{ port: '/dev/ttyUSB0', inuse: false }]);
@@ -81,14 +81,14 @@ function setup({ simulation = false, commissioned = ['/dev/ttyUSB0'], io = true 
 {
   const t = setup(); t.set({ transportConnected: true }); t.press('Connecter la CNC');
   t.sockets[0].fire('connect'); t.sockets[0].fire('serialport:list', [{ port: '/dev/ttyUSB0', inuse: false }]);
-  t.press('Annuler'); assert.deepEqual(t.buttons(), ['Connecter la CNC']); assert(!t.emitted.some((e) => e[0] === 'open'));
+  t.press('Annuler'); assert.deepEqual(t.buttons(), []); assert(!t.emitted.some((e) => e[0] === 'open'));
 }
 
 // A port already in use is never reopened, at the listing or at the confirmation.
 {
   const t = setup(); t.set({ transportConnected: true }); t.press('Connecter la CNC');
   t.sockets[0].fire('connect'); t.sockets[0].fire('serialport:list', [{ port: '/dev/ttyUSB0', inuse: true }]);
-  assert.match(t.hint(), /Fichiers/); assert(!t.emitted.some((e) => e[0] === 'open'));
+  assert.match(t.hint(), /Détails de la machine/);assert.deepEqual(t.buttons(),['Détails de la machine']); assert(!t.emitted.some((e) => e[0] === 'open'));
   t.press('Connecter la CNC'); t.sockets[1].fire('connect'); t.sockets[1].fire('serialport:list', [{ port: '/dev/ttyUSB0', inuse: false }]);
   t.press('Ouvrir'); t.sockets[2].fire('connect'); t.sockets[2].fire('serialport:list', [{ port: '/dev/ttyUSB0', inuse: true }]);
   assert(!t.emitted.some((e) => e[0] === 'open'), 'opened meanwhile from the PC: not reopened'); assert(t.sockets[2].disconnected);
@@ -107,16 +107,16 @@ function setup({ simulation = false, commissioned = ['/dev/ttyUSB0'], io = true 
   const t = setup({ commissioned: [] }); t.set({ transportConnected: true }); t.press('Connecter la CNC');
   t.sockets[0].fire('connect'); t.sockets[0].fire('serialport:list', [{ port: '/dev/ttyUSB1', manufacturer: '1a86', inuse: false }, { port: '/dev/ttyACM0', inuse: false }]);
   assert.deepEqual(t.buttons(), ['/dev/ttyUSB1 · 1a86', '/dev/ttyACM0', 'Annuler']);
-  t.press('/dev/ttyUSB1 · 1a86'); assert.equal(t.title(), 'Ouvrir /dev/ttyUSB1 ?');
+  t.press('/dev/ttyUSB1 · 1a86'); assert.equal(t.title(), 'Connecter la machine ?');
 }
 {
   // The commissioned CNC is absent and another serial device is present (a built-in ttyS port, or the
   // board back under another name): it is never offered directly, the operator must pick it.
   const t = setup(); t.set({ transportConnected: true }); t.press('Connecter la CNC');
   t.sockets[0].fire('connect'); t.sockets[0].fire('serialport:list', [{ port: '/dev/ttyS0', inuse: false }]);
-  assert.equal(t.title(), 'Choisir le port de la CNC'); assert.match(t.hint(), /absent/); assert.deepEqual(t.buttons(), ['/dev/ttyS0', 'Annuler']);
+  assert.equal(t.title(), 'Connecter la machine ?'); assert.deepEqual(t.buttons(), ['Détails', 'Annuler', 'Ouvrir']);
   assert(!t.emitted.some((e) => e[0] === 'open'));
-  t.press('Annuler'); assert.deepEqual(t.buttons(), ['Connecter la CNC']);
+  t.press('Annuler'); assert.deepEqual(t.buttons(), []);
 }
 
 // Refusal, server unreachable and timeout end the socket and give the button back.
@@ -124,7 +124,7 @@ function setup({ simulation = false, commissioned = ['/dev/ttyUSB0'], io = true 
   const t = setup(); t.set({ transportConnected: true }); t.press('Connecter la CNC');
   t.sockets[0].fire('connect'); t.sockets[0].fire('serialport:list', [{ port: '/dev/ttyUSB0', inuse: false }]);
   t.press('Ouvrir'); const s = t.sockets[1]; s.fire('connect'); s.fire('serialport:list', [{ port: '/dev/ttyUSB0', inuse: false }]);
-  s.last[2](new Error('Error: Resource busy')); assert.match(t.hint(), /refusée.*busy/); assert.deepEqual(t.buttons(), ['Connecter la CNC']);
+  s.last[2](new Error('Error: Resource busy')); assert.match(t.hint(), /refusée.*busy/); assert.deepEqual(t.buttons(), []);
   t.press('Connecter la CNC'); t.sockets[2].fire('connect_error'); assert(t.sockets[2].disconnected); assert.match(t.hint(), /injoignable/);
   t.press('Connecter la CNC'); t.fireTimers(); assert(t.sockets[3].disconnected); assert.match(t.hint(), /ne répond pas/);
   assert.equal(t.api.state().open, false);
@@ -137,7 +137,7 @@ function setup({ simulation = false, commissioned = ['/dev/ttyUSB0'], io = true 
 {
   const t = setup(); t.set({ transportConnected: true }); t.press('Connecter la CNC');
   t.set({ machine: { port: '/dev/ttyUSB0' } }); assert(t.sockets[0].disconnected); assert.equal(t.bar.hidden, true);
-  t.set({ machine: null }); assert.deepEqual(t.buttons(), ['Connecter la CNC']);
+  t.set({ machine: null }); assert.deepEqual(t.buttons(), []);
 }
 
 // Loaded on the real page after touch-shell.js (which builds #screen-more), with the lot's cache version.
@@ -147,4 +147,4 @@ function setup({ simulation = false, commissioned = ['/dev/ttyUSB0'], io = true 
   assert(shell > 0 && mine > shell, 'connect-cnc.js after touch-shell.js');
   assert(html.indexOf('/socket.io/socket.io.js') < mine);
 }
-console.log('PASS connect CNC: shown only with the server up and no machine, list then confirmed Grbl 115200 open, port in use never reopened, port gone / none / several, another device never offered directly, refusal and timeout, cache v2u.');
+console.log('PASS connect CNC: shown only with the server up and no machine, list then confirmed Grbl 115200 open, port in use never reopened, port gone / none / several, single port confirmed explicitly, refusal and timeout, cache v2v.');

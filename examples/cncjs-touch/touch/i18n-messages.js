@@ -1795,3 +1795,68 @@ window.CNCTouchMessages.push([' · Sélection différente : ',' · Different sel
 (function(){window.CNCTouchMessages=window.CNCTouchMessages.concat([["La fraise descend jusqu’à la plaque de {epaisseur} mm, de {descente} mm au plus.","The cutter descends to the {epaisseur} mm plate, over at most {descente} mm.","La fresa baja hasta la placa de {epaisseur} mm, como máximo {descente} mm."],["La broche démarre et la machine se déplace.","The spindle starts and the machine moves.","El husillo arranca y la máquina se mueve."],["Le laser s’allume et la tête se déplace.","The laser turns on and the head moves.","El láser se enciende y el cabezal se mueve."]]);})();
 
 (function(){window.CNCTouchMessages.push(['Arrêté ligne {n}','Stopped at line {n}','Detenido en la línea {n}']);})();
+
+// L2: machine readiness and recovery.
+(window.CNCTouchMessages = window.CNCTouchMessages || []).push(
+["Pour que la machine soit prête","To get the machine ready","Para preparar la máquina"],
+["Machine connectée","Machine connected","Máquina conectada"],
+["Machine non connectée","Machine not connected","Máquina no conectada"],
+["La main : cet appareil","Control: this device","Control: este dispositivo"],
+["La main : libre","Control: free","Control: libre"],
+["C’est « {appareil} » qui a la main","“{appareil}” has control","«{appareil}» tiene el control"],
+["Réglages lus","Settings read","Ajustes leídos"],
+["Réglages pas encore lus","Settings not read yet","Ajustes aún no leídos"],
+["Lecture des réglages…","Reading settings…","Leyendo ajustes…"],
+["Usinage arrêté à la ligne {n}","Machining stopped at line {n}","Mecanizado detenido en la línea {n}"],
+["Un usinage est encore ouvert","A machining job is still open","Todavía hay un mecanizado abierto"],
+["Origine machine prise","Machine homed","Máquina referenciada"],
+["Origine machine à prendre","Home the machine","Referenciar la máquina"],
+["Origine machine à reprendre","Home the machine again","Volver a referenciar la máquina"],
+["Zéro pièce : à vérifier après la prise d’origine","Work zero: to be checked after homing","Cero pieza: por comprobar después del referenciado"],
+["Zéro pièce : non vérifié","Work zero: not checked","Cero pieza: no comprobado"],
+["Zéro pièce : gardé, vérifié","Work zero: kept and checked","Cero pieza: conservado y comprobado"],
+["Zéro pièce : vérifié","Work zero: checked","Cero pieza: comprobado"],
+["Zéro pièce : la machine le vérifie…","Work zero: the machine is checking it…","Cero pieza: la máquina lo está comprobando…"],
+["Zéro pièce : réglages à relire d’abord","Work zero: read settings again first","Cero pieza: relea primero los ajustes"],
+["Zéro pièce : à refaire","Work zero: set it again","Cero pieza: volver a ajustarlo"],
+["Zéro pièce : la machine ne l’a pas confirmé","Work zero: the machine did not confirm it","Cero pieza: la máquina no lo ha confirmado"],
+["Reprendre l’usinage à la ligne {n}","Resume machining at line {n}","Reanudar el mecanizado en la línea {n}"],
+["Reprendre à la ligne {n}…","Resume at line {n}…","Reanudar en la línea {n}…"],
+["Mise en service jamais faite pour cette machine","Commissioning has never been done for this machine","Nunca se ha realizado la puesta en servicio de esta máquina"],
+["La machine est prête.","The machine is ready.","La máquina está lista."],
+["Main ailleurs","Control elsewhere","Control en otro dispositivo"],
+["Réglages à lire","Read settings","Leer ajustes"],
+["Origine à reprendre","Home again","Volver a referenciar"],
+["Origine à prendre","Homing needed","Referenciado pendiente"],
+["Il manque : l’origine machine.","Missing: machine homing.","Falta: el referenciado de la máquina."],
+["Répondez dans la carte ci-dessus.","Answer in the card above.","Responda en la tarjeta de arriba."],
+["Déverrouiller sans prise d’origine…","Unlock without homing…","Desbloquear sin referenciar…"],
+["Sert seulement quand la machine est en alarme.","Only used when the machine is in alarm.","Solo se usa cuando la máquina está en alarma."],
+["Détails de la machine","Machine details","Detalles de la máquina"],
+["Ce qui s’est passé","What happened","Qué ha ocurrido"],
+["Gardé : le fichier chargé.","Kept: the loaded file.","Conservado: el archivo cargado."],
+["Alarme 2 : la machine a dépassé sa course.","Alarm 2: the machine exceeded its travel.","Alarma 2: la máquina ha sobrepasado su recorrido."],
+["La machine a redémarré.","The machine restarted.","La máquina se ha reiniciado."],
+["Perdu : la position de la machine.","Lost: the machine position.","Perdido: la posición de la máquina."],
+["Usinage arrêté à la ligne {n}.","Machining stopped at line {n}.","Mecanizado detenido en la línea {n}."],
+["Connecter la machine ?","Connect the machine?","¿Conectar la máquina?"],
+["La machine redémarre. Elle sera en alarme jusqu’à la prise d’origine.","The machine restarts. It will stay in alarm until homing.","La máquina se reinicia. Permanecerá en alarma hasta el referenciado."],
+["Ouverture de la connexion…","Opening the connection…","Abriendo la conexión…"],
+["Si la machine ne répond plus du tout : éteignez-la, rallumez-la, puis reconnectez. Vérifiez le capteur, puis faites la prise d’origine dans Machine.","If the machine does not respond at all: switch it off, switch it back on, then reconnect. Check the switch, then home from Machine.","Si la máquina no responde en absoluto: apáguela, enciéndala y vuelva a conectarla. Compruebe el sensor y haga el referenciado en Máquina."],
+["Si la machine ne répond plus du tout : éteignez-la, rallumez-la, puis reconnectez. Vérifiez la position de la pièce et le programme, puis faites la prise d’origine dans Machine.","If the machine does not respond at all: switch it off, switch it back on, then reconnect. Check the workpiece position and the program, then home from Machine.","Si la máquina no responde en absoluto: apáguela, enciéndala y vuelva a conectarla. Compruebe la posición de la pieza y el programa y haga el referenciado en Máquina."],
+["Code non reçu. Faites la prise d’origine dans Machine. Si la machine ne répond plus du tout : éteignez-la, rallumez-la, puis reconnectez.","Code not received. Home from Machine. If the machine does not respond at all: switch it off, switch it back on, then reconnect.","Código no recibido. Haga el referenciado en Máquina. Si la máquina no responde en absoluto: apáguela, enciéndala y vuelva a conectarla."],
+["Un cadrage est en cours : prendre la main l’arrête.","Framing is in progress: taking control stops it.","Hay un encuadre en curso: tomar el control lo detiene."],
+["Cet appareil a la main.","This device has control.","Este dispositivo tiene el control."],
+["Personne n’a la main : la première commande la prend.","Nobody has control: the first command takes it.","Nadie tiene el control: el primer comando lo toma."],
+["C’est « {appareil} » qui a la main depuis {heure}.","“{appareil}” has had control since {heure}.","«{appareil}» tiene el control desde las {heure}."]
+);
+
+(window.CNCTouchMessages = window.CNCTouchMessages || []).push(
+['Port','Port','Puerto'],
+['Pause et Arrêter restent possibles ici.','Pause and Stop remain available here.','Pausa y Detener siguen disponibles aquí.'],
+['réglages lus','settings read','ajustes leídos']
+);
+
+(window.CNCTouchMessages = window.CNCTouchMessages || []).push(
+['Un port est déjà ouvert. Choisissez la machine dans Détails de la machine.','A port is already open. Select the machine in Machine details.','Ya hay un puerto abierto. Seleccione la máquina en Detalles de la máquina.']
+);

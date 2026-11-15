@@ -172,34 +172,13 @@ for(const name of ['index.html','simulation.html']){
  assert(html.indexOf('commissioning.js')<html.indexOf('viewport-fit.js'),'the screen exists before viewport-fit scans it');
 }
 {
-// Durable A2-6: the current server flag replaces the old Idle-only page guard.
-const dom = createDOM(['machine']), listeners = {};
-const overview = dom.element('div'), main = dom.element('main');
-dom.document.body.getAttribute = () => null;
-dom.document.querySelector = (sel) => (sel === 'main' ? main : sel === '.ks-machine-overview' ? overview : null);
-dom.document.getElementById = (id) => (id === 'screen-settings' || id === 'job-confirm' ? null : dom.node(id));
-const window = { cncShell: { go() {} }, addEventListener(n, f) { (listeners[n] || (listeners[n] = [])).push(f); }, dispatchEvent(e) { (listeners[e.type] || []).forEach((f) => f(e)); } };
-vm.runInNewContext(fs.readFileSync(__dirname + '/touch/commissioning.js', 'utf8'), { window, document: dom.document, localStorage: { getItem: () => JSON.stringify({ machines: { '/dev/ttyUSB0': { status: 'done' } } }), setItem() {} } });
-const find = (n, fn) => (fn(n) ? n : n.children.reduce((hit, c) => hit || find(c, fn), null));
-const reread = find(overview, (n) => n.id === 'ks-machine-reread'), reason = find(overview, (n) => n.id === 'ks-machine-command-reason');
-assert(reread && reason, 'the Machine commands are built');
-const restarted = { port: '/dev/ttyUSB0', fresh: true, activeState: 'Alarm', workflow: 'idle', alarmCode: null, firmware: '', settingsCount: 0,
-  canReadSettings: true, canUnlock: true, unlockReason: '', canHome: false, homeReason: 'Réglage $22 inconnu : relisez les réglages de la carte.',
-  capabilities: { jog: { supported: false, enabled: false, reason: 'Version Grbl inconnue : attendez la bannière de démarrage ou lisez les réglages ($I).' } } };
-window.dispatchEvent({ type: 'cnc-job-status', detail: { machine: restarted, simulation: false } });
-assert.equal(!reread.hidden && !reread.disabled, true, 'D4: the server permits reading settings and version in alarm');
-for(const activeState of ['Idle','Alarm']){
-  const m={...restarted,activeState,canReadSettings:false,readSettingsReason:'Lecture en cours.'};
-  window.dispatchEvent({type:'cnc-job-status',detail:{machine:m,simulation:false}});
-  assert.equal(reread.disabled,true,'a server refusal disables Relire even in Idle');
-  assert.equal(reread.title,'Lecture en cours.');
-  window.dispatchEvent({type:'cnc-job-status',detail:{machine:{...m,canReadSettings:true},simulation:false}});
-  assert.equal(reread.disabled,false,'the server flag permits the read in '+activeState);
-  assert.equal(reread.title,'');
-}
-window.dispatchEvent({type:'cnc-job-status',detail:{machine:{...restarted,canReadSettings:undefined},simulation:false}});
-assert.equal(reread.disabled,true,'an absent capability never grants a read');
-
+ // Durable A2-6 moved to the checklist projection: no commissioning-owned Machine buttons.
+ const {pure,machine}=require('./session-fixture.cjs');
+ for(const activeState of ['Idle','Alarm'])for(const canReadSettings of [true,false,undefined]){
+  const r=pure().evaluate({machine:machine({activeState,firmware:'',settingsCount:0,homed:false,canReadSettings}),transportConnected:true,pilot:{state:'free'}});
+  assert.equal(r.lignes.find(x=>x.id==='reglages').boutons[0].actif,canReadSettings===true,'server read permission in '+activeState);
+ }
+ assert(!source.includes('ks-machine-commands'),'commissioning no longer owns Machine commands');
 }
 console.log('PASS commissioning: step model, explicit opening only, machine return, persistence and resume, guarded commands, spindle stop on leave, skip under confirmation.');
 

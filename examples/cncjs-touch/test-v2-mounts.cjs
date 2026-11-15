@@ -7,6 +7,7 @@ function block(file,start,end) {const s=read(file),a=s.indexOf(start),b=s.indexO
   for(const simulation of [false,true]) for(const withPerformanceCard of [false,true]) {
     const p=page({simulation}); const nodes={};
     for(const name of ['home','files','jog','machine','history','settings']) nodes['screen-'+name]=p.document.createElement('section');
+    nodes['ks-machine-details']=p.document.createElement('section');
     const settings=nodes['screen-settings'];
     if(withPerformanceCard) {
       const perf=nodes['ks-performance-card']=p.document.createElement('div');

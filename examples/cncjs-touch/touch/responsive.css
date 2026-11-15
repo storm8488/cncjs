@@ -314,3 +314,46 @@ body.ks-ui main>.ks-step-screen{position:absolute;padding-top:52px!important;pad
 /* Normal actions and states use neutral ink; bright colour signals attention. */
 .ks-ui .t-btn--primary,.ks-ui .job-start,.ks-ui .ks-connect-go{background:var(--accent);color:var(--on-accent)}
 .ks-ui .t-state[data-tone="ok"],.ks-ui .ks-machine-word[data-tone="ok"]{color:var(--fg);background:var(--surface)}
+
+/* L2: the same machine checklist and incident layout in Eco and Performance. */
+body.ks-ui:not([data-simulation=true]) #screen-machine.active,body.ks-ui:not([data-simulation=true]) #screen-machine.kept{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:minmax(0,1fr)!important;gap:0}
+.ks-ui #machine-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;min-height:0;height:100%}
+.ks-ui #machine-layout[data-incident=true]{grid-template-columns:minmax(0,790fr) minmax(0,444fr)}
+.ks-ui .ks-machine-column{display:flex;flex-direction:column;gap:12px;min-height:0;min-width:0}
+.ks-ui #machine-ready{flex:1;margin:0;padding:12px!important;overflow:auto}
+.ks-ui #machine-ready h2,.ks-ui #machine-incident h2{margin:0 0 8px;font-size:20px;line-height:24px}
+.ks-ui #machine-list{list-style:none;margin:0;padding:0}
+.ks-ui #machine-list li{display:flex;align-items:center;gap:12px;min-height:52px;font-size:16px;line-height:1.25}
+.ks-ui .ks-line-mark{flex:0 0 24px;font-size:22px;text-align:center}
+.ks-ui .ks-line-text{flex:1;min-width:0}
+.ks-ui #machine-list [data-line-state=alerte]{color:var(--warn-text)}
+.ks-ui #machine-list button,.ks-ui .ks-machine-secondary button,.ks-ui #machine-incident button,.ks-ui #ks-machine-details button{min-height:48px;font:inherit;font-size:16px;padding:8px 12px;border:1px solid var(--line-control);border-radius:8px;background:var(--surface-2);color:var(--fg);line-height:1.2}
+.ks-ui #machine-list button{max-width:190px}
+.ks-ui .ks-machine-secondary{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.ks-ui .ks-machine-secondary #machine-unlock{min-height:64px;max-width:310px}
+.ks-ui .ks-machine-secondary p{flex:1;min-width:140px;font-size:16px;margin:0;line-height:1.2}
+.ks-ui #machine-incident{display:flex;flex-direction:column;margin:0;padding:16px!important;font-size:16px;line-height:1.4;overflow:auto}
+.ks-ui #machine-incident[hidden],.ks-ui #machine-ready[hidden]{display:none!important}
+.ks-ui #machine-incident button{align-self:flex-end;margin-top:auto}
+.ks-ui #machine-incident-lines p{margin:12px 0}
+.ks-ui #machine-layout .ks-connect{display:flex;flex-direction:column;align-items:stretch;gap:16px;flex:1;margin:0;padding:20px}
+.ks-ui #machine-layout .ks-connect[hidden]{display:none!important}
+.ks-ui #machine-layout .ks-connect-actions{display:flex;flex-wrap:wrap;gap:12px}
+.ks-ui #machine-layout .ks-connect button{min-height:48px;font-size:16px}
+.ks-ui #machine-layout .ks-connect .ks-connect-port{min-height:64px}
+.ks-ui #machine-layout .ks-connect-go,.ks-ui #machine-layout .ks-connect-actions button:not(.ks-connect-go):not(:first-child){min-height:64px}
+.ks-ui #ks-machine-details .ks-sheet-card{width:min(1120px,calc(100vw - 48px))}
+.ks-ui #ks-machine-details .ks-sheet-content{display:flex;flex-direction:column;gap:16px;font-size:16px}
+.ks-ui #machine-details-content{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}
+.ks-ui #machine-details-content p{font-size:16px;overflow-wrap:anywhere}
+.ks-ui #ks-machine-details #job-port{min-height:48px;font-size:16px}
+.ks-ui #ks-machine-details .ks-limits-table,.ks-ui #ks-machine-details .ks-coordinate-table{width:100%;font-size:16px}
+.ks-ui #ks-machine-details #perf-v2-machine{overflow:visible;flex:none}
+.ks-ui #machine-list button:disabled,.ks-ui .ks-machine-secondary button:disabled,.ks-ui #machine-details-reread:disabled{background:repeating-linear-gradient(135deg,var(--disabled-bg),var(--disabled-bg) 7px,var(--disabled-stripe) 7px,var(--disabled-stripe) 9px);color:var(--disabled-fg)}
+.ks-ui #machine-layout[data-stale=true] #machine-list{opacity:.6}
+.ks-ui.display-large #machine-list li,.ks-ui.display-large #machine-incident,.ks-ui.display-large #machine-list button,.ks-ui.display-large .ks-machine-secondary p{font-size:18px}
+.ks-ui #pilot-dialog .pilot-reasons{flex-direction:column;align-items:stretch}
+.ks-ui #pilot-reason-a,.ks-ui #pilot-reason-b{min-height:64px;font-size:18px}
+.ks-ui #pilot-other{align-self:flex-start;min-height:48px;font-size:16px}
+@media(min-height:850px){.ks-ui #machine-list li{min-height:64px}}
+@media(max-width:1099px),(max-height:649px){.ks-ui #machine-layout[data-incident=true]{grid-template-columns:minmax(0,1fr)}.ks-ui #machine-layout{height:auto}.ks-ui #machine-ready{overflow:visible}.ks-ui #machine-list li{flex-wrap:wrap}.ks-ui #machine-details-content{grid-template-columns:minmax(0,1fr)}}

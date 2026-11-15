@@ -97,10 +97,14 @@ html.cnc-degraded #cnc-boot{top:var(--statusbar-h,72px)}
   
 <!-- MACHINE LECTURE SEULE V1 -->
 <section id="screen-machine" class="screen">
- <div class="card wide ks-panel-intro"><div><h2>Contrôleur CNCjs</h2><p>Connexion, coordonnées et commandes $X/$H</p></div><button id="ks-machine-info" class="ks-secondary">Fonctions disponibles</button></div>
- <div class="card ks-machine-overview"><h2>Connexion et état</h2><p data-machine-copy="st-server">Serveur : …</p><p data-machine-copy="st-ctrl">Contrôleur : …</p><p class="ks-real-state" data-machine-copy="st-state">État : …</p><button id="ks-machine-follow" class="ks-secondary">Ouvrir le suivi →</button></div>
- <div class="card ks-machine-coordinates"><h2>Coordonnées du contrôleur · mm</h2><table class="ks-coordinate-table"><thead><tr><th>Axe</th><th>Machine</th><th>Travail</th></tr></thead><tbody><tr><th scope="row">X</th><td><b data-machine-copy="mx">—</b></td><td><b data-machine-copy="wx">—</b></td></tr><tr><th scope="row">Y</th><td><b data-machine-copy="my">—</b></td><td><b data-machine-copy="wy">—</b></td></tr><tr><th scope="row">Z</th><td><b data-machine-copy="mz">—</b></td><td><b data-machine-copy="wz">—</b></td></tr></tbody></table><p class="ks-help">En cas d’alarme, consulter sa cause dans CNCjs.</p></div>
- <div id="ks-machine-explanation" hidden><p>Lecture seule : coordonnées, état et paramètres du contrôleur. Aucun paramètre n’est modifié ici.</p><p>Commandes réelles : Déverrouiller ($X) et Prise d’origine ($H) sur cet écran, chacune avec sa confirmation ; déplacements et zéros de travail depuis Préparer ; zéro Z avec plaque depuis Suivi.</p><p>Fichiers : bibliothèque partagée, chargement et exécution réels. Le démarrage et la reprise demandent une confirmation et un état machine compatible.</p><p>Ce panneau n’est pas un arrêt d’urgence. Conserver l’accès à l’arrêt physique de la machine.</p></div>
+ <div id="machine-layout" data-incident="false">
+  <div class="ks-machine-column"><div id="machine-ready" class="card"><h2>Pour que la machine soit prête</h2><ul id="machine-list"></ul></div>
+   <div class="ks-machine-secondary"><button id="machine-unlock" data-action="deverrouiller" disabled aria-describedby="machine-unlock-reason">Déverrouiller sans prise d’origine…</button><button id="machine-details-open">Détails de la machine</button><p id="machine-unlock-reason">Sert seulement quand la machine est en alarme.</p></div>
+  </div>
+  <aside id="machine-incident" class="card" hidden><h2>Ce qui s’est passé</h2><div id="machine-incident-lines"></div><button data-action="incident-details">Détails</button></aside>
+ </div>
+ <div id="machine-details-content" hidden><div class="ks-machine-overview"><h2>Connexion et état</h2><p data-machine-copy="st-server">Serveur : …</p><p data-machine-copy="st-ctrl">Contrôleur : …</p><p class="ks-real-state" data-machine-copy="st-state">État : …</p><p id="machine-firmware"></p><button id="machine-details-reread" data-action="relire" disabled>Relire</button><p id="machine-details-read-reason"></p></div>
+ <div class="ks-machine-coordinates"><h2>Coordonnées du contrôleur · mm</h2><table class="ks-coordinate-table"><thead><tr><th>Axe</th><th>Machine</th><th>Travail</th></tr></thead><tbody><tr><th scope="row">X</th><td><b data-machine-copy="mx">—</b></td><td><b data-machine-copy="wx">—</b></td></tr><tr><th scope="row">Y</th><td><b data-machine-copy="my">—</b></td><td><b data-machine-copy="wy">—</b></td></tr><tr><th scope="row">Z</th><td><b data-machine-copy="mz">—</b></td><td><b data-machine-copy="wz">—</b></td></tr></tbody></table><p id="machine-offset-details"></p></div></div>
 </section>
 
 

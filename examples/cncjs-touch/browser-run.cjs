@@ -1054,10 +1054,10 @@ function startV2Fixture() {
     const fx = { phase: 'idle', overrides: { feed: 100, rapid: 100, spindle: 100 }, commands: [], streams: new Set(), sequence: 0, epoch: 'browser-run-v2-' + Date.now().toString(36), frozen: null, staleSince: 0 };
     fx.controller = function () {
       const now = Date.now(), c = replay.packet().controllers[0];
-      Object.assign(c, { port: '/dev/replay', controllerId: '/dev/replay', machineProfile: fx.profile || V2_PROFILE, fingerprint: V2_FINGERPRINT, name: V2_FILE, originalName: V2_FILE, revision: 1, overrides: Object.assign({}, fx.overrides), control: { owner: null, lastChange: null } });
+      Object.assign(c, { port: '/dev/replay', controllerId: '/dev/replay', machineProfile: fx.profile || V2_PROFILE, fingerprint: V2_FINGERPRINT, name: V2_FILE, originalName: V2_FILE, revision: 1, overrides: Object.assign({}, fx.overrides), control: { owner: null, lastChange: null },canReadSettings:true,readSettingsReason:'',workOffset:{state:'proven',canVerify:true,wcs:'G54',stored:{x:-600,y:-600,z:-5}} });
       // At rest with a program loaded; screensMeasure adds three states built on it: another device pilots
       // (control.owner), a homing cycle (Home) and a touch-plate probe (probing), both stoppable like the server says.
-      if (fx.phase === 'idle' || fx.phase === 'pilot' || fx.phase === 'homing' || fx.phase === 'probing') {
+      if (['idle','closed','unhomed','stopped-unhomed','pilot','homing','probing'].includes(fx.phase)) {
         Object.assign(c, { activeState: 'Idle', workflow: 'idle', feedrate: 0, spindleSpeed: 0, sent: 0, received: 0, canPause: false, canStop: false, canResume: false, canStart: true, startReason: '', canLoad: true, loadReason: '',
           canPreviewMotion: true, motionReason: '', canOverride: false, canRapidOverride: false, canUnlock: false, canHome: true, homeReason: '', canMacro: false });
         // $X out of alarm: the server's reason (job-service.js unlockReady), not the replay's « Travail en cours. ».
@@ -1067,6 +1067,8 @@ function startV2Fixture() {
         if (fx.phase === 'pilot') c.control = { owner: { kind: 'touch', id: 'browser-run-other', label: 'Tablette atelier', present: true }, lastChange: null };
         if (fx.phase === 'homing') Object.assign(c, { activeState: 'Home', homing: true, canStop: true, canStart: false, startReason: 'Prise d’origine en cours.', canLoad: false, loadReason: 'Prise d’origine en cours.', canPreviewMotion: false, motionReason: 'Prise d’origine en cours.', canHome: false, homeReason: 'La prise d’origine exige une machine au repos ou en alarme.', canZeroZ: false, zeroZReason: 'Prise d’origine en cours.' });
         if (fx.phase === 'probing') Object.assign(c, { activeState: 'Run', probing: true, canStop: true, canStart: false, startReason: 'Palpage en cours.', canLoad: false, loadReason: 'Palpage en cours.', canPreviewMotion: false, motionReason: 'Palpage en cours.', canHome: false, homeReason: 'Palpage en cours.', canZeroZ: false, zeroZReason: 'Palpage en cours.' });
+        if(fx.phase==='unhomed'||fx.phase==='stopped-unhomed')Object.assign(c,{homed:false,canStart:false,startReason:'Origine machine pas prise.',canReadSettings:true,workOffset:{state:'unknown',canVerify:true}});
+        if(fx.phase==='stopped-unhomed')Object.assign(c,{jobStopped:true,stoppedAtLine:1234,stoppedFile:V2_FILE,referenceLost:'restart',lastAlarm:{code:2,restarted:true}});
         return c;
       }
       if (fx.phase !== 'stale' && fx.phase !== 'stopped') fx.frozen = { coordinates: c.coordinates, received: c.received, sent: c.sent };
@@ -1106,7 +1108,7 @@ function startV2Fixture() {
         maxFeed: { X: { max: 2000, source: 'settings' }, Y: { max: 2000, source: 'settings' }, Z: { max: 500, source: 'settings' } }, jog: null, cancelling: false, cancelUnconfirmed: false, lastJog: null, lastOrigin: null };
       return c;
     };
-    fx.packet = function () { return { version: 1, epoch: fx.epoch, sequence: ++fx.sequence, sentAt: Date.now(), controllers: [fx.controller()] }; };
+    fx.packet = function () { return { version: 1, epoch: fx.epoch, sequence: ++fx.sequence, sentAt: Date.now(), controllers: fx.phase==='closed'?[]:[fx.controller()] }; };
     fx.setPhase = function (phase) {
       if (phase === 'stale' && fx.phase !== 'stale') fx.staleSince = Date.now();
       fx.phase = phase;
@@ -1382,6 +1384,7 @@ async function v2RealPass(cdp, fx, w, h, summary, report, v1) {
         await goScreen(cdp, screen);
         // Réglages: the v2 cards live on the « Machine et performances » tab.
         if (screen === 'settings') await selectSettingsTab(cdp, 'machine');
+        if (screen === 'machine') {await cdp.evaluate("document.getElementById('machine-details-open').click();true");await cdp.waitFor("!!document.getElementById('v2m-condition')",5000,'machine details presenter');}
         shown[key] = await cdp.evaluate('(function(){var n=document.querySelector(' + JSON.stringify(sel) + ');return !!(n&&n.getClientRects().length&&!n.closest("[hidden]"));})()');
       }
       info.presenters = shown;
@@ -1713,8 +1716,11 @@ async function v2Measure(summary) {
 // One folder per screen, variant and state: screens-<screen>-<variant>-<state>/<screen>.png|.json. Enforced like
 // the other strict variants, plus horizontal / vertical overflow and text over text. Visual only: every request
 // that is not a GET under /api/ is refused (403) by the fixture.
-const SCREENS_STATES = [['repos', 'idle'], ['pilote-pris', 'pilot'], ['homing', 'homing'], ['palpage', 'probing'], ['travail', 'running'], ['pause', 'paused'], ['alarme', 'alarm'], ['perime', 'stale'], ['hors-ligne', 'lost']];
+const SCREENS_STATES = [['repos', 'idle'], ['port-ferme', 'closed'], ['sans-origine', 'unhomed'], ['arrete-sans-origine', 'stopped-unhomed'], ['pilote-pris', 'pilot'], ['homing', 'homing'], ['palpage', 'probing'], ['travail', 'running'], ['pause', 'paused'], ['alarme', 'alarm'], ['perime', 'stale'], ['hors-ligne', 'lost']];
 const SCREENS_READY = {
+  closed: '!m',
+  unhomed: 'm&&m.activeState==="Idle"&&m.homed===false',
+  'stopped-unhomed': 'm&&m.jobStopped===true&&m.homed===false&&m.referenceLost==="restart"',
   idle: 'm&&m.workflow==="idle"&&/^Idle/.test(m.activeState||"")&&!(m.control&&m.control.owner)&&!m.homing&&!m.probing',
   pilot: 'm&&m.control&&m.control.owner&&m.control.owner.id==="browser-run-other"',
   homing: 'm&&m.homing&&/^Home/.test(m.activeState||"")',
@@ -1759,10 +1765,9 @@ const SCREENS_JOURNAL = '(function(){function rows(id){var l=document.getElement
 // Machine (lot Machine) on the real page: the alarm notice shown (v1 and v2), the note « consulter CNCjs » under the
 // coordinates hidden once the notice explains the code, a reason line whenever $X or $H is greyed out (a title is not
 // shown on touch), and no Grbl English word on the v2 State line.
-const SCREENS_MACHINE = '(function(){var v=function(e){return !!(e&&e.getClientRects().length&&getComputedStyle(e).visibility!=="hidden");},$=function(id){return document.getElementById(id);};' +
-  'var n=document.querySelector("#screen-machine .ks-machine-coordinates>.ks-help"),r=$("ks-machine-command-reason"),b=document.querySelectorAll("#screen-machine .ks-machine-commands button"),s=document.querySelector("#v2m-condition .v2m-state");' +
-  'var nt=$("ks-machine-alarm-title"),na=$("ks-machine-alarm-action");' +
-  'return {notice:v($("ks-machine-alarm")),noticeTitle:nt?nt.textContent.trim():"",noticeAction:na?na.textContent.trim():"",note:v(n),reason:v(r)?r.textContent:"",unlockDisabled:!!(b[0]&&b[0].disabled),homeDisabled:!!(b[1]&&b[1].disabled),v2state:s&&v(s)?s.textContent:null};})()';
+const SCREENS_MACHINE = '(function(){var v=function(e){return !!(e&&e.getClientRects().length&&!e.closest("[hidden]"));},$=function(id){return document.getElementById(id);};' +
+  'var r=$("step-machine-cause"),b=$("machine-unlock"),h=$("step-machine-main"),s=document.querySelector("#v2m-condition .v2m-state"),n=$("machine-incident-lines");' +
+  'return {notice:v($("machine-incident")),noticeTitle:n?n.textContent.trim():"",noticeAction:r?r.textContent.trim():"",note:false,reason:(r?r.textContent:"")+" "+($("machine-unlock-reason")?$("machine-unlock-reason").textContent:""),unlockDisabled:!!(b&&b.disabled),homeDisabled:!!(h&&h.getAttribute("data-action")==="prise-origine"&&h.disabled),v2state:s&&v(s)?s.textContent:null};})()';
 // With the origin confirmation of Préparer open, what lies under it is inert (real-motion.js openPanel);
 // it is marked aria-hidden for the measure only (the panel and the status strip are measured), then restored.
 const SCREENS_INERT = '(function(on){[].forEach.call(document.querySelectorAll(on?"[inert]":"[data-br-inert]"),function(n){if(on){n.setAttribute("data-br-inert",n.getAttribute("aria-hidden")||"");n.setAttribute("aria-hidden","true");}else{var a=n.getAttribute("data-br-inert");n.removeAttribute("data-br-inert");if(a)n.setAttribute("aria-hidden",a);else n.removeAttribute("aria-hidden");}});return true;})';
@@ -2149,7 +2154,7 @@ async function screensVariant(cdp, fx, v, summary, out) {
         // server's reasons (« Palpage en cours. », the fixture's « Prise d’origine en cours. ») are not left in French.
         if (phase === 'probing' && /^(En cours|En curso|Running)$/.test(page.stateWord)) failures.push(tag + ': strip word « ' + page.stateWord + ' » during a probe cycle');
         if (v.lang !== 'fr') { const why = await cdp.evaluate('(function(){var e=document.getElementById("job-reason");return e?e.textContent:"";})()'); if (/Palpage en cours|Prise d’origine en cours/.test(why)) failures.push(tag + ': French server reason on the ' + v.lang + ' page: ' + why); }
-        if (page.lang !== v.lang || page.theme !== v.theme || page.large !== (v.size === 'large') || page.perfV2 !== v.v2 || page.kind !== v.kind) failures.push(tag + ': page shown as ' + JSON.stringify(page) + ', expected ' + JSON.stringify({ lang: v.lang, theme: v.theme, size: v.size, v2: v.v2, kind: v.kind }));
+        if (page.lang !== v.lang || page.theme !== v.theme || page.large !== (v.size === 'large') || (phase!=='closed'&&page.perfV2 !== v.v2) || (phase!=='closed'&&page.kind !== v.kind)) failures.push(tag + ': page shown as ' + JSON.stringify(page) + ', expected ' + JSON.stringify({ lang: v.lang, theme: v.theme, size: v.size, v2: v.v2, kind: v.kind }));
         for (const [name, label] of SCREENS_OF_STATES.filter(([n]) => !v.screens || v.screens.indexOf(n) >= 0)) await screensCapture(cdp, 'screens-' + name + '-' + v.id + '-' + stateId, name, label, tag, page, results);
         // Lot Menu: the first-start fixture really measures the Menu without its resume bar.
         const menuResult = results.find((r) => r.screen === 'more' && r.menu);
@@ -2164,6 +2169,7 @@ async function screensVariant(cdp, fx, v, summary, out) {
         }
         await goScreen(cdp, 'machine');
         const mc = await cdp.evaluate(SCREENS_MACHINE);
+        if(v.v2&&phase!=='closed'){await cdp.evaluate("document.getElementById('machine-details-open').click();true");await sleep(100);const detail=await cdp.evaluate(SCREENS_MACHINE);mc.v2state=detail.v2state;await closeOverlays(cdp);}
         (info.machine || (info.machine = {}))[stateId] = mc;
         if (phase === 'alarm' && !mc.notice) failures.push(tag + ': Machine, alarm notice not shown');
         // The cause and what to do are in that notice (v1 and v2, the v2 block no longer repeats them): never empty.
@@ -2777,13 +2783,22 @@ async function parcoursMeasure(cdp,summary){
   const fixture=await startFixture([], 'parcours-server.cjs');
   try{
     await setViewport(cdp,1366,911,1);await navigate(cdp,fixture.base+'index.html');await waitReady(cdp);
-    await cdp.evaluate("fetch('/parcours/open',{method:'POST'}).then(function(){return fetch('/parcours/sim',{method:'POST',body:JSON.stringify({input:'pilot'})});})");
-    await cdp.waitFor("window.cncJobControls.pilot().state==='other'",15000,'other device owns control');
-    let touches=0;await cdp.evaluate("document.getElementById('t-pilot').click();true");touches++;
-    await cdp.waitFor("!document.getElementById('pilot-dialog').hidden",5000,'control dialog');
-    await cdp.evaluate("document.getElementById('pilot-reason-a').click();true");touches++;
-    await cdp.waitFor("window.cncJobControls.pilot().state==='mine'",15000,'takeover applied');
-    if(touches!==2)throw Error('P9 must take exactly two touches');summary.parcours={P9:touches,profile:'lunyee',physicalMachine:false};
+    let touches=0;
+    const tap=async function(id){await cdp.waitFor('(function(){var n=document.getElementById('+JSON.stringify(id)+');return !!n&&!n.disabled&&!n.closest("[hidden]");})()',15000,id+' available');if(/-main$/.test(id)||id==='job-confirm')await sleep(650);await cdp.evaluate('document.getElementById('+JSON.stringify(id)+').click();true');touches++;}
+    const home=async function(){await cdp.waitFor('window.cncSeance.state().barres.machine.action.id==="prise-origine"',15000,'homing is the next action');await tap('step-machine-main');await cdp.waitFor('!document.getElementById("job-dialog").hidden',5000,'homing dialog');await tap('job-check');await tap('job-confirm');await cdp.waitFor('(function(){var m=window.cncState.get().machine;return m&&m.homed&&m.workOffset.state==="proven";})()',20000,'homed with proven zero');}
+    await tap('step-machine-main');await cdp.waitFor('!!document.querySelector("#ks-connect .ks-connect-go")',5000,'connection question');
+    await cdp.evaluate('document.querySelector("#ks-connect .ks-connect-go").click();true');touches++;
+    await home();if(touches!==5)throw Error('P1 must take exactly five touches');const P1=touches;
+    // Set up the competing owner explicitly; this setup is not part of the operator path.
+    await cdp.evaluate('fetch("/api/touch-job",{method:"POST",body:JSON.stringify({action:"control",operation:"release",port:"SIM",clientId:window.cncJobControls.clientId()})}).then(function(r){if(!r.ok)throw Error("release setup failed");return fetch("/parcours/sim",{method:"POST",body:JSON.stringify({input:"pilot"})});})');
+    await cdp.waitFor('window.cncJobControls.pilot().state==="other"',15000,'other device owns control');touches=0;
+    await tap('t-pilot');await cdp.waitFor('!document.getElementById("pilot-dialog").hidden',5000,'control dialog');await tap('pilot-reason-a');
+    await cdp.waitFor('window.cncJobControls.pilot().state==="mine"',15000,'takeover applied');if(touches!==2)throw Error('P9 must take exactly two touches');const P9=touches;
+    await cdp.evaluate('fetch("/parcours/sim",{method:"POST",body:JSON.stringify({input:"job",clientId:window.cncJobControls.clientId()})}).then(function(r){if(!r.ok)throw Error("job setup failed");window.cncShell.go("home");return fetch("/parcours/sim",{method:"POST",body:JSON.stringify({input:"limit",on:true})});}).then(function(){return fetch("/parcours/sim",{method:"POST",body:JSON.stringify({input:"limit",on:false})});})');
+    await cdp.waitFor('(function(){var m=window.cncState.get().machine;return m&&m.lastAlarm&&m.lastAlarm.code===1&&!m.homed;})()',15000,'limit alarm during the job');touches=0;
+    await tap('t-stop');await cdp.waitFor('(window.cncState.get().machine||{}).jobStopped===true',10000,'job stopped');await tap('t-recover');
+    await cdp.waitFor('window.cncShell.screen()==="machine"&&!document.getElementById("machine-incident").hidden',5000,'incident on Machine');await home();
+    if(touches!==5)throw Error('P8 through homing must take five touches');summary.parcours={P1,P8ThroughHoming:touches,P9,profile:'lunyee',alarm:1,physicalMachine:false,senderLinesSimulated:true};
   }finally{fixture.child.kill();}
 }
 async function main() {

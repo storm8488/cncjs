@@ -3,7 +3,7 @@
   var uiLocale=window.cncI18n||{t:function(s){return s;},html:function(s){return s;}};
   // The report freshness sits with the coordinates it qualifies (real page); the overview keeps the commands.
   // Simulation: under the alarm test card, which has room below its help (the overview has none at 768 px).
-  var store = window.cncState, host = document.querySelector('#screen-machine .ks-machine-coordinates') || document.querySelector('#screen-machine .ks-machine-actions') || document.querySelector('.ks-machine-overview');
+  var store = window.cncState, host = document.querySelector('#ks-machine-details .ks-machine-coordinates') || document.querySelector('#screen-machine .ks-machine-actions') || document.querySelector('.ks-machine-overview');
   if (!store || !host) return;
   var simulation = document.body.getAttribute('data-simulation') === 'true';
   var panel = document.createElement('div'); panel.className = 'connection-details';
@@ -19,7 +19,7 @@
   function elapsedClock() { return window.performance && typeof window.performance.now === 'function' ? window.performance.now() : Date.now(); }
   function text(el, value) { if (el && el.textContent !== value) el.textContent = value; }
   function style(el, value) { if (el && el.className !== value) el.className = value; }
-  function visible() { var screen = document.getElementById('screen-machine'); return !document.hidden && screen && screen.classList.contains('active'); }
+  function visible() { var screen = document.getElementById('screen-machine'),sheet=document.getElementById('ks-machine-details'); return !document.hidden && (simulation?screen&&screen.classList.contains('active'):sheet&&!sheet.hidden); }
   function render() {
     if (disposed || document.hidden) return;
     var c = latest.machine, connected = !!latest.transportConnected;
@@ -48,7 +48,7 @@
   }
   function bind(target, name, fn) { target.addEventListener(name, fn); bindings.push(function () { target.removeEventListener(name, fn); }); }
   var unsubscribe = store.subscribe(function (state) { if (state.machine !== latest.machine) receivedAt = elapsedClock(); latest = state; render(); });
-  bind(window, 'cnc-screen-change', render); bind(document, 'visibilitychange', render);
+  bind(window, 'cnc-screen-change', render); bind(window, 'cnc-sheet-change', render); bind(document, 'visibilitychange', render);
   function dispose() { if (disposed) return; disposed = true; unsubscribe(); bindings.forEach(function (fn) { fn(); }); bindings = []; }
   bind(window, 'pagehide', function (event) { if (!event || !event.persisted) dispose(); });
   window.cncConnectionStatus = { dispose: dispose };

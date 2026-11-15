@@ -10,9 +10,15 @@ function createBench(){
   const Simulator=require('../../grbl-simulator/grbl-simulator');
   const sim=new Simulator({profile:'lunyee',homingMs:1200});
   const controller=bridge(sim),controllers={};
-  const service=createService({get:()=>controllers},{get:()=>[]});
+  // The shared bridge does not stream sender jobs. Match CNCjs's stop transition here;
+  // every controller byte still uses the bridge and the simulator's Grbl parser.
+  const command=controller.command;controller.command=(name,...args)=>{if(name==='gcode:stop'||name==='gcode:pause'){controller.workflow.state=name==='gcode:stop'?'idle':'paused';controller.workflow.emit(name==='gcode:stop'?'stop':'pause');return;}return command(name,...args);};
+  const program='G21 G90 G54\nG0 X10 Y10\nG1 X20 F100\nM30\n';
+  const fingerprint=require('../../src/server/services/touch/program-identity.js').fingerprint(program);
+  const file={text:program,fingerprint,size:Buffer.byteLength(program),mtimeMs:1};
+  const service=createService({get:()=>controllers},{get:()=>[]},undefined,{files:{readProgram:async()=>file,fingerprintOf:async()=>({fingerprint,size:file.size,mtimeMs:1})}});
   let sequence=0,transport=0;
-  const streams=new Set();
+  const streams=new Set(),clients=new Map();
   function packet(id){return {version:1,epoch:'parcours-lunyee',sequence:++sequence,sentAt:Date.now(),transportId:id,controllers:service.list()};}
   function actor(body){return {kind:'touch',id:body.clientId||'parcours-test',label:body.clientLabel||'Parcours'};}
   function json(res,data,status=200){res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(data));}
@@ -24,9 +30,10 @@ function createBench(){
     if(url.pathname==='/api/touch-job'&&req.method==='GET'){json(res,packet(null));return;}
     if(url.pathname==='/api/touch-events'){
       const id='parcours-'+(++transport),who=actor({clientId:url.searchParams.get('clientId')});service.openTransport(id,who);
+      clients.set(who.id,id);
       res.writeHead(200,{'Content-Type':'application/x-ndjson','Cache-Control':'no-store'});
       const send=()=>res.write(JSON.stringify(packet(id))+'\n');send();const timer=setInterval(send,250);streams.add(res);
-      req.on('close',()=>{clearInterval(timer);streams.delete(res);service.closeTransport(id);});return;
+      req.on('close',()=>{clearInterval(timer);streams.delete(res);if(clients.get(who.id)===id)clients.delete(who.id);service.closeTransport(id);});return;
     }
     if(req.method==='POST'){
       let text='';for await(const chunk of req){text+=chunk;if(text.length>32768)throw new Error('Request too large');}
@@ -36,6 +43,13 @@ function createBench(){
         if(body.input==='probe'){sim.probeMode=body.state==='free'?'miss':'contact';sim.probeTriggered=body.state!=='free';sim.probeStuck=body.state==='permanent';sim.pinState.probe=body.state!=='free';}
         else if(body.input==='limit')sim.setLimitPin(body.axis||'x',body.on!==false);
         else if(body.input==='pilot'){service.control.claim('SIM',{kind:'touch',id:'other-device',label:'PC atelier'});}
+        else if(body.input==='job'){
+          const who=actor(body),m=service.list()[0],base={port:'SIM',generation:m.generation,transportId:clients.get(who.id)||body.transportId};
+          await service.action({...base,action:'load',file:'recovery.nc'},who);
+          const deadline=Date.now()+10000;while(!service.list()[0].canStart){if(Date.now()>deadline)throw Error('Recovery job is not ready');await new Promise(r=>setTimeout(r,25));}
+          base.revision=service.list()[0].revision;const ticket=await service.action({...base,action:'prepare',operation:'start'},who);await service.action({...base,action:'start',nonce:ticket.nonce},who);
+          controller.sender.state.received=2;
+        }
         else throw new Error('Unknown simulated input');
         json(res,packet(null));return;
       }

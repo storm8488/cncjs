@@ -14,8 +14,8 @@
         "corps": null,
         "note": "io.connect(origin, {reconnection:false, forceNew:true, query: token})"
       },
-      "refus": "Un port déjà « inuse » → aucun choix proposé (« choisissez le contrôleur dans Fichiers »). Un seul port de la mise en service → passe directement à la confirmation (CX-03).",
-      "lot": "L1",
+      "refus": "Only a single listed port leads directly to confirmation. Multiple ports require an explicit selection. Re-list before open; never reopen an in-use port.",
+      "lot": "L2",
       "fait": true
     },
     {
@@ -26,7 +26,7 @@
       "etat": "ports",
       "requete": null,
       "refus": "Action indisponible dans cet état.",
-      "lot": "L1",
+      "lot": "L2",
       "fait": true
     },
     {
@@ -48,7 +48,7 @@
         }
       },
       "refus": "Re-liste juste avant : port disparu ou un port déjà ouvert → refus côté page.",
-      "lot": "L1",
+      "lot": "L2",
       "fait": true
     },
     {
@@ -108,7 +108,7 @@
       "etat": "pilot",
       "requete": null,
       "refus": "Action indisponible dans cet état.",
-      "lot": "L1",
+      "lot": "L2",
       "fait": true
     },
     {
@@ -128,7 +128,7 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Motif ≥ 3 caractères (sauf administrateur) ; traité avant les contrôles generation / transport",
-      "lot": "L1",
+      "lot": "L2",
       "fait": true
     },
     {
@@ -144,10 +144,10 @@
     },
     {
       "id": "OR-01",
-      "sort": "inchangé",
-      "ecran": "Bandeau d’état",
-      "selecteur": "#t-unlock",
-      "etat": "Visible : machine publiée, flux connecté, écran non verrouillé, pas de travail, état Alarm et canUnlock. Gel 600 ms après un toucher (Pause / Reprendre / Déverrouiller).",
+      "sort": "déplacé",
+      "ecran": "Machine",
+      "selecteur": "#machine-unlock",
+      "etat": "Always visible; requires canUnlock, a fresh connected report, no other owner or current request. Checkbox, nonce and server guards retained.",
       "requete": {
         "canal": "http",
         "methode": "POST",
@@ -164,15 +164,15 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Ticket à usage unique : nonce, même opération, 15 s, même flux ; noJob : available, pas de palpage, pas de jog du service, workflow idle, file CNCjs vide, pas de chargement ; unlockReady : état Alarm",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L2",
+      "fait": true
     },
     {
       "id": "OR-02",
-      "sort": "inchangé",
-      "ecran": "Machine › Connexion et état",
-      "selecteur": ".ks-machine-commands button (1er)",
-      "etat": "Toujours visible ; désactivé si !canUnlock (raison dans #ks-machine-command-reason).",
+      "sort": "déplacé",
+      "ecran": "Machine",
+      "selecteur": "#machine-unlock",
+      "etat": "Always visible; requires canUnlock, a fresh connected report, no other owner or current request. Checkbox, nonce and server guards retained.",
       "requete": {
         "canal": "http",
         "methode": "POST",
@@ -189,8 +189,8 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Ticket à usage unique : nonce, même opération, 15 s, même flux ; noJob : available, pas de palpage, pas de jog du service, workflow idle, file CNCjs vide, pas de chargement ; unlockReady : état Alarm",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L2",
+      "fait": true
     },
     {
       "id": "OR-03",
@@ -219,10 +219,10 @@
     },
     {
       "id": "OR-04",
-      "sort": "inchangé",
-      "ecran": "Machine › Connexion et état",
-      "selecteur": ".ks-machine-commands button (2e)",
-      "etat": "Toujours visible ; désactivé si !canHome.",
+      "sort": "déplacé",
+      "ecran": "Machine",
+      "selecteur": "#step-machine-main",
+      "etat": "Homing is the primary remedy in Idle or Alarm when canHome permits it. Checkbox, nonce and server guards retained.",
       "requete": {
         "canal": "http",
         "methode": "POST",
@@ -239,8 +239,8 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Ticket à usage unique : nonce, même opération, 15 s, même flux ; noJob : available, pas de palpage, pas de jog du service, workflow idle, file CNCjs vide, pas de chargement ; homeReady : Idle ou Alarm, broche arrêtée, $22 connu et ≠ 0, pas d’automatisme",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L2",
+      "fait": true
     },
     {
       "id": "OR-05",
@@ -269,10 +269,10 @@
     },
     {
       "id": "OR-06",
-      "sort": "inchangé",
-      "ecran": "Machine › Connexion et état",
+      "sort": "déplacé",
+      "ecran": "Machine and machine details",
       "selecteur": "#ks-machine-reread",
-      "etat": "Masqué sauf si $H est refusé pour un réglage inconnu ou si la version Grbl est inconnue ; actif seulement rapport frais, Idle et workflow idle (donc jamais en alarme).",
+      "etat": "Always visible; requires canReadSettings, a fresh connected report, no other owner or current request.",
       "requete": {
         "canal": "http",
         "methode": "POST",
@@ -282,8 +282,8 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; idle : available, pas de palpage, pas de jog, workflow idle, état Idle, file vide ; noJob : available, pas de palpage, pas de jog du service, workflow idle, file CNCjs vide, pas de chargement",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L2",
+      "fait": true
     },
     {
       "id": "OR-07",

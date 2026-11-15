@@ -11,9 +11,9 @@
 (function(){
   'use strict';
   var uiLocale=window.cncI18n||{t:function(s){return s;}},t=uiLocale.t;
-  var store=window.cncState,menu=document.querySelector('#screen-machine .ks-step-body')||document.getElementById('screen-machine');
+  var store=window.cncState,menu=document.querySelector('#machine-layout .ks-machine-column')||document.getElementById('screen-machine');
   if(!store||!menu||document.body.getAttribute('data-simulation')==='true')return;
-  var COMMISSIONING='cncjs-touch-commissioning-v1',TIMEOUT_MS=10000;
+  var TIMEOUT_MS=10000;
   var OPTIONS={controllerType:'Grbl',baudrate:115200,rtscts:false};
 
   var bar=document.createElement('div');bar.id='ks-connect';bar.className='ks-connect';bar.hidden=true;
@@ -31,11 +31,11 @@
   function view(head,detail,buttons){
     setText(title,head);setText(hint,detail||'');actions.innerHTML='';
     (buttons||[]).forEach(function(b){button(b[0],b[1],b[2]);});
+    if(window.cncSeance)window.cncSeance.render();
   }
-  function idle(detail){busy=false;view(t('CNC non connectée'),detail||t('Port fermé : Arrêter n’atteint pas la machine.'),[[t('Connecter la CNC'),'ks-connect-go',search]]);}
+  function idle(detail){busy=false;view(t('Machine non connectée'),detail||t('Port fermé : Arrêter n’atteint pas la machine.'),detail===t('Un port est déjà ouvert. Choisissez la machine dans Détails de la machine.')?[[t('Détails de la machine'),'',function(){var b=document.getElementById('machine-details-open');if(b)b.click();}]]:[]);}
 
   function token(){try{return JSON.parse(localStorage.getItem('cnc')).state.session.token||'';}catch(_){return '';}}
-  function commissioned(){try{var d=JSON.parse(localStorage.getItem(COMMISSIONING)||'null');return d&&d.machines&&typeof d.machines==='object'?Object.keys(d.machines):[];}catch(_){return [];}}
   function end(){
     if(timer){clearTimeout(timer);timer=null;}
     if(socket){var s=socket;socket=null;try{s.disconnect();}catch(_){/* Optional browser facility unavailable. */}}
@@ -55,32 +55,31 @@
   function inUse(ports){return ports.filter(function(p){return p&&p.inuse;});}
   function search(){
     if(!shown||busy)return;
+    busy=true;
     view(t('Recherche des ports USB…'),'',[]);
     session(function(s,ports,fail){
       end();
-      if(inUse(ports).length){idle(t('Un port est déjà ouvert dans CNCjs : choisissez le contrôleur dans Fichiers.'));return;}
-      var free=ports.filter(function(p){return p&&p.port;}),known=commissioned();
-      var mine=free.filter(function(p){return known.indexOf(p.port)>=0;});
+      if(inUse(ports).length){idle(t('Un port est déjà ouvert. Choisissez la machine dans Détails de la machine.'));return;}
+      var free=ports.filter(function(p){return p&&p.port;});
       if(!free.length){idle(t('Aucun port USB : vérifiez le câble et l’alimentation de la carte.'));return;}
-      // Only the commissioned port is offered directly; any other serial device (another board,
-      // a built-in ttyS port) must be picked explicitly, with its manufacturer shown.
-      if(mine.length===1){confirmOpen(mine[0].port);return;}
+      // A single port still needs Open; multiple devices need an explicit port choice first.
+      if(free.length===1){confirmOpen(free[0].port);return;}
       busy=true;
       view(t('Choisir le port de la CNC'),t('Port de la mise en service absent. Ne choisissez que le port de la carte CNC.'),
-        free.map(function(p){return [p.port+(p.manufacturer?' · '+p.manufacturer:''),'',function(){confirmOpen(p.port);}];}).concat([[t('Annuler'),'',function(){idle();}]]));
+        free.map(function(p){return [p.port+(p.manufacturer?' · '+p.manufacturer:''),'ks-connect-port',function(){confirmOpen(p.port);}];}).concat([[t('Annuler'),'',function(){idle();}]]));
     });
   }
   function confirmOpen(port){
     busy=true;
-    view(t('Ouvrir ')+port+' ?',t('La carte redémarre : la machine sera en Alarme jusqu’à la prise d’origine ou le déverrouillage.'),
-      [[t('Ouvrir'),'ks-connect-go',function(){open(port);}],[t('Annuler'),'',function(){idle();}]]);
+    view(t('Connecter la machine ?'),t('La machine redémarre. Elle sera en alarme jusqu’à la prise d’origine.'),
+      [[t('Détails'),'',function(){if(window.cncShell)window.cncShell.details({lignes:[{libelle:t('Port'),valeur:port+' · 115200'}]});}],[t('Annuler'),'',function(){idle();}],[t('Ouvrir'),'ks-connect-go',function(){open(port);}]]);
   }
   function open(port){
-    view(t('Ouverture de ')+port+'…','',[]);
+    view(t('Ouverture de la connexion…'),'',[]);
     session(function(s,ports,fail){
       var p=ports.filter(function(x){return x&&x.port===port;})[0];
       if(!p){fail(t('Port disparu : vérifiez le câble et l’alimentation de la carte.'));return;}
-      if(inUse(ports).length){fail(t('Un port est déjà ouvert dans CNCjs : choisissez le contrôleur dans Fichiers.'));return;}
+      if(inUse(ports).length){fail(t('Un port est déjà ouvert. Choisissez la machine dans Détails de la machine.'));return;}
       s.emit('open',port,OPTIONS,function(err){
         if(socket!==s)return;end();
         if(err){idle(t('Ouverture refusée : ')+(err.message||String(err)));return;}

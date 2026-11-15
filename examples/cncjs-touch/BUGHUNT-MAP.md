@@ -308,3 +308,9 @@ Menu and the last-screen bar are replaced by the session rail and More. State pr
 A2-5(a,b) is converted to test-direct-calls/test-seance/test-refus and removed; machine internals remain L2. V3-2 is converted to test-v2-idle-frames and removed. A2-4(a) is converted at the presenter level to test-refus; its diagnostic (b) remains in the temporary file for L3b. A2-2 remains untouched. Backups are outside the repository, in the temporary cncjs-L1-proofs directory. The comparison of two identical refusal screenshots is replaced by assertions that the cause and remedy stay visible and the server-permitted retry stays active. L3b still integrates that presenter into the probe card.
 
 More's empty macro entry is now visible and refused. v2 frame scheduling is event-driven after placement; hidden/locked pages request no layout frame. Capability loss still returns to v1 at safe idle.
+
+## L2 — Machine prête (2026-11-15)
+
+C-14 : test-remise-en-route et la matrice A2-6 de test-commissioning prouvent la chaîne réglages inconnus / alarme / relecture / prise d'origine, avec canReadSettings et les codes réels. C-23 : l'encart lit lastAlarm et referenceLost, conserve le code après bannière et se reconstruit après rechargement de la page. D2 : les sept états de la ligne zéro sont couverts ; jamais « gardé » avant proven sur machine référencée. C-30(a,b), déjà convertis en L1 : tests Machine et La main renforcés ; aucune preuve temporaire supplémentaire supprimée. C-67 : le test existant d'ouverture explicite de l'assistant reste vert.
+
+Le nouveau test est inscrit dans verify-project. Les anciens groupes d'assertions de Machine et leurs remplacements sont inventoriés dans ECARTS-PLAN, L2. Les preuves A2-2 et A2-4 restent à L3b. Aucun garde serveur ni commande Grbl modifié. Le harnais ciblé contient trois nouveaux états Machine et P1/P8 jusqu'à l'origine/P9 ; Edge expire sur Page.enable dans ce bac à sable, sans résultat visuel revendiqué.

@@ -56,7 +56,7 @@ function l6Page(o={}){
     if(!contract){contract=true;run('performance-v2-contract.js');run('performance-journal-context.js');window.cncV2.register('inspect',inspect);
       const m={};
       for(const name of ['home','files','prepare','machine','history','settings']){
-        const screen=name==='prepare'?'jog':name,root=dom.node('screen-'+screen),content=dom.element('div','perf-v2-'+name);
+        const screen=name==='prepare'?'jog':name,root=dom.node(name==='machine'?'ks-machine-details':'screen-'+screen),content=dom.element('div','perf-v2-'+name);
         content.hidden=true;root.appendChild(content);m[name]=Object.freeze({screen,root,content,origin:null});
       }
       mounts=Object.freeze(m);}

@@ -51,7 +51,7 @@ assert(has('.ks-ui.t-compact .job-art #home-image-status:not(:only-child)','posi
 assert(has('.ks-ui .job-metrics>.home-load','margin-bottom:6px'),'12 px under Charger la sélection');
 assert(has('.ks-ui.t-compact #screen-jog.active','grid-template-columns:minmax(0,1fr) auto')&&has('.ks-ui.t-compact #screen-jog.kept','grid-template-columns:minmax(0,1fr) auto'),'Préparer: the cross card takes its own width');
 assert(has('.ks-ui.t-compact .ks-coordinate-table tbody tr','height:48px'),'48 px table rows in compact');
-assert(has('.ks-ui.t-compact #screen-machine .ks-machine-commands','grid-template-columns:repeat(3,minmax(0,1fr))'),'Machine commands on one row');
+assert(read('responsive.css').includes('.ks-ui #machine-layout[data-incident=true]{grid-template-columns:minmax(0,1fr)}'),'Machine reflows in compact view');
 assert(has('.ks-ui.t-compact #screen-files.active','grid-template-columns:minmax(0,1fr) 400px'),'Fichiers detail column 400 px');
 // Layout audit 31: no command lies under another at 1024 x 600. Préparer and Machine give the
 // full height to their main card (the intro moves to the right column); the Fichiers detail never
@@ -98,6 +98,6 @@ assert(has('.ks-ui .t-messages>.t-system-command','border-left-color:var(--info)
 assert(has('.t-sent[data-state="failed"]::before','background:var(--danger-text)')&&has('.ks-prep-step[data-state="blocking"] .ks-prep-mark','background:var(--danger-text)'),'failure marks in --danger-text');
 for(const s of ['sent','confirmed','failed','uncertain'])assert(find('.t-sent[data-state="'+s+'"]').length,'feedback state '+s);
 // The freshness details live with the coordinates on the real page.
-assert(read('index.html').includes('class="card ks-machine-coordinates"'),'coordinates card marked');
-assert(read('connection-status.js').includes("querySelector('#screen-machine .ks-machine-coordinates')"),'freshness panel moves to the coordinates card');
+assert(read('index.html').includes('class="ks-machine-coordinates"'),'coordinates card marked');
+assert(read('connection-status.js').includes("querySelector('#ks-machine-details .ks-machine-coordinates')"),'freshness panel moves to the coordinates card');
 console.log('PASS compact layout: body.t-compact from the window, 3-row pages, compact heights for the six kept screens, targets kept at 48/64/96 px, 48 px segments, 16 px strip labels, large-text tokens without scale, notice and system line in the strip cell, feedback states.');

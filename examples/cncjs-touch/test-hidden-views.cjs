@@ -28,6 +28,10 @@ for(const [file,screen] of [['simulation-motion.js','jog'],['simulation-machine.
  assert.equal(copies[0].textContent,'2.000');assert.equal(copies[1].textContent,'');assert.equal(observers[0].targets.length,1);
  for(let i=0;i<10;i++){active=i%2?'jog':'machine';events['cnc-screen-change']();assert.equal(observers[0].targets.length,1);}
  active='more';events['cnc-screen-change']();assert.equal(observers[0].targets.length,0);
+ const sheet={hidden:true,classList:{contains:n=>n==='ks-sheet'}};copies[1].parentElement=sheet;
+ events['cnc-sheet-change']();assert.equal(observers[0].targets.length,0,'closed sheet has no observer');
+ sources.mx.textContent='9.000';sheet.hidden=false;events['cnc-sheet-change']();assert.equal(copies[1].textContent,'9.000','opening moved coordinates copies the latest value');assert.equal(observers[0].targets.length,1);
+ sheet.hidden=true;events['cnc-sheet-change']();assert.equal(observers[0].targets.length,0,'closing details drops the coordinate observer');
  events.pagehide({persisted:false});assert.equal(Object.keys(events).length,0);
 }
 console.log('PASS hidden views: no hidden/identical writes, immediate re-entry, active-only coordinate observer and bounded subscriptions.');

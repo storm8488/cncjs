@@ -77,13 +77,13 @@
     if(build!==true||!v||!v.state().layout||!v.state().safeIdle)return {};
     v2Slots={};
     ['home','files','prepare','machine','history','settings'].forEach(function(name){
-      var screen=name==='prepare'?'jog':name,root=document.getElementById('screen-'+screen);
+      var screen=name==='prepare'?'jog':name,root=name==='machine'?document.getElementById('ks-machine-details'):document.getElementById('screen-'+screen);
       if(!root)return;
       var content=document.createElement('div');content.id='perf-v2-'+name;content.hidden=true;
       content.setAttribute('data-v2-mount',name);
       var performanceCard=name==='settings'?document.getElementById('ks-performance-card'):null;
       if(performanceCard&&performanceCard.parentNode===root)root.insertBefore(content,performanceCard.nextSibling);
-      else (root.querySelector&&root.querySelector('.ks-step-body')||root).appendChild(content);
+      else (root.querySelector&&(name==='machine'?root.querySelector('.ks-sheet-content'):root.querySelector('.ks-step-body'))||root).appendChild(content);
       v2Slots[name]=Object.freeze({screen:screen,root:root,content:content,origin:name==='prepare'&&!simulation?content:null});
     });
     return Object.freeze(v2Slots);
@@ -99,7 +99,7 @@
   }
   function closeSheet(){
     if(!openedSheet)return;
-    openedSheet.hidden=true;openedSheet=null;
+    var closed=openedSheet.id;openedSheet.hidden=true;openedSheet=null;window.dispatchEvent(new CustomEvent('cnc-sheet-change',{detail:{id:closed,open:false}}));
     if(sheetRestore){sheetRestore();sheetRestore=null;}
     if(sheetReturn)sheetReturn.focus({preventScroll:true});
   }
@@ -108,7 +108,7 @@
     overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-labelledby',id+'-title');
     overlay.innerHTML=uiLocale.html('<div class="ks-sheet-card"><header><h2 id="')+id+uiLocale.html('-title"></h2><button type="button" aria-label="Fermer">Fermer ×</button></header><div class="ks-sheet-content"></div></div>');
     overlay.querySelector('h2').textContent=title;overlay.querySelector('button').addEventListener('click',closeSheet);document.body.appendChild(overlay);
-    return {content:overlay.querySelector('.ks-sheet-content'),open:function(){if(openedSheet===overlay)return;if(openedSheet)closeSheet();sheetReturn=document.activeElement;openedSheet=overlay;sheetRestore=isolate(overlay);overlay.hidden=false;overlay.querySelector('button').focus();}};
+    return {content:overlay.querySelector('.ks-sheet-content'),open:function(){if(openedSheet===overlay)return;if(openedSheet)closeSheet();sheetReturn=document.activeElement;openedSheet=overlay;sheetRestore=isolate(overlay);overlay.hidden=false;overlay.querySelector('button').focus();window.dispatchEvent(new CustomEvent('cnc-sheet-change',{detail:{id:id,open:true}}));}};
   }
   document.addEventListener('keydown',function(e){
     // An overlay opened above (the pad) made this one inert: the keys are its own (V1).
@@ -125,7 +125,11 @@
   });
   var info=sheet('ks-file-info',uiLocale.t('Détails du fichier et de l’aperçu'));
   ['library-preview-note','library-regenerate','library-regenerate-status','job-state','job-selected'].forEach(function(id){info.content.appendChild(document.getElementById(id));});
-  var portLabel=document.querySelector('label[for="job-port"]');info.content.appendChild(portLabel);info.content.appendChild(document.getElementById('job-port'));
+  var machineDetails=sheet('ks-machine-details',uiLocale.t('Détails de la machine'));
+  var machineContent=document.getElementById('machine-details-content');if(machineContent){machineContent.hidden=false;machineDetails.content.appendChild(machineContent);}
+  var portLabel=document.querySelector('label[for="job-port"]');machineDetails.content.appendChild(portLabel);machineDetails.content.appendChild(document.getElementById('job-port'));
+  var limits=document.getElementById('machine-limits-content');if(limits)machineDetails.content.appendChild(limits);
+  var machineDetailsOpen=document.getElementById('machine-details-open');if(machineDetailsOpen)machineDetailsOpen.addEventListener('click',machineDetails.open);
   var tools=document.createElement('div');tools.className='ks-file-tools';
   var dimensionsPanel=sheet('ks-dimensions',uiLocale.t('Dimensions du parcours XY')),dimensionsContent=document.getElementById('library-dimensions-content');
   dimensionsContent.hidden=false;dimensionsPanel.content.appendChild(dimensionsContent);
@@ -154,28 +158,16 @@
     bindSheet('ks-origin-reset-sheet',uiLocale.t('Réinitialiser la simulation'),'ks-origin-reset-content','ks-origin-reset');
     bindSheet('ks-machine-help-sheet',uiLocale.t('Test d’alarme fictive'),'ks-machine-explanation','ks-machine-info');
   }else{
-    bindSheet('ks-machine-help-sheet',uiLocale.t('Fonctions de la machine'),'ks-machine-explanation','ks-machine-info');
     bindSheet('ks-jog-settings-sheet',uiLocale.t('Vitesse de déplacement'),'ks-jog-settings-content','ks-jog-settings');
   }
   bindSheet('ks-history-export-sheet',uiLocale.t('Exporter le journal'),'ks-history-export-content','ks-history-export');
-  if(!simulation){
-    var historyButton=document.createElement('button');historyButton.type='button';historyButton.id='ks-machine-history';historyButton.className='ks-secondary';
-    historyButton.textContent=uiLocale.t('Journal des événements →');historyButton.addEventListener('click',function(){go('history');});
-    document.querySelector('.ks-machine-overview').appendChild(historyButton);
+  var overview=simulation?document.querySelector('.ks-machine-overview'):null,machineWord=null,machineAlarm=null;
+  if(overview){
+    if(!machineDetailsOpen){machineDetailsOpen=document.createElement('button');machineDetailsOpen.id='machine-details-open';machineDetailsOpen.textContent=uiLocale.t('Détails de la machine');machineDetailsOpen.addEventListener('click',machineDetails.open);overview.appendChild(machineDetailsOpen);}
+    machineWord=document.createElement('p');machineWord.id='ks-machine-word';overview.appendChild(machineWord);
+    machineAlarm=document.createElement('div');machineAlarm.id='ks-machine-alarm';machineAlarm.hidden=true;machineAlarm.innerHTML='<b id="ks-machine-alarm-title"></b><span id="ks-machine-alarm-action"></span>';overview.appendChild(machineAlarm);
+    ['ks-machine-follow','ks-machine-limits','ks-machine-display'].forEach(function(id){var b=document.getElementById(id);if(b)b.addEventListener('click',id==='ks-machine-limits'?machineDetails.open:function(){go(id==='ks-machine-follow'?'home':'settings');});});
   }
-  // Machine (UI 2027): the state as one large word, and an alarm explained in
-  // plain words with what to do next, at the top of the overview card.
-  var overview=document.querySelector('.ks-machine-overview');
-  var machineWord=document.createElement('p');machineWord.id='ks-machine-word';machineWord.className='ks-machine-word';machineWord.setAttribute('data-tone','off');machineWord.textContent=uiLocale.t('Hors ligne');
-  var machineAlarm=document.createElement('div');machineAlarm.id='ks-machine-alarm';machineAlarm.className='t-notice';machineAlarm.setAttribute('data-tone','danger');machineAlarm.hidden=true;
-  machineAlarm.innerHTML=uiLocale.html('<div><b id="ks-machine-alarm-title"></b><span id="ks-machine-alarm-action"></span></div>');
-  overview.insertBefore(machineAlarm,overview.firstChild);overview.insertBefore(machineWord,overview.firstChild);
-  // The note under the coordinates sends to CNCjs for the cause: useless when the notice above explains the code.
-  var coordNote=simulation?null:document.querySelector('#screen-machine .ks-machine-coordinates>.ks-help');
-  if(coordNote&&!/\bks-help\b/.test(coordNote.className||''))coordNote=null;
-  document.getElementById('ks-machine-follow').addEventListener('click',function(){go('home');});
-  document.getElementById('ks-machine-limits').addEventListener('click',function(){go('limits');});
-  document.getElementById('ks-machine-display').addEventListener('click',function(){go('settings');});
   [['.ks-origin-zero','origin'],['#sim-trigger-alarm','alarm'],['#sim-clear-alarm','check']].forEach(function(pair){
     var button=document.querySelector(pair[0]);if(!button)return;
     var label=button.textContent;button.innerHTML=icon(pair[1])+uiLocale.html('<span>')+label+uiLocale.html('</span>');
@@ -191,6 +183,7 @@
     window.dispatchEvent(new CustomEvent('cnc-screen-change',{detail:name}));
   }
   function updateTiles(m,connected){
+    if(!simulation)return;
     var alarm=!!(m&&/^alarm/i.test(m.activeState||''));
     var word=window.cncStatusStrip?window.cncStatusStrip.describe(m,connected):{word:connected&&m?m.activeState:uiLocale.t('Hors ligne'),tone:connected&&m?'info':'off'};
     // Machine screen: the state word and the alarm explained.
@@ -198,11 +191,6 @@
     var help=alarm?(simulation?{title:uiLocale.t('Alarme fictive'),action:uiLocale.t('Effacez l’alarme ci-contre, puis confirmez la reprise dans Suivi.')}:window.CNCGrblHelp?window.CNCGrblHelp.alarm(m.alarmCode,m.alarmCodeInferred):{title:word.word,action:''}):null;
     if(machineAlarm.hidden!==!help)machineAlarm.hidden=!help;
     if(help){setText(document.getElementById('ks-machine-alarm-title'),help.title);setText(document.getElementById('ks-machine-alarm-action'),help.action);}
-    if(coordNote){
-      var helped=alarm&&!!window.CNCGrblHelp&&!!window.CNCGrblHelp.codes&&window.CNCGrblHelp.codes.alarms.indexOf(m.alarmCode)>=0;
-      if(coordNote.hidden!==helped)coordNote.hidden=helped;
-      setText(coordNote,alarm&&!helped?uiLocale.t('Code non reconnu : consulter CNCjs.'):uiLocale.t('En cas d’alarme, consulter sa cause dans CNCjs.'));
-    }
   }
   window.addEventListener('cnc-job-status',function(e){
     if(!!e.detail.simulation!==simulation)return;

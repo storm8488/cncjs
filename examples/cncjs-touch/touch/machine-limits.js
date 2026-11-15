@@ -2,9 +2,9 @@
   'use strict';
   var uiLocale=(typeof window!=='undefined'&&window.cncI18n)||{t:function(s){return s;},html:function(s){return s;}};
   var simulation = document.body.getAttribute('data-simulation') === 'true';
-  var panel = document.createElement('section');
-  panel.id = 'screen-limits';
-  panel.className = 'screen';
+  var panel = document.createElement('div');
+  panel.id = 'machine-limits-content';
+  panel.className = 'ks-machine-limits';
   panel.innerHTML = uiLocale.html('<div class="card wide ks-panel-intro"><div><h2>Limites de la machine</h2><p id="limits-source" role="status"></p></div><span class="ks-readonly">Lecture seule</span></div>') +
     uiLocale.html('<div class="card wide ks-limits-card"><table class="ks-limits-table"><thead><tr><th scope="col">Paramètre</th><th scope="col">X</th><th scope="col">Y</th><th scope="col">Z</th></tr></thead><tbody></tbody></table></div>') +
     uiLocale.html('<div class="card wide ks-limit-protections"></div><p class="wide ks-help" id="limits-note"></p>');
@@ -28,10 +28,6 @@
     panel.querySelector('.ks-limit-protections').appendChild(item);
   });
   var source = document.getElementById('limits-source'), note = document.getElementById('limits-note');
-  var button = document.createElement('button');
-  button.id = 'ks-machine-limits';button.className = 'ks-secondary ks-limits-link';button.type = 'button';
-  button.textContent = uiLocale.t('Limites de la machine →');
-  document.querySelector('.ks-machine-overview').appendChild(button);
   var port = null;
   function text(el,value){if(el.textContent!==value)el.textContent=value;}
   var lastSignature='';
@@ -72,8 +68,8 @@
       port=machine.port;receiveSettings(machine.type,{settings:machine.settings});
     });
     var disposed=false;
-    function dispose(){if(disposed)return;disposed=true;unsubscribe();window.removeEventListener('pagehide',onPageHide);}
-    function onPageHide(event){if(!event||!event.persisted)dispose();}
+    var dispose=function(){if(disposed)return;disposed=true;unsubscribe();window.removeEventListener('pagehide',onPageHide);};
+    var onPageHide=function(event){if(!event||!event.persisted)dispose();};
     window.addEventListener('pagehide',onPageHide);
     window.cncMachineLimits={dispose:dispose};return;
   }
@@ -118,7 +114,7 @@
     ' rapporté par Grbl.':[' reported by Grbl.',' notificado por Grbl.'],'Code ALARM:':['Code ALARM:','Código ALARM:'],'Code ':['Code ','Código '],
     ' déduit de l’état précédent : la carte l’a effacé en redémarrant.':[' deduced from the previous state: the board erased it when restarting.',' deducido del estado anterior: la placa lo borró al reiniciarse.'],
     'Aucun code reçu : cause non rapportée par la carte.':['No code received: cause not reported by the board.','Ningún código recibido: causa no notificada por la placa.'],
-    'Prochaine action : corriger la cause, puis $X ou $H plus haut.':['Next action: fix the cause, then $X or $H above.','Próxima acción: corregir la causa y luego $X o $H más arriba.'],
+    'Corrigez la cause, puis faites la prise d’origine dans Machine.':['Fix the cause, then home from Machine.','Corrija la causa y después haga el referenciado en Máquina.'],
     'Rapport frais · âge ':['Fresh report · age ','Informe reciente · antigüedad '],
     'Rapport périmé : dernières valeurs connues, non actualisées.':['Stale report: last known values, not updated.','Informe caducado: últimos valores conocidos, sin actualizar.'],
     'Fraîcheur inconnue : aucun rapport récent du contrôleur.':['Freshness unknown: no recent controller report.','Antigüedad desconocida: ningún informe reciente del controlador.'],
@@ -132,11 +128,11 @@
   function vt(s){var l=uiLocale.language,row=TEXT[s];return row&&l==='en'?row[0]:row&&l==='es'?row[1]:s;}
   var AXES=['X','Y','Z'],ROWS=[[110,'Vitesse maximale','mm/min'],[120,'Accélération','mm/s²'],[130,'Course maximale','mm']],FLAGS=[[20,'Limites logicielles'],[21,'Fins de course'],[22,'Référencement']];
   var v2={registered:false,disposed:false,retire:false,ended:false,frame:0,timer:0,detail:null,nodes:null,shown:'',parameters:'',
-    screen:window.cncShell&&typeof window.cncShell.screen==='function'?window.cncShell.screen():null};
+    sheetOpen:false};
   function api(){var a=window.cncV2;return a&&typeof a.gate==='function'&&typeof a.state==='function'?a:null;}
   function layout(){return !!(document.body.classList&&document.body.classList.contains('perf-v2'));}
   // The screen the shell announced last (cnc-screen-change), the document and the page lifetime.
-  function visible(){return !v2.ended&&!document.hidden&&v2.screen==='machine';}
+  function visible(){return !v2.ended&&!document.hidden&&v2.sheetOpen;}
   function finite(n){return typeof n==='number'&&isFinite(n);}
   // No frame is requested while Machine is inactive, hidden or after pagehide: the latest report
   // (or the pending release notice) is simply drawn once on the next show.
@@ -155,9 +151,9 @@
     // statusObservedAt]. Absent, throwing or unknown: never fresh (v1's age uses Date.now()).
     var d=v2.detail||{},m=d.machine||null,r=null;
     if(m){try{var a=api();r=a&&typeof a.reportAge==='function'?a.reportAge(m):null;}catch(_){r=null;}}
-    var known=!!(r&&r.known===true&&finite(r.ageMs)&&r.ageMs>=0),age=known?r.ageMs:null;
+    var reportKnown=!!(r&&r.known===true&&finite(r.ageMs)&&r.ageMs>=0),age=reportKnown?r.ageMs:null;
     // Never fresher than the existing snapshot either: fresh:false (lost stream…) stays stale.
-    var freshness=!known?'unknown':r.fresh===true&&age<=2500&&m.fresh!==false?'fresh':'stale';
+    var freshness=!reportKnown?'unknown':r.fresh===true&&age<=2500&&m.fresh!==false?'fresh':'stale';
     var alarm=!!(m&&/^alarm/i.test(m.activeState||'')),code=alarm&&finite(m.alarmCode)?m.alarmCode:null,inferred=alarm&&code!==null&&m.alarmCodeInferred===true;
     var pilot=d.pilot;
     var s=m&&m.settings&&typeof m.settings==='object'?m.settings:{},known=0,rows=[],flags=[];
@@ -192,7 +188,7 @@
     if(x.alarm){
       var box=el('div','v2m-alarm');box.setAttribute('data-tone','danger');
       box.appendChild(el('p','v2m-origin',x.origin));
-      box.appendChild(el('p','v2m-next',vt('Prochaine action : corriger la cause, puis $X ou $H plus haut.')));
+      box.appendChild(el('p','v2m-next',vt('Corrigez la cause, puis faites la prise d’origine dans Machine.')));
       n.condition.appendChild(box);
     } else n.condition.appendChild(el('p','v2m-calm',vt('Aucune alarme rapportée.')));
     n.freshness=el('p','v2m-freshness',freshText(x));
@@ -256,7 +252,7 @@
     queue();
   });
   window.addEventListener('cnc-job-status',function(e){var d=e&&e.detail;if(!d||d.simulation)return;v2.detail=d;queue();});
-  window.addEventListener('cnc-screen-change',function(e){v2.screen=e?e.detail:null;if(v2.screen==='machine')queue();else clearTimer();});
+  window.addEventListener('cnc-sheet-change',function(e){if(!e||!e.detail||e.detail.id!=='ks-machine-details')return;v2.sheetOpen=e.detail.open===true;if(v2.sheetOpen)queue();else {clearTimer();if(v2.frame&&window.cancelAnimationFrame)window.cancelAnimationFrame(v2.frame);v2.frame=0;}});
   document.addEventListener('visibilitychange',function(){if(document.hidden)clearTimer();else queue();});
   window.addEventListener('pagehide',function(){v2.ended=true;clearTimer();if(v2.frame&&window.cancelAnimationFrame)window.cancelAnimationFrame(v2.frame);v2.frame=0;});
 })();

@@ -4,7 +4,6 @@
 // and disabled state stay those of commissioning.js. The simulated state pill in the interface's words.
 // The help sheet describes the real commands. FR / EN / ES.
 const fs=require('fs'),vm=require('vm'),assert=require('assert').strict;
-const {createDOM}=require('./dom-fixture.cjs');
 const read=f=>fs.readFileSync(__dirname+'/touch/'+f,'utf8');
 // Translator over the real catalogue (i18n.js keeps the spaces around a known phrase).
 function locale(language){
@@ -21,207 +20,6 @@ function describeWith(uiLocale){
 }
 const ENGLISH=/\b(Idle|Run|Hold|Jog|Alarm|Door|Check|Home|Sleep)\b/;
 
-function machinePage(language){
-  const dom=createDOM(['machine']),handlers={},calls=[],uiLocale=locale(language);
-  dom.document.body.getAttribute=()=>null;
-  // job-controls.js prepare() → command(): « Demande envoyée… » is published synchronously, inside the click.
-  const controls={prepareCommand:op=>{calls.push(['prepare',op]);if(page.onPrepare)page.onPrepare(op);},
-    readSettings:()=>{calls.push(['readSettings']);return page.onRead?page.onRead():Promise.resolve({});}};
-  // job-controls.js (loaded first) binds the dialog's Confirmer before commissioning.js: the confirmed command is sent.
-  dom.node('job-confirm').addEventListener('click',()=>{if(page.onConfirm)page.onConfirm();});
-  const window={addEventListener:(n,f)=>handlers[n]=f,cncJobControls:controls,cncI18n:uiLocale,cncShell:{go(){}}};
-  vm.runInNewContext(read('commissioning.js'),{window,document:dom.document,localStorage:{getItem:()=>null,setItem(){}},JSON,Object,Math,Date,String,Number,Promise});
-  const panel=dom.node('panel'),buttons=panel.children.find(c=>/ks-machine-commands/.test(c.className)).children;
-  const reason=panel.children.find(c=>c.id==='ks-machine-command-reason');
-  handlers['cnc-screen-change']({detail:'machine'}); // on Machine: the assistant does not open by itself
-  const page={dom,handlers,calls,panel,unlock:buttons[0],home:buttons[1],reason,confirm:dom.node('job-confirm'),onPrepare:null,onConfirm:null,onRead:null,
-    status(machine,extra){handlers['cnc-job-status']({detail:Object.assign({machine,simulation:false,transportConnected:true,feedback:'',feedbackState:''},extra||{})});},
-    screen(name){handlers['cnc-screen-change']({detail:name});}};
-  return page;
-}
-const base={port:'/dev/replay',fresh:true,workflow:'idle',activeState:'Idle',canReadSettings:true,canUnlock:false,unlockReason:'Le déverrouillage ($X) ne sert qu’en alarme.',canHome:true,homeReason:''};
-// The states of the screens fixture (browser-run.cjs) and of the server (job-service.js unlockReady / homeReady).
-const STATES={
-  repos:base,
-  homing:{...base,activeState:'Home',homing:true,canHome:false,homeReason:'La prise d’origine exige une machine au repos ou en alarme.'},
-  palpage:{...base,activeState:'Run',probing:true,unlockReason:'Palpage en cours.',canHome:false,homeReason:'Palpage en cours.'},
-  travail:{...base,workflow:'running',activeState:'Run',unlockReason:'Travail en cours.',canHome:false,homeReason:'Travail en cours.'},
-  pause:{...base,workflow:'paused',activeState:'Hold:0',unlockReason:'Travail en cours.',canHome:false,homeReason:'Travail en cours.'},
-  'alarme-travail':{...base,workflow:'running',activeState:'Alarm',alarmCode:1,unlockReason:'Impossible pendant un travail ou avec des commandes en attente.',canHome:false,homeReason:'Impossible pendant un travail ou avec des commandes en attente.'},
-  'alarme-repos':{...base,activeState:'Alarm',alarmCode:1,canUnlock:true,unlockReason:'',canHome:true},
-  'sans-22':{...base,canHome:false,homeReason:'Réglage $22 inconnu : relisez les réglages de la carte.'},
-  // Piloted by another device (the fixture's « pilote-pris »): the server's can* do not read the pilot.
-  'pilote-pris':{...base,control:{owner:{kind:'touch',id:'browser-run-other',label:'Tablette atelier',present:true},lastChange:null}},
-  'alarme-pilote-pris':{...base,activeState:'Alarm',alarmCode:1,canUnlock:true,unlockReason:'',control:{owner:{kind:'touch',id:'browser-run-other',label:'Tablette atelier',present:true},lastChange:null}},
-  // Stale data (« périmé »): available() refuses both.
-  perime:{...base,fresh:false,unlockReason:'État machine trop ancien : attendre un rapport récent.',canHome:false,homeReason:'État machine trop ancien : attendre un rapport récent.'},
-  // A reason with a value (spindleStill).
-  broche:{...base,canHome:false,homeReason:'La broche tourne encore (12000 tr/min) : arrêtez-la d’abord (M5).'}
-};
-{
-  // (h) disabled of $X / $H for every state: exactly !machine || !canUnlock / !canHome, as before this lot,
-  // and the guards / handlers lines are those of before (text only was added around them).
-  const src=read('commissioning.js');
-  for(const line of ["machineUnlock=button(t('Déverrouiller ($X)…'),'ks-secondary',function(){command(function(c){c.prepareCommand('unlock');});});",
-    "machineHome=button(t('Prise d’origine ($H)…'),'ks-secondary',function(){command(function(c){c.prepareCommand('home');});});",
-    "if(machineUnlock){prop(machineUnlock,'disabled',!machine||!machine.canUnlock);prop(machineUnlock,'title',t(machine&&machine.unlockReason||''));}",
-    "if(machineHome){prop(machineHome,'disabled',!machine||!machine.canHome);prop(machineHome,'title',t(machine&&machine.homeReason||''));}"])
-    assert(src.includes(line),'unchanged: '+line.slice(0,60));
-  const p=machinePage('fr'),seen={};
-  p.status(null);assert.equal(p.unlock.disabled,true);assert.equal(p.home.disabled,true);assert.equal(p.reason.hidden,true,'offline: the state word says it, no reason line');
-  for(const [name,m] of Object.entries(STATES)){
-    p.status(m);seen[name]=[p.unlock.disabled,p.home.disabled];
-    assert.deepEqual(seen[name],[!m.canUnlock,!m.canHome],name+': disabled unchanged');
-    assert.equal(p.reason.hidden,m.canUnlock&&m.canHome,name+': a line exactly when a button is greyed out');
-  }
-  assert.deepEqual(seen,{repos:[true,false],homing:[true,true],palpage:[true,true],travail:[true,true],pause:[true,true],'alarme-travail':[true,true],'alarme-repos':[false,false],'sans-22':[true,true],
-    'pilote-pris':[true,false],'alarme-pilote-pris':[false,false],perime:[true,true],broche:[true,true]});
-  // The line, in the server's words, prefixed with the command it is about.
-  p.status(STATES.repos);assert.equal(p.reason.textContent,'Le déverrouillage ($X) ne sert qu’en alarme.');
-  p.status(STATES.travail);assert.equal(p.reason.textContent,'$X et $H indisponibles : Travail en cours.');
-  p.status(STATES.palpage);assert.equal(p.reason.textContent,'$X et $H indisponibles : Palpage en cours.');
-  // $22 forgotten by CNCjs (board restart): the reading of $$ is offered there, in one button, only then.
-  const reread=p.panel.children.find(c=>/ks-machine-commands/.test(c.className)).children.find(b=>b.id==='ks-machine-reread');
-  assert(reread&&reread.hidden,'« Relire les réglages » hidden at rest');
-  p.status(STATES['sans-22']);assert.equal(p.reason.textContent,'$X indisponible : Le déverrouillage ($X) ne sert qu’en alarme. · $H indisponible : Réglage $22 inconnu : relisez les réglages de la carte. Touchez Relire les réglages ($$).');
-  assert.equal(reread.hidden,false);assert.equal(reread.textContent,'Relire les réglages ($$)');assert.equal(reread.disabled,false);
-  // Contre-revue m2: the answer of « Relire » shows on this line (here a refusal: another device pilots).
-  let refuse=null;p.onRead=()=>({then:(ok,ko)=>{refuse=()=>ko(Object.assign(new Error('Machine pilotée par Tablette B.'),{code:'ECONTROL'}));}});
-  reread.click();assert.equal(p.reason.textContent,'Relecture des réglages de la carte ($$)…');
-  refuse();
-  assert.equal(p.reason.textContent,'Machine pilotée par Tablette B.');assert.equal(p.reason.getAttribute('data-feedback'),'failed');
-  p.status(STATES['sans-22']);assert.equal(p.reason.textContent,'Machine pilotée par Tablette B.','kept while the reasons stay the same');
-  // A new $X / $H request ends it: its own answer shows.
-  p.unlock.disabled=false;p.unlock.click();p.status(STATES['sans-22'],{feedback:'Refusé : pilotage attribué à « Tablette B ».',feedbackState:'failed'});
-  assert.notEqual(p.reason.textContent,'Machine pilotée par Tablette B.','« Relire » answer gone after a new request');
-  p.onRead=null;
-  // D4: the server permits a settings read in alarm, without unlocking first.
-  p.status({...STATES['sans-22'],activeState:'Alarm',alarmCode:1,canUnlock:true,unlockReason:''});
-  assert.equal(p.reason.textContent,'$H indisponible : Réglage $22 inconnu : relisez les réglages de la carte. Touchez Relire les réglages ($$).');
-  assert.equal(reread.hidden,false);assert.equal(reread.disabled,false);assert.equal(reread.title,'');
-  // Any case: « réglage $22 inconnu » lower-case too.
-  p.status({...STATES['sans-22'],homeReason:'réglage $22 inconnu'});assert.equal(reread.hidden,false);
-  // Hold without a job (a stopped job left Hold:0 for hours): the server's words, then what to do (Arrêter, then $H).
-  p.status({...base,activeState:'Hold:0',canHome:false,homeReason:'La prise d’origine exige une machine au repos ou en alarme.'});
-  assert.equal(p.reason.textContent,'$X indisponible : Le déverrouillage ($X) ne sert qu’en alarme. · $H indisponible : La prise d’origine exige une machine au repos ou en alarme. Touchez Arrêter, puis $H.');
-  assert.equal(reread.hidden,true);
-  p.status(STATES.repos);assert(!/Touchez Arrêter, puis \$H/.test(p.reason.textContent),'not at rest');
-  p.status(STATES.homing);assert.equal(p.reason.textContent,'$X indisponible : Le déverrouillage ($X) ne sert qu’en alarme. · $H indisponible : La prise d’origine exige une machine au repos ou en alarme.');
-  // Alarm during a job (lot D, point 3): the server's words kept, then the missing step (Arrêter, then $X).
-  p.status(STATES['alarme-travail']);assert.equal(p.reason.textContent,'$X et $H indisponibles : Impossible pendant un travail ou avec des commandes en attente. Touchez Arrêter, puis $X.');
-  p.status({...STATES['alarme-travail'],unlockReason:'Travail en cours.',homeReason:'Travail en cours.'});assert.equal(p.reason.textContent,'$X et $H indisponibles : Travail en cours. Touchez Arrêter, puis $X.');
-  p.status({...STATES['alarme-travail'],workflow:'idle',unlockReason:'Impossible pendant un travail ou avec des commandes en attente.'});assert.equal(p.reason.textContent,'$X et $H indisponibles : Impossible pendant un travail ou avec des commandes en attente.','idle (commands pending): no Arrêter step');
-  // aria: both buttons point at the line.
-  assert.equal(p.unlock.getAttribute('aria-describedby'),'ks-machine-command-reason');assert.equal(p.home.getAttribute('aria-describedby'),'ks-machine-command-reason');
-  assert.equal(p.reason.getAttribute('role'),'status');
-  // Unchanged writes: the same report twice writes nothing.
-  p.status(STATES.travail);const w=p.dom.stats.writes;p.status(STATES.travail);assert.equal(p.dom.stats.writes,w,'no unchanged DOM writes');
-}
-{
-  // Finitions chantier 2: Grbl version unknown after a CNCjs restart (the banner went before the service).
-  // $H stays available (homeReady does not read the version) but the moves are refused: the existing
-  // « Relire les réglages » button shows on Machine too, with the phrase Préparer already says.
-  const VERSION='Version Grbl inconnue : attendez la bannière de démarrage ou lisez les réglages ($I).';
-  const noVersion={...base,capabilities:{jog:{enabled:false,reason:VERSION}}};
-  const p=machinePage('fr'),reread=p.panel.children.find(c=>/ks-machine-commands/.test(c.className)).children.find(b=>b.id==='ks-machine-reread');
-  p.status(noVersion);
-  assert.equal(reread.hidden,false,'version unknown: « Relire les réglages » shown');assert.equal(reread.disabled,false);
-  assert.equal(p.home.disabled,false,'$H still available');
-  assert.equal(p.reason.hidden,false);
-  assert.equal(p.reason.textContent,'Le déverrouillage ($X) ne sert qu’en alarme. Touchez Relire les réglages ($$).');
-  // One tap: readSettings once, nothing else; its refusal on the line.
-  let refuse=null;p.onRead=()=>({then:(ok,ko)=>{refuse=()=>ko(Object.assign(new Error('Machine pilotée par Tablette B.'),{code:'ECONTROL'}));}});
-  const before=p.calls.length;reread.click();assert.deepEqual(p.calls.slice(before),[['readSettings']]);
-  refuse();assert.equal(p.reason.textContent,'Machine pilotée par Tablette B.');assert.equal(p.reason.getAttribute('data-feedback'),'failed');
-  // Version received: button and phrase gone.
-  p.status(base);assert.equal(reread.hidden,true);assert.equal(p.reason.textContent,'Le déverrouillage ($X) ne sert qu’en alarme.');
-  p.status({...base,capabilities:{jog:{enabled:true,reason:''}}});assert.equal(reread.hidden,true);
-  // Alarm permits a read; stale reports and jobs follow the server's refusal flag.
-  p.status({...noVersion,activeState:'Alarm',alarmCode:1,canUnlock:true,unlockReason:''});
-  assert.equal(reread.hidden,false);assert.equal(reread.disabled,false);
-  assert.equal(p.reason.textContent,'Touchez Relire les réglages ($$).');
-  p.status({...noVersion,fresh:false,canReadSettings:false});assert.equal(reread.disabled,true);
-  assert(!/Relire/.test(p.reason.textContent),'stale report: no « touchez Relire » under a greyed button: '+p.reason.textContent);
-  p.status({...noVersion,workflow:'running',activeState:'Run',canReadSettings:false,canHome:false,homeReason:'Travail en cours.',unlockReason:'Travail en cours.'});assert.equal(reread.disabled,true);
-  assert(!/Relire/.test(p.reason.textContent),'job: no « touchez Relire » under a greyed button: '+p.reason.textContent);
-  // ES: the existing catalogue rows.
-  const es=machinePage('es');es.status(noVersion);assert(es.reason.textContent.endsWith(locale('es').t('Touchez Relire les réglages ($$).')),es.reason.textContent);
-}
-{
-  // (b) An alarm during a job (the RT capture: $X / $H striped while the notice says to use them): the reason shows, ES.
-  const p=machinePage('es');p.status(STATES['alarme-travail']);
-  assert.equal(p.reason.hidden,false);
-  assert.equal(p.reason.textContent,'$X y $H no disponibles: No es posible durante un trabajo o con comandos en espera. Toque Detener y luego $X.');
-  p.status(STATES['alarme-repos']);assert.equal(p.reason.hidden,true,'both available: no line');
-  const en=machinePage('en');en.status({...STATES['alarme-travail'],unlockReason:'Travail en cours.',homeReason:'Travail en cours.'});
-  assert.equal(en.reason.textContent,'$X and $H unavailable: Job running. Touch Stop, then $X.');
-  p.status(STATES.repos);assert.equal(p.reason.textContent,'El desbloqueo ($X) solo sirve en alarma.');
-}
-{
-  // (i) A refused $H asked from Machine (job-controls.js: no live stream → « Suivi continu interrompu »): the
-  // answer replaces the permanent $X reason on the same line, tinted; a request from elsewhere is not shown here.
-  // The real order: « Demande envoyée… » is published inside the click (prepareCommand → command()).
-  const refusal='Suivi continu interrompu. Nouvelle confirmation requise.',sent={feedback:'Demande envoyée…',feedbackState:'sent'},failed={feedback:refusal,feedbackState:'failed'};
-  const REASON='Le déverrouillage ($X) ne sert qu’en alarme.';
-  const p=machinePage('fr');p.onPrepare=()=>p.status(STATES.repos,sent);
-  p.status(STATES.repos,failed);
-  assert.equal(p.reason.textContent,REASON,'not asked from here: the reason');
-  p.home.click();assert.deepEqual(p.calls.at(-1),['prepare','home'],'the click still goes through cncJobControls.prepareCommand');
-  assert.equal(p.reason.textContent,'Demande envoyée…','the first « sent », published inside the click, is ours');assert.equal(p.reason.getAttribute('data-feedback'),'sent');
-  p.status(STATES.repos,failed);
-  assert.equal(p.reason.textContent,refusal);assert.equal(p.reason.hidden,false);assert.equal(p.reason.getAttribute('data-feedback'),'failed');
-  p.status(STATES.repos,failed);assert.equal(p.reason.textContent,refusal,'the same answer stays');
-  // Another request after it (Pause from the strip): « sent » then its failure are not shown under $X / $H.
-  p.status(STATES.repos,sent);assert.equal(p.reason.textContent,REASON,'another request: the reason again');
-  p.status(STATES.repos,{feedback:'Pause refusée.',feedbackState:'failed'});assert.equal(p.reason.textContent,REASON);assert.equal(p.reason.getAttribute('data-feedback'),null);
-  // A refusal, then the machine's context changes (a job started elsewhere): the current reasons, not the old answer.
-  p.home.click();p.status(STATES.repos,failed);assert.equal(p.reason.textContent,refusal);
-  p.status(STATES.travail,failed);assert.equal(p.reason.textContent,'$X et $H indisponibles : Travail en cours.','new reasons replace an old refusal');
-  // Confirmed (the dialog opened): the reason; the answer of its confirmation is ours, another request is not.
-  p.status(STATES.repos);p.home.click();p.status(STATES.repos,{feedback:'Confirmation prête.',feedbackState:'confirmed'});
-  assert.equal(p.reason.textContent,REASON);assert.equal(p.reason.getAttribute('data-feedback'),null);
-  p.onConfirm=()=>p.status(STATES.repos,sent);
-  p.confirm.click();assert.equal(p.reason.textContent,'Demande envoyée…','confirmed in its dialog: still ours');
-  p.status(STATES.repos,failed);assert.equal(p.reason.textContent,refusal);
-  p.status(STATES.repos,{feedback:'Machine déverrouillée.',feedbackState:'confirmed'});assert.equal(p.reason.textContent,REASON,'accepted: the request is over');
-  p.status(STATES.repos,failed);assert.equal(p.reason.textContent,REASON);
-  // The dialog dismissed, then another request (Pause from the strip): never shown here.
-  p.home.click();p.status(STATES.repos,{feedback:'Confirmation prête.',feedbackState:'confirmed'});
-  p.status(STATES.repos,sent);p.status(STATES.repos,failed);assert.equal(p.reason.textContent,REASON,'a request after the dismissed dialog is not ours');
-  // A click that sends nothing (busy: prepare() returns early) asks nothing: a later request is not ours.
-  p.onPrepare=null;p.home.click();p.status(STATES.repos,sent);assert.equal(p.reason.textContent,REASON);
-  // Leaving Machine forgets the request.
-  p.onPrepare=()=>p.status(STATES.repos,sent);p.home.click();p.status(STATES.repos,failed);assert.equal(p.reason.textContent,refusal);
-  p.screen('home');assert.equal(p.reason.textContent,REASON,'left Machine: the reason again');
-  p.status(STATES.repos,failed);assert.equal(p.reason.textContent,REASON);
-  // Disabled buttons cannot ask: a click on a greyed $X sends nothing and marks nothing.
-  const q=machinePage('fr');q.status(STATES.travail);const before=q.calls.length;q.unlock.click();assert.equal(q.calls.length,before);
-  q.status(STATES.travail,failed);assert.equal(q.reason.textContent,'$X et $H indisponibles : Travail en cours.');
-}
-{
-  // Counter-review: every reason the server gives for $X / $H (job-service.js unlockReady, homeReady and what they
-  // call) is shown translated in ES / EN; the three with a value keep it. The fixed ones are read in the server.
-  const server=fs.readFileSync(__dirname+'/../../src/server/services/touch/job-service.js','utf8');
-  const FIXED=['Service indisponible.','Contrôleur Grbl non connecté.','Connexion machine indisponible.','État machine trop ancien : attendre un rapport récent.','Palpage en cours.',
-    'Déplacement en cours : attendez le retour au repos (Idle).','Impossible pendant un travail ou avec des commandes en attente.','Chargement en cours.','Le déverrouillage ($X) ne sert qu’en alarme.',
-    'La prise d’origine exige une machine au repos ou en alarme.','Réglage $22 inconnu : relisez les réglages de la carte.','Prise d’origine désactivée sur la carte ($22=0).',
-    'Des automatismes CNCjs sont configurés. Leur compatibilité doit être vérifiée avant utilisation.'];
-  for(const s of FIXED)assert(server.includes("conflict('"+s+"')"),'server reason still: '+s);
-  for(const s of ["'La broche tourne encore (' + speed + ' tr/min) : arrêtez-la d’abord (M5).'","'La broche est commandée (' + spindle + ') : arrêtez-la d’abord (M5).'","'Commande système en cours (' + systemCommands.current().title + ') : attendez sa fin.'"])
-    assert(server.includes(s),'server reason with a value still: '+s);
-  const FRENCH=/’| :|\b(arrêtez|attendez|broche|commande|réglages?)\b|en cours/i;
-  for(const language of ['es','en']){
-    const p=machinePage(language);
-    for(const s of FIXED){p.status({...base,canHome:false,homeReason:s,canUnlock:true});assert(!FRENCH.test(p.reason.textContent),language+': '+p.reason.textContent);}
-    p.status({...base,canHome:false,homeReason:'La broche tourne encore (12000 tr/min) : arrêtez-la d’abord (M5).',canUnlock:true});
-    assert.equal(p.reason.textContent,language==='es'?'$H no disponible: El husillo sigue girando (12000 rpm): deténgalo primero (M5).':'$H unavailable: The spindle is still turning (12000 rpm): stop it first (M5).');
-    p.status({...base,canHome:false,homeReason:'La broche est commandée (M3) : arrêtez-la d’abord (M5).',canUnlock:true});assert(/\(M3\)/.test(p.reason.textContent)&&!FRENCH.test(p.reason.textContent),p.reason.textContent);
-    p.status({...base,canHome:false,homeReason:'Commande système en cours (Redémarrage) : attendez sa fin.',unlockReason:'Commande système en cours (Redémarrage) : attendez sa fin.'});
-    assert(/\(Redémarrage\)/.test(p.reason.textContent)&&!FRENCH.test(p.reason.textContent.replace('Redémarrage','R')),p.reason.textContent);
-    // A value is inserted as received, never read as a replacement pattern.
-    p.status({...base,canHome:false,homeReason:'La broche est commandée ($&) : arrêtez-la d’abord (M5).',canUnlock:true});assert(p.reason.textContent.includes('($&)'),p.reason.textContent);
-  }
-}
 {
   // (c) Simulation: the pill says the state in the interface's words, « déduite » included (FR / ES); class and
   // disabled of the two alarm buttons keep reading activeState.
@@ -243,21 +41,29 @@ const STATES={
   vm.runInNewContext(read('simulation-machine.js'),{window:{addEventListener:(n,f)=>events[n]=f},document:doc});
   events['cnc-job-status']({detail:{simulation:true,machine:{activeState:'Idle',workflow:'idle'}}});assert.equal(nodes['sim-machine-state'].textContent,'État fictif : Idle');
 }
-{
-  // (g) Help sheet and subtitle: the $X / $H commands of this screen are real (no « read only », no « origins
-  // disabled »), each phrase with its FR / EN / ES row; the labels are those of the buttons and of Préparer.
-  const html=read('index.html'),start=html.indexOf('<section id="screen-machine"'),machine=html.slice(start,html.indexOf('</section>',start));
-  assert(!/lecture seule<\/p>/.test(machine)&&!/commandes désactivées/.test(machine),'no read-only claim above $X / $H');
-  const texts=[...machine.matchAll(/<p>([^<]+)<\/p>/g)].map(m=>m[1]).filter(s=>/[a-z]/.test(s));
-  assert(texts.includes('Connexion, coordonnées et commandes $X/$H'));
-  assert(texts.some(s=>/^Commandes réelles/.test(s)&&s.includes('Déverrouiller ($X)')&&s.includes('Prise d’origine ($H)')&&s.includes('Préparer')&&s.includes('Suivi')&&!/Déplacement réel|Origine ici|quand ils sont activés/.test(s)));
-  for(const language of ['en','es']){const L=locale(language);for(const s of texts)assert.notEqual(L.t(s),s,language+' row for: '+s);}
-  for(const label of ['Déverrouiller ($X)…','Prise d’origine ($H)…','Préparer']){
-    const es=locale('es').t(label).replace(/…$/,''),en=locale('en').t(label).replace(/…$/,'');
-    assert(locale('es').t(texts.find(s=>/^Commandes réelles/.test(s))).includes(es),'ES sheet names '+es);
-    assert(locale('en').t(texts.find(s=>/^Commandes réelles/.test(s))).toLowerCase().includes(en.toLowerCase()),'EN sheet names '+en);
-  }
-  for(const s of ['$X et $H indisponibles : ','$X indisponible : ','$H indisponible : ','Code non reconnu : consulter CNCjs.'])
-    for(const language of ['en','es'])assert.notEqual(locale(language).t(s),s,language+': '+s);
-}
-console.log('PASS machine screen: $X / $H reason line in the server words (FR/ES), refusal from this screen only, disabled and handlers unchanged for every state, simulated state in the interface words, help sheet naming the real commands with FR/EN/ES rows.');
+
+// L2 migrates the old $X/$H reason card to the shared checklist and details sheet.
+const {page}=require('./session-dom-fixture.cjs'),{machine}=require('./session-fixture.cjs');
+(async()=>{
+ for(const language of ['fr','en','es']){
+  const p=page(language);p.run('grbl-help.js');p.run('touch-shell.js');const calls=[];
+  p.window.cncJobControls.prepareCommand=op=>{calls.push(op);return Promise.resolve({opened:true});};
+  const status=(m,pilot={state:'free'})=>{p.emit('cnc-job-status',{machine:m,transportConnected:true,pilot});p.window.cncShell.go('machine');p.advance(601);};
+  status(machine({homed:false}));p.node('step-machine-main').click();assert.deepEqual(calls,['home']);
+  assert(p.node('machine-unlock').disabled);assert(p.node('machine-unlock-reason').textContent);
+  status(machine({homed:false,activeState:'Alarm',canUnlock:true}));assert(!p.node('machine-unlock').disabled);p.node('machine-unlock').click();assert.deepEqual(calls,['home','unlock']);
+  status(machine({homed:false,activeState:'Alarm',canUnlock:true}),{state:'other',name:'PC'});assert(p.node('machine-unlock').disabled);assert.equal(p.node('step-machine-main').getAttribute('data-action'),'prendre-la-main');
+  for(const patch of [{canHome:false},{fresh:false},{canHome:false,workflow:'running',activeState:'Run'}]){status(machine({homed:false,...patch}));const n=calls.length;p.node('step-machine-main').click();assert.equal(calls.length,n,'disabled home sends nothing');}
+  status(machine({homed:false,workOffset:{state:'proven',wcs:'G54',stored:{x:'1.250',y:'2',z:'-3'}}}));
+  p.node('machine-details-open').click();assert(!p.node('ks-machine-details').hidden);assert(p.node('ks-machine-details').contains(p.node('job-port')));assert(p.node('ks-machine-details').contains(p.node('machine-limits-content')));assert(p.node('ks-machine-details').contains(p.node('machine-details-content')));
+  assert(p.node('machine-offset-details').textContent.includes('G54'));assert(p.node('machine-offset-details').textContent.includes('X 1.250'));
+  p.window.cncJobControls.readSettings=()=>Promise.reject({code:'ETOUCH_SETTINGS_READING'});p.node('machine-details-reread').click();await Promise.resolve();
+  assert(p.node('ks-machine-details').querySelector('.ks-refus'),'details read refusal stays inside its sheet');
+  p.window.cncShell.closeSheet();
+  p.window.cncJobControls.prepareCommand=()=>Promise.resolve({opened:false,error:{code:'ETOUCH_START_NOT_HOMED'}});
+  status(machine({homed:false}));p.node('step-machine-main').click();await Promise.resolve();assert(p.node('step-machine-cause').textContent.startsWith('!'),'refusal on the screen where requested');
+  p.window.cncShell.go('files');assert(!p.node('step-files-cause').textContent.startsWith('!'),'leaving clears local refusal');
+  p.window.cncJobControls.dispose();
+ }
+ console.log('PASS Machine: home/unlock owners and guards, shared refusal, details and simulated states (FR/EN/ES).');
+})().catch(e=>{console.error(e);process.exitCode=1;});

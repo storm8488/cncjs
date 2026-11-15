@@ -84,8 +84,8 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
   assert.equal(f.controls().openPilot(), true);
   assert.equal(f.el('pilot-dialog').hidden, false); assert.equal(f.document.activeElement.id, 'pilot-reason-a'); assert.equal(f.el('main').inert, true);
   assert.equal(f.el('real-banner').inert, false, 'the strip (Pause, Arrêter) stays usable under the pilot dialog');
-  assert.match(f.el('pilot-dialog-text').textContent, /Piloté par « Tablette B »/);
-  assert.equal(f.el('pilot-form').hidden, false); assert.equal(f.el('pilot-takeover').hidden, false); assert.equal(f.el('pilot-takeover').disabled, true, 'no reason, no takeover');
+  assert.match(f.el('pilot-dialog-text').textContent, /C’est « Tablette B » qui a la main depuis/);
+  assert.equal(f.el('pilot-form').hidden, false); assert.equal(f.el('pilot-takeover').hidden, true);f.el('pilot-other').click();assert.equal(f.el('pilot-takeover').hidden,false); assert.equal(f.el('pilot-takeover').disabled, true, 'no reason, no takeover');
   f.el('pilot-reason').value = 'ab'; f.el('pilot-reason').fire('input'); assert.equal(f.el('pilot-takeover').disabled, true, '2 characters are not a reason');
   f.el('pilot-reason').value = '   ab  '; f.el('pilot-reason').fire('input'); assert.equal(f.el('pilot-takeover').disabled, true, 'spaces do not count');
   // Tab stays inside: last → first, first (shift) → last.
@@ -109,7 +109,7 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
   // A refused takeover (reason rejected by the server) stays in the dialog with its message.
   f.answer(takeovers[0], { message: 'Prise de pilotage refusée : indiquez un motif (3 caractères au moins).', code: 'ECONTROL', owner: other }, 409); await f.flush();
   assert.equal(f.el('pilot-dialog').hidden, false); assert.equal(f.el('pilot-feedback').textContent, 'Prise de pilotage refusée : indiquez un motif (3 caractères au moins).');
-  f.el('pilot-takeover').click(); const accepted = f.posts().filter((r) => r.body.action === 'control').at(-1);
+  f.el('pilot-reason-b').textContent='Prendre la main — l’autre appareil est hors service';f.el('pilot-reason-b').click(); const accepted = f.posts().filter((r) => r.body.action === 'control').at(-1);
   f.answer(accepted, { owner: { kind: 'touch', id }, previous: other, role: 'operator' }); await f.flush();
   assert.equal(f.el('pilot-dialog').hidden, true); assert.equal(f.el('job-feedback').textContent, 'Pilotage pris par cet appareil.'); assert.equal(f.document.activeElement, chip);
   // When this device owns or the port is free, the dialog informs only (no takeover form).
@@ -161,6 +161,16 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
  const second=await f.controls().prepareCommand('home');assert.equal(second.opened,false);assert.equal(second.error.message,'Opération en cours…');
  assert.equal(f.el('job-feedback').textContent,second.error.message,'C-31: busy preparation is visible');assert.equal(f.posts().length,count);
  f.answer(req,{message:'Home refused'},409);await waiting;f.controls().dispose();
+})().catch(e=>{console.error(e);process.exitCode=1;});
+
+(async()=>{
+ for(const [patch,warning] of [[{probing:true},/Un palpage est en cours.*l’arrête/],[{motion:{frame:{index:0}}},/Un cadrage est en cours.*l’arrête/],[{motion:{jog:{axis:'X'}}},/Un déplacement est en cours.*l’arrête/],[{workflow:'running'},/L’usinage continue/]]){
+  const f=load();await f.connect(f.machine({...patch,control:{owner:other,lastChange:null}}));f.controls().openPilot();
+  assert.match(f.el('pilot-dialog-text').textContent,warning);assert.match(f.el('pilot-dialog-text').textContent,/depuis/);
+  f.el('pilot-reason-b').textContent='Prendre la main — l’autre appareil est hors service';f.el('pilot-reason-b').click();f.el('pilot-reason-a').click();
+  const sent=f.posts().filter(r=>r.body.action==='control');assert.equal(sent.length,1,'both preset buttons share the in-flight guard');assert.equal(sent[0].body.operation,'takeover');assert.equal(sent[0].body.reason,f.el('pilot-reason-b').textContent);
+  f.answer(sent[0],{});await f.flush();f.controls().dispose();
+ }
 })().catch(e=>{console.error(e);process.exitCode=1;});
 
 (async()=>{

@@ -25,8 +25,8 @@ f.send({...state(0),transportConnected:false});assert.match(f.transport.textCont
 f.send(state(0,{fresh:false}));assert.match(f.reason.textContent,/non validé/);
 f.send({...state(),transportReason:'Session expirée'});assert.equal(f.reason.textContent,'Session expirée');
 // A hidden Machine view receives state but does not repaint its details.
-f.activeScreens.clear();const before=f.report.textContent;f.send(state(8000,{port:'B'}));assert.equal(f.report.textContent,before);assert.match(f.badge.textContent,/8 s/);
-f.activeScreens.add('machine');f.listeners['cnc-screen-change']();assert.match(f.report.textContent,/B.*8 s/);
+f.activeScreens.clear();f.node('ks-machine-details').hidden=true;const before=f.report.textContent;f.send(state(8000,{port:'B'}));assert.equal(f.report.textContent,before);assert.match(f.badge.textContent,/8 s/);
+f.activeScreens.add('machine');f.node('ks-machine-details').hidden=false;f.listeners['cnc-screen-change']();assert.match(f.report.textContent,/B.*8 s/);
 f.document.hidden=true;writes=f.stats.writes;f.send(state(16000));assert.equal(f.stats.writes,writes);
 f.document.hidden=false;f.document.handlers.visibilitychange();assert.match(f.report.className,/err/);
 const retained=state(0);f.send(retained);f.document.hidden=true;f.advance(16000);f.send({...retained,selection:{file:'other.nc'}});

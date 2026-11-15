@@ -16,7 +16,7 @@ const text=root=>all(root).map(e=>typeof e.textContent==='string'?e.textContent:
   doc.getElementById=byId;doc.querySelector=()=>byId('main');
   p.window.cncShell={screen:()=>'machine',v2Mounts(build){
     if(!Object.keys(mounts).length&&build===true)for(const n of ['home','files','prepare','machine','history','settings']){
-      const root=byId('screen-'+(n==='prepare'?'jog':n)),content=doc.createElement('div');content.hidden=true;root.appendChild(content);
+      const root=byId(n==='machine'?'ks-machine-details':'screen-'+(n==='prepare'?'jog':n)),content=doc.createElement('div');content.hidden=true;root.appendChild(content);
       mounts[n]=Object.freeze({screen:n,root,content,origin:null});}
     return mounts;}};
   p.run('grbl-help.js');p.run('machine-limits.js');
@@ -24,7 +24,7 @@ const text=root=>all(root).map(e=>typeof e.textContent==='string'?e.textContent:
   assert(p.api.gate()&&p.classes.has('perf-v2'),'v2 open at Idle');
   // L0 freshness contract (v2/fixe): stubbed here when this base does not provide it yet.
   if(typeof p.api.reportAge!=='function')p.api.reportAge=m=>m&&m.statusObservedAt!==undefined&&typeof m.statusAgeMs==='number'?{known:true,fresh:m.statusAgeMs<=2500,ageMs:m.statusAgeMs}:{known:false,fresh:false,ageMs:null};
-  p.emit('cnc-screen-change','machine');
+  p.emit('cnc-sheet-change',{id:'ks-machine-details',open:true});
   p.status({activeState:'Run',workflow:'running',canStop:true,statusAgeMs:100,statusObservedAt:1});p.frame();
   const content=mounts.machine.content,root=mounts.machine.root;
   assert.equal(content.hidden,false);assert.match(text(content),/État : Run/);assert.match(text(content),/Rapport frais/);
