@@ -284,7 +284,7 @@ export const originLine = (p, axes) => 'G10 L20 P' + p + ' ' + axes.map((axis) =
 export const createMotion = (deps) => {
   const {
     config, clock, conflict, controllers, record, later, answers, changed, available,
-    hasAutomations, control, transports, transportActors, log, controllerInfo, allSettings, modalWcs, spindleOn
+    hasAutomations, control, transports, transportActors, log, controllerInfo, allSettings, modalWcs, spindleOn, referenceReady
   } = deps;
 
   // A refusal with a stable code (ETOUCH_MOTION_*) and the values of its
@@ -942,6 +942,10 @@ export const createMotion = (deps) => {
     const r = record(c);
     gate(c, r, 'setOrigin');
     atRest(c, r);
+    // C-18: a zero set before the homing ($22=1) would be wrong after it.
+    if (referenceReady) {
+      referenceReady(c);
+    }
     if (!modalWcs(r) || !WCS_P[modalWcs(r)]) {
       throw conflict('Repère de travail inconnu ou état $G trop ancien : attendez un rapport récent.');
     }

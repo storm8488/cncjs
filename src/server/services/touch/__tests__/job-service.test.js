@@ -103,6 +103,16 @@ const setup = (options = {}) => {
     ...extra
   }, actor);
   ctx.report = () => ctx.c.runner.emit('status');
+  // A homing seen complete (Home then Idle): with $22=1, the reference guards (C-05, C-18) pass.
+  // ctx.c is read at the call: plate() below replaces the controller.
+  ctx.homed = (report = () => ctx.c.runner.emit('status')) => {
+    ctx.c.state.status = { ...ctx.c.state.status, activeState: 'Home' };
+    ctx.c.runner.state = ctx.c.state;
+    report();
+    ctx.c.state.status = { ...ctx.c.state.status, activeState: 'Idle' };
+    ctx.c.runner.state = ctx.c.state;
+    report();
+  };
   ctx.state = () => ctx.service.list()[0];
   // Loads test.nc on a fresh, idle controller.
   ctx.loaded = async () => {
@@ -832,6 +842,7 @@ describe('job service', () => {
       const ctx = setup();
       ctx.c.settings = { version: '1.1h', settings: { $22: 1, $30: 24000, $31: 6000, $110: 1000, $111: 1000, $112: 200 } };
       ctx.report();
+      ctx.homed();
       return ctx;
     };
 
@@ -1504,6 +1515,7 @@ describe('job service', () => {
       ctx.generation = ctx.service.list()[0].generation;
       ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
       ctx.c.report();
+      ctx.homed(ctx.c.report);
       return ctx;
     };
 
@@ -1636,6 +1648,7 @@ describe('job service', () => {
       ctx.generation = ctx.service.list()[0].generation;
       ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
       ctx.c.report();
+      ctx.homed(ctx.c.report);
       await ctx.req('load', { file: 'test.nc' });
       let state = ctx.state();
       let ticket = await ctx.req('prepare', { operation: 'start', revision: state.revision });
@@ -1659,6 +1672,7 @@ describe('job service', () => {
       ctx.generation = ctx.service.list()[0].generation;
       ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
       ctx.c.report();
+      ctx.homed(ctx.c.report);
       await ctx.req('load', { file: 'test.nc' });
       let state = ctx.state();
       let ticket = await ctx.req('prepare', { operation: 'start', revision: state.revision });
@@ -2296,9 +2310,15 @@ describe('F2: the travel pre-check of the loaded program follows the machine sta
     expect(check.verdict).toBe('unknown');
     expect(check.reasons.join(' ')).toMatch(/Référencement non constaté/);
     expect(ctx.state().homed).toBe(false);
-    // The confirmation carries the same check, as a warning: the start is not blocked.
+    // $22=1 and no homing seen: the start is refused for the reference (C-05), never overridden.
+    expect(ctx.state()).toMatchObject({ canStart: false, referenceLost: null, refusals: { start: { code: 'ETOUCH_START_NOT_HOMED' } } });
+    await expect(ctx.req('prepare', { operation: 'start', revision: ctx.state().revision })).rejects.toMatchObject({ code: 'ETOUCH_START_NOT_HOMED' });
+    await expect(ctx.req('prepare', { operation: 'start', revision: ctx.state().revision, override: 'travel' })).rejects.toMatchObject({ code: 'ETOUCH_START_NOT_HOMED' });
+    // With homing disabled ($22=0), the confirmation carries the same check, as a warning: the start is not blocked.
+    machineReady(ctx, { $22: 0 });
     const ticket = await ctx.req('prepare', { operation: 'start', revision: ctx.state().revision });
     expect(ticket.programCheck.verdict).toBe('unknown');
+    machineReady(ctx);
     // A homing made from anywhere (Home state then Idle) is observed.
     ctx.c.state.status.activeState = 'Home';
     ctx.report();

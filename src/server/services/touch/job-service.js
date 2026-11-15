@@ -157,12 +157,15 @@ const conflict = (message) => {
   return err;
 };
 
-// D1 (a start proven outside the travel): refusals with a stable code, the values of their French
-// message and, for ETOUCH_START_OUTSIDE, the coded overruns behind it (`reasons`, program-check.js).
+// D1 (a start proven outside the travel) and the reference guards (C-05, C-18): refusals with a
+// stable code, the values of their French message and, for ETOUCH_START_OUTSIDE, the coded
+// overruns behind it (`reasons`, program-check.js).
 export const START_MESSAGES = {
   ETOUCH_START_OUTSIDE: 'Départ refusé : le programme sort de la course de la machine (dépassements : {count}).',
   ETOUCH_START_NO_OVERRIDE: 'Départ hors course impossible : les limites logicielles de la carte ($20) ne sont pas actives, rien n’arrêterait le dépassement.',
-  ETOUCH_START_OVERRIDE_CHANGED: 'Le programme, l’origine ou la machine ont changé depuis la confirmation du départ hors course : confirmez à nouveau.'
+  ETOUCH_START_OVERRIDE_CHANGED: 'Le programme, l’origine ou la machine ont changé depuis la confirmation du départ hors course : confirmez à nouveau.',
+  ETOUCH_START_NOT_HOMED: 'Machine non référencée : faites la prise d’origine avant de démarrer.',
+  ETOUCH_ORIGIN_NOT_HOMED: 'Machine non référencée : faites la prise d’origine avant de poser une origine.'
 };
 
 const startRefusal = (code, params = {}, reasons) => {
@@ -293,6 +296,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         // Idle) since the last board restart or alarm: the only ground for the
         // travel check (F2). $22=1 alone means enabled, not done.
         homed: false,
+        // Why the reference is lost since the last homing seen (C-05): 'restart' (a banner) over
+        // 'alarm' (ALARM:n, or an Alarm state of a homed machine); null when homed or never known.
+        referenceLost: null,
         sawHome: false,
         // Machine position at the end of our last full homing cycle ($H, Home seen, then Idle) and
         // the $23 it was homed under, or null: learnt only from a trusted machine position.
@@ -360,6 +366,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
           // (a Home report seen meanwhile still is, see sawHome below).
           if (active === 'Idle' && !r.homing.refused && !r.homing.interrupted) {
             r.homed = true;
+            r.referenceLost = null;
             // Where our own full cycle ($H, every axis), seen running (Home reported), left the
             // machine (F1, motion.js envelopeOf): an axis homed towards its negative end ($23 bit
             // set) found at 0 tells a firmware that forces the origin there, whose travel is then
@@ -378,6 +385,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
           // An Alarm state without its ALARM:n line (a board restarted unseen, locked by $22=1 at
           // MPos 0,0,0): the position may be lost, as after r.alarmed. A full $H of the PC sent in
           // Alarm keeps its intention (foreignHome): its cycle comes next.
+          if (r.homed && r.referenceLost !== 'restart') {
+            r.referenceLost = 'alarm';
+          }
           r.homed = false;
           r.homeMpos = null;
           r.offset.invalidate('alarm');
@@ -387,6 +397,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         } else if (r.sawHome && active === 'Idle') {
           r.sawHome = false;
           r.homed = true;
+          r.referenceLost = null;
           r.offset.invalidate('homing');
           // A cycle of another client may have homed some axes only ($HX, $HY…): what ours taught
           // is dropped, unless the full cycle was seen sent (socketCommand), ran at least
@@ -430,6 +441,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         // The board is in Alarm from now on, before its next report: a $H sent next starts from it.
         r.lastActive = 'Alarm';
         // An alarm may have lost the position (hard/soft limit, abort during a cycle).
+        if (r.referenceLost !== 'restart') {
+          r.referenceLost = 'alarm';
+        }
         r.homed = false;
         r.homeMpos = null;
         r.sawHome = false;
@@ -448,6 +462,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         r.stall = null;
         r.homing = null;
         r.homed = false;
+        // The board restarted: MPos 0 where it stood on the LUNYEE, the reference is gone.
+        r.referenceLost = 'restart';
         r.homeMpos = null;
         r.foreignHome = null;
         r.wcoSeen = false;
@@ -725,6 +741,18 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
   };
 
+  // Reference guards (C-05, C-18, PLAN-CORRECTIONS § 1.5): with homing enabled ($22=1 known), a
+  // machine this server has not seen homed since the board started, or that lost its reference
+  // since (a banner, an alarm, an Alarm state), starts nothing and takes no work zero: one set
+  // before the homing would be wrong after it. Broad on purpose: a CNCjs restarted cannot tell
+  // whether the reference was lost before it. $22=0 or unknown: nothing changes.
+  const referenced = (c) => settingNumber(allSettings(c), 22) !== 1 || record(c).homed === true;
+  const referenceReady = (c) => {
+    if (!referenced(c)) {
+      throw startRefusal('ETOUCH_ORIGIN_NOT_HOMED');
+    }
+  };
+
   // D2: what runs in work coordinates waits for the offset proven (work-offset.js).
   const offsetReady = (c) => {
     const err = record(c).offset.refusal();
@@ -902,6 +930,11 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         if (!j.sets.distance && modal.distance !== 'G90') {
           throw conflict('Le programme ne fixe pas son mode et la machine est en ' + (modal.distance || 'mode inconnu') + ' : ajoutez G90 au début du programme ou remettez la machine en G90.');
         }
+      }
+      // No program (a resume from a line neither) on a machine without its reference (C-05):
+      // never overridden.
+      if (!referenced(c)) {
+        throw startRefusal('ETOUCH_START_NOT_HOMED');
       }
       // A program (a resume from a line too) runs in work coordinates (D2).
       offsetReady(c);
@@ -1197,12 +1230,14 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     hasAutomations,
     grblCode,
     probeInput,
-    moving: (c, r) => moves.moving(c, r)
+    moving: (c, r) => moves.moving(c, r),
+    referenceReady
   });
   // The plate probe turns no spindle but is a CNC operation (contract §3).
   const plateReady = (c) => {
     requireCapability(c, 'plateProbe');
     zeroZReady(c);
+    referenceReady(c);
     // G38.2 Z… in work coordinates (D2).
     offsetReady(c);
   };
@@ -1227,6 +1262,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     controllerInfo,
     allSettings,
     modalWcs,
+    referenceReady,
     // Turning, or maybe turning: no FS speed reported and no fresh $G to tell.
     spindleOn: (c) => spindleOn(c) || (realtimeValue(controllerStatus(c).spindle) === null && !modalFresh(record(c)))
   });
@@ -1455,6 +1491,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       // Travel pre-check of the loaded program against this machine now (F2).
       programCheck: r.job && r.job.analysis ? checkProgram(r.job.analysis, machineForCheck(c, r)) : null,
       homed: r.homed === true,
+      // Why the machine is no longer referenced ('alarm', 'restart'), null when it is (C-05).
+      referenceLost: r.homed === true ? null : r.referenceLost,
       // Who pilots this port (F5): {owner, lastChange}; the client derives its own role from its clientId.
       control: { owner: attribution.owner, lastChange: attribution.lastChange },
       total: sender.total,

@@ -637,6 +637,8 @@ offsetProven: s.workOffset.state === 'proven'
 
   test('a pause the program asked for (M6): `$#` only, never a reload', async () => {
     const ctx = await setup();
+    // $22=1: the start needs a referenced machine (C-05).
+    await ctx.home();
     await ctx.proven();
     await ctx.req('load', { file: 'gravure.nc' });
     const ticket = await ctx.req('prepare', { operation: 'start', revision: ctx.state().revision });
@@ -757,6 +759,8 @@ offsetProven: s.workOffset.state === 'proven'
 
     test('the end of a job, and a job stopped', async () => {
       const ctx = await setup();
+      // $22=1: the start needs a referenced machine (C-05).
+      await ctx.home();
       await ctx.proven();
       await ctx.req('load', { file: 'gravure.nc' });
       let ticket = await ctx.req('prepare', { operation: 'start', revision: ctx.state().revision });

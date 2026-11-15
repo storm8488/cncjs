@@ -545,7 +545,8 @@ describe('work origin (F1)', () => {
   const prepare = (ctx, axes = ['X', 'Y'], actor = A) => ctx.req('prepare', { operation: 'set-origin', axes }, actor);
 
   test('two steps: the ticket names the exact G10 L20 line, the confirmation sends it, the result is checked and recorded', async () => {
-    const ctx = setup();
+    // $22=1: a work zero needs a referenced machine (C-18).
+    const ctx = setup({ homed: true });
     ctx.modal('G54');
     const ticket = await prepare(ctx);
     expect(ticket).toMatchObject({ operation: 'set-origin', name: 'Origine X Y du repère G54 à la position actuelle (G10 L20 P1 X0 Y0)' });
@@ -571,7 +572,7 @@ actor: expect.objectContaining({ id: 'tablet-A' })
   });
 
   test('the active offset gives P (G55 → P2); a work position that did not become 0 fails and is recorded', async () => {
-    const ctx = setup();
+    const ctx = setup({ homed: true });
     ctx.modal('G55');
     const ticket = await prepare(ctx, ['Z']);
     const done = ctx.req('set-origin', { nonce: ticket.nonce });
@@ -584,7 +585,7 @@ actor: expect.objectContaining({ id: 'tablet-A' })
   });
 
   test('a controller that moved instead of changing the offset is not reported as an origin set', async () => {
-    const ctx = setup();
+    const ctx = setup({ homed: true });
     ctx.modal('G54');
     const ticket = await prepare(ctx, ['X']);
     const done = ctx.req('set-origin', { nonce: ticket.nonce });
@@ -599,7 +600,7 @@ actor: expect.objectContaining({ id: 'tablet-A' })
   });
 
   test('refused during a job, in alarm, on a stale report, without a known offset, for another owner, and after the machine moved', async () => {
-    const ctx = setup();
+    const ctx = setup({ homed: true });
     await expect(prepare(ctx)).rejects.toThrow(/Repère de travail inconnu/);
     ctx.modal('G54');
     ctx.c.workflow.state = 'paused';
@@ -629,7 +630,7 @@ actor: expect.objectContaining({ id: 'tablet-A' })
   });
 
   test('disabled after the confirmation was issued: the run is refused too', async () => {
-    const ctx = setup();
+    const ctx = setup({ homed: true });
     ctx.modal('G54');
     const ticket = await prepare(ctx);
     ctx.enabled = false;
@@ -1565,7 +1566,8 @@ describe('cross-check 4 · 5. origines', () => {
   const prepare = (ctx, axes = ['X'], actor = A, transportId) => ctx.req('prepare', { operation: 'set-origin', axes }, actor, transportId);
 
   test.each([['G54', 1], ['G55', 2], ['G56', 3], ['G57', 4], ['G58', 5], ['G59', 6]])('%s → G10 L20 P%d', async (wcs, p) => {
-    const ctx = setupHeld({ homed: false });
+    // $22=1: a work zero needs a referenced machine since C-18 (it was set unreferenced here).
+    const ctx = setupHeld({ homed: true });
     ctx.modal(wcs);
     const ticket = await prepare(ctx, ['Z', 'X']);
     expect(ticket.name).toContain('G10 L20 P' + p + ' X0 Z0');
@@ -2517,7 +2519,7 @@ describe('real moves (F1): stable refusal codes (ETOUCH_MOTION_*)', () => {
   });
 
   test('ETOUCH_MOTION_POSITION_UNKNOWN (work origin)', async () => {
-    const ctx = setup();
+    const ctx = setup({ homed: true });
     ctx.modal('G54');
     delete ctx.c.state.status.mpos.y;
     const err = await refused(prepare(ctx), 'ETOUCH_MOTION_POSITION_UNKNOWN', { axis: 'Y' });
@@ -2525,7 +2527,7 @@ describe('real moves (F1): stable refusal codes (ETOUCH_MOTION_*)', () => {
   });
 
   test('ETOUCH_MOTION_WCS_CHANGED (work origin confirmation)', async () => {
-    const ctx = setup();
+    const ctx = setup({ homed: true });
     ctx.modal('G54');
     const ticket = await prepare(ctx);
     ctx.modal('G56');

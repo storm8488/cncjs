@@ -159,6 +159,11 @@ beforeEach(() => {
   touch.snapshot();
   report();
   c.runner.emit('parserstate', c.state.parserstate);
+  // $22=1: the machine seen homed (Home then Idle), so a start is not refused for its reference (C-05).
+  c.state.status.activeState = 'Home';
+  report();
+  c.state.status.activeState = 'Idle';
+  report();
 });
 
 afterEach(() => {

@@ -45,11 +45,12 @@ const fmt = (n) => String(Math.round(n * 1000) / 1000);
 //   grblCode(res)           the numeric code of an error:n / ALARM:n
 //   probeInput              probe pin observer (inspect(port))
 //   moving(c, r)            a jog of the service sent and not over (motion.js)
+//   referenceReady(c)       throws on a machine without its reference while $22=1 (C-18)
 // Returns { zeroZReady(c), plateParams(body), answers(c, r), zeroZ(c, ticket), quiet(c, r, t, ms) }.
 export const createPlateProbe = (deps) => {
   const {
     config, clock, conflict, controllers, record, later, changed, available, spindleStill,
-    pauseKind, modalFresh, allSettings, settingNumber, hasAutomations, grblCode, probeInput, moving
+    pauseKind, modalFresh, allSettings, settingNumber, hasAutomations, grblCode, probeInput, moving, referenceReady
   } = deps;
 
   // The plate probe runs at rest, or during a pause the program asked for
@@ -215,6 +216,10 @@ export const createPlateProbe = (deps) => {
 
   const zeroZ = (c, t) => {
     zeroZReady(c);
+    // C-18: no work zero on a machine without its reference ($22=1), checked again at the run.
+    if (referenceReady) {
+      referenceReady(c);
+    }
     const r = record(c);
     const p = t.params;
     const zOf = () => axisNumber(controllerStatus(c).wpos && controllerStatus(c).wpos.z);

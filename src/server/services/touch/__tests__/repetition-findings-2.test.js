@@ -146,12 +146,21 @@ describe('Plate probe: retract after the contact against the start height', () =
     };
     return c;
   };
+  // $22=1: the machine seen homed (Home then Idle), as on the rehearsal after $H (C-18).
+  const homed = (c) => {
+    ['Home', 'Idle'].forEach((activeState) => {
+      c.state.status = { ...c.state.status, activeState };
+      c.runner.state = c.state;
+      c.report();
+    });
+  };
 
   test('the final retract (contact + 5 mm) never ends above the height the operator started from', async () => {
     const c = probeController({ plateZ: 0.15 });
     const ctx = setup(c, () => performance.now());
     c.runner.emit('parserstate', c.state.parserstate);
     c.report();
+    homed(c);
     const startMachineZ = Number(c.state.status.mpos.z);
     expect(ctx.state().zeroZReason).toBe('');
     const ticket = await ctx.req('prepare', { operation: 'zeroZ', thickness: 10, search: 20 });
@@ -167,6 +176,7 @@ describe('Plate probe: retract after the contact against the start height', () =
     const ctx = setup(c, () => performance.now());
     c.runner.emit('parserstate', c.state.parserstate);
     c.report();
+    homed(c);
     const ticket = await ctx.req('prepare', { operation: 'zeroZ', thickness: 10, search: 20 });
     const answer = await ctx.req('zeroZ', { nonce: ticket.nonce });
     expect(c.sent.at(-1)).toBe('G0 Z15');
