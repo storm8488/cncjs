@@ -141,6 +141,41 @@ const refusal = (fn) => { try { fn(); } catch (err) { return err; } throw new Er
   })(path.join(__dirname, '../../src/server'));
   assert(emitted.size >= 14, 'resume codes found in src/server');
   emitted.forEach((code) => assert(codes.has(code), 'no template for ' + code));
+  for (const dead of ['ETOUCH_RESUME_FEED_MODE', 'ETOUCH_RESUME_TOOL_OFFSET_ACTIVE']) {
+    assert(!emitted.has(dead), dead + ' is not emitted by the current server');
+    assert(!codes.has(dead), dead + ' must not remain as a dead refusal template');
+  }
+  // Durable A2-7: use the actual coded S6 refusals and null optional values, rather
+  // than the obsolete uncoded French wrappers and French words used as parameters.
+  const { refusal: probeRefusal } = await import('../../src/server/services/touch/block-probe.js');
+  const probeCases = [
+    probeRefusal('ETOUCH_PROBE_AMBIGUOUS', { axis: 'X' }),
+    probeRefusal('ETOUCH_PROBE_TRAVEL_UNKNOWN', { axis: 'Y' }),
+    probeRefusal('ETOUCH_PROBE_ALARM', { alarm: null }),
+    probeRefusal('ETOUCH_PROBE_ALARM', { alarm: 4 }),
+    probeRefusal('ETOUCH_PROBE_WCS', { wcs: 'G54', active: null }),
+    probeRefusal('ETOUCH_PROBE_WCS', { wcs: 'G54', active: 'G55' })
+  ];
+  for (const language of ['fr', 'en', 'es']) {
+    const f = load({ language, catalogs: ['i18n-messages-machine.js'] }); await f.connect(f.machine({ canBlockProbe: true }));
+    const i = f.window.cncI18n;
+    for (const err of probeCases) {
+      const expected = i.format(err.code, err.params, err.message);
+      assert.equal(fr.format(err.code, err.params, ''), err.message, err.code + ' matches the actual server');
+      if (language !== 'fr') {
+        assert.notEqual(expected, err.message, err.code + ' translated in ' + language);
+        assert.doesNotMatch(expected, /Palpage refusé|inconnue?|prise d’origine|pendant le palpage|repère actif/);
+      }
+      assert.doesNotMatch(expected, /[{}[\]]/);
+      Object.values(err.params).filter((v) => v !== null).forEach((v) => assert(expected.includes(String(v))));
+      const prepared = f.controls().prepareCommand('blockProbe', { axes: 'XYZ' });
+      f.answer(f.posts().at(-1), { code: err.code, params: err.params, message: err.message }, 409);
+      const result = await prepared;
+      assert.equal(result.opened, false); assert.equal(result.error.code, err.code);
+      assert.equal(f.el('job-feedback').textContent, expected, 'HTTP block probe refusal in ' + language);
+    }
+    f.controls().dispose();
+  }
 
   // F2 reasons with codes (codedReasons) are shown translated; without them, the French reasons.
   const w = i18n('en', ['program-check-view.js']), view = w.CNCProgramCheckView;

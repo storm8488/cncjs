@@ -44,7 +44,7 @@
     var id='';try{id=localStorage.getItem(CLIENT_KEY)||'';}catch(_){id='';}
     if(typeof id==='string'&&/^t-[a-z0-9]{1,12}-[a-z0-9]{4,16}$/.test(id))return id;
     id='t-'+Date.now().toString(36)+'-'+(Math.random().toString(36).slice(2,10)||'0000');
-    try{localStorage.setItem(CLIENT_KEY,id);}catch(_){}
+    try{localStorage.setItem(CLIENT_KEY,id);}catch(_){/* Optional browser facility unavailable. */}
     return id;
   }
   var clientId=simulation?'':loadClientId();
@@ -141,8 +141,9 @@
   function serverRefusal(data,status){
     var fallback=data&&typeof data.message==='string'&&data.message?data.message:uiLocale.t('Commandes indisponibles (HTTP ')+status+').';
     // Coded reasons behind the refusal (laser framing refused by the travel check: {code, params,
-    // message}, like a program check's codedReasons), 3 at most, in the interface language.
-    var why=data&&Array.isArray(data.reasons)?data.reasons.filter(function(r){return r&&typeof r==='object'&&typeof r.message==='string'&&r.message;}).slice(0,3).map(function(r){
+    // message}, like a program check's codedReasons), 3 at most for framing; D1 keeps
+    // all six possible axis/side overruns, in the interface language.
+    var why=data&&Array.isArray(data.reasons)?data.reasons.filter(function(r){return r&&typeof r==='object'&&typeof r.message==='string'&&r.message;}).slice(0,data.code==='ETOUCH_START_OUTSIDE'?6:3).map(function(r){
       var m=r.message.slice(0,300);return uiLocale.format?uiLocale.format(r.code,r.params,m):m;}):[];
     var e=new Error((data&&data.code&&uiLocale.format?uiLocale.format(data.code,data.params,fallback):fallback)+(why.length?' '+why.join(' '):''));
     if(data&&typeof data.code==='string'){e.code=data.code;e.params=data.params||null;}
@@ -286,10 +287,12 @@
     if(state.revision!==t.revision)return false;
     return t.operation==='start'?!!state.canStart:!!state.canResume;
   }
-  function confirmable(){
+  function outside(check){return !!(check&&(check.verdict==='outside'||['X','Y','Z'].some(function(a){return check.axes&&check.axes[a]&&check.axes[a].verdict==='outside';})));}
+  function confirmable(displayOnly){
     var state=projected();
     return !!ticket&&!document.hidden&&elapsedClock()>=ticket.started&&elapsedClock()<until&&sinceSeen()>=0&&sinceSeen()<3000&&
-      ticket.generation===generation&&state&&state.fresh&&state.port===ticket.port&&ticketAllowed(ticket,state);
+      ticket.generation===generation&&state&&state.fresh&&state.port===ticket.port&&ticketAllowed(ticket,state)&&
+      (displayOnly||ticket.operation!=='start'||ticket.override||(!outside(ticket.programCheck)&&!outside(state.programCheck)));
   }
   function otherDialog(own){
     var self=$(own||'job-dialog');
@@ -352,12 +355,12 @@
     if(!online) reason=(streamReason||uiLocale.t('Connectez le contrôleur dans CNCjs et attendez un état récent.'))+(still?' '+still:'');
     else if(/^alarm/i.test(current.activeState)) reason=simulation?uiLocale.t('Alarme fictive : ouvrez Machine pour terminer le test d’alarme. La reprise devra être confirmée.'):(window.CNCGrblHelp?window.CNCGrblHelp.text(window.CNCGrblHelp.alarm(current.alarmCode,current.alarmCodeInferred))+' ':'')+uiLocale.t('Chargement et démarrage bloqués : le contrôleur est en ALARM. Consultez le message d’alarme dans CNCjs et résolvez sa cause. Quand la machine sera prête (Idle), chargez le fichier puis touchez Démarrer.');
     else if(!current.fresh) reason=uiLocale.t('En attente d’un état récent du contrôleur.');
-    else if(!current.name) reason=current.canLoad?(selection?uiLocale.t('Étape suivante : Charger le fichier sélectionné, puis Démarrer.'):uiLocale.t('Sélectionnez un fichier dans la bibliothèque.')):(uiLocale.t(current.loadReason)||uiLocale.t('Chargement indisponible.'));
-    else if(current.workflow==='paused') reason=current.canResume?uiLocale.t('Travail en pause. Touchez Reprendre pour confirmer la reprise.'):uiLocale.t(current.resumeReason);
+    else if(!current.name) reason=current.canLoad?(selection?uiLocale.t('Étape suivante : Charger le fichier sélectionné, puis Démarrer.'):uiLocale.t('Sélectionnez un fichier dans la bibliothèque.')):((window.CNCProgramCheckView?window.CNCProgramCheckView.refusal(current,'load'):uiLocale.t(current.loadReason))||uiLocale.t('Chargement indisponible.'));
+    else if(current.workflow==='paused') reason=current.canResume?uiLocale.t('Travail en pause. Touchez Reprendre pour confirmer la reprise.'):(window.CNCProgramCheckView?window.CNCProgramCheckView.refusal(current,'resume'):uiLocale.t(current.resumeReason));
     // A feed hold given from the PC leaves CNCjs's workflow running: the server's reason says what to touch (N1). Text only.
-    else if(current.workflow==='running') reason=/^hold/i.test(current.activeState||'')&&current.resumeReason?uiLocale.t(current.resumeReason):uiLocale.t('Travail en cours.');
+    else if(current.workflow==='running') reason=/^hold/i.test(current.activeState||'')&&current.resumeReason?(window.CNCProgramCheckView?window.CNCProgramCheckView.refusal(current,'resume'):uiLocale.t(current.resumeReason)):uiLocale.t('Travail en cours.');
     // Fichiers has no Démarrer (it lives in Suivi): its reason line says where to start; #file (Suivi) keeps reason.
-    else {reason=current.canStart?uiLocale.t('Fichier chargé. Touchez Démarrer pour confirmer.'):uiLocale.t(current.startReason);if(current.canStart)filesReason=uiLocale.t('Fichier chargé : ouvrez le Suivi pour démarrer.');}
+    else {reason=current.canStart?uiLocale.t('Fichier chargé. Touchez Démarrer pour confirmer.'):(window.CNCProgramCheckView?window.CNCProgramCheckView.refusal(current,'start'):uiLocale.t(current.startReason));if(current.canStart)filesReason=uiLocale.t('Fichier chargé : ouvrez le Suivi pour démarrer.');}
     text('job-selected',selectedText);
     text('job-loaded',loadedText);
     text('job-reason',filesReason||reason);
@@ -378,6 +381,7 @@
     if(!$('job-progress').getAttribute||$('job-progress').getAttribute('aria-label')!==label)$('job-progress').setAttribute('aria-label',label);
     // Unchanged titles are not written again (an attribute write at every report, also while Fichiers is parked).
     prop('job-start','title',current.canStart?'':uiLocale.t(reason));prop('job-load','title',uiLocale.t(current.loadReason||''));
+    if(ticket)prop('job-confirm','disabled',!$('job-check').checked||!confirmable());
     if(ticket && (ticket.port!==current.port || !ticketAllowed(ticket,current))){
       // A plate probe confirmation closed by the server's refusal (probe already in contact...) says why (UI-6).
       var why=ticket.port!==current.port?'':ticket.operation==='zeroZ'&&current.zeroZReason?(uiLocale.message||uiLocale.t)(current.zeroZReason):ticket.operation==='blockProbe'&&current.blockProbeReason?(uiLocale.message||uiLocale.t)(current.blockProbeReason):'';
@@ -537,8 +541,8 @@
       if(ownGeneration!==generation||ownConfirmation!==confirmation||document.hidden||!current||current.port!==port||(!standalone(operation)&&current.revision!==revision))return {opened:false,error:null};
       until=started+Math.min(15,Number(data.expiresIn)||0)*1000;
       if(elapsedClock()<started||elapsedClock()>=until){var late=uiLocale.t('Confirmation expirée. Préparez une nouvelle confirmation.');text('job-feedback',late);setFeedbackState('failed');render();return {opened:false,error:new Error(late)};}
-      ticket={nonce:data.nonce,operation:operation,port:port,revision:revision,generation:generation,started:started};
-      if(!confirmable()||otherDialog()){dismiss(false);return {opened:false,error:null};}
+      ticket={nonce:data.nonce,operation:operation,port:port,revision:revision,generation:generation,started:started,programCheck:data.programCheck||current.programCheck,override:!!(data.override&&Array.isArray(data.override.blocking)&&data.override.blocking.length)};
+      if(!confirmable(true)||otherDialog()){dismiss(false);return {opened:false,error:null};}
       dialogReturn=origin;
       // One stack of layers with the other overlays (strip-guard.js): a confirmation opened from a
       // sheet (macros) and closed in any order gives back exactly the values it found.

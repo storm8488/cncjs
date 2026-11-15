@@ -412,7 +412,11 @@ function stepStream() {
     mock.runner.state = mock.state;
     mock.sender.state = running ? { name: FILE, context: {}, total: 20000, sent: 0, received: 0 } : { name: '', context: {}, total: 0 };
     mock.sender.toJSON = () => ({ ...mock.sender.state });
-    const service = createService({ get: () => ({ '/dev/mock': mock }) }, { get: () => [] });
+    mock.writeln = () => {};
+    const provenOffset = () => ({ state: () => 'proven', proven: () => true, proof: () => 0, checking: () => false,
+  restoring: () => false, tick() {}, modal() {}, invalidate() {}, cancel() {}, verify() {}, retry() {},
+  refusal: () => null, snapshot: () => ({ state: 'proven', code: null, canVerify: true }), signature: () => 'proven' });
+    const service = createService({ get: () => ({ '/dev/mock': mock }) }, { get: () => [] }, undefined, { workOffset: provenOffset });
     const stream = createStream(service);
     const sinks = [];
     for (let i = 0; i < clients; i++) {
@@ -545,7 +549,7 @@ function stepDead() {
     const text = sources[f];
     const re = /window\.([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*\{/g; let m;
     while ((m = re.exec(text))) {
-      let depth = 1, k = m.index + m[0].length, keys = [], tok = '', start = k;
+      let depth = 1, k = m.index + m[0].length, keys = [], start = k;
       for (; k < text.length && depth; k++) {
         const ch = text[k];
         if (ch === '{' || ch === '(' || ch === '[') depth++; else if (ch === '}' || ch === ')' || ch === ']') depth--;

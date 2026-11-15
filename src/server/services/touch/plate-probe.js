@@ -37,7 +37,7 @@ const fmt = (n) => String(Math.round(n * 1000) / 1000);
 // a newer report at rest in Idle (like the block probe's released()).
 const RELEASE_MS = 7000;
 
-// The first G38.2 target stays this far above the low end of the Z travel (C-07).
+// Both G38.2 targets stay this far above the low end of the Z travel (C-07).
 const EDGE_MM = 1;
 
 // Supervision of the probe (C-17), like the block probe: a stream of the device that confirmed it
@@ -188,8 +188,9 @@ export const createPlateProbe = (deps) => {
     return { thickness: Math.round(thickness * 1000) / 1000, search: Math.round(search * 1000) / 1000 };
   };
 
-  // C-07: on a machine whose Z travel and convention are known (homed, $22=1, $132, $23), the first
-  // G38.2 target (machine Z − search) stays EDGE_MM above the low end; `max` is the longest search
+  // C-07: on a machine whose Z travel and convention are known (homed, $22=1, $132, $23), both
+  // G38.2 targets (machine Z − search, then at worst another backOff lower) stay EDGE_MM above
+  // the low end; `max` is the longest search
   // allowed from here. A position outside the assumed travel allows none. Travel unknown: no check.
   const plateTravel = (c, params) => {
     const r = record(c);
@@ -200,7 +201,8 @@ export const createPlateProbe = (deps) => {
     if (!at.limits && !at.outside) {
       return;
     }
-    const room = at.limits ? z - (at.limits.low + EDGE_MM) : 0;
+    // The second touch can go backOff below the first contact, which may be at the first target.
+    const room = at.limits ? z - (at.limits.low + EDGE_MM) - PLATE.backOff : 0;
     if (params.search > room) {
       throw refusal('ETOUCH_PLATE_TRAVEL', { search: fmt(params.search), max: fmt(Math.max(0, Math.floor(room * 1000) / 1000)) });
     }
@@ -248,9 +250,14 @@ export const createPlateProbe = (deps) => {
   // the second report is at least one polling period later); rejects on an
   // alarm, a Grbl error, a lost controller or the time limit.
   const quiet = (c, r, t, limitMs) => new Promise((resolve, reject) => {
+    const startups = r.startups;
     const deadline = clock() + limitMs;
     const check = () => {
-      if (controllers()[c.options.port] !== c || c.isClose() || !c.runner || !c.feeder) {
+      if (r.probing && r.probing.cancelled) {
+        reject(conflict('Palpage interrompu par l’opérateur.'));
+        return;
+      }
+      if (controllers()[c.options.port] !== c || c.isClose() || !c.runner || !c.feeder || r.startups !== startups) {
         reject(conflict('Connexion machine perdue pendant le palpage.'));
         return;
       }
@@ -261,10 +268,6 @@ export const createPlateProbe = (deps) => {
       }
       if (r.probing && r.probing.error) {
         reject(conflict('Grbl a refusé une ligne du palpage (error:' + r.probing.error + ').'));
-        return;
-      }
-      if (r.probing && r.probing.cancelled) {
-        reject(conflict('Palpage interrompu par l’opérateur.'));
         return;
       }
       if (t.error) {
@@ -325,6 +328,11 @@ export const createPlateProbe = (deps) => {
     // What stops the probe now, in this order: the stream lost past its grace, the lease changed,
     // stale reports, a line past its time limit (C-17).
     const verdict = () => {
+      // A banner ends the old sequence even when the new session reports Idle (no homing lock).
+      if (r.startups !== probing.startups) {
+        probing.cancelled = true;
+        return;
+      }
       if (streamOpen()) {
         probing.lostSince = null;
       } else if (probing.lostSince === null) {

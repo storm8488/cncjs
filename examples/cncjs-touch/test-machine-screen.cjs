@@ -39,7 +39,7 @@ function machinePage(language){
     screen(name){handlers['cnc-screen-change']({detail:name});}};
   return page;
 }
-const base={port:'/dev/replay',fresh:true,workflow:'idle',activeState:'Idle',canUnlock:false,unlockReason:'Le déverrouillage ($X) ne sert qu’en alarme.',canHome:true,homeReason:''};
+const base={port:'/dev/replay',fresh:true,workflow:'idle',activeState:'Idle',canReadSettings:true,canUnlock:false,unlockReason:'Le déverrouillage ($X) ne sert qu’en alarme.',canHome:true,homeReason:''};
 // The states of the screens fixture (browser-run.cjs) and of the server (job-service.js unlockReady / homeReady).
 const STATES={
   repos:base,
@@ -95,10 +95,10 @@ const STATES={
   p.unlock.disabled=false;p.unlock.click();p.status(STATES['sans-22'],{feedback:'Refusé : pilotage attribué à « Tablette B ».',feedbackState:'failed'});
   assert.notEqual(p.reason.textContent,'Machine pilotée par Tablette B.','« Relire » answer gone after a new request');
   p.onRead=null;
-  // Contre-revue P2-2: in alarm the reading (at rest only) needs $X first, said on the line and on the greyed button.
+  // D4: the server permits a settings read in alarm, without unlocking first.
   p.status({...STATES['sans-22'],activeState:'Alarm',alarmCode:1,canUnlock:true,unlockReason:''});
-  assert.equal(p.reason.textContent,'$H indisponible : Réglage $22 inconnu : relisez les réglages de la carte. Touchez Déverrouiller ($X), puis Relire les réglages ($$), puis $H.');
-  assert.equal(reread.hidden,false);assert.equal(reread.disabled,true);assert.equal(reread.title,'Touchez Déverrouiller ($X), puis Relire les réglages ($$), puis $H.');
+  assert.equal(p.reason.textContent,'$H indisponible : Réglage $22 inconnu : relisez les réglages de la carte. Touchez Relire les réglages ($$).');
+  assert.equal(reread.hidden,false);assert.equal(reread.disabled,false);assert.equal(reread.title,'');
   // Any case: « réglage $22 inconnu » lower-case too.
   p.status({...STATES['sans-22'],homeReason:'réglage $22 inconnu'});assert.equal(reread.hidden,false);
   // Hold without a job (a stopped job left Hold:0 for hours): the server's words, then what to do (Arrêter, then $H).
@@ -128,7 +128,7 @@ const STATES={
   assert.equal(reread.hidden,false,'version unknown: « Relire les réglages » shown');assert.equal(reread.disabled,false);
   assert.equal(p.home.disabled,false,'$H still available');
   assert.equal(p.reason.hidden,false);
-  assert.equal(p.reason.textContent,'Le déverrouillage ($X) ne sert qu’en alarme. Version de la carte inconnue : touchez Relire les réglages.');
+  assert.equal(p.reason.textContent,'Le déverrouillage ($X) ne sert qu’en alarme. Touchez Relire les réglages ($$).');
   // One tap: readSettings once, nothing else; its refusal on the line.
   let refuse=null;p.onRead=()=>({then:(ok,ko)=>{refuse=()=>ko(Object.assign(new Error('Machine pilotée par Tablette B.'),{code:'ECONTROL'}));}});
   const before=p.calls.length;reread.click();assert.deepEqual(p.calls.slice(before),[['readSettings']]);
@@ -136,16 +136,16 @@ const STATES={
   // Version received: button and phrase gone.
   p.status(base);assert.equal(reread.hidden,true);assert.equal(p.reason.textContent,'Le déverrouillage ($X) ne sert qu’en alarme.');
   p.status({...base,capabilities:{jog:{enabled:true,reason:''}}});assert.equal(reread.hidden,true);
-  // Alarm (at rest only: $X first), stale report, job: greyed.
+  // Alarm permits a read; stale reports and jobs follow the server's refusal flag.
   p.status({...noVersion,activeState:'Alarm',alarmCode:1,canUnlock:true,unlockReason:''});
-  assert.equal(reread.hidden,false);assert.equal(reread.disabled,true);
-  assert.equal(p.reason.textContent,'Touchez Déverrouiller ($X), puis Relire les réglages ($$), puis $H.');
-  p.status({...noVersion,fresh:false});assert.equal(reread.disabled,true);
+  assert.equal(reread.hidden,false);assert.equal(reread.disabled,false);
+  assert.equal(p.reason.textContent,'Touchez Relire les réglages ($$).');
+  p.status({...noVersion,fresh:false,canReadSettings:false});assert.equal(reread.disabled,true);
   assert(!/Relire/.test(p.reason.textContent),'stale report: no « touchez Relire » under a greyed button: '+p.reason.textContent);
-  p.status({...noVersion,workflow:'running',activeState:'Run',canHome:false,homeReason:'Travail en cours.',unlockReason:'Travail en cours.'});assert.equal(reread.disabled,true);
+  p.status({...noVersion,workflow:'running',activeState:'Run',canReadSettings:false,canHome:false,homeReason:'Travail en cours.',unlockReason:'Travail en cours.'});assert.equal(reread.disabled,true);
   assert(!/Relire/.test(p.reason.textContent),'job: no « touchez Relire » under a greyed button: '+p.reason.textContent);
   // ES: the existing catalogue rows.
-  const es=machinePage('es');es.status(noVersion);assert(es.reason.textContent.endsWith('Versión de la placa desconocida: toque Volver a leer los ajustes.'),es.reason.textContent);
+  const es=machinePage('es');es.status(noVersion);assert(es.reason.textContent.endsWith(locale('es').t('Touchez Relire les réglages ($$).')),es.reason.textContent);
 }
 {
   // (b) An alarm during a job (the RT capture: $X / $H striped while the notice says to use them): the reason shows, ES.

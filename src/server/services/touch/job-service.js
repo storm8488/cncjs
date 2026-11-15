@@ -163,6 +163,7 @@ const conflict = (message) => {
 export const START_MESSAGES = {
   ETOUCH_START_OUTSIDE: 'Départ refusé : le programme sort de la course de la machine (dépassements : {count}).',
   ETOUCH_START_NO_OVERRIDE: 'Départ hors course impossible : les limites logicielles de la carte ($20) ne sont pas actives, rien n’arrêterait le dépassement.',
+  ETOUCH_START_OVERRIDE_UNSAFE: 'Départ hors course impossible : ce fichier peut modifier les protections de la machine. Utilisez un fichier sans commande système ni expression.',
   ETOUCH_START_OVERRIDE_CHANGED: 'Le programme, l’origine ou la machine ont changé depuis la confirmation du départ hors course : confirmez à nouveau.',
   ETOUCH_START_NOT_HOMED: 'Machine non référencée : faites la prise d’origine avant de démarrer.',
   ETOUCH_START_FEED_MODE: 'Reprise à une ligne refusée : la machine doit être en avance par minute (G94). Relisez son état ou remettez-la en G94.',
@@ -495,6 +496,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         // A Home state seen before the restart says nothing about the new session.
         r.sawHome = false;
         r.startups += 1;
+        // A banner ends the plate's old session, including boards returning directly to Idle.
+        if (r.probing && r.probing.kind === 'plate') {
+          r.probing.cancelled = true;
+        }
         // The board loaded its stored offsets again: the next proof needs no reload.
         r.offset.invalidate('restart');
         // Reports counted from the banner on (a jog line lost to the restart, motion.js).
@@ -746,7 +751,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     return c;
   };
 
-  const available = (c) => {
+  const available = (c, allowRestore = false) => {
     if (controllers()[c.options.port] !== c || c.isClose() || !c.ready || !c.runner || !c.sender) {
       throw conflict('Connexion machine indisponible.');
     }
@@ -766,7 +771,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       throw conflict('Commande système en cours (' + systemCommands.current().title + ') : attendez sa fin.');
     }
     // No guarded action writes between two lines of the D2 transaction.
-    if (r.offset.checking()) {
+    if (r.offset.checking() || (!allowRestore && r.offset.restoring())) {
       throw r.offset.refusal();
     }
   };
@@ -1056,6 +1061,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
   const travelReady = (c, j, travel) => {
     const r = record(c);
     const { check, signature } = travelOf(c, r, j);
+    // An unsafe request never degrades into an ordinary ticket when its extent is unknown.
+    if (travel && j.analysis.unsafeOverride) {
+      throw startRefusal('ETOUCH_START_OVERRIDE_UNSAFE');
+    }
     if (!check || !check.blocking.length) {
       return;
     }
@@ -2051,7 +2060,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
 
     if (a === 'verifyOffset') {
-      available(c);
+      available(c, true);
       r.offset.verify();
       return { message: 'Vérification de l’origine de la pièce relancée.', workOffset: r.offset.snapshot() };
     }
@@ -2268,6 +2277,12 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       if (r.probing && r.probing.kind === 'block') {
         r.ticket = null;
         return blockProbe.stop(c, r, 'pause');
+      }
+      // A plate probe is a server sequence too: Pause ends it, including between lines.
+      if (r.probing) {
+        r.ticket = null;
+        plateStop(c, r);
+        return { message: 'Palpage interrompu. Vérifiez l’immobilisation ; le zéro Z n’est pas réglé.' };
       }
       // Grbl cannot hold a jog: a Pause during one of ours cancels it (0x85) and says so.
       if (c.workflow.state === 'idle' && moves.moving(c, r)) {
@@ -2629,7 +2644,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     if (r && r.probing) {
       return conflict(SOCKET_PROBE_BUSY);
     }
-    return r && r.offset.checking() ? r.offset.refusal() : null;
+    return r && (r.offset.checking() || r.offset.restoring()) ? r.offset.refusal() : null;
   };
 
   // index.js refuseSocket: a stop from a socket (gcode:stop, stop, feeder:stop, feedhold, pause,

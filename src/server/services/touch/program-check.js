@@ -124,6 +124,8 @@ export const analyzeProgram = (gcode) => {
     tloCancel: null,
     machineMoves: [],
     uninterpreted: [],
+    // System writes and server expressions can invalidate the board protections used by D1.
+    unsafeOverride: false,
     extent: { X: null, Y: null, Z: null },
     // G53 targets, in machine coordinates (program units when rawUnits).
     machineExtent: { X: null, Y: null, Z: null },
@@ -141,6 +143,7 @@ export const analyzeProgram = (gcode) => {
   const st = {
     scale: 1, // mm per program unit
     unitsKnown: false, // the program chose G20/G21 before moving
+    machineUnitsKnown: true, // inherited units are usable until an opaque line may change them
     distance: 'G90',
     distanceSet: false,
     motion: null,
@@ -170,6 +173,8 @@ export const analyzeProgram = (gcode) => {
     // CNCjs directives and expressions execute on the server, G-code words
     // depend on variables: nothing can be followed after them.
     if (/^%/.test(code) || /[[\]#]/.test(code)) {
+      a.unsafeOverride = true;
+      st.machineUnitsKnown = false;
       listed(lineNo, raw.trim().slice(0, 40), true);
       AXES.forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_MACRO', { line: lineNo }, 'Macro ou expression CNCjs à la ligne ' + lineNo + ' : contenu non prévisible.')));
       continue;
@@ -177,6 +182,8 @@ export const analyzeProgram = (gcode) => {
     // A line the board reads otherwise (C-57), or a system command ($20=0, $H…, C-61): what
     // follows cannot be judged from what was read here.
     if (/^\$/.test(code) || !sameWithoutSpaces(code)) {
+      a.unsafeOverride = a.unsafeOverride || /^\$/.test(code);
+      st.machineUnitsKnown = false;
       listed(lineNo, raw.trim().slice(0, 40), true);
       AXES.forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_SYNTAX', { line: lineNo }, 'Ligne ' + lineNo + ' lue autrement par la carte (espace dans un nombre, ou commande $) : non interprétée.')));
       continue;
@@ -213,6 +220,7 @@ export const analyzeProgram = (gcode) => {
     // Modal words first (G90 G1 X10 on one line is absolute).
     g.forEach((v) => {
       if (v === 20 || v === 21) {
+        st.machineUnitsKnown = true;
         const next = v === 20 ? MM_PER_INCH : 1;
         if (!st.unitsKnown) {
           if (st.moved) {
@@ -293,14 +301,16 @@ export const analyzeProgram = (gcode) => {
       if (g.includes(53)) {
         // Explicit machine coordinates (absolute even under G91): compared
         // with the travel directly, without any work offset.
-        if (axes.length && !st.moved) {
+        if (st.machineUnitsKnown && axes.length && !st.moved) {
           st.moved = true;
           if (!st.unitsKnown) {
             a.rawUnits = true;
           }
         }
         axes.forEach((axis) => {
-          extend(a.machineExtent, axis, at(axis) * st.scale);
+          if (st.machineUnitsKnown) {
+            extend(a.machineExtent, axis, at(axis) * st.scale);
+          }
           pos[axis] = null;
         });
         continue;
@@ -743,7 +753,7 @@ export const checkProgram = (analysis, machine = {}) => {
     // D1: the proven overruns ({ code, params, message }), empty when there is none; whether the
     // start may still be confirmed deliberately (the board's soft limits on, $20=1).
     blocking,
-    overridable: softLimits === 1
+    overridable: softLimits === 1 && !analysis.unsafeOverride
   };
   if (machine.laser) {
     out.laser = laserCheck(analysis, machine.laser);

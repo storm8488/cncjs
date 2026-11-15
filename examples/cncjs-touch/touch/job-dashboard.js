@@ -55,7 +55,7 @@
   function overrideClick(e){
     var button=e.target&&e.target.closest?e.target.closest('button[data-kind]'):null;
     if(!button||button.disabled||!window.cncJobControls||typeof window.cncJobControls.override!=='function')return;
-    window.cncJobControls.override(button.getAttribute('data-kind'),Number(button.getAttribute('data-value'))).catch(function(){});
+    window.cncJobControls.override(button.getAttribute('data-kind'),Number(button.getAttribute('data-value'))).catch(function(){/* Optional browser facility unavailable. */});
   }
   overridesBox.addEventListener('click',overrideClick);
   // One formatter per locale: Number.prototype.toLocaleString builds a new one at every call,
@@ -110,7 +110,7 @@
     var m=Math.ceil(s/60),h=Math.floor(m/60);m%=60;
     return (h?h+' h ':'')+(h&&!m?'':m+' min');
   }
-  function sessionToken(){var token='';try{token=JSON.parse(localStorage.getItem('cnc')).state.session.token;}catch(_){}return token;}
+  function sessionToken(){var token='';try{token=JSON.parse(localStorage.getItem('cnc')).state.session.token;}catch(_){/* Optional browser facility unavailable. */}return token;}
   function previewXhr(file,token){
     var xhr=new XMLHttpRequest();xhr.open('POST',apiBase()+'/watch/file',true);xhr.timeout=20000;
     xhr.setRequestHeader('Authorization','Bearer '+token);xhr.setRequestHeader('Content-Type','application/json');
@@ -314,7 +314,7 @@
         c.workflow==='running'?uiLocale.t('Travail en cours.'):
         failed&&window.CNCGrblHelp&&finiteNumber(c.jobLastError)?uiLocale.t('Dernière erreur : ')+window.CNCGrblHelp.text(window.CNCGrblHelp.error(c.jobLastError)):c.workflow==='paused'?uiLocale.t('Travail en pause.'):c.canStart?uiLocale.t('Fichier chargé, prêt à démarrer.'):!c.canLoad?((c.loadReason||c.startReason)?(uiLocale.message||uiLocale.t)(c.loadReason||c.startReason):uiLocale.t('Commande indisponible.')):
         // Start refused for another reason than a reload (spindle still turning, homing...): the server's reason (UI-5).
-        c.name&&same&&c.startReason&&c.startReason!=='Rechargez le fichier avant un nouveau démarrage.'?(uiLocale.message||uiLocale.t)(c.startReason):
+        c.name&&(same||c.refusals&&c.refusals.start)&&c.startReason&&c.startReason!=='Rechargez le fichier avant un nouveau démarrage.'?(window.CNCProgramCheckView?window.CNCProgramCheckView.refusal(c,'start'):(uiLocale.message||uiLocale.t)(c.startReason)):
         c.name?(same?uiLocale.t('Rechargez le fichier pour un nouveau départ.'):uiLocale.t('Choisissez et chargez le fichier du prochain travail.')):
         selection?uiLocale.t('Chargez la sélection avant de démarrer.'):uiLocale.t('Choisissez un fichier dans Fichiers.');
       set('home-job-ready','textContent',readiness);
@@ -719,7 +719,7 @@
   function v2ReportAge(m){
     var v=window.cncV2;
     try{var r=v&&typeof v.reportAge==='function'?v.reportAge(m):null;
-      if(r&&r.known===true&&typeof r.fresh==='boolean')return {known:true,fresh:r.fresh,ageMs:finiteNumber(r.ageMs)&&r.ageMs>=0?r.ageMs:null};}catch(_){}
+      if(r&&r.known===true&&typeof r.fresh==='boolean')return {known:true,fresh:r.fresh,ageMs:finiteNumber(r.ageMs)&&r.ageMs>=0?r.ageMs:null};}catch(_){/* Optional browser facility unavailable. */}
     return {known:false,fresh:false,ageMs:null};
   }
   function requestV2(){
@@ -832,7 +832,7 @@
       // A result given as null (no preview, no state, another version by now) is never kept: asked again later.
       // A cancelled read resolves null once, and its late answer is never given (forgetLoaded).
       function done(meta){if(read.cancelled)return;read.xhr=null;var result=ofLoaded(meta,file,revision)&&programOf(machine)===program?meta:null;if(loadedRead===read&&!result)loadedRead=null;resolve(result);}
-      xhr.onload=function(){var meta=null;try{var answer=previewAnswer(xhr,file);meta=answer.refused?null:answer.preview;}catch(_){}done(meta);};
+      xhr.onload=function(){var meta=null;try{var answer=previewAnswer(xhr,file);meta=answer.refused?null:answer.preview;}catch(_){/* Optional browser facility unavailable. */}done(meta);};
       xhr.onerror=xhr.ontimeout=xhr.onabort=function(){done(null);};
       xhr.send(JSON.stringify({file:file+'.cnctouch.json'}));
     });
@@ -851,7 +851,7 @@
     var m=machine,v=window.cncV2;
     if(!(m&&m.fresh&&(!m.workflow||m.workflow==='idle')&&!/^(run|hold|jog|alarm|door|home|check)/i.test(String(m.activeState||''))))return false;
     if(finiteNumber(m.spindleSpeed)&&m.spindleSpeed>0||m.probing||m.probeBusy||m.homing||m.loading||jogging(m))return false;
-    try{if(v&&typeof v.state==='function'&&v.state().safeIdle===false)return false;}catch(_){}
+    try{if(v&&typeof v.state==='function'&&v.state().safeIdle===false)return false;}catch(_){/* Optional browser facility unavailable. */}
     return true;
   }
   // Cancelled by its consumer's transitions too: a job starts or the program changes, Éco is chosen, the v2
@@ -859,8 +859,8 @@
   // (Called from the existing cnc-job-status, cnc-profile-change and cnc-v2-change listeners.)
   // A missing state alone does not abort: the answer then resolves null (no loaded program to match).
   function loadedStatus(){if(loadedRead&&machine&&(!idleNow()||programOf(machine)!==loadedRead.program))forgetLoaded('');}
-  function loadedProfile(){var p=window.cncProfile;try{if(loadedRead&&p&&typeof p.performance==='function'&&p.performance()==='eco')forgetLoaded('');}catch(_){}}
-  function loadedGate(){var v=window.cncV2;try{if(loadedRead&&v&&typeof v.gate==='function'&&!v.gate()&&v.state().sessionEnabled)forgetLoaded('');}catch(_){}}
+  function loadedProfile(){var p=window.cncProfile;try{if(loadedRead&&p&&typeof p.performance==='function'&&p.performance()==='eco')forgetLoaded('');}catch(_){/* Optional browser facility unavailable. */}}
+  function loadedGate(){var v=window.cncV2;try{if(loadedRead&&v&&typeof v.gate==='function'&&!v.gate()&&v.state().sessionEnabled)forgetLoaded('');}catch(_){/* Optional browser facility unavailable. */}}
   window.addEventListener('pagehide',function(){forgetLoaded('');});
   window.addEventListener('cnc-screen-lock',function(e){if(e&&e.detail)forgetLoaded('');});
   // cancelLoadedPreview(): for the consumer (origin-preview.js on unmount, screen change, lock, hidden).

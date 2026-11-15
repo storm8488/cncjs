@@ -1,5 +1,13 @@
 # Carte de l'interface CNCjs Touch pour la chasse aux bugs
 
+## Mise à jour P1 — contrat D1, D2 et D4 (2026-11-15)
+
+La carte historique ci-dessous décrit l'état avant corrections. La page courante affiche les chiffres de `programCheck.blocking` dans Fichiers et Suivi ; un ticket ordinaire hors course ne peut pas être confirmé, même avec une case déjà cochée. `CNCProgramCheckView.refusal(machine, operation)` partage le formatage des refus d'instantané. Les refus D2 passent par leurs codes et paramètres sur Suivi, Sonde et Préparer ; aucun bouton `verifyOffset` ni de dérogation n'est ajouté dans P1.
+
+Les trois accès existants à Relire (Machine, Préparer et sauvegarde de la mise en service) suivent `canReadSettings`, y compris en alarme. Le nouveau profil de sonde propose 100/25 mm/min, recherche 10 mm, retrait 1 mm, dégagement 5 mm, coin avant gauche ; aucune dimension physique n'est inventée. Les valeurs explicites invalides ou nulles d'un profil enregistré restent non configurées. Z seul n'exige pas de coin.
+
+Preuves durables : `test-start-override.cjs` (A2-1), `test-commissioning.cjs` (A2-6), `test-server-messages.cjs` (A2-7 et gabarits morts), `test-work-offset.cjs`, `test-probe-defaults.cjs`. Les trois preuves temporaires P1 sont supprimées après conversion ; celles des autres lots sont conservées. Ce sont des essais logiciels, sans validation matérielle.
+
 Base : branche `feat/touch-profiles` à `cbde7cee` (2026-11-06). Carte établie en lecture seule : documentation du dossier, `git log`, `touch/index.html`, `touch/simulation.html`, code des modules et du serveur. Les chemins `touch/…` sont relatifs à `examples/cncjs-touch/` ; les chemins `src/…` à la racine du dépôt. Les numéros de ligne sont ceux de `cbde7cee`.
 
 État vérifié pendant l'établissement de la carte (PC de développement, sans machine) :

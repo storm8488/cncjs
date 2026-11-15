@@ -4,6 +4,9 @@
 // test gives one by one. LUNYEE settings, machine homed, work offset taken as proven
 // (provenOffset). Converted from the proof tests bughunt-V1-2 and bughunt-V1-3.
 import { EventEmitter } from 'events';
+import { promises as fs } from 'fs';
+import os from 'os';
+import path from 'path';
 import { createService } from '../job-service';
 import { createControl } from '../control';
 import { provenOffset } from './support/proven-offset';
@@ -35,6 +38,15 @@ const f3 = (n) => n.toFixed(3);
 const A = { kind: 'touch', id: 'tablette-A', label: 'Tablette A', user: 'op' };
 const B = { kind: 'touch', id: 'tablette-B', label: 'Tablette B', user: 'op' };
 
+let root;
+beforeAll(async () => {
+  root = await fs.mkdtemp(path.join(os.tmpdir(), 'cnc-touch-plate-'));
+  await fs.writeFile(path.join(root, 'pause.nc'), 'G21 G90 G94\nG0 Z5\nM6\nM30');
+});
+afterAll(async () => {
+  await fs.rm(root, { recursive: true, force: true });
+});
+
 const fakeController = () => {
   const c = {
     type: 'Grbl',
@@ -54,6 +66,14 @@ const fakeController = () => {
   c.sender.toJSON = () => ({ ...c.sender.state });
   c.command = (name, ...args) => {
     c.commands.push([name, ...args]);
+    if (name === 'gcode:load') {
+      c.sender.state = { name: args[0], context: args[2], total: 4 };
+      c.sender.emit('load');
+      args[3](null);
+    } else if (name === 'gcode:start') {
+      c.workflow.state = 'running';
+      c.workflow.emit('start');
+    }
   };
   return c;
 };
@@ -67,11 +87,11 @@ afterEach(() => {
 // Machine homed, at rest, probe free, the tool at machine position `m`.
 const setup = (m) => {
   jest.useFakeTimers();
-  const ctx = { now: 10000, c: fakeController(), m: { ...m }, active: 'Idle' };
+  const ctx = { now: 10000, c: fakeController(), m: { ...m }, offset: { ...G54 }, active: 'Idle' };
   ctx.control = createControl({ now: () => ctx.now, elapsed: () => ctx.now });
   ctx.service = createService(
     { get: () => ({ TEST: ctx.c }) },
-    { get: (key) => ({ macros: [], events: [], 'touch.machines': [], 'touch.motion.enabled': true }[key]) },
+    { get: (key) => ({ watchDirectory: root, macros: [], events: [], 'touch.machines': [], 'touch.motion.enabled': true }[key]) },
     () => ctx.now,
     { control: ctx.control, workOffset: provenOffset }
   );
@@ -88,7 +108,7 @@ const setup = (m) => {
       ...ctx.c.state.status,
       activeState: active,
       mpos: { x: f3(at.x), y: f3(at.y), z: f3(at.z) },
-      wpos: { x: f3(at.x - G54.x), y: f3(at.y - G54.y), z: f3(at.z - G54.z) }
+      wpos: { x: f3(at.x - ctx.offset.x), y: f3(at.y - ctx.offset.y), z: f3(at.z - ctx.offset.z) }
     };
     ctx.c.runner.emit('status', { raw: '<' + active + '|MPos:' + f3(at.x) + ',' + f3(at.y) + ',' + f3(at.z) + '|FS:0,0>' });
   };
@@ -174,6 +194,105 @@ test('D4: no automatic settings write between lines of a plate sequence', async 
 });
 
 describe('plate probe: every stop ends the sequence (PLAN-CORRECTIONS § 1.6)', () => {
+  test('SURETE D-05: API Pause during an M6 plate ends the sequence and refuses the program resume', async () => {
+    const ctx = setup({ x: 150, y: 120, z: -100 });
+    await ctx.req('load', { file: 'pause.nc' });
+    const start = await ctx.req('prepare', { operation: 'start', revision: ctx.state().revision });
+    await ctx.req('start', { nonce: start.nonce });
+    // A real job record, paused for a tool change, using the public plate action.
+    ctx.c.workflow.state = 'paused';
+    ctx.c.sender.state = { ...ctx.c.sender.state, holdReason: { data: 'M6' } };
+    await ctx.launch({ thickness: 10, search: 20 });
+    await ctx.req('pause', {}, B);
+    expect(ctx.names()).toContain('feedhold');
+    ctx.active = 'Idle';
+    await ctx.tick(7400);
+    expect(ctx.outcome.err.message).toBe('Palpage interrompu par l’opérateur.');
+    expect(ctx.lines()).toEqual(['G38.2 Z-5 F100']);
+    expect(ctx.state().canResume).toBe(false);
+    expect(ctx.state().resumeReason).toMatch(/palpage.*échoué/i);
+  });
+
+  test.each(['in flight', 'between lines'])('SURETE D-06: a banner returning directly Idle cancels the plate %s without an old ok authorizing another line', async (phase) => {
+    const ctx = setup({ x: 150, y: 120, z: -100 });
+    ctx.c.settings.settings.$22 = '0';
+    await ctx.launch({ thickness: 10, search: 20 });
+    // Keep a plausible completed contact so an old-session success would try the retract.
+    ctx.m.z = -105;
+    if (phase === 'between lines') {
+      await ctx.firstContact();
+    } else {
+      ctx.c.runner.emit('ok');
+    }
+    ctx.banner();
+    ctx.active = 'Idle';
+    await ctx.tick(500);
+    expect(ctx.outcome).toHaveProperty('err');
+    expect(ctx.state().probing).toBe(false);
+    expect(ctx.lines()).toEqual(['G38.2 Z-5 F100']);
+    // The banner already stopped the old session: no delayed reset in the new one.
+    await ctx.tick(6000);
+    expect(ctx.stops()).toEqual([]);
+  });
+
+  test('SURETE D-05: Pause during a plate in M6 ends it and prevents resuming the program', async () => {
+    const ctx = setup({ x: 150, y: 120, z: -100 });
+    ctx.c.workflow.state = 'paused';
+    ctx.c.sender.state.holdReason = { data: 'M6' };
+    await ctx.start({ thickness: 10, search: 20 });
+    await ctx.req('pause', {}, B);
+    expect(ctx.names()).toContain('feedhold');
+    ctx.banner();
+    await ctx.tick(200);
+    expect(ctx.outcome.err).toBeDefined();
+    expect(ctx.lines()).toEqual(['G38.2 Z-5 F100']);
+    expect(ctx.names()).not.toContain('gcode:resume');
+  });
+
+  test.each(['before', 'after'])('SURETE D-06: a banner returning to Idle invalidates an old ok (%s the banner)', async (when) => {
+    const ctx = setup({ x: 150, y: 120, z: -100 });
+    ctx.c.settings.settings.$22 = '0';
+    await ctx.start({ thickness: 10, search: 20 });
+    ctx.m.z = -105;
+    if (when === 'before') {
+      ctx.c.runner.emit('ok');
+    }
+    ctx.banner();
+    if (when === 'after') {
+      ctx.c.runner.emit('ok');
+    }
+    await ctx.tick(500);
+    expect(ctx.outcome).toHaveProperty('err');
+    expect(ctx.outcome.err).toBeDefined();
+    expect(ctx.state().homed).toBe(false);
+    expect(ctx.lines()).toEqual(['G38.2 Z-5 F100']);
+  });
+
+  test('SURETE C-01: the second search is reserved before either touch near the low Z limit', async () => {
+    const ctx = setup({ x: 150, y: 120, z: -128 });
+    await expect(ctx.req('prepare', { operation: 'zeroZ', thickness: 1, search: 1 })).rejects.toMatchObject({ code: 'ETOUCH_PLATE_TRAVEL' });
+    expect(ctx.lines()).toEqual([]);
+  });
+
+  test.each(['in flight', 'between lines'])('SURETE: API Pause stops the plate %s, even for an observer', async (phase) => {
+    const ctx = setup({ x: 150, y: 120, z: -100 });
+    await ctx.launch({ thickness: 10, search: 20 });
+    if (phase === 'between lines') {
+      await ctx.firstContact();
+    }
+    const reply = await ctx.req('pause', {}, B);
+    expect(reply.message).toBe('Palpage interrompu. Vérifiez l’immobilisation ; le zéro Z n’est pas réglé.');
+    expect(ctx.names()).toContain('feedhold');
+    expect(ctx.service.socketRefusal('TEST')).not.toBeNull();
+    ctx.active = 'Idle';
+    await ctx.tick(300);
+    ctx.banner();
+    await ctx.tick(100);
+    expect(ctx.outcome.err.message).toBe('Palpage interrompu par l’opérateur.');
+    expect(ctx.state().probing).toBe(false);
+    expect(ctx.lines()).toEqual(['G38.2 Z-5 F100']);
+  });
+
   test('C-08 Arrêter right after the G38.2 left, the report still Idle: a feed hold, then the reset; the lock holds until the banner proves the stop', async () => {
     const ctx = setup({ x: 150, y: 120, z: -100 });
     await ctx.start({ thickness: 10, search: 20 });
@@ -258,6 +377,36 @@ describe('plate probe: every stop ends the sequence (PLAN-CORRECTIONS § 1.6)', 
 });
 
 describe('plate probe: the search against the Z travel, the supervision (C-07, C-17, C-55)', () => {
+  test('SURETE C-01: a full two-touch cycle at the allowed boundary keeps both targets above the 1 mm band', async () => {
+    const ctx = setup({ x: 150, y: 120, z: -127 });
+    const command = ctx.c.command;
+    const targets = [];
+    ctx.c.command = (name, ...args) => {
+      command(name, ...args);
+      if (name !== 'gcode') {
+        return;
+      }
+      const line = args[0];
+      const move = /^(G38\.2|G0) Z(-?[\d.]+)/.exec(line);
+      if (move) {
+        const target = Number(move[2]) + ctx.offset.z;
+        targets.push(target);
+        ctx.m.z = move[1] === 'G38.2' ? -127.9 : target;
+      } else if (line === 'G10 L20 P0 Z1') {
+        ctx.offset.z = ctx.m.z - 1;
+      }
+      ctx.report();
+      ctx.c.runner.emit('ok');
+    };
+    await ctx.start({ thickness: 1, search: 1 });
+    await ctx.tick(2000);
+    expect(ctx.outcome).toHaveProperty('ok');
+    expect(ctx.lines().filter((line) => /^G38/.test(line))).toEqual(['G38.2 Z-13 F100', 'G38.2 Z-13.9 F25']);
+    expect(Math.min(...targets)).toBeCloseTo(-128.9, 3);
+    expect(targets.every((z) => z >= -129 && z <= 0)).toBe(true);
+    expect(ctx.state().zeroZ).toMatchObject({ thickness: 1 });
+  });
+
   // Time goes by without any report from the board.
   const silence = async (ctx, ms) => {
     for (let t = 0; t < ms; t += 50) {
@@ -273,13 +422,13 @@ describe('plate probe: the search against the Z travel, the supervision (C-07, C
     const ctx = setup({ x: 150, y: 120, z: -60 });
     expect(ctx.state().homed).toBe(true);
     const err = await refusalOf(ctx, { thickness: 10, search: 100 });
-    expect(err).toMatchObject({ status: 409, code: 'ETOUCH_PLATE_TRAVEL', params: { search: '100', max: '69' } });
-    expect(err.message).toBe('Recherche de 100 mm trop longue : l’outil sortirait de la course en Z. Au plus 69 mm d’ici.');
+    expect(err).toMatchObject({ status: 409, code: 'ETOUCH_PLATE_TRAVEL', params: { search: '100', max: '68' } });
+    expect(err.message).toBe('Recherche de 100 mm trop longue : l’outil sortirait de la course en Z. Au plus 68 mm d’ici.');
     expectCatalogMatch(err);
     expect(ctx.lines()).toEqual([]);
-    // 69 mm: the target stays 1 mm above the low end (machine −129).
-    await ctx.start({ thickness: 10, search: 69 });
-    expect(ctx.lines()).toEqual(['G38.2 Z-14 F100']);
+    // 68 mm: even a second target 1 mm below the first contact stays at or above −129.
+    await ctx.start({ thickness: 10, search: 68 });
+    expect(ctx.lines()).toEqual(['G38.2 Z-13 F100']);
   });
 
   test('C-07 checked again at the run: the tool lowered after the confirmation, nothing is sent', async () => {
@@ -288,7 +437,7 @@ describe('plate probe: the search against the Z travel, the supervision (C-07, C
     ctx.m = { ...ctx.m, z: -100 };
     ctx.report();
     const err = await ctx.req('zeroZ', { nonce: ticket.nonce }).then(() => null, (e) => e);
-    expect(err).toMatchObject({ code: 'ETOUCH_PLATE_TRAVEL', params: { search: '50', max: '29' } });
+    expect(err).toMatchObject({ code: 'ETOUCH_PLATE_TRAVEL', params: { search: '50', max: '28' } });
     expect(ctx.lines()).toEqual([]);
     expect(ctx.state().probing).toBe(false);
   });
@@ -510,7 +659,7 @@ describe('plate probe on the LUNYEE simulator', () => {
     await until(() => state().activeState === 'Idle' && Number(state().coordinates.mpos.z) === -60);
     const before = c.written.slice();
     await expect(req('prepare', { operation: 'zeroZ', thickness: 1, search: 100 })).rejects.toMatchObject({
-      code: 'ETOUCH_PLATE_TRAVEL', params: { search: '100', max: '69' }
+      code: 'ETOUCH_PLATE_TRAVEL', params: { search: '100', max: '68' }
     });
     expect(c.written).toEqual(before);
     expect(state()).toMatchObject({ homed: true, activeState: 'Idle' });

@@ -19,10 +19,14 @@ const systemStats=require('../../src/server/services/touch/system-stats.js').cre
 const mock={type:'Grbl',options:{port:'/dev/fixture'},ready:true,isClose:()=>false,
  runner:new EventEmitter(),sender:new EventEmitter(),workflow:{state:'idle'},
  state:{status:{activeState:idleFixture?'Idle':'Alarm'}},feeder:{toJSON:()=>({queue:0,pending:false})},
- settings:{settings:{$110:5000,$111:5000,$112:800}},command:()=>{throw Error('Physical command forbidden');}};
+ settings:{settings:{$110:5000,$111:5000,$112:800}},writeln:()=>{},command:()=>{throw Error('Physical command forbidden');}};
 mock.sender.state={name:'',context:{},total:0};mock.sender.toJSON=()=>({...mock.sender.state});
 mock.runner.state=mock.state;
-const service=createService({get:()=>({'/dev/fixture':mock})},{get:()=>[]});
+// Visual fixture only: no real offset transaction or machine command.
+const provenOffset = () => ({ state: () => 'proven', proven: () => true, proof: () => 0, checking: () => false,
+  restoring: () => false, tick() {}, modal() {}, invalidate() {}, cancel() {}, verify() {}, retry() {},
+  refusal: () => null, snapshot: () => ({ state: 'proven', code: null, canVerify: true }), signature: () => 'proven' });
+const service=createService({get:()=>({'/dev/fixture':mock})},{get:()=>[]}, undefined, {workOffset: provenOffset});
 service.list();setInterval(()=>{
  let raw='<Idle|MPos:0,0,0>';
  if(process.argv.includes('--probe-fixture')){
@@ -68,7 +72,7 @@ const httpServer=http.createServer((req,res)=>{
  // The XHR fixture goes right before shared-library.js; a bundled page (no such tag) gets it before its first deferred script.
  if(file.endsWith('simulation.html')||file.endsWith('index.html')){data=data.toString();data=data.includes('<script defer src="shared-library.js')?data.replace('<script defer src="shared-library.js','<script defer src="/visual-fixture.js"></script><script defer src="shared-library.js'):data.replace('<script defer','<script defer src="/visual-fixture.js"></script><script defer');}
  if((file.endsWith('simulation.html')||file.endsWith('index.html'))&&url.searchParams.get('profile-storage')==='blocked')data=data.toString().replace('<script src="probe-model.js','<script>var originalProfileSet=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(k.indexOf("cnc-touch-probes-")===0)throw Error("Fixture: stockage indisponible");return originalProfileSet.call(this,k,v);};</script><script src="probe-model.js');
- if(file.endsWith('.html')&&url.searchParams.get('startup-fault')==='missing-shell')data=data.toString().replace(/src="touch-shell\.js[^\"]*"/,'src="missing-shell.js"');
+ if(file.endsWith('.html')&&url.searchParams.get('startup-fault')==='missing-shell')data=data.toString().replace(/src="touch-shell\.js[^"]*"/,'src="missing-shell.js"');
  res.setHeader('Content-Type',file.endsWith('.css')?'text/css':file.endsWith('.js')?'text/javascript':file.endsWith('.json')?'application/json':'text/html');
  // Validation headers like express.static with maxAge 0 (what CNCjs sends): a warm start revalidates every file (304).
  const body=Buffer.isBuffer(data)?data:Buffer.from(data);const mtime=new Date(stat.mtimeMs);mtime.setMilliseconds(0);

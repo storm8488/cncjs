@@ -16,6 +16,8 @@
   // Coded reasons ({code, params, message}, ETOUCH_CHECK_*) in the interface language when the
   // server sends them; otherwise its French reasons, translated only when they are catalog phrases.
   function reasonsOf(check) {
+    var blocking = Array.isArray(check.blocking) ? check.blocking.filter(function (r) { return r && typeof r.message === 'string' && r.message; }) : [];
+    if (blocking.length) return blocking.map(function (r) { return uiLocale.format ? uiLocale.format(r.code, r.params, r.message) : msg(r.message); });
     var coded = Array.isArray(check.codedReasons) ? check.codedReasons.filter(function (r) { return r && typeof r === 'object' && typeof r.message === 'string' && r.message; }) : [];
     if (!coded.length || !uiLocale.format) return strings(check.reasons, 8);
     return coded.slice(0, 8).map(function (r) { return uiLocale.format(r.code, r.params, r.message.slice(0, 300)); });
@@ -54,6 +56,18 @@
     if (why.textContent) node.appendChild(why);
     return d;
   }
-  var api = { describe: describe, show: show };
+  // D1 uses usable-limit figures; snapshot and HTTP refusals share the code formatter.
+  function refusal(machine, operation) {
+    var r = machine && machine.refusals && machine.refusals[operation];
+    var fallback = machine && machine[operation + 'Reason'] || '';
+    var text = r && uiLocale.format ? uiLocale.format(r.code, r.params, fallback) : msg(fallback);
+    if (r && r.code === 'ETOUCH_START_OUTSIDE') {
+      var check = machine.programCheck;
+      var reasons = reasonsOf({ blocking: check && check.blocking && check.blocking.length ? check.blocking : r.reasons });
+      if (reasons.length) text += ' ' + reasons.join(' ');
+    }
+    return text;
+  }
+  var api = { describe: describe, show: show, refusal: refusal };
   if (typeof module === 'object' && module.exports) module.exports = api; else root.CNCProgramCheckView = api;
 })(typeof window === 'object' ? window : this);

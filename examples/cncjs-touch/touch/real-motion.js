@@ -73,8 +73,8 @@
   // ---- Server reasons that carry a value, rewritten as one sentence saying what to do ----
   function inches(){var o=machine&&machine.operator;return !!(o&&o.reportUnits==='in');}
   function alarmed(){return !!machine&&/^alarm/i.test(String(machine.activeState||''));}
-  // After a board restart in alarm: $$ is read at rest only, so $X comes first (Machine).
-  function rereadInAlarm(){return t('Alarme : touchez Déverrouiller ($X) dans Machine, puis Relire les réglages ($$), puis Prise d’origine ($H).');}
+  // The server decides whether settings can be read, including after a restart in alarm.
+  function rereadInAlarm(){return machine&&machine.canReadSettings?t('Touchez Relire les réglages ($$).'):codedReason('readSettings',machine&&machine.readSettingsReason||'');}
   function reasonText(r){
     r=String(r||'');if(!r)return '';
     var m;
@@ -111,7 +111,7 @@
       var r=c&&c.reason||'';
       if(!r||r===DISABLED)return t('Déplacements non activés sur ce serveur CNCjs (touch.motion.enabled).');
       if(/^Version Grbl inconnue/.test(r))return alarmed()?rereadInAlarm():t('Version de la carte inconnue : touchez Relire les réglages.');
-      return msg(r);
+      return codedReason('jog',r);
     }
     if(machine.probing)return t('Palpage en cours : attendez sa fin.');
     if(machine.loading)return t('Chargement en cours : attendez sa fin.');
@@ -133,15 +133,19 @@
     if(ticket||originBusy)return t('Confirmation d’origine en attente : confirmez ou annulez-la d’abord.');
     return '';
   }
-  function jogReason(){var g=common();if(g)return g;var m=motion();return m.canJog===true?'':reasonText(m.jogReason)||t('Déplacement indisponible.');}
+  function jogReason(){var g=common();if(g)return g;var m=motion();return m.canJog===true?'':codedReason('jog',m.jogReason)||t('Déplacement indisponible.');}
   function axisReason(axis){var m=motion();return mode==='hold'&&m&&m.continuousReason&&m.continuousReason[axis]?reasonText(m.continuousReason[axis]):'';}
   function moveReason(axis){return jogReason()||ours()||axisReason(axis);}
+  function codedReason(operation, fallback){
+    var r=machine&&machine.refusals&&machine.refusals[operation];
+    return r&&uiLocale.format?uiLocale.format(r.code,r.params,fallback):reasonText(fallback);
+  }
   function originReason(){return originState()||ours();}
   // The origin refused by the state or the server (our own move or ticket aside).
   function originState(){
     var g=common();if(g)return g;
     var c=cap('setOrigin');if(!c||c.enabled!==true)return msg(c&&c.reason||'')||t('Déplacements non activés sur ce serveur CNCjs (touch.motion.enabled).');
-    var m=motion();if(m.canSetOrigin!==true)return reasonText(m.setOriginReason)||t('Origine de travail indisponible.');
+    var m=motion();if(m.canSetOrigin!==true)return codedReason('setOrigin',m.setOriginReason)||t('Origine de travail indisponible.');
     return '';
   }
 
@@ -158,7 +162,7 @@
     var h=hold;if(!h)return false;
     hold=null;if(h.timer)clearInterval(h.timer);h.timer=null;
     quietUntil=now()+REPEAT_GUARD_MS;
-    try{if(h.button.releasePointerCapture&&h.pointerId!==undefined)h.button.releasePointerCapture(h.pointerId);}catch(_){}
+    try{if(h.button.releasePointerCapture&&h.pointerId!==undefined)h.button.releasePointerCapture(h.pointerId);}catch(_){/* Optional browser facility unavailable. */}
     // Sent at once, with the jog's id once known (the server stops any jog of ours without it).
     var body={operation:'jog-stop',port:h.port};if(h.jogId)body.jogId=h.jogId;
     var label=h.axis+dir(h.direction)+t(' · continu : ');
@@ -202,7 +206,7 @@
     stopWait=null;
     var h={id:++seq,axis:axis,direction:direction,button:b,pointerId:e&&e.pointerId,jogId:null,timer:null,inflight:0,port:machine.port,generation:machine.generation};
     hold=h;
-    try{if(b.setPointerCapture&&h.pointerId!==undefined)b.setPointerCapture(h.pointerId);}catch(_){}
+    try{if(b.setPointerCapture&&h.pointerId!==undefined)b.setPointerCapture(h.pointerId);}catch(_){/* Optional browser facility unavailable. */}
     tell(axis+dir(direction)+t(' · continu · ')+feed+' mm/min'+t(' : envoi…'),'sent');
     post({operation:'jog-start',axis:axis,direction:direction,feed:feed}).then(function(r){
       if(hold!==h){if(r&&r.jogId)post({operation:'jog-stop',jogId:r.jogId,port:h.port}).catch(noop);return;}
@@ -437,8 +441,8 @@
     });
     var oz=originReason();
     zeros.forEach(function(b){prop(b,'disabled',!!oz);attr(b,'title',oz||null);});
-    prop(reread,'hidden',!(machine&&connected&&settingsMissing())||busy);prop(reread,'disabled',settingsBusy||!live()||machine.activeState!=='Idle'||machine.workflow!=='idle');
-    attr(reread,'title',reread.disabled&&!settingsBusy?(alarmed()?rereadInAlarm():t('La machine doit être au repos (Idle), sans commande en attente.')):null);
+    prop(reread,'hidden',!(machine&&connected&&settingsMissing())||busy);prop(reread,'disabled',settingsBusy||!machine||machine.canReadSettings!==true);
+    attr(reread,'title',reread.disabled&&!settingsBusy?codedReason('readSettings',machine&&machine.readSettingsReason||''):null);
     // The status line: what to do now, or what the arrows do.
     var g=jogReason(),text;
     if(m&&m.cancelUnconfirmed)text=g;

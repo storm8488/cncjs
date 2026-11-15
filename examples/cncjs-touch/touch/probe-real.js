@@ -36,7 +36,8 @@
     if(m.canBlockProbe!==true){
       var why=typeof m.blockProbeReason==='string'?m.blockProbeReason:'';
       if(!why)return refused(m.canBlockProbe===false?t('Palpage au bloc indisponible dans l’état actuel de la machine.'):t('Palpage au bloc non pris en charge par ce serveur CNCjs : mettez-le à jour.'));
-      return refused(msg(why)+(/^Test du contact/.test(why)?t(' Ouvrez Diagnostic de l’entrée.'):''));
+      var coded=m.refusals&&m.refusals.blockProbe;
+      return refused((coded&&uiLocale.format?uiLocale.format(coded.code,coded.params,why):msg(why))+(/^Test du contact/.test(why)?t(' Ouvrez Diagnostic de l’entrée.'):''));
     }
     if(s.pending)return refused('');
     return {ready:true,reason:''};

@@ -238,7 +238,7 @@ describe('touch facade (history, control, socket and host-command policies)', ()
     return { c, run };
   };
 
-  test('C-09, C-12: during a plate probe a socket command that is not safe is refused; a socket stop holds the machine first, and no further line leaves', async () => {
+  test.each(['gcode:stop', '?!', '!\x85', '?\x18'])('C-09, C-12, SURETE C-02: a socket stop %s holds the plate first, and no further line leaves', async (data) => {
     const { c } = await plateRunning();
     const socket = fakeSocket('s6');
     mockSocketCommands.splice(0);
@@ -246,7 +246,7 @@ describe('touch facade (history, control, socket and host-command policies)', ()
     expect(touch.refuseSocket(socket, 'COM3', 'command', 'gcode')).not.toBeNull();
     expect(mockSocketCommands).toEqual([]);
     // CNCjs's Stop on the PC: the probe is stopped before the command goes its way (the report still says Idle).
-    expect(touch.refuseSocket(socket, 'COM3', 'command', 'gcode:stop')).toBeNull();
+    expect(touch.refuseSocket(socket, 'COM3', data === 'gcode:stop' ? 'command' : 'write', data)).toBeNull();
     expect(c.commands.map((entry) => entry[0])).toEqual(['gcode', 'feeder:stop', 'gcode:stop', 'feedhold']);
     await new Promise((resolve) => {
       setTimeout(resolve, 300);
@@ -268,6 +268,16 @@ describe('touch facade (history, control, socket and host-command policies)', ()
     expect(touch.refuseSocket(socket, 'COM3', 'write', '!')).toBeNull();
     reservation.release();
     expect(touch.refuseSocket(socket, 'COM3', 'command', 'gcode:start')).toBeNull();
+  });
+
+  test.each(['?!', '!\x85', '?\x18'])('SURETE C-02: a safe mixed write %s ends the server sequence synchronously', async (data) => {
+    const { c, run } = await plateRunning();
+    const socket = fakeSocket('mixed-stop');
+    expect(touch.refuseSocket(socket, 'COM3', 'write', data)).toBeNull();
+    expect(c.commands.map((entry) => entry[0])).toContain('feedhold');
+    c.runner.emit('startup', { firmware: 'Grbl', version: '1.1f' });
+    await run;
+    expect(c.commands.filter((entry) => entry[0] === 'gcode')).toEqual([['gcode', 'G38.2 Z-5 F100']]);
   });
 
   test('before start, the policies allow everything (no control module yet)', () => {

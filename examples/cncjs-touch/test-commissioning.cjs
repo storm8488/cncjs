@@ -27,7 +27,7 @@ function fixture(saved){
   next:()=>find(n=>n.className==='ks-wiz-next'&&/Suivant|Terminer/.test(n.textContent)),
   tick(index){const boxes=all(find(n=>n.className==='ks-wiz-content')).filter(n=>n.tagName==='INPUT');const i=boxes[index];i.checked=true;i.handlers.change();}};
 }
-const M=(extra)=>Object.assign({port:'/dev/ttyUSB0',fresh:true,workflow:'idle',activeState:'Idle',probeInput:{fresh:true,pins:''},canUnlock:false,canHome:true,canSpindleTest:true,canSpindleStop:true,spindleTestSpeed:6000,spindleSpeed:0,settingsCount:34,firmware:'Grbl 1.1h'},extra);
+const M=(extra)=>Object.assign({port:'/dev/ttyUSB0',fresh:true,workflow:'idle',activeState:'Idle',probeInput:{fresh:true,pins:''},canUnlock:false,canReadSettings:true,canHome:true,canSpindleTest:true,canSpindleStop:true,spindleTestSpeed:6000,spindleSpeed:0,settingsCount:34,firmware:'Grbl 1.1h'},extra);
 
 // ---- Model ----
 {
@@ -151,7 +151,7 @@ const M=(extra)=>Object.assign({port:'/dev/ttyUSB0',fresh:true,workflow:'idle',a
 }
 // Réglages card on the Machine tab: after the laser Z card, else after the machine kind card, else after the tabs (older layouts).
 {
- function place(names){
+ const place=function(names){
   const dom=createDOM(['menu']);dom.document.body.getAttribute=()=>null;
   const p=dom.node('screen-settings'),made={};
   names.forEach(n=>{const e=dom.element('div');e.name=n;made[n]=e;p.appendChild(e);Object.defineProperty(e,'nextSibling',{get:()=>p.children[p.children.indexOf(e)+1]||null});});
@@ -170,5 +170,35 @@ for(const name of ['index.html','simulation.html']){
  assert.equal((html.match(/src="commissioning\.js\?v=/g)||[]).length,1);
  ['touch-shell.js','job-controls.js','system-monitor.js','download-file.js','shared-library.js'].forEach(dep=>assert(html.indexOf(dep)<html.indexOf('commissioning.js'),dep+' loads first'));
  assert(html.indexOf('commissioning.js')<html.indexOf('viewport-fit.js'),'the screen exists before viewport-fit scans it');
+}
+{
+// Durable A2-6: the current server flag replaces the old Idle-only page guard.
+const dom = createDOM(['machine']), listeners = {};
+const overview = dom.element('div'), main = dom.element('main');
+dom.document.body.getAttribute = () => null;
+dom.document.querySelector = (sel) => (sel === 'main' ? main : sel === '.ks-machine-overview' ? overview : null);
+dom.document.getElementById = (id) => (id === 'screen-settings' || id === 'job-confirm' ? null : dom.node(id));
+const window = { cncShell: { go() {} }, addEventListener(n, f) { (listeners[n] || (listeners[n] = [])).push(f); }, dispatchEvent(e) { (listeners[e.type] || []).forEach((f) => f(e)); } };
+vm.runInNewContext(fs.readFileSync(__dirname + '/touch/commissioning.js', 'utf8'), { window, document: dom.document, localStorage: { getItem: () => JSON.stringify({ machines: { '/dev/ttyUSB0': { status: 'done' } } }), setItem() {} } });
+const find = (n, fn) => (fn(n) ? n : n.children.reduce((hit, c) => hit || find(c, fn), null));
+const reread = find(overview, (n) => n.id === 'ks-machine-reread'), reason = find(overview, (n) => n.id === 'ks-machine-command-reason');
+assert(reread && reason, 'the Machine commands are built');
+const restarted = { port: '/dev/ttyUSB0', fresh: true, activeState: 'Alarm', workflow: 'idle', alarmCode: null, firmware: '', settingsCount: 0,
+  canReadSettings: true, canUnlock: true, unlockReason: '', canHome: false, homeReason: 'Réglage $22 inconnu : relisez les réglages de la carte.',
+  capabilities: { jog: { supported: false, enabled: false, reason: 'Version Grbl inconnue : attendez la bannière de démarrage ou lisez les réglages ($I).' } } };
+window.dispatchEvent({ type: 'cnc-job-status', detail: { machine: restarted, simulation: false } });
+assert.equal(!reread.hidden && !reread.disabled, true, 'D4: the server permits reading settings and version in alarm');
+for(const activeState of ['Idle','Alarm']){
+  const m={...restarted,activeState,canReadSettings:false,readSettingsReason:'Lecture en cours.'};
+  window.dispatchEvent({type:'cnc-job-status',detail:{machine:m,simulation:false}});
+  assert.equal(reread.disabled,true,'a server refusal disables Relire even in Idle');
+  assert.equal(reread.title,'Lecture en cours.');
+  window.dispatchEvent({type:'cnc-job-status',detail:{machine:{...m,canReadSettings:true},simulation:false}});
+  assert.equal(reread.disabled,false,'the server flag permits the read in '+activeState);
+  assert.equal(reread.title,'');
+}
+window.dispatchEvent({type:'cnc-job-status',detail:{machine:{...restarted,canReadSettings:undefined},simulation:false}});
+assert.equal(reread.disabled,true,'an absent capability never grants a read');
+
 }
 console.log('PASS commissioning: step model, auto-open on the first real controller, persistence and resume, guarded commands, spindle stop on leave, skip under confirmation.');

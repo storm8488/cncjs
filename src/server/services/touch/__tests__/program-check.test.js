@@ -47,6 +47,36 @@ describe('CNC spindle setpoint above the board maximum', () => {
 });
 
 describe('program check (F2): analysis', () => {
+  test('SURETE C-03: opaque syntax invalidates the units of subsequent G53 targets until explicit units restore knowledge', () => {
+    const prefix = 'G20 G90\nG 2 1\n';
+    const check = programCheck(prefix + 'G53 G0 Z-10', machine());
+    expect(check.verdict).toBe('unknown');
+    expect(check.blocking).toEqual([]);
+    expect(check.codedReasons.map((item) => item.code)).toContain('ETOUCH_CHECK_SYNTAX');
+    const restored = programCheck(prefix + 'G21\nG53 G0 Z-100', machine());
+    expect(restored.axes.Z).toMatchObject({ verdict: 'outside', machineMin: -100 });
+    expect(restored.blocking).toHaveLength(1);
+    // An earlier independent, proven G53 overrun is still blocking.
+    const earlier = programCheck('G21 G90\nG53 G0 Z-100\nG 2 0\nG53 G0 Z-1', machine());
+    expect(earlier.axes.Z.verdict).toBe('outside');
+    expect(earlier.blocking).toHaveLength(1);
+    // A skipped opaque target must not make later explicit mm targets inherit G20 again.
+    const lateUnits = programCheck('G 2 0\nG53 G0 Z-1\nG21 G90\nG53 G0 Z-10', machine({ modal: { units: 'G20', distance: 'G90', wcs: 'G54' } }));
+    expect(lateUnits.axes.Z.machineMin).toBe(-10);
+    expect(lateUnits.blocking).toEqual([]);
+  });
+
+  test('SURETE C-03: opaque units cannot create a blocking G53 extent; reliable later units restore tracking', () => {
+    const check = programCheck('G20 G90\nG 2 1\nG53 G0 Z-10', machine());
+    expect(check.verdict).toBe('unknown');
+    expect(check.blocking).toEqual([]);
+    expect(check.axes.Z.machineMin).toBeUndefined();
+    const restored = programCheck('G20 G90\nG 2 1\nG21\nG53 G0 Z-100', machine());
+    expect(restored.verdict).toBe('outside');
+    expect(restored.axes.Z.machineMin).toBe(-100);
+    expect(restored.blocking).toHaveLength(1);
+  });
+
   test('a plain square is followed: units, mode, offset, XYZ extent, Z depth and clearance', () => {
     const a = analyzeProgram(SQUARE);
     expect(a).toMatchObject({ units: 'G21', distance: 'G90', wcs: 'G54', rawUnits: false, relativeStart: false, moves: 8 });

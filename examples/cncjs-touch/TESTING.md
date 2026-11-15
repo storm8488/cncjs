@@ -1,5 +1,15 @@
 # Validation scope
 
+## P1 page contract (2026-11-15)
+
+- `test-start-override.cjs`: quantified D1 snapshot/409 refusals in FR/EN/ES, all six possible axis/side reasons, ticket and live checks, checked-ticket invalidation, no direct-handler bypass; unknown stays confirmable with the checkbox. Converts A2-1.
+- `test-work-offset.cjs`: all four offset codes on Files, Follow, Probe and Prepare in FR/EN/ES; coded HTTP refusals and settings-reading refusal. The existing real-motion fixture is exported without running its tests when required; its language option now loads the real catalogues.
+- `test-probe-defaults.cjs`: defaults compared with the server's real `LIMITS`, no physical dimensions invented, saved choices preserved, explicit invalid/null data remains unconfigured, Z alone needs no corner.
+- `test-commissioning.cjs` converts A2-6: Relire follows `canReadSettings` in Idle and Alarm; absent/false flags refuse. `test-real-motion.cjs` and `test-machine-screen.cjs` replace their old unlock-first expectations with this server contract; their existing assertions remain.
+- `test-server-messages.cjs` converts A2-7 using real S6 errors, optional null alarm/WCS values and 409s in three languages. It rejects the two unused resume templates. The temporary A2-1/A2-6/A2-7 files are removed after conversion.
+- The three fake-controller benches inject a local proven offset and inert `writeln`; they do not validate D2. `test-essai-xy-reel.cjs` remains outside the offline verifier because it starts a loopback server.
+- Standalone page ESLint uses the local `.eslintrc.cjs` (`eslint:recommended`); `touch/*.js` is parsed as ES2017 script, without Babel. This replaces inherited React application style rules for this subtree; no repository-wide configuration is changed. Empty optional browser catch blocks are documented, without changing their behavior.
+
 ## Reproduce the offline checks
 
 From this directory, run:
@@ -426,7 +436,7 @@ Not changed, with the reason:
 
 Three ideas taken from a review of ncSender (GPL-3.0: ideas only, our own code), chosen because they help as soon as the machine runs:
 - **Alarm and error help** (`grbl-help.js`): alarms 1-9 (Grbl 1.1, same on Grbl_ESP32) and the common Grbl errors get a title and what to do, in FR/EN/ES. The server reports the `ALARM:n` code while the controller is in alarm (`alarmCode`, forgotten after a board restart; `null` for the homing lock, which sends no code) and the job's last error (`jobLastError`). Suivi and the job panel show it; other codes get a generic line.
-- **Off-travel warning before a start** (`travel-check.js`): the start confirmation places the program's XY extent (from the stored preview) at the current work offset (`mpos - wpos`) and compares it with the machine space after homing, `[-$13x, 0]`, or `[0, $13x]` for an axis whose `$23` bit is set. It warns, it does not block. It says when it cannot be trusted: homing disabled (`$22=0`), positions in inches, unknown travel, position or preview. Z is not checked (the preview is 2D), and the check assumes the program runs in the active work offset.
+- **Travel check before a start**: the server's `programCheck` takes precedence over the preview's XY estimate. D1 refuses a proven overrun, including Z depth; `blocking` supplies translated figures against usable travel. The page never enables confirmation for an ordinary ticket with an outside axis, even if `canStart` is inconsistent. Unknown remains a warning and still requires the checkbox. The older `travel-check.js` XY estimate is used only without a server check; its scope remains a warning, not a collision check. P1 adds no override button; L5 owns the deliberate override flow.
 - **Stalled job notice**: the 3-hour run showed CNCjs waiting forever for replies while Grbl stayed idle (lines lost inside the simulator). The server reports `stalledMs` once a running job has waited 30 s with Grbl idle and no acknowledgement, and Suivi asks the operator to stop the job if nothing moves.
 
 Tests: `test-grbl-help.cjs` (codes, generic cases, every phrase in the catalog), `test-travel-check.cjs` (both homing directions, work offsets, every untrusted case), `test-dashboard.cjs`, `test-job-dialog.cjs`, `job-service.test.js`. Checked on the tablet against the Grbl 1.1h simulator: a `G38.2` without contact gave `ALARM:5` and Suivi showed "Alarme 5 : Palpage sans contact…"; with `$22=0` the confirmation said the travel could not be checked; with `$22=1` set for the test (put back to 0) it warned "Hors course machine : X 0,0 → 60,0 mm (course -400,0 → 0,0)…". Not tested on the real machine.

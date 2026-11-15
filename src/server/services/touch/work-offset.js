@@ -128,6 +128,8 @@ export const createWorkOffset = (deps) => {
     if (s.run !== t) {
       return;
     }
+    // Keep the restoration reserved until its WCS and offset are both proven.
+    s.restore = null;
     s.run = null;
     s.state = 'proven';
     s.proofs += 1;
@@ -164,7 +166,7 @@ export const createWorkOffset = (deps) => {
   const fresh = () => Number.isFinite(r.seen) && clock() >= r.seen && clock() - r.seen <= MAX_REPORT_AGE_MS;
 
   const transaction = (readOnly) => {
-    const t = { cancelled: false };
+    const t = { cancelled: false, wcs: r.wcs };
     s.run = t;
     s.state = 'checking';
     s.attempts += 1;
@@ -212,6 +214,10 @@ export const createWorkOffset = (deps) => {
         runner.on('parameters', onParameters);
       }
       try {
+        // Modal reports can arrive before the ok: recognize only our own selection.
+        if (/^G5[4-9]$/.test(line)) {
+          t.wcs = line;
+        }
         c.command('gcode', line);
         await quiet(c, r, tracker, LINE_MS);
       } catch (_) {
@@ -222,7 +228,7 @@ export const createWorkOffset = (deps) => {
           runner.removeListener('parameters', onParameters);
         }
       }
-      if (!live()) {
+      if (!usable()) {
         throw INTERRUPTED;
       }
       return tracker.reportsAtOk;
@@ -230,13 +236,15 @@ export const createWorkOffset = (deps) => {
 
     // The WCO of a report received after report number `after`, or null after REPORT_MS.
     const reportedAfter = async (after) => {
-      const ok = await waitFor(() => s.wco && s.wco.report > after, REPORT_MS);
+      const ok = await waitFor(() => usable() && s.wco && s.wco.idle && s.wco.report > after, REPORT_MS);
       return ok ? s.wco.value : null;
     };
 
     const mismatch = (stored, reported, wcs) => {
       const axis = AXES.find((a) => Math.abs(stored[a] - reported[a]) > tolerance());
-      return { code: 'ETOUCH_OFFSET_MISMATCH', params: { wcs, axis: axis.toUpperCase(), stored: fmt(stored[axis]), reported: fmt(reported[axis]) } };
+      // The diagnostic says mm even when $13=1 makes the protocol use inches.
+      const mm = reportUnits() === 'in' ? 25.4 : 1;
+      return { code: 'ETOUCH_OFFSET_MISMATCH', params: { wcs, axis: axis.toUpperCase(), stored: fmt(stored[axis] * mm), reported: fmt(reported[axis] * mm) } };
     };
     const unconfirmed = (detail) => ({ code: 'ETOUCH_OFFSET_UNCONFIRMED', params: { detail } });
 
@@ -255,7 +263,6 @@ export const createWorkOffset = (deps) => {
           }
           active = back;
         }
-        s.restore = null;
       }
       s.wcs = active;
       const parameters = {};
@@ -293,7 +300,6 @@ export const createWorkOffset = (deps) => {
       } catch (_) {
         throw INTERRUPTED;
       }
-      s.restore = null;
       const modals = s.modals;
       if (!(await waitFor(() => s.modals > modals, MODAL_MS))) {
         return unconfirmed('no-answer');
@@ -328,8 +334,10 @@ export const createWorkOffset = (deps) => {
         end(t, unconfirmed('interrupted'));
       } else if (failure) {
         end(t, failure);
-      } else {
+      } else if (usable() && r.wcs === s.wcs && s.wco && s.wco.idle) {
         proven(t);
+      } else {
+        end(t, unconfirmed('interrupted'));
       }
     }, (err) => {
       end(t, unconfirmed(err === INTERRUPTED ? 'interrupted' : 'no-answer'));
@@ -340,7 +348,7 @@ export const createWorkOffset = (deps) => {
   const tick = (payload) => {
     const value = xyzOf(payload && payload.wco);
     if (value) {
-      s.wco = { value, report: r.reports };
+      s.wco = { value, report: r.reports, idle: controllerStatus(c).activeState === 'Idle' };
       // A client on another channel (the board's Wi-Fi) changed the offset at rest.
       if (s.state === 'proven' && !s.run && workflowIdle() && tolerance() && differs(value, s.reported)) {
         invalidate('wco');
@@ -359,6 +367,12 @@ export const createWorkOffset = (deps) => {
   // At each $G report: counted; a system changed at rest outside a transaction is proven anew.
   const modal = () => {
     s.modals += 1;
+    if (s.run && r.wcs !== s.run.wcs) {
+      // An external selection supersedes our intention; never undo the observed choice.
+      s.restore = null;
+      invalidate('wcs');
+      return;
+    }
     if (!s.run && (s.state === 'proven' || s.state === 'failed') && workflowIdle() && r.wcs && s.wcs && r.wcs !== s.wcs) {
       invalidate('wcs');
     }
@@ -416,6 +430,7 @@ export const createWorkOffset = (deps) => {
     // Which proof holds now (a number), or null when none does.
     proof: () => (s.state === 'proven' ? s.proofs : null),
     checking: () => !!s.run,
+    restoring: () => !!s.restore,
     tick,
     modal,
     invalidate,

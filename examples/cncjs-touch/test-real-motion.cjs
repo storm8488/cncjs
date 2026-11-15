@@ -85,6 +85,8 @@ function load(options = {}) {
     addEventListener(n, f) { (listeners[n] || (listeners[n] = [])).push(f); }, removeEventListener(n, f) { listeners[n] = (listeners[n] || []).filter((x) => x !== f); },
     dispatchEvent(e) { events.push(e); (listeners[e.type] || []).slice().forEach((f) => f(e)); } };
   if (options.locale) {
+    storage.set('cncjs-touch-language-v1', options.locale); doc.documentElement = {}; doc.title = '';
+
     // The interface in another language: the catalogs and i18n.js before the modules.
     const store = { 'cncjs-touch-language-v1': options.locale };
     window.cncI18nStore = store;
@@ -93,7 +95,7 @@ function load(options = {}) {
   const context = { window, document: doc, XMLHttpRequest: XHR, localStorage, CustomEvent: function (type, o) { this.type = type; this.detail = o.detail; },
     Date: class extends Date { static now() { return now; } }, Math, Promise, JSON, setInterval: window.setInterval, clearInterval: window.clearInterval };
   vm.createContext(context);
-  for (const file of ['cnc-state.js', 'job-stream.js', 'program-check-view.js', 'job-controls.js', 'real-motion.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, 'touch', file), 'utf8'), context, { filename: file });
+  for (const file of (options.locale ? ['i18n-messages.js', 'i18n-messages-machine.js', 'i18n.js'] : []).concat(['cnc-state.js', 'job-stream.js', 'program-check-view.js', 'job-controls.js', 'real-motion.js'])) vm.runInContext(fs.readFileSync(path.join(__dirname, 'touch', file), 'utf8'), context, { filename: file });
   const isStream = (url) => /\/touch-events(\?clientId=[^&]+)?$/.test(url);
   const flush = async () => { for (let i = 0; i < 4; i++) await new Promise(setImmediate); };
   function answer(xhr, data, status = 200) { xhr.status = status; xhr.responseText = JSON.stringify(data); xhr.onload(); }
@@ -130,7 +132,7 @@ function caps(enabled, extra = {}) {
 }
 function machine(patch) {
   return Object.assign({ port: 'COM3', controllerId: 'COM3', generation: 'gen-1', type: 'Grbl', activeState: 'Idle', workflow: 'idle', fresh: true, statusAgeMs: 0, statusObservedAt: 1700000000000,
-    name: '', originalName: '', revision: 'rev-1', total: 0, received: 0, canLoad: true, canStart: false, canResume: false, canPause: false, canStop: false, homed: true,
+    name: '', originalName: '', revision: 'rev-1', total: 0, received: 0, canReadSettings: true, readSettingsReason: '', canLoad: true, canStart: false, canResume: false, canPause: false, canStop: false, homed: true,
     control: { owner: null, lastChange: null }, operator: { reportUnits: 'mm', wcs: 'G54' },
     coordinates: { mpos: { x: -100, y: -50, z: -2 }, wpos: { x: 12.5, y: 3, z: 1 } },
     capabilities: caps(true),
@@ -152,7 +154,9 @@ async function started(f, id, button) { const s = await holding(f, button); f.an
 const allArrows = (f) => Object.values(f.arrows);
 const noPreview = (f) => assert(!f.requests.some((r) => /touch-motion\/preview/.test(r.url)), 'never the preview endpoint');
 
-(async () => {
+module.exports = { fixture: load, machine };
+
+if (require.main === module) (async () => {
   // 1. The capability disabled, an old server, an unknown version: the controls stay in place, greyed
   //    out, with one sentence saying what to do; nothing is sent, even by a programmatic click.
   {
@@ -602,18 +606,18 @@ const noPreview = (f) => assert(!f.requests.some((r) => /touch-motion\/preview/.
     assert.equal(f.el('jog-read-settings').hidden, false);
     const inch = await ready({ operator: { reportUnits: 'in', wcs: 'G54' }, motion: Object.assign(machine().motion, { canJog: false, jogReason: 'Rapports en pouces ($13=1) ou réglage $13 inconnu : le déplacement réel exige $13=0.' }) });
     assert.equal(inch.el('jog-read-settings').hidden, true, '$13=1 known: no « Relire »');
-    // Contre-revue P2-2: « Réglage $22 inconnu » (capital R) is recognised; in alarm the reading needs $X first, said so.
+    // Contre-revue P2-2: « Réglage $22 inconnu » (capital R) is recognised; the read is available in alarm when the server allows it.
     const cap22 = await ready({ motion: Object.assign(machine().motion, { canSetOrigin: false, setOriginReason: 'Réglage $22 inconnu : relisez les réglages de la carte.' }) });
     assert.equal(cap22.el('jog-read-settings').hidden, false, '« Réglage $22 inconnu » offers the reading');
     const al = await ready({ activeState: 'Alarm', alarmCode: 1, homeReason: 'Réglage $22 inconnu : relisez les réglages de la carte.',
       motion: Object.assign(machine().motion, { canJog: false, jogReason: 'Machine en alarme (ALARM:1) : déverrouillez ($X) ou référencez ($H) d’abord.', canSetOrigin: false, setOriginReason: 'Réglage $22 inconnu : relisez les réglages de la carte.' }) });
-    const ALARM_REREAD = 'Alarme : touchez Déverrouiller ($X) dans Machine, puis Relire les réglages ($$), puis Prise d’origine ($H).';
+    const ALARM_REREAD = 'Touchez Relire les réglages ($$).';
     assert.equal(al.el('jog-msg').textContent, ALARM_REREAD);
-    assert.equal(al.el('jog-read-settings').hidden, false); assert.equal(al.el('jog-read-settings').disabled, true);
-    assert.equal(al.el('jog-read-settings').title, ALARM_REREAD, 'the greyed button says why');
+    assert.equal(al.el('jog-read-settings').hidden, false); assert.equal(al.el('jog-read-settings').disabled, false);
+    assert.equal(al.el('jog-read-settings').title, '', 'the server permits a read in alarm');
     const v = 'Version Grbl inconnue : attendez la bannière de démarrage ou lisez les réglages ($I).';
     const alv = await ready({ activeState: 'Alarm', capabilities: { jog: { supported: false, enabled: false, reason: v }, jogContinuous: { supported: false, enabled: false, reason: v }, setOrigin: { supported: false, enabled: false, reason: v } } });
-    assert.equal(alv.el('jog-msg').textContent, ALARM_REREAD, 'version unknown in alarm: $X first');
+    assert.equal(alv.el('jog-msg').textContent, ALARM_REREAD, 'unknown version can be read in alarm');
     // The stream down (row 2), and nothing published since (rows 1 / 3).
     const g = await ready(); await g.reconnect(machine({ revision: 'x' })); g.lastStatus();
     g.window.dispatchEvent({ type: 'cnc-job-status', detail: { machine: machine(), transportConnected: false, simulation: false, pilot: null } });

@@ -57,6 +57,7 @@ beforeAll(async () => {
   await write('limite.nc', 'G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-14.5 F300', 'G0 Z5', 'M30');
   // A probe in the program: Z cannot be followed, the verdict is unknown.
   await write('sonde.nc', 'G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G38.2 Z-10 F50', 'G0 Z5', 'M30');
+  await write('unsafe.nc', '$20=0', 'G21 G90', 'G53 G0 Z-200');
   // A resume from line 6: its preamble rises to the highest Z seen before (Z120, machine +5),
   // while the lines from 6 on stay inside the travel.
   await write('reprise.nc', 'G21 G90 G94', 'M3 S9000', 'G0 Z120', 'G0 X0 Y0', 'G1 Z5 F300', 'G1 Z-1 F200', 'G1 X10 F800', 'G0 Z5', 'M5', 'M30');
@@ -297,6 +298,18 @@ const setup = (options = {}) => {
 };
 
 describe('D1: the override and what changes between the two gestures (fake board, proven offset)', () => {
+  test.each(['$20=0', '$130=1000', '$RST=*'])('SURETE D-04: a program containing %s cannot override the travel guard', async (line) => {
+    const name = 'unsafe-override-' + line.replace(/\W/g, '') + '.nc';
+    await fs.writeFile(path.join(root, name), line + '\nG21 G90\nG53 G0 Z-200');
+    const ctx = setup();
+    await ctx.req('load', { file: name });
+    expect(ctx.state().programCheck.overridable).toBe(false);
+    const err = await refusalOf(ctx.req('prepare', { operation: 'start', revision: ctx.state().revision, override: 'travel' }));
+    expect(err).toMatchObject({ code: 'ETOUCH_START_OVERRIDE_UNSAFE' });
+    expectCatalogMatch(err);
+    expect(ctx.starts()).toBe(0);
+  });
+
   test('a zero set while the override ticket waits changes what is overridden: refused, nothing sent', async () => {
     const ctx = setup();
     await ctx.req('load', { file: 'decoupe.nc' });
@@ -357,6 +370,25 @@ describe('D1: the override and what changes between the two gestures (fake board
     const ctx = setup({ workOffset: () => ({ ...provenOffset(), proven: () => false, proof: () => null, refusal: () => refusal }) });
     await ctx.req('load', { file: 'decoupe.nc' });
     expect(await refusalOf(ctx.req('prepare', { operation: 'start', revision: ctx.state().revision, override: 'travel' }))).toMatchObject({ code: 'ETOUCH_OFFSET_CHECKING' });
+    expect(ctx.starts()).toBe(0);
+  });
+
+  test('SURETE D-04: a file disabling its own soft limits cannot obtain an override or start', async () => {
+    const ctx = setup();
+    await ctx.req('load', { file: 'unsafe.nc' });
+    expect(ctx.state().programCheck).toMatchObject({ verdict: 'outside', overridable: false });
+    expect(await refusalOf(ctx.req('prepare', { operation: 'start', revision: ctx.state().revision }))).toMatchObject({ code: 'ETOUCH_START_OUTSIDE' });
+    expect(await refusalOf(ctx.req('prepare', { operation: 'start', revision: ctx.state().revision, override: 'travel' }))).toMatchObject({ code: 'ETOUCH_START_OVERRIDE_UNSAFE' });
+    expect(ctx.starts()).toBe(0);
+    expect(ctx.history.filter((event) => event.event === 'override')).toEqual([]);
+  });
+
+  test('SURETE D-04: even an unknown extent cannot turn an unsafe override request into an ordinary ticket', async () => {
+    await fs.writeFile(path.join(root, 'unsafe-unknown.nc'), 'G21 G90\n$20=0\nG53 G0 Z-200');
+    const ctx = setup();
+    await ctx.req('load', { file: 'unsafe-unknown.nc' });
+    expect(ctx.state().programCheck).toMatchObject({ verdict: 'unknown', blocking: [], overridable: false });
+    expect(await refusalOf(ctx.req('prepare', { operation: 'start', revision: ctx.state().revision, override: 'travel' }))).toMatchObject({ code: 'ETOUCH_START_OVERRIDE_UNSAFE' });
     expect(ctx.starts()).toBe(0);
   });
 

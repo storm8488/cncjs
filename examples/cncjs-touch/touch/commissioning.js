@@ -115,9 +115,9 @@
   if(!shell||!main||document.body.getAttribute('data-simulation')==='true')return;
 
   // ---- Storage: one entry per controller port ----
-  function load(){try{var d=JSON.parse(localStorage.getItem(KEY)||'null');if(d&&typeof d==='object'&&d.machines&&typeof d.machines==='object')return d;}catch(_){}return {machines:{}};}
+  function load(){try{var d=JSON.parse(localStorage.getItem(KEY)||'null');if(d&&typeof d==='object'&&d.machines&&typeof d.machines==='object')return d;}catch(_){/* Optional browser facility unavailable. */}return {machines:{}};}
   var data=load();
-  function save(){try{localStorage.setItem(KEY,JSON.stringify(data));}catch(_){}}
+  function save(){try{localStorage.setItem(KEY,JSON.stringify(data));}catch(_){/* Optional browser facility unavailable. */}}
   function entry(port){return port&&Object.prototype.hasOwnProperty.call(data.machines,port)?data.machines[port]:null;}
   function stamp(){return new Date().toISOString();}
   function dateText(iso){try{return new Date(iso).toLocaleString(uiLocale.locale||'fr-FR');}catch(_){return iso;}}
@@ -228,7 +228,7 @@
         set(fw,t('Carte : ')+(m&&m.firmware||t('firmware non identifié')));
         var n=m?m.settingsCount||0:0;
         set(count,n?n+t(' réglages lus par CNCjs.'):t('Aucun réglage lu : touchez Relire les réglages, machine au repos.'));
-        prop(dl,'disabled',!m||!n);prop(reread,'disabled',!m||!m.fresh||m.activeState!=='Idle'||m.workflow!=='idle');
+        prop(dl,'disabled',!m||!n);prop(reread,'disabled',!m||m.canReadSettings!==true);prop(reread,'title',m&&!m.canReadSettings?shown(m.readSettingsReason||''):'');
       };
     },
     estop:function(box){
@@ -469,11 +469,12 @@
       if(ux&&uh&&/^alarm/i.test(m.activeState||'')&&m.workflow!=='idle')text+=' '+t('Touchez Arrêter, puis $X.');
       // Hold without a job (a stopped job left Hold:0): Arrêter (strip) resets the board, then $H.
       if(uh&&/^hold/i.test(m.activeState||'')&&m.workflow==='idle')text+=' '+t('Touchez Arrêter, puis $H.');
-      // In alarm the reading of $$ (at rest only) needs $X first.
-      if(uh&&UNKNOWN_SETTINGS.test(uh))text+=' '+(/^alarm/i.test(m.activeState||'')?t('Touchez Déverrouiller ($X), puis Relire les réglages ($$), puis $H.'):t('Touchez Relire les réglages ($$).'));
-      // The phrase only where it can be followed: in alarm $X first; « touchez Relire » only while the button is usable.
-      else if(versionMissing(m)&&/^alarm/i.test(m.activeState||''))text+=(text?' ':'')+t('Touchez Déverrouiller ($X), puis Relire les réglages ($$), puis $H.');
-      else if(versionMissing(m)&&m.fresh&&m.activeState==='Idle'&&m.workflow==='idle')text+=(text?' ':'')+t('Version de la carte inconnue : touchez Relire les réglages.');
+      // The server allows this read in alarm too; never send the operator through $X first.
+      if(uh&&UNKNOWN_SETTINGS.test(uh)||versionMissing(m)){
+        var readRefusal=m.refusals&&m.refusals.readSettings;
+        var readReason=readRefusal&&uiLocale.format?uiLocale.format(readRefusal.code,readRefusal.params,m.readSettingsReason||''):shown(m.readSettingsReason||'');
+        text+=(text?' ':'')+(m.canReadSettings?t('Touchez Relire les réglages ($$).'):readReason);
+      }
     }
     // The answer to « Relire les réglages » until the reasons change after it.
     if(rereadNote&&rereadNote.key===null)rereadNote.key=text;
@@ -500,8 +501,9 @@
     if(machine&&machine.port!==port){port=machine.port;settingsCard();}
     if(machineUnlock){prop(machineUnlock,'disabled',!machine||!machine.canUnlock);prop(machineUnlock,'title',t(machine&&machine.unlockReason||''));}
     if(machineHome){prop(machineHome,'disabled',!machine||!machine.canHome);prop(machineHome,'title',t(machine&&machine.homeReason||''));}
-    if(machineReread){prop(machineReread,'hidden',!(machine&&(!machine.canHome&&UNKNOWN_SETTINGS.test(machine.homeReason||'')||versionMissing(machine))));prop(machineReread,'disabled',!machine||!machine.fresh||machine.activeState!=='Idle'||machine.workflow!=='idle');
-      prop(machineReread,'title',machine&&/^alarm/i.test(machine.activeState||'')?t('Touchez Déverrouiller ($X), puis Relire les réglages ($$), puis $H.'):'');}
+    if(machineReread){prop(machineReread,'hidden',!(machine&&(!machine.canHome&&UNKNOWN_SETTINGS.test(machine.homeReason||'')||versionMissing(machine))));prop(machineReread,'disabled',!machine||machine.canReadSettings!==true);
+      var refusal=machine&&machine.refusals&&machine.refusals.readSettings;
+      prop(machineReread,'title',machine&&!machine.canReadSettings?(refusal&&uiLocale.format?uiLocale.format(refusal.code,refusal.params,machine.readSettingsReason||''):shown(machine.readSettingsReason||'')):'');}
     lastStatus=d;commandReason(d);
     if(view){observe(STEPS[index],st,machine);refresh();}
     // First real controller seen on this port: open the assistant once, from the menu.

@@ -390,6 +390,90 @@ const refusalOf = async (promise) => {
 };
 
 describe('D2: the work offset is proven against $# (fake LUNYEE board)', () => {
+  const interruptedReload = async () => {
+    const ctx = await setup();
+    await ctx.proven();
+    ctx.g.hold = (line) => line === 'G55';
+    await ctx.home();
+    await ctx.until(() => ctx.g.held.length === 1);
+    ctx.service.socketStop('TEST');
+    ctx.g.release();
+    await ctx.tick(1000);
+    expect(ctx.g.wcs).toBe('G55');
+    return ctx;
+  };
+
+  test('SURETE D-01: a pending restore reserves the system against a zero here and socket writes', async () => {
+    const ctx = await interruptedReload();
+    const before = ctx.lines();
+    await expect(ctx.req('prepare', { operation: 'set-origin', axes: ['X'] })).rejects.toMatchObject({ code: 'ETOUCH_OFFSET_CHECKING' });
+    expect(ctx.service.socketRefusal('TEST')).toMatchObject({ code: 'ETOUCH_OFFSET_CHECKING' });
+    expect(ctx.since(before)).toEqual([]);
+    await ctx.proven();
+    expect(ctx.g.wcs).toBe('G54');
+    expect(ctx.service.socketRefusal('TEST')).toBeNull();
+  });
+
+  test('SURETE D-02: maintenance is refused during D2 and while its restore waits', async () => {
+    const ctx = await setup();
+    await ctx.proven();
+    ctx.g.noWco = true;
+    await ctx.req('verifyOffset');
+    await ctx.tick(300);
+    const reserve = () => ctx.service.reserveSystemCommand({ title: 'Restart CNCjs' });
+    expect(ctx.offset().state).toBe('checking');
+    expect(reserve).toThrow();
+    ctx.g.noWco = false;
+    ctx.g.counter = 0;
+    await ctx.proven();
+    const free = reserve();
+    free.release();
+    const restoring = await interruptedReload();
+    expect(() => restoring.service.reserveSystemCommand({ title: 'Restart CNCjs' })).toThrow();
+    await restoring.proven();
+    restoring.service.reserveSystemCommand({ title: 'Restart CNCjs' }).release();
+  });
+
+  test('SURETE D-03: an external system selected during the WCO wait is never selected back by D2', async () => {
+    const ctx = await setup();
+    await ctx.proven();
+    ctx.g.noWco = true;
+    await ctx.req('verifyOffset');
+    await ctx.tick(300);
+    expect(ctx.offset().state).toBe('checking');
+    const before = ctx.lines();
+    ctx.g.wcs = 'G55';
+    ctx.g.refresh();
+    ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
+    ctx.g.noWco = false;
+    ctx.g.counter = 0;
+    await ctx.proven();
+    expect(ctx.g.wcs).toBe('G55');
+    expect(ctx.offset().wcs).toBe('G55');
+    expect(ctx.since(before)).not.toContain('G54');
+  });
+
+  test.each(['Run', 'Hold'])('SURETE C-04: a matching WCO reported during %s is not an Idle proof', async (active) => {
+    const ctx = await setup();
+    await ctx.proven();
+    ctx.g.noWco = true;
+    await ctx.req('verifyOffset');
+    await ctx.tick(300);
+    expect(ctx.offset().state).toBe('checking');
+    ctx.g.active = active;
+    ctx.g.noWco = false;
+    ctx.g.counter = 0;
+    await ctx.tick(50);
+    expect(ctx.offset().state).not.toBe('proven');
+    ctx.g.active = 'Idle';
+    ctx.g.noWco = true;
+    await ctx.tick(100);
+    expect(ctx.offset().state).not.toBe('proven');
+    ctx.g.noWco = false;
+    ctx.g.counter = 0;
+    await ctx.proven();
+  });
+
   test('the messages of the new codes are the catalog’s French templates, in EN and ES too', () => {
     expectCatalogMatch({ code: 'ETOUCH_OFFSET_CHECKING', params: {}, message: MESSAGES.ETOUCH_OFFSET_CHECKING });
     expectCatalogMatch({ code: 'ETOUCH_OFFSET_UNCONFIRMED', params: { detail: 'no-report' }, message: MESSAGES.ETOUCH_OFFSET_UNCONFIRMED });
@@ -601,6 +685,104 @@ offsetProven: s.workOffset.state === 'proven'
     expect(ctx.offset()).toMatchObject({ wcs: 'G54', reloaded: false });
   });
 
+  test('SURETE D-01/D-02: a pending restoration reserves zeros, sockets and maintenance until G54 is proven', async () => {
+    const ctx = await setup();
+    await ctx.proven();
+    ctx.g.hold = (line) => line === 'G55';
+    await ctx.home();
+    await ctx.until(() => ctx.g.held.length === 1);
+    expect(() => ctx.service.reserveSystemCommand({ title: 'Restart CNCjs' })).toThrow();
+    await ctx.req('stop').catch(() => null);
+    ctx.g.release();
+    await ctx.tick(1000);
+    expect(ctx.g.wcs).toBe('G55');
+    const before = ctx.lines();
+    expect(ctx.state().motion.canSetOrigin).toBe(false);
+    expect(await refusalOf(ctx.req('prepare', { operation: 'set-origin', axes: ['X'] }))).toMatchObject({ code: 'ETOUCH_OFFSET_CHECKING' });
+    expect(ctx.service.socketRefusal('TEST')).toMatchObject({ code: 'ETOUCH_OFFSET_CHECKING' });
+    expect(() => ctx.service.reserveSystemCommand({ title: 'Restart CNCjs' })).toThrow();
+    expect(ctx.since(before)).toEqual([]);
+    // Explicit retry remains possible with a restoration reserved.
+    await ctx.req('verifyOffset');
+    await ctx.proven();
+    expect(ctx.g.wcs).toBe('G54');
+    expect(ctx.since(before)).toEqual(['G54', '$#']);
+    expect(ctx.state().motion.canSetOrigin).toBe(true);
+    const reservation = ctx.service.reserveSystemCommand({ title: 'Restart CNCjs' });
+    reservation.release();
+  });
+
+  test.each(['parameters', 'report', 'reload'])('SURETE D-03: an unexpected external WCS during %s abandons D2 without undoing the selection', async (phase) => {
+    const ctx = await setup();
+    await ctx.proven();
+    ctx.g.stored.G56 = { x: 200, y: 100, z: -115 };
+    ctx.g.hold = (line) => line === (phase === 'reload' ? 'G55' : '$#');
+    await ctx.home();
+    await ctx.until(() => ctx.g.held.length === 1);
+    if (phase !== 'parameters') {
+      ctx.g.noWco = true;
+      ctx.g.release();
+      await ctx.tick(300);
+    }
+    const before = ctx.lines();
+    // Wi-Fi client selects a WCS different from both the original and D2's temporary one.
+    ctx.g.wcs = 'G56';
+    ctx.g.void = false;
+    ctx.g.refresh();
+    ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
+    ctx.c.runner.emit('ok');
+    expect(ctx.offset().state).not.toBe('checking');
+    if (phase === 'parameters') {
+      ctx.g.release();
+    }
+    ctx.g.noWco = false;
+    ctx.g.counter = 0;
+    await ctx.proven();
+    expect(ctx.g.wcs).toBe('G56');
+    expect(ctx.offset()).toMatchObject({ wcs: 'G56', stored: { x: '200' } });
+    expect(ctx.since(before).filter((line) => /^G5[4-9]$/.test(line))).toEqual([]);
+  });
+
+  test.each(['Run', 'Hold'])('SURETE C-04: a matching WCO received during %s cannot prove an Idle transaction', async (active) => {
+    const ctx = await setup();
+    await ctx.proven();
+    ctx.g.hold = (line) => line === '$#';
+    ctx.service.socketCommand('TEST', false);
+    await ctx.until(() => ctx.g.held.length === 1);
+    ctx.g.noWco = true;
+    ctx.g.release();
+    await ctx.tick(300);
+    ctx.g.active = active;
+    ctx.g.noWco = false;
+    ctx.g.counter = 0;
+    await ctx.tick(300);
+    expect(ctx.offset().state).not.toBe('proven');
+    ctx.g.active = 'Idle';
+    ctx.g.noWco = true;
+    await ctx.tick(300);
+    expect(ctx.offset().state).not.toBe('proven');
+    ctx.g.noWco = false;
+    ctx.g.counter = 0;
+    await ctx.proven();
+  });
+
+  test('SURETE: inch reports keep their comparison tolerance but mismatch diagnostics are converted to mm', async () => {
+    const ctx = await setup();
+    await ctx.proven();
+    ctx.c.settings.settings.$13 = '1';
+    ctx.g.stored.G54 = { x: 1, y: 2, z: -3 };
+    const run = ctx.g.run;
+    ctx.g.run = (line) => {
+      run(line);
+      if (/^G5[4-9]$/.test(line)) {
+        ctx.g.void = true;
+      }
+    };
+    await ctx.home();
+    await ctx.until(() => ctx.offset().state === 'failed', 60000);
+    expect(ctx.offset().params).toMatchObject({ axis: 'X', stored: '25.4', reported: '0' });
+  });
+
   test('a stop from a socket ends the transaction; a command that is not safe is refused while it writes', async () => {
     const ctx = await setup();
     await ctx.proven();
@@ -609,7 +791,8 @@ offsetProven: s.workOffset.state === 'proven'
     await ctx.until(() => ctx.g.held.length === 1);
     expect(ctx.service.socketRefusal('TEST')).toMatchObject({ code: 'ETOUCH_OFFSET_CHECKING' });
     ctx.service.socketStop('TEST');
-    expect(ctx.service.socketRefusal('TEST')).toBeNull();
+    // The transaction ended, but its restoration still owns the coordinate system.
+    expect(ctx.service.socketRefusal('TEST')).toMatchObject({ code: 'ETOUCH_OFFSET_CHECKING' });
     expect(ctx.offset()).toMatchObject({ state: 'unknown', detail: 'interrupted' });
   });
 

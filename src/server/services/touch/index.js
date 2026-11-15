@@ -125,7 +125,8 @@ const socketStopping = (kind, cmdOrData) => {
     return SOCKET_STOP_COMMANDS.includes(cmdOrData);
   }
   const line = String(cmdOrData === undefined || cmdOrData === null ? '' : cmdOrData).replace(/[\r\n]/g, '').trim();
-  return line.length > 0 && Array.from(line).every((ch) => ch === '!' || ch === '\x18');
+  // The caller has already checked safeWrite: a query or jog cancel mixed with a stop is safe too.
+  return line.indexOf('!') >= 0 || line.indexOf('\x18') >= 0;
 };
 
 const refuseSocket = (socket, port, kind, cmdOrData) => {

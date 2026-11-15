@@ -4,7 +4,7 @@
   function copy(value){return JSON.parse(JSON.stringify(value));}
   var fields={thickness:[0.001,100],faceX:[-100,100],faceY:[-100,100],fast:[1,1000],slow:[1,1000],search:[0.01,50],retract:[0.01,20],clearance:[0.01,50]};
   var fieldNames={thickness:uiLocale.t('épaisseur Z'),faceX:uiLocale.t('décalage de face X'),faceY:uiLocale.t('décalage de face Y'),fast:uiLocale.t('vitesse d’approche'),slow:uiLocale.t('vitesse de seconde touche'),search:uiLocale.t('distance de recherche'),retract:uiLocale.t('distance de retrait'),clearance:uiLocale.t('dégagement')};
-  function empty(){return {name:'Nouvelle sonde',corner:'',directionX:null,directionY:null,thickness:null,faceX:null,faceY:null,fast:null,slow:null,search:null,retract:null,clearance:null};}
+  function empty(){return {name:'Nouvelle sonde',corner:'--',directionX:1,directionY:1,thickness:null,faceX:null,faceY:null,fast:100,slow:25,search:10,retract:1,clearance:5};}
   function demo(){return {name:'Bloc fictif — démonstration',corner:'--',directionX:1,directionY:1,thickness:10,faceX:-5,faceY:-5,fast:100,slow:25,search:10,retract:2,clearance:5};}
   function validNumber(n,bounds){return typeof n==='number'&&isFinite(n)&&n>=bounds[0]&&n<=bounds[1];}
   function normalize(raw){
@@ -12,7 +12,9 @@
     if(typeof raw.name==='string'&&raw.name.trim())p.name=raw.name.trim().slice(0,60);
     if(['--','+-','-+','++'].indexOf(raw.corner)>=0)p.corner=raw.corner;
     ['directionX','directionY'].forEach(function(k){if(raw[k]===-1||raw[k]===1)p[k]=raw[k];});
-    Object.keys(fields).forEach(function(k){if(validNumber(raw[k],fields[k]))p[k]=raw[k];});
+    Object.keys(fields).forEach(function(k){if(Object.prototype.hasOwnProperty.call(raw,k))p[k]=validNumber(raw[k],fields[k])?raw[k]:null;});
+    if(Object.prototype.hasOwnProperty.call(raw,'corner')&&['--','+-','-+','++'].indexOf(raw.corner)<0)p.corner='';
+    ['directionX','directionY'].forEach(function(k){if(Object.prototype.hasOwnProperty.call(raw,k)&&raw[k]!==-1&&raw[k]!==1)p[k]=null;});
     return p;
   }
   function validate(p,operation,diameter){
@@ -24,7 +26,7 @@
     ['X','Y'].forEach(function(a){if(operation.indexOf(a)>=0){needed.push('face'+a);if(p['direction'+a]!==1&&p['direction'+a]!==-1)errors.push(uiLocale.t('Direction ')+a+uiLocale.t(' à renseigner.'));}});
     needed.forEach(function(k){if(!validNumber(p[k],fields[k]))errors.push(uiLocale.t('Paramètre à renseigner : ')+fieldNames[k]+'.');});
     if(operation!=='Z'&&!validNumber(diameter,[0.01,100]))errors.push(uiLocale.t('Diamètre outil / pige à renseigner.'));
-    if(['--','+-','-+','++'].indexOf(p.corner)<0)errors.push(uiLocale.t('Coin de montage à choisir.'));
+    if(operation!=='Z'&&['--','+-','-+','++'].indexOf(p.corner)<0)errors.push(uiLocale.t('Coin de montage à choisir.'));
     if(validNumber(p.slow,fields.slow)&&validNumber(p.fast,fields.fast)&&p.slow>p.fast)errors.push(uiLocale.t('La seconde touche doit être au plus aussi rapide que l’approche.'));
     if(validNumber(p.retract,fields.retract)&&validNumber(p.search,fields.search)&&p.retract>=p.search)errors.push(uiLocale.t('Le retrait doit être inférieur à la recherche maximale.'));
     return errors;

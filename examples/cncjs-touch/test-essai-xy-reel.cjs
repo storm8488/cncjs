@@ -43,8 +43,12 @@ function bench() {
       st.activeState = 'Alarm';
     }
   };
+  c.writeln = () => {};
+  const provenOffset = () => ({ state: () => 'proven', proven: () => true, proof: () => 0, checking: () => false,
+  restoring: () => false, tick() {}, modal() {}, invalidate() {}, cancel() {}, verify() {}, retry() {},
+  refusal: () => null, snapshot: () => ({ state: 'proven', code: null, canVerify: true }), signature: () => 'proven' });
   const service = createService({ get: () => ({ [PORT]: c }) }, { get: (key) => ({ 'touch.motion.enabled': true, events: [], macros: [] }[key]) }, undefined,
-    { control: createControl(), history: { record: () => {} } });
+    { workOffset: provenOffset, control: createControl(), history: { record: () => {} } });
   const stream = createStream(service);
   const reports = setInterval(() => c.runner.emit('status'), 100);
   const posts = [];
