@@ -22,15 +22,15 @@ const body = { axes: 'XYZ', wcs: 'G54', diameter: 6, profile: { thickness: 5, fa
   f.answer(prep, { nonce: 'bp-1', name: 'Palpage XYZ au bloc, repère G54', operation: 'blockProbe', expiresIn: 15, generation: 'gen-1', programCheck: null, blockProbe: ticket });
   assert.deepEqual(JSON.parse(JSON.stringify(await opened)), { opened: true, error: null });
   assert.equal(f.el('job-dialog').hidden, false);
-  assert.equal(f.el('job-dialog-title').textContent, 'Lancer le palpage XYZ');
+  assert.equal(f.el('job-dialog-title').textContent, 'Palper le bloc XYZ');
   assert.equal(f.el('job-warning').textContent, 'Le palpage déplace l’outil jusqu’au contact avec le bloc. Dégagez la zone autour du bloc.');
   assert.equal(f.el('job-check-text').textContent, 'Je suis devant la machine, le bloc et la pince sont en place.');
   assert.equal(f.el('job-note').hidden, false);
   assert.match(f.el('job-note').textContent, /^Centre de l’outil au-dessus du bloc, à 8 mm .* sort de 12 mm .* descend de 4 mm .* à moins de 23\.9 mm du point de départ\. Jamais au bord du trou du bloc\.( Zéro Z = contact − [\d.]+ mm \(épaisseur du bloc\)\.)?( Zéro [XY] = contact [+−] [\d.]+ mm \(rayon [\d.]+ vers [XY][+−], face [−\d.]+\)\.)* Origine G54 écrite seulement à la fin\.$/);
-  assert.match(f.el('job-dialog-file').textContent, /^Palpage XYZ au bloc, repère G54 · COM3/);
+  assert.match(f.el('job-dialog-file').getAttribute('data-details'), /^Palpage XYZ au bloc, repère G54 · COM3/);
   assert.equal(f.el('job-program-check').hidden, true, 'no program check for a probe');
   // Confirmed: one blockProbe request with the nonce, waiting up to 270 s for the end of the cycle.
-  f.el('job-check').checked = true; f.el('job-check').fire('change'); f.el('job-confirm').click();
+  f.advance(600);f.el('job-check').checked = true; f.el('job-check').fire('change'); f.el('job-confirm').click();
   const run = f.posts().at(-1);
   assert.equal(run.body.action, 'blockProbe'); assert.equal(run.body.nonce, 'bp-1'); assert.equal(run.body.transportId, 'stream-one'); assert.equal(run.body.generation, 'gen-1');
   assert.equal(run.timeout, 270000, 'the run is answered at the end of the cycle');
@@ -54,7 +54,7 @@ const body = { axes: 'XYZ', wcs: 'G54', diameter: 6, profile: { thickness: 5, fa
   opened = c.prepareCommand('blockProbe', { ...body, axes: 'X' });
   f.answer(f.posts().at(-1), { nonce: 'bp-2', name: 'Palpage X au bloc, repère G54', expiresIn: 15, blockProbe: { axes: 'X', wcs: 'G54', search: 10, direction: { X: -1 }, steps: 7 } });
   assert.equal((await opened).opened, true);
-  assert.equal(f.el('job-dialog-title').textContent, 'Lancer le palpage X');
+  assert.equal(f.el('job-dialog-title').textContent, 'Palper le bloc X');
   assert.equal(f.el('job-note').textContent, 'Recherche de 10 mm au plus vers X−, sans mouvement en Z. Origine G54 écrite seulement à la fin.');
   // The server no longer allows it (contact before the run): the dialog closes and says why.
   f.push([f.machine({ canBlockProbe: false, blockProbeReason: 'Test du contact à faire : touchez l’outil avec le bloc puis relâchez (contact vu, puis libre) avant de palper.', operator: { wcs: 'G54' } })]); await f.flush();
@@ -78,7 +78,7 @@ const body = { axes: 'XYZ', wcs: 'G54', diameter: 6, profile: { thickness: 5, fa
   // The other confirmed commands keep their own texts.
   f.push([f.machine({ canBlockProbe: true, canZeroZ: true, operator: { wcs: 'G54' } })]); await f.flush();
   opened = c.prepareCommand('zeroZ', { thickness: 5, search: 10 }); f.answer(f.posts().at(-1), { nonce: 'z', name: 'Zéro Z', expiresIn: 15 });
-  assert.equal((await opened).opened, true); assert.equal(f.el('job-dialog-title').textContent, 'Régler le zéro Z avec la plaque');
+  assert.equal((await opened).opened, true); assert.equal(f.el('job-dialog-title').textContent, 'Zéro Z à la plaque');
   assert.equal(f.el('job-check-text').textContent, 'Je suis devant la machine, la plaque et la pince sont en place.');
   c.dispose();
   // The confirmed probe awaited, then the state lost (no report for 4 s): the probe stays the target of Arrêter.
@@ -86,7 +86,7 @@ const body = { axes: 'XYZ', wcs: 'G54', diameter: 6, profile: { thickness: 5, fa
     const h = load(); h.window.CNCProbeReal = require('./touch/probe-real.js');
     await h.connect(h.machine({ canBlockProbe: true, operator: { wcs: 'G54' } }));
     const o = h.controls().prepareCommand('blockProbe', body); h.answer(h.posts().at(-1), { nonce: 'h', name: 'x', expiresIn: 15, blockProbe: ticket }); await o;
-    h.el('job-check').checked = true; h.el('job-check').fire('change'); h.el('job-confirm').click();
+    h.advance(600);h.el('job-check').checked = true; h.el('job-check').fire('change'); h.el('job-confirm').click();
     assert.equal(h.posts().at(-1).body.action, 'blockProbe');
     h.advance(4000); h.tick();
     assert.equal(h.lastStatus().machine, null, 'state lost'); assert.equal(h.lastStatus().halt && h.lastStatus().halt.canStop, true, 'the probe stays the target of Arrêter');
@@ -98,7 +98,7 @@ const body = { axes: 'XYZ', wcs: 'G54', diameter: 6, profile: { thickness: 5, fa
   const g = load({ language: 'en', catalogs: ['i18n-messages-machine.js', 'i18n-messages-profiles.js'] }); g.window.CNCProbeReal = require('./touch/probe-real.js');
   await g.connect(g.machine({ canBlockProbe: true, operator: { wcs: 'G54' } }));
   opened = g.controls().prepareCommand('blockProbe', { ...body, axes: 'Z' }); g.answer(g.posts().at(-1), { nonce: 'e', name: 'x', expiresIn: 15, blockProbe: { axes: 'Z', wcs: 'G54', search: 6 } });
-  await opened; assert.equal(g.el('job-dialog-title').textContent, 'Start probing Z');
+  await opened; assert.equal(g.el('job-dialog-title').textContent, 'Probe the block Z');
   assert.equal(g.el('job-warning').textContent, 'Probing moves the tool until it touches the block. Clear the area around the block.');
   g.controls().dispose();
   console.log('PASS block probe dialog: prepare with the operation fields, title / warning / box / server numbers in the note, run waits 270 s, prepareCommand resolves {opened} and never rejects, coded refusal, closed with the server reason, other commands unchanged, English.');

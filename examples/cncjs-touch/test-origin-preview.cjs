@@ -444,7 +444,7 @@ if (require.main === module) (async () => {
   const handler = /'cnc-job-status', function \(e\) \{([^}]*)\}/.exec(source)[1];
   assert(!/open|setOverlays|paint|textContent|getBoundingClientRect/.test(handler), 'the status handler only stores and schedules');
   const prep = read('job-preparation.js');
-  assert(!/cncJobControls|XMLHttpRequest|fetch\(/.test(prep));
+  assert(!/XMLHttpRequest|fetch\(/.test(prep));
   const key = s => s.trim().replace(/\s+/g, ' ');
   const sandbox = { window: {} };
   ['i18n-messages.js'].concat(fs.readdirSync(dir).filter(n => /^i18n-messages-[a-z]+\.js$/.test(n) && n !== 'i18n-messages-origin.js')).forEach(n => vm.runInNewContext(read(n), sandbox));

@@ -39,3 +39,5 @@
 #screen-files .card {
   min-width: 0;
 }
+
+/* Current content hosts retain the existing card rules. */

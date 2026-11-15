@@ -10,7 +10,7 @@ const find=(root,id)=>all(root).find(e=>e.id===id)||null;
 const text=root=>all(root).map(e=>e.textContent).join(' ');
 function l6Page(o={}){
   const dom=createDOM(o.screens||[]),listeners={},frames=new Map(),timers=new Map(),calls=[],body=new Set(o.layout?['perf-v2']:[]);
-  let seq=0,mono=1000,active=o.active||'menu',contract=false,mounts={};
+  let seq=0,mono=1000,active=o.active||'more',contract=false,mounts={};
   dom.document.body.classList={contains:n=>body.has(n),toggle(n,on){if(on)body.add(n);else body.delete(n);}};
   dom.document.documentElement={};dom.node('screen-home').querySelector=()=>null;
   const st={version:1,enabled:false,sessionEnabled:false,eligible:!!o.eligible,open:false,ready:false,layout:false,

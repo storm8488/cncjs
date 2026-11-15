@@ -25,13 +25,13 @@ const tests = [
  'preview-3d-gpu','preview-3d-live','preview-3d-overlays','responsive-wide','origin-preview','session-renew','job-stream-no-session','scenario-perf-safety','scenario-perf-defects',
  'network-hint','session-backoff','session-refused','settings-identity','session-race','plain-403','monotonic-delays','report-age-clock','dashboard-pause-guard','frame-refusal-reasons',
  'bughunt-c-1','bughunt-f3',
- 'v2-gate','v2-contract','v2-i18n','v2-mounts','v2-review-fixes',
+ 'v2-idle-frames','v2-gate','v2-contract','v2-i18n','v2-mounts','v2-review-fixes',
  'v2-inspect','v2-inspect-index','v2-inspect-contract','v2-inspect-scene','v2-inspect-lifecycle','v2-inspect-measure','v2-inspect-style',
  'v2-sequences','v2-sequences-provider','v2-sequences-geometry','v2-origin',
  'v2-observation','v2-observation-history','v2-observation-lifecycle',
  'v2-journal-context',
  'v2-suivi','v2-suivi-style','v2-suivi-preview','home-suivi',
- 'v2-preparer','v2-preparer-reopen','v2-preparer-rest','v2-preparer-layout','preparer-style','v2-files','v2-files-frames','files-screen','machine-screen','menu-screen','transverse-screen',
+ 'v2-preparer','v2-preparer-reopen','v2-preparer-rest','v2-preparer-layout','preparer-style','v2-files','v2-files-frames','files-screen','machine-screen','more-screen','seance','parcours-server','fil','refus','refus-table','confirmation-classes','direct-calls','cache-version','commandes-migration','transverse-screen',
  'v2-settings','v2-journal','v2-machine','v2-machine-release','v2-machine-frames',
  'performance-v2-safety'
 ].map(name=>'test-'+name+'.cjs');

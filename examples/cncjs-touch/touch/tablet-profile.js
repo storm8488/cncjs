@@ -12,7 +12,7 @@
   var t=uiLocale.t;
   var KEY='cncjs-touch-performance-v1',PROFILES=['eco','performance'];
   // Cache key of the advanced scripts (they are not in the pages, so the pages' ?v= does not reach them).
-  var ADVANCED_VERSION='v2u';
+  var ADVANCED_VERSION='v2v';
   function read(){
     // Any failure (storage blocked, bad JSON, unknown value, other version) reads as eco.
     try{
@@ -251,7 +251,8 @@
     if(!v2Gate())v2CancelLoads();
     v2Publish();
     // No new timer, frame or DOM mutation on RT/Eco or with an absent preference.
-    if(v2Ended||v2Frame||!window.requestAnimationFrame)return;
+    if(v2Ended||v2Frame||!window.requestAnimationFrame||v2Suspended())return;
+    if(v2Layout&&(v2Eligible()||!v2Idle()))return;
     if(!v2Layout&&(!v2Session||v2Blocked||v2Stopped||!v2Eligible()||!v2Idle()||document.hidden||v2IsLocked()))return;
     v2Frame=window.requestAnimationFrame(v2Apply);
   }
@@ -306,8 +307,7 @@
     v2RememberReport(m);
     // Work observed before the first rest keeps v1 for this session. Startup
     // recovery (Alarm, Home) only waits: v2Idle still requires proven fresh rest.
-    if(!v2Layout&&((m&&(m.workflow&&m.workflow!=='idle'||m.activeState&&!/^(Idle|Alarm|Home)$/.test(m.activeState)||m.canStop||m.loading||
-      m.probing||m.probeBusy||v2Number(m.spindleSpeed)&&m.spindleSpeed>0||m.motion&&(m.motion.jog||m.motion.cancelling)))||d.busy||d.halt||d.systemCommand))v2Blocked=true;
+    if(!v2Layout&&m&&(m.workflow==='running'||m.workflow==='paused')){v2Blocked=true;v2Reason='late';}
     v2Refresh();
   }
   window.cncV2={version:1,gate:v2Gate,state:v2State,reportAge:v2ReportAge,
@@ -325,7 +325,7 @@
   });
   document.addEventListener('visibilitychange',v2Refresh);
   window.addEventListener('cnc-job-status',observe);
-  window.cncProfile={
+  window.cncProfile={version:ADVANCED_VERSION,
     performance:function(){return performance;},
     setPerformance:setPerformance,
     // 'absent' | 'ok' | 'invalid' | 'unreadable': how the stored value read at start-up.

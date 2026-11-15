@@ -103,7 +103,7 @@ function CustomEvent(type, o) { this.type = type; this.detail = o && o.detail; }
 // --- 3. loadedPreview() of job-dashboard.js (spec 8.6).
 (async () => {
   const listeners = {}, requests = [];
-  const dom = require('./dom-fixture.cjs').createDOM(['menu']);
+  const dom = require('./dom-fixture.cjs').createDOM(['more']);
   const win = { addEventListener: (n, f) => { listeners[n] = f; } };
   function XHR() {
     this.open = (m, p) => { assert.equal(m, 'POST'); assert.equal(p, '/api/watch/file'); };

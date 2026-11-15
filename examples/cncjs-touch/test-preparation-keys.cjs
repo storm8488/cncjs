@@ -50,7 +50,7 @@ send(idle);const withOp=window.cncJobPreparation.ticks();
 if(!noOp.origin||!withOp.origin)notes.push('the operator block (work frame) toggling between two reports forgets the origin tick: '+JSON.stringify(noOp)+' then '+JSON.stringify(withOp));
 // The load relay never fires when job-load is disabled; nothing else is called from the sheet.
 const source=fs.readFileSync(__dirname+'/touch/job-preparation.js','utf8');
-assert(!/cncJobControls|XMLHttpRequest|fetch\(|\.request\(/.test(source));
+assert(!/XMLHttpRequest|fetch\(|\.request\(/.test(source));
 assert(!/'start'|"start"/.test(source.replace(/startReason|canStart|Démarr|starts/g,'')),'no start action in the module');
 console.log('NOTES:\n- '+notes.join('\n- '));
 console.log('PASS preparation keys: program key without revision, offset rounding, unknown $22, machine lost, operator block toggling, no command from the sheet.');

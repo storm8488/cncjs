@@ -1,7 +1,7 @@
 (function(){
   'use strict';
   var uiLocale=window.cncI18n||{t:function(s){return s;},html:function(s){return s;}};
-  var paths={menu:'M3 3h6v6H3z M15 3h6v6h-6z M3 15h6v6H3z M15 15h6v6h-6z',
+  var paths={more:'M3 3h6v6H3z M15 3h6v6h-6z M3 15h6v6H3z M15 15h6v6h-6z',
     home:'M3 4h18v13H3z M8 21h8 M12 17v4 M6 12l4-4 4 5 4-6',
     files:'M3 7V4h7l3 3h8v13H3z M3 10h18',
     jog:'M12 2v20 M2 12h20 M8 6l4-4 4 4 M8 18l4 4 4-4 M6 8l-4 4 4 4 M18 8l4 4-4 4',
@@ -13,7 +13,7 @@
     check:'M4 12l5 5L20 6',settings:'M4 6h16 M4 12h16 M4 18h16 M8 3v6 M16 9v6 M10 15v6'};
   function icon(name){return uiLocale.html('<svg viewBox="0 0 24 24" aria-hidden="true"><path d="')+paths[name]+uiLocale.html('"/></svg>');}
   var simulation=document.body.getAttribute('data-simulation')==='true';
-  var names={menu:uiLocale.t('Menu'),home:uiLocale.t('Suivi du travail'),files:uiLocale.t('Fichiers'),jog:uiLocale.t('Déplacer / Origine'),machine:uiLocale.t('Machine'),history:uiLocale.t('Journal'),settings:uiLocale.t('Réglages'),limits:uiLocale.t('Limites')};
+  var names={more:uiLocale.t('Plus'),check:uiLocale.t('Contrôle'),home:uiLocale.t('Usinage'),files:uiLocale.t('Fichier'),jog:uiLocale.t('Zéro pièce'),machine:uiLocale.t('Machine'),history:uiLocale.t('Journal'),settings:uiLocale.t('Réglages'),limits:uiLocale.t('Limites')};
   names.probe=uiLocale.t('Palpage');names['probe-profile']=uiLocale.t('Profils de sonde');names['probe-contact']=uiLocale.t('Test du contact');names['probe-report']=uiLocale.t('Résultats du palpage');
   names['probe-transfer']=uiLocale.t('Sauvegarde des profils');
   names['probe-preparation']=uiLocale.t('Préparation du palpage');
@@ -25,30 +25,21 @@
   // The header is the status strip (status-strip.js fills its left part). The
   // screen title stays for assistive technology; the rail shows the place. The real page
   // shows no mode badge: its empty, hidden span only anchors the clock (header-clock.js).
-  banner.innerHTML=uiLocale.html('<h1 id="ks-title" class="ks-sr-only">Menu</h1><div class="t-strip-right"><span class="ks-simulation"'+(simulation?'':' hidden')+'>')+(simulation?uiLocale.t('SIMULATION'):'')+uiLocale.html('</span>')+(simulation?'<a href="index.html" class="ks-exit">'+uiLocale.t('Réel ↗')+'</a>':'')+uiLocale.html('</div>');
-  var menu=document.createElement('section');menu.id='screen-menu';menu.className='screen';
-  // Menu (UI 2027): the machine state lives in the strip; the menu is the
-  // "resume where I was" shortcut plus six tiles, each with a live indicator.
-  menu.innerHTML=uiLocale.html('<button type="button" id="ks-resume" class="ks-resume" hidden>')+icon('back')+uiLocale.html('<span class="ks-resume-text"><b id="ks-resume-title"></b><small id="ks-resume-hint"></small></span><span class="ks-resume-go">Ouvrir →</span></button><div class="ks-tiles"></div>');
-  main.insertBefore(menu,main.firstChild);
-  var menuLabels={jog:uiLocale.t('Préparer'),home:uiLocale.t('Suivi')},menuHints={jog:uiLocale.t('Déplacer · Origine · Palpage'),files:uiLocale.t('Choisir et charger un parcours'),home:uiLocale.t('Avancement et commandes'),machine:uiLocale.t('État et limites'),history:uiLocale.t('Événements et exports'),settings:uiLocale.t('Affichage · machine · système')};
-  var tileOrder=['home','files','jog','machine','history','settings'],lives={};
-  tileOrder.forEach(function(name){
-    var b=document.createElement('button');b.type='button';b.className='ks-tile';b.setAttribute('data-ks-tile',name);
-    b.innerHTML=icon(name)+uiLocale.html('<div class="ks-tile-text"><span>')+(menuLabels[name]||names[name])+uiLocale.html('</span><small>')+menuHints[name]+uiLocale.html('</small></div><span class="t-live"><i></i><span></span></span>');
-    lives[name]=b.querySelector('.t-live');
-    b.addEventListener('click',function(){go(name);});menu.querySelector('.ks-tiles').appendChild(b);
-  });
-  // An indicator with nothing to say keeps its place, unseen (ui-2027.css, data-empty): the titles stay aligned.
-  function live(name,tone,text){var el=lives[name];if(!el)return;if(el.getAttribute('data-tone')!==tone)el.setAttribute('data-tone',tone);setText(el.lastChild,text);var empty=String(!text);if(el.getAttribute('data-empty')!==empty)el.setAttribute('data-empty',empty);}
+  banner.innerHTML=uiLocale.html('<h1 id="ks-title" class="ks-sr-only">Machine</h1><div class="t-strip-right"><span class="ks-simulation"'+(simulation?'':' hidden')+'>')+(simulation?uiLocale.t('SIMULATION'):'')+uiLocale.html('</span>')+(simulation?'<a href="index.html" class="ks-exit">'+uiLocale.t('Réel ↗')+'</a>':'')+uiLocale.html('</div>');
+  var more=document.createElement('section');more.id='screen-more';more.className='screen';
+  more.innerHTML=uiLocale.html('<h2>Plus</h2><div class="ks-tiles"></div><p id="more-version"></p>');main.insertBefore(more,main.firstChild);
+  var check=document.createElement('section');check.id='screen-check';check.className='screen';check.innerHTML='<div id="check-verdict" class="card t-pcheck"></div>';main.appendChild(check);
+  var tileHints={history:'Événements et exports',settings:'Affichage, système',commissioning:'Mise en service de la machine',guide:'Le fil de la séance',macros:'Aucune macro dans CNCjs'};
+  ['history','settings','commissioning','guide','macros'].forEach(function(name){var b=document.createElement('button');b.type='button';b.className='ks-tile';b.setAttribute('data-ks-tile',name);b.innerHTML=icon(paths[name]?name:'check')+'<div class="ks-tile-text"><span></span><small></small></div>';b.querySelector('span').textContent=name==='macros'?uiLocale.t('Macros'):names[name];b.querySelector('small').textContent=uiLocale.t(tileHints[name]);if(simulation&&name==='commissioning'){b.disabled=true;b.querySelector('small').textContent=uiLocale.t('Mise en service : page réelle uniquement.');}if(name==='macros'){b.id='ks-macros-open';b.disabled=true;}else b.addEventListener('click',function(){go(name);});more.querySelector('.ks-tiles').appendChild(b);});
   nav.innerHTML='';
-  // Every screen on the rail; Retour appears only on a sub-screen (probe, limits…).
-  var mainScreens=['menu','jog','files','home','machine','history','settings'],keptScreens=['menu','jog','files','home','machine','history'];
-  ['back'].concat(mainScreens).forEach(function(name){
-    var label=name==='back'?uiLocale.t('Retour'):menuLabels[name]||names[name];
-    var b=document.createElement('button');b.className='ks-nav';b.setAttribute('aria-label',label);b.innerHTML=icon(name)+uiLocale.html('<span>')+label+uiLocale.html('</span>');b.setAttribute('data-ks-screen',name);b.addEventListener('click',function(){go(name==='back'?trail.pop()||'menu':name,name==='back');});nav.appendChild(b);
+  var mainScreens=['machine','files','jog','check','home','more'],keptScreens=['more','jog','files','check','home','machine','history'];
+  mainScreens.forEach(function(name,i){var b=document.createElement('button');b.type='button';b.className='ks-nav';b.setAttribute('data-ks-screen',name);b.setAttribute('aria-label',names[name]);if(i<5){b.setAttribute('data-seance-step',String(i+1));b.setAttribute('data-seance-state','inconnu');b.innerHTML='<span class="ks-step-number">'+(i+1)+'<small class="ks-step-mark">?</small></span><span class="ks-nav-name"></span>';}else b.innerHTML='<b>···</b><span class="ks-nav-name"></span>';var rail={machine:'Ma­chine',check:'Con­trôle',home:'Usi­nage'};b.querySelector('.ks-nav-name').textContent=uiLocale.t(rail[name]||names[name]);b.addEventListener('click',function(){go(name);});nav.appendChild(b);});
+  ['machine','files','jog','check','home'].forEach(function(name,i){
+    var root=document.getElementById('screen-'+name),body=document.createElement('div');body.className='ks-step-body';while(root.firstChild)body.appendChild(root.firstChild);root.appendChild(body);root.classList.add('ks-step-screen');
+    var head=document.createElement('header');head.className='ks-step-head';head.innerHTML='<h2 id="step-'+name+'-title"></h2><span id="step-'+name+'-context"></span><b id="step-'+name+'-state"></b>';head.querySelector('h2').textContent=(i+1)+' · '+names[name];root.insertBefore(head,root.firstChild);
+    var bar=document.createElement('footer');bar.className='ks-stepbar';bar.innerHTML='<p id="step-'+name+'-cause" role="status"></p><button id="step-'+name+'-remedy" data-action="details" hidden></button><button id="step-'+name+'-remedy2" data-action="details" hidden></button><button id="step-'+name+'-details" data-action="details">'+uiLocale.t('Détails')+'</button><button id="step-'+name+'-main" data-action="details" disabled></button>';root.appendChild(bar);
   });
-  var active='menu',trail=[];
+  var active='machine';
   // Compact layout (ui-2027.css, body.t-compact) under 1100 x 650: screens are laid out
   // shorter rather than shrunk by viewport-fit.js, which stays a safety net. Decided
   // from the window only (a visual preference, never a permission).
@@ -92,7 +83,7 @@
       content.setAttribute('data-v2-mount',name);
       var performanceCard=name==='settings'?document.getElementById('ks-performance-card'):null;
       if(performanceCard&&performanceCard.parentNode===root)root.insertBefore(content,performanceCard.nextSibling);
-      else root.appendChild(content);
+      else (root.querySelector&&root.querySelector('.ks-step-body')||root).appendChild(content);
       v2Slots[name]=Object.freeze({screen:screen,root:root,content:content,origin:name==='prepare'&&!simulation?content:null});
     });
     return Object.freeze(v2Slots);
@@ -189,67 +180,19 @@
     var button=document.querySelector(pair[0]);if(!button)return;
     var label=button.textContent;button.innerHTML=icon(pair[1])+uiLocale.html('<span>')+label+uiLocale.html('</span>');
   });
-  function go(name,back){
-    if(!document.getElementById('screen-'+name))return;
-    closeSheet();
-    if(name==='menu')trail=[];
-    else if(name!==active&&!back){var earlier=trail.lastIndexOf(name);if(earlier>=0)trail=trail.slice(0,earlier);else{trail.push(active);if(trail.length>20)trail.shift();}}
-    active=name;
-    if(name==='menu')resumeBar();else remember(name);
-    // Kept screens stay laid out once shown (ui-2027.css): modules still only look at .active.
-    document.querySelectorAll('.screen').forEach(function(s){var on=s.id==='screen-'+name;s.classList.toggle('active',on);if(on&&keptScreens.indexOf(name)>=0&&!s.classList.contains('kept'))s.classList.add('kept');});
-    var navScreen=name==='probe'||name.indexOf('probe-')===0?'jog':name==='limits'||name==='commissioning'?'machine':name==='guide'?'settings':name;
-    var sub=mainScreens.indexOf(name)<0;
-    document.querySelectorAll('.ks-nav').forEach(function(b){var target=b.getAttribute('data-ks-screen');b.classList.toggle('active',target===navScreen);if(target===navScreen)b.setAttribute('aria-current',target===name?'page':'location');else b.removeAttribute('aria-current');if(target==='back'){b.disabled=name==='menu';if(b.hidden!==!sub)b.hidden=!sub;}});
-    document.getElementById('ks-title').textContent=names[name];
+  function go(name){
+    var root=document.getElementById('screen-'+name);if(!root)return;
+    closeSheet();active=name;
+    document.querySelectorAll('.screen').forEach(function(s){var on=s===root;s.classList.toggle('active',on);if(on&&keptScreens.indexOf(name)>=0&&!s.classList.contains('kept'))s.classList.add('kept');});
+    var navScreen=name==='probe'||name.indexOf('probe-')===0?'jog':name==='limits'?'machine':mainScreens.indexOf(name)<0?'more':name;
+    document.querySelectorAll('.ks-nav').forEach(function(b){var on=b.getAttribute('data-ks-screen')===navScreen;b.classList.toggle('active',on);if(on)b.setAttribute('aria-current',navScreen===name?'page':'location');else b.removeAttribute('aria-current');});
+    if(mainScreens.indexOf(name)<0&&!root.querySelector('.ks-back')){var back=document.createElement('button');back.type='button';back.className='ks-back';var destination=navScreen==='more'?'more':navScreen;back.textContent='← '+names[destination];back.addEventListener('click',function(){go(destination);});root.insertBefore(back,root.firstChild);}
+    document.getElementById('ks-title').textContent=names[name]||names.more;
     window.dispatchEvent(new CustomEvent('cnc-screen-change',{detail:name}));
   }
-  // The last screen used survives a reload (the kiosk reloads after a deployment).
-  var lastKey='cncjs-touch-last-screen',lastScreen='',lastMachine=null;
-  try{var savedScreen=localStorage.getItem(lastKey);if(savedScreen&&mainScreens.indexOf(savedScreen)>0)lastScreen=savedScreen;}catch(_){}
-  // Written when the page is hidden or left, not at every navigation (storage writes cost on the tablet).
-  function remember(name){if(mainScreens.indexOf(name)<=0)return;lastScreen=name;}
-  function persistLast(){if(!lastScreen)return;try{if(localStorage.getItem(lastKey)!==lastScreen)localStorage.setItem(lastKey,lastScreen);}catch(_){}}
-  window.addEventListener('pagehide',persistLast);
-  document.addEventListener('visibilitychange',function(){if(document.hidden)persistLast();});
-  function resumeBar(){
-    var bar=document.getElementById('ks-resume');if(!bar)return;
-    var show=!!lastScreen&&lastScreen!==active;
-    if(bar.hidden!==!show)bar.hidden=!show;
-    if(!show)return;
-    var m=lastMachine;
-    setText(document.getElementById('ks-resume-title'),uiLocale.t('Reprendre où j’en étais : ')+(menuLabels[lastScreen]||names[lastScreen]));
-    // The file line only under Suivi or Fichiers (the job's screens). No state published (observation lost):
-    // the file's state is unknown, not « no file ». An alarm or a stale report is said before the workflow.
-    var alarm=!!(m&&/^alarm/i.test(m.activeState||''));
-    setText(document.getElementById('ks-resume-hint'),lastScreen!=='home'&&lastScreen!=='files'?'':!m?uiLocale.t('État du fichier indisponible'):m.name?(m.originalName||m.name)+(alarm?uiLocale.t(' · alarme'):!m.fresh?uiLocale.t(' · rapport ancien'):m.workflow==='running'?uiLocale.t(' · en cours'):m.workflow==='paused'?uiLocale.t(' · en pause'):m.canStart?uiLocale.t(' · prêt à démarrer'):''):uiLocale.t('Aucun fichier chargé'));
-  }
-  document.getElementById('ks-resume').addEventListener('click',function(){if(lastScreen)go(lastScreen);});
   function updateTiles(m,connected){
-    var alarm=!!(m&&/^alarm/i.test(m.activeState||'')),running=!!(m&&m.workflow==='running'),paused=!!(m&&m.workflow==='paused');
-    var pct=m&&typeof m.total==='number'&&m.total>0&&typeof m.received==='number'?Math.min(100,Math.floor(m.received/m.total*100)):null;
-    var file=m&&m.name?(m.originalName||m.name):'';
+    var alarm=!!(m&&/^alarm/i.test(m.activeState||''));
     var word=window.cncStatusStrip?window.cncStatusStrip.describe(m,connected):{word:connected&&m?m.activeState:uiLocale.t('Hors ligne'),tone:connected&&m?'info':'off'};
-    // A deduced alarm code is never shown as received (V6): « Alarme 3 déduite ».
-    if(word.note)word={word:word.word+' '+word.note,tone:word.tone};
-    // Words only (the tiles open a screen, they send nothing). Offline, a stale report and a machine that
-    // moves outside a job (homing, probing, jog: tone run) are said before the routine words.
-    var off=!m||!connected,stale=!off&&!m.fresh,moving=!off&&word.tone==='run'&&!running&&!paused;
-    var share=pct!==null?' · '+pct+' %':'';
-    live('home',off?'off':alarm?'danger':stale?'warn':running?'info':paused?'warn':moving?'info':m.canStart?'ok':'',
-      off?uiLocale.t('Hors ligne'):alarm?uiLocale.t('Alarme'):stale?uiLocale.t('Rapport ancien')+share:running?uiLocale.t('En cours')+share:paused?uiLocale.t('En pause'):moving?word.word:m.canStart?uiLocale.t('Prêt à démarrer'):file||uiLocale.t('Aucun fichier chargé'));
-    live('files',off?'off':file?'ok':'',off?uiLocale.t('État du fichier indisponible'):file?uiLocale.t('Chargé : ')+file:uiLocale.t('Choisir un parcours'));
-    var canJog=!!(m&&m.motion&&m.motion.canJog===true);
-    live('jog',alarm?'danger':off?'off':running||paused||moving?'warn':simulation?'':canJog?'ok':'warn',alarm?uiLocale.t('Bloqué : alarme'):off?uiLocale.t('Hors ligne'):running||paused?uiLocale.t('Bloqué : travail en cours'):moving?uiLocale.t('Machine en mouvement'):simulation?uiLocale.t('Simulateur'):canJog?uiLocale.t('Prêt à déplacer'):uiLocale.t('Déplacement indisponible'));
-    var commissioning=!simulation&&window.cncCommissioning&&typeof window.cncCommissioning.status==='function'?window.cncCommissioning.status():null;
-    var toDo=commissioning&&(commissioning.state==='none'||commissioning.state==='progress');
-    // The tiles have no « run » style: a moving machine is shown in the info tone.
-    var machineTone=word.tone==='run'?'info':word.tone;
-    if(off||alarm||stale||word.tone==='run')live('machine',machineTone,word.word);
-    else live('machine',toDo?'warn':machineTone,toDo?(commissioning.state==='progress'?uiLocale.t('Mise en service en cours'):uiLocale.t('Mise en service à faire')):word.word);
-    // Journal and Réglages have no live state: their hint says it all, the indicator stays empty.
-    live('history','','');
-    live('settings','','');
     // Machine screen: the state word and the alarm explained.
     setText(machineWord,word.word);if(machineWord.getAttribute('data-tone')!==word.tone)machineWord.setAttribute('data-tone',word.tone);
     var help=alarm?(simulation?{title:uiLocale.t('Alarme fictive'),action:uiLocale.t('Effacez l’alarme ci-contre, puis confirmez la reprise dans Suivi.')}:window.CNCGrblHelp?window.CNCGrblHelp.alarm(m.alarmCode,m.alarmCodeInferred):{title:word.word,action:''}):null;
@@ -263,10 +206,8 @@
   }
   window.addEventListener('cnc-job-status',function(e){
     if(!!e.detail.simulation!==simulation)return;
-    lastMachine=e.detail.machine;
     // A published machine state is recent (read by the stream or by HTTP): shown as such (N3).
     updateTiles(e.detail.machine,!!e.detail.machine);
-    if(active==='menu')resumeBar();
   });
   window.addEventListener('cnc-navigate',function(e){if(Object.prototype.hasOwnProperty.call(names,e.detail))go(e.detail);});
   function setText(el,value){if(el&&el.textContent!==value)el.textContent=value;}
@@ -311,6 +252,9 @@
     inspectRow.appendChild(inspect);metrics.appendChild(inspectRow);
   }
   // Shared with later modules (macros): sheets with focus trapping and navigation.
-  window.cncShell={sheet:sheet,closeSheet:closeSheet,go:go,preparationActions:preparationActions,v2Mounts:v2Mounts,screen:function(){return active;}};
-  go('menu',true);
+  var detailSheet=null;
+  function details(data){data=data||{};if(!detailSheet)detailSheet=sheet('ks-details',uiLocale.t('Détails'));detailSheet.content.textContent='';(data.lignes||[]).forEach(function(line){var p=document.createElement('p');p.textContent=String(line.libelle||'')+' : '+String(line.valeur===undefined?'—':line.valeur);detailSheet.content.appendChild(p);});if(data.brut){var pre=document.createElement('pre');pre.textContent=JSON.stringify(data.brut,null,2);detailSheet.content.appendChild(pre);}detailSheet.open();}
+  window.cncShell={details:details,sheet:sheet,closeSheet:closeSheet,go:go,preparationActions:preparationActions,v2Mounts:v2Mounts,screen:function(){return active;}};
+  go('machine');
+  if(window.cncSeance)window.cncSeance.render();
 })();

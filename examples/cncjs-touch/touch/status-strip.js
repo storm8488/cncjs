@@ -30,7 +30,7 @@
   var freshText=el('span','','t-fresh-text');fresh.appendChild(freshText);fresh.title=uiLocale.t('Âge du dernier rapport machine');
   var vitals=el('div','t-vitals');
   function vital(label,id,extra){var box=el('div','t-vital'+(extra||''));var l=el('span');l.textContent=label;var b=el('b','',id);b.textContent='—';box.appendChild(l);box.appendChild(b);vitals.appendChild(box);return b;}
-  var spindle=vital(uiLocale.t('Broche'),'t-spindle',' t-vital--spindle'),feed=vital(uiLocale.t('Avance'),'t-feed',' t-vital--feed');
+  var spindle=vital(uiLocale.t('Broche'),'t-spindle',' t-vital--spindle'),feed=vital(uiLocale.t('Vitesse'),'t-feed',' t-vital--feed');
   // The target machine as the server names it (label · CNC / Laser), PROFILES-CONTRACT.md §2.
   var target=vital(uiLocale.t('Machine'),'t-machine',' t-vital--machine'),file=vital(uiLocale.t('Fichier'),'t-file',' t-vital--file');
   var spindleLabel=spindle.previousSibling;
@@ -41,16 +41,16 @@
   var stop=el('button','t-btn t-btn--danger','t-stop');stop.type='button';stop.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>';
   var stopText=el('span');stopText.textContent=uiLocale.t('Arrêter');stop.appendChild(stopText);stop.hidden=true;
   var resume=el('button','t-btn t-btn--primary','t-resume');resume.type='button';resume.textContent=uiLocale.t('Reprendre…');resume.hidden=true;
-  var unlock=el('button','t-btn t-btn--primary','t-unlock');unlock.type='button';unlock.textContent=uiLocale.t('Déverrouiller…');unlock.hidden=true;
+  var recover=el('button','t-btn','t-recover');recover.type='button';recover.textContent=uiLocale.t('Remise en route');recover.hidden=true;
   // Who pilots the machine (F5), always shown, never hidden to make room: this device, another
   // one (named), free, or unknown. A tap opens the pilot dialog (details, explicit takeover).
   // It sits in the actions cell, which a message never covers; Pause and Stop stay on its right.
   var pilot=el('button','t-pilot','t-pilot');pilot.type='button';pilot.setAttribute('data-state','unknown');
-  var pilotLabel=el('span');pilotLabel.textContent=uiLocale.t('Pilote');var pilotValue=el('b','','t-pilot-value');pilotValue.textContent='—';
+  var pilotLabel=el('span');pilotLabel.textContent=uiLocale.t('La main :');var pilotValue=el('b','','t-pilot-value');pilotValue.textContent='—';
   pilot.appendChild(pilotLabel);pilot.appendChild(pilotValue);
   pilot.addEventListener('click',function(){var c=window.cncJobControls;if(c&&typeof c.openPilot==='function')c.openPilot();});
   actions.appendChild(pilot);
-  actions.appendChild(unlock);actions.appendChild(resume);actions.appendChild(pause);actions.appendChild(stop);
+  actions.appendChild(recover);actions.appendChild(resume);actions.appendChild(pause);actions.appendChild(stop);
   // Messages (what to do next, a system command running): one cell of the strip laid over the
   // report age and the live values, never over the state, the actions or the right-hand group.
   // Showing a message therefore moves no command and covers none, on the strip or on the screen.
@@ -107,7 +107,7 @@
   syncMessages();
   function relay(id){var source=$(id),c=window.cncJobControls,action=id==='job-pause'?'pause':id==='job-stop'?'stop':null;
     if(!source||source.disabled)return;
-    if(action){if(c&&typeof c[action]==='function')c[action]();}else source.click();}
+    if(action&&c&&typeof c[action]==='function')c[action]();}
   // A tap on Pause, Resume or Unlock freezes those three for 600 ms: a double tap
   // cannot reach the button that replaces the first one (Pause becoming Resume).
   // Stop is never delayed.
@@ -115,8 +115,8 @@
   function guarded(fn){return function(){var now=Date.now();if(now<coolUntil)return;coolUntil=now+600;fn();};}
   pause.addEventListener('click',guarded(function(){relay('job-pause');}));
   stop.addEventListener('click',function(){relay('job-stop');});
-  resume.addEventListener('click',guarded(function(){relay('job-resume');}));
-  unlock.addEventListener('click',guarded(function(){var c=window.cncJobControls;if(c&&typeof c.prepareCommand==='function')c.prepareCommand('unlock');}));
+  resume.addEventListener('click',guarded(function(){var c=window.cncJobControls;if(c&&c.resume)c.resume();}));
+  recover.addEventListener('click',guarded(function(){if(window.cncShell)window.cncShell.go('machine');}));
   var screenLocked=false;
   window.addEventListener('cnc-screen-lock',function(e){screenLocked=!!(e&&e.detail);if(lastDetail)render(lastDetail);});
   function number(v){try{return Math.round(v).toLocaleString(uiLocale.locale||'fr-FR');}catch(_){return String(Math.round(v));}}
@@ -162,7 +162,7 @@
     var age=m&&m.statusAgeMs,known=finite(age)&&age>=0;
     // Whole seconds only: a text that changed at every report (4 per second) would repaint the
     // strip continuously, which costs measurable CPU on the tablet at rest.
-    text(freshText,simulation&&m?uiLocale.t('simulé'):!known?'—':age<1000?'< 1 s':age<60000?Math.ceil(age/1000)+' s':Math.ceil(age/60000)+' min');
+    text(freshText,simulation&&m?uiLocale.t('simulé'):!known?'—':age<=2500?uiLocale.t('à jour'):uiLocale.t('ancienne · ')+Math.ceil(age/1000)+' s');
     attr(fresh,'data-stale',String(!m||(!simulation&&(!known||age>2500||!m.fresh))));
     var live=!!(m&&m.fresh);
     // Laser: the S value is a set point (« consigne S »), never a measured power.
@@ -182,23 +182,24 @@
     // In a pause, Resume takes the place of Pause (which is then inactive anyway).
     // A real jog of the server's (F1) is stoppable before Grbl reports Jog too.
     var jogging=!!(m&&m.motion&&typeof m.motion==='object'&&(m.motion.jog||m.motion.cancelling));
-    var stopShown=reachable?(running||!!m.canStop||jogging):!!(h&&h.canStop),pauseShown=reachable?(m.workflow==='running'||m.canPause===true):!!(h&&(h.workflow==='running'||h.canPause));
+    var stopShown=reachable?(running||!!m.canStop||jogging):!!(h&&h.canStop);
     var resumeShown=usable&&!screenLocked&&m.workflow==='paused'&&!!m.canResume;
-    var unlockShown=usable&&!screenLocked&&!running&&/^alarm/i.test(String(m.activeState||''))&&!!m.canUnlock;
-    prop(pause,'hidden',!pauseShown);prop(stop,'hidden',!stopShown);prop(resume,'hidden',!resumeShown);prop(unlock,'hidden',!unlockShown);
+    var recoverShown=usable&&!screenLocked&&(!running&&/^alarm/i.test(String(m.activeState||''))||m.jobStopped&&m.homed===false);
+    prop(pause,'hidden',resumeShown||recoverShown);prop(stop,'hidden',false);prop(resume,'hidden',!resumeShown);prop(recover,'hidden',!recoverShown);
+    text(pause,m&&m.probing&&m.canPause?uiLocale.t('Arrêter le palpage'):uiLocale.t('Pause'));
     // During a job the page switch link gives its room to the file name (and is not to be tapped then).
-    attr(banner,'data-job',String(running||stopShown));attr(banner,'data-confirm',String(unlockShown||resumeShown));attr(banner,'data-lost',String(!!h));
+    attr(banner,'data-job',String(running||stopShown));attr(banner,'data-confirm',String(recoverShown||resumeShown));attr(banner,'data-lost',String(!!h));
     prop(pause,'disabled',m?!m.canPause:!(h&&h.canPause));prop(stop,'disabled',m?!(m.canStop||jogging):!(h&&h.canStop));
     var lostTitle=h?uiLocale.t('État machine perdu : Pause et Arrêter sont envoyés quand même (sans confirmation) ; les autres commandes attendent le retour du suivi.'):'';
-    attr(pause,'title',lostTitle);attr(stop,'title',lostTitle);attr(state,'title',lostTitle);
-    prop(resume,'disabled',!m||!m.canResume);prop(unlock,'disabled',!m||!m.canUnlock);
+    attr(pause,'title',lostTitle||(!m||!m.canPause?uiLocale.t('Aucun usinage en cours.'):''));attr(stop,'title',lostTitle||(!m||!m.canStop&&!jogging?uiLocale.t('Rien à arrêter.'):''));attr(state,'title',lostTitle);
+    prop(resume,'disabled',!m||!m.canResume);prop(recover,'disabled',false);
     // The pilot never changes what Pause and Stop accept: the server takes them from everyone.
     var pilotDetail=!simulation&&detail.pilot&&typeof detail.pilot==='object'?detail.pilot:null,pilotState=pilotDetail?pilotDetail.state:'unknown';
-    text(pilotValue,pilotDetail&&pilotDetail.value?pilotDetail.value:'—');attr(pilot,'data-state',pilotState);
+    text(pilotValue,uiLocale.t(pilotState==='mine'?'ici':pilotState==='free'?'libre':pilotState==='other'?'autre':'—'));attr(pilot,'data-state',pilotState);
     // Read by the stylesheet only (lot Menu M1): another device's name takes the machine name's room.
     attr(banner,'data-pilot',pilotState);
-    var pilotTitle=pilotDetail&&pilotDetail.sentence?pilotDetail.sentence:uiLocale.t('Pilotage : état machine indisponible.');attr(pilot,'title',pilotTitle);attr(pilot,'aria-label',uiLocale.t('Pilote : ')+pilotTitle);
-    prop(pilot,'hidden',simulation);
+    var pilotTitle=pilotDetail&&pilotDetail.sentence?pilotDetail.sentence:uiLocale.t('Pilotage : état machine indisponible.');attr(pilot,'title',pilotTitle);attr(pilot,'aria-label',uiLocale.t('La main : ')+pilotTitle);
+    prop(pilot,'hidden',false);
   }
   var disposed=false;
   var v2MessageFrame=0,v2PendingMessage=null;

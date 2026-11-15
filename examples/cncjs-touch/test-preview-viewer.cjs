@@ -6,7 +6,7 @@ function node(id){return nodes[id]||(nodes[id]=el(id))}
 background.push(el('main'),el('nav'));background[1].inert=true;
 const document={body:{appendChild(e){nodes[e.id]=e}},getElementById:node,createElement:()=>el('created'),querySelectorAll:()=>background,addEventListener:(n,f)=>events['doc:'+n]=f,get activeElement(){return active}};
 node('job-stop').handlers.click=()=>stopCalls++;
-vm.runInNewContext(fs.readFileSync(__dirname+'/touch/preview-viewer.js','utf8'),{document,window:{addEventListener:(n,f)=>events[n]=f},requestAnimationFrame:f=>queue.push(f),MutationObserver:function(){this.observe=()=>{}},XMLHttpRequest:function(){throw Error('Unexpected network request')}});
+vm.runInNewContext(fs.readFileSync(__dirname+'/touch/preview-viewer.js','utf8'),{document,window:{cncJobControls:{stop:()=>stopCalls++},addEventListener:(n,f)=>events[n]=f},requestAnimationFrame:f=>queue.push(f),MutationObserver:function(){this.observe=()=>{}},XMLHttpRequest:function(){throw Error('Unexpected network request')}});
 const flush=()=>{while(queue.length)queue.shift()()};
 node('library-image').handlers.click();flush();assert(!node('preview-viewer').hidden);assert(background.every(e=>e.inert));
 for(let i=0;i<12;i++)node('preview-zoom-in').click();flush();assert.equal(node('preview-zoom-level').textContent,'400 %');assert(node('preview-zoom-in').disabled);

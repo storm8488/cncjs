@@ -11,7 +11,7 @@
 (function(){
   'use strict';
   var uiLocale=window.cncI18n||{t:function(s){return s;}},t=uiLocale.t;
-  var store=window.cncState,menu=document.getElementById('screen-menu');
+  var store=window.cncState,menu=document.querySelector('#screen-machine .ks-step-body')||document.getElementById('screen-machine');
   if(!store||!menu||document.body.getAttribute('data-simulation')==='true')return;
   var COMMISSIONING='cncjs-touch-commissioning-v1',TIMEOUT_MS=10000;
   var OPTIONS={controllerType:'Grbl',baudrate:115200,rtscts:false};
@@ -38,7 +38,7 @@
   function commissioned(){try{var d=JSON.parse(localStorage.getItem(COMMISSIONING)||'null');return d&&d.machines&&typeof d.machines==='object'?Object.keys(d.machines):[];}catch(_){return [];}}
   function end(){
     if(timer){clearTimeout(timer);timer=null;}
-    if(socket){var s=socket;socket=null;try{s.disconnect();}catch(_){}}
+    if(socket){var s=socket;socket=null;try{s.disconnect();}catch(_){/* Optional browser facility unavailable. */}}
   }
   // One short connection: fn(socket, ports) once CNCjs answered 'list'. Every failure ends it.
   function session(fn){
@@ -54,6 +54,7 @@
   }
   function inUse(ports){return ports.filter(function(p){return p&&p.inuse;});}
   function search(){
+    if(!shown||busy)return;
     view(t('Recherche des ports USB…'),'',[]);
     session(function(s,ports,fail){
       end();
@@ -101,5 +102,5 @@
   }
   store.subscribe(render);render(store.get());
   window.addEventListener('pagehide',function(e){if(!e||!e.persisted)end();});
-  window.cncConnectCnc={state:function(){return {shown:shown,busy:busy,open:!!socket};}};
+  window.cncConnectCnc={search:search,state:function(){return {shown:shown,busy:busy,open:!!socket};}};
 })();

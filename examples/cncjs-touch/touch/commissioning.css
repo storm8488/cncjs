@@ -42,3 +42,5 @@
 .ks-machine-commands{margin-top:12px}
 .ks-machine-commands button{min-height:52px}
 @media(max-width:800px){.ks-wiz-steps li{font-size:14px}.ks-wiz-nav{flex-wrap:wrap}}
+
+/* Current content hosts retain the existing card rules. */

@@ -16,7 +16,7 @@
   var TITLES = { '2d': t('Aperçu 2D enregistré'), iso: t('Vue isométrique'), front: t('Vue de face (XZ)'), side: t('Vue de côté (YZ)'), top: t('Vue de dessus (XY)'), laser: t('Vue laser (XY, consigne S)') };
   var source = document.currentScript && document.currentScript.src;
   var base = source ? source.split(/[?#]/)[0].replace(/[^/]*$/, '') : '';
-  var workerURL = base + 'preview-3d-worker.js?v=view3';
+  var workerURL = base + 'preview-3d-worker.js?v=v2v';
   var view = '2d', hosts = [], cache = [], queue = [], active = null, idle = null, nextId = 0;
   var worker = null, workerState = 'none', startup = null;
   // v2 owns a visible scene only. Keep the v1 RT/Eco/laser scheduling unchanged.
@@ -29,7 +29,7 @@
     if (worker) { worker.onmessage = worker.onerror = null; worker.terminate(); worker = null; }
     workerState = 'none';
     if (laserJob) { laserJob.run.cancel(); laserJob = null; }
-    cache.forEach(function (entry) { Object.keys(entry.views).forEach(function (view) { try { root.URL.revokeObjectURL(entry.views[view].url); } catch (_) {} }); });
+    cache.forEach(function (entry) { Object.keys(entry.views).forEach(function (view) { try { root.URL.revokeObjectURL(entry.views[view].url); } catch (_) { /* Optional browser facility unavailable. */ } }); });
     cache = [];
   }
   function v2() {
@@ -64,7 +64,7 @@
     hosts.forEach(function (host) { closeInline(host, reason); });
     if (root.CNCPreviewGL && typeof root.CNCPreviewGL.close === 'function') root.CNCPreviewGL.close(reason);
   }
-  try { var saved = root.localStorage.getItem(STORE); if (VIEWS.indexOf(saved) >= 0) view = saved; } catch (_) {}
+  try { var saved = root.localStorage.getItem(STORE); if (VIEWS.indexOf(saved) >= 0) view = saved; } catch (_) { /* Optional browser facility unavailable. */ }
 
   // The cache: a few programs, each with its finished views ({url, projection}). A program is
   // its fingerprint (the SHA-256 of the file, set by the server when the sidecar was made),
@@ -83,7 +83,7 @@
     for (var j = cache.length - 1; j >= 0 && cache.length > 3; j--) {
       var old = cache[j];
       if (hosts.some(function (h) { return h.key === old.key; })) continue;
-      Object.keys(old.views).forEach(function (v) { try { root.URL.revokeObjectURL(old.views[v].url); } catch (_) {} });
+      Object.keys(old.views).forEach(function (v) { try { root.URL.revokeObjectURL(old.views[v].url); } catch (_) { /* Optional browser facility unavailable. */ } });
       queue = queue.filter(function (job) { return job.entry !== old; });
       cache.splice(j, 1);
     }
@@ -226,7 +226,7 @@
     status(host, t('Calcul de la vue laser…'));
     if (laserJob && laserJob.key === key) return;
     if (laserJob) laserJob.run.cancel();
-    var m = null; try { m = profile() && profile().machine(); } catch (_) {}
+    var m = null; try { m = profile() && profile().machine(); } catch (_) { /* Optional browser facility unavailable. */ }
     var sRef = m && m.laser && m.laser.sMax > 0 ? m.laser.sMax : 0;
     var job = laserJob = { key: key, run: L.render(meta, { sRef: sRef }) };
     job.run.promise.then(function (r) {
@@ -241,9 +241,9 @@
   // ---- Free 3D view (preview-gl.js, Performance profile only, loaded on demand) ----
   function api(method, path, body, blob) {
     return new Promise(function (resolve, reject) {
-      var token = ''; try { token = JSON.parse(root.localStorage.getItem('cnc')).state.session.token; } catch (_) {}
+      var token = ''; try { token = JSON.parse(root.localStorage.getItem('cnc')).state.session.token; } catch (_) { /* Optional browser facility unavailable. */ }
       if (!token) { reject(new Error(t('Session CNCjs requise pour lire l’aperçu.'))); return; }
-      var apiBase = '/api'; try { apiBase = root.cncState.get().apiBase; } catch (_) {}
+      var apiBase = '/api'; try { apiBase = root.cncState.get().apiBase; } catch (_) { /* Optional browser facility unavailable. */ }
       var xhr = new root.XMLHttpRequest(); xhr.open(method, apiBase + '/watch/' + path, true); xhr.timeout = 60000;
       xhr.setRequestHeader('Authorization', 'Bearer ' + token);
       xhr.setRequestHeader('Content-Type', blob ? 'application/octet-stream' : 'application/json');
@@ -304,7 +304,7 @@
     var signature = JSON.stringify(s);
     if (signature !== gpuSent) {
       gpuSent = signature;
-      try { root.dispatchEvent(new root.CustomEvent('cnc-gpu-change', { detail: s })); } catch (_) {}
+      try { root.dispatchEvent(new root.CustomEvent('cnc-gpu-change', { detail: s })); } catch (_) { /* Optional browser facility unavailable. */ }
     }
     if (s.checked && gpuWaiters.length) { var waiting = gpuWaiters; gpuWaiters = []; waiting.forEach(function (fn) { fn(s); }); }
   }
@@ -365,7 +365,7 @@
       return api('PUT', 'file?file=' + encodeURIComponent(meta.file + '.cnctouch.json'), null, new root.Blob([JSON.stringify(next)], { type: 'application/octet-stream' }));
     }).then(function () {
       status(host, t('✓ Aperçu importé : empreinte du fichier vérifiée.'));
-      try { root.dispatchEvent(new root.CustomEvent('cnc-library-preview-updated', { detail: { file: meta.file } })); } catch (_) {}
+      try { root.dispatchEvent(new root.CustomEvent('cnc-library-preview-updated', { detail: { file: meta.file } })); } catch (_) { /* Optional browser facility unavailable. */ }
       var refreshButton = document.getElementById('library-refresh'); if (refreshButton && !refreshButton.disabled) refreshButton.click();
     }).catch(function (e) { status(host, t('Aperçu non importé : ') + e.message); });
   }
@@ -496,7 +496,7 @@
   function choose(next) {
     if (VIEWS.indexOf(next) < 0 || next === view || next === 'laser' || laserMachine()) return;
     view = next;
-    try { root.localStorage.setItem(STORE, view); } catch (_) {}
+    try { root.localStorage.setItem(STORE, view); } catch (_) { /* Optional browser facility unavailable. */ }
     refresh();
   }
   function attach(imageId) {

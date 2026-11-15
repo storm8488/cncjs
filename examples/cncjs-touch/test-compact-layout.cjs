@@ -36,7 +36,7 @@ const find=(sel)=>rules.filter(r=>r.sel.split(/,(?![^(]*\))/).map(s=>s.trim()).i
 const has=(sel,prop)=>find(sel).some(r=>r.body.includes(prop));
 // Compact screens: shorter main padding and screen heights, the kept screens positioned accordingly.
 assert(has('.ks-ui.t-compact main','padding:8px 16px!important'),'compact main padding');
-for(const s of ['menu','jog','files','home','machine','history']){
+for(const s of ['more','jog','files','home','machine','history']){
  assert(has('.ks-ui.t-compact main>#screen-'+s,'top:8px'),s+' kept screen at 8 px');
  assert(has('.ks-ui.t-compact #screen-'+s+'.active','height:calc(var(--view-height) - 16px)')&&has('.ks-ui.t-compact #screen-'+s+'.kept','height:calc(var(--view-height) - 16px)'),s+' compact height (active and kept)');
 }

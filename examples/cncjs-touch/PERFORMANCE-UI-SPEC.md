@@ -672,3 +672,11 @@ Toutes les recommandations de l'architecte sont retenues ; elles priment sur les
 - **Q12** : le harnais force `perf-gpu` par CDP, sans crochet dans le code livré.
 - **$23 (correction du relecteur, D4)** : un axe X ou Y qui fait sa prise d'origine dans l'autre sens n'est plus vérifié (« Course machine non vérifiée ») : Grbl 1.1 standard garde l'espace [−$13x, 0] quel que soit `$23`, seule une compilation avec `HOMING_FORCE_SET_ORIGIN` passe en [0, $13x], et la tablette ne peut pas le savoir. Avant, `travel-check.js` supposait [0, $13x] et pouvait annoncer « dans la course » à tort.
 - **Q13** : `i18n-messages-origin.js` en `<script>`, demandé aussi en Éco (fichier de données).
+
+## L1 session frame supersession (2026-11-15)
+
+SPEC-REFONTE.md governs the common rail, More, stage headers/footers and confirmation placement in both renderers. The retained card contents remain owned by L2 through L6. No v2m-/v2n- class or V2_NODE expression is renamed. The prepare mount remains on jog until its specified later lot.
+
+All installed resource suffixes now agree with ADVANCED_VERSION (v2v for L1), including workers and CSS imports; test-cache-version reads that variable instead of freezing it. Once eligible v2 placement is established, status packets no longer request a layout frame. Hidden/locked pages request none. A capability loss keeps the current geometry during activity and returns to v1 at safe idle.
+
+The opening latch now follows SPEC-REFONTE section 3.1 exactly: only running or paused workflows latch v1. Other operations delay the unchanged safe-idle/bootstrap guards. This explicitly supersedes the broader P2 conservative latch and its corresponding older assertions.

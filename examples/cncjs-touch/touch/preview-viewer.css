@@ -16,3 +16,5 @@
 #preview-viewer .preview-hint{margin:0;color:var(--mute);font-size:var(--fs-16);text-align:center}
 @media(max-width:850px),(max-height:550px){#preview-viewer{padding:10px;gap:8px;font-size:var(--fs-16)}#preview-viewer button{min-height:44px;padding:8px 12px}#preview-viewer h2{font-size:18px}#preview-viewer header,#preview-viewer footer{gap:10px}.preview-zoom,.preview-machine{gap:6px}#preview-machine-state{max-width:155px;font-size:var(--fs-16)}#preview-viewer .preview-hint{font-size:var(--fs-16)}}
 @media(max-width:620px){#preview-viewer footer{flex-wrap:wrap}.preview-machine{margin-left:auto}#preview-viewer-file{font-size:var(--fs-16)}}
+
+/* Current content hosts retain the existing card rules. */

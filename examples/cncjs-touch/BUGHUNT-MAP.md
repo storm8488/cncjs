@@ -300,3 +300,11 @@ Classement : probabilité d'un défaut réel × gravité pour l'opérateur. Chaq
 18. **Instruments du poste large — `job-dashboard.js:385-445`.** Deuxième copie de la règle « ligne acquittée » (`acknowledgedLine`) si `CNCToolPosition` manque ; `motionLeft` remis à `null` à chaque rendu ; `total` pris dans l'aperçu ou dans `c.total` (lignes non vides du sender vs lignes de l'aperçu) ; courbe en 3 zones seulement ; textes laser.
 19. **`loadedPreview()` — `job-dashboard.js:446-470`.** Cache par `file+revision` sans empreinte ; `forgetLoaded` seulement sur `cnc-library-preview-updated` du même fichier ; la promesse en vol résout `null` si `machine.name` a changé, mais une ancienne promesse partagée peut servir un autre appelant (`origin-preview.js:130-137`, `job-preparation.js`).
 20. **Traductions et textes dynamiques — `travel-check.js:55` (`t('course $'+(130+i)+' inconnue.')`), `origin-preview.js:50-55`, `tool-position.js:137-154`.** Chaînes construites passées à `t()` : non couvertes par `test-i18n.cjs` (littéraux seulement) ; restent en français en EN/ES. Gravité faible, probabilité élevée.
+
+## L1 session frame (2026-11-15)
+
+Menu and the last-screen bar are replaced by the session rail and More. State projection lives in touch/seance.js; operator refusal families and remedies live in touch/refus.js and touch/i18n-messages-refus.js. Only state === proven confirms work offset. Missing fields never imply a completed zero. Shared direct owners retain the hidden controls as their guard references until L4/L5 remove them.
+
+A2-5(a,b) is converted to test-direct-calls/test-seance/test-refus and removed; machine internals remain L2. V3-2 is converted to test-v2-idle-frames and removed. A2-4(a) is converted at the presenter level to test-refus; its diagnostic (b) remains in the temporary file for L3b. A2-2 remains untouched. Backups are outside the repository, in the temporary cncjs-L1-proofs directory. The comparison of two identical refusal screenshots is replaced by assertions that the cause and remedy stay visible and the server-permitted retry stays active. L3b still integrates that presenter into the probe card.
+
+More's empty macro entry is now visible and refused. v2 frame scheduling is event-driven after placement; hidden/locked pages request no layout frame. Capability loss still returns to v1 at safe idle.

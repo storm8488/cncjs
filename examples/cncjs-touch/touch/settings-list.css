@@ -242,3 +242,5 @@ body:not(.perf-v2):not(.t-compact).ks-ui #screen-machine .ks-machine-overview>p[
 body:not(.perf-v2):not(.t-compact):not([data-simulation=true]).ks-ui.display-large #ks-machine-alarm{font-size:var(--fs-16)}
 body:not(.perf-v2):not(.t-compact):not([data-simulation=true]).ks-ui.display-large #screen-machine .ks-machine-overview{grid-template-columns:repeat(4,minmax(0,1fr))}
 body:not(.perf-v2):not(.t-compact):not([data-simulation=true]).ks-ui.display-large #screen-machine .ks-machine-overview>p[data-machine-copy]{grid-column:span 2}
+
+/* Current content hosts retain the existing card rules. */

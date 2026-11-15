@@ -56,7 +56,7 @@ get() {
   const byId = (id) => banner.querySelectorAll('*').find((e) => e.id === id);
   const send = (detail) => listeners['cnc-job-status']({ detail: Object.assign({ simulation: false }, detail) });
   const shape = () => byId('t-state')._path.attributes.d;
-  const buttons = () => ['t-pause', 't-stop', 't-resume', 't-unlock'].map((id) => id + (byId(id).hidden ? ' hidden' : ' shown') + (byId(id).disabled ? ' disabled' : ' enabled')).join(', ');
+  const buttons = () => ['t-pause', 't-stop', 't-resume', 't-recover'].map((id) => id + (byId(id).hidden ? ' hidden' : ' shown') + (byId(id).disabled ? ' disabled' : ' enabled')).join(', ');
   return { window, byId, send, shape, buttons, banner };
 }
 const m = (patch) => Object.assign({ port: 'A', activeState: 'Idle', workflow: 'idle', fresh: true, statusAgeMs: 300, feedrate: 0, spindleSpeed: 0, name: 'a.nc', canPause: false, canStop: false }, patch);
@@ -67,7 +67,7 @@ const m = (patch) => Object.assign({ port: 'A', activeState: 'Idle', workflow: '
   assert.equal(f.byId('t-state-text').textContent, 'Palpage', 'probing: its own word, not « En cours »');
   assert.equal(f.byId('t-state').getAttribute('data-tone'), 'run');
   // The buttons the strip shows during a probe cycle: Stop only, enabled (as before the lot: describe() is not read there).
-  assert.equal(f.buttons(), 't-pause hidden disabled, t-stop shown enabled, t-resume hidden disabled, t-unlock hidden disabled');
+  assert.equal(f.buttons(), 't-pause shown disabled, t-stop shown enabled, t-resume hidden disabled, t-recover hidden enabled');
   assert.equal(f.window.cncStatusStrip.describe(m({ activeState: 'Run', probing: true }), true).word, 'Palpage');
   assert.equal(f.window.cncStatusStrip.describe(m({ activeState: 'Run' }), true).word, 'En cours', 'a job still reads « En cours »');
   // M4: « Rapport ancien » (running job, old report) drew the pause bars; it now has its own shape, Pause keeps the bars.
@@ -78,14 +78,14 @@ const m = (patch) => Object.assign({ port: 'A', activeState: 'Idle', workflow: '
   assert.equal(f.byId('t-state-text').textContent, 'Rapport ancien');
   assert.equal(f.byId('t-state').getAttribute('data-tone'), 'warn', 'same amber tone');
   assert.notEqual(f.shape(), hold, 'an old report is not drawn as a pause');
-  assert.equal(f.buttons(), 't-pause shown enabled, t-stop shown enabled, t-resume hidden disabled, t-unlock hidden disabled', 'Pause and Stop still offered on an old report');
+  assert.equal(f.buttons(), 't-pause shown enabled, t-stop shown enabled, t-resume hidden disabled, t-recover hidden enabled', 'Pause and Stop still offered on an old report');
   const stale = f.shape();
   f.send({ machine: m({ activeState: 'Door:0', workflow: 'paused' }), transportConnected: true });
   assert.equal(f.byId('t-state-text').textContent, 'Porte ouverte'); assert.equal(f.shape(), hold, 'a door hold keeps the bars');
   // State lost (stream down during a job): the clock as well, never the pause bars.
   f.send({ machine: null, transportConnected: false, halt: { canPause: true, canStop: true, workflow: 'running' } });
   assert.equal(f.byId('t-state-text').textContent, 'État perdu'); assert.equal(f.shape(), stale);
-  assert.equal(f.buttons(), 't-pause shown enabled, t-stop shown enabled, t-resume hidden disabled, t-unlock hidden disabled');
+  assert.equal(f.buttons(), 't-pause shown enabled, t-stop shown enabled, t-resume hidden disabled, t-recover hidden enabled');
   // Spanish: the word of the catalogue.
   const g = stripFixture(es);
   g.send({ machine: m({ activeState: 'Run', probing: true, canStop: true }), transportConnected: true });
@@ -267,7 +267,7 @@ querySelector: (s) => (s === 'main' ? main : el()) };
   for (const page of ['index.html', 'simulation.html']) {
     const html = touch(page);
     for (const f of ['status-strip.js', 'job-controls.js', 'interface-guide.js', 'i18n-messages.js', 'ui-2027.css', 'touch-shell.css', 'design-tokens.css']) {
- assert(html.includes(f + '?v=v2u'), page + ': ' + f + '?v=v2u');
+ assert(html.includes(f + '?v=v2v'), page + ': ' + f + '?v=v2v');
 }
   }
   console.log('PASS transverse screen: probing word, pause / old-report icons, strip buttons unchanged, server reasons translated, guide in Spanish and 16 / 48 px, strip cells whole, outlines at 3:1, cache v2u.');

@@ -34,8 +34,7 @@
       var source=$('job-'+action),controls=window.cncJobControls;
       if(this.disabled||!source||source.disabled)return;
       if(action==='pause'||action==='resume'){var now=Date.now();if(now>=coolUntil-600&&now<coolUntil)return;coolUntil=now+600;}
-      if(action==='pause'||action==='stop'){if(controls&&typeof controls[action]==='function')controls[action]();}
-      else source.click();
+      if(controls&&typeof controls[action]==='function')controls[action]();
     });
   });
   // Realtime overrides (feed and spindle), active only while a program runs or is held.
@@ -209,14 +208,15 @@
     return parts.join(' · ');
   }
   function jogging(m){return !!(m&&m.motion&&typeof m.motion==='object'&&(m.motion.jog||m.motion.cancelling));}
+  var pilotElsewhere=false;
   function render() {
     var c=machine,now=elapsedClock(),file=c&&c.name?c.name:selection&&selection.file||'';
-    set('home-job-load','disabled',busy||!c||!c.fresh||!selection||!c.canLoad);
-    set('home-job-start','disabled',busy||!c||!c.fresh||!c.canStart);
+    set('home-job-load','disabled',busy||!c||pilotElsewhere||!c.fresh||!selection||!c.canLoad);
+    set('home-job-start','disabled',busy||!c||pilotElsewhere||!c.fresh||!c.canStart);
     // These states also guard the enlarged preview's command relay while Home is hidden.
     // During a loss of the state, Pause and Arrêter follow the last busy controller (detail.halt).
     set('home-job-pause','disabled',c?!c.canPause:!(halt&&halt.canPause));
-    set('home-job-resume','disabled',busy||!c||!c.canResume);
+    set('home-job-resume','disabled',busy||!c||pilotElsewhere||!c.canResume);
     set('home-job-stop','disabled',c?!(c.canStop||jogging(c)):!(halt&&halt.canStop));
     var overrides=c&&c.overrides&&typeof c.overrides==='object'?c.overrides:null,overrideOn=!!(c&&c.fresh&&c.canOverride&&!busy);
     set('home-overrides','hidden',!c||!('canOverride' in c));
@@ -342,7 +342,7 @@
     if(visible('files'))set('job-progress-summary','textContent',percent+' · '+eta);
   }
   window.addEventListener('cnc-library-select',function(e){selection=e.detail;render();});
-  window.addEventListener('cnc-job-status',function(e){var next=e.detail.machine;
+  window.addEventListener('cnc-job-status',function(e){var next=e.detail.machine;pilotElsewhere=!!(e.detail.pilot&&e.detail.pilot.state==='other');
     if(next&&next.workflow==='running'&&(!machine||machine.workflow!=='running'||programOf(next)!==programOf(machine))){runTrack=null;}
     machine=next;halt=!machine&&e.detail.halt&&typeof e.detail.halt==='object'?e.detail.halt:null;simulation=e.detail.simulation;busy=!!e.detail.busy;feedback=e.detail.feedback||'';
     // Sent / confirmed / failed / uncertain, mirrored from job-controls.js (ui-2027.css .t-sent).

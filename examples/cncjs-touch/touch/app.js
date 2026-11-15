@@ -1,3 +1,4 @@
+/* global io */
 (function () {
   'use strict';
   var uiLocale=window.cncI18n||{t:function(s){return s;},html:function(s){return s;}};
@@ -33,7 +34,7 @@
   var saved = {};
   try {
     saved = JSON.parse(localStorage.getItem('cnc') || '{}');
-  } catch (e) {}
+  } catch (e) { /* Optional browser facility unavailable. */ }
 
   var token = saved.state && saved.state.session &&
               saved.state.session.token;
@@ -50,7 +51,7 @@
     x.timeout = 15000;
     x.setRequestHeader('Content-Type', 'application/json');
     x.onload = function () {
-      var r = null; try { r = JSON.parse(x.responseText); } catch (_) {}
+      var r = null; try { r = JSON.parse(x.responseText); } catch (_) { /* Optional browser facility unavailable. */ }
       // Another tab changed the session meanwhile (D-7): this older answer must not replace it.
       if (storedToken() !== sent) { if (refused) refused(false); return; }
       if (x.status !== 200 || !r || !r.token || r.token === sent) { if (refused) refused(x.status !== 200); return; }
@@ -69,9 +70,9 @@
   // Reload with the new token at most once a minute, so a refused token cannot loop.
   // Returns false when the guard holds the reload back: the page then goes on with the new token.
   function reloadOnce() {
-    var last = 0; try { last = Number(sessionStorage.getItem('cnc-touch-renewed')) || 0; } catch (_) {}
+    var last = 0; try { last = Number(sessionStorage.getItem('cnc-touch-renewed')) || 0; } catch (_) { /* Optional browser facility unavailable. */ }
     if (Date.now() - last < 60000) { if (typeof CustomEvent === 'function' && window.dispatchEvent) window.dispatchEvent(new CustomEvent('cnc-session-renewed')); return false; }
-    try { sessionStorage.setItem('cnc-touch-renewed', String(Date.now())); } catch (_) {}
+    try { sessionStorage.setItem('cnc-touch-renewed', String(Date.now())); } catch (_) { /* Optional browser facility unavailable. */ }
     location.reload();
     return true;
   }
@@ -83,7 +84,7 @@
   // renewal reloads does not ask again at once. Returns the milliseconds left to wait (0: sent).
   function wait() {
     var now = elapsed(), left = lastRenewal !== null && now - lastRenewal >= 0 && now - lastRenewal < 60000 ? 60000 - (now - lastRenewal) : 0;
-    var last = 0; try { last = Number(sessionStorage.getItem('cnc-touch-signin')) || 0; } catch (_) {}
+    var last = 0; try { last = Number(sessionStorage.getItem('cnc-touch-signin')) || 0; } catch (_) { /* Optional browser facility unavailable. */ }
     if (last && Date.now() - last >= 0 && Date.now() - last < 60000) left = Math.max(left, 60000 - (Date.now() - last));
     return left;
   }
@@ -92,7 +93,7 @@
     if (renewing) return 0;
     if (left > 0) return left;
     renewing = true; lastRenewal = elapsed();
-    try { sessionStorage.setItem('cnc-touch-signin', String(Date.now())); } catch (_) {}
+    try { sessionStorage.setItem('cnc-touch-signin', String(Date.now())); } catch (_) { /* Optional browser facility unavailable. */ }
     renewSession(function () { renewing = false; if (done) done(); }, function (users) {
       renewing = false;
       // Another tab stored a session meanwhile (D-7), or none was needed: a page still waiting for
@@ -147,17 +148,6 @@
   on('error', authError);
   on('connect_error', authError);
   window.cncSocket = socket;
-
-  var bar = document.getElementById('status-bar');
-  if (bar) {
-    var reloadButton = document.createElement('button');
-    reloadButton.type = 'button';
-    reloadButton.textContent = uiLocale.t('↻ Actualiser');
-    bind(reloadButton,'click', function () {
-      location.reload();
-    });
-    bar.appendChild(reloadButton);
-  }
 
   on('connect', function () {
     badge('st-server', uiLocale.t('Serveur : connecté'), 'ok');

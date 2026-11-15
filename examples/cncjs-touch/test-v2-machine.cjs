@@ -76,7 +76,7 @@ const pilot={state:'mine',value:'Cet appareil',sentence:'Piloté par cet apparei
   p.status({...alarm,activeState:'Idle',alarmCode:null},{pilot});p.frame();assert.match(text(condition),/Aucune alarme rapportée/);
   p.status(null,{});p.frame();assert.match(text(condition),/Fraîcheur inconnue/);assert.match(text(params),/0\/13 paramètres connus/);
   // Hidden screen: no paint until shown again.
-  p.show('menu');p.status(alarm,{pilot});p.frame();assert.match(text(condition),/Fraîcheur inconnue/);
+  p.show('more');p.status(alarm,{pilot});p.frame();assert.match(text(condition),/Fraîcheur inconnue/);
   p.show('machine');p.frame();assert.match(text(condition),/ALARM:2 rapporté par Grbl/);
   // Released with the gate: static, same rectangle, no new timer.
   p.st.open=false;p.emit('cnc-v2-change',p.base.state());p.timers.clear();p.status({...alarm,activeState:'Idle',alarmCode:null},{pilot});p.frame();

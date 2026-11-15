@@ -8,7 +8,7 @@ const {createDOM}=require('./dom-fixture.cjs');
 const source=fs.readFileSync(__dirname+'/touch/commissioning.js','utf8');
 
 function fixture(saved){
- const dom=createDOM(['menu']),handlers={},store=new Map(saved?[['cncjs-touch-commissioning-v1',saved]]:[]),screens=[],calls=[];
+ const dom=createDOM(['more']),handlers={},store=new Map(saved?[['cncjs-touch-commissioning-v1',saved]]:[]),screens=[],calls=[];
  dom.document.body.getAttribute=()=>null;
  const controls={cancel:()=>calls.push(['cancel']),prepareCommand:op=>calls.push(['prepare',op]),spindleStop:()=>{calls.push(['spindleStop']);return Promise.resolve({message:'M5'});},
   readSettings:()=>{calls.push(['readSettings']);return Promise.resolve({});},settings:()=>Promise.resolve({firmware:'Grbl 1.1h',settings:{$31:6000,$1:25}})};
@@ -90,7 +90,7 @@ const M=(extra)=>Object.assign({port:'/dev/ttyUSB0',fresh:true,workflow:'idle',a
  const f=fixture();
  f.send(M({port:'/home/pi/ttyGRBL-sim'}));assert.deepEqual(f.screens,[],'simulator port: no auto-open');
  f.send(M({fresh:false}));assert.deepEqual(f.screens,[]);
- f.send(M());assert.deepEqual(f.screens,['commissioning'],'first real controller: opened once');
+ f.send(M());assert.deepEqual(f.screens,[],'L1: the assistant never opens itself');f.window.cncCommissioning.open();
  assert.equal(f.data().machines['/dev/ttyUSB0'].status,'progress');
  assert.equal(f.title(),'Avant de commencer');assert(f.next().disabled);
  f.tick(0);f.tick(1);assert(f.next().disabled);f.tick(2);assert(!f.next().disabled);
@@ -129,7 +129,7 @@ const M=(extra)=>Object.assign({port:'/dev/ttyUSB0',fresh:true,workflow:'idle',a
  f.byText('Démarrer à').click();f.byText('Passer cette étape').click();assert.deepEqual(f.calls.slice(-2),[['cancel'],['spindleStop']]);
  assert.equal(f.title(),'Fichier « en l’air »');
  // Leaving the screen and resuming later: back on the same step.
- f.window.cncShell.go('menu');
+ f.window.cncShell.go('more');
  const g=fixture(f.store.get('cncjs-touch-commissioning-v1'));
  g.send(M());assert.deepEqual(g.screens,[],'known port: no auto-open');
  g.window.cncCommissioning.open();assert.equal(g.title(),'Fichier « en l’air »');
@@ -137,22 +137,22 @@ const M=(extra)=>Object.assign({port:'/dev/ttyUSB0',fresh:true,workflow:'idle',a
  g.next().click();
  const saved=g.data().machines['/dev/ttyUSB0'];assert.equal(saved.status,'done');assert(saved.date);assert.equal(saved.firmware,'Grbl 1.1h');
  assert.deepEqual(saved.results,{prepare:'ok',backup:'skipped',estop:'ok',limits:'ok',probe:'skipped',homing:'ok',spindle:'skipped',aircut:'skipped'});
- assert.equal(g.screens.at(-1),'menu');
+ assert.equal(g.screens.at(-1),'machine');
 }
 {
  // Skip the whole assistant: only after ticking the responsibility box.
- const f=fixture();f.send(M());
+ const f=fixture();f.send(M());f.window.cncCommissioning.open();
  f.byText('Passer l’assistant…').click();
  const confirm=f.find(n=>n.tagName==='BUTTON'&&n.textContent==='Passer l’assistant');assert(confirm.disabled);
  confirm.click();assert.equal(f.data().machines['/dev/ttyUSB0'].status,'progress');
  const boxes=f.find(n=>n.className==='card wide ks-wiz-warning');const check=boxes.children.find(c=>c.tagName==='LABEL').children[0];
  check.checked=true;check.handlers.change();assert(!confirm.disabled);confirm.click();
- assert.equal(f.data().machines['/dev/ttyUSB0'].status,'skipped');assert.equal(f.screens.at(-1),'menu');
+ assert.equal(f.data().machines['/dev/ttyUSB0'].status,'skipped');assert.equal(f.screens.at(-1),'machine');
 }
 // Réglages card on the Machine tab: after the laser Z card, else after the machine kind card, else after the tabs (older layouts).
 {
  const place=function(names){
-  const dom=createDOM(['menu']);dom.document.body.getAttribute=()=>null;
+  const dom=createDOM(['more']);dom.document.body.getAttribute=()=>null;
   const p=dom.node('screen-settings'),made={};
   names.forEach(n=>{const e=dom.element('div');e.name=n;made[n]=e;p.appendChild(e);Object.defineProperty(e,'nextSibling',{get:()=>p.children[p.children.indexOf(e)+1]||null});});
   p.querySelector=sel=>made[{'#ks-laser-z-card':'laser','#ks-machine-kind-card':'kind','.ks-settings-tabs':'tabs','.ks-panel-intro':'intro'}[sel]]||null;
@@ -201,7 +201,7 @@ window.dispatchEvent({type:'cnc-job-status',detail:{machine:{...restarted,canRea
 assert.equal(reread.disabled,true,'an absent capability never grants a read');
 
 }
-console.log('PASS commissioning: step model, auto-open on the first real controller, persistence and resume, guarded commands, spindle stop on leave, skip under confirmation.');
+console.log('PASS commissioning: step model, explicit opening only, machine return, persistence and resume, guarded commands, spindle stop on leave, skip under confirmation.');
 
 // A2-8: a preparation resolves its refusal instead of rejecting it.
 (async()=>{

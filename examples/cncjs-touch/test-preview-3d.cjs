@@ -59,7 +59,7 @@ function page(options = {}) {
   const winListeners = {};
   if (options.worker) window.Worker = class {
     constructor(url) {
-      assert.match(url, /^http:\/\/tablet\/touch\/preview-3d-worker\.js\?v=view\d+$/);
+      assert.match(url, /^http:\/\/tablet\/touch\/preview-3d-worker\.js\?v=v2v$/);
       log.workers.push(this);
       const outer = this, context = {
         setTimeout, Date, Math, Promise, Error, Float64Array, Uint8Array, Int16Array,
@@ -100,7 +100,7 @@ function page(options = {}) {
 
   // A laser machine has the laser view only (no 2D, fixed or free 3D views); back to CNC, the remembered choice returns.
   {
-    const prof = { kind: 'laser', performance: () => 'performance', kind() { return this.k; }, k: 'laser' };
+    const prof = { performance: () => 'performance', kind() { return this.k; }, k: 'laser' };
     const q = page({ worker: true, profile: prof });
     const visible = img => q.bar(img).children.filter(b => !b.hidden).map(b => b.attributes['data-view'] || 'free');
     assert.deepEqual(visible(q.files), ['laser']); assert.deepEqual(visible(q.home), ['laser']);

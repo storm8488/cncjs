@@ -388,7 +388,7 @@ body.ks-real.ks-ui:not(.perf-origin) #screen-jog #jog-msg{flex-basis:100%}
 .ks-ui #screen-jog .card{align-self:stretch;height:100%}
 
 /* === Menu =================================================================== */
-.ks-ui #screen-menu.active,.ks-ui #screen-menu.kept{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);gap:var(--sp-4)!important;height:calc(var(--view-height) - 32px);min-height:0}
+.ks-ui #screen-more.active,.ks-ui #screen-more.kept{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);gap:var(--sp-4)!important;height:calc(var(--view-height) - 32px);min-height:0}
 .ks-resume{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:var(--sp-4);min-height:var(--tap-primary);padding:0 var(--sp-3) 0 var(--sp-5);background:var(--surface);border:1px solid var(--line);border-left:6px solid var(--info);border-radius:var(--r-l);color:var(--fg);font:var(--fs-20)/var(--lh-tight) var(--font);text-align:left;cursor:pointer;touch-action:manipulation}
 .ks-resume:active{transform:scale(.99)}
 .ks-resume svg{width:32px;height:32px;stroke:var(--info-text);transform:rotate(180deg)}
@@ -670,7 +670,7 @@ body.ks-real.ks-ui:not(.perf-origin) #screen-jog #jog-msg{flex-basis:100%}
  * qu'il est garé). Le rouvrir réutilise son style et sa mise en page (mesuré sur la tablette : layout
  * 20–55 → 2–6 ms, style 23–45 → 7–12 ms par ouverture). Ils sont placés en absolu exactement où l'écran
  * en flux se trouve (padding de main : 16 px) ; .kept reprend toutes les règles de .active. */
-.ks-ui main>#screen-menu,.ks-ui main>#screen-jog,.ks-ui main>#screen-files,.ks-ui main>#screen-home,.ks-ui main>#screen-machine,.ks-ui main>#screen-history{position:absolute;top:16px;left:16px;right:16px}
+.ks-ui main>#screen-more,.ks-ui main>#screen-jog,.ks-ui main>#screen-files,.ks-ui main>#screen-check,.ks-ui main>#screen-home,.ks-ui main>#screen-machine,.ks-ui main>#screen-history{position:absolute;top:16px;left:16px;right:16px}
 .ks-ui main>.screen.kept:not(.active){content-visibility:hidden;z-index:-1}
 /* Arrêter : un liseré clair détache l'aplat rouge foncé du fond sombre (composant ≥ 3:1). */
 .t-btn--danger{border-color:var(--danger-text)}
@@ -769,8 +769,8 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
 
 /* --- Compact layout (1024 x 600 goal, also any window under 1100 x 650). --- */
 .ks-ui.t-compact main{padding:8px 16px!important}
-.ks-ui.t-compact main>#screen-menu,.ks-ui.t-compact main>#screen-jog,.ks-ui.t-compact main>#screen-files,.ks-ui.t-compact main>#screen-home,.ks-ui.t-compact main>#screen-machine,.ks-ui.t-compact main>#screen-history{top:8px}
-.ks-ui.t-compact #screen-menu.active,.ks-ui.t-compact #screen-menu.kept,.ks-ui.t-compact #screen-home.active,.ks-ui.t-compact #screen-home.kept,.ks-ui.t-compact #screen-files.active,.ks-ui.t-compact #screen-files.kept,.ks-ui.t-compact #screen-jog.active,.ks-ui.t-compact #screen-jog.kept,.ks-ui.t-compact #screen-machine.active,.ks-ui.t-compact #screen-machine.kept,.ks-ui.t-compact #screen-history.active,.ks-ui.t-compact #screen-history.kept{height:calc(var(--view-height) - 16px)}
+.ks-ui.t-compact main>#screen-more,.ks-ui.t-compact main>#screen-jog,.ks-ui.t-compact main>#screen-files,.ks-ui.t-compact main>#screen-home,.ks-ui.t-compact main>#screen-machine,.ks-ui.t-compact main>#screen-history{top:8px}
+.ks-ui.t-compact #screen-more.active,.ks-ui.t-compact #screen-more.kept,.ks-ui.t-compact #screen-home.active,.ks-ui.t-compact #screen-home.kept,.ks-ui.t-compact #screen-files.active,.ks-ui.t-compact #screen-files.kept,.ks-ui.t-compact #screen-jog.active,.ks-ui.t-compact #screen-jog.kept,.ks-ui.t-compact #screen-machine.active,.ks-ui.t-compact #screen-machine.kept,.ks-ui.t-compact #screen-history.active,.ks-ui.t-compact #screen-history.kept{height:calc(var(--view-height) - 16px)}
 .ks-ui.t-compact .job-dashboard{height:calc(var(--view-height) - 16px);grid-template-columns:minmax(0,1fr) 440px}
 .ks-ui.t-compact .ks-panel-intro h2,.ks-ui.t-compact #screen-jog .ks-panel-intro h2,.ks-ui.t-compact #screen-machine .ks-panel-intro h2,.ks-ui.t-compact #screen-history .ks-panel-intro h2{font-size:var(--fs-20)}
 .ks-ui.t-compact .ks-preparation-actions .ks-secondary,.ks-ui.t-compact .ks-preparation-actions .probe-entry,.ks-ui.t-compact .ks-preparation-actions .ks-macros-open{padding:var(--sp-2)}
@@ -1133,3 +1133,7 @@ body.ks-real.ks-ui #screen-jog .jog[data-held="true"],body.ks-real.ks-ui #screen
 .ks-ui #real-banner>.t-vitals>.t-vital--machine,.ks-ui #simulation-banner>.t-vitals>.t-vital--machine{order:2;flex:1 1 96px;max-width:max-content}
 .ks-ui #real-banner>.t-vitals>.t-vital--feed,.ks-ui #simulation-banner>.t-vitals>.t-vital--feed{order:3}
 .ks-ui #real-banner>.t-vitals>.t-vital--spindle,.ks-ui #simulation-banner>.t-vitals>.t-vital--spindle{order:4}
+
+/* Current content hosts retain the existing card rules. */
+
+.ks-ui #screen-home .ks-step-body>.card.wide{background:transparent;border:0;padding:0!important;margin:0}

@@ -189,5 +189,5 @@
   window.addEventListener('cnc-screen-saver-status',function(){if(shown())paint();});
   window.addEventListener('pagehide',function(e){if(e&&e.persisted)return;disposed=true;clearTimeout(armTimer);});
   renderVersion();loadVersion(true);
-  window.cncTabletActions={state:function(){return {commands:commands.length,armed:armed,busy:busy};}};
+  window.cncTabletActions={loadedVersion:function(){return info?Object.assign({},info):null;},state:function(){return {commands:commands.length,armed:armed,busy:busy};}};
 })();

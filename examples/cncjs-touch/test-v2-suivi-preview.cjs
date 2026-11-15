@@ -6,7 +6,7 @@ const assert = require('assert').strict, fs = require('fs'), vm = require('vm');
 const source = fs.readFileSync(__dirname + '/touch/job-dashboard.js', 'utf8');
 
 function fixture() {
-  const lists = {}, requests = [], dom = require('./dom-fixture.cjs').createDOM(['menu']);
+  const lists = {}, requests = [], dom = require('./dom-fixture.cjs').createDOM(['more']);
   let profile = 'performance', gate = true, safeIdle = true;
   const win = {
     addEventListener(n, f) { (lists[n] || (lists[n] = [])).push(f); },

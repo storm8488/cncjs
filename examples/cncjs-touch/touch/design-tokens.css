@@ -71,3 +71,5 @@
  * Arial / Liberation Sans (même métrique, installée sur Debian) passent avant system-ui. Sous perf-v2
  * seulement : la v1 et la RT gardent la pile système vérifiée avec Verdana. */
 body.ks-ui.perf-wide.perf-v2{--font:"Segoe UI",Arial,"Liberation Sans",Roboto,"Helvetica Neue",system-ui,sans-serif;--font-num:var(--font)}
+
+/* Current content hosts retain the existing card rules. */

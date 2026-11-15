@@ -64,7 +64,9 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
   // 5. ECONTROL refusal: the owner's name and the next step, no takeover sent.
   f.push([f.machine({ control: { owner: other, lastChange: null } })]);
   f.window.dispatchEvent({ type: 'cnc-library-select', detail: { file: 'part.nc', name: 'part.nc' } });
-  f.el('job-load').click(); const refused = f.posts().at(-1);
+  assert(f.el('job-load').disabled&&f.el('job-start').disabled,'another owner refuses the visible commands');
+  f.push([f.machine({control:{owner:null,lastChange:null}})]);f.el('job-load').click(); const refused = f.posts().at(-1);
+  f.push([f.machine({control:{owner:other,lastChange:null}})]);
   f.answer(refused, { message: 'Pilotage de COM3 attribué à « Tablette B » (tablette, ana) : …', code: 'ECONTROL', owner: other }, 409); await f.flush();
   assert.match(f.el('job-feedback').textContent, /^Refusé : pilotage attribué à « Tablette B »/);
   assert.match(f.el('job-feedback').textContent, /touchez Pilote dans le bandeau et prenez le pilotage avec un motif/);
@@ -80,7 +82,7 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
   // 6. Takeover dialog: opened by a tap (from the strip chip), focus on the reason, background inert.
   const chip = f.el('t-pilot'); chip.focus();
   assert.equal(f.controls().openPilot(), true);
-  assert.equal(f.el('pilot-dialog').hidden, false); assert.equal(f.document.activeElement.id, 'pilot-reason'); assert.equal(f.el('main').inert, true);
+  assert.equal(f.el('pilot-dialog').hidden, false); assert.equal(f.document.activeElement.id, 'pilot-reason-a'); assert.equal(f.el('main').inert, true);
   assert.equal(f.el('real-banner').inert, false, 'the strip (Pause, Arrêter) stays usable under the pilot dialog');
   assert.match(f.el('pilot-dialog-text').textContent, /Piloté par « Tablette B »/);
   assert.equal(f.el('pilot-form').hidden, false); assert.equal(f.el('pilot-takeover').hidden, false); assert.equal(f.el('pilot-takeover').disabled, true, 'no reason, no takeover');
@@ -98,8 +100,8 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
   assert.equal(f.el('pilot-dialog').hidden, true); assert(!f.posts().some((r) => r.body.action === 'control'));
   // A preset reason fills the field; the takeover is sent only by the button, with the reason and the id.
   f.controls().openPilot(); f.el('pilot-reason-a').textContent = 'Opérateur devant la machine'; f.el('pilot-reason-a').click();
-  assert.equal(f.el('pilot-reason').value, 'Opérateur devant la machine'); assert.equal(f.document.activeElement.id, 'pilot-takeover');
-  assert(!f.posts().some((r) => r.body.action === 'control'), 'choosing a reason does not send');
+  assert.equal(f.el('pilot-reason').value, 'Opérateur devant la machine'); assert(f.el('pilot-reason-a').disabled&&f.el('pilot-reason-b').disabled);
+  assert.equal(f.posts().filter((r) => r.body.action === 'control').length,1,'the preset takes control directly');
   f.el('pilot-takeover').click(); f.el('pilot-takeover').click();
   const takeovers = f.posts().filter((r) => r.body.action === 'control');
   assert.equal(takeovers.length, 1, 'one request per tap, none while it is on its way');
@@ -139,12 +141,12 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
   const chipNode = byId('t-pilot');
   assert(chipNode, 'the chip exists'); assert.equal(chipNode.hidden, false); assert.equal(byId('t-pilot-value').textContent, '—', 'unknown before any state');
   assert.equal(chipNode.parentNode.className, 't-strip-actions', 'in the actions cell, which a message never covers');
-  strip(mine); assert.equal(byId('t-pilot-value').textContent, 'Cet appareil'); assert.equal(chipNode.getAttribute('data-state'), 'mine');
+  strip(mine); assert.equal(byId('t-pilot-value').textContent, 'ici'); assert.equal(chipNode.getAttribute('data-state'), 'mine');
   strip(otherDetail, { workflow: 'running', activeState: 'Run', canPause: true, canStop: true });
-  assert.equal(byId('t-pilot-value').textContent, 'Tablette B'); assert.equal(chipNode.getAttribute('data-state'), 'other');
-  assert.match(chipNode.getAttribute('aria-label'), /^Pilote : Piloté par « Tablette B »/);
+  assert.equal(byId('t-pilot-value').textContent, 'autre'); assert.equal(chipNode.getAttribute('data-state'), 'other');
+  assert.match(chipNode.getAttribute('aria-label'), /^La main : Piloté par « Tablette B »/);
   assert.equal(byId('t-pause').disabled, false); assert.equal(byId('t-stop').disabled, false, 'Pause and Stop stay active under another owner');
-  strip({ state: 'free', value: 'Libre', sentence: 'Libre : …' }); assert.equal(byId('t-pilot-value').textContent, 'Libre'); assert.equal(chipNode.hidden, false);
+  strip({ state: 'free', value: 'Libre', sentence: 'Libre : …' }); assert.equal(byId('t-pilot-value').textContent, 'libre'); assert.equal(chipNode.hidden, false);
   handlers['cnc-job-status']({ detail: { simulation: false, transportConnected: false, machine: null } }); assert.equal(chipNode.hidden, false); assert.equal(byId('t-pilot-value').textContent, '—');
   chipNode.click(); assert.equal(opened.length, 1, 'a tap opens the pilot dialog');
   // A shown message (notice) leaves the chip visible: it is not in the message's columns.

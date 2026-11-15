@@ -154,7 +154,7 @@
   nav.appendChild(prev);nav.appendChild(skipStep);nav.appendChild(next);screen.appendChild(nav);
   main.appendChild(screen);
 
-  var machine=null,port=null,index=0,st={},view=null,current='menu',autoDone=false;
+  var machine=null,port=null,index=0,st={},view=null,current='menu';
   function jc(){return window.cncJobControls||null;}
   // Effective machine kind from the server (tablet-profile.js); unknown keeps the CNC steps.
   function laser(){return !!(window.cncProfile&&window.cncProfile.kind()==='laser');}
@@ -163,11 +163,11 @@
   function command(fn){var c=jc();if(!c)return;try{var p=fn(c);if(p&&typeof p.then==='function')p.then(function(r){if(r&&r.opened===false&&r.error)set(status,shown(r.error.message));else if(r&&r.message)set(status,shown(r.message));},function(e){set(status,shown(e.message));});}catch(e){set(status,shown(e.message));}}
   function record(r){var e=entry(port);if(!e)return;e.results=e.results||{};e.results[STEPS[index]]=r;save();}
   function finish(how){
-    if(!port){shell.go('menu');return;}
+    if(!port){shell.go('machine');return;}
     var e=entry(port)||(data.machines[port]={});
     e.status=how;e.date=stamp();e.firmware=machine&&machine.firmware||e.firmware||'';e.step=0;save();
     if(how==='done'||how==='skipped')stopSpindle();
-    skipBox.hidden=true;settingsCard();shell.go('menu');
+    skipBox.hidden=true;settingsCard();shell.go('machine');
   }
   // Sent whenever a start was asked on this step, whatever speed is observed:
   // the M3 may still be on its way, or the report may lack the FS field.
@@ -506,10 +506,6 @@
       prop(machineReread,'title',machine&&!machine.canReadSettings?(refusal&&uiLocale.format?uiLocale.format(refusal.code,refusal.params,machine.readSettingsReason||''):shown(machine.readSettingsReason||'')):'');}
     lastStatus=d;commandReason(d);
     if(view){observe(STEPS[index],st,machine);refresh();}
-    // First real controller seen on this port: open the assistant once, from the menu.
-    if(!autoDone&&machine&&machine.fresh&&machine.workflow==='idle'&&!/sim/i.test(machine.port)&&!entry(machine.port)&&(current==='menu'||current==='home')){
-      autoDone=true;open();
-    }
   });
   settingsCard();
   // status(): for the menu tile. 'unknown' (no controller), 'none', 'progress', 'done' or 'skipped'.

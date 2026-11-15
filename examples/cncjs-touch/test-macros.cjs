@@ -6,8 +6,9 @@ function fixture(){
  const dom=require('./dom-fixture.cjs').createDOM(['jog']),handlers={},prepared=[];let closed=0,opened=0;
  const content=dom.element('div'),actions=dom.element('div');
  const shell={sheet:(id,title)=>{assert.equal(id,'ks-macros');assert.equal(title,'Macros CNCjs');return {content,open:()=>opened++};},closeSheet:()=>closed++,preparationActions:actions};
- const window={cncShell:shell,addEventListener:(n,f)=>handlers[n]=f,cncJobControls:{prepareMacro:id=>prepared.push(id)}};
+ const window={cncShell:shell,addEventListener:(n,f)=>handlers[n]=f,cncJobControls:{prepareMacro:id=>{prepared.push(id);return Promise.resolve({opened:true});}}};
  dom.document.getElementById=id=>dom.node(id);
+ dom.node('ks-macros-open').tagName='BUTTON';dom.node('ks-macros-open').textContent='Macros';dom.node('ks-macros-open').querySelector=()=>dom.node('macros-hint');
  const context={window,document:dom.document,JSON,Array,Object};
  vm.runInNewContext(fs.readFileSync(__dirname+'/touch/macros.js','utf8'),context);
  const status=()=>dom.node('ks-macros-status').textContent,list=()=>dom.node('ks-macros-list');
@@ -15,10 +16,10 @@ function fixture(){
   send(machine){handlers['cnc-job-status']({detail:{machine}});}};
 }
 const f=fixture();
-const open=f.actions.children[0];
-assert.equal(open.tagName,'BUTTON');assert.equal(open.textContent,'Macros…');assert(open.disabled,'no machine: entry disabled');
+const open=f.dom.node('ks-macros-open');
+assert.equal(open.tagName,'BUTTON');assert.equal(open.textContent,'Macros');assert(open.disabled,'no machine: entry disabled');
 assert.equal(f.status(),'État machine indisponible.');
-f.send({fresh:true,canMacro:true,macros:[]});assert(open.disabled);assert.equal(f.status(),'Aucune macro définie dans CNCjs.');assert(open.hidden,'C-45: empty macros button hidden');
+f.send({fresh:true,canMacro:true,macros:[]});assert(open.disabled);assert.equal(f.status(),'Aucune macro définie dans CNCjs.');assert(!open.hidden,'L1: empty macros tile remains visible with its reason');assert.equal(f.dom.node('macros-hint').textContent,'Aucune macro dans CNCjs');
 const macros=[{id:'a',name:'Dégagement Z'},{id:'b',name:'Repos'},{id:'bad'},null];
 f.send({fresh:true,canMacro:false,macroReason:'La machine doit être au repos (Idle), sans commande en attente.',macros});
 assert(!open.disabled);assert(!open.hidden,'button returns with macros');assert.equal(f.list().children.length,2);assert(f.list().children.every(row=>row.disabled));

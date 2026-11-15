@@ -13,12 +13,12 @@ const fs=require('fs'),vm=require('vm'),assert=require('assert');
  const metadata=file=>({data:JSON.stringify({version:1,file,originalName:file,preview:{image:'data:image/png;base64,AA==',bounds:[0,0,10,10]}})});
  assert.equal(pending.length,0,'hidden startup does not request library');
  navigate('files');const first=pending.shift();reply(first,{configured:true});await flush();const stale=pending.shift();
- navigate('menu');assert(stale.aborted);const hiddenWrites=stats.writes;
+ navigate('more');assert(stale.aborted);const hiddenWrites=stats.writes;
  reply(stale,files('2026-10-15'));await flush();assert.equal(stats.writes,hiddenWrites);assert.equal(ctx.window.cncLibrarySelection,undefined);
  navigate('files');reply(pending.shift(),{configured:true});await flush();reply(pending.shift(),files('2026-10-14'));await flush();
  const image=pending.shift();reply(image,metadata('a.nc'));await flush();
  // Leaving between the HTTP result and image decoding must allow a retry.
- const oldImageLoad=node('library-image').onload;navigate('menu');const noPaint=stats.writes;oldImageLoad();assert.equal(stats.writes,noPaint);
+ const oldImageLoad=node('library-image').onload;navigate('more');const noPaint=stats.writes;oldImageLoad();assert.equal(stats.writes,noPaint);
  navigate('files');reply(pending.shift(),{configured:true});await flush();reply(pending.shift(),files('2026-10-14'));await flush();
  assert.equal(pending.length,1);reply(pending.shift(),metadata('a.nc'));await flush();node('library-image').onload();
  const a=node('library-list').children[0],b=node('library-list').children[1];b.focus();

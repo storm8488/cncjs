@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
   var source = typeof document !== 'undefined' && document.currentScript && document.currentScript.src;
-  var workerURL = source ? source.split(/[?#]/)[0].replace(/[^/]*$/, 'library-preview-worker.js?v=v2u') : 'library-preview-worker.js?v=v2u';
+  var workerURL = source ? source.split(/[?#]/)[0].replace(/[^/]*$/, 'library-preview-worker.js?v=v2v') : 'library-preview-worker.js?v=v2v';
   var generation = 0;
   // Progress lines shown while a file is prepared (cncI18n in the page; unchanged in Node tests).
   function tr(s) { var i = root.cncI18n; return i && typeof i.t === 'function' ? i.t(s) : s; }
@@ -602,7 +602,7 @@
     [/Vues 3D non produites hors du repère G54\./g, '3D views not produced outside the G54 offset.', 'Vistas 3D no generadas fuera del sistema G54.'],
     [/Calcul local de secours : réactivité à vérifier sur cet appareil\./g, 'Local fallback computation: check responsiveness on this device.', 'Cálculo local de respaldo: compruebe la fluidez en este dispositivo.'],
     [/Encodage PNG synchrone de secours\./g, 'Fallback synchronous PNG encoding.', 'Codificación PNG síncrona de respaldo.'],
-    [/(\d[\d\s  .,]*) segments\./g, '$1 segments.', '$1 segmentos.'],
+    [/(\d[\d\s\u202f\u00a0.,]*) segments\./g, '$1 segments.', '$1 segmentos.'],
     // Refusals (« Ligne n : reason »), among them those added with the G28/G30 and work offset support.
     [/^Ligne (\d+) : /, 'Line $1: ', 'Línea $1: '],
     [/changement de repère \((G5[4-9](?:\.\d)?)\) après des déplacements : l’aperçu trace un seul repère/g,

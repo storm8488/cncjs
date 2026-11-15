@@ -119,12 +119,12 @@ const meta = { file: 'a.nc', fingerprint: 'sha256:aa', projection: { units: 'mm'
   // ---- No command, no gesture on the scene. ----
   assert.equal(Object.keys(p.card.handlers).length, 0, 'no listener put on the scene');
   const source = fs.readFileSync(__dirname + '/touch/job-preparation.js', 'utf8');
-  assert(!/cncJobControls|XMLHttpRequest|fetch\(/.test(source), 'the presenter never commands');
+  assert(!/XMLHttpRequest|fetch\(/.test(source), 'the presenter has no direct machine API');
   // Clicks: the v1 sheet's job-load relay, and the v2 relays to existing entries only (each opens its own dialog).
   const clicks = [...source.matchAll(/[^\n]*\.click\(\)[^\n]*/g)].map(m => m[0]);
-  assert.equal(clicks.length, 2, clicks.join('\n'));
-  assert(clicks[0].includes("getElementById('job-load')") || clicks[0].includes('b && !b.disabled'));
-  assert(clicks[1].includes('relayTarget(x[1])'));
+  assert.equal(clicks.length, 1, clicks.join('\n'));
+  assert(source.includes('window.cncJobControls.load()'),'load uses the guarded owner');
+  assert(clicks[0].includes('relayTarget(x[1])'));
   // « Poser X Y ici… » opens the move area at Idle (Zéro X / Zéro Y keep their own confirmation), never clicks a zero.
   assert(source.includes("n.setXY.addEventListener('click', function () { if (relayTarget('jog-zero-x') && v2Phase(v2.machine) === 'idle') { v2.jog = true;"), 'Poser X Y ici… opens the move area at Idle only');
   // Two tools (contre-revue M3, « Zéro XYZ » added): the speed button of the coordinates card, and « Zéro XYZ »

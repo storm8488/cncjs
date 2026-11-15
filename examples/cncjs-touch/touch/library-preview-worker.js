@@ -1,9 +1,10 @@
+/* global importScripts, FileReaderSync */
 /* Response decoding and geometry only. No controller, network or canvas API. */
 (function () {
   'use strict';
   // motion-estimate.js is used as a library here (its worker-capable neighbours check this flag).
   self.CNCAsLibrary = true;
-  importScripts('toolpath-3d.js?v=worker13', 'library-preview.js?v=v2u', 'motion-estimate.js?v=v2u');
+  importScripts('toolpath-3d.js?v=v2v', 'library-preview.js?v=v2v', 'motion-estimate.js?v=v2v');
   // Floats per segment: x, y, xx, yy, mode, deepest Z of the segment.
   var job = null, maxText = 20 * 1048576, blockSize = 2048, stride = 6;
   // Geometry blocks in flight before parsing pauses: parsing and drawing overlap

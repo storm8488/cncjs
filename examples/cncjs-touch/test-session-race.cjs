@@ -11,7 +11,7 @@ const source = fs.readFileSync(__dirname + '/touch/app.js', 'utf8');
 // shared: {storage, session, wall} kept by the next page of the same tab (a reload); the
 // monotonic clock (performance.now) restarts with each page, the wall clock goes on.
 function run({ stored, renewedAgo, compact, shared } = {}) {
-  const { document, node } = require('./dom-fixture.cjs').createDOM(['menu']);
+  const { document, node } = require('./dom-fixture.cjs').createDOM(['more']);
   const tab = shared || { storage: {}, session: {}, wall: { now: 1.7e12 } };
   const storage = tab.storage, session = tab.session, requests = [], listeners = {};
   if (stored !== undefined) storage.cnc = JSON.stringify(stored);

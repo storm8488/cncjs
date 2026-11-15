@@ -2,7 +2,7 @@
 // Réglages → Système: tabs, polling only while the tab is visible, per-core rendering,
 // failure back-off and no redundant DOM writes. Network is mocked; nothing reaches a server.
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
-const {document,node,element,activeScreens,stats}=require('./dom-fixture.cjs').createDOM(['menu']);
+const {document,node,element,activeScreens,stats}=require('./dom-fixture.cjs').createDOM(['more']);
 const createElement=document.createElement;document.createElement=tag=>Object.assign(createElement(tag),{style:{}});document.createElementNS=(ns,tag)=>document.createElement(tag);
 const panel=node('screen-settings'),intro=element('div');intro.className='card wide ks-panel-intro';panel.appendChild(intro);
 panel.querySelector=sel=>sel==='.ks-panel-intro'?intro:null;

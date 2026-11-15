@@ -170,7 +170,7 @@ async function busySession() {
       if (paintBusy) { p.frame(); await p.complete(); }
       assert.equal(p.requests.length,0,'active opening cannot request v2');
       p.status(); p.frame(); await p.complete();
-      const latched=!patch.homing;
+      const latched=patch.workflow==='running'||patch.workflow==='paused';
       assert.equal(p.requests.length,latched?0:BOOTSTRAP.length,'work stays latched; startup homing waits for fresh Idle: '+JSON.stringify(patch));
       assert.equal(p.api.state().pending,latched);
       assert.equal(p.api.state().open,!latched);

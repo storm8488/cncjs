@@ -1,0 +1,1325 @@
+{
+  "version": 1,
+  "base": "18d77658",
+  "lignes": [
+    {
+      "id": "CX-01",
+      "sort": "déplacé",
+      "ecran": "machine",
+      "selecteur": "#step-machine-main",
+      "etat": "connecter",
+      "requete": {
+        "canal": "socketio",
+        "evenement": "list",
+        "corps": null,
+        "note": "io.connect(origin, {reconnection:false, forceNew:true, query: token})"
+      },
+      "refus": "Un port déjà « inuse » → aucun choix proposé (« choisissez le contrôleur dans Fichiers »). Un seul port de la mise en service → passe directement à la confirmation (CX-03).",
+      "lot": "L1",
+      "fait": true
+    },
+    {
+      "id": "CX-02",
+      "sort": "déplacé",
+      "ecran": "machine",
+      "selecteur": "#ks-connect .ks-connect-actions button",
+      "etat": "ports",
+      "requete": null,
+      "refus": "Action indisponible dans cet état.",
+      "lot": "L1",
+      "fait": true
+    },
+    {
+      "id": "CX-03",
+      "sort": "déplacé",
+      "ecran": "machine",
+      "selecteur": "#ks-connect .ks-connect-go",
+      "etat": "open",
+      "requete": {
+        "canal": "socketio",
+        "evenement": "list puis open",
+        "corps": {
+          "port": "<port>",
+          "options": {
+            "controllerType": "Grbl",
+            "baudrate": 115200,
+            "rtscts": false
+          }
+        }
+      },
+      "refus": "Re-liste juste avant : port disparu ou un port déjà ouvert → refus côté page.",
+      "lot": "L1",
+      "fait": true
+    },
+    {
+      "id": "CX-04",
+      "sort": "inchangé",
+      "ecran": "(automatique, toute la page)",
+      "selecteur": "job-stream.js → GET /api/touch-events",
+      "etat": "Ouvert dès le démarrage en mode compact ; rouvert après perte ou rotation.",
+      "requete": {
+        "canal": "http",
+        "methode": "GET",
+        "chemin": "/api/touch-events?clientId=<id>",
+        "corps": null
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "CX-05",
+      "sort": "inchangé",
+      "ecran": "(automatique)",
+      "selecteur": "job-controls.js poll() → GET /api/touch-job",
+      "etat": "Quand le flux est muet ; aussi juste avant une commande de l’hôte (tablet-actions.js).",
+      "requete": {
+        "canal": "http",
+        "methode": "GET",
+        "chemin": "/api/touch-job",
+        "corps": null
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "CX-06",
+      "sort": "supprimé",
+      "ecran": "ancien bandeau #status-bar",
+      "selecteur": "#status-bar > button",
+      "etat": "Créé par app.js mais masqué sur la page réelle (.ks-real #status-bar{display:none}).",
+      "requete": {
+        "canal": "navigateur",
+        "methode": "location.reload()",
+        "chemin": null,
+        "corps": null
+      },
+      "refus": "Action indisponible dans cet état.",
+      "lot": "L1",
+      "fait": true,
+      "remplace": "Lecture automatique de l’état"
+    },
+    {
+      "id": "PI-01",
+      "sort": "déplacé",
+      "ecran": "bandeau",
+      "selecteur": "#t-pilot",
+      "etat": "pilot",
+      "requete": null,
+      "refus": "Action indisponible dans cet état.",
+      "lot": "L1",
+      "fait": true
+    },
+    {
+      "id": "PI-02",
+      "sort": "déplacé",
+      "ecran": "dialogue",
+      "selecteur": "#pilot-reason-a",
+      "etat": "takeover",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "control",
+          "operation": "takeover",
+          "reason": "<motif>"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Motif ≥ 3 caractères (sauf administrateur) ; traité avant les contrôles generation / transport",
+      "lot": "L1",
+      "fait": true
+    },
+    {
+      "id": "PI-03",
+      "sort": "inchangé",
+      "ecran": "(automatique, serveur)",
+      "selecteur": "job-service action() → control.authorize({claim:true})",
+      "etat": "Toute action gardée réussie d’un client « touch » sur un port libre (sauf jog-keepalive).",
+      "requete": null,
+      "refus": "Action indisponible dans cet état.",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "OR-01",
+      "sort": "inchangé",
+      "ecran": "Bandeau d’état",
+      "selecteur": "#t-unlock",
+      "etat": "Visible : machine publiée, flux connecté, écran non verrouillé, pas de travail, état Alarm et canUnlock. Gel 600 ms après un toucher (Pause / Reprendre / Déverrouiller).",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "temps1": {
+            "action": "prepare",
+            "operation": "unlock"
+          },
+          "temps2": {
+            "action": "unlock",
+            "nonce": "<nonce>"
+          }
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Ticket à usage unique : nonce, même opération, 15 s, même flux ; noJob : available, pas de palpage, pas de jog du service, workflow idle, file CNCjs vide, pas de chargement ; unlockReady : état Alarm",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "OR-02",
+      "sort": "inchangé",
+      "ecran": "Machine › Connexion et état",
+      "selecteur": ".ks-machine-commands button (1er)",
+      "etat": "Toujours visible ; désactivé si !canUnlock (raison dans #ks-machine-command-reason).",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "temps1": {
+            "action": "prepare",
+            "operation": "unlock"
+          },
+          "temps2": {
+            "action": "unlock",
+            "nonce": "<nonce>"
+          }
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Ticket à usage unique : nonce, même opération, 15 s, même flux ; noJob : available, pas de palpage, pas de jog du service, workflow idle, file CNCjs vide, pas de chargement ; unlockReady : état Alarm",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "OR-03",
+      "sort": "inchangé",
+      "ecran": "Mise en service › Arrêt d’urgence, Fins de course, Prise d’origine",
+      "selecteur": "#screen-commissioning (bouton créé par unlockControl)",
+      "etat": "Étapes estop / limits / homing ; désactivé si !canUnlock, masqué hors alarme (limits, homing).",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "temps1": {
+            "action": "prepare",
+            "operation": "unlock"
+          },
+          "temps2": {
+            "action": "unlock",
+            "nonce": "<nonce>"
+          }
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Ticket à usage unique : nonce, même opération, 15 s, même flux ; noJob : available, pas de palpage, pas de jog du service, workflow idle, file CNCjs vide, pas de chargement ; unlockReady : état Alarm",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "OR-04",
+      "sort": "inchangé",
+      "ecran": "Machine › Connexion et état",
+      "selecteur": ".ks-machine-commands button (2e)",
+      "etat": "Toujours visible ; désactivé si !canHome.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "temps1": {
+            "action": "prepare",
+            "operation": "home"
+          },
+          "temps2": {
+            "action": "home",
+            "nonce": "<nonce>"
+          }
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Ticket à usage unique : nonce, même opération, 15 s, même flux ; noJob : available, pas de palpage, pas de jog du service, workflow idle, file CNCjs vide, pas de chargement ; homeReady : Idle ou Alarm, broche arrêtée, $22 connu et ≠ 0, pas d’automatisme",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "OR-05",
+      "sort": "inchangé",
+      "ecran": "Mise en service › Prise d’origine",
+      "selecteur": "#screen-commissioning .ks-wiz-next",
+      "etat": "Désactivé tant que la case « main sur l’arrêt » n’est pas cochée ou !canHome.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "temps1": {
+            "action": "prepare",
+            "operation": "home"
+          },
+          "temps2": {
+            "action": "home",
+            "nonce": "<nonce>"
+          }
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Ticket à usage unique : nonce, même opération, 15 s, même flux ; noJob : available, pas de palpage, pas de jog du service, workflow idle, file CNCjs vide, pas de chargement ; homeReady : Idle ou Alarm, broche arrêtée, $22 connu et ≠ 0, pas d’automatisme",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "OR-06",
+      "sort": "inchangé",
+      "ecran": "Machine › Connexion et état",
+      "selecteur": "#ks-machine-reread",
+      "etat": "Masqué sauf si $H est refusé pour un réglage inconnu ou si la version Grbl est inconnue ; actif seulement rapport frais, Idle et workflow idle (donc jamais en alarme).",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "readSettings"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; idle : available, pas de palpage, pas de jog, workflow idle, état Idle, file vide ; noJob : available, pas de palpage, pas de jog du service, workflow idle, file CNCjs vide, pas de chargement",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "OR-07",
+      "sort": "inchangé",
+      "ecran": "Préparer (Déplacer / Origine)",
+      "selecteur": "#jog-read-settings",
+      "etat": "Masqué sauf réglage ou version inconnus (settingsMissing) et pas de jog en cours ; actif Idle + workflow idle.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "readSettings"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; idle : available, pas de palpage, pas de jog, workflow idle, état Idle, file vide ; noJob : available, pas de palpage, pas de jog du service, workflow idle, file CNCjs vide, pas de chargement",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "OR-08",
+      "sort": "inchangé",
+      "ecran": "Mise en service › Sauvegarde des réglages",
+      "selecteur": "#screen-commissioning .ks-wiz-row button (2e)",
+      "etat": "Actif rapport frais, Idle, workflow idle.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "readSettings"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; idle : available, pas de palpage, pas de jog, workflow idle, état Idle, file vide ; noJob : available, pas de palpage, pas de jog du service, workflow idle, file CNCjs vide, pas de chargement",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "DE-01",
+      "sort": "inchangé",
+      "ecran": "Préparer › Axes X / Y, Axe Z",
+      "selecteur": "#screen-jog .jog[data-axis][data-dir] (mode pas)",
+      "etat": "v1 : carte .ks-motion-arrows de Préparer. v2 : cachée en mode « comparaison », visible après « Déplacer la machine… » (#pv2-jog-open). Désactivées avec leur raison (moveReason : suivi, état, pilote, capacité, palpage, travail, alarme, jog en cours, ticket d’origine, continu par axe).",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "motion",
+          "operation": "jog",
+          "axis": "X|Y|Z",
+          "direction": "1|-1",
+          "step": "0.1|1|10|25|50|100",
+          "feed": "100|250|500|1000|2000 (≤ min $11x)"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Fonction de déplacement : Grbl ≥ 1.1 connu et .cncrc touch.motion.enabled === true ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Le déplacement vient de l’appareil dont le flux transportId est ouvert ; atRest : available, pas de palpage ni chargement, workflow idle, pas d’alarme, pas de jog en cours, Idle, file vide, pas d’automatisme ; $13 = 0 ; pas ∈ STEPS ; avance 1 … $11x (500 si inconnu) ; broche → pas ≤ 0,1 ; pas > 1 mm : référencé + course connue ; cible dans la course ; ≤ 60 s",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "DE-02",
+      "sort": "inchangé",
+      "ecran": "Préparer › Axes",
+      "selecteur": "#screen-jog .jog (mode Continu, #steps [data-step=hold])",
+      "etat": "Comme DE-01 ; « Continu » visible seulement si capabilities.jogContinuous.enabled ; raison par axe (référence, course, broche).",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "motion",
+          "operation": "jog-start",
+          "axis": "X|Y|Z",
+          "direction": "1|-1",
+          "feed": "<avance>"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Fonction de déplacement : Grbl ≥ 1.1 connu et .cncrc touch.motion.enabled === true ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Le déplacement vient de l’appareil dont le flux transportId est ouvert ; atRest : available, pas de palpage ni chargement, workflow idle, pas d’alarme, pas de jog en cours, Idle, file vide, pas d’automatisme ; Machine référencée et course connue ; broche arrêtée ; ≥ 0,5 mm avant le bord (marge 1 mm)",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "DE-03",
+      "sort": "inchangé",
+      "ecran": "Préparer (automatique pendant l’appui)",
+      "selecteur": "real-motion.js keepalive()",
+      "etat": "Toutes les ≤ 150 ms (100 ms annoncés par le serveur) tant que le doigt reste ; jamais plus de 2 en vol.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "motion",
+          "operation": "jog-keepalive",
+          "jogId": "<id>"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Fonction de déplacement : Grbl ≥ 1.1 connu et .cncrc touch.motion.enabled === true ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Même client et même flux que le jog",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "DE-04",
+      "sort": "inchangé",
+      "ecran": "Préparer",
+      "selecteur": "#screen-jog .jog (pointerup / pointercancel / pointerleave / lostpointercapture)",
+      "etat": "Le bouton tenu n’est jamais désactivé (son relâchement doit l’atteindre).",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "motion",
+          "operation": "jog-stop",
+          "port": "<port du jog>",
+          "jogId": "<id si connu>"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Action libre pour tous (SAFE_ACTIONS), même port piloté par un autre ; generation / transportId vérifiés seulement s’ils sont fournis ; tolérés périmés pour pause, stop, spindleStop, jog-stop",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "DE-05",
+      "sort": "inchangé",
+      "ecran": "Préparer (automatique)",
+      "selecteur": "real-motion.js stopHold / stopStep",
+      "etat": "Fenêtre quittée (blur), page masquée, changement d’écran, verrouillage, pagehide, autre appui, toucher d’un bouton Arrêter (capture), flux perdu, autre port ou autre carte, pilote pris (pas), rapport périmé (pas), bouton tenu masqué ou rendu inerte, réponse incertaine à jog-start (arrêt de précaution).",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "motion",
+          "operation": "jog-stop",
+          "port": "<port>"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Action libre pour tous (SAFE_ACTIONS), même port piloté par un autre ; generation / transportId vérifiés seulement s’ils sont fournis ; tolérés périmés pour pause, stop, spindleStop, jog-stop",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "DE-06",
+      "sort": "inchangé",
+      "ecran": "(automatique, serveur)",
+      "selecteur": "motion.js watch / watchStep / stopReason",
+      "etat": "Jog continu : maintien absent 250 ms, durée prévue + marge, flux fermé, pilote changé, rapport > 2,5 s, alarme, fonction désactivée. Pas : fonction désactivée, flux fermé, pilote changé, rapport périmé.",
+      "requete": null,
+      "refus": "Action indisponible dans cet état.",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "DE-07",
+      "sort": "inchangé",
+      "ecran": "Préparer › Pas · mm ; feuille « Vitesse de déplacement »",
+      "selecteur": "#steps .step[data-step], #feeds .step[data-feed], #ks-jog-settings, #pv2-tool-speed",
+      "etat": "Choix locaux ; pas filtrés par capabilities.jog.steps, vitesses ≤ min($110–$112) (500 si inconnu) ; désactivés pendant un jog.",
+      "requete": null,
+      "refus": "Action indisponible dans cet état.",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "DE-08",
+      "sort": "inchangé",
+      "ecran": "Suivi › Cadrage du programme (laser)",
+      "selecteur": "#home-frame-start",
+      "etat": "Carte visible profil laser et workflow idle ; désactivé avec la raison si laserFrame non pris en charge.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "temps1": {
+            "action": "machine",
+            "operation": "frame-prepare"
+          },
+          "temps2": {
+            "action": "machine",
+            "operation": "frame",
+            "nonce": "<nonce>"
+          }
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation (machine) et flux obligatoires ; Le déplacement vient de l’appareil dont le flux transportId est ouvert ; atRest : available, pas de palpage ni chargement, workflow idle, pas d’alarme, pas de jog en cours, Idle, file vide, pas d’automatisme ; framePlan",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "ZE-01",
+      "sort": "inchangé",
+      "ecran": "Préparer › Coordonnées du contrôleur",
+      "selecteur": "#jog-zero-x, #jog-zero-y, #jog-zero-z",
+      "etat": "v1 : tableau des coordonnées. v2 : tableau caché en mode comparaison, visible en mode « Déplacer la machine… ». Désactivé avec la raison originReason (état, capacité setOrigin, ticket ou jog en cours). Laser sans Z : Zéro Z masqué.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "temps1": {
+            "action": "prepare",
+            "operation": "set-origin",
+            "axes": [
+              "X"
+            ]
+          },
+          "temps2": {
+            "action": "set-origin",
+            "nonce": "<nonce>"
+          }
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Fonction de déplacement : Grbl ≥ 1.1 connu et .cncrc touch.motion.enabled === true ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Ticket à usage unique : nonce, même opération, 15 s, même flux ; atRest : available, pas de palpage ni chargement, workflow idle, pas d’alarme, pas de jog en cours, Idle, file vide, pas d’automatisme ; originReady : repère actif connu par un $G récent ; positions machine connues ; repère et position inchangés à l’exécution",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "ZE-02",
+      "sort": "inchangé",
+      "ecran": "Préparer › Coordonnées du contrôleur",
+      "selecteur": "#jog-zero-xyz",
+      "etat": "v1 seulement : en v2 la ligne .ks-motion-zero est cachée dans les deux modes (relais ZE-03). Laser avec Z masqué : libellé « Zéro XY » et data-axis=\"xy\".",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "temps1": {
+            "action": "prepare",
+            "operation": "set-origin",
+            "axes": [
+              "X",
+              "Y",
+              "Z"
+            ]
+          },
+          "temps2": {
+            "action": "set-origin",
+            "nonce": "<nonce>"
+          }
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Fonction de déplacement : Grbl ≥ 1.1 connu et .cncrc touch.motion.enabled === true ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Ticket à usage unique : nonce, même opération, 15 s, même flux ; atRest : available, pas de palpage ni chargement, workflow idle, pas d’alarme, pas de jog en cours, Idle, file vide, pas d’automatisme ; originReady : repère actif connu par un $G récent ; positions machine connues ; repère et position inchangés à l’exécution",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "ZE-03",
+      "sort": "inchangé",
+      "ecran": "Préparer v2 › résumé (outils)",
+      "selecteur": "#pv2-tool-zero",
+      "etat": "Actif tant que #jog-zero-xyz (caché) est actif ; le clic est traité par real-motion.js, qui vérifie ce bouton visible à la place du caché.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "temps1": {
+            "action": "prepare",
+            "operation": "set-origin",
+            "axes": [
+              "X",
+              "Y",
+              "Z"
+            ]
+          },
+          "temps2": {
+            "action": "set-origin",
+            "nonce": "<nonce>"
+          }
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Fonction de déplacement : Grbl ≥ 1.1 connu et .cncrc touch.motion.enabled === true ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Ticket à usage unique : nonce, même opération, 15 s, même flux ; atRest : available, pas de palpage ni chargement, workflow idle, pas d’alarme, pas de jog en cours, Idle, file vide, pas d’automatisme ; originReady : repère actif connu par un $G récent ; positions machine connues ; repère et position inchangés à l’exécution",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "ZE-04",
+      "sort": "inchangé",
+      "ecran": "Dialogue « Définir l’origine de travail »",
+      "selecteur": "#real-motion-origin-confirm / #real-motion-origin-cancel",
+      "etat": "Ouvert après le ticket ; fermé par expiration (15 s), changement d’état, d’écran, verrouillage, page masquée. Échap = Annuler.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "set-origin",
+          "nonce": "<nonce>"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Fonction de déplacement : Grbl ≥ 1.1 connu et .cncrc touch.motion.enabled === true ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Ticket à usage unique : nonce, même opération, 15 s, même flux ; atRest : available, pas de palpage ni chargement, workflow idle, pas d’alarme, pas de jog en cours, Idle, file vide, pas d’automatisme ; originReady : repère actif connu par un $G récent ; positions machine connues ; repère et position inchangés à l’exécution",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "ZE-05",
+      "sort": "inchangé",
+      "ecran": "Préparer v2 › 2 · Origine X Y",
+      "selecteur": "#pv2-set-xy, #pv2-jog-open, #pv2-jog-close",
+      "etat": "Navigation seulement : ouvre la zone de déplacement où sont Zéro X / Zéro Y (aucune commande).",
+      "requete": null,
+      "refus": "Action indisponible dans cet état.",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "PA-01",
+      "sort": "inchangé",
+      "ecran": "Suivi › Zéro Z avec une plaque",
+      "selecteur": "#home-plate-probe (+ champs #home-plate-thickness, #home-plate-search)",
+      "etat": "Carte visible hors laser si canZeroZ ou palpage en cours (masquée sinon, sans raison) ; bouton désactivé si !canZeroZ ; épaisseur 0,01–50 et descente 1–100 vérifiées par la page, mémorisées dans le navigateur.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "temps1": {
+            "action": "prepare",
+            "operation": "zeroZ",
+            "thickness": "<mm>",
+            "search": "<mm>"
+          },
+          "temps2": {
+            "action": "zeroZ",
+            "nonce": "<nonce>"
+          }
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Ticket à usage unique : nonce, même opération, 15 s, même flux ; zeroZReady : available, pas de palpage / jog / chargement, repos ou pause M0/M1/M6, Idle, file vide, broche arrêtée, $G récent, G90, G21, $13 = 0, G0/G1+F en pause, repère connu, Z connu, sonde rapportée fraîche et libre, pas d’automatisme. Ni référence, ni contrôle de course.",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "PA-02",
+      "sort": "inchangé",
+      "ecran": "Sonde",
+      "selecteur": "#probe-zero-z",
+      "etat": "Masqué en laser ; désactivé si !canZeroZ. Navigation vers Suivi + focus sur PA-01.",
+      "requete": null,
+      "refus": "Action indisponible dans cet état.",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "PA-03",
+      "sort": "inchangé",
+      "ecran": "Sonde",
+      "selecteur": "#probe-start (choix [data-probe-operation] Z / X / Y / XYZ, #probe-wcs, #probe-diameter, profil)",
+      "etat": "Actif si launchState.ready : machine fraîche, pas pilotée par un autre, profil valide, repère choisi = repère actif, canBlockProbe, rien en attente, pas de cycle.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "temps1": {
+            "action": "prepare",
+            "operation": "blockProbe",
+            "axes": "Z|X|Y|XYZ",
+            "wcs": "G54…G59",
+            "diameter": "<mm|null>",
+            "profile": {
+              "thickness": 0,
+              "faceX": 0,
+              "faceY": 0,
+              "fast": 0,
+              "slow": 0,
+              "search": 0,
+              "retract": 0,
+              "clearance": 0,
+              "corner": "--|+-|-+|++|null",
+              "directionX": "1|-1|null",
+              "directionY": "1|-1|null"
+            }
+          },
+          "temps2": {
+            "action": "blockProbe",
+            "nonce": "<nonce>"
+          }
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Ticket à usage unique : nonce, même opération, 15 s, même flux ; blockReady : capacité plateProbe, jog activé, zeroZReady, workflow idle, pas de homing, M5, G94, machine référencée, course connue et position dedans, $110–$112 connus, MPos connue, test du contact fait (< 10 min et après le dernier échec) ; Paramètres, plan et pilote",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "PA-04",
+      "sort": "inchangé",
+      "ecran": "Sonde",
+      "selecteur": "#probe-stop",
+      "etat": "Actif pendant un cycle si canStop (ou état perdu avec halt.canStop).",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "stop"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Action libre pour tous (SAFE_ACTIONS), même port piloté par un autre ; generation / transportId vérifiés seulement s’ils sont fournis ; tolérés périmés pour pause, stop, spindleStop, jog-stop",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "PA-05",
+      "sort": "inchangé",
+      "ecran": "Sonde, Profils, Diagnostic, Transfert",
+      "selecteur": "#probe-test, [data-probe-operation], #probe-profile, #probe-save, #probe-profiles-import/-export…",
+      "etat": "Local au navigateur (profils, choix) ; le diagnostic lit les rapports (Pn) sans commande. Le « test du contact » exigé par blockReady est déduit côté serveur des rapports.",
+      "requete": null,
+      "refus": "Action indisponible dans cet état.",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "PA-06",
+      "sort": "inchangé",
+      "ecran": "(automatique, serveur)",
+      "selecteur": "block-probe.js superviseur",
+      "etat": "Arrêter, Pause, M5, flux de la tablette fermé (3 s de grâce en rotation), pilote pris, rapports interrompus 2,5 s, durée 240 s ; alarme ou redémarrage : fin sans autre ligne.",
+      "requete": null,
+      "refus": "Action indisponible dans cet état.",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "FI-01",
+      "sort": "déplacé",
+      "ecran": "files",
+      "selecteur": "#step-files-main",
+      "etat": "charger",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "load",
+          "file": "<fichier>"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation / transportId vérifiés seulement s’ils sont fournis ; tolérés périmés pour pause, stop, spindleStop, jog-stop ; idle : available, pas de palpage, pas de jog, workflow idle, état Idle, file vide ; Chargement unique, fichier de la bibliothèque",
+      "lot": "L1",
+      "fait": true
+    },
+    {
+      "id": "FI-02",
+      "sort": "inchangé",
+      "ecran": "Suivi",
+      "selecteur": "#home-job-load",
+      "etat": "Masqué sans sélection ou pendant un travail ; désactivé comme #job-load.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "load",
+          "file": "<fichier>"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation / transportId vérifiés seulement s’ils sont fournis ; tolérés périmés pour pause, stop, spindleStop, jog-stop ; idle : available, pas de palpage, pas de jog, workflow idle, état Idle, file vide ; Chargement unique, fichier de la bibliothèque",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "FI-03",
+      "sort": "inchangé",
+      "ecran": "Préparer › Préparation guidée (feuille)",
+      "selecteur": "#ks-prep-load",
+      "etat": "Visible si l’étape Fichier n’est pas « ok », une sélection existe et #job-load est actif.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "load",
+          "file": "<fichier>"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation / transportId vérifiés seulement s’ils sont fournis ; tolérés périmés pour pause, stop, spindleStop, jog-stop ; idle : available, pas de palpage, pas de jog, workflow idle, état Idle, file vide ; Chargement unique, fichier de la bibliothèque",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "FI-04",
+      "sort": "inchangé",
+      "ecran": "Fichiers",
+      "selecteur": "#job-port",
+      "etat": "Choisit le port visé par toutes les commandes de la page ; un changement annule le ticket en cours.",
+      "requete": null,
+      "refus": "Action indisponible dans cet état.",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "FI-05",
+      "sort": "inchangé",
+      "ecran": "Fichiers, Suivi (aperçu), Mise en service",
+      "selecteur": "#library-send, #library-regenerate, import d’aperçu (preview-3d), fiche projet, « Ajouter le fichier d’essai »",
+      "etat": "Écrivent dans le dossier surveillé ou les fiches projets ; aucune commande au contrôleur.",
+      "requete": {
+        "canal": "http",
+        "methode": "PUT",
+        "chemin": "/api/watch/file?file=… ; /api/touch-projects",
+        "corps": "<fichier ou fiche>"
+      },
+      "refus": "Session CNCjs",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "EX-01",
+      "sort": "déplacé",
+      "ecran": "dialogue",
+      "selecteur": "#job-confirm",
+      "etat": "confirm",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "<operation>",
+          "nonce": "<nonce>",
+          "frame:": "{action:\"machine\", operation:\"frame\", nonce}"
+        }
+      },
+      "refus": "Ticket à usage unique : nonce, même opération, 15 s, même flux",
+      "lot": "L1",
+      "fait": true
+    },
+    {
+      "id": "EX-02",
+      "sort": "déplacé",
+      "ecran": "check",
+      "selecteur": "#step-check-main",
+      "etat": "demarrer",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "temps1": {
+            "action": "prepare",
+            "operation": "start",
+            "revision": "<révision>"
+          },
+          "temps2": {
+            "action": "start",
+            "nonce": "<nonce>"
+          }
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Ticket à usage unique : nonce, même opération, 15 s, même flux ; readyFor(start) : fichier chargé = révision (sinon « a changé »), available, pas de palpage, idle, broche arrêtée, pas de chargement, pas déjà démarré, mode laser/CNC de la reprise, $32 en laser, G21/G90 si le programme ne les fixe pas, pas d’automatisme. Aucun refus pour un dépassement de course (avertissement).",
+      "lot": "L1",
+      "fait": true
+    },
+    {
+      "id": "EX-03",
+      "sort": "déplacé",
+      "ecran": "bandeau",
+      "selecteur": "#t-pause",
+      "etat": "pause",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "pause"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Action libre pour tous (SAFE_ACTIONS), même port piloté par un autre ; generation / transportId vérifiés seulement s’ils sont fournis ; tolérés périmés pour pause, stop, spindleStop, jog-stop ; workflow running (ou palpage au bloc, ou jog du service)",
+      "lot": "L1",
+      "fait": true
+    },
+    {
+      "id": "EX-04",
+      "sort": "déplacé",
+      "ecran": "bandeau",
+      "selecteur": "#t-resume",
+      "etat": "resume",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "temps1": {
+            "action": "prepare",
+            "operation": "resume",
+            "revision": "<révision>"
+          },
+          "temps2": {
+            "action": "resume",
+            "nonce": "<nonce>"
+          }
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Ticket à usage unique : nonce, même opération, 15 s, même flux ; readyFor(resume) : pause simple confirmée (Hold) ou pause programme M0/M1/M6 au repos sans file ; pas démarré du PC ; pas de pause sur erreur ; pas de redémarrage de carte ; pas d’échec de palpage ; M6 refusé en laser ; pas d’automatisme",
+      "lot": "L1",
+      "fait": true
+    },
+    {
+      "id": "EX-05",
+      "sort": "déplacé",
+      "ecran": "bandeau",
+      "selecteur": "#t-stop",
+      "etat": "stop",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "stop"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Action libre pour tous (SAFE_ACTIONS), même port piloté par un autre ; generation / transportId vérifiés seulement s’ils sont fournis ; tolérés périmés pour pause, stop, spindleStop, jog-stop ; Quelque chose à arrêter",
+      "lot": "L1",
+      "fait": true
+    },
+    {
+      "id": "EX-06",
+      "sort": "inchangé",
+      "ecran": "Suivi › avis de pause programme",
+      "selecteur": "#home-pause-m5",
+      "etat": "Visible en pause programme ou broche qui tourne sans travail, si canSpindleStop et vitesse > 0.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "spindleStop"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Action libre pour tous (SAFE_ACTIONS), même port piloté par un autre ; generation / transportId vérifiés seulement s’ils sont fournis ; tolérés périmés pour pause, stop, spindleStop, jog-stop ; spindleStopReady : contrôleur prêt (sans exigence de fraîcheur), repos ou pause programme M0/M1/M6 en Idle",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "EX-07",
+      "sort": "déplacé",
+      "ecran": "more",
+      "selecteur": "#ks-macros-open",
+      "etat": "macro",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "temps1": {
+            "action": "prepare",
+            "operation": "macro",
+            "macroId": "<id>"
+          },
+          "temps2": {
+            "action": "macro",
+            "nonce": "<nonce>"
+          }
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Ticket à usage unique : nonce, même opération, 15 s, même flux ; macroReady : idle, broche arrêtée, pas de chargement, pas d’automatisme ; macro existante",
+      "lot": "L1",
+      "fait": true
+    },
+    {
+      "id": "CO-01",
+      "sort": "inchangé",
+      "ecran": "Suivi › Corrections › Avance",
+      "selecteur": "#home-overrides button[data-kind=feed][data-value=-10|0|10|-1|1]",
+      "etat": "Carte #home-overrides (masquée si le serveur ne publie pas canOverride). Actif si état frais, pas occupé et canOverride (travail en cours ou en pause). v1 et v2 : sous l’aperçu.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "override",
+          "kind": "feed",
+          "value": "-10|0|10|-1|1"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; overridable : available ; workflow running ou paused ; Valeur admise",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "CO-02",
+      "sort": "inchangé",
+      "ecran": "Suivi › Corrections › Broche (Consigne S en laser)",
+      "selecteur": "button[data-kind=spindle][data-value=-10|0|10|-1|1]",
+      "etat": "Carte #home-overrides (masquée si le serveur ne publie pas canOverride). Actif si état frais, pas occupé et canOverride (travail en cours ou en pause). v2 : rangée déplacée dans la feuille « Broche et rapides » (#home-v2-more-overrides « Broche / rapides… »).",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "override",
+          "kind": "spindle",
+          "value": "-10|0|10|-1|1"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; overridable : available ; workflow running ou paused ; Valeur admise",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "CO-03",
+      "sort": "inchangé",
+      "ecran": "Suivi › Corrections › Rapides",
+      "selecteur": "button[data-kind=rapid][data-value=25|50|100]",
+      "etat": "Carte #home-overrides (masquée si le serveur ne publie pas canOverride). Actif si état frais, pas occupé et canRapidOverride (aussi au repos). v2 : rangée déplacée dans la feuille « Broche et rapides » (#home-v2-more-overrides « Broche / rapides… »).",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "override",
+          "kind": "rapid",
+          "value": "25|50|100"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; rapidOverridable : available ; travail en cours / pause, ou repos Idle sans file ; Valeur admise",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "RL-01",
+      "sort": "inchangé",
+      "ecran": "Suivi",
+      "selecteur": "#home-resume-line",
+      "etat": "Visible seulement : état frais, workflow idle, canLoad et une sélection (sinon masqué sans raison) ; désactivé si la reprise laser n’est pas prise en charge. Ouvre le panneau, rien n’est envoyé.",
+      "requete": null,
+      "refus": "Action indisponible dans cet état.",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "RL-02",
+      "sort": "inchangé",
+      "ecran": "Suivi › panneau de reprise",
+      "selecteur": "#home-resume-check (+ #home-resume-input)",
+      "etat": "Ligne entière ≥ 2 (pavé numérique). Montre le préambule exact du serveur.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "resumePlan",
+          "file": "<fichier>",
+          "line": "<n>"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Action libre pour tous (SAFE_ACTIONS), même port piloté par un autre ; generation / transportId vérifiés seulement s’ils sont fournis ; tolérés périmés pour pause, stop, spindleStop, jog-stop ; Mode de reprise du profil (CNC, laser : $32)",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "RL-03",
+      "sort": "inchangé",
+      "ecran": "Suivi › panneau de reprise",
+      "selecteur": "#home-resume-load",
+      "etat": "Actif après une vérification réussie de la même ligne et du même fichier.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "load",
+          "file": "<fichier>",
+          "fromLine": "<n>"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation / transportId vérifiés seulement s’ils sont fournis ; tolérés périmés pour pause, stop, spindleStop, jog-stop ; idle : available, pas de palpage, pas de jog, workflow idle, état Idle, file vide ; Chargement unique, fichier de la bibliothèque ; Fichier inchangé depuis Vérifier",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "RM-01",
+      "sort": "inchangé",
+      "ecran": "Réglages › Machine › Type de machine",
+      "selecteur": "#ks-machine-kind-card [data-machine-kind=cnc|laser]",
+      "etat": "Actif si machineProfile.canChange, machine publiée, rien en cours ; un toucher sans confirmation. La page exige le flux (run).",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "machine",
+          "operation": "set-kind",
+          "kind": "cnc|laser",
+          "label": "<nom>"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation ; flux s’il est fourni ; type valide ; machineReady (connexion, rapport frais, rien en cours, Idle, $$ lus, fiche non ambiguë)",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "RM-02",
+      "sort": "inchangé",
+      "ecran": "Mise en service › Broche et variateur (CNC)",
+      "selecteur": "#screen-commissioning .ks-wiz-next",
+      "etat": "Actif cases « pince vide » + « variateur » cochées, canSpindleTest, broche à l’arrêt ; absent en laser.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "temps1": {
+            "action": "prepare",
+            "operation": "spindle"
+          },
+          "temps2": {
+            "action": "spindle",
+            "nonce": "<nonce>"
+          }
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Ticket à usage unique : nonce, même opération, 15 s, même flux ; spindleReady : capacité spindleTest, idle, noJob, $30 connu, pas d’automatisme ; vitesse inchangée",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "RM-03",
+      "sort": "inchangé",
+      "ecran": "Mise en service › Broche et variateur",
+      "selecteur": "#screen-commissioning .ks-wiz-danger",
+      "etat": "Actif si canSpindleStop.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "spindleStop"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Action libre pour tous (SAFE_ACTIONS), même port piloté par un autre ; generation / transportId vérifiés seulement s’ils sont fournis ; tolérés périmés pour pause, stop, spindleStop, jog-stop",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "RM-04",
+      "sort": "inchangé",
+      "ecran": "Mise en service (automatique)",
+      "selecteur": "commissioning.js stopSpindle()",
+      "etat": "Si une mise en route a été demandée à cette étape ou si la broche tourne ; annule aussi la confirmation ouverte.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "spindleStop"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Action libre pour tous (SAFE_ACTIONS), même port piloté par un autre ; generation / transportId vérifiés seulement s’ils sont fournis ; tolérés périmés pour pause, stop, spindleStop, jog-stop",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "RM-05",
+      "sort": "inchangé",
+      "ecran": "Mise en service › Sauvegarde des réglages",
+      "selecteur": "#screen-commissioning .ks-wiz-row button (1er)",
+      "etat": "Actif si des réglages ont été lus.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "settings"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Action libre pour tous (SAFE_ACTIONS), même port piloté par un autre",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "SY-01",
+      "sort": "inchangé",
+      "ecran": "Réglages › Affichage › Luminosité (Serveur CNCjs)",
+      "selecteur": ".ks-backlight-slider, .ks-backlight-step (− / +)",
+      "etat": "Actifs si le serveur annonce un rétroéclairage disponible et modifiable ; curseur tactile appliqué au relâchement, une requête à la fois.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-backlight",
+        "corps": {
+          "percent": "5…100"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Aucune garde de pilotage ni d’état machine",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "SY-02",
+      "sort": "inchangé",
+      "ecran": "(automatique) veille de l’écran",
+      "selecteur": "backlight.js saver() sur cnc-screen-saver-sleep ; chargement de la page",
+      "etat": "Veille : {percent: 0 (Écran éteint) ou 5, temporary: true} sauf mode « Inchangée » ; réveil : {wake: true}, réessayé jusqu’à 5 fois puis à chaque toucher ; toute page qui charge envoie {wake: true}.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-backlight",
+        "corps": {
+          "percent": "0|5",
+          "temporary": true,
+          "ou": {
+            "wake": true
+          }
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Toute session, depuis n’importe quel appareil",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "SY-03",
+      "sort": "inchangé",
+      "ecran": "Réglages › Système › Wi-Fi",
+      "selecteur": "boutons « Rechercher les réseaux », .ks-wifi-network, « Réseau masqué… », « Se connecter », « Oublier ce réseau »",
+      "etat": "Refusés côté page pendant un travail ou une requête ; un seul toucher (pas de second temps).",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-wifi",
+        "corps": {
+          "action": "scan | connect | forget",
+          "ssid": "<nom>",
+          "password": "<secret>",
+          "hidden": "true?"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Aucun autre appareil ne pilote un port (refuseSystemCommand) puis réservation exclusive de la machine (travail, pause, homing, jog, palpage, chargement, rapport périmé, broche → refus) ; SSID et mot de passe valides ; réseau utilisé non oubliable",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "SY-04",
+      "sort": "inchangé",
+      "ecran": "Réglages › Système › Mises à jour",
+      "selecteur": ".ks-updates-check, .ks-updates-install",
+      "etat": "Désactivés pendant un travail, une tâche en cours ou apt absent ; Installer demande un second toucher en 8 s.",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-updates",
+        "corps": {
+          "action": "check | install"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Aucun autre appareil ne pilote un port (refuseSystemCommand) puis réservation exclusive de la machine (travail, pause, homing, jog, palpage, chargement, rapport périmé, broche → refus) ; apt présent, sudo sans mot de passe, une seule tâche",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "SY-05",
+      "sort": "inchangé",
+      "ecran": "Réglages › Système › Tablette",
+      "selecteur": ".ks-tablet-action",
+      "etat": "Liste des commandes activées dans CNCjs ; désactivées pendant un travail ou une commande système ; second toucher en 8 s ; la page relit GET /api/touch-job juste avant (frais, idle, Idle/Alarm/Sleep, broche à 0).",
+      "requete": {
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/commands/run/:id",
+        "corps": {
+          "clientId": "<id>",
+          "clientLabel": "<nom>"
+        }
+      },
+      "refus": "Session CNCjs (req.user) et service tactile démarré ; Aucun autre appareil ne pilote un port (refuseSystemCommand) puis réservation exclusive de la machine (travail, pause, homing, jog, palpage, chargement, rapport périmé, broche → refus) ; Commande connue et activée",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "SY-06",
+      "sort": "inchangé",
+      "ecran": "Bandeau d’état",
+      "selecteur": "#t-lock",
+      "etat": "Local : verrouillé, seuls Pause, Arrêter et le cadenas répondent ; ferme les dialogues et arrête un jog tenu (DE-05). Déverrouillage en deux touchers.",
+      "requete": null,
+      "refus": "Action indisponible dans cet état.",
+      "lot": "L2-L6",
+      "fait": false
+    },
+    {
+      "id": "N-01",
+      "sort": "nouveau",
+      "ecran": "jog,check",
+      "selecteur": "[data-action=\"verifier-zero\"]",
+      "etat": "workOffset failed, canVerify true",
+      "requete": {
+        "canal": "http",
+        "action": "verifyOffset"
+      },
+      "refus": "workOffset.canVerify false",
+      "lot": "L1",
+      "fait": true
+    },
+    {
+      "id": "N-02",
+      "sort": "nouveau",
+      "ecran": "à réaliser",
+      "selecteur": null,
+      "etat": "à réaliser",
+      "requete": {
+        "action": "prepare start override travel"
+      },
+      "refus": "gardes du serveur",
+      "lot": "L4",
+      "fait": false
+    },
+    {
+      "id": "N-03",
+      "sort": "nouveau",
+      "ecran": "à réaliser",
+      "selecteur": null,
+      "etat": "à réaliser",
+      "requete": {
+        "action": "set-origin at machine"
+      },
+      "refus": "gardes du serveur",
+      "lot": "L3a",
+      "fait": false
+    },
+    {
+      "id": "N-04",
+      "sort": "nouveau",
+      "ecran": "à réaliser",
+      "selecteur": null,
+      "etat": "à réaliser",
+      "requete": {
+        "action": "check"
+      },
+      "refus": "gardes du serveur",
+      "lot": "L4",
+      "fait": false
+    }
+  ]
+}

@@ -33,7 +33,7 @@ const fs=require('fs'),vm=require('vm'),assert=require('assert');
  state({fresh:false});assert.equal(b._state.textContent,'✓ Sélectionné');assert.match(node('library-selection-state').textContent,/indisponible/);
  state(null);assert.equal(b._state.textContent,'✓ Sélectionné');
  // Hidden state is retained without repaint; pagination derives current badges.
- activeScreens.clear();handlers['cnc-screen-change']({detail:'menu'});const hiddenWrites=stats.writes;
+ activeScreens.clear();handlers['cnc-screen-change']({detail:'more'});const hiddenWrites=stats.writes;
  state({name:'e.nc',workflow:'running',activeState:'Run'});assert.equal(stats.writes,hiddenWrites);
  activeScreens.add('files');handlers['cnc-screen-change']({detail:'files'});
  await reply({configured:true});await reply({files});

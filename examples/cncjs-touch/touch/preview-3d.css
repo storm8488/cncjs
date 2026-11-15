@@ -11,3 +11,5 @@
    the image stays visible (.job-art stays a row: a status in its flow would become a third column). */
 .ks-ui .job-art .pv3d-status{top:64px;bottom:auto;right:8px}
 .pv3d-status[hidden],.pv3d-views[hidden]{display:none!important}
+
+/* Current content hosts retain the existing card rules. */

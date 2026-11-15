@@ -76,7 +76,7 @@ function load(options = {}) {
     addEventListener(n, f) { (listeners['doc:' + n] || (listeners['doc:' + n] = [])).push(f); },
     removeEventListener(n, f) { listeners['doc:' + n] = (listeners['doc:' + n] || []).filter((x) => x !== f); } });
   // job-controls reads these by id from its own markup (innerHTML is not parsed here).
-  ['job-port', 'job-feedback', 'job-load', 'job-start', 'job-pause', 'job-resume', 'job-stop', 'job-progress', 'job-check', 'job-confirm', 'job-dismiss',
+  ['job-dialog-modify','job-dialog-details','job-warning','job-check-text','pilot-other','job-port', 'job-feedback', 'job-load', 'job-start', 'job-pause', 'job-resume', 'job-stop', 'job-progress', 'job-check', 'job-confirm', 'job-dismiss',
     'pilot-reason', 'pilot-dismiss', 'pilot-reason-a', 'pilot-reason-b', 'pilot-feedback', 'pilot-dialog-text', 'job-dialog-title', 'job-dialog-file', 'job-countdown', 'job-countdown-bar',
     'job-state', 'job-selected', 'job-loaded', 'job-reason'].forEach(el);
   function XHR() { this.responseText = ''; this.status = 0; this.headers = {}; this.open = (method, url) => { this.method = method; this.url = url; }; this.setRequestHeader = (k, v) => { this.headers[k] = v; }; this.send = (b) => { this.body = b && JSON.parse(b); requests.push(this); }; this.abort = () => { this.aborted = true; }; }

@@ -560,3 +560,5 @@ body.display-large main .card h2 {
 body.display-large main .coords b {
   font-size: clamp(24px, 3vw, 38px);
 }
+
+/* Current content hosts retain the existing card rules. */

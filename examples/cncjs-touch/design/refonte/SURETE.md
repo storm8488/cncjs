@@ -131,3 +131,11 @@ Ce complément ne vaut pas relecture matérielle ni validation du harnais. Aucun
 | Chargement d'une reprise | Sélection de la bibliothèque → fichier arrêté par défaut, à défaut sélection ; fichier nommé avant vérification puis dans le plan. Une réponse d'une ancienne ligne, d'un ancien fichier ou reçue alors que canLoad est faux n'arme pas Charger. Charger appelle toujours loadFrom(file, line), avec les gardes du serveur et la confirmation de départ ultérieure. | test-job-resume.cjs : sélection distincte, ligne suggérée, fichier effectivement vérifié/chargé, saisie pendant la requête et refus de chargement survenu pendant la requête. |
 
 Les autres corrections P3 ne changent que l'affichage, le traitement de refus déjà reçus ou des champs locaux non configurés. Les relectures de sûreté et les essais du matériel restent à l'orchestrateur.
+
+## L1 — Common frame and command owners (2026-11-15)
+
+- The session frame adds no machine request except the planned verifyOffset action, still guarded by workOffset.canVerify and the server lease. Missing D2 proof never becomes a completed work zero.
+- Load, start and resume use direct owners with the old disabled guards. The other-owner page guard is stricter. Pause and Stop retain halt, remain independent of busy, and never acquire a confirmation or new delay. The hidden controls remain until their later removal lots.
+- Every existing ticket operation retains its checkbox, nonce, stream binding, expiry and execution guard. The handler additionally refuses confirmation before 600 ms. Named effect labels and technical Details replace generic wording. Takeover presets send the same explicit reason directly, with the existing one-request guard.
+- No server code, serial byte or Grbl sequence changes. The broad v2 opening latch changes only rendering policy as explicitly specified in SPEC-REFONTE section 3.1; safe-idle and bootstrap guards remain.
+- Temporary legacy remedy navigation and the unverified browser geometry are documented in ECARTS-PLAN.md, L1. Hardware and browser validation remain separate from the offline checks.

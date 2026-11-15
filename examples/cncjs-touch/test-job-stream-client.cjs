@@ -46,7 +46,7 @@ function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port
   // The plate probe is answered at the end of its sequence: its request waits longer than 30 s.
   const plate=machine('A');plate.canZeroZ=true;push(stream,packet(34,[plate]));
   window.cncJobControls.prepareCommand('zeroZ',{thickness:10,search:15});answer(requests.at(-1),{nonce:'plate',name:'Zéro Z',expiresIn:15});await flush();
-  el('job-check').checked=true;el('job-check').handlers.change[0].call(el('job-check'));el('job-confirm').click();
+  now+=600;el('job-check').checked=true;el('job-check').handlers.change[0].call(el('job-check'));el('job-confirm').click();
   const probing=requests.at(-1);assert.equal(probing.body.action,'zeroZ');assert(probing.timeout>=180000,'zeroZ request timeout '+probing.timeout);
   answer(probing,{message:'Zéro Z réglé'});await flush();push(stream,packet(35,[machine('A')]));
   push(stream,packet(40,[machine('A'),machine('B')]));assert.equal(el('job-start').disabled,true,'second controller cancels implicit single selection');

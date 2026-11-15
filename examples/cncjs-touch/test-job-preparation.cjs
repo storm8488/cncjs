@@ -73,12 +73,12 @@ send({...idle,revision:4,coordinates:{mpos:{x:-100,y:-50,z:-12},wpos:{x:0,y:0,z:
 assert.equal(JSON.stringify(window.cncJobPreparation.ticks()),JSON.stringify({tool:false,origin:false}));
 // Ticks are disabled during a job and when nothing is loaded; the load relay only clicks an enabled job-load.
 send({...idle,workflow:'running',activeState:'Run',canStart:false});assert(box('tool').disabled);
-let loads=0;node('job-load').addEventListener('click',()=>loads++);node('job-load').disabled=true;
+let loads=0;window.cncJobControls={load:()=>loads++};node('job-load').addEventListener('click',()=>loads++);node('job-load').disabled=true;
 send({...idle,name:''});const load=sheetContent.querySelectorAll('*').find(e=>e.id==='ks-prep-load');assert(load.hidden,'no load button while job-load is disabled');
 node('job-load').disabled=false;send({...idle,name:''});assert(!load.hidden);load.click();assert.equal(loads,1);
 // Nothing in the module sends a command: no cncJobControls call, no XMLHttpRequest.
 const source=fs.readFileSync(__dirname+'/touch/job-preparation.js','utf8');
-assert(!/cncJobControls|XMLHttpRequest|fetch\(/.test(source),'the sheet never commands the machine');
+assert(!/XMLHttpRequest|fetch\(/.test(source),'the sheet has no direct machine API; load calls its guarded owner');
 // Every phrase is in the FR/EN/ES catalog; the script loads after touch-shell.js and macros.js on both pages.
 // t('…') for the static catalogues, tv2('…') for the v2 presenter's own deferred lines.
 const phrases=[...source.matchAll(/\b(?:t|tv2)\('((?:[^'\\]|\\.)*)'\)/g)].map(m=>m[1]);

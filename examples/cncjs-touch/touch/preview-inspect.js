@@ -9,7 +9,7 @@
 (function (root) {
   'use strict';
   var isWorker = typeof root.importScripts === 'function' && typeof root.document === 'undefined' && typeof module === 'undefined' && !root.CNCAsLibrary;
-  if (typeof root.importScripts === 'function' && !root.CNCMotionEstimate) root.importScripts('motion-estimate.js?v=v2u');
+  if (typeof root.importScripts === 'function' && !root.CNCMotionEstimate) root.importScripts('motion-estimate.js?v=v2v');
   var ME = typeof module !== 'undefined' && module.exports ? require('./motion-estimate.js') : root.CNCMotionEstimate;
   var uiLocale = (!isWorker && root.cncI18n) || { t: function (s) { return s; }, locale: 'fr-FR' }, t = uiLocale.t;
 
@@ -297,16 +297,16 @@
   // onRequest(xhr) lets the caller abort the read (geometry().cancel()).
   function fetchProgram(file, onRequest) {
     return new Promise(function (resolve, reject) {
-      var token = ''; try { token = JSON.parse(root.localStorage.getItem('cnc')).state.session.token; } catch (_) {}
+      var token = ''; try { token = JSON.parse(root.localStorage.getItem('cnc')).state.session.token; } catch (_) { /* Optional browser facility unavailable. */ }
       if (!token) { reject(new Error(t('Session CNCjs requise pour lire le fichier.'))); return; }
       var xhr = new root.XMLHttpRequest();
       if (onRequest) onRequest(xhr);
       xhr.open('POST', apiBase() + '/watch/file', true); xhr.timeout = 60000;
-      try { xhr.responseType = 'blob'; } catch (_) {}
+      try { xhr.responseType = 'blob'; } catch (_) { /* Optional browser facility unavailable. */ }
       xhr.setRequestHeader('Authorization', 'Bearer ' + token); xhr.setRequestHeader('Content-Type', 'application/json');
       xhr.onload = function () {
         if (xhr.status !== 200) { reject(new Error(t('Fichier illisible sur le serveur.'))); return; }
-        var fp = ''; try { fp = xhr.getResponseHeader('X-Program-Fingerprint') || ''; } catch (_) {}
+        var fp = ''; try { fp = xhr.getResponseHeader('X-Program-Fingerprint') || ''; } catch (_) { /* Optional browser facility unavailable. */ }
         resolve({ blob: xhr.response, fingerprint: fp });
       };
       xhr.onerror = xhr.ontimeout = function () { reject(new Error(t('Serveur inaccessible.'))); };
@@ -357,7 +357,7 @@
       release: function () {
         released = true; local = null;
         // A read still on its way is aborted: the server stops sending the program.
-        if (request) { var r = request; request = null; r.onload = r.onerror = r.ontimeout = null; try { r.abort(); } catch (_) {} }
+        if (request) { var r = request; request = null; r.onload = r.onerror = r.ontimeout = null; try { r.abort(); } catch (_) { /* Optional browser facility unavailable. */ } }
         if (worker) { worker.onmessage = worker.onerror = null; worker.terminate(); worker = null; }
         Object.keys(waiting).forEach(function (k) { waiting[k][1](new Error(t('Annulé'))); }); waiting = {};
       },
@@ -474,7 +474,7 @@
   }
   // Page side: reads the program (fingerprint checked against the preview's), interprets it in a worker,
   // gets the typed arrays back (transferred). {promise, cancel}; the promise gives {tooLong, segments, path}.
-  var WORKER_URL = 'preview-inspect.js?v=v2u';
+  var WORKER_URL = 'preview-inspect.js?v=v2v';
   function geometry(meta, options) {
     options = options || {};
     var worker = null, done = false, rejectNow = null, request = null;
@@ -499,8 +499,8 @@
     function finish() {
       done = true;
       // A read still on its way is aborted: the server stops sending the program.
-      if (request) { var r = request; request = null; r.onload = r.onerror = r.ontimeout = null; try { r.abort(); } catch (_) {} }
-      if (worker) { worker.onmessage = worker.onerror = null; try { worker.terminate(); } catch (_) {} worker = null; } }
+      if (request) { var r = request; request = null; r.onload = r.onerror = r.ontimeout = null; try { r.abort(); } catch (_) { /* Optional browser facility unavailable. */ } }
+      if (worker) { worker.onmessage = worker.onerror = null; try { worker.terminate(); } catch (_) { /* Optional browser facility unavailable. */ } worker = null; } }
     return { promise: promise, cancel: function () { if (done) return; finish(); rejectNow(new Error(t('Annulé'))); } };
   }
 
@@ -525,8 +525,8 @@
       if (!pending) return;
       var task = pending; pending=null;
       if (task.untrack) task.untrack();
-      if (task.request) { var xhr=task.request; xhr.onload=xhr.onerror=xhr.ontimeout=null; try { xhr.abort(); } catch (_) {} }
-      if (task.worker) { task.worker.onmessage=task.worker.onerror=null; try { task.worker.terminate(); } catch (_) {} }
+      if (task.request) { var xhr=task.request; xhr.onload=xhr.onerror=xhr.ontimeout=null; try { xhr.abort(); } catch (_) { /* Optional browser facility unavailable. */ } }
+      if (task.worker) { task.worker.onmessage=task.worker.onerror=null; try { task.worker.terminate(); } catch (_) { /* Optional browser facility unavailable. */ } }
     }
     function clear() { stop(); model=empty(); prepared=null; }
     function valid(task) { return pending === task && !disposed && life.valid(task.token) && match(task.identity); }

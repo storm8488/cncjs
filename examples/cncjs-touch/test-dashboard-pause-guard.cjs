@@ -13,7 +13,7 @@ const fs = require('fs'), vm = require('vm'), assert = require('assert');
   vm.createContext(ctx);
   // Direct Pause/Stop are counted; source buttons deliberately reject clicks while inert.
   vm.runInContext(fs.readFileSync(__dirname + '/touch/job-dashboard.js', 'utf8'), ctx);
-  const sent = [];ctx.window.cncJobControls={pause:()=>sent.push('pause'),stop:()=>sent.push('stop')};
+  const sent = [];ctx.window.cncJobControls={load:()=>sent.push('load'),start:()=>sent.push('start'),resume:()=>sent.push('resume'),pause:()=>sent.push('pause'),stop:()=>sent.push('stop')};
   ['pause', 'resume', 'stop', 'start', 'load'].forEach((a) => { el('job-' + a).disabled = false; el('job-' + a).click = () => sent.push(a); });
   ['pause','stop'].forEach(a=>{el('job-'+a).inert=true;el('job-'+a).click=()=>{throw Error('inert source clicked');};});
   ['pause', 'resume', 'stop'].forEach((a) => { el('home-job-' + a).disabled = false; });

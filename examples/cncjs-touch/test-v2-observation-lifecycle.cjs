@@ -9,7 +9,7 @@ async function tests() {
       for (let n = 0; n < 4; n++) await p.step();
       p.window.cncShell = {screen: () => 'home'}; p.emit('cnc-screen-change', 'home');
       const pending = p.requests[p.requests.length - 1], requests = p.requests.length;
-      assert.equal(pending.url, 'performance-observation.js?v=v2u');
+      assert.equal(pending.url, 'performance-observation.js?v=v2v');
       assert.equal(p.api.state().ready, false);
       let locked = true; p.window.cncScreenLock = {locked: () => locked};
       p.emit('cnc-screen-lock', true);
@@ -23,7 +23,7 @@ async function tests() {
       const snapshot = o.snapshot();
       assert.equal(snapshot.available, false); assert.equal(snapshot.samples.length, 0);
       assert.equal(snapshot.estimate.seconds, null);
-      assert.equal(o.update({get report() { assert.fail('stub must not read observation input'); }}), snapshot);
+      assert.equal(o.update({get report() { throw new Error('stub must not read observation input'); }}), snapshot);
       const life = p.api.lifecycle.scope('home', 'observation'); let cancelled = 0;
       assert.equal(life.token(), null, 'no read or calculation token while locked');
       life.track('read', () => cancelled++); assert.equal(cancelled, 1);

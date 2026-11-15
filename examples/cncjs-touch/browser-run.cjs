@@ -90,7 +90,7 @@ const RESPONSIVE = [
   // perf-gpu set by CDP, since this PC's headless browser renders WebGL in software (Q12).
   [1366, 911, 1, '1366x911'], [1366, 911, 1, '1366x911 poste large', { wide: true }], [1728, 1152, 1, '1728x1152 poste large', { wide: true }]
 ];
-const SCREENS = [['menu', 'Menu'], ['home', 'Suivi'], ['files', 'Fichiers'], ['jog', 'Préparer'], ['machine', 'Machine'], ['history', 'Journal'], ['settings', 'Réglages']];
+const SCREENS = [['machine','Machine'],['files','Fichier'],['jog','Zéro pièce'],['check','Contrôle'],['home','Usinage'],['more','Plus'],['history','Journal'],['settings','Réglages']];
 const STATE_WORDS = { fr: { idle: 'Repos', running: 'En cours', paused: 'Pause' }, en: { idle: 'Idle', running: 'Running', paused: 'Pause' }, es: { idle: 'Reposo', running: 'En curso', paused: 'Pausa' } };
 
 const failures = [];
@@ -222,9 +222,9 @@ async function launchBrowser(width, height, extraFlags) {
 }
 const pageErrors = [];
 
-function startFixture(extraArgs) {
+function startFixture(extraArgs, scriptName) {
   return new Promise((resolve, reject) => {
-    const script = path.join(__dirname, 'preview-server.cjs');
+    const script = path.join(__dirname, scriptName || 'preview-server.cjs');
     const child = spawn(process.execPath, [script].concat(extraArgs || []), { cwd: __dirname, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     let out = '';
     child.stdout.on('data', (d) => { out += d; const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)\//); if (m) resolve({ child, base: 'http://127.0.0.1:' + m[1] + '/' }); });
@@ -296,7 +296,7 @@ const MEASURE = String(function measure(goals) {
     if (c.contains('jog')) return 'jog';
     // "Charger la sélection" (home-load) is a secondary action by design (UI 2027: Démarrer or
     // Reprendre is the one primary action of Suivi), so it is measured against 48 px.
-    if (c.contains('t-btn--primary') || c.contains('t-btn--danger') || c.contains('t-btn--lg') || c.contains('job-start') || c.contains('job-stop') || c.contains('ks-tile') || /^(home-job-start|home-job-stop|home-job-pause|home-job-resume|job-confirm|job-dismiss|t-stop|t-pause|t-resume|t-unlock)$/.test(el.id)) return 'primary';
+    if (c.contains('t-btn--primary') || c.contains('t-btn--danger') || c.contains('t-btn--lg') || c.contains('job-start') || c.contains('job-stop') || c.contains('ks-tile') || /^(home-job-start|home-job-stop|home-job-pause|home-job-resume|job-confirm|job-dismiss|t-stop|t-pause|t-resume|t-recover)$/.test(el.id)) return 'primary';
     return 'secondary';
   }
   // viewport-fit.js scales a screen that does not fit (transform: scale): boxes
@@ -558,7 +558,7 @@ async function e2e(cdp, simUrl, lang, summary) {
   };
   const confirmDialog = async (shotName) => {
     await cdp.waitFor('!document.getElementById("job-dialog").hidden', 15000, 'confirmation dialog');
-    await sleep(400);
+    await sleep(650);
     const dialog = await cdp.evaluate('(function(){var d=document.getElementById("job-dialog"),c=document.getElementById("job-check"),l=c.closest("label"),b=document.getElementById("job-countdown-bar"),r=c.getBoundingClientRect(),rl=l.getBoundingClientRect();return {title:document.getElementById("job-dialog-title").textContent,label:l.textContent.trim(),countdown:document.getElementById("job-countdown").textContent,barWidth:b.getBoundingClientRect().width,confirmDisabled:document.getElementById("job-confirm").disabled,checkbox:{w:Math.round(r.width),h:Math.round(r.height)},labelBox:{w:Math.round(rl.width),h:Math.round(rl.height)},prefix:window.cncI18n.t("Confirmation valable "),expectedLabel:window.cncI18n.t("Je souhaite lancer cette simulation.")};})()');
     await screenshot(cdp, path.join(dir, shotName + '.png'));
     if (!dialog.confirmDisabled) throw new Error('Confirm enabled before the box is ticked');
@@ -591,15 +591,15 @@ async function e2e(cdp, simUrl, lang, summary) {
       await screenshot(cdp, path.join(dir, '02-file-selected.png'));
       await cdp.evaluate('document.getElementById("job-load").click();true');
       await cdp.waitFor('(function(){var m=window.cncState.get().machine;return !!(m&&m.name);})()', 15000, 'file loaded in the simulated controller');
-      await goScreen(cdp, 'home');
-      await cdp.waitFor('(function(){var b=document.getElementById("home-job-start");return !!b&&!b.disabled;})()', 15000, 'Démarrer enabled');
+      await goScreen(cdp, 'check');
+      await cdp.waitFor('(function(){var b=document.getElementById("step-check-main");return !!b&&!b.disabled;})()', 15000, 'Démarrer enabled');
       await screenshot(cdp, path.join(dir, '03-loaded-suivi.png'));
       const s = await expectWord('idle', 'after load');
       return { file, stateWord: s.stateWord, ready: s.ready };
     });
     await step('start with confirmation', async () => {
-      await cdp.evaluate('document.getElementById("home-job-start").click();true');
-      const dialog = await confirmDialog('04-start-dialog');
+      await sleep(650);await cdp.evaluate('document.getElementById("step-check-main").click();true');
+      const dialog = await confirmDialog('04-start-dialog');await goScreen(cdp, 'home');
       await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 15000, 'running');
       await cdp.waitFor('(function(){var p=document.getElementById("home-job-percent").textContent;return p&&p!=="—"&&!/^0\\s*%/.test(p);})()', 20000, 'progress moving');
       await sleep(500);
@@ -757,9 +757,9 @@ async function alarmVariant(cdp, summary, arg, kind) {
             await navigate(cdp, fixture.base + 'README.md');
             await cdp.evaluate('localStorage.setItem("cncjs-touch-language-v1",' + JSON.stringify(lang) + ');localStorage.setItem("cncjs-touch-display-v1",' + JSON.stringify(JSON.stringify({ size })) + ');true');
             await navigate(cdp, fixture.base + 'index.html?alarm=' + lang + size); await waitReady(cdp);
-            await cdp.waitFor('(function(){var b=document.getElementById("t-unlock");return !!b&&!b.hidden;})()', 20000, 'Déverrouiller offered');
+            await cdp.waitFor('(function(){var b=document.getElementById("t-recover");return !!b&&!b.hidden;})()', 20000, 'Déverrouiller offered');
             if (arg !== '--replay-alarm') await cdp.waitFor('(function(){var m=window.cncState.get().machine,s=document.getElementById("home-job-summary");return !!(m&&m.alarmCodeInferred&&s&&!s.hidden);})()', 20000, 'ALARM:3 deduced and end summary');
-            for (const [name, label] of [['home', 'Suivi'], ['menu', 'Menu'], ['machine', 'Machine']]) {
+            for (const [name, label] of [['home', 'Suivi'], ['more', 'Menu'], ['machine', 'Machine']]) {
               await goScreen(cdp, name);
               const data = await cdp.evaluate('(' + MEASURE + ')(' + JSON.stringify(GOALS) + ')');
               fs.writeFileSync(path.join(dir, name + '.json'), JSON.stringify(data, null, 1));
@@ -954,7 +954,7 @@ async function responsiveMeasure(cdp, realUrl, simUrl, summary) {
       if (await cdp.evaluate('(function(){var b=document.getElementById("sim-trigger-alarm");if(!b||b.disabled)return false;b.click();return true;})()')) {
         await cdp.waitFor('/^alarm/i.test(((window.cncState.get().machine||{}).activeState)||"")', 10000, 'alarm');
         await sleep(1000);
-        for (const name of ['home', 'machine', 'menu']) { await goScreen(cdp, name); await hitCheck(cdp, ctx, 'alarm ' + name, ['t-stop'], { required: true }, report); }
+        for (const name of ['home', 'machine', 'more']) { await goScreen(cdp, name); await hitCheck(cdp, ctx, 'alarm ' + name, ['t-stop'], { required: true }, report); }
         await cdp.evaluate('(function(){var b=document.getElementById("sim-clear-alarm");if(b&&!b.disabled)b.click();return true;})()');
       } else failures.push('responsive ' + ctx + ': alarm button unavailable');
       await cdp.evaluate('document.getElementById("t-stop").click();true');
@@ -1783,11 +1783,11 @@ const SCREENS_MENU = '(function(){var out={stripClip:[],resume:null,tiles:[],scr
   'if(z&&z.getClientRects().length&&getComputedStyle(z).visibility!=="hidden"){var zr=z.getBoundingClientRect();[].forEach.call(z.querySelectorAll(".t-vital,.t-vital>span,.t-vital>b"),function(el){if(!el.getClientRects().length)return;var r=el.getBoundingClientRect();if(!r.width)return;' +
   'if(r.top>=zr.bottom-0.5||r.bottom<=zr.top+0.5||r.left>=zr.right-0.5||r.right<=zr.left+0.5)return;' +
   'if(r.right>zr.right+0.5||r.left<zr.left-0.5||r.bottom>zr.bottom+0.5||r.top<zr.top-0.5)out.stripClip.push({text:(el.textContent||"").trim().slice(0,40),id:el.id||null,out:Math.round(Math.max(r.right-zr.right,zr.left-r.left,r.bottom-zr.bottom,zr.top-r.top)*10)/10});});}' +
-  'var s=document.getElementById("screen-menu"),bar=document.getElementById("ks-resume");if(s){var sr=s.getBoundingClientRect();out.screenBottom=Math.round(sr.bottom*10)/10;out.resume=!!(bar&&bar.getClientRects().length);' +
+  'var s=document.getElementById("screen-more"),bar=document.getElementById("ks-resume");if(s){var sr=s.getBoundingClientRect();out.screenBottom=Math.round(sr.bottom*10)/10;out.resume=!!(bar&&bar.getClientRects().length);' +
   'var g=s.querySelector(".ks-tiles"),gr=g&&g.getClientRects().length?g.getBoundingClientRect():null,br=out.resume?bar.getBoundingClientRect():null;out.gridTop=gr?Math.round(gr.top*10)/10:null;out.resumeBottom=br?Math.round(br.bottom*10)/10:null;out.screenTop=Math.round((sr.top+parseFloat(getComputedStyle(s).paddingTop||"0"))*10)/10;' +
   'out.tiles=[].filter.call(s.querySelectorAll(".ks-tile"),function(t){return t.getClientRects().length&&getComputedStyle(t).visibility!=="hidden";}).map(function(t){var r=t.getBoundingClientRect();return {tile:t.getAttribute("data-ks-tile"),y:Math.round(r.top*10)/10,h:Math.round(r.height*10)/10,bottom:Math.round(r.bottom*10)/10};});}' +
   // Strip machine buttons (lot Menu, review): a button the page does not hide must be drawn (no stylesheet may hide it).
-  'out.buttons=["t-pause","t-stop","t-resume","t-unlock"].map(function(id){var b=document.getElementById(id);if(!b)return {id:id,missing:true};var cs=getComputedStyle(b);return {id:id,hidden:b.hidden,disabled:b.disabled,drawn:!!b.getClientRects().length&&cs.visibility!=="hidden"&&parseFloat(cs.opacity)>0};});return out;})()';
+  'out.buttons=["t-pause","t-stop","t-resume","t-recover"].map(function(id){var b=document.getElementById(id);if(!b)return {id:id,missing:true};var cs=getComputedStyle(b);return {id:id,hidden:b.hidden,disabled:b.disabled,drawn:!!b.getClientRects().length&&cs.visibility!=="hidden"&&parseFloat(cs.opacity)>0};});return out;})()';
 // Final interface (2026-11-11): the real page shows no way into the simulation page and no wording of that mode,
 // visible text or label (title, aria-label, placeholder, alt), in every state and language the step covers. Any link
 // to simulation.html (or one of its own scripts) counts, hidden or not; a program
@@ -1817,7 +1817,7 @@ async function screensCapture(cdp, dirName, name, label, tag, page, results, opt
     // Préparer (lot jog): top of the first visible cross button, « Cotes » reachable, soft-hyphen breaks.
     const jogTarget = data.targets.find((t) => t.kind === 'jog'), cotes = data.targets.find((t) => t.id === 'pv2-cotes-toggle');
     const jog = name === 'jog' ? { top: jogTarget ? jogTarget.y : null, cotes: cotes ? cotes.reachable : null } : null;
-    const shy = await cdp.evaluate(SCREENS_SHY), cardClip = /^probe/.test(name) ? await cdp.evaluate(SCREENS_CLIP) : null, menu = name === 'menu' ? await cdp.evaluate(SCREENS_MENU) : null;
+    const shy = await cdp.evaluate(SCREENS_SHY), cardClip = /^probe/.test(name) ? await cdp.evaluate(SCREENS_CLIP) : null, menu = name === 'more' ? await cdp.evaluate(SCREENS_MENU) : null;
     fs.writeFileSync(path.join(dir, name + '.json'), JSON.stringify(Object.assign(data, { screen: name, label, variant: tag, page, overlapsText: overlaps, journal, jog, softHyphenBreaks: shy, cardClip, menu }), null, 1));
     await screenshot(cdp, path.join(dir, name + '.png'));
     const below = data.targets.filter((t) => t.belowGoal), unreachable = data.targets.filter((t) => !t.reachable), fonts = data.targets.map((t) => t.fontPx);
@@ -2152,7 +2152,7 @@ async function screensVariant(cdp, fx, v, summary, out) {
         if (page.lang !== v.lang || page.theme !== v.theme || page.large !== (v.size === 'large') || page.perfV2 !== v.v2 || page.kind !== v.kind) failures.push(tag + ': page shown as ' + JSON.stringify(page) + ', expected ' + JSON.stringify({ lang: v.lang, theme: v.theme, size: v.size, v2: v.v2, kind: v.kind }));
         for (const [name, label] of SCREENS_OF_STATES.filter(([n]) => !v.screens || v.screens.indexOf(n) >= 0)) await screensCapture(cdp, 'screens-' + name + '-' + v.id + '-' + stateId, name, label, tag, page, results);
         // Lot Menu: the first-start fixture really measures the Menu without its resume bar.
-        const menuResult = results.find((r) => r.screen === 'menu' && r.menu);
+        const menuResult = results.find((r) => r.screen === 'more' && r.menu);
         if (v.firstStart && phase === 'idle' && (!menuResult || menuResult.menu.resume !== false)) failures.push(tag + ': Menu, first start measured with a resume bar (' + (menuResult ? menuResult.menu.resume : 'no measure') + ')');
         // Lot jog: the cross stays in place between states (O3), « Cotes » of the v2 bar is reachable (O1).
         const jogResult = results.find((r) => r.screen === 'jog' && r.jog);
@@ -2617,18 +2617,9 @@ function strictCheck(summary, exceptionList) {
         for (const c of r.menu.stripClip) add(Object.assign({ check: 'strip-clip', label: c.id ? '#' + c.id : c.text, detail: '« ' + c.text + ' » cut by the strip information zone (' + c.out + ' px)' }, base));
         // Six tiles on two rows of equal height that share the space: the first row starts under the resume bar
         // (or at the top of the Menu without it), the rows are one gap apart, the last ends at the bottom.
-        const tiles = r.menu.tiles, bar = r.menu.resume ? 'shown' : 'hidden', tileFail = (d) => add(Object.assign({ check: 'menu-tiles', label: 'tiles', detail: d + ' (resume bar ' + bar + ')' }, base));
-        const tops = [...new Set(tiles.map((t) => Math.round(t.y)))].sort((a, b) => a - b), heights = tiles.map((t) => t.h);
-        if (tiles.length !== 6) tileFail(tiles.length + ' visible tiles instead of 6');
-        else if (tops.length !== 2) tileFail('tiles on ' + tops.length + ' rows instead of 2');
-        else {
-          const last = Math.max(...tiles.map((t) => t.bottom)), firstBottom = Math.max(...tiles.filter((t) => Math.round(t.y) === tops[0]).map((t) => t.bottom));
-          const above = r.menu.resume ? r.menu.resumeBottom : r.menu.screenTop;
-          if (Math.max(...heights) - Math.min(...heights) > 2) tileFail('tile heights differ (' + Math.min(...heights) + ' to ' + Math.max(...heights) + ' px)');
-          if (r.menu.screenBottom - last > 24) tileFail('tiles end ' + Math.round(r.menu.screenBottom - last) + ' px above the bottom of the Menu');
-          if (tops[1] - firstBottom > 24) tileFail(Math.round(tops[1] - firstBottom) + ' px between the two rows');
-          if (above !== null && tops[0] - above > 24) tileFail('first row ' + Math.round(tops[0] - above) + ' px under ' + (r.menu.resume ? 'the resume bar' : 'the top of the Menu'));
-        }
+        const tiles=r.menu.tiles,tileFail=d=>add(Object.assign({check:'more-tiles',label:'tiles',detail:d},base));
+        if(tiles.length!==5)tileFail(tiles.length+' visible tiles instead of 5');
+        for(const tile of tiles)if(tile.h<200)tileFail(tile.tile+' height '+tile.h+' below 200');
         for (const b of r.menu.buttons || []) if (!b.missing && !b.hidden && !b.drawn) add(Object.assign({ check: 'strip-button', label: '#' + b.id, detail: 'shown by the page (hidden=false) but not drawn: a stylesheet hides it' }, base));
       }
       // Lot C (avant l'essai CNC): no line of the v2 messages slot cut net by its edge (a fade is tolerated).
@@ -2782,6 +2773,19 @@ function writeSummary(summary) {
   fs.writeFileSync(path.join(OUT, 'summary.json'), JSON.stringify(summary, null, 1));
 }
 
+async function parcoursMeasure(cdp,summary){
+  const fixture=await startFixture([], 'parcours-server.cjs');
+  try{
+    await setViewport(cdp,1366,911,1);await navigate(cdp,fixture.base+'index.html');await waitReady(cdp);
+    await cdp.evaluate("fetch('/parcours/open',{method:'POST'}).then(function(){return fetch('/parcours/sim',{method:'POST',body:JSON.stringify({input:'pilot'})});})");
+    await cdp.waitFor("window.cncJobControls.pilot().state==='other'",15000,'other device owns control');
+    let touches=0;await cdp.evaluate("document.getElementById('t-pilot').click();true");touches++;
+    await cdp.waitFor("!document.getElementById('pilot-dialog').hidden",5000,'control dialog');
+    await cdp.evaluate("document.getElementById('pilot-reason-a').click();true");touches++;
+    await cdp.waitFor("window.cncJobControls.pilot().state==='mine'",15000,'takeover applied');
+    if(touches!==2)throw Error('P9 must take exactly two touches');summary.parcours={P9:touches,profile:'lunyee',physicalMachine:false};
+  }finally{fixture.child.kill();}
+}
 async function main() {
   fs.mkdirSync(OUT, { recursive: true });
   let commit = null; try { commit = execSync('git rev-parse --short HEAD', { cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch (_) { /* not a checkout */ }
@@ -2822,6 +2826,7 @@ async function main() {
     // Pause / Arrêter over every overlay, degraded start-up, offline flag (browser-strip.cjs).
     if (ONLY.includes('strip') && !URL_BASE) { await setViewport(cdp, 1366, 768, 1); const list = await require('./browser-strip.cjs').run(cdp, module.exports, { simBase: base, out: path.join(OUT, 'strip'), log }); list.forEach((f) => failures.push(f)); summary.strip = list; }
     if (ONLY.includes('startup')) { await setViewport(cdp, 1366, 768, 1); await measureStartup(cdp, realUrl, summary); }
+    if(ONLY.includes('parcours'))await parcoursMeasure(cdp,summary);
     if (ONLY.includes('e2e')) { await setViewport(cdp, 1366, 768, 1); for (const lang of ['fr', 'en', 'es']) await e2e(cdp, simUrl, lang, summary); await cdp.evaluate('localStorage.removeItem("cncjs-touch-language-v1");true').catch(() => {}); }
     // Performance v2 in its own browser (software WebGL flags, simulated hardware probe), on its fixture.
     if (ONLY.includes('v2') && !URL_BASE) await v2Measure(summary);

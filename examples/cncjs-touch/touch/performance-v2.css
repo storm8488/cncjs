@@ -192,3 +192,5 @@ body.ks-ui.perf-wide.perf-v2 #perf-v2-overrides-sheet .t-ov-row .t-btn{min-heigh
 body.ks-ui.perf-wide.perf-v2 #perf-v2-overrides-sheet .t-ov-row .t-btn.t-fine,body.ks-ui.perf-wide.perf-v2 #perf-v2-overrides-sheet .t-override--rapid .t-ov-row .t-btn{min-height:var(--tap);font-size:var(--fs-18)}
 body.ks-ui.perf-wide.perf-v2 #perf-v2-overrides-sheet #home-rapid-note,body.ks-ui.perf-wide.perf-v2 #perf-v2-time-sheet .t-help{margin:0 0 var(--sp-3);font-size:var(--fs-18);line-height:1.4}
 body.ks-ui.perf-wide.perf-v2 #perf-v2-time-sheet .t-help[hidden],body.ks-ui.perf-wide.perf-v2 #perf-v2-overrides-sheet #home-rapid-note:empty{display:none}
+
+/* Current content hosts retain the existing card rules. */

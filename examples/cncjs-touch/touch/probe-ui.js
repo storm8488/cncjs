@@ -249,7 +249,7 @@
   });
   function interrupt(reason){if(engine.snapshot().running){engine.stop(reason);release();message='';render();}}
   // Real page: Arrêter of this screen is the strip's (#job-stop: feed hold then reset by the server).
-  $('probe-stop').addEventListener('click',function(){if(!simulation){var stop=$('job-stop');if(!$('probe-stop').disabled&&stop&&!stop.disabled)stop.click();return;}interrupt(uiLocale.t('Arrêt utilisateur fictif. Aucun retrait automatique.'));});
+  $('probe-stop').addEventListener('click',function(){if(!simulation){var stop=$('job-stop');if(!$('probe-stop').disabled&&stop&&!stop.disabled&&window.cncJobControls)window.cncJobControls.stop();return;}interrupt(uiLocale.t('Arrêt utilisateur fictif. Aucun retrait automatique.'));});
   $('probe-report-stop').addEventListener('click',function(){interrupt(uiLocale.t('Arrêt utilisateur fictif. Aucun retrait automatique.'));});
   $('probe-test').addEventListener('click',function(){engine.resetContact();message='';go('probe-contact');});
   $('probe-free').addEventListener('click',function(){engine.contact('free');render();});$('probe-touch').addEventListener('click',function(){engine.contact('contact');render();});

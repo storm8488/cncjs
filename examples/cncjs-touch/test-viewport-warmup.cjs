@@ -13,7 +13,7 @@ function session(options={}){
    offsetHeight:{get(){layouts.push({screen:e.id,display:e.style.display,visibility:e.style.visibility,position:e.style.position,width:e.style.width});return 600;}}});
   return e;
  }
- const screens=['menu','files','home','jog'].map(screen);active=screens[0];
+ const screens=['more','files','home','jog'].map(screen);active=screens[0];
  const main={style:style(),querySelector:()=>active,querySelectorAll:()=>screens,set scrollTop(v){},set scrollLeft(v){},get clientWidth(){return 1280;}};
  screens.forEach(s=>{s.parentElement=main;});
  const context={requestAnimationFrame(fn){const n=++id;queue.set(n,fn);return n;},

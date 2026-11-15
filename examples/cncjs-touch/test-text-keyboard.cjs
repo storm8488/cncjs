@@ -68,7 +68,7 @@ function setup(guard) {
   p.press('Valider'); assert.deepEqual(events, ['input', 'change']);
   // Annuler, Fermer, Échap, a screen change, the lock and a hidden page leave the field as it was.
   for (const close of [() => p.press('Annuler'), () => p.press('Fermer ×'), () => p.document.handlers.keydown({ key: 'Escape', preventDefault() {} }),
-    () => p.listeners['cnc-screen-change']({ detail: 'menu' }), () => p.listeners['cnc-screen-lock']({ detail: true }),
+    () => p.listeners['cnc-screen-change']({ detail: 'more' }), () => p.listeners['cnc-screen-lock']({ detail: true }),
     () => { p.document.hidden = true; p.document.handlers.visibilitychange(); p.document.hidden = false; }]) {
     f.handlers.click(); assert(!p.modal().hidden); p.press('a');
     close(); assert(p.modal().hidden); assert.equal(f.value, 'PlaqueZ2'); assert.deepEqual(events, ['input', 'change']);

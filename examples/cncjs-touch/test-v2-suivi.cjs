@@ -215,7 +215,7 @@ async function cases(entries) {
       assert.match(s.node('home-v2-curve-gaps').getAttribute('d'), /^M[\d.]+ 0H[\d.]+V70H[\d.]+Z/);
       assert(s.node('home-v2-curve-line').getAttribute('d').split('M').length >= 3, 'the line is split at the gap');
       // Suivi hidden: no chart, no write.
-      s.navigate('menu'); const d = s.node('home-v2-curve-line').getAttribute('d'), age = s.text('home-v2-age');
+      s.navigate('more'); const d = s.node('home-v2-curve-line').getAttribute('d'), age = s.text('home-v2-age');
       for (let i = 0; i < 8; i++) { s.p.advance(400); s.running({feedrate: 100}); } s.p.frame();
       assert.equal(s.node('home-v2-curve-line').getAttribute('d'), d); assert.equal(s.text('home-v2-age'), age);
     }],

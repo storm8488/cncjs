@@ -1,7 +1,7 @@
 'use strict';
 // Header clock: one write per minute on the minute, nothing while hidden or switched off.
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
-const {document,element,stats}=require('./dom-fixture.cjs').createDOM(['menu']);
+const {document,element,stats}=require('./dom-fixture.cjs').createDOM(['more']);
 const header=element('div'),badge=element('span');header.appendChild(badge);
 const classes=new Set();document.body.classList={contains:n=>classes.has(n)};
 document.querySelector=sel=>sel==='.ks-simulation'?badge:null;

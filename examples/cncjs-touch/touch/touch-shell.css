@@ -194,3 +194,7 @@ body.ks-real.display-large{font-size:20px}.ks-real.display-large .screen p,.ks-r
 /* Luminosité pendant la veille. */
 .ks-backlight-sleep{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;font-size:15px;color:var(--mute)}
 .ks-backlight-mode{min-height:48px;padding:6px 10px;font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--line-strong);border-radius:8px}
+
+/* Current content hosts retain the existing card rules. */
+
+.ks-ui #screen-home .ks-step-body>.card>h2,.ks-ui #file{display:none}

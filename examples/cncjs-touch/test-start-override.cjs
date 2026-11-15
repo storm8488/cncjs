@@ -34,7 +34,7 @@ addEventListener: (n, f) => {
     f.answer(f.posts().at(-1), { nonce: 'n', expiresIn: 15, programCheck: source === 'ticket' ? outside : null }); await f.flush();
     assert.equal(f.el('job-dialog').hidden, false, 'the refusal check remains visible');
     assert.equal(f.el('job-program-check').getAttribute('data-verdict'), 'outside');
-    f.el('job-check').checked = true; f.el('job-check').fire('change');
+    f.advance(600);f.el('job-check').checked = true; f.el('job-check').fire('change');
     assert.equal(f.el('job-confirm').disabled, true, source + ': no ordinary confirmation over a proven overrun');
     f.el('job-confirm').fire('click'); await f.flush();
     assert.equal(f.posts().filter((r) => r.body.action === 'start').length, 0, 'even a direct handler call cannot send start');
@@ -43,13 +43,13 @@ addEventListener: (n, f) => {
   for (const verdict of ['unknown', 'validated']) {
     const f = load(); await f.connect(); f.el('job-start').click();
     f.answer(f.posts().at(-1), { nonce: 'n', expiresIn: 15, programCheck: { verdict, axes: {} } }); await f.flush();
-    f.el('job-check').checked = true; f.el('job-check').fire('change'); assert.equal(f.el('job-confirm').disabled, false, verdict + ' remains confirmable');
+    f.advance(600);f.el('job-check').checked = true; f.el('job-check').fire('change'); assert.equal(f.el('job-confirm').disabled, false, verdict + ' remains confirmable');
     f.controls().dispose();
   }
   {
     const f = load(); await f.connect(); f.el('job-start').click();
     f.answer(f.posts().at(-1), { nonce: 'n', expiresIn: 15, programCheck: { verdict: 'unknown' } }); await f.flush();
-    f.el('job-check').checked = true; f.el('job-check').fire('change'); assert.equal(f.el('job-confirm').disabled, false);
+    f.advance(600);f.el('job-check').checked = true; f.el('job-check').fire('change'); assert.equal(f.el('job-confirm').disabled, false);
     f.push([f.machine({ programCheck: outside })]);
     assert.equal(f.el('job-confirm').disabled, true, 'a live overrun immediately disables an already checked ticket');
     f.el('job-confirm').fire('click'); assert.equal(f.posts().filter((r) => r.body.action === 'start').length, 0);

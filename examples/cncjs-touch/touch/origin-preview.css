@@ -118,3 +118,5 @@ body.perf-origin #screen-jog[data-pv2] .pv2-set-xy:disabled,body.perf-origin #sc
 body.perf-origin #screen-jog[data-pv2] .pv2-jog-head{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:var(--sp-3);padding:0 0 0 var(--sp-3);border-left:6px solid var(--info)}
 body.perf-origin #screen-jog[data-pv2] .pv2-jog-head h3{font-size:var(--fs-18)}
 body.perf-origin #screen-jog[data-pv2] .pv2-cotes li{overflow:hidden}
+
+/* Current content hosts retain the existing card rules. */

@@ -117,7 +117,7 @@ async function dropAndReconnect(f, epoch) {
     const f = await connected(); await ticketOpen(f, 'start');
     assert.equal(f.el('job-dialog').hidden, false);
     const n = f.posts().length; await dropAndReconnect(f);
-    f.el('job-check').checked = true; f.el('job-check').fire('change'); f.el('job-confirm').disabled = false; f.el('job-confirm').click(); await f.flush();
+    f.advance(600);f.el('job-check').checked = true; f.el('job-check').fire('change'); f.el('job-confirm').disabled = false; f.el('job-confirm').click(); await f.flush();
     f.tick(); f.tick(); await f.flush();
     assert(f.el('job-dialog').hidden && moves(f, n).length === 0, 'drop + reconnection during a confirmation: nothing sent');
   }
@@ -125,7 +125,7 @@ async function dropAndReconnect(f, epoch) {
     const f = await connected(); await ticketOpen(f, 'start');
     const n = f.posts().length, s = stream(f);
     s.responseText += JSON.stringify({ version: 1, epoch: 'server-two', sequence: 1, sentAt: Date.now(), transportId: 'stream-one', controllers: [f.machine()] }) + '\n'; s.onprogress(); await f.flush();
-    f.el('job-confirm').disabled = false; f.el('job-check').checked = true; f.el('job-confirm').click(); await f.flush();
+    f.el('job-confirm').disabled = false; f.advance(600);f.el('job-check').checked = true; f.el('job-confirm').click(); await f.flush();
     assert(moves(f, n).length === 0 && f.el('job-dialog').hidden, 'new server epoch during the confirmation: nothing sent');
   }
   {
@@ -137,7 +137,7 @@ async function dropAndReconnect(f, epoch) {
   }
   {
     const f = await connected(); await ticketOpen(f, 'start');
-    f.el('job-check').checked = true; f.el('job-check').fire('change'); f.el('job-confirm').click(); await f.flush();
+    f.advance(600);f.el('job-check').checked = true; f.el('job-check').fire('change'); f.el('job-confirm').click(); await f.flush();
     const start = f.posts().at(-1); assert.equal(start.body.action, 'start');
     const n = f.posts().length; start.onerror(); await f.flush();
     assert.equal(f.el('job-feedback').getAttribute('data-state'), 'uncertain');
@@ -165,7 +165,7 @@ async function dropAndReconnect(f, epoch) {
     (f.listeners.pagehide || []).forEach((fn) => fn({ persisted: true })); await f.flush();
     (f.listeners.pageshow || []).forEach((fn) => fn({ persisted: true })); await f.flush();
     await dropAndReconnect(f);
-    f.el('job-check').checked = true; f.el('job-confirm').disabled = false; f.el('job-confirm').click(); await f.flush();
+    f.advance(600);f.el('job-check').checked = true; f.el('job-confirm').disabled = false; f.el('job-confirm').click(); await f.flush();
     assert(f.el('job-dialog').hidden && moves(f, n).length === 0, 'restored from the back/forward cache: Confirmer sends nothing');
   }
   {
@@ -179,7 +179,7 @@ async function dropAndReconnect(f, epoch) {
   // ---- D5: the action line follows the observed workflow.
   {
     const f = await connected(); await ticketOpen(f, 'start');
-    f.el('job-check').checked = true; f.el('job-check').fire('change'); f.el('job-confirm').click(); await f.flush();
+    f.advance(600);f.el('job-check').checked = true; f.el('job-check').fire('change'); f.el('job-confirm').click(); await f.flush();
     f.answer(f.posts().at(-1), { message: 'Démarrage demandé.' }); await f.flush();
     assert.equal(f.el('job-feedback').textContent, 'Démarrage demandé.');
     f.push([f.machine(RUNNING)]); await f.flush();
@@ -402,14 +402,14 @@ async function dropAndReconnect(f, epoch) {
     const prep = f.posts().at(-1); assert.equal(prep.body.action, 'prepare'); assert.equal(prep.body.operation, 'unlock');
     f.answer(prep, { nonce: 'n-unlock', name: '', expiresIn: 15 }); await f.flush();
     assert.equal(f.el('job-dialog').hidden, false);
-    assert.match(f.el('job-warning').textContent, /\$X\) lève l’alarme sans aucun mouvement/);
+    assert.match(f.el('job-warning').textContent, /Rien ne bouge/);
     assert.equal(f.el('job-check-text').textContent, 'Je suis devant la machine et la cause de l’alarme est réglée.');
     assert.doesNotMatch(f.el('job-warning').textContent + f.el('job-check-text').textContent, /met la machine en mouvement|lancer ce fichier/);
     f.el('job-dismiss').click(); await f.flush();
     // The start confirmation keeps its own texts.
     f.push([f.machine()]); await f.flush();
     await ticketOpen(f, 'start');
-    assert.match(f.el('job-warning').textContent, /met la machine en mouvement/);
+    assert.match(f.el('job-warning').textContent, /La broche démarre et la machine se déplace/);
     assert.equal(f.el('job-check-text').textContent, 'Je suis devant la machine et prêt à lancer ce fichier.');
   }
   console.log('PASS strip continuity: Pause / Arrêter offered and sent during a loss of the state and with the offline flag, HTTP read at once, no command replayed, action line follows the workflow, alarm code kept after the restart banner.');

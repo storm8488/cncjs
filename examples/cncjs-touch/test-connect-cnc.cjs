@@ -29,7 +29,7 @@ function setup({ simulation = false, commissioned = ['/dev/ttyUSB0'], io = true 
     s.on = new Proxy({}, {}); const handlers = {}; s.on = (n, f) => { handlers[n] = f; }; s.fire = (n, ...a) => handlers[n] && handlers[n](...a);
     sockets.push(s); return s; } };
   const window = { cncI18n: { t: (x) => x }, cncState: store, io: io ? fakeIo : undefined, addEventListener() {} };
-  const document = { body, getElementById: (id) => (id === 'screen-menu' ? menu : null), createElement: node };
+  const document = { body, querySelector: () => menu, getElementById: (id) => (id === 'screen-machine' ? menu : null), createElement: node };
   vm.runInNewContext(source, { window, document, location: { origin: 'http://localhost:8000' }, JSON, Array, Object, encodeURIComponent,
     localStorage: { getItem: (k) => (k in storage ? storage[k] : null) },
     setTimeout(fn) { const id = ++nextTimer; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); } });
@@ -140,10 +140,10 @@ function setup({ simulation = false, commissioned = ['/dev/ttyUSB0'], io = true 
   t.set({ machine: null }); assert.deepEqual(t.buttons(), ['Connecter la CNC']);
 }
 
-// Loaded on the real page after touch-shell.js (which builds #screen-menu), with the lot's cache version.
+// Loaded on the real page after touch-shell.js (which builds #screen-more), with the lot's cache version.
 {
   const html = fs.readFileSync(__dirname + '/touch/index.html', 'utf8');
-  const shell = html.indexOf('touch-shell.js?v='), mine = html.indexOf('connect-cnc.js?v=v2u');
+  const shell = html.indexOf('touch-shell.js?v='), mine = html.indexOf('connect-cnc.js?v=v2v');
   assert(shell > 0 && mine > shell, 'connect-cnc.js after touch-shell.js');
   assert(html.indexOf('/socket.io/socket.io.js') < mine);
 }

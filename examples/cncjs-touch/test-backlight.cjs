@@ -2,7 +2,7 @@
 // Affichage → Luminosité: status on display, one request at a time with the last
 // slider position winning, ±10 steps, minimum 5 %, read-only and missing panels.
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
-const {document,node,element,activeScreens}=require('./dom-fixture.cjs').createDOM(['menu']);
+const {document,node,element,activeScreens}=require('./dom-fixture.cjs').createDOM(['more']);
 const panel=node('screen-settings'),footer=element('div');footer.className='wide ks-display-footer';panel.appendChild(footer);
 panel.querySelector=sel=>sel==='.ks-display-footer'?footer:null;
 let requests=[],token='jwt',now=0;
@@ -145,7 +145,7 @@ select.value='off';select.handlers.change();handlers['cnc-screen-change']();answ
 mark=requests.length;saver(true);assert.equal(requests.length,mark);
 // Affichage tab: the card goes just before the screen sleep card (the footer is only the fallback above).
 {
-  const d=require('./dom-fixture.cjs').createDOM(['menu']),p=d.node('screen-settings'),sleep=d.element('div'),foot=d.element('div');
+  const d=require('./dom-fixture.cjs').createDOM(['more']),p=d.node('screen-settings'),sleep=d.element('div'),foot=d.element('div');
   sleep.className='card ks-display-sleep';foot.className='wide ks-display-footer';p.appendChild(sleep);p.appendChild(foot);
   p.querySelector=sel=>sel==='.ks-display-sleep'?sleep:sel==='.ks-display-footer'?foot:null;
   vm.runInNewContext(fs.readFileSync(__dirname+'/touch/backlight.js','utf8'),{...context,document:d.document,window:{addEventListener(){},cncState:window.cncState}});
@@ -153,7 +153,7 @@ mark=requests.length;saver(true);assert.equal(requests.length,mark);
 }
 // D3: independent pages and a monotone clock; every request is intercepted.
 function kiosk(locality,failedRead=false){
-  const dom=require('./dom-fixture.cjs').createDOM(['menu']),events={},req=[],clock={now:0};
+  const dom=require('./dom-fixture.cjs').createDOM(['more']),events={},req=[],clock={now:0};
   dom.node('screen-settings').querySelector=()=>null;
   const win={performance:{now:()=>clock.now},addEventListener:(n,f)=>events[n]=f,cncState:window.cncState};
   function Request(){req.push(this);}

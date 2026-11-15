@@ -64,7 +64,7 @@ function expect(cond,label){if(!cond)findings.push(label);console.log((cond?'ok 
  // 4. Lost answer on Start's confirmation: "uncertain", the ticket is consumed, nothing is replayed,
  //    the next Start needs a new prepare.
  f.node('job-start').click();await f.flush();f.answer().resolve({nonce:'n3',expiresIn:15,name:'leaf.nc',message:''});await f.flush();
- f.node('job-check').checked=true;f.node('job-check').handlers.change.call(f.node('job-check'),{});f.node('job-confirm').click();await f.flush();
+ f.advance(600);f.node('job-check').checked=true;f.node('job-check').handlers.change.call(f.node('job-check'),{});f.node('job-confirm').click();await f.flush();
  assert.equal(f.calls.at(-1).action,'start');assert.equal(state(),'sent');
  const before=f.calls.length;const lost=new Error('Connexion perdue ou réponse incertaine.');lost.uncertain=true;f.answer().reject(lost);await f.flush();
  f.advance(1000);f.win.cncJobControls.refresh();await f.flush();f.advance(1000);f.win.cncJobControls.refresh();await f.flush();

@@ -29,7 +29,7 @@ function page(options = {}) {
     removeEventListener(n,f) { listeners['doc:'+n] = (listeners['doc:'+n] || []).filter(x => x !== f); },
     dispatchEvent(e) { (listeners['doc:'+e.type] || []).slice().forEach(f => f(e)); }};
   // Baseline sheets are already in the head before the deferred bootstrap runs.
-  const responsive = element('link'); responsive.rel = 'stylesheet'; responsive.href = 'responsive.css?v=v2u';
+  const responsive = element('link'); responsive.rel = 'stylesheet'; responsive.href = 'responsive.css?v=v2v';
   document.head.children.push(responsive); responsive.parentNode = document.head;
   const window = {document, localStorage: storage, performance: {now: () => mono},
     innerWidth: options.width || 1366, innerHeight: options.height || 911,
@@ -93,7 +93,7 @@ async function tests() {
   p.frame(); await p.complete();
   assert(p.api.gate()); assert(p.api.state().ready); assert(p.classes.has('perf-v2'));
   assert.deepEqual(p.requests.map(r => r.url.split('?')[0]), BOOTSTRAP);
-  assert(p.requests.every(r => /\?v=v2u$/.test(r.url)));
+  assert(p.requests.every(r => /\?v=v2v$/.test(r.url)));
   const style = p.requests.find(r => r.url.startsWith('performance-v2.css?')).node;
   assert.equal(style.tagName, 'LINK'); assert.equal(style.rel, 'stylesheet');
   assert(p.document.head.children.indexOf(style) > p.document.head.children.findIndex(n => /^responsive\.css\?/.test(n.href || '')),
@@ -142,7 +142,7 @@ async function tests() {
         assert.equal(q.requests.length,n+1,'one bootstrap request at a time');
         assert(!q.api.state().ready); await q.step();
       }
-      const pending=q.requests[stage]; assert.equal(pending.url,BOOTSTRAP[stage]+'?v=v2u');
+      const pending=q.requests[stage]; assert.equal(pending.url,BOOTSTRAP[stage]+'?v=v2v');
       assert(!q.api.state().ready); assert(!q.classes.has('perf-v2'));
       if(close==='eco') q.window.cncProfile.setPerformance('eco');
       if(close==='gpu') { q.gpu.lost=true; q.emit('cnc-gpu-change'); }
@@ -195,7 +195,7 @@ async function tests() {
   // script execution error). Do not expose a ready UI backed by a leftover stub.
   for(const missing of BOOTSTRAP.slice(2).filter(file => file.endsWith('.js'))) {
     const q=page(); q.status(); q.frame();
-    while(q.requests[q.requests.length-1].url!==missing+'?v=v2u') await q.step();
+    while(q.requests[q.requests.length-1].url!==missing+'?v=v2v') await q.step();
     const pending=q.requests[q.requests.length-1]; pending.done=true; pending.node.onload();
     await q.complete();
     assert(!q.api.state().ready,'missing provider '+missing); assert(!q.api.gate()); assert(!q.classes.has('perf-v2'));
@@ -214,7 +214,7 @@ async function tests() {
   const snapshot=await sim.window.cncJobSimulation.request('GET');
   sim.emit('cnc-job-status',{simulation:true,machine:snapshot.controllers[0],busy:false,transportConnected:true});
   sim.frame();await sim.complete();assert(sim.api.gate(),'actual virtual Idle is usable without inventing a machine report age');
-  console.log('PASS v2 gate: real providers and guarded CSS after responsive, cache v2u, probe/scene barrier, cancellation at every stage, RT/software/Eco/laser zero requests, frozen busy layout.');
+  console.log('PASS v2 gate: real providers and guarded CSS after responsive, one cache version, probe/scene barrier, cancellation at every stage, RT/software/Eco/laser zero requests, frozen busy layout.');
 }
 
 async function repeatedReportClock() {
@@ -345,7 +345,10 @@ async function firstRest(){
     for(const state of states){p.status(state);p.frame();assert.equal(p.requests.length,0);}
     p.status();p.frame();await p.complete();assert(p.classes.has('perf-v2'),'startup recovery opens v2 at the first rest');p.emit('pagehide');
   }
-  for(const [machine,detail] of [[{workflow:'running',activeState:'Run'},{}],[{workflow:'paused'},{}],[{canStop:true},{}],[{loading:true},{}],[{probing:true},{}],[{}, {busy:true}],[{}, {halt:{canStop:true}}]]){
+  for(const [machine,detail] of [[{canStop:true},{}],[{loading:true},{}],[{probing:true},{}],[{spindleSpeed:1000},{}],[{}, {busy:true}],[{}, {systemCommand:{title:'test'}}],[{}, {halt:{canStop:true}}]]){
+    const p=page();p.status(machine,detail);p.frame();assert.equal(p.requests.length,0,'activity delays bootstrap');p.status();p.frame();await p.complete();assert(p.classes.has('perf-v2'),'only an observed workflow latches v1');p.emit('pagehide');
+  }
+  for(const [machine,detail] of [[{workflow:'running',activeState:'Run'},{}],[{workflow:'paused'},{}]]){
     const p=page();p.status(machine,detail);p.frame();p.status();p.frame();await p.complete();
     assert.equal(p.requests.length,0,'observed work keeps v1 for this session');assert(!p.classes.has('perf-v2'));p.emit('pagehide');
   }

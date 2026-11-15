@@ -61,3 +61,5 @@ body.perf-v2 #screen-files .lv2-match{margin:0;padding:var(--sp-1) var(--sp-3);b
 body.perf-v2 #screen-files .lv2-match[data-tone="ok"]{border-left-color:var(--ok);background:var(--ok-soft)}
 body.perf-v2 #screen-files .lv2-match[data-tone="warn"]{border-left-color:var(--warn);background:var(--warn-soft)}
 body.perf-v2 #screen-files .lv2-match[hidden]{display:none}
+
+/* Current content hosts retain the existing card rules. */

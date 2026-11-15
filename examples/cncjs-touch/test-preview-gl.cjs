@@ -348,7 +348,7 @@ function byText(root, text) { return findAll(root, n => n.textContent === text)[
   // Leaving the screen closes it.
   page = createPage();
   view = page.win.CNCPreviewGL.open(meta, {});
-  page.win.dispatch('cnc-screen-change', 'menu'); assert.equal(view.state().closed, true); assert.equal(page.listenerCount.value, 0);
+  page.win.dispatch('cnc-screen-change', 'more'); assert.equal(view.state().closed, true); assert.equal(page.listenerCount.value, 0);
 
   // Inline (preview frame): the camera buttons fold behind « Vues »; a preset folds them again.
   page = createPage();
@@ -378,7 +378,7 @@ function byText(root, text) { return findAll(root, n => n.textContent === text)[
         setAttribute(k, v) { n.attributes[k] = String(v); if (k === 'src') observers.filter(o => o.t === n).forEach(o => Promise.resolve().then(() => o.fn())); },
         getAttribute(k) { return k in n.attributes ? n.attributes[k] : null; }, removeAttribute(k) { delete n.attributes[k]; },
         addEventListener(t, fn) { (n.listeners[t] = n.listeners[t] || []).push(fn); }, click() { (n.listeners.click || []).forEach(fn => fn()); } };
-      Object.defineProperty(n, 'src', { get: () => n.attributes.src || '', set: v => n.setAttribute('src', v) });
+      Object.defineProperty(n, 'src', { get: () => n.attributes.src || '', set: v => {n.setAttribute('src', v);} });
       return n;
     };
     const outer = mk('div');
@@ -504,7 +504,7 @@ function byText(root, text) { return findAll(root, n => n.textContent === text)[
     }
 
     // Released at each cause of closing: close(), screen change, eco, screen lock, pagehide, context loss.
-    const causes = [['user', v => v.close('user')], ['screen', p => p.win.dispatch('cnc-screen-change', 'menu')], ['eco', p => p.win.dispatch('cnc-profile-change', { performance: 'eco' })],
+    const causes = [['user', v => v.close('user')], ['screen', p => p.win.dispatch('cnc-screen-change', 'more')], ['eco', p => p.win.dispatch('cnc-profile-change', { performance: 'eco' })],
       ['lock', p => p.win.dispatch('cnc-screen-lock', true)], ['pagehide', p => p.win.dispatch('pagehide', {})], ['fallback', (p, v) => v.canvas.dispatch('webglcontextlost', {})]];
     for (const [reason, act] of causes) {
       page = createPage({ gpu: true }); let srcReleased = 0, closed = [];
@@ -539,7 +539,7 @@ function byText(root, text) { return findAll(root, n => n.textContent === text)[
     assert.equal(PIN.GEOMETRY_CAP, 500000, 'design cap of Q7');
 
     // preview-inspect.js run as a worker (vm): the geometry message, typed arrays transferred.
-    function workerClass(log) {
+    const workerClass = function(log) {
       return class {
         constructor(url) {
           log.urls.push(url); const outer = this;
@@ -568,7 +568,7 @@ function byText(root, text) { return findAll(root, n => n.textContent === text)[
     assert.equal(page.frames.length, 1); page.runFrames(2);
     assert.match(byClass(view.dialog, 'pgl-foot')[0].textContent, /^Géométrie complète \(\d+ segments, arcs à 0,01 mm\)/);
     // Kept for the loaded program from one screen to the other: reopened without a read.
-    page.win.dispatch('cnc-screen-change', 'menu'); assert.equal(view.state().closed, true);
+    page.win.dispatch('cnc-screen-change', 'more'); assert.equal(view.state().closed, true);
     view = page.win.CNCPreviewGL.open(meta, { container: page.doc.createElement('div'), fullGeometry: true, Worker: workerClass(glog), fetchProgram });
     assert.equal(view.state().geometry, 'full', 'from the cache'); assert.deepEqual(reads, ['piece.nc'], 'not read again');
     view.close('test');

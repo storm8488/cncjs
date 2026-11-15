@@ -249,10 +249,10 @@ async function jobPosts() {
   const prep = f.posts().at(-1); assert.deepEqual([prep.body.action, prep.body.operation], ['machine', 'frame-prepare']);
   f.answer(prep, { nonce: 'n-frame', expiresIn: 15, name: 'part.nc' }); await f.flush();
   assert.equal(f.el('job-dialog').hidden, false);
-  assert.match(f.el('job-dialog-title').textContent, /Cadrer le programme/);
-  assert.match(f.el('job-dialog-file').textContent, /Machine : « Laser atelier » \(Laser\) · Pilote :/);
+  assert.match(f.el('job-dialog-title').textContent, /Cadrer le fichier/);
+  assert.match(f.el('job-dialog-file').getAttribute('data-details'), /Machine : « Laser atelier » \(Laser\) · Pilote :/);
   assert.match(f.el('job-warning').textContent, /laser éteint/);
-  f.el('job-check').checked = true; f.el('job-check').fire('change'); f.el('job-confirm').click();
+  f.advance(600);f.el('job-check').checked = true; f.el('job-check').fire('change'); f.el('job-confirm').click();
   const frame = f.posts().at(-1); assert.deepEqual([frame.body.action, frame.body.operation, frame.body.nonce], ['machine', 'frame', 'n-frame']);
   f.answer(frame, { message: 'Cadrage lancé.' }); await f.flush();
   // A CNC profile (or framing refused by the server): nothing is prepared.

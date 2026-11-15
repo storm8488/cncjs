@@ -75,3 +75,5 @@
 .perf-v2 .pgl-v2-inspection[hidden],.perf-v2 .pgl-inspection-crosshair[hidden],.perf-v2 .pgl-loupe-frame[hidden]{display:none}
 .perf-v2 .pgl-foot{font-size:16px}
 @media(max-height:600px){.perf-v2 .pgl-v2-inspection{max-height:55%}}
+
+/* Current content hosts retain the existing card rules. */

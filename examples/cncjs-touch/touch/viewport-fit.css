@@ -40,3 +40,5 @@ main{position:fixed;left:0;right:0;top:64px;bottom:60px;display:block!important;
 #tabbar{position:fixed;left:0;right:0;bottom:0}
 #notice{max-height:none;overflow:visible;flex-shrink:0}
 #simulation-banner{flex-shrink:0}
+
+/* Current content hosts retain the existing card rules. */

@@ -18,7 +18,7 @@ function screen(options = {}) {
   const stored = new Map([['cnc-touch-probes-v1-real', JSON.stringify({ version: 1, profiles: [profile], selected: 0, diameter: options.diameter === undefined ? 6 : options.diameter, removed: null })]]);
   let answer = { opened: true, error: null };
   const window = { CNCNumeric:{bind:(field,rules)=>numeric.push({field,rules})},CNCProbeTransfer: require('./touch/probe-transfer.js'), CNCProbeProfiles: require('./touch/probe-profiles.js'), CNCProfileStorage: require('./touch/profile-storage.js'),
-    cncJobControls: { prepareCommand(op, extra) { calls.push([op, JSON.parse(JSON.stringify(extra))]); return Promise.resolve(answer); } },
+    cncJobControls: { stop(){dom.node('job-stop').click();},prepareCommand(op, extra) { calls.push([op, JSON.parse(JSON.stringify(extra))]); return Promise.resolve(answer); } },
     addEventListener(n, f) { (listeners[n] || (listeners[n] = [])).push(f); }, dispatchEvent(e) { events.push(e); (listeners[e.type] || []).slice().forEach((f) => f(e)); } };
   // As in index.html: the catalogs and cncI18n, then the model and probe-real.js, then probe-ui.js.
   dom.document.documentElement = {}; dom.document.title = '';

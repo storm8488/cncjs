@@ -690,3 +690,15 @@ First attempt, before the asset ordering change: the ~60 scripts of the page, lo
 - Feed/spindle overrides and `macro:run` against a real Grbl controller, and the accuracy of the acknowledged-line progress trail against the actual tool position.
 
 Keep initial evaluation in the mock demo. Any later hardware validation needs an operator who knows the machine and can verify each action independently.
+
+## L1 session frame (2026-11-15)
+
+The rail now contains Machine, File, Work zero, Check, Machining (Engraving for laser), and More. The initial screen is Machine; the first received state can choose the next stage once, unless the operator has interacted. No last-screen preference or resume bar is read. More replaces Menu and includes a permanently visible macro tile with an empty-list reason.
+
+New registered checks: test-seance, test-fil, test-refus, test-refus-table, test-confirmation-classes, test-direct-calls, test-cache-version, test-commandes-migration, test-more-screen, test-v2-idle-frames and test-parcours-server. The DOM fixture parses the actual pages and mounts the real shell; it does not measure pixels. The loopback parcours server connects the real service to the LUNYEE simulator through the shared bridge, using the installed Babel transform with caching disabled.
+
+The obsolete test-menu-screen is replaced by test-more-screen/test-fil. Its resume-bar/last-screen assertions and six-tile Menu layout cease to describe the product; strip and alarm assertions remain in the normal strip/machine tests. Confirmations retain their checkbox, nonce, expiry and server guards, add 600 ms arming, and name their effect. Existing confirmation tests now wait explicitly; technical identity is asserted in data-details, while the visible title is shorter. Load/start/resume owners are called directly with their original disabled guards.
+
+Use browser-run.cjs --strict --only screens,e2e,parcours,strip,v2 with the specified Edge binary. The parcours step runs P9 against parcours-server.cjs and requires exactly two control touches. The e2e step loads in File, starts in Check, and follows Machining. The complete browser run remains the orchestrator's responsibility. No layout exception was added.
+
+The old P3 statement about hiding the empty macro entry is superseded by the visible refused More tile. The P2 opening latch is superseded by SPEC-REFONTE section 3.1: only a running/paused workflow latches the opening in Eco; other activity still delays bootstrap until every safe-idle guard passes.

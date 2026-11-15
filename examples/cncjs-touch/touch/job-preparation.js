@@ -190,7 +190,7 @@
       }
       if (step.id === 'file') {
         var load = document.createElement('button'); load.type = 'button'; load.className = 't-btn'; load.id = 'ks-prep-load'; load.textContent = t('Charger la sélection');
-        load.addEventListener('click', function () { var b = document.getElementById('job-load'); if (b && !b.disabled) b.click(); });
+        load.addEventListener('click', function () { var b = document.getElementById('job-load'); if (b && !b.disabled && window.cncJobControls) window.cncJobControls.load(); });
         li.appendChild(load); li._load = load;
       }
       li._title = title; li._state = state; li._detail = detail; li._next = next;
@@ -239,7 +239,7 @@
   function v2Closed() { var s = v2State(); return !!s && s.layout && !s.open; }
   // A v2 page outside a safe Idle (Run/Hold/Alarm/unknown): no advanced load now; cnc-v2-change
   // (safeIdle is part of the state) brings the request back at rest.
-  function v2Busy() { var s = v2State(), idle = false; try { idle = window.cncV2.state().safeIdle === true; } catch (_) {} return !!s && s.layout && !idle; }
+  function v2Busy() { var s = v2State(), idle = false; try { idle = window.cncV2.state().safeIdle === true; } catch (_) { /* Optional browser facility unavailable. */ } return !!s && s.layout && !idle; }
   function originSync() {
     if (!originWanted()) {
       // v2: while the layout is held (Run/Hold/Alarm/unknown), the card keeps its rectangle in Préparer;
@@ -276,7 +276,7 @@
   // Nothing here sends, zeroes, moves or ticks: the zero buttons stay in the coordinates card with their
   // confirmation, and no listener is put on the scene. Every DOM write happens in requestAnimationFrame.
   var v2 = { built: false, active: false, frame: 0, jog: false, cotes: true, machine: null, nodes: null, life: null, declaredKey: '', reading: false };
-  function v2Layout() { var s = v2State(), v = window.cncV2, mount = null; try { mount = s && s.layout && v.mounts ? v.mounts.get('prepare') : null; } catch (_) {} return mount && mount.origin ? mount : null; }
+  function v2Layout() { var s = v2State(), v = window.cncV2, mount = null; try { mount = s && s.layout && v.mounts ? v.mounts.get('prepare') : null; } catch (_) { /* Optional browser facility unavailable. */ } return mount && mount.origin ? mount : null; }
   function v2Schedule() { if (v2.active && !v2.frame && window.requestAnimationFrame) v2.frame = window.requestAnimationFrame(v2Render); }
   function el(tag, cls, text, parent) { var n = document.createElement(tag); if (cls) n.className = cls; if (text) n.textContent = text; if (parent) parent.appendChild(n); return n; }
   function set(node, text) { text = String(text); if (node.textContent !== text) node.textContent = text; }
@@ -389,7 +389,7 @@
   // program's nominal extents from the loaded preview. Data only; nothing is measured or checked off.
   function v2Declarations(meta, identity) {
     var list = [], P = window.CNCProjects, sheet = null;
-    try { sheet = P && typeof P.declared === 'function' ? P.declared(identity.file) : null; } catch (_) {}
+    try { sheet = P && typeof P.declared === 'function' ? P.declared(identity.file) : null; } catch (_) { /* Optional browser facility unavailable. */ }
     if (sheet && sheet.version === 'current' && samePrint(sheet.fingerprint, identity.fingerprint) && sheet.stock)
       list.push({ kind: 'stock', source: 'project', identity: identity, value: { x: sheet.stock.x, y: sheet.stock.y, z: sheet.stock.z }, units: 'mm', assumptions: [] });
     var p = meta && meta.projection, b = p && p.units === 'mm' && p.bounds, z = meta && meta.zBounds;
@@ -406,7 +406,7 @@
   function v2Supply(placement) {
     var v = window.cncV2, id = placement.identity, P = window.CNCProjects, sheet = null;
     if (!placement.available || !id || !id.jobKey || !v2.life || v2.reading) return;
-    try { sheet = P && typeof P.declared === 'function' ? P.declared(id.file) : null; } catch (_) {}
+    try { sheet = P && typeof P.declared === 'function' ? P.declared(id.file) : null; } catch (_) { /* Optional browser facility unavailable. */ }
     var key = JSON.stringify([id.jobKey, sheet]);
     if (key === v2.declaredKey) return;
     var dash = window.cncDashboardView, lease = v2.life.token();
@@ -442,7 +442,7 @@
     if (!mount) { v2Clear(); return; }
     v2Build(mount);
     var n = v2.nodes, m = v2.machine, phase = v2Phase(m), v = window.cncV2, placement = null;
-    try { placement = v.use('placement').snapshot(); } catch (_) {}
+    try { placement = v.use('placement').snapshot(); } catch (_) { /* Optional browser facility unavailable. */ }
     if (phase !== 'idle' || !placement) placement = null;
     else if (placement.identity && placement.identity.jobKey) v2Supply(placement);
     hide(mount.content, false);

@@ -1230,3 +1230,568 @@ window.CNCTouchMessages.push(
 );
 
 window.CNCTouchMessages.push([' · Sélection différente : ',' · Different selection: ',' · Selección diferente: ']);
+
+/* Session frame (L1). */
+(function(){window.CNCTouchMessages=window.CNCTouchMessages.concat([
+  [
+    "Plus",
+    "More",
+    "Más"
+  ],
+  [
+    "Contrôle",
+    "Check",
+    "Control"
+  ],
+  [
+    "Usinage",
+    "Machining",
+    "Mecanizado"
+  ],
+  [
+    "Gravure",
+    "Engraving",
+    "Grabado"
+  ],
+  [
+    "Zéro pièce",
+    "Work zero",
+    "Cero pieza"
+  ],
+  [
+    "Macros",
+    "Macros",
+    "Macros"
+  ],
+  [
+    "Détails",
+    "Details",
+    "Detalles"
+  ],
+  [
+    "Affichage, système",
+    "Display, system",
+    "Pantalla, sistema"
+  ],
+  [
+    "Le fil de la séance",
+    "The session steps",
+    "Las etapas de la sesión"
+  ],
+  [
+    "Aucune macro dans CNCjs",
+    "No macros in CNCjs",
+    "Ninguna macro en CNCjs"
+  ],
+  [
+    "CNCjs Touch · page {version}",
+    "CNCjs Touch · page {version}",
+    "CNCjs Touch · página {version}"
+  ],
+  [
+    "Suite : {etape} →",
+    "Next: {etape} →",
+    "Siguiente: {etape} →"
+  ],
+  [
+    "Étape {n}, {etape} : {etat}",
+    "Step {n}, {etape}: {etat}",
+    "Etapa {n}, {etape}: {etat}"
+  ],
+  [
+    "Impossible pour l’instant.",
+    "Unavailable for now.",
+    "No disponible por ahora."
+  ],
+  [
+    "La tablette ne joint plus le serveur. Elle réessaie seule.",
+    "The tablet cannot reach the server. It retries automatically.",
+    "La tableta no conecta con el servidor. Reintenta automáticamente."
+  ],
+  [
+    "L’état de la machine est perdu. Arrêter reste possible.",
+    "The machine state is lost. Stop remains available.",
+    "Se ha perdido el estado de la máquina. Parar sigue disponible."
+  ],
+  [
+    "Une commande de la tablette est en cours. Attendez sa fin.",
+    "A tablet command is running. Wait until it finishes.",
+    "Hay una orden de la tableta en curso. Espere a que termine."
+  ],
+  [
+    "Alarme pendant l’usinage. Arrêtez l’usinage.",
+    "Alarm during machining. Stop machining.",
+    "Alarma durante el mecanizado. Pare el mecanizado."
+  ],
+  [
+    "Le zéro pièce n’est pas vérifié.",
+    "Work zero is not verified.",
+    "El cero pieza no está verificado."
+  ],
+  [
+    "Zéro pièce d’une séance précédente. Refaites-le pour cette pièce.",
+    "Work zero belongs to an earlier session. Set it for this workpiece.",
+    "El cero pieza es de una sesión anterior. Repítalo para esta pieza."
+  ],
+  [
+    "Rechargez le fichier avant de démarrer.",
+    "Reload the file before starting.",
+    "Recargue el archivo antes de arrancar."
+  ],
+  [
+    "Choisissez un fichier dans la liste.",
+    "Choose a file from the list.",
+    "Elija un archivo de la lista."
+  ],
+  [
+    "Tout est prêt.",
+    "Everything is ready.",
+    "Todo está listo."
+  ],
+  [
+    "Lecture des réglages en cours.",
+    "Reading settings.",
+    "Leyendo los ajustes."
+  ],
+  [
+    "Déplacement en cours.",
+    "Moving.",
+    "Movimiento en curso."
+  ],
+  [
+    "En cas de besoin : l’arrêt d’urgence de la machine.",
+    "If needed, use the machine emergency stop.",
+    "Si es necesario, use la parada de emergencia de la máquina."
+  ],
+  [
+    "Prête",
+    "Ready",
+    "Lista"
+  ],
+  [
+    "Chargé",
+    "Loaded",
+    "Cargado"
+  ],
+  [
+    "Choisi",
+    "Selected",
+    "Elegido"
+  ],
+  [
+    "Aucun fichier",
+    "No file",
+    "Ningún archivo"
+  ],
+  [
+    "Palpage…",
+    "Probing…",
+    "Palpando…"
+  ],
+  [
+    "À vérifier",
+    "To verify",
+    "Por verificar"
+  ],
+  [
+    "Posé",
+    "Set",
+    "Establecido"
+  ],
+  [
+    "Ancien zéro",
+    "Previous zero",
+    "Cero anterior"
+  ],
+  [
+    "Zéro pièce à vérifier",
+    "Work zero to verify",
+    "Cero pieza por verificar"
+  ],
+  [
+    "Dépasse",
+    "Outside travel",
+    "Fuera del recorrido"
+  ],
+  [
+    "Non vérifié",
+    "Not verified",
+    "Sin verificar"
+  ],
+  [
+    "À recharger",
+    "Reload needed",
+    "Por recargar"
+  ],
+  [
+    "Tient",
+    "Fits",
+    "Cabe"
+  ],
+  [
+    "Arrêté",
+    "Stopped",
+    "Detenido"
+  ],
+  [
+    "Rien en cours",
+    "Nothing running",
+    "Nada en curso"
+  ],
+  [
+    "Prendre la main",
+    "Take control",
+    "Tomar el control"
+  ],
+  [
+    "Remise en route",
+    "Recovery",
+    "Puesta en marcha"
+  ],
+  [
+    "Prise d’origine machine…",
+    "Home machine…",
+    "Buscar origen…"
+  ],
+  [
+    "Vérifier à nouveau",
+    "Check again",
+    "Comprobar de nuevo"
+  ],
+  [
+    "Arrêter l’usinage",
+    "Stop machining",
+    "Parar el mecanizado"
+  ],
+  [
+    "Voir l’usinage",
+    "View machining",
+    "Ver el mecanizado"
+  ],
+  [
+    "Refaire le zéro Z",
+    "Reset Z zero",
+    "Repetir el cero Z"
+  ],
+  [
+    "Refaire le zéro pièce",
+    "Reset work zero",
+    "Repetir el cero pieza"
+  ],
+  [
+    "Recharger ce fichier",
+    "Reload this file",
+    "Recargar este archivo"
+  ],
+  [
+    "Ma sonde…",
+    "My probe…",
+    "Mi sonda…"
+  ],
+  [
+    "Pourquoi ?",
+    "Why?",
+    "¿Por qué?"
+  ],
+  [
+    "Voir le dessin de départ",
+    "View starting diagram",
+    "Ver el dibujo inicial"
+  ],
+  [
+    "Relancer le palpage",
+    "Probe again",
+    "Repetir el palpado"
+  ],
+  [
+    "Changer la ligne",
+    "Change line",
+    "Cambiar la línea"
+  ],
+  [
+    "Reprendre au début",
+    "Restart from beginning",
+    "Reiniciar desde el principio"
+  ],
+  [
+    "Recommencer",
+    "Start again",
+    "Repetir"
+  ],
+  [
+    "Voir le contrôle",
+    "View check",
+    "Ver el control"
+  ],
+  [
+    "Type de machine…",
+    "Machine type…",
+    "Tipo de máquina…"
+  ],
+  [
+    "Charger ce fichier",
+    "Load this file",
+    "Cargar este archivo"
+  ],
+  [
+    "Démarrer l’usinage…",
+    "Start machining…",
+    "Iniciar mecanizado…"
+  ],
+  [
+    "Démarrer la gravure…",
+    "Start engraving…",
+    "Iniciar grabado…"
+  ],
+  [
+    "La main",
+    "Control",
+    "El control"
+  ],
+  [
+    "La main :",
+    "Control:",
+    "Control:"
+  ],
+  [
+    "ici",
+    "here",
+    "aquí"
+  ],
+  [
+    "autre",
+    "other",
+    "otro"
+  ],
+  [
+    "Aucun usinage en cours.",
+    "No machining in progress.",
+    "Ningún mecanizado en curso."
+  ],
+  [
+    "Rien à arrêter.",
+    "Nothing to stop.",
+    "Nada que parar."
+  ],
+  [
+    "à jour",
+    "up to date",
+    "al día"
+  ],
+  [
+    "ancienne · ",
+    "old · ",
+    "antigua · "
+  ],
+  [
+    "Lancer l’usinage",
+    "Start machining",
+    "Iniciar mecanizado"
+  ],
+  [
+    "Reprendre l’usinage",
+    "Resume machining",
+    "Reanudar mecanizado"
+  ],
+  [
+    "Lancer la macro",
+    "Run macro",
+    "Ejecutar macro"
+  ],
+  [
+    "Déverrouiller",
+    "Unlock",
+    "Desbloquear"
+  ],
+  [
+    "Lancer le zéro Z",
+    "Start Z zero",
+    "Iniciar cero Z"
+  ],
+  [
+    "Lancer le cadrage",
+    "Start framing",
+    "Iniciar encuadre"
+  ],
+  [
+    "Lancer le palpage {axes}",
+    "Start probing {axes}",
+    "Iniciar palpado {axes}"
+  ],
+  [
+    "Démarrer l’usinage",
+    "Start machining",
+    "Iniciar mecanizado"
+  ],
+  [
+    "Lancer la macro {nom}",
+    "Run macro {nom}",
+    "Ejecutar macro {nom}"
+  ],
+  [
+    "Déverrouiller sans prise d’origine",
+    "Unlock without homing",
+    "Desbloquear sin buscar origen"
+  ],
+  [
+    "Lancer la prise d’origine machine",
+    "Home the machine",
+    "Buscar el origen máquina"
+  ],
+  [
+    "Zéro Z à la plaque",
+    "Z zero with plate",
+    "Cero Z con placa"
+  ],
+  [
+    "Cadrer le fichier",
+    "Frame the file",
+    "Encuadrar el archivo"
+  ],
+  [
+    "Palper le bloc {axes}",
+    "Probe the block {axes}",
+    "Palpar el bloque {axes}"
+  ],
+  [
+    "Lancer la gravure",
+    "Start engraving",
+    "Iniciar grabado"
+  ],
+  [
+    "Démarrer la gravure",
+    "Start engraving",
+    "Iniciar grabado"
+  ],
+  [
+    "Les trois axes vont jusqu’à leurs capteurs, Z d’abord. Dégagez la table.",
+    "All three axes move to their switches, Z first. Clear the table.",
+    "Los tres ejes van hasta sus sensores, Z primero. Despeje la mesa."
+  ],
+  [
+    "Je suis devant la machine et la table est dégagée.",
+    "I am at the machine and the table is clear.",
+    "Estoy delante de la máquina y la mesa está despejada."
+  ],
+  [
+    "Rien ne bouge. La position de la machine peut être fausse : faites ensuite la prise d’origine.",
+    "Nothing moves. The machine position may be wrong: home it afterwards.",
+    "Nada se mueve. La posición puede ser incorrecta: busque el origen después."
+  ],
+  [
+    "La tête fait le tour du fichier, laser éteint.",
+    "The head traces the file boundary with the laser off.",
+    "El cabezal recorre el contorno del archivo con el láser apagado."
+  ],
+  [
+    "Une macro peut déplacer la machine et faire tourner la broche.",
+    "A macro can move the machine and start the spindle.",
+    "Una macro puede mover la máquina y arrancar el husillo."
+  ],
+  [
+    "Je suis devant la machine et je connais cette macro.",
+    "I am at the machine and I know this macro.",
+    "Estoy delante de la máquina y conozco esta macro."
+  ],
+  [
+    "Je suis devant la machine et j’ai vérifié que le fichier tient dans la machine.",
+    "I am at the machine and have checked that the file fits its travel.",
+    "Estoy delante de la máquina y he comprobado que el archivo cabe en su recorrido."
+  ],
+  [
+    "Prendre la main — je suis devant la machine",
+    "Take control — I am at the machine",
+    "Tomar el control — estoy delante de la máquina"
+  ],
+  [
+    "Prendre la main — l’autre appareil est hors service",
+    "Take control — the other device is out of service",
+    "Tomar el control — el otro dispositivo está fuera de servicio"
+  ],
+  [
+    " Un palpage est en cours : prendre la main l’arrête.",
+    " Probing is in progress: taking control stops it.",
+    " Hay un palpado en curso: tomar el control lo detiene."
+  ],
+  [
+    " Un déplacement est en cours : prendre la main l’arrête.",
+    " A move is in progress: taking control stops it.",
+    " Hay un movimiento en curso: tomar el control lo detiene."
+  ],
+  [
+    " L’usinage continue.",
+    " Machining continues.",
+    " El mecanizado continúa."
+  ],
+  [
+    "Rendu Performance actif.",
+    "Performance rendering active.",
+    "Renderizado Performance activo."
+  ],
+  [
+    "Rendu Performance en attente du repos de la machine.",
+    "Performance rendering is waiting for the machine to be idle.",
+    "El renderizado Performance espera a que la máquina esté en reposo."
+  ],
+  [
+    "Rendu Éco : page ouverte pendant un usinage. Rechargez-la au repos.",
+    "Eco rendering: page opened during machining. Reload at idle.",
+    "Renderizado Eco: página abierta durante un mecanizado. Recárguela en reposo."
+  ],
+  [
+    "Rendu Éco : appareil non éligible.",
+    "Eco rendering: device not eligible.",
+    "Renderizado Eco: dispositivo no compatible."
+  ]
+]);})();
+
+(function(){window.CNCTouchMessages.push(['Vitesse','Speed','Velocidad']);})();
+
+(function(){window.CNCTouchMessages=window.CNCTouchMessages.concat([
+  [
+    "Ma­chine",
+    "Machine",
+    "Má­quina"
+  ],
+  [
+    "Con­trôle",
+    "Check",
+    "Control"
+  ],
+  [
+    "Usi­nage",
+    "Machi­ning",
+    "Meca­ni­zado"
+  ],
+  [
+    "Gra­vure",
+    "Engra­ving",
+    "Gra­bado"
+  ],
+  [
+    "Mise en service : page réelle uniquement.",
+    "Commissioning: real page only.",
+    "Puesta en servicio: solo en la página real."
+  ],
+  [
+    "Il manque : ",
+    "Missing: ",
+    "Falta: "
+  ],
+  [
+    "Le fichier demande une position hors de la machine, ligne {N}. Refaire le zéro n’y change rien.",
+    "The file requests an out-of-travel position at line {N}. Resetting work zero cannot fix it.",
+    "El archivo pide una posición fuera del recorrido en la línea {N}. Repetir el cero no lo soluciona."
+  ],
+  [
+    "Le mode laser est actif dans la machine.",
+    "Laser mode is enabled in the machine.",
+    "El modo láser está activo en la máquina."
+  ]
+]);})();
+
+(function(){window.CNCTouchMessages=window.CNCTouchMessages.concat([["Autre motif…","Other reason…","Otro motivo…"]]);})();
+
+(function(){window.CNCTouchMessages=window.CNCTouchMessages.concat([["La fraise descend jusqu’à la plaque de {epaisseur} mm, de {descente} mm au plus.","The cutter descends to the {epaisseur} mm plate, over at most {descente} mm.","La fresa baja hasta la placa de {epaisseur} mm, como máximo {descente} mm."],["La broche démarre et la machine se déplace.","The spindle starts and the machine moves.","El husillo arranca y la máquina se mueve."],["Le laser s’allume et la tête se déplace.","The laser turns on and the head moves.","El láser se enciende y el cabezal se mueve."]]);})();
+
+(function(){window.CNCTouchMessages.push(['Arrêté ligne {n}','Stopped at line {n}','Detenido en la línea {n}']);})();

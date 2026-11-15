@@ -11,7 +11,7 @@ function fixture(file){
 for(const [file,screen] of [['simulation-motion.js','jog'],['simulation-machine.js','machine']]){
  const f=fixture(file),machine={activeState:'Idle',workflow:'idle',canJog:true,workPosition:{x:1},name:''};
  const state=()=>f.events['cnc-job-status']({detail:{simulation:true,machine}});
- f.events['cnc-screen-change']({detail:'menu'});const before=f.writes;
+ f.events['cnc-screen-change']({detail:'more'});const before=f.writes;
  for(let i=0;i<10;i++)state();assert.equal(f.writes,before,'No hidden writes');
  f.events['cnc-screen-change']({detail:screen});assert(f.writes>before);
  const visible=f.writes;for(let i=0;i<10;i++)state();assert.equal(f.writes,visible,'No unchanged writes');
@@ -27,7 +27,7 @@ for(const [file,screen] of [['simulation-motion.js','jog'],['simulation-machine.
  vm.runInNewContext(fs.readFileSync(__dirname+'/touch/coordinate-display.js','utf8'),ctx);
  assert.equal(copies[0].textContent,'2.000');assert.equal(copies[1].textContent,'');assert.equal(observers[0].targets.length,1);
  for(let i=0;i<10;i++){active=i%2?'jog':'machine';events['cnc-screen-change']();assert.equal(observers[0].targets.length,1);}
- active='menu';events['cnc-screen-change']();assert.equal(observers[0].targets.length,0);
+ active='more';events['cnc-screen-change']();assert.equal(observers[0].targets.length,0);
  events.pagehide({persisted:false});assert.equal(Object.keys(events).length,0);
 }
 console.log('PASS hidden views: no hidden/identical writes, immediate re-entry, active-only coordinate observer and bounded subscriptions.');

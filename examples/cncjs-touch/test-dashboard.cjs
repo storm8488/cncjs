@@ -70,12 +70,12 @@ let real={...c,port:'REAL',remainingSeconds:undefined,received:10};status(real,f
 for(let i=0;i<11;i++){now+=1000;real={...real,received:real.received+1};status(real,false);}
 assert.match(el('home-job-eta').textContent,/estimé/);assert.match(el('home-job-note').textContent,/indicative/);
 const navigate=name=>{activeScreens.clear();activeScreens.add(name);listeners['cnc-screen-change']({detail:name});};
-navigate('menu');const count=requests.length,writes=stats.writes;
+navigate('more');const count=requests.length,writes=stats.writes;
 for(let i=0;i<50;i++)status(real,false);
 assert.equal(stats.writes,writes);assert.equal(requests.length,count);
 listeners['cnc-library-preview-updated']({detail:{file:'a.nc'}});assert.equal(requests.length,count);
 navigate('home');assert.equal(requests.length,count+1);assert.equal(requests.at(-1).file,'a.nc.cnctouch.json');
-const pending=requests.at(-1).xhr;navigate('menu');assert(pending.aborted);
+const pending=requests.at(-1).xhr;navigate('more');assert(pending.aborted);
 const stable=stats.writes;pending.status=200;pending.responseText=JSON.stringify({data:JSON.stringify({file:'a.nc',preview:{image:'data:image/png;base64,AAAA'}})});pending.onload();assert.equal(stats.writes,stable);
 navigate('home');assert.equal(requests.length,count+2);
 console.log('PASS: loaded-file image, stale response, progress/estimate, zero hidden repaint/request, same-file invalidation, view abort and immediate reentry.');
@@ -263,7 +263,7 @@ console.log('PASS: strict finite counters, stale status, clock jumps, pause, sle
   clock += 500; send({ ...run, received: 56, feedrate: 1250 }); assert.equal(frames.length, 0, 'not again within a second');
   clock += 600; send({ ...run, received: 57, feedrate: 1250 }); assert.equal(frames.length, 1, 'again after a second'); frames.shift()();
   // Suivi hidden: no frame, no DOM write at all.
-  dom.activeScreens.clear(); dom.activeScreens.add('menu'); events['cnc-screen-change']({ detail: 'menu' });
+  dom.activeScreens.clear(); dom.activeScreens.add('more'); events['cnc-screen-change']({ detail: 'more' });
   const writes = dom.stats.writes; clock += 5000;
   for (let i = 0; i < 20; i++) { clock += 250; send({ ...run, received: 58 + i, feedrate: 1000 + i }); }
   assert.equal(frames.length, 0, 'no frame while Suivi is hidden'); assert.equal(dom.stats.writes, writes, 'no DOM write while Suivi is hidden');

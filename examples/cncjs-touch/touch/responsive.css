@@ -255,3 +255,62 @@ body.ks-ui.perf-wide #screen-files .library-detail{grid-template-rows:auto auto 
 /* La liste plus étroite : le titre et « Ajouter » en haut, la recherche et « Favoris » dessous (comme en
    fenêtre compacte), pour que le champ de recherche garde sa largeur. */
 body.ks-ui.perf-wide #screen-files .library-list-panel{grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto auto minmax(0,1fr) auto;grid-template-areas:"title add" "search fav" "status status" "list list" "pages pages"}
+
+/* L1: shared session frame, identical in Eco and Performance. */
+body.ks-ui #tabbar{top:72px;gap:12px;padding:8px!important}
+body.ks-ui #tabbar .ks-nav{flex:none;min-height:88px;height:88px;width:72px;padding:4px 2px;gap:6px}
+body.ks-ui #tabbar .ks-nav[data-ks-screen="more"]{margin-top:auto;height:64px;min-height:64px;border-top:1px solid var(--line-strong);border-radius:0}
+body.ks-ui #tabbar .ks-nav span{font-size:16px;line-height:1.15;white-space:normal;overflow-wrap:normal}
+.ks-step-number{position:relative;border:1px solid var(--line-strong);border-radius:50%;width:28px;height:28px;display:grid;place-items:center}
+.ks-step-mark{position:absolute;right:-9px;top:-8px;font-size:14px;background:var(--surface);border-radius:50%}
+.ks-nav[data-seance-state="alerte"] .ks-step-mark{color:var(--warn-text)}
+.ks-nav[data-seance-state="suite"] .ks-step-number{border:2px solid var(--accent)}
+.ks-nav[data-seance-state="attente"]{color:var(--mute)}
+body.ks-ui main>.ks-step-screen{position:absolute;padding-top:52px!important;padding-bottom:76px!important;box-sizing:border-box;min-height:0}
+.ks-step-body{display:contents}
+.ks-ui .ks-step-head{position:absolute;top:0;left:0;right:0;height:40px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line);min-width:0}
+.ks-ui .ks-step-head h2{font-size:20px;color:var(--fg);margin:0;white-space:nowrap}
+.ks-step-head>span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;color:var(--mute);font-size:16px}
+.ks-step-head>b{font-size:16px;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ks-ui .ks-stepbar{position:absolute;bottom:0;left:0;right:0;display:flex;gap:12px;align-items:center;min-height:64px;background:var(--bg);border-top:1px solid var(--line);z-index:3}
+.ks-ui .ks-stepbar p{flex:1;min-width:120px;font-size:16px;line-height:1.25;margin:0;max-height:60px;overflow:auto}
+.ks-ui .ks-stepbar button{font-size:16px;min-height:48px;border:1px solid var(--line-control);background:var(--surface-2);color:var(--fg);border-radius:8px;padding:8px 16px;max-width:300px;line-height:1.15}
+.ks-ui .ks-stepbar button[id$="-main"]{flex:0 0 320px;min-height:64px;max-width:320px;font-size:18px;background:var(--accent);color:var(--on-accent)}
+.ks-ui .ks-stepbar button[data-style="contour"]{background:var(--surface);color:var(--fg)}
+.ks-ui .ks-stepbar [hidden]{display:none!important}
+.ks-ui .ks-stepbar button:disabled{background:repeating-linear-gradient(135deg,var(--disabled-bg),var(--disabled-bg) 7px,var(--disabled-stripe) 7px,var(--disabled-stripe) 9px);color:var(--disabled-fg);pointer-events:none}
+.ks-refus{display:flex;align-items:center;gap:12px;padding:12px;border-left:4px solid var(--warn-text);background:var(--surface-2);color:var(--fg);font-size:16px}
+.ks-refus>span{flex:1}.ks-refus button,.ks-back{min-height:48px;font-size:16px}
+#ks-details pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:16px}
+.ks-ui #screen-more.active,.ks-ui #screen-more.kept{display:flex;flex-direction:column;gap:16px;height:100%;min-height:0}
+#screen-more .ks-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:200px;gap:16px;flex:1;align-content:start;min-height:0;overflow:auto}
+#screen-more .ks-tile{min-height:200px;height:200px}.ks-ui #more-version{font-size:16px;margin:0}
+.ks-ui #screen-check.active,.ks-ui #screen-check.kept{display:block;height:100%}
+#check-verdict{max-height:100%;overflow:auto}
+.ks-ui #screen-machine #ks-connect{grid-column:1/-1;min-width:0}
+.ks-ui #real-banner .t-strip-actions,.ks-ui #simulation-banner .t-strip-actions{flex:0 0 auto;gap:12px;align-items:center}
+.ks-ui .t-strip-actions #t-pilot{width:160px;min-width:160px;height:48px;border:1px solid var(--line-control);border-radius:8px;display:flex;gap:4px;align-items:center;justify-content:center}
+.ks-ui .t-strip-actions #t-pilot::after{content:'›';font-size:22px}
+.ks-ui .t-strip-actions #t-pilot span,.ks-ui .t-strip-actions #t-pilot b{font-size:16px;text-transform:none;letter-spacing:0}
+.ks-ui .t-strip-actions #t-pause,.ks-ui .t-strip-actions #t-resume,.ks-ui .t-strip-actions #t-recover{width:200px;min-width:200px;height:64px;min-height:64px;font-size:18px;white-space:normal}
+.ks-ui .t-strip-actions #t-stop{width:148px;min-width:148px;height:64px;min-height:64px}
+.ks-ui #real-banner[data-job="true"] .t-vital--machine{display:none}
+.ks-ui.display-large #real-banner[data-job="true"] .t-vital--feed{display:none}
+.ks-ui #real-banner[data-job="true"] .t-vital--file{min-width:120px;flex:1}
+.ks-ui #real-banner .t-vitals{gap:12px;flex:1;overflow:hidden}
+.ks-ui #real-banner .t-vital--file{min-width:0}
+.ks-ui #real-banner[data-job="true"] .t-vital--file{min-width:120px}
+.ks-ui .job-dialog-card{width:600px;max-width:calc(100vw - 48px)}
+.ks-ui .job-dialog-actions #job-confirm{min-height:64px;min-width:300px;max-width:100%;font-size:18px}
+.ks-ui .job-dialog-actions[data-avoid-origin="true"]{flex-direction:row-reverse}
+.ks-ui .pilot-reasons{display:flex;flex-direction:column;gap:12px}
+.ks-ui .pilot-reasons button{min-height:64px;font-size:16px;white-space:normal}
+.ks-ui #pilot-reason-a{background:var(--accent);color:var(--on-accent)}
+@media(max-height:649px){body.ks-ui #tabbar .ks-nav{height:56px;min-height:56px}body.ks-ui #tabbar .ks-nav .ks-nav-name{display:none}body.ks-ui #tabbar .ks-nav[data-ks-screen="more"] .ks-nav-name{display:block}}
+@media(max-width:1099px),(max-height:649px){body.ks-ui main>.ks-step-screen{padding-bottom:140px!important;overflow:auto}.ks-ui .ks-stepbar{position:fixed;left:104px;right:16px;bottom:16px;flex-wrap:wrap}.ks-ui .ks-stepbar p{flex-basis:100%}.ks-ui .ks-stepbar button[id$="-main"]{margin-left:auto}#screen-more .ks-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Current content hosts retain the existing card rules. */
+
+/* Normal actions and states use neutral ink; bright colour signals attention. */
+.ks-ui .t-btn--primary,.ks-ui .job-start,.ks-ui .ks-connect-go{background:var(--accent);color:var(--on-accent)}
+.ks-ui .t-state[data-tone="ok"],.ks-ui .ks-machine-word[data-tone="ok"]{color:var(--fg);background:var(--surface)}

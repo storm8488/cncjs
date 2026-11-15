@@ -4,7 +4,7 @@ const fs = require('fs'), vm = require('vm'), assert = require('assert');
 const source = fs.readFileSync(__dirname + '/touch/app.js', 'utf8');
 
 function run({ stored, socketError } = {}) {
-  const { document } = require('./dom-fixture.cjs').createDOM(['menu']);
+  const { document } = require('./dom-fixture.cjs').createDOM(['more']);
   const storage = {}, session = {}, requests = [], timers = [];
   if (stored !== undefined) storage.cnc = JSON.stringify(stored);
   let reloads = 0, socket = null;

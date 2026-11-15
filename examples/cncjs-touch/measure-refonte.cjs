@@ -276,7 +276,7 @@ async function stepJob(fx, v) {
     fx.phase = 'running';
     await cdp.waitFor('(function(){var m=window.cncState&&window.cncState.get().machine;return !!(m&&m.workflow==="running"&&m.fresh);})()', 30000, 'replayed job running');
     out.perfV2DuringJob = await cdp.evaluate('document.body.classList.contains("perf-v2")');
-    for (const screen of ['home', 'menu']) {
+    for (const screen of ['home', 'more']) {
       await goScreen(cdp, screen);
       await sleep(3000);
       const windows = [];
@@ -290,7 +290,7 @@ async function stepJob(fx, v) {
       out.screens[screen] = { summary, windows };
     }
     out.profiles = {};
-    for (const screen of ['home', 'menu']) { await goScreen(cdp, screen); await sleep(2000); out.profiles[screen] = (await jobWindow(cdp, fx, WINDOW, true, counter)).profile; }
+    for (const screen of ['home', 'more']) { await goScreen(cdp, screen); await sleep(2000); out.profiles[screen] = (await jobWindow(cdp, fx, WINDOW, true, counter)).profile; }
     out.refused = fx.refused.slice();
   } finally { await closeBrowser(browser); fx.phase = 'idle'; }
   return out;
@@ -369,13 +369,13 @@ async function stepHidden(fx, v) {
     fx.phase = 'idle'; fx.profile = v.kind;
     await storage(cdp, fx, v);
     await openPage(cdp, fx, v, 'census');
-    for (const screen of ['menu', 'home', 'files', 'jog', 'machine', 'history', 'settings']) {
+    for (const screen of ['more', 'home', 'files', 'jog', 'machine', 'history', 'settings']) {
       await goScreen(cdp, screen); await sleep(2000);
       out.states['repos/' + screen] = await censusWindow(cdp, CENSUS);
       log('hidden ' + v.id + ' repos/' + screen + ': ' + out.states['repos/' + screen].sites.reduce((n, s) => n + s.fired, 0) + ' callbacks, ' + out.states['repos/' + screen].animations.length + ' animations');
     }
     // Screen saver over Menu at rest.
-    await goScreen(cdp, 'menu'); await sleep(1000);
+    await goScreen(cdp, 'more'); await sleep(1000);
     out.saver = await cdp.evaluate('(function(){try{return window.cncScreenSaver?{asked:window.cncScreenSaver.preview(),status:window.cncScreenSaver.status()}:null;}catch(e){return {error:e.message};}})()');
     await sleep(1500);
     out.states['veille/menu'] = await censusWindow(cdp, CENSUS);
@@ -390,7 +390,7 @@ async function stepHidden(fx, v) {
     await cdp.waitFor('(function(){var m=window.cncState&&window.cncState.get().machine;return !!(m&&m.workflow==="running"&&m.fresh);})()', 30000, 'job running');
     await sleep(2000);
     out.states['travail/home'] = await censusWindow(cdp, CENSUS);
-    await goScreen(cdp, 'menu'); await sleep(2000);
+    await goScreen(cdp, 'more'); await sleep(2000);
     out.states['travail/menu'] = await censusWindow(cdp, CENSUS);
     log('hidden ' + v.id + ' travail: home ' + out.states['travail/home'].sites.reduce((n, s) => n + s.fired, 0) + ', menu ' + out.states['travail/menu'].sites.reduce((n, s) => n + s.fired, 0) + ' callbacks');
     out.refused = fx.refused.slice();
@@ -635,7 +635,7 @@ async function stepCache() {
   const port = server.address().port;
   const get = (p, headers) => new Promise((resolve, reject) => { http.get({ host: '127.0.0.1', port, path: p, headers: Object.assign({ 'accept-encoding': 'gzip' }, headers || {}) }, (res) => { let n = 0; res.on('data', (d) => { n += d.length; }); res.on('end', () => resolve({ status: res.statusCode, bytes: n, headers: { 'cache-control': res.headers['cache-control'], etag: res.headers.etag, 'last-modified': res.headers['last-modified'], 'content-encoding': res.headers['content-encoding'] || null } })); }).on('error', reject); });
   const seq = [];
-  for (const f of ['index.html', 'touch-shell.js?v=v2u']) {
+  for (const f of ['index.html', 'touch-shell.js?v='+/ADVANCED_VERSION='([^']+)'/.exec(fs.readFileSync(path.join(__dirname,'touch/tablet-profile.js'),'utf8'))[1]]) {
     const first = await get('/' + f);
     const again = await get('/' + f, { 'if-none-match': first.headers.etag, 'if-modified-since': first.headers['last-modified'] });
     const file = path.join(tmp, f.split('?')[0]);
