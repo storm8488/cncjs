@@ -53,11 +53,13 @@ function createBench(){
         else throw new Error('Unknown simulated input');
         json(res,packet(null));return;
       }
+      if(url.pathname==='/api/watch/files'){json(res,{files:[{type:'f',name:'recovery.nc',size:file.size,mtime:'2026-11-15'}]});return;}
+      if(url.pathname==='/api/watch/file'){json(res,{message:'No sidecar in this bench'},404);return;}
       if(url.pathname==='/api/touch-job'){const data=await service.action(body,actor(body));json(res,{...data,snapshot:packet(body.transportId)});return;}
       if(url.pathname==='/api/touch-projects/read'){json(res,{version:'none',entry:null});return;}
       json(res,{});return;
     }
-    if(url.pathname==='/api/watch/status'){json(res,{configured:false});return;}
+    if(url.pathname==='/api/watch/status'){json(res,{configured:true});return;}
     if(url.pathname==='/api/touch-backlight'){json(res,{available:false,local:true});return;}
     if(url.pathname==='/api/touch-projects'){json(res,{entries:[]});return;}
     if(url.pathname==='/connection-fixture.js'){

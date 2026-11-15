@@ -1,7 +1,7 @@
 'use strict';
 // Parse actual page markup. This adapter checks DOM structure and event routing, not layout.
 const fs=require('fs'),vm=require('vm'),path=require('path');
-const parser=require('htmlparser2'),select=require('css-select'),utils=require('domutils'),serialize=require('dom-serializer');
+const parser=require('htmlparser2'),select=require('css-select'),utils=require('domutils'),serialize=require('dom-serializer').default;
 function page(language='fr',simulation=false){
   const stats={writes:0},listeners={},frames=[],timers=[],storage=new Map();
   storage.set('cncjs-touch-language-v1',language);
@@ -20,9 +20,10 @@ function page(language='fr',simulation=false){
     n.appendChild=c=>n.insertBefore(c,null);
     n.insertBefore=(c,before)=>{if(!c)throw Error('Missing child');if(before)utils.prepend(before,c);else utils.appendChild(n,c);stats.writes++;return c;};
     n.removeChild=c=>{utils.removeElement(c);stats.writes++;return c;};
+    n.insertAdjacentHTML=(where,html)=>{const nodes=parser.parseDOM(html).slice();nodes.forEach(walk);if(where==='afterend'){nodes.reverse().forEach(c=>utils.append(n,c));}else if(where==='beforebegin'){nodes.forEach(c=>utils.prepend(n,c));}else nodes.forEach(c=>utils.appendChild(n,c));};
     n.closest=s=>{for(let p=n;p;p=p.parent)if(p.type==='tag'&&select.is(p,s))return p;return null;};
     n.focus=()=>{document.activeElement=n;};n.getClientRects=()=>n.hidden?[]:[{}];n.getBoundingClientRect=()=>({left:0,right:1,top:0,bottom:1,width:1,height:1});
-    n.click=()=>{if(n.disabled)return;document.activeElement=n;const e={target:n,isTrusted:false};(n.handlers.click||[]).slice().forEach(fn=>fn.call(n,e));(listeners['doc:click']||[]).slice().forEach(fn=>fn(e));};
+    n.click=()=>{if(n.disabled)return;document.activeElement=n;const e={target:n,isTrusted:false};for(let p=n;p;p=p.parent)(p.handlers&&p.handlers.click||[]).slice().forEach(fn=>fn.call(p,e));(listeners['doc:click']||[]).slice().forEach(fn=>fn(e));};
     n.value=n.attribs&&n.attribs.value||'';
     n.style={setProperty(k,v){this[k]=v;},removeProperty(k){delete this[k];}};
     for(const [prop,attr] of [['id','id'],['className','class']])Object.defineProperty(n,prop,{get:()=>n.getAttribute(attr)||'',set:v=>{n.setAttribute(attr,v);}});
@@ -40,7 +41,7 @@ function page(language='fr',simulation=false){
   }
   function walk(n){decorate(n);(n.children||[]).forEach(walk);}root.forEach(walk);
   document={hidden:false,title:'',querySelector:s=>select.selectOne(s,root),querySelectorAll:s=>select.selectAll(s,root),getElementById:id=>{let n=select.selectOne('#'+id,root);return n;},createElement:tag=>{const n=parser.parseDOM('<'+tag+'></'+tag+'>')[0];walk(n);return n;},addEventListener:(n,f)=>{(listeners['doc:'+n]||(listeners['doc:'+n]=[])).push(f);},removeEventListener(){}};
-  document.body=document.querySelector('body');document.documentElement=document.querySelector('html');document.activeElement=document.body;
+  document.body=document.querySelector('body');document.head=document.querySelector('head');document.createTextNode=value=>decorate({type:'text',data:String(value),parent:null,prev:null,next:null});document.documentElement=document.querySelector('html');document.activeElement=document.body;
   window={innerWidth:1366,innerHeight:simulation?768:911,cncI18n:null,requestAnimationFrame:f=>{frames.push(f);return frames.length;},cancelAnimationFrame(){},addEventListener:(n,f)=>{(listeners[n]||(listeners[n]=[])).push(f);},removeEventListener(){},dispatchEvent:e=>(listeners[e.type]||[]).slice().forEach(fn=>fn(e))};
   const context={window,document,localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},location:{origin:'http://127.0.0.1'},CustomEvent:function(type,o){this.type=type;this.detail=o&&o.detail;},Event:function(type){this.type=type;},Date:class extends Date{static now(){return now;}},setTimeout:f=>timers.push(f),clearTimeout(){},setInterval(){},clearInterval(){},console,Promise};
   vm.createContext(context);

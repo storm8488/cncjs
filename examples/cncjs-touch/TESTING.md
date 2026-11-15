@@ -728,3 +728,22 @@ Run browser-run.cjs --strict --only screens,e2e,v2,responsive,parcours with the 
 The former real probe-screen/result/WCS-selector and Suivi plate assertions are replaced, not silently retained against nonexistent markup. Their exact removals and replacements are listed in `design/refonte/audit/ECARTS-PLAN.md`, L3b points 9–10. A2-2 and A2-4 are converted; other bughunt files are unaffected. No layout exception is added.
 
 Run `browser-run.cjs --strict --only screens,e2e,parcours` with Edge and `output/codex-L3b`. Block states are measured on jog, setup/diagnostic are sheets. Probe parcours use synthetic tickets/outcomes on a loopback fixture, while the existing recovery parcours retain the real service/LUNYEE bridge. Expected counts: P3 14 plus four numeric entries, P4 4, P5 3 from either origin or completion, P10 2. A failed CDP connection proves none of these browser counts or pixel budgets. The right-docked pad retains modal isolation and the strip stops; the drawing is checked for intersection in the probe parcours.
+## Refonte L4: File and Control
+
+Run `test-files-verdict.cjs`, `test-check-drawing.cjs`, `test-check-screen.cjs` and
+`test-derogation.cjs` through `verify-project.cjs`. They use the real page markup,
+session presenter and command owner with recorded transports only. Selection
+checks are independent of loading; late responses and an invalidated work zero
+cannot preserve a previous green verdict. The deliberate travel override lives
+only in Control details and retains the server ticket, checkbox and nonce.
+
+The retired preparation sheet and its manual ticks have no replacement test:
+`test-job-preparation.cjs` and `test-preparation-keys.cjs` are removed. Geometry
+corpus tests use `CNCTravelCheck.place`; only the server decides travel permission.
+See `design/refonte/audit/ECARTS-PLAN.md`, L4, for every migrated assertion.
+
+Use the browser harness with `--only screens,e2e,v2,parcours`. File loading stays
+on File, start is on Control, and placement is opened explicitly in its dialog.
+The three added visual states are `outside`, `unknown` and `offset-failed`.
+P2 expects three touches; P7 through start expects four. These are harness
+expectations until a successful browser run, not hardware validation.

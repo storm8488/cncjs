@@ -9,7 +9,7 @@
   // Only meaningful once homed ($22=1); Z is not in the 2D preview.
   function number(v){var n=typeof v==='string'?Number(v):v;return typeof n==='number'&&isFinite(n)?n:null;}
   function fmt(v){return (Math.round(v*10)/10).toFixed(1).replace('.',',');}
-  function check(preview,machine){
+  function geometry(preview,machine){
     var p=preview&&preview.projection,b=p&&p.bounds,c=machine||{},s=c.settings||{},co=c.coordinates||{};
     function unknown(reason){return {state:'unknown',message:uiLocale.t('Course machine non vérifiée : ')+uiLocale.t(reason)};}
     if(!p||p.units!=='mm'||!Array.isArray(b)||b.length!==4||!b.every(function(v){return number(v)!==null;})||b[2]<b[0]||b[3]<b[1])return unknown('aperçu du fichier indisponible.');
@@ -38,14 +38,6 @@
     return {state:'ok',axes:axes,message:uiLocale.t('Dans la course machine en X et Y (Z non vérifié ; valable si la prise d’origine a été faite).')+
       (p.returns?' '+uiLocale.t('Retours G28/G30 non vérifiés.'):'')};
   }
-  // Writes a result into the confirmation dialog; null hides the line.
-  function show(node,result){
-    if(!node)return;
-    var hidden=!result,text=result?result.message:'',cls='job-travel'+(result?' '+result.state:'');
-    if(node.hidden!==hidden)node.hidden=hidden;
-    if(node.textContent!==text)node.textContent=text;
-    if(node.className!==cls)node.className=cls;
-  }
   // Data only (Performance UI, lot O): the machine space after homing, machine frame, for drawing.
   // No rule of its own: the same $22 and $130/$131 refusals as check(); Z drawn only when $132 is known.
   function travelBox(machine){
@@ -69,7 +61,7 @@
     Object.keys(co).forEach(function(k){coords[k]=co[k];});
     Object.keys(co.wpos||{}).forEach(function(k){wpos[k]=co.wpos[k];});
     wpos.x=0;wpos.y=0;coords.wpos=wpos;copy.coordinates=coords;
-    return check(preview,copy);
+    return geometry(preview,copy);
   }
   // V2 data exposure only. Signed distances from the nominal XY extent to each
   // travel boundary; negative means outside. check()/place() and their callers
@@ -85,6 +77,6 @@
     value.verdict=result.state==='ok'?'inside':'outside';value.marginsMm=margins;
     return value;
   }
-  var api={check:check,show:show,travelBox:travelBox,place:place,placementData:placementData};
+  var api={travelBox:travelBox,place:place,placementData:placementData};
   if(typeof module==='object'&&module.exports)module.exports=api;else root.CNCTravelCheck=api;
 })(typeof window==='object'?window:this);

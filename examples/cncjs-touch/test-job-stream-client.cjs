@@ -15,7 +15,7 @@ const isStream=url=>/\/touch-events(\?clientId=[^&]+)?$/.test(url);
 function answer(xhr,body,status=200){xhr.status=status;xhr.responseText=JSON.stringify(body);xhr.onload();}
 function packet(seq,controllers,transportId='stream-one'){return {version:1,epoch:'server-one',sequence:seq,sentAt:now,transportId,controllers};}
 function push(xhr,data){xhr.status=200;xhr.responseText+=JSON.stringify(data)+'\n';xhr.onprogress();}
-function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port,type:'Grbl',activeState:'Idle',workflow:'idle',fresh:true,statusAgeMs:0,statusObservedAt:now,name:'test.nc',originalName:'Test',revision:'rev',total:10,received:0,canLoad:true,canStart:true,canResume:false,canPause:false,canStop:false,probeInput:{state:'free',fresh:true,ageMs:0,observedAt:now}};}
+function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port,type:'Grbl',activeState:'Idle',workflow:'idle',fresh:true,statusAgeMs:0,statusObservedAt:now,name:'test.nc',originalName:'Test',revision:'rev',total:10,received:0,canLoad:true,workOffset:{state:'proven'},canStart:true,canResume:false,canPause:false,canStop:false,probeInput:{state:'free',fresh:true,ageMs:0,observedAt:now}};}
 (async()=>{
   const health=requests.find(r=>r.url.endsWith('/custom/health')), initial=requests.find(r=>r.url.endsWith('/touch-job'));
   assert(health.url.startsWith('/cnc/api/'));assert.equal(health.headers.Authorization,'Bearer offline-fixture');
@@ -52,9 +52,9 @@ function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port
   push(stream,packet(40,[machine('A'),machine('B')]));assert.equal(el('job-start').disabled,true,'second controller cancels implicit single selection');
   assert.equal(window.cncState.get().transportConnected,true,'choosing between controllers must not disconnect the server');assert.equal(window.cncState.get().machine,null);
   el('job-port').value='B';el('job-port').handlers.change[0]();assert.equal(window.cncState.get().machine.port,'B');
-  el('job-start').click();const preparing=requests.at(-1);assert.equal(preparing.body.port,'B');assert.equal(preparing.body.generation,'gen-B');assert.equal(preparing.body.transportId,'stream-one');
+  window.cncJobControls.start();const preparing=requests.at(-1);assert.equal(preparing.body.port,'B');assert.equal(preparing.body.generation,'gen-B');assert.equal(preparing.body.transportId,'stream-one');
   el('job-dismiss').click();answer(preparing,{nonce:'stale-ticket',name:'Test',expiresIn:15});await flush();assert.equal(el('job-dialog').hidden,true,'cancelled prepare must never reopen');
-  el('job-start').click();const delayed=requests.at(-1);now+=16000;answer(delayed,{nonce:'expired-ticket',name:'Test',expiresIn:15});await flush();assert.equal(el('job-dialog').hidden,true);
+  window.cncJobControls.start();const delayed=requests.at(-1);now+=16000;answer(delayed,{nonce:'expired-ticket',name:'Test',expiresIn:15});await flush();assert.equal(el('job-dialog').hidden,true);
   // Heartbeats containing old raw state must not preserve executable capabilities.
   const stale=machine('B');stale.statusAgeMs=2600;stale.fresh=false;stale.canStart=false;stale.canLoad=false;
   push(stream,packet(41,[stale]));assert.equal(el('job-start').disabled,true);assert.equal(window.cncState.get().machine.fresh,false);
@@ -138,7 +138,7 @@ function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port
     answer(requests.find(r=>r.url.endsWith('/custom/health')),{loaded:true,protocol:1});
     answer(requests.find(r=>r.url.endsWith('/touch-job')),packet(1,[machine()]));await flush();
     const tested=requests.find(r=>isStream(r.url));
-    push(tested,packet(2,[machine()]));el('job-start').click();
+    push(tested,packet(2,[machine()]));window.cncJobControls.start();
     const invalid=packet(Infinity,[machine()]); // serialized as null, never a valid sequence
     if(source==='POST')answer(requests.at(-1),{nonce:'invalid-snapshot',name:'Test',expiresIn:15,snapshot:invalid});
     else{
@@ -167,7 +167,7 @@ function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port
     answer(requests.find(r=>r.url.endsWith('/custom/health')),{loaded:true,protocol:1});
     const pendingRead=requests.find(r=>r.url.endsWith('/touch-job'));
     const beforeHide=requests.find(r=>isStream(r.url)),lateProgress=beforeHide.onprogress;
-    push(beforeHide,packet(1,[machine()]));el('job-start').click();const pendingPrepare=requests.at(-1);
+    push(beforeHide,packet(1,[machine()]));window.cncJobControls.start();const pendingPrepare=requests.at(-1);
     document.hidden=true;window.dispatchEvent({type:'visibilitychange'});now+=hiddenTime;
     document.hidden=false;window.dispatchEvent({type:'visibilitychange'});
     assert(beforeHide.aborted);assert.equal(window.cncState.get().machine,null);
@@ -194,7 +194,7 @@ function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port
   assert(!beforeOffline.aborted,'the stream is kept');assert.equal(el('job-start').disabled,false);assert.equal(window.cncState.get().transportConnected,true);
   assert.match(window.cncState.get().transportReason,/navigateur signale le réseau coupé/);
   const posts=requests.filter(r=>r.method==='POST').length;
-  el('job-start').click();answer(requests.at(-1),{nonce:'offline-flag',name:'Test',expiresIn:15});await flush();
+  window.cncJobControls.start();answer(requests.at(-1),{nonce:'offline-flag',name:'Test',expiresIn:15});await flush();
   assert.equal(el('job-dialog').hidden,false,'a confirmation still opens');el('job-dismiss').click();
   window.dispatchEvent({type:'online'});
   assert.equal(window.cncState.get().transportReason,'');

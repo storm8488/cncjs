@@ -47,7 +47,7 @@
   }
   function snapshot() {
     return {port:'SIMULATION',type:'Virtuel',activeState:alarm?'Alarm':workflow==='running'?'Run':workflow==='paused'?'Hold':'Idle',
-      workflow:workflow,fresh:true,name:file,originalName:name,revision:revision,total:100,received:progress,
+      workflow:workflow,fresh:true,homed:true,firmware:'Simulation',settingsCount:1,workOffset:{state:'proven'},programCheck:{verdict:'unknown',axes:{X:{verdict:'unknown'},Y:{verdict:'unknown'},Z:{verdict:'unknown'}}},name:file,originalName:name,revision:revision,total:100,received:progress,
       remainingSeconds:file?Math.max(0,(100-progress)*0.6):null,
       history:history.map(function(e){return {id:e.id,time:e.time,action:e.action,message:e.message,file:e.file,percent:e.percent};}),
       wcs:wcs,motionRevision:motionRevision,machineProfile:machineProfile(),
@@ -70,6 +70,7 @@
         if(method==='GET') {resolve({controllers:[snapshot()]});return;}
         var a=body.action, state=snapshot();
         if(body.port!=='SIMULATION') throw new Error(uiLocale.t('Contrôleur virtuel uniquement.'));
+        if(a==='check'){resolve({file:body.file,programCheck:state.programCheck});return;}
         if(a==='simulate-alarm'||a==='clear-simulated-alarm') {
           alarm=a==='simulate-alarm';ticket=null;
           if(alarm&&workflow==='running')workflow='paused';
@@ -82,7 +83,7 @@
           if(!state.machineProfile.canChange)throw new Error(state.machineProfile.changeReason);
           if(body.operation==='set-kind'&&body.kind!=='cnc'&&body.kind!=='laser')throw new Error(uiLocale.t('Type de machine inconnu.'));
           simKind=body.operation==='forget'?null:body.kind;
-          try{if(simKind)window.localStorage.setItem(SIM_KIND_KEY,JSON.stringify({version:1,kind:simKind}));else window.localStorage.removeItem(SIM_KIND_KEY);}catch(_){}
+          try{if(simKind)window.localStorage.setItem(SIM_KIND_KEY,JSON.stringify({version:1,kind:simKind}));else window.localStorage.removeItem(SIM_KIND_KEY);}catch(_){/* Optional browser storage unavailable. */}
           var kindMessage=simKind?uiLocale.t('Type simulé : ')+(simKind==='laser'?'Laser':'CNC')+uiLocale.t('. Affichage de cette page seulement, rien envoyé au serveur CNCjs.'):uiLocale.t('Type simulé effacé : interface CNC par défaut.');
           log(a,kindMessage);resolve({message:uiLocale.t('SIMULATION — ')+kindMessage});return;
         } else if(a==='coordinate'||a==='select-wcs') {
@@ -157,7 +158,7 @@
         } else if(a==='stop') {
           workflow='idle';ticket=null;started=true;resetOverrides();
         } else throw new Error(uiLocale.t('Action simulée inconnue.'));
-        var message=({load:uiLocale.t('Fichier sélectionné pour le test ; aucun G-code exécuté.'),start:uiLocale.t('Démarrage fictif.'),resume:uiLocale.t('Reprise fictive.'),pause:uiLocale.t('Pause fictive.'),stop:uiLocale.t('Travail fictif arrêté.')}[a]);
+        message=({load:uiLocale.t('Fichier sélectionné pour le test ; aucun G-code exécuté.'),start:uiLocale.t('Démarrage fictif.'),resume:uiLocale.t('Reprise fictive.'),pause:uiLocale.t('Pause fictive.'),stop:uiLocale.t('Travail fictif arrêté.')}[a]);
         log(a,message);resolve({message:uiLocale.t('SIMULATION — ')+message});
       } catch(e) {if(method!=='GET')log('rejected',uiLocale.t('Action refusée : ')+e.message);reject(e);}
     });

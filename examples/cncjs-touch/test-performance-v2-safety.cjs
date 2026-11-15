@@ -212,7 +212,7 @@ async function suiviPage(options = {}) {
   await check('Control placement — M1 M2 M3, card kept while the layout is held', async () => {
     const P = preparerPage({ preview: null });
     const sent = []; trap(P.window, sent);
-    P.status(prepIdle()); P.show('check'); await P.flush(); P.resolveLoads(); await P.flush();
+    P.status(prepIdle()); P.show('check');P.open(); await P.flush(); P.resolveLoads(); await P.flush();
     assert.equal(P.calls.mount.length, 1, 'origin card mounted once at rest');
     P.v2.placement = { version: 1, available: true, identity: { jobKey: 'k', file: 'a.nc', fingerprint: 'sha256:aa' }, current: null, hypothesis: { axes: ['x', 'y'], deltaMm: { x: 18, y: 12 }, zUnchanged: true },
       travel: { verdict: 'unknown', source: null, marginsMm: null, zVerified: false, collisionsVerified: false }, declarations: [] };

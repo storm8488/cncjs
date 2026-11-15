@@ -513,7 +513,7 @@
     return read(file).then(function (data) {
       if (cancelled()) throw new Error(uiLocale.t('Annulé'));
       text = data.text; legacy = data.legacy;
-      if (/\x00/.test(text)) throw new Error(uiLocale.t('Ce fichier semble binaire. Un G-code texte est attendu.'));
+      if (text.indexOf(String.fromCharCode(0))>=0) throw new Error(uiLocale.t('Ce fichier semble binaire. Un G-code texte est attendu.'));
       return window.CNCLibraryPreview.render(text, document.createElement('canvas'), cancelled, status).then(function (preview) {
         if (preview.image.length > 2500000) { meta.previewError = uiLocale.t('image trop volumineuse'); return undefined; }
         meta.preview = preview;
@@ -583,7 +583,7 @@
     status(uiLocale.t('Lecture du fichier enregistré…'));
     request('POST', 'file', {file: name + suffix}, 'regenerate', cancelled).then(function (result) {
       check();
-      try {meta = JSON.parse(result.data);} catch (_) {}
+      try {meta = JSON.parse(result.data);} catch (_) {/* A missing sidecar is regenerated from the program. */}
     }).catch(function (error) { if (cancelled()) throw error; }).then(function () {
       check();
       if (!meta || meta.file !== name) meta = {version:1, file:name, originalName:displayName(name), bytes:file.size};
@@ -628,7 +628,7 @@
   });
   window.addEventListener('cnc-library-page-size',function(e){
     var size=Number(e.detail);
-    if(size!==2&&size!==3&&size!==4&&size!==5)return;
+    if(size!==2&&size!==3&&size!==4&&size!==5&&size!==6)return;
     pageLimit=size;rowHeight=0;selectedHeight=0;
     if(size!==pageSize){page=Math.floor(page*pageSize/size);pageSize=size;renderList();}else schedulePageFit();
   });
@@ -742,7 +742,7 @@
   // a fingerprint, or a program without one, is not bound: « inconnus ».
   function v2Declared(file, fingerprint) {
     var P = projects(), d = null, key = function (s) { return String(s || '').toLowerCase().replace(/^sha256:/, ''); };
-    try { d = P && typeof P.declared === 'function' ? P.declared(file) : null; } catch (_) {}
+    try { d = P && typeof P.declared === 'function' ? P.declared(file) : null; } catch (_) {/* Optional project metadata unavailable. */}
     if (!d) return tv2('aucune fiche');
     if (d.version !== 'current') return tv2('fiche d’une autre version');
     if (!d.fingerprint || !fingerprint) return tv2('inconnus');
@@ -772,6 +772,14 @@
       ['sel', 'load'].forEach(function (c) { var td = el('td', '', '', tr); td.id = 'lv2-' + r[0] + '-' + c; n.cells[r[0] + '-' + c] = td; });
     });
     n.match = el('p', 'lv2-match', '', box); n.match.id = 'lv2-match'; n.match.setAttribute('role', 'status');
+    var fileSheet=document.getElementById('ks-file-info'),fileDetails=fileSheet&&fileSheet.getAttribute&&fileSheet.getAttribute('role')==='dialog'&&fileSheet.querySelector('.ks-sheet-content');
+    if(fileDetails){
+      // The main card keeps the names; technical comparison rows stay readable in Details.
+      var detailTable=document.createElement('table');detailTable.className='ks-dimensions-table';
+      var detailHead=document.createElement('thead'),detailRow=document.createElement('tr');
+      ['',tv2('Sélection'),tv2('Chargé dans la machine')].forEach(function(label){var cell=document.createElement('th');cell.setAttribute('scope','col');cell.textContent=label;detailRow.appendChild(cell);});
+      detailHead.appendChild(detailRow);detailTable.appendChild(detailHead);detailTable.appendChild(body);fileDetails.appendChild(detailTable);fileDetails.appendChild(n.match);
+    }
     v2k.nodes = n;
   }
   // v2 freshness has one source, the L0 contract (monotone age; never fresh without an observed report).

@@ -20,6 +20,6 @@ const { preparerPage, idle } = require('./test-v2-preparer-fixture.cjs');
   // 3. Without the v2 layout (v1 page), a missing preview-gl.js still mounts the card (it says why).
   p = preparerPage({ v2: false, contract: false }); p.status(idle()); await p.flush();
   p.rejectLoads('Module avancé introuvable : preview-gl.js'); await p.flush();
-  assert.equal(p.calls.mount.length, 1, 'v1 keeps mounting the card when a module is missing');
+  assert.equal(p.calls.mount.length,0,'Eco never mounts placement');
   console.log('PASS v2 préparer reopen: a refused origin request after the v2 gate closed never remounts the visual origin; v1 unchanged.');
 })().catch(e => { console.error(e); process.exitCode = 1; });

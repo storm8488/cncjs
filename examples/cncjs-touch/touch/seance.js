@@ -182,7 +182,8 @@
     var shell=window.cncShell;if(!shell)return;
     var commissioning=window.cncCommissioning&&window.cncCommissioning.status(),connection=window.cncConnectCnc&&window.cncConnectCnc.state();
     var resume=window.CNCJobResume,machine=last.machine,resumeLine=resume&&typeof resume.suggestedLine==='function'&&machine?resume.suggestedLine(machine,machine.name):null;
-    result=evaluate(Object.assign({},last,{selection:selection,commissioning:commissioning&&commissioning.state,connectionBusy:connection&&connection.busy,resumeLine:resumeLine}));
+    var input=Object.assign({},last,{selection:selection,commissioning:commissioning&&commissioning.state,connectionBusy:connection&&connection.busy,resumeLine:resumeLine});
+    result=evaluate(input);if(window.cncCheckScreen)result=window.cncCheckScreen.project(input,result);
     if(document.hidden)return;
     paintMachineDetails();
     if(pendingRefusal&&pendingRefusal.key!==inputKey(last))pendingRefusal=null;
@@ -202,13 +203,13 @@
     }
     var prefix='step-'+active+'-',by=function(id){return document.getElementById(prefix+id);};
     if(active==='home')setText(by('title'),'5 · '+t(laser?'Gravure':'Usinage'));
-    setText(by('state'),result.etapes[active].mot);setText(by('context'),result.etapes[active].contexte);setText(by('cause'),r?'! '+r.phrase:(active==='machine'||b.cause.id==='pret'?'':t('Il manque : '))+b.cause.texte);
+    setText(by('state'),result.etapes[active].mot);setText(by('context'),result.etapes[active].contexte);setText(by('cause'),r?'! '+r.phrase:(active==='machine'||['pret','controle','fichier-charge','choisi'].indexOf(b.cause.id)>=0?'':t('Il manque : '))+b.cause.texte);
     if(movement&&!r&&!result.globale&&movement.feedback&&movement.state!=='failed'&&(movement.state!=='confirmed'||last.machine&&last.machine.workOffset&&last.machine.workOffset.state==='proven'))setText(by('cause'),movement.feedback);
+    attr(by('cause'),'data-tone',b.cause.ton||'neutre');
     var ids=r?r.remedes.map(function(id){return {id:id,actif:true};}):b.remedes;
     ['remedy','remedy2'].forEach(function(slot,i){var node=by(slot),item=ids[i];if(!node)return;prop(node,'hidden',!item);if(item){attr(node,'data-action',item.id);setText(node,t(remedies[item.id]));prop(node,'disabled',!item.actif);}});
     prop(by('details'),'hidden',!r&&!b.details);
     var main=by('main');if(main){if(main.textContent!==b.action.libelle){setText(main,b.action.libelle);armed[active]=Date.now()+600;}attr(main,'data-action',b.action.id);attr(main,'data-style',b.action.style);prop(main,'disabled',b.action.style==='raye');attr(main,'title',b.action.style==='raye'?b.cause.texte:'');}
-    if(active==='check'&&window.CNCProgramCheckView){var key=JSON.stringify(last.machine&&last.machine.programCheck||null),node=document.getElementById('check-verdict');if(node&&node.getAttribute('data-check')!==key){window.CNCProgramCheckView.show(node,last.machine&&last.machine.programCheck||null);attr(node,'data-check',key);}}
   }
   function lancer(id){
     if(id!=='recommencer'&&id!=='details')lastAction=id;

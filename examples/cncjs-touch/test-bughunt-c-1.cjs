@@ -26,7 +26,7 @@ for (const language of ['en', 'es']) {
     'no position': { settings: { $22: 1, $130: 300, $131: 300 }, coordinates: {} }
   };
   for (const [name, machine] of Object.entries(cases)) {
-    const r = w.CNCTravelCheck.check(preview, machine);
+    const r = w.CNCTravelCheck.place(preview, machine);
     if (FRENCH.test(r.message)) failures.push(language + ' check ' + name + ': ' + r.message);
   }
   const box = w.CNCTravelCheck.travelBox({ settings: { $22: 1 } });

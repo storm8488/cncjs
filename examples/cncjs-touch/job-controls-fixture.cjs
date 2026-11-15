@@ -61,7 +61,7 @@ function load(options = {}) {
   function machine(patch) {
     return Object.assign({ port: 'COM3', controllerId: 'COM3', generation: 'gen-1', type: 'Grbl', activeState: 'Idle', workflow: 'idle', fresh: true, statusAgeMs: 0, statusObservedAt: now,
       name: 'part.nc', originalName: 'Part.nc', revision: 'rev-1', total: 10, received: 0, canLoad: true, canStart: true, canResume: false, canPause: false, canStop: false,
-      control: { owner: null, lastChange: null } }, patch || {});
+      homed:true,workOffset:{state:'proven'},control: { owner: null, lastChange: null } }, patch || {});
   }
   let stream = null;
   function push(controllers) { stream.status = 200; stream.responseText += JSON.stringify(packet(controllers)) + '\n'; stream.onprogress(); }

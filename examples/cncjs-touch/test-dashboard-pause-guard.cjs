@@ -6,7 +6,7 @@
 const fs = require('fs'), vm = require('vm'), assert = require('assert');
 (async () => {
   const nodes = {}, listeners = {}; let now = 1e12;
-  const el = (id) => nodes[id] || (nodes[id] = { id, disabled: false, textContent: '', value: '', classList: { contains: () => true }, handlers: {}, parentNode: { insertAdjacentHTML() {} }, insertAdjacentHTML() {}, removeAttribute() {}, addEventListener(n, f) { this.handlers[n] = f; }, click() { if (!this.disabled && this.handlers.click) this.handlers.click.call(this); }, appendChild() {}, insertBefore() {}, setAttribute() {}, focus() {} });
+  const el = (id) => nodes[id] || (nodes[id] = { id, querySelectorAll:()=>[],disabled: false, textContent: '', value: '', classList: { contains: () => true }, handlers: {}, parentNode: { insertAdjacentHTML() {} }, insertAdjacentHTML() {}, removeAttribute() {}, addEventListener(n, f) { this.handlers[n] = f; }, click() { if (!this.disabled && this.handlers.click) this.handlers.click.call(this); }, appendChild() {}, insertBefore() {}, setAttribute() {}, focus() {} });
   const emit = (type, detail) => (listeners[type] || []).forEach((f) => f({ type, detail }));
   class FakeDate extends Date { static now() { return now; } }
   const ctx = { window: { cncI18n:{t:s=>s,html:s=>s,message:s=>s},addEventListener(n, f) { (listeners[n] || (listeners[n] = [])).push(f); }, dispatchEvent: (e) => emit(e.type, e.detail) }, document: { body: { getAttribute: () => 'true', appendChild() {} }, querySelector: () => el('panel'), querySelectorAll: () => [], getElementById: el, createElement: () => el('option'), addEventListener() {}, hidden: false }, localStorage: { getItem: () => '{}' }, Promise, Date: FakeDate, CustomEvent: function (type, o) { this.type = type; this.detail = o.detail; }, setInterval() {}, XMLHttpRequest: function () { throw Error('Network forbidden'); } };
@@ -33,10 +33,7 @@ const fs = require('fs'), vm = require('vm'), assert = require('assert');
   now += 1000; el('home-job-pause').click(); now -= 3600 * 1000; now += 1000;
   el('home-job-pause').click();
   assert.deepEqual(sent, ['pause', 'stop', 'resume', 'pause', 'pause'], 'Pause answers again after a clock step back');
-  // Charger / Démarrer are not guarded.
-  el('home-job-load').disabled = false; el('home-job-start').disabled = false;
-  el('home-job-load').click(); el('home-job-start').click();
-  assert.deepEqual(sent.slice(-2), ['load', 'start']);
+  assert(!fs.readFileSync(__dirname+'/touch/job-dashboard.js','utf8').includes('id="home-job-start"'),'start belongs to Control');
   const reason='La carte a redémarré pendant le travail (arrêt d’urgence, alarme ou réinitialisation) : elle a perdu repère, unités et avance. Arrêtez le travail, puis reprenez à une ligne.';
   const attrs={};el('home-job-ready').setAttribute=(k,v)=>attrs[k]=v;el('home-job-ready').getAttribute=k=>attrs[k];
   const paused={name:'',fresh:true,workflow:'paused',activeState:'Idle',canResume:false,resumeReason:reason};

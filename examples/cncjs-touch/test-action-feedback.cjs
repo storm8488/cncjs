@@ -19,7 +19,7 @@ async function fixture(){
   querySelector:()=>node('panel'),querySelectorAll:()=>[node('job-dialog')],getElementById:node,createElement:tag=>{const n=node('created-'+created.length+'-'+tag);n.tagName=tag.toUpperCase();return n;},
   addEventListener:on,removeEventListener(n,f){events[n]=(events[n]||[]).filter(x=>x!==f);}});
  node('job-dialog').hidden=true;
- const machine={port:'A',type:'Grbl',generation:'g1',revision:1,name:'leaf.nc',fresh:true,statusAgeMs:0,activeState:'Idle',workflow:'idle',canLoad:true,canStart:true,canResume:false,canPause:false,canStop:true};
+ const machine={port:'A',type:'Grbl',generation:'g1',revision:1,name:'leaf.nc',fresh:true,statusAgeMs:0,activeState:'Idle',workflow:'idle',canLoad:true,workOffset:{state:'proven'},canStart:true,canResume:false,canPause:false,canStop:true};
  const snapshot=extra=>Object.assign({controllers:[Object.assign({},machine)]},extra||{});
  // Simulation transport: GET answers at once; POST waits for the test to answer or fail.
  const sim={request(method,body){if(method==='GET')return Promise.resolve(snapshot());calls.push(body);return new Promise((resolve,reject)=>{answer={resolve,reject};});}};
@@ -32,7 +32,7 @@ async function fixture(){
 }
 (async()=>{
  const f=await fixture();
- const line=f.created.find(n=>n.id&&n.id==='t-system-command')||f.node('t-system-command');
+ assert(f.created.find(n=>n.id==='t-system-command'),'system status exists');
  assert(f.created.some(n=>n.attrs.role==='status'||n.id==='t-system-command'),'a status line for system commands is created');
  const fb=f.node('job-feedback');
  // Pause: sent, then confirmed with the server's message.
@@ -57,11 +57,10 @@ async function fixture(){
  assert.equal(fb.textContent,'Arrêt demandé.','an older answer never overwrites a newer one');assert.equal(fb.getAttribute('data-state'),'confirmed');
  // Double tap on Start: busy blocks the second prepare until the first is answered.
  f.machine.workflow='idle';f.machine.canPause=false;f.machine.canStart=true;f.win.cncJobControls.refresh();await f.flush();
- const before=f.calls.length;f.node('job-start').click();await f.flush();f.node('job-start').click();await f.flush();
+ const before=f.calls.length;f.win.cncJobControls.start();await f.flush();f.win.cncJobControls.start();await f.flush();
  assert.equal(f.calls.length,before+1,'one prepare for two taps');assert.equal(f.node('job-start').disabled,true);
  f.answer().reject(new Error('Refusé.'));await f.flush();
  // System command in the snapshot: status line, store detail, cleared when it ends.
- const feed=f.events['cnc-job-status']||[];
  f.win.cncJobControls.refresh();await f.flush();
  // Inject a snapshot with a system command through the simulation transport.
  const sysSnapshot=f.snapshot({systemCommand:{title:'Redémarrer la tablette',since:now()}});
@@ -82,7 +81,7 @@ async function fixture(){
   const panel=node('screen-settings'),section=node('ks-system');section.appendChild(element('p'));panel.setAttribute('data-settings-tab','system');
   let systemCommand=null;const handlers={},requests=[];
   const window={addEventListener:(n,f)=>handlers[n]=f,cncState:{get:()=>({apiBase:'/api',machine:{workflow:'idle'},systemCommand})}};
-  function XHR(){this.headers={};requests.push(this);}XHR.prototype.open=function(m,u){this.method=m;this.url=u;};XHR.prototype.setRequestHeader=function(){};XHR.prototype.send=function(){};
+  const XHR=function(){this.headers={};requests.push(this);};XHR.prototype.open=function(m,u){this.method=m;this.url=u;};XHR.prototype.setRequestHeader=function(){};XHR.prototype.send=function(){};
   vm.runInNewContext(fs.readFileSync(__dirname+'/touch/tablet-actions.js','utf8'),{window,document,XMLHttpRequest:XHR,Date:Object.assign(function(v){return new Date(v);},{now:()=>1e12}),localStorage:{getItem:()=>JSON.stringify({state:{session:{token:'jwt'}}})},setTimeout:()=>1,clearTimeout(){}});
   handlers['cnc-settings-tab']({detail:'system'});
   const list=requests.find(r=>r.url==='/api/commands');list.status=200;list.responseText=JSON.stringify({records:[{id:'r1',title:'Redémarrer',enabled:true}]});list.onload();

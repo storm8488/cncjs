@@ -322,3 +322,19 @@ The prepare mount and lifecycle scope now target screen-check. job-preparation.j
 ## L3b current probe map (2026-11-15)
 
 `zero-piece.js` replaces real probe-screen branches and the plate portion of `job-resume.js`. Its inputs are `cnc-job-status`, `cnc-screen-change`, `cnc-sheet-change`, visibility, local fields and explicit touches. It has no interval or periodic request. Shared remedies are registered with `cncSeance.enregistrer`; `probe-real.js` builds the unchanged block request using the active operator WCS and supplies translated measured-field names. `job-controls.js` retains all tickets, checkbox/arming, stream, pilot and server guards; an HTTP block failure also reaches the probe card before the next snapshot. Server `probeInput.test` and `stuck` drive diagnostic progress; UI hypothesis buttons cannot validate contact. The old `cnc-plate-show` event is removed. Storage keys remain `cnc-touch-probes-v1-real` and `cncjs-touch-plate-v1`, with the profile conflict/readback guard retained.
+## Refonte L4 ownership
+
+- Selection check, depth, late responses and retry: `touch/check-screen.js`,
+  `test-files-verdict.cjs`.
+- Control states, D2 priority, machine-file reload, shared rapid controls and
+  laser framing: `touch/check-screen.js`, `test-check-screen.cjs`.
+- Server travel drawings and server-rounded overrun figures:
+  `touch/program-check-view.js`, `test-check-drawing.cjs`.
+- Deliberate D1 override, checkbox and changed signature refusal:
+  `touch/job-controls.js`, `test-derogation.cjs`, `test-start-override.cjs`.
+- Explicit placement resources, Eco exclusion and cancellation: the retained
+  `test-v2-preparer*`, `test-origin-preview`, `test-v2-origin` and M1–M6 matrix.
+
+The older `test-bughunt-c-1.cjs` remains durable and now uses `place` for geometry.
+The deleted preparation-sheet tests are recorded in the L4 audit section; no
+other lot's temporary bughunt proof was removed.

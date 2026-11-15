@@ -296,7 +296,7 @@ const MEASURE = String(function measure(goals) {
     if (c.contains('jog')) return 'jog';
     // "Charger la sélection" (home-load) is a secondary action by design (UI 2027: Démarrer or
     // Reprendre is the one primary action of Suivi), so it is measured against 48 px.
-    if (c.contains('t-btn--primary') || c.contains('t-btn--danger') || c.contains('t-btn--lg') || c.contains('job-start') || c.contains('job-stop') || c.contains('ks-tile') || /^(home-job-start|home-job-stop|home-job-pause|home-job-resume|job-confirm|job-dismiss|t-stop|t-pause|t-resume|t-recover)$/.test(el.id)) return 'primary';
+    if (c.contains('t-btn--primary') || c.contains('t-btn--danger') || c.contains('t-btn--lg') || c.contains('job-start') || c.contains('job-stop') || c.contains('ks-tile') || /^(step-check-main|home-job-stop|home-job-pause|home-job-resume|job-confirm|job-dismiss|t-stop|t-pause|t-resume|t-recover)$/.test(el.id)) return 'primary';
     return 'secondary';
   }
   // viewport-fit.js scales a screen that does not fit (transform: scale): boxes
@@ -587,10 +587,11 @@ async function e2e(cdp, simUrl, lang, summary) {
     await step('select and load a file', async () => {
       await goScreen(cdp, 'files');
       const file = await cdp.evaluate('(function(){var b=document.querySelector(".library-file");b.click();return b.getAttribute("data-file");})()');
-      await cdp.waitFor('(function(){var b=document.getElementById("job-load");return !!b&&!b.disabled;})()', 15000, 'load button enabled');
+      await cdp.waitFor('(function(){var b=document.getElementById("step-files-main");return !!b&&!b.disabled;})()', 15000, 'load button enabled');
       await screenshot(cdp, path.join(dir, '02-file-selected.png'));
-      await cdp.evaluate('document.getElementById("job-load").click();true');
+      await cdp.evaluate('document.getElementById("step-files-main").click();true');
       await cdp.waitFor('(function(){var m=window.cncState.get().machine;return !!(m&&m.name);})()', 15000, 'file loaded in the simulated controller');
+      if(await cdp.evaluate('window.cncShell.screen()')!=='files')throw Error('loading must stay on File');
       await goScreen(cdp, 'check');
       await cdp.waitFor('(function(){var b=document.getElementById("step-check-main");return !!b&&!b.disabled;})()', 15000, 'Démarrer enabled');
       await screenshot(cdp, path.join(dir, '03-loaded-suivi.png'));
@@ -598,7 +599,7 @@ async function e2e(cdp, simUrl, lang, summary) {
       return { file, stateWord: s.stateWord, ready: s.ready };
     });
     await step('start with confirmation', async () => {
-      await sleep(650);await cdp.evaluate('document.getElementById("step-check-main").click();true');
+      await sleep(650);await goScreen(cdp,'check');await sleep(650);await cdp.evaluate('document.getElementById("step-check-main").click();true');
       const dialog = await confirmDialog('04-start-dialog');await goScreen(cdp, 'home');
       await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 15000, 'running');
       await cdp.waitFor('(function(){var p=document.getElementById("home-job-percent").textContent;return p&&p!=="—"&&!/^0\\s*%/.test(p);})()', 20000, 'progress moving');
@@ -631,7 +632,7 @@ async function e2e(cdp, simUrl, lang, summary) {
       await sleep(1200);
       await screenshot(cdp, path.join(dir, '09-stopped.png'));
       const s = await expectWord('idle', 'after stop');
-      const startDisabled = await cdp.evaluate('document.getElementById("home-job-start").disabled');
+      const startDisabled = await cdp.evaluate('(window.cncSeance.state().barres.check.action.style==="raye")');
       return { stateWord: s.stateWord, percent: s.percent, feedback: s.feedback, startDisabledAfterStop: startDisabled };
     });
   } catch (_) { /* recorded in steps and failures */ }
@@ -672,12 +673,12 @@ async function simMeasure(cdp, simUrl, summary) {
         try { await waitReady(cdp); } catch (_) { await navigate(cdp, simUrl + '?sim-measure=' + lang + '-retry'); await waitReady(cdp); }
         await goScreen(cdp, 'files');
         await cdp.evaluate('document.querySelector(".library-file").click();true');
-        await cdp.waitFor('(function(){var b=document.getElementById("job-load");return !!b&&!b.disabled;})()', 15000, 'load enabled');
-        await cdp.evaluate('document.getElementById("job-load").click();true');
+        await cdp.waitFor('(function(){var b=document.getElementById("step-files-main");return !!b&&!b.disabled;})()', 15000, 'load enabled');
+        await cdp.evaluate('document.getElementById("step-files-main").click();true');
         await cdp.waitFor('(function(){var m=window.cncState.get().machine;return !!(m&&m.name);})()', 15000, 'loaded');
         await goScreen(cdp, 'home');
         await capture('home', 'Suivi', 'loaded');
-        await cdp.evaluate('document.getElementById("home-job-start").click();true');
+        await goScreen(cdp,'check');await sleep(650);await cdp.evaluate('document.getElementById("step-check-main").click();true');
         await cdp.waitFor('!document.getElementById("job-dialog").hidden', 15000, 'dialog');
         await sleep(300);
         const dialog = await cdp.evaluate('(' + MEASURE + ')(' + JSON.stringify(GOALS) + ')');
@@ -844,7 +845,7 @@ async function hitCheck(cdp, ctx, where, ids, opts, report) {
     if (!b.inView) failures.push('responsive ' + label + ': centre outside the window');
     else if (!b.hitOk) failures.push('responsive ' + label + ': centre covered by ' + b.hit);
     if (b.inert) failures.push('responsive ' + label + ': inert under ' + b.inert);
-    const goal = /^(t-pause|t-stop|t-resume|home-job-start|home-job-resume)$/.test(b.id) ? GOALS.primary : GOALS.secondary;
+    const goal = /^(t-pause|t-stop|t-resume|step-check-main|home-job-resume)$/.test(b.id) ? GOALS.primary : GOALS.secondary;
     if (Math.min(b.w, b.h) < goal - 0.5) failures.push('responsive ' + label + ': ' + b.w + ' x ' + b.h + ' px, goal ' + goal);
   }
   return list;
@@ -874,10 +875,7 @@ async function responsiveVariant(cdp, url, w, h, dpr, opts) {
 }
 // Préparer with the origin preview of lot O (#op-card, body.perf-origin): measured with O's card when
 // the page mounted it, else with a placeholder card of the same id, to check D's grid around it.
-const ORIGIN_CARD = '(function(){var s=document.getElementById("screen-check");if(!s)return false;var c=document.getElementById("op-card");' +
-  'if(!c){c=document.createElement("section");c.id="op-card";c.className="card op-card";c.setAttribute("data-browser-run","placeholder");' +
-  'var h=document.createElement("h2");h.textContent="Où le programme se placera";var v=document.createElement("div");v.style.cssText="flex:1 1 auto;min-height:260px;background:#101820;border-radius:10px";' +
-  'c.appendChild(h);c.appendChild(v);s.appendChild(c);}document.body.classList.add("perf-origin");return true;})()';
+const ORIGIN_CARD='(function(){window.cncShell.go("check");var b=document.getElementById("check-placement-open");if(!b||b.hidden)return false;b.click();return true;})()';
 async function responsiveMeasure(cdp, realUrl, simUrl, summary) {
   const report = [];
   for (const [w, h, dpr, label, opts] of RESPONSIVE) {
@@ -887,9 +885,12 @@ async function responsiveMeasure(cdp, realUrl, simUrl, summary) {
       await measureScreens(cdp, realUrl, label, dirName, dpr, summary, true);
       if (opts && opts.wide) {
         if (!(await cdp.evaluate(ORIGIN_CARD))) throw new Error('Préparer not found');
-        await measureScreens(cdp, realUrl, label + ' + #op-card', dirName + '-op-card', dpr, summary, true, [['jog', 'Zéro pièce'],['check','Contrôle']]);
-        const placementHost=await cdp.evaluate('!!document.querySelector("#screen-check #op-card")&&!document.querySelector("#screen-jog #op-card")');
-        if(!placementHost)failures.push('responsive '+label+': placement must belong to Control');
+        await cdp.waitFor('!!document.querySelector("#ks-check-placement #op-card")',15000,'placement dialog');
+        const placementResults=[];await v2Capture(cdp,label,null,'Contrôle','placement-dialog',placementResults);
+        summary.measurements.push({variant:'responsive '+label+' placement',dir:dirName+'-placement',dpr,results:placementResults,strict:true});
+        const placementHost=await cdp.evaluate('!!document.querySelector("#ks-check-placement #op-card")&&!document.querySelector("#screen-jog #op-card")');
+        if(!placementHost)failures.push('responsive '+label+': placement must be in its Control dialog');
+        await cdp.evaluate('window.cncShell.closeSheet();true');
         // Leaving the wide layout (Éco chosen, for instance) puts Suivi back exactly as it was.
         const back = await cdp.evaluate('(async function(){var c=document.getElementById("op-card");if(c&&c.getAttribute("data-browser-run"))c.remove();document.body.classList.remove("perf-origin","perf-gpu");' +
           'window.dispatchEvent(new CustomEvent("cnc-gpu-change",{detail:{hardware:false}}));await new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(r);});});' +
@@ -906,13 +907,13 @@ async function responsiveMeasure(cdp, realUrl, simUrl, summary) {
       try { await waitReady(cdp); } catch (_) { await responsiveVariant(cdp, simUrl, w, h, dpr, opts); await waitReady(cdp); }
       await goScreen(cdp, 'files');
       await cdp.evaluate('document.querySelector(".library-file").click();true');
-      await cdp.waitFor('(function(){var b=document.getElementById("job-load");return !!b&&!b.disabled;})()', 15000, 'load enabled');
-      await cdp.evaluate('document.getElementById("job-load").click();true');
+      await cdp.waitFor('(function(){var b=document.getElementById("step-files-main");return !!b&&!b.disabled;})()', 15000, 'load enabled');
+      await cdp.evaluate('document.getElementById("step-files-main").click();true');
       await cdp.waitFor('(function(){var m=window.cncState.get().machine;return !!(m&&m.name);})()', 15000, 'loaded');
-      await goScreen(cdp, 'home');
-      await cdp.waitFor('(function(){var b=document.getElementById("home-job-start");return !!b&&!b.disabled;})()', 15000, 'Démarrer enabled');
-      await hitCheck(cdp, ctx, 'Suivi loaded', ['home-job-start'], { scroll: true, required: true }, report);
-      await cdp.evaluate('document.getElementById("home-job-start").click();true');
+      await goScreen(cdp, 'check');
+      await cdp.waitFor('(function(){var b=document.getElementById("step-check-main");return !!b&&!b.disabled;})()', 15000, 'Démarrer enabled');
+      await hitCheck(cdp, ctx, 'Suivi loaded', ['step-check-main'], { scroll: true, required: true }, report);
+      await goScreen(cdp,'check');await sleep(650);await cdp.evaluate('document.getElementById("step-check-main").click();true');
       await cdp.waitFor('!document.getElementById("job-dialog").hidden', 15000, 'dialog');
       await sleep(300);
       // The confirmation's own commands, in its card (which scrolls instead of shrinking).
@@ -1055,13 +1056,20 @@ function startV2Fixture() {
       Object.assign(c, { port: '/dev/replay', controllerId: '/dev/replay', machineProfile: fx.profile || V2_PROFILE, fingerprint: V2_FINGERPRINT, name: V2_FILE, originalName: V2_FILE, revision: 1, overrides: Object.assign({}, fx.overrides), control: { owner: null, lastChange: null },canReadSettings:true,readSettingsReason:'',workOffset:{state:'proven',canVerify:true,wcs:'G54',stored:{x:-600,y:-600,z:-5}} });
       // At rest with a program loaded; screensMeasure adds three states built on it: another device pilots
       // (control.owner), a homing cycle (Home) and a touch-plate probe (probing), both stoppable like the server says.
-      if (['idle','closed','unhomed','stopped-unhomed','pilot','homing','probing'].includes(fx.phase)) {
+      if (['idle','closed','unhomed','stopped-unhomed','pilot','homing','probing','outside','unknown','offset-failed'].includes(fx.phase)) {
         Object.assign(c, { activeState: 'Idle', workflow: 'idle', feedrate: 0, spindleSpeed: 0, sent: 0, received: 0, canPause: false, canStop: false, canResume: false, canStart: true, startReason: '', canLoad: true, loadReason: '',
           canPreviewMotion: true, motionReason: '', canOverride: false, canRapidOverride: false, canUnlock: false, canHome: true, homeReason: '', canMacro: false });
         // $X out of alarm: the server's reason (job-service.js unlockReady), not the replay's « Travail en cours. ».
         c.unlockReason = fx.phase === 'probing' ? 'Palpage en cours.' : 'Le déverrouillage ($X) ne sert qu’en alarme.';
         // Like the server (job-service.js plateReady): a CNC at rest can probe its Z zero with the plate (a laser: unchanged).
         if ((fx.profile || V2_PROFILE).kind === 'cnc') Object.assign(c, { canZeroZ: true, zeroZReason: '' });
+        if(['outside','unknown','offset-failed'].includes(fx.phase)){
+          const axes={};for(const [axis,min,max,low,high] of [['X',10,100,0,407.5],['Y',10,80,0,395.5],['Z',-20,0,-129.5,0]])axes[axis]={axis,verdict:'validated',min,max,machineMin:min,machineMax:max,usable:{low,high}};
+          c.programCheck={verdict:'validated',axes,zMin:-20,blocking:[],codedReasons:[],info:[],overridable:false};c.homed=true;
+          if(fx.phase==='outside'){Object.assign(axes.Z,{verdict:'outside',machineMin:-144.5,min:-35});Object.assign(c.programCheck,{verdict:'outside',overridable:true,blocking:[{code:'ETOUCH_TRAVEL_TOO_LOW',params:{over:'15',min:'-144.5',limit:'-129.5'}}]});c.canStart=false;}
+          if(fx.phase==='unknown'){c.programCheck.verdict='unknown';axes.Z.verdict='unknown';axes.Z.usable=null;c.programCheck.codedReasons=[{code:'ETOUCH_CHECK_PROBE',params:{axis:'Z'},message:'Palpage dans le fichier.'}];}
+          if(fx.phase==='offset-failed'){c.canStart=false;c.workOffset={state:'failed',code:'ETOUCH_OFFSET_UNCONFIRMED',canVerify:true};}
+        }
         if (fx.phase === 'pilot') c.control = { owner: { kind: 'touch', id: 'browser-run-other', label: 'Tablette atelier', present: true }, lastChange: null };
         if (fx.phase === 'homing') Object.assign(c, { activeState: 'Home', homing: true, canStop: true, canStart: false, startReason: 'Prise d’origine en cours.', canLoad: false, loadReason: 'Prise d’origine en cours.', canPreviewMotion: false, motionReason: 'Prise d’origine en cours.', canHome: false, homeReason: 'La prise d’origine exige une machine au repos ou en alarme.', canZeroZ: false, zeroZReason: 'Prise d’origine en cours.' });
         if (fx.phase === 'probing') Object.assign(c, { activeState: 'Run', probing: true, canStop: true, canStart: false, startReason: 'Palpage en cours.', canLoad: false, loadReason: 'Palpage en cours.', canPreviewMotion: false, motionReason: 'Palpage en cours.', canHome: false, homeReason: 'Palpage en cours.', canZeroZ: false, zeroZReason: 'Palpage en cours.' });
@@ -1163,6 +1171,7 @@ function startV2Fixture() {
             return res.end(JSON.stringify({ nonce: 'browser-run-origin', operation: 'set-origin', expiresIn: 15, generation: parsed.generation,
               name: 'Origine ' + parsed.axes.join(' ') + ' du repère G54 à la position actuelle (G10 L20 P1 ' + parsed.axes.map((x) => x + '0').join(' ') + ')' }));
           }
+          if(parsed.action==='check'){res.setHeader('Content-Type','application/json');return res.end(JSON.stringify({file:parsed.file,programCheck:fx.controller().programCheck}));}
           res.statusCode = 403; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ message: 'Refusé par le banc browser-run (aucune commande machine).' }));
         });
         return;
@@ -1413,6 +1422,10 @@ async function v2RealPass(cdp, fx, w, h, summary, report, v1) {
       const jog=await cdp.evaluate('(function(){var a=[].slice.call(document.querySelectorAll("#screen-jog .jog"));return {count:a.filter(function(b){return b.getClientRects().length;}).length,min:Math.min.apply(Math,a.map(function(b){var r=b.getBoundingClientRect();return Math.min(r.width,r.height);})),old:!!document.querySelector("#pv2-jog-open,#pv2-jog-close,#pv2-set-xy,#pv2-tool-zero")};})()');
       info.jog=jog;
       if(jog.count!==6||jog.min<GOALS.jog-0.5||jog.old)failures.push('v2 '+ctx+': permanent cross '+JSON.stringify(jog));
+      await goScreen(cdp,'check');await cdp.waitFor('!document.getElementById("check-placement-open").hidden',10000,'placement available');
+      await cdp.evaluate('document.getElementById("check-placement-open").click();true');
+      await cdp.waitFor('!!document.querySelector("#ks-check-placement #op-card")',15000,'placement mounted in dialog');
+      await v2Capture(cdp,ctx,null,'Contrôle','placement-dialog',results);await cdp.evaluate('window.cncShell.closeSheet();true');
       // Réglages: the diagnostic on request.
       await goScreen(cdp, 'settings'); await selectSettingsTab(cdp, 'machine');
       await cdp.evaluate('(function(){var b=document.getElementById("ks-v2-diagnostic-run");if(b)b.click();return true;})()'); await sleep(400);
@@ -1564,14 +1577,14 @@ async function v2SimPass(cdp, fx, w, h, summary, report) {
     info.opened = await v2Open(cdp, fx.base + 'simulation.html?v2=' + w + 'x' + h, true);
     await goScreen(cdp, 'files');
     await cdp.evaluate('document.querySelector(".library-file").click();true');
-    await cdp.waitFor('(function(){var b=document.getElementById("job-load");return !!b&&!b.disabled;})()', 15000, 'load enabled');
+    await cdp.waitFor('(function(){var b=document.getElementById("step-files-main");return !!b&&!b.disabled;})()', 15000, 'load enabled');
     await v2Capture(cdp, ctx, null, 'Fichiers', 'selected', results);
-    await cdp.evaluate('document.getElementById("job-load").click();true');
+    await cdp.evaluate('document.getElementById("step-files-main").click();true');
     await cdp.waitFor('(function(){var m=window.cncState.get().machine;return !!(m&&m.name);})()', 15000, 'loaded');
     await v2Capture(cdp, ctx, 'home', 'Suivi', 'loaded', results);
     await v2Capture(cdp, ctx, 'jog', 'Préparer', 'loaded', results);
     await goScreen(cdp, 'home');
-    await cdp.evaluate('document.getElementById("home-job-start").click();true');
+    await goScreen(cdp,'check');await sleep(650);await cdp.evaluate('document.getElementById("step-check-main").click();true');
     await cdp.waitFor('!document.getElementById("job-dialog").hidden', 15000, 'dialog');
     await cdp.evaluate('(function(){var c=document.getElementById("job-check");c.checked=true;c.dispatchEvent(new Event("change",{bubbles:true}));document.getElementById("job-confirm").click();return true;})()');
     await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 15000, 'running');
@@ -1713,7 +1726,7 @@ async function v2Measure(summary) {
 // One folder per screen, variant and state: screens-<screen>-<variant>-<state>/<screen>.png|.json. Enforced like
 // the other strict variants, plus horizontal / vertical overflow and text over text. Visual only: every request
 // that is not a GET under /api/ is refused (403) by the fixture.
-const SCREENS_STATES = [['repos', 'idle'], ['port-ferme', 'closed'], ['sans-origine', 'unhomed'], ['arrete-sans-origine', 'stopped-unhomed'], ['pilote-pris', 'pilot'], ['homing', 'homing'], ['palpage', 'probing'], ['travail', 'running'], ['pause', 'paused'], ['alarme', 'alarm'], ['perime', 'stale'], ['hors-ligne', 'lost']];
+const SCREENS_STATES = [['repos', 'idle'], ['depassement-prouve','outside'], ['course-non-verifiee','unknown'], ['zero-non-confirme','offset-failed'], ['port-ferme', 'closed'], ['sans-origine', 'unhomed'], ['arrete-sans-origine', 'stopped-unhomed'], ['pilote-pris', 'pilot'], ['homing', 'homing'], ['palpage', 'probing'], ['travail', 'running'], ['pause', 'paused'], ['alarme', 'alarm'], ['perime', 'stale'], ['hors-ligne', 'lost']];
 const SCREENS_READY = {
   closed: '!m',
   unhomed: 'm&&m.activeState==="Idle"&&m.homed===false',
@@ -2485,12 +2498,12 @@ async function settingsDuringJob(cdp, lang, simUrl, summary, out) {
     await settingsOpen(cdp, simUrl, v, tag);
     await goScreen(cdp, 'files');
     await cdp.evaluate('document.querySelector(".library-file").click();true');
-    await cdp.waitFor('(function(){var b=document.getElementById("job-load");return !!b&&!b.disabled;})()', 15000, 'load enabled');
-    await cdp.evaluate('document.getElementById("job-load").click();true');
+    await cdp.waitFor('(function(){var b=document.getElementById("step-files-main");return !!b&&!b.disabled;})()', 15000, 'load enabled');
+    await cdp.evaluate('document.getElementById("step-files-main").click();true');
     await cdp.waitFor('(function(){var m=window.cncState.get().machine;return !!(m&&m.name);})()', 15000, 'loaded');
     await goScreen(cdp, 'home');
-    await cdp.waitFor('(function(){var b=document.getElementById("home-job-start");return !!b&&!b.disabled;})()', 15000, 'Démarrer enabled');
-    await cdp.evaluate('document.getElementById("home-job-start").click();true');
+    await cdp.waitFor('(function(){var b=document.getElementById("step-check-main");return !!b&&!b.disabled;})()', 15000, 'Démarrer enabled');
+    await goScreen(cdp,'check');await sleep(650);await cdp.evaluate('document.getElementById("step-check-main").click();true');
     await cdp.waitFor('!document.getElementById("job-dialog").hidden', 15000, 'dialog');
     await cdp.evaluate('(function(){var c=document.getElementById("job-check");c.checked=true;c.dispatchEvent(new Event("change",{bubbles:true}));document.getElementById("job-confirm").click();return true;})()');
     await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 15000, 'running');
@@ -2815,6 +2828,18 @@ async function parcoursMeasure(cdp,summary){
       P6.push(touches);
     }
     if(JSON.stringify(P6)!=='[3,3,4]')throw Error('P6 must take 3 / 3 / 4 touches: '+JSON.stringify(P6));
+    // P2: choose, see the server verdict before loading, then stay on File.
+    await cdp.evaluate('window.cncShell.go("machine");true');touches=0;
+    await cdp.evaluate('document.querySelector("[data-ks-screen=files]").click();true');touches++;
+    await cdp.waitFor('!!document.querySelector(".library-file")',10000,'library file');await cdp.evaluate('document.querySelector(".library-file").click();true');touches++;
+    await cdp.waitFor('(function(){var n=document.getElementById("files-verdict");return n&&n.textContent===window.cncI18n.t("Tient dans la machine avec le zéro pièce actuel.");})()',10000,'file verdict before load');
+    await tap('step-files-main');await cdp.waitFor('(window.cncState.get().machine||{}).name==="recovery.nc"',10000,'loaded');
+    if(await cdp.evaluate('window.cncShell.screen()')!=='files'||touches!==3)throw Error('P2 must stay on File in three touches');const P2=touches;
+    // P7 through start: Control and its existing checkbox confirmation.
+    touches=0;await cdp.evaluate('document.querySelector("[data-ks-screen=check]").click();true');touches++;
+    await tap('step-check-main');await cdp.waitFor('!document.getElementById("job-dialog").hidden',5000,'start confirmation');await tap('job-check');await tap('job-confirm');
+    await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"',10000,'started');if(touches!==4)throw Error('P7 through start must take four touches');const P7=touches;
+    await tap('t-stop');await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="idle"',10000,'stop between paths');
     // Set up the competing owner explicitly; this setup is not part of the operator path.
     await cdp.evaluate('fetch("/api/touch-job",{method:"POST",body:JSON.stringify({action:"control",operation:"release",port:"SIM",clientId:window.cncJobControls.clientId()})}).then(function(r){if(!r.ok)throw Error("release setup failed");return fetch("/parcours/sim",{method:"POST",body:JSON.stringify({input:"pilot"})});})');
     await cdp.waitFor('window.cncJobControls.pilot().state==="other"',15000,'other device owns control');touches=0;
@@ -2824,7 +2849,7 @@ async function parcoursMeasure(cdp,summary){
     await cdp.waitFor('(function(){var m=window.cncState.get().machine;return m&&m.lastAlarm&&m.lastAlarm.code===1&&!m.homed;})()',15000,'limit alarm during the job');touches=0;
     await tap('t-stop');await cdp.waitFor('(window.cncState.get().machine||{}).jobStopped===true',10000,'job stopped');await tap('t-recover');
     await cdp.waitFor('window.cncShell.screen()==="machine"&&!document.getElementById("machine-incident").hidden',5000,'incident on Machine');await home();
-    if(touches!==5)throw Error('P8 through homing must take five touches');summary.parcours={P1,P6,P8ThroughHoming:touches,P9,profile:'lunyee',alarm:1,physicalMachine:false,senderLinesSimulated:true};
+    if(touches!==5)throw Error('P8 through homing must take five touches');summary.parcours={P1,P2,P6,P7ThroughStart:P7,P8ThroughHoming:touches,P9,profile:'lunyee',alarm:1,physicalMachine:false,senderLinesSimulated:true};
   }finally{fixture.child.kill();}
 }
 async function main() {

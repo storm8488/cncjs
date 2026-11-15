@@ -698,3 +698,20 @@ A warm ten-packet comparison using the same DOM fixture and HEAD job-preparation
 ## L3b probe organization supersession (2026-11-15)
 
 SPEC-REFONTE 4.3, 5.5–5.7 and 6.5–6.6 now govern the CNC probe column in both renderers. `zero-piece.js` owns the common card, setup, live diagnostic, plate and backup sheets. All former real `screen-probe*` sections and the Suivi plate form are gone. Simulation retains its separate bench; `probe-ui.js` and `probe-preparation.js` are excluded from the tablet. No v2-only resource, periodic request or timer is introduced by this owner. The block confirmation drawing uses server ticket dimensions; it never computes a trajectory. The same pad can dock right without a dark veil, while keeping the existing stop/focus isolation.
+## Refonte L4: placement is an explicit Control dialog
+
+The session organization in `design/refonte/SPEC-REFONTE.md` supersedes the old
+automatic preparation card. File shows extent, depth and the server check before
+loading. The same File and Control structure is used in Eco and Performance.
+Only the selection/loaded comparison and 3D content enrich the Performance view.
+
+`check-screen.js` owns the explicit placement opening and calls
+`cncProfile.loadAdvanced(['preview-gl.js', 'origin-preview.js'])` only in an open
+v2 session at a safe rest. Closing the dialog or leaving Control invalidates its
+pending opening. Existing lifecycle, identity, read cancellation and hold-layout
+guards remain. The 3D dialog shows geometry without a second travel verdict;
+Control's SVG drawings and words use the server's `programCheck`.
+
+`job-preparation.js`, its manual ticks and its loading relay are retired.
+`CNCTravelCheck.check/show` are removed; `place`, `travelBox` and `placementData`
+remain geometry APIs. There is no new polling, timer or build dependency.

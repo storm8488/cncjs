@@ -112,13 +112,7 @@
   }
   // Laser framing (PROFILES-CONTRACT.md §4) in place of the plate: offered only when the server
   // says it is possible, otherwise disabled with its reason. Confirmed through the usual dialog.
-  var frame=el('div','home-frame','t-card'),frameTitle=el('p','home-frame-title','','Cadrage du programme (laser éteint)'),
-    frameStart=el('button','home-frame-start','t-btn','Cadrer…'),frameHelp=el('p','home-frame-help','t-help','La tête parcourt le contour XY du programme à la hauteur actuelle, M5 envoyé d’abord : aucune émission. Arrêter interrompt le mouvement.'),
-    frameWhy=el('p','home-frame-why','t-help');
-  frameWhy.setAttribute('role','status');frame.hidden=true;
-  [frameTitle,frameStart,frameHelp,frameWhy].forEach(function(n){frame.appendChild(n);});
-  frameStart.addEventListener('click',function(){var c=controls();if(frameStart.disabled||!c||typeof c.prepareFrame!=='function')return;c.prepareFrame();});
-  after(ready,pause);after(pause,open);after(open,panel);after(panel,frame);
+  after(ready,pause);after(pause,open);after(open,panel);
   var machine=null,selection=window.cncLibrarySelection||null,checked=null,sequence=0,resumeFile='';
   function controls(){return window.cncJobControls;}
   function set(node,key,value){if(node[key]!==value)node[key]=value;}
@@ -140,10 +134,6 @@
     var turning=!!(machine&&!p&&machine.workflow==='idle'&&machine.canSpindleStop&&machine.spindleSpeed>0);
     if(turning)text=laser?t('Le laser est encore allumé alors qu’aucun travail n’est en cours : éteignez-le (M5).'):t('La broche tourne encore alors qu’aucun travail n’est en cours : arrêtez-la (M5).');
     set(pause,'hidden',!(p||turning)||!text);set(pauseText_,'textContent',text);
-    var fc=laser?capabilityOf(machine,'laserFrame'):null,idle=!!(machine&&machine.workflow==='idle');
-    set(frame,'hidden',!laser||!idle);
-    var frameReason=fc&&!fc.supported?(fc.reason||t('Cadrage indisponible.')):'';
-    set(frameStart,'disabled',!!frameReason);set(frameStart,'title',frameReason);set(frameWhy,'textContent',frameReason);
     set(m5,'hidden',!((p||turning)&&machine.canSpindleStop&&machine.spindleSpeed>0));
     set(m5,'textContent',laser?t('Éteindre le laser (M5)'):t('Arrêter la broche (M5)'));
     set(open,'textContent',laser?t('Reprendre à un début de passe…'):t('Reprendre à une ligne…'));

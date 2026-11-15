@@ -21,12 +21,12 @@ const css=strip(read('ui-2027.css')),shell=read('touch-shell.js'),fit=read('view
  const ctx={window:win,document:{body},CustomEvent:function(type,o){this.type=type;this.detail=o.detail;}};
  vm.runInNewContext(src,ctx);
  assert(!classes.has('t-compact'),'1366 x 768 is not compact');
- assert.deepEqual(dispatched.map(e=>e.type+':'+e.detail),['cnc-library-page-size:5','cnc-history-page-size:6']);
+ assert.deepEqual(dispatched.map(e=>e.type+':'+e.detail),['cnc-library-page-size:4','cnc-history-page-size:6']);
  win.innerWidth=1024;win.innerHeight=600;events.resize();
  assert(classes.has('t-compact'),'1024 x 600 is compact');assert.deepEqual(dispatched.slice(-2).map(e=>e.detail),[3,4]);
  win.innerWidth=1366;win.innerHeight=640;events.resize();assert(classes.has('t-compact'),'a short window is compact');
  win.innerWidth=1000;win.innerHeight=768;events.resize();assert(classes.has('t-compact'),'a narrow window is compact');
- win.innerWidth=1366;win.innerHeight=768;events.resize();assert(!classes.has('t-compact'));assert.equal(dispatched.at(-2).detail,5);
+ win.innerWidth=1366;win.innerHeight=768;events.resize();assert(!classes.has('t-compact'));assert.equal(dispatched.at(-2).detail,4);win.innerHeight=911;events.resize();assert.equal(dispatched.at(-2).detail,6);
 }
 // The library accepts the compact page size.
 assert(/size!==2&&size!==3&&size!==4&&size!==5/.test(read('shared-library.js')),'shared-library accepts 3 rows per page');

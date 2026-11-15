@@ -162,7 +162,7 @@ describe('shared G-code corpus', () => {
         close(result.trailZ[result.trailZ.length - 1], truth.final[2], 1e-3, 'preview final Z');
       }
       const projection = { version: 1, units: 'mm', wcs: 'G54', bounds: result.bounds, relativeStart: result.relativeStart };
-      expect(travel.check({ projection }, TRAVEL_MACHINE).state).toBe(expected.travel);
+      expect(travel.place({ projection }, TRAVEL_MACHINE).state).toBe(expected.travel);
     });
 
     test('F2 program check', () => {

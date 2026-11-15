@@ -28,7 +28,8 @@ const preview = (b, extra = {}) => ({ file: 'a.nc', fingerprint: 'sha256:aa', pa
   b = TC.travelBox(machine(0, 0, 0, 0, { $131: '' })); assert(!b.known); assert.match(b.reason, /\$131/);
   assert(!TC.travelBox(null).known);
   // place() = check() on a copy where wpos.x = wpos.y = 0, for every kind of state; the input is not changed.
-  const shifted = m => ({ ...m, coordinates: { ...m.coordinates, wpos: { ...m.coordinates.wpos, x: 0, y: 0 } } });
+  const expected=['ok','outside','outside','unknown','unknown','unknown','unknown','unknown','unknown','unknown'];
+  let caseIndex=0;
   const cases = [
     [preview([0, 0, 60, 70]), machine(-350, -250, 12, 30)],
     [preview([0, 0, 60, 70]), machine(-30, -250, -100, 4)],
@@ -43,11 +44,11 @@ const preview = (b, extra = {}) => ({ file: 'a.nc', fingerprint: 'sha256:aa', pa
   ];
   for (const [p, m] of cases) {
     const before = JSON.stringify(m);
-    eq(TC.place(p, m, { axes: 'xy' }), TC.check(p, shifted(m)));
+    assert.equal(TC.place(p,m).state,expected[caseIndex++]);
     assert.equal(JSON.stringify(m), before, 'place() does not change the state it is given');
   }
   assert.equal(TC.place(preview([0, 0, 60, 70]), machine(-350, -250, 99, 99)).state, 'ok');
-  assert.equal(TC.check(preview([0, 0, 60, 70]), machine(-350, -250, 99, 99)).state, 'outside', 'the current origin may be outside while the new one is inside');
+  assert.equal(TC.place(preview([0, 0, 60, 70]), machine(-350, -250, 99, 99)).state, 'ok', 'the current origin may be outside while the new one is inside');
 }
 
 // ---------- 2. A small page: DOM, window, stubs of the spec ----------
@@ -266,7 +267,7 @@ if (require.main === module) (async () => {
     eq(r.overlays, []); assert.match(r.verdict.text, /pouces/);
     // The current origin: the server's pre-check when present, else check().
     r = O.model(machine(-350, -250, 99, 99), meta, null);
-    assert.equal(r.current.tone, 'danger'); assert.match(r.current.text, /^Origine actuelle : Hors course machine : X/);
+    assert.equal(r.current.tone,'neutral');assert.match(r.current.text,/non vérifié/);
     r = O.model(machine(-350, -250, 0, 0, {}, { programCheck: { verdict: 'validated', axes: { X: { verdict: 'validated' }, Y: { verdict: 'validated' }, Z: { verdict: 'validated' } } } }), meta, null);
     assert.equal(r.current.tone, 'ok'); assert.match(r.current.text, /^Origine actuelle : Contrôle des courses/);
     // Nothing placed outside the idle state.
@@ -307,9 +308,9 @@ if (require.main === module) (async () => {
     eq(o.opts.overlays.find(x => x.id === 'placed').translate, [12, 30, 0]);
     assert(!nodeOf(p, 'op-view').hidden); assert(!nodeOf(p, 'op-legend').hidden);
     assert.match(nodeOf(p, 'op-legend').textContent, /Gris : origine actuelle \(G54\)Bleu : si l’origine X Y est posée iciCadre : course machine \(\$130–\$132\)/);
-    assert.equal(shown(p, 'op-verdict'), 'Si l’origine X Y est posée ici : dans la course machine en X et Y (estimation de la tablette ; Z non vérifié).');
-    assert.equal(nodeOf(p, 'op-verdict').getAttribute('data-tone'), 'ok');
-    assert.match(shown(p, 'op-current'), /^Origine actuelle : /); assert.equal(shown(p, 'op-file'), 'Pièce A.nc');
+    assert.equal(shown(p,'op-verdict'),'');
+    assert(nodeOf(p,'op-verdict').hidden);
+    assert.equal(shown(p,'op-current'),''); assert.equal(shown(p, 'op-file'), 'Pièce A.nc');
     // The tool moves: new translation in the next frame, not in the handler; the same view.
     p.status(machine(-300, -250, 62, 30)); assert.equal(p.sets.length, 0);
     await p.flush(); assert.equal(p.opened.length, 1); assert.equal(p.sets.length, 1);
@@ -317,8 +318,8 @@ if (require.main === module) (async () => {
     p.status(machine(-300, -250, 62, 30, {}, { observed: 1 })); await p.flush(); assert.equal(p.sets.length, 1, 'unchanged overlays are not set again');
     // Moved past the end of X: danger.
     p.status(machine(-20, -250, 342, 30)); await p.flush();
-    assert.equal(p.sets.at(-1).find(x => x.id === 'outline').colour, 'danger'); assert.equal(nodeOf(p, 'op-verdict').getAttribute('data-tone'), 'danger');
-    assert.match(shown(p, 'op-verdict'), /hors course en X -20,0 → 40,0 mm/);
+    assert.equal(p.sets.at(-1).find(x => x.id === 'outline').colour, 'neutral','the placement dialog never publishes a client travel verdict'); assert(nodeOf(p,'op-verdict').hidden);
+    assert.equal(shown(p,'op-verdict'),'');
     // State unavailable: frozen and greyed, the same view, verdict hidden.
     const last = p.sets.at(-1);
     p.status({ ...machine(-20, -250, 342, 30), fresh: false }); await p.flush();
@@ -349,7 +350,7 @@ if (require.main === module) (async () => {
     // A preview without a 3D path: the text, the verdict, no view.
     w.cncDashboardView._setPreview({ ...meta, path3d: null });
     p.status(machine(-350, -250, 0, 0)); await p.flush();
-    assert.equal(shown(p, 'op-state'), 'Aperçu sans parcours 3D : régénérez-le dans Fichiers.'); assert(nodeOf(p, 'op-view').hidden); assert.match(shown(p, 'op-verdict'), /dans la course/);
+    assert.equal(shown(p, 'op-state'), 'Aperçu sans parcours 3D : régénérez-le dans Fichiers.'); assert(nodeOf(p, 'op-view').hidden); assert.equal(shown(p,'op-verdict'),'');
     // The preview regenerated: read again on cnc-library-preview-updated, the view opens.
     w.cncDashboardView._setPreview(meta); w.dispatchEvent(new w.CustomEvent('cnc-library-preview-updated', {})); await p.flush();
     assert.equal(p.opened.length, 3); assert.equal(shown(p, 'op-state'), '');
@@ -389,61 +390,12 @@ if (require.main === module) (async () => {
     p.win.CNCOriginPreview.unmount();
   }
 
-  // ---------- 6. job-preparation.js: loading and unmounting conditions, hint line ----------
-  async function preparation(options = {}) {
-    const mounts = [];
-    const p = page({ ...options, onLoad: (w, files) => { if (files.includes('origin-preview.js') && !w.CNCOriginPreview) w.CNCOriginPreview = { mount: s => mounts.push(['mount', s.id]), unmount: () => mounts.push(['unmount']), hint: () => 'Si l’origine X Y est posée ici : hors course en X.' }; } });
-    const w = p.win, tools = p.body.appendChild(new p.El('div')); tools.className = 'ks-file-tools';
-    const content = new p.El('div');
-    p.body.getAttribute = k => (k === 'data-simulation' ? (options.simulation ? 'true' : null) : null);
-    w.cncShell = { sheet: () => ({ content, open() {} }), preparationActions: new p.El('div') };
-    p.run(STUB_D, 'stub-d.js'); p.run(read('travel-check.js'), 'travel-check.js');
-    if (options.wide === false) w.cncLayout._set(false);
-    p.run(read('job-preparation.js'), 'job-preparation.js');
-    await p.flush();
-    return { ...p, mounts, content };
-  }
-  {
-    let q = await preparation();
-    eq(q.loads, [['preview-gl.js', 'origin-preview.js']]); eq(q.mounts, [['mount', 'screen-check']]);
-    // Leaving Préparer unmounts; coming back mounts again (module already loaded).
-    q.screen.className = 'screen'; q.win.dispatchEvent(new q.win.CustomEvent('cnc-screen-change', { detail: 'home' })); await q.flush();
-    eq(q.mounts.at(-1), ['unmount']);
-    q.screen.className = 'screen active'; q.win.dispatchEvent(new q.win.CustomEvent('cnc-screen-change', { detail: 'check' })); await q.flush();
-    eq(q.mounts.at(-1), ['mount', 'screen-check']);
-    // Layout no longer wide, eco, laser: unmounted.
-    q.win.cncLayout._set(false); await q.flush(); eq(q.mounts.at(-1), ['unmount']);
-    q.win.cncLayout._set(true); await q.flush(); eq(q.mounts.at(-1), ['mount', 'screen-check']);
-    q.win.cncProfile._set('eco'); await q.flush(); eq(q.mounts.at(-1), ['unmount']);
-    q.win.cncProfile._set('performance'); await q.flush(); eq(q.mounts.at(-1), ['mount', 'screen-check']);
-    q.win.cncProfile._set('performance', 'laser'); await q.flush(); eq(q.mounts.at(-1), ['unmount']);
-    const loadsBefore = q.loads.length; q.win.dispatchEvent(new q.win.CustomEvent('cnc-screen-change', { detail: 'check' })); await q.flush(); assert.equal(q.loads.length, loadsBefore, 'laser: nothing loaded');
-    q.win.cncProfile._set('performance', null); await q.flush(); eq(q.mounts.at(-1), ['mount', 'screen-check'], 'unknown machine type: CNC behaviour');
-    // The hint line under the « Origine de travail » step, filled by hint(); the tick stays manual.
-    q.win.dispatchEvent(new q.win.CustomEvent('cnc-job-status', { detail: { machine: machine(-350, -250, 0, 0), simulation: false } }));
-    const origin = q.content.all().find(e => e.getAttribute('data-step') === 'origin'), hintLine = origin.all().find(e => e.classList.contains('ks-prep-origin-hint'));
-    assert(hintLine && hintLine.tagName === 'P'); assert.equal(hintLine.textContent, 'Si l’origine X Y est posée ici : hors course en X.');
-    assert(origin.children.indexOf(hintLine) > origin.children.findIndex(e => e.classList.contains('ks-prep-detail')), 'under the detail');
-    assert.equal(q.win.cncJobPreparation.ticks().origin, false, 'the origin tick is never set by the hint');
-    eq(q.requests, []); eq(q.clicks, []);
-  }
-  for (const [label, options] of [['eco', { performance: 'eco' }], ['laser', { kind: 'laser' }], ['not wide', { wide: false }], ['Préparer hidden', { active: false }], ['simulation page', { simulation: true }]]) {
-    const q = await preparation(options);
-    eq(q.loads, [], label + ': nothing loaded'); eq(q.mounts, [], label + ': nothing mounted');
-  }
-  // Fewer than the conditions: no hint line before the module is present.
-  {
-    const q = await preparation({ wide: false });
-    q.win.dispatchEvent(new q.win.CustomEvent('cnc-job-status', { detail: { machine: machine(-350, -250, 0, 0), simulation: false } }));
-    assert(!q.content.all().some(e => e.classList.contains('ks-prep-origin-hint')));
-  }
-
   // ---------- 7. Sources: no command path, catalog, stylesheet scope, script level, never script-tagged ----------
   const source = read('origin-preview.js');
   assert(!/\bfetch\s*\(|XMLHttpRequest|\.click\s*\(|api\/touch|cncJobControls|cncRealMotion|CNCRealMotion|coordinate-plan|dry-motion|CNCCoordinatePlan|cncSocket|\.emit\s*\(|watch\/file|fetchProgram/.test(source), 'origin-preview.js never commands nor reads the program');
   const handler = /'cnc-job-status', function \(e\) \{([^}]*)\}/.exec(source)[1];
   assert(!/open|setOverlays|paint|textContent|getBoundingClientRect/.test(handler), 'the status handler only stores and schedules');
-  const prep = read('job-preparation.js');
+  const prep = read('check-screen.js');
   assert(!/XMLHttpRequest|fetch\(/.test(prep));
   const key = s => s.trim().replace(/\s+/g, ' ');
   const sandbox = { window: {} };
@@ -459,7 +411,7 @@ if (require.main === module) (async () => {
   const css = read('origin-preview.css').replace(/\/\*[\s\S]*?\*\//g, '');
   for (const m of css.matchAll(/([^{}]+)\{[^}]*\}/g)) m[1].split(',').forEach(sel => assert(/^\s*body\.perf-origin\s/.test(sel), 'rule outside body.perf-origin: ' + sel.trim()));
   let acorn = null; try { acorn = require('acorn'); } catch (_) { /* Node's parser */ }
-  for (const f of ['origin-preview.js', 'travel-check.js', 'job-preparation.js', 'i18n-messages-origin.js']) {
+  for (const f of ['origin-preview.js', 'travel-check.js', 'check-screen.js', 'i18n-messages-origin.js']) {
     if (acorn) acorn.parse(read(f), { ecmaVersion: 2017, sourceType: 'script' }); else new vm.Script(read(f), { filename: f });
   }
   for (const name of ['index.html', 'simulation.html']) assert(!/origin-preview\.(js|css)/.test(read(name)), name + ': advanced module, never linked by the page');

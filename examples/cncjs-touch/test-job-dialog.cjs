@@ -24,7 +24,7 @@ async function fixture(monotonic=false){
  const ctx={window:win,document:doc,Date:{now:()=>now},Promise,CustomEvent:function(){},setInterval:f=>{timers.push(f);return 1;},clearInterval(){},XMLHttpRequest(){throw Error('No hardware/network permitted');}};
  vm.runInNewContext(fs.readFileSync(__dirname+'/touch/job-controls.js','utf8'),ctx);
  const flush=()=>new Promise(setImmediate);await flush();
- const begin=async()=>{node('home-job-start').focus();node('job-start').click();await flush();};
+ const begin=async()=>{node('home-job-start').focus();win.cncJobControls.start();await flush();};
  const resolve=async()=>{const f=pending;pending=null;f({nonce:'ticket',name:'leaf.nc',expiresIn:15});await flush();};
  const open=async()=>{await begin();await resolve();assert.equal(node('job-dialog').hidden,false);};
  const check=()=>{now+=600;elapsed+=600;node('job-check').checked=true;node('job-check').handlers.change.call(node('job-check'));};
@@ -44,7 +44,7 @@ async function fixture(monotonic=false){
  }
  let f=await fixture();await f.open();
  // The simulation has no machine travel: the travel line stays hidden.
- assert.equal(f.node('job-travel').hidden,true);
+ assert(!fs.readFileSync(__dirname+'/touch/job-controls.js','utf8').includes('id="job-travel"'));
  assert.equal(f.doc.activeElement.id,'job-dismiss');assert(f.node('main').inert);
  assert.match(f.node('job-countdown').textContent,/15 s/);
  function key(key,shiftKey=false){let prevented=false;f.emit('keydown',{key,shiftKey,preventDefault(){prevented=true;},stopImmediatePropagation(){}});return prevented;}

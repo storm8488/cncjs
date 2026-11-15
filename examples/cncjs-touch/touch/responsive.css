@@ -392,3 +392,39 @@ body.ks-real.ks-ui.laser-no-z #screen-jog [data-laser-z],body.ks-real.ks-ui.lase
 /* Until L4 arranges Control, its relocated placement stays inside the scrolling body. */
 body.ks-real.ks-ui #screen-check .ks-step-body{display:flex;flex-direction:column;gap:12px;height:100%;min-height:0;overflow:auto}
 body.ks-real.ks-ui #screen-check #check-verdict{flex:none;max-height:none}
+/* L4: the same file cards and check diagrams in Eco and Performance. */
+body.ks-ui #screen-files.active,body.ks-ui #screen-files.kept{grid-template-columns:minmax(0,42fr) minmax(0,58fr);grid-template-rows:minmax(0,1fr)}
+body.ks-ui #screen-files .library-list-panel{grid-column:1;grid-row:1;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:32px 48px minmax(0,1fr) 48px;grid-template-areas:"title title" "search fav" "list list" "pages pages";gap:12px}
+body.ks-ui #screen-files .library-list-title h2{display:block;font-size:20px}
+body.ks-ui #screen-files #library-search{min-height:48px;font-size:18px}
+body.ks-ui #screen-files #library-favorites{grid-area:fav}
+body.ks-ui #screen-files .library-file{min-height:68px;grid-template-columns:80px minmax(0,1fr) auto}
+body.ks-ui #screen-files .library-thumb{width:80px;height:52px}
+body.ks-ui #screen-files #library-list{gap:12px}
+body.ks-ui #screen-files .library-detail{display:grid;grid-column:2;grid-row:1;grid-template-columns:minmax(0,1fr) 190px;grid-template-rows:auto minmax(220px,1fr) auto auto auto;gap:12px;overflow:auto}
+body.ks-ui #screen-files #library-name{grid-column:1/-1;grid-row:1}
+body.ks-ui #screen-files .library-detail>.library-image-wrap{grid-column:1;grid-row:2;min-height:220px;max-height:none}
+body.ks-ui #screen-files .files-facts{grid-column:2;grid-row:2;flex-direction:column;gap:24px;align-self:start;padding:0}
+body.ks-ui #screen-files .files-facts>div{min-width:0}
+body.ks-ui #screen-files .files-facts strong{font-size:24px}
+body.ks-ui #screen-files #job-loaded{grid-column:1/-1;grid-row:3}
+body.ks-ui #screen-files .files-verdict{grid-column:1/-1;grid-row:4}
+body.ks-ui #screen-files .ks-file-tools{grid-column:1/-1;grid-row:5;display:flex;gap:12px}
+body.ks-ui #screen-files .ks-file-tools>button{flex:1;min-height:48px;font-size:16px;padding:8px;background:var(--surface-2);color:var(--fg);border:1px solid var(--line-control)}
+body.ks-ui #screen-files #perf-v2-files{grid-column:1/-1;grid-row:3}
+body.ks-ui.perf-v2 #screen-files #job-loaded{display:none}
+body.ks-ui #screen-files .library-execution{display:none}
+body.ks-ui #screen-check .ks-step-body{display:block}
+body.ks-ui #screen-check .check-layout{height:100%;min-height:0}
+body.ks-ui #check-side svg{font-size:24px}
+@media(max-width:1099px),(max-height:649px){
+ body.ks-ui #screen-files.active,body.ks-ui #screen-files.kept{grid-template-columns:minmax(0,1fr)!important;overflow:auto}
+ body.ks-ui #screen-files .library-detail{grid-column:1;grid-row:2;min-height:480px}
+ body.ks-ui #screen-files .library-list-panel{min-height:410px}
+ body.ks-ui #screen-check .check-layout{height:auto}
+}
+
+.ks-ui .ks-stepbar p[data-tone="danger"]{color:var(--danger-text)}
+.ks-ui .ks-stepbar p[data-tone="warn"]{color:var(--warn-text)}
+#job-start-drawing{height:240px;min-height:0}
+#job-start-drawing svg{max-height:240px;font-size:32px}

@@ -25,7 +25,7 @@ const {page,read}=require('./test-v2-gate.cjs');
     assert(!/<script[^>]+(?:performance-(?:v2|inspect|sequences|observation|journal-context)|i18n-messages-v2)/.test(html),'no eager phase B request');
     // Static page dependencies changed since 793da19e, plus worker creators whose
     // URL is updated by phase C integration. Deferred v2 resources stay deferred.
-    for(const file of ['display-settings.js','i18n.js','job-dashboard.js','job-preparation.js',
+    for(const file of ['display-settings.js','i18n.js','job-dashboard.js','check-screen.js',
       'machine-limits.js','motion-estimate.js','preview-3d.js','preview-advanced.css','preview-inspect.js',
       'projects.js','settings-list.css','shared-library.css',
       'shared-library.js','status-strip.js','tablet-diagnostic.js','tablet-profile.js','tool-position.js',

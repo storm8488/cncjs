@@ -25,7 +25,7 @@ async function connected(patch) {
   return f;
 }
 async function ticketOpen(f, op) {
-  f.el(op === 'resume' ? 'job-resume' : 'job-start').click(); await f.flush();
+  f.controls()[op](); await f.flush();
   const prep = f.posts().at(-1); assert.equal(prep.body.action, 'prepare');
   f.answer(prep, { nonce: 'n-' + op, name: 'part.nc', expiresIn: 15 }); await f.flush();
   return prep;
@@ -130,7 +130,7 @@ async function dropAndReconnect(f, epoch) {
   }
   {
     const f = await connected();
-    f.el('job-start').click(); await f.flush(); const prep = f.posts().at(-1);
+    f.controls().start(); await f.flush(); const prep = f.posts().at(-1);
     await dropAndReconnect(f);
     f.answer(prep, { nonce: 'late', name: 'part.nc', expiresIn: 15 }); await f.flush();
     assert.equal(f.el('job-dialog').hidden, true, 'a ticket answered after the reconnection opens no dialog');

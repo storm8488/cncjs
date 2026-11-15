@@ -16,7 +16,7 @@ vm.runInNewContext(fs.readFileSync(__dirname+'/touch/job-controls.js','utf8'),{d
  assert(start>0&&end>start,'wide section of job-dashboard.js found');
  const wide=dash.slice(start,end);
  for(const word of ['cncJobControls','.click(','XMLHttpRequest','fetch(','api/','sendBeacon','.override('])assert(!wide.includes(word),'wide Suivi code is display only: '+word);
- assert(/\['load','start','pause','resume','stop'\]\.forEach\(function\(action\)\{\s*\$\('home-job-'\+action\)\.addEventListener\('click'/.test(dash),'Suivi buttons relay to the job controls');
+ assert(/\['pause','resume','stop'\]\.forEach\(function\(action\)\{\s*\$\('home-job-'\+action\)\.addEventListener\('click'/.test(dash),'Suivi buttons relay to the job controls');
  for(const action of ['load','start','pause','resume','stop'])assert(new RegExp('job-'+action+'\\b').test(controls),'job-controls.js owns job-'+action);
 }
 (async()=>{

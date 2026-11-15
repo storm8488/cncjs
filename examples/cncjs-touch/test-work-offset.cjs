@@ -44,7 +44,7 @@ const cases = [
       assert.equal(motion.el('jog-zero-x').title, expected, 'Prepare origin ' + language + ' ' + r.code);
       assert.equal(motion.el('motion-status').textContent, expected, 'Prepare movement ' + language + ' ' + r.code);
       // A coded HTTP refusal also uses the same template.
-      f.push([f.machine()]); f.el('job-start').click(); f.answer(f.posts().at(-1), { ...r, message: fallback }, 409); await f.flush();
+      f.push([f.machine()]); f.controls().start(); f.answer(f.posts().at(-1), { ...r, message: fallback }, 409); await f.flush();
       assert.equal(f.el('job-feedback').textContent, expected);
     }
     assert.equal(motion.nodes['jog-read-settings'],undefined,'shared reading remedy replaces the removed local read button');

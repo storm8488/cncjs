@@ -28,26 +28,26 @@ async function reviewOriginFixes() {
       p.run('travel-check.js'); p.run('origin-preview.js');
       // These modules are already installed; the fixture provides no real loader.
       p.window.cncProfile.loadAdvanced = () => Promise.resolve();
-      p.emit('cnc-screen-change', 'check'); p.run('job-preparation.js');
+      p.emit('cnc-screen-change', 'check'); p.window.CNCOriginPreview.mount(ui.screen);
       const flush = async () => { for (let i = 0; i < 5; i++) { await new Promise(setImmediate); p.frame(); } };
       p.status(state()); await flush();
       const card = ui.document.getElementById('op-card');
       const find = cls => card.all().find(n => n.classList.contains(cls));
       const verdict = find('op-verdict'), current = find('op-current');
-      assert.equal(verdict.getAttribute('data-tone'), 'ok', 'fixture begins with an in-travel placement');
-      assert(!verdict.hidden); assert.equal(ui.opened.length, 1);
+      assert(verdict.hidden,'Control owns the only verdict');
+      assert(verdict.hidden); assert.equal(ui.opened.length, 1);
       p.status(state({ activeState: 'Run', workflow: 'running' }));
       if (close === 'eco') p.window.cncProfile.setPerformance('eco');
       if (close === 'gpu') { p.gpu.lost = true; p.emit('cnc-gpu-change'); }
       if (close === 'preference') p.api.setPreference(false);
-      assert.equal(verdict.getAttribute('data-tone'), 'ok', 'status and gate handlers do not render');
+      assert(verdict.hidden,'no speculative verdict');
       const suspended = { fr: 'Vérification suspendue : non suivi', en: 'Verification suspended: not monitored', es: 'Verificación suspendida: sin seguimiento' }[language];
       const neutral=function(label) {
         assert.equal(p.api.gate(), false, label + ': v2 remains closed');
         assert.equal(card.parentNode, ui.screen, label + ': preparation keeps the card');
-        assert.equal(verdict.getAttribute('data-tone'), 'neutral', label + ': old green verdict is cleared');
-        assert.equal(verdict.textContent, suspended, label + ': explicit translated suspension');
-        assert.equal(verdict.hidden, false);
+        assert(verdict.hidden,label+': no duplicated verdict');
+        assert.equal(find('op-state').textContent,suspended,label+': translated suspension');
+        assert.equal(verdict.hidden,true);
         assert(current.hidden); assert.notEqual(current.getAttribute('data-tone'), 'ok');
         assert(find('op-view').hidden); assert.equal(ui.opened.length, 1, label + ': scene never reopens');
       }
@@ -60,7 +60,7 @@ async function reviewOriginFixes() {
       p.gpu.lost = false; p.emit('cnc-gpu-change');
       if (close === 'eco') p.window.cncProfile.setPerformance('performance');
       p.status(state()); await flush();
-      assert.equal(verdict.textContent, suspended); assert.equal(verdict.getAttribute('data-tone'), 'neutral');
+      assert.equal(find('op-state').textContent,suspended);assert(verdict.hidden);
       assert.equal(ui.opened.length, 1); assert.equal(reads, closedReads, 'no new program read after closure');
       p.window.CNCOriginPreview.unmount(); p.emit('pagehide');
     }

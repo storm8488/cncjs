@@ -110,7 +110,7 @@ for (const lang of [null, 'es']) {
   const p = page(lang ? {lang} : {});
   // Then the overrides: the card hidden or not, and each button disabled or not (feed ×5, spindle ×5, rapids ×3).
   const overrides = () => (p.node('home-overrides').hidden ? 'H' : '-') + ' ' + ['feed', 'spindle', 'rapid'].map((k) => p.node('home-overrides').children.filter((b) => b.getAttribute('data-kind') === k).map((b) => b.disabled ? 'D' : '-').join('')).join(' ');
-  const snap = () => BUTTONS.map((id) => { const n = p.node(id); return (n.disabled ? 'D' : '-') + (n.hidden ? 'H' : '-'); }).join(' ') + ' | ' + overrides();
+  const snap = () => BUTTONS.filter((_,i)=>![0,1,7,8].includes(i)).map((id) => { const n = p.node(id); return (n.disabled ? 'D' : '-') + (n.hidden ? 'H' : '-'); }).join(' ') + ' | ' + overrides();
   const seen = {};
   for (const [kind, prof] of [['cnc', null], ['laser', laserProfile]]) {
     for (const [name, m] of Object.entries(STATES)) { p.send({...m, machineProfile: prof}); seen[kind + ':' + name] = snap(); }
@@ -118,7 +118,7 @@ for (const lang of [null, 'es']) {
     p.emit('cnc-job-status', {machine: null, halt: {canPause: true, canStop: true, port: 'P'}, simulation: false}); seen[kind + ':horsLigne'] = snap();
     p.send(null); seen[kind + ':aucun'] = snap();
   }
-  const migrated=Object.fromEntries(Object.entries(EXPECTED).map(([k,v])=>{const [buttons,overrides]=v.split(' | ');return [k,buttons.split(' ').filter((_,i)=>i!==7&&i!==8).join(' ')+' | '+overrides];}));
+  const migrated=Object.fromEntries(Object.entries(EXPECTED).map(([k,v])=>{const [buttons,overrides]=v.split(' | ');return [k,buttons.split(' ').filter((_,i)=>![0,1,7,8,9,10].includes(i)).join(' ')+' | '+overrides];}));
   assert.deepEqual(seen, migrated, 'disabled / hidden of every machine button unchanged (' + (lang || 'fr') + ')');
 }
 

@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const {spawnSync} = require('child_process');
 const root = __dirname;
 const tests = [
- 'arcs','dashboard','real-interface','home-actions','job-dialog','start-override','work-offset','probe-defaults','page-benches','job-display',
+ 'check-screen','check-drawing','files-verdict','derogation','arcs','dashboard','real-interface','home-actions','job-dialog','start-override','work-offset','probe-defaults','page-benches','job-display',
  'library-transitions','library-file-state','machine-limits',
  'preview-dimensions','preview-viewer','preview','probe-diagram',
  'probe-lock','probe-model','probe-preparation','probe-profiles','probe-transfer','probe-real','probe-real-ui','block-probe-dialog',
@@ -16,8 +16,8 @@ const tests = [
  'viewport-phases','hidden-views','preview-worker','library-payload',
  'library-lifecycle','library-upload-payload','library-regeneration-cancel','history-view',
  'job-stream-client','stream-protocol','library-identity','api-prefix','controller-state','connection-status','operator-tools','i18n','journal-languages','profile-storage','perf-harness','viewport-recall','viewport-warmup','macros','system-monitor','tablet-actions','header-clock','backlight','viewport-scroll','commissioning','kept-screens','viewport-mutation','dom-fixture','interface-guide','grbl-help','travel-check','job-resume','status-strip','screen-lock','job-follow','viewport-throttle','tool-position','preview-depth','preview-3d',
- 'numeric-pad','text-keyboard','job-preparation','compact-layout','action-feedback','library-context','bundle',
- 'feedback-states','numeric-rules','preparation-keys','strip-messages','job-dialog-strip','real-motion','zero-machine','zero-piece','probe-assistant','probe-diagnostic','gcode-corpus','library-page-fit','layout-exceptions',
+ 'numeric-pad','text-keyboard','compact-layout','action-feedback','library-context','bundle',
+ 'feedback-states','numeric-rules','strip-messages','job-dialog-strip','real-motion','zero-machine','zero-piece','probe-assistant','probe-diagnostic','gcode-corpus','library-page-fit','layout-exceptions',
  'control-attribution','program-check-view','preview-identity','server-history','projects','server-messages',
  'strip-guard','strip-continuity','preview-notes','no-simulation-access','connect-cnc',
  'motion-estimate','preview-inspect','laser-view','preview-gl','preview-sidecar','job-motion','viz-i18n',

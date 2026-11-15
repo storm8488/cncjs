@@ -46,7 +46,7 @@ async function suivi(options = {}) {
   const progress = box('t-card home-progress'), phead = box('home-progress-head'), coords = el('home-coords'), tiles = box('home-live-tiles'), feedCard = box('t-card'), stop = box('home-stop');
   phead.appendChild(el('home-job-percent')); progress.appendChild(phead); progress.appendChild(el('home-job-progress'));
   feedCard.appendChild(el('home-live-feed')); tiles.appendChild(feedCard); stop.appendChild(el('home-job-stop'));
-  [el('home-job-title'), progress, coords, tiles, el('home-job-note'), el('home-job-ready'), el('home-job-selection'), el('home-job-load'), el('home-job-primary-row'), el('home-job-resume-row'), el('home-job-feedback'), stop].forEach((n) => metrics.appendChild(n));
+  [el('home-job-title'), progress, coords, tiles, el('home-job-note'), el('home-job-ready'), el('home-job-selection'), el('home-job-primary-row'), el('home-job-resume-row'), el('home-job-feedback'), stop].forEach((n) => metrics.appendChild(n));
   const w = p.window;
   // timers: every callback set (tests run them by hand); live: the ones not cleared yet, by id.
   w.setTimeout = (f) => { timers.push(f); live.set(timers.length, f); return timers.length; }; w.clearTimeout = (id) => { live.delete(id); };
@@ -105,7 +105,7 @@ async function cases(entries) {
       // D1: fixed slots. Messages that come and go (spindle warning, override reason, ready line, resume
       // help, feedback) share one scrolling message slot; the commands have their own fixed action slot.
       assert.deepEqual(s.kids(s.node('home-zone-controls')), ['home-v2-info', 'home-v2-actions', 'home-stop']);
-      assert.deepEqual(s.kids(s.node('home-v2-actions')), ['home-job-load', 'home-job-primary-row', 'home-job-resume-row']);
+      assert.deepEqual(s.kids(s.node('home-v2-actions')), ['home-job-primary-row', 'home-job-resume-row']);
       assert.deepEqual(s.kids(s.node('home-v2-info')), ['home-spindle-warning', 'home-job-note', 'home-job-ready', 'home-job-selection', 'home-job-feedback', 'home-override-note']);
       const sheet = s.node('perf-v2-overrides-sheet-content'), time = s.node('perf-v2-time-sheet-content');
       assert.deepEqual(sheet.children, [s.spindleRow, s.rapidRow, s.node('home-rapid-note')]);

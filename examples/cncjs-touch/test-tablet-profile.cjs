@@ -8,7 +8,7 @@
 // pilot, the change sent only through cncJobControls.setMachineKind, the « non confirmé »
 // prompt, and the performance buttons. Then the job POST of set-kind and of the laser framing
 // (job-controls.js on its offline fixture), and the CNC / laser gating of the procedures
-// (job-resume.js, job-preparation.js, commissioning.js, status-strip.js). No network.
+// (job-resume.js, check-screen.js, commissioning.js, status-strip.js). No network.
 const assert = require('assert').strict, fs = require('fs'), vm = require('vm'), path = require('path');
 const read = (name) => fs.readFileSync(path.join(__dirname, 'touch', name), 'utf8');
 const KEY = 'cncjs-touch-performance-v1';
@@ -285,28 +285,13 @@ async function gating() {
   const status = (m) => listeners['cnc-job-status'].forEach((fn) => fn({ detail: { machine: m, simulation: false } }));
   const idle = { canLoad: true, canZeroZ: true, programPause: null };
   status(Object.assign({}, cnc, idle));
-  assert.equal(byId('home-plate'), undefined, 'plate migrated to zero-piece'); assert.equal(byId('home-frame').hidden, true); assert.equal(byId('home-resume-line').textContent, 'Reprendre à une ligne…');
+  assert.equal(byId('home-plate'), undefined, 'plate migrated to zero-piece'); assert.equal(byId('home-frame'),undefined); assert.equal(byId('home-resume-line').textContent, 'Reprendre à une ligne…');
   const refused = machine('laser', idle); refused.machineProfile.capabilities.laserFrame = capability(false, 'Programme non vérifié dans la course machine.'); refused.machineProfile.capabilities.laserResume = capability(false, 'Aucun début de passe identifiable.');
   status(refused);
-  assert.equal(byId('home-plate'), undefined, 'no legacy plate for a laser'); assert.equal(byId('home-frame').hidden, false);
-  assert.equal(byId('home-frame-start').disabled, true); assert.equal(byId('home-frame-start').title, 'Programme non vérifié dans la course machine.');
-  assert.equal(byId('home-frame-why').textContent, 'Programme non vérifié dans la course machine.');
-  assert.equal(byId('home-resume-line').textContent, 'Reprendre à un début de passe…'); assert.equal(byId('home-resume-line').disabled, true); assert.equal(byId('home-resume-line').title, 'Aucun début de passe identifiable.');
-  byId('home-frame-start').click(); assert.deepEqual(calls, [], 'a disabled framing sends nothing');
-  status(Object.assign({}, laser, idle));
-  assert.equal(byId('home-frame-start').disabled, false); assert.equal(byId('home-resume-line').disabled, false);
-  byId('home-frame-start').click(); assert.deepEqual(calls, ['frame']);
-  status(Object.assign({}, laser, idle, { programPause: { kind: 'M6', tool: 1 }, canSpindleStop: true, spindleSpeed: 500 }));
-  assert.match(byId('home-program-pause-text').textContent, /pas géré pour un laser/); assert.equal(byId('home-pause-m5').textContent, 'Éteindre le laser (M5)');
-  // Préparer le travail: material and focus, no plate zero; CNC unchanged.
-  const P = require('./touch/job-preparation.js');
-  const stepsOf = (m) => P.assess({ machine: Object.assign({ name: 'p.nc', canStart: true, coordinates: { mpos: { x: 0, y: 0, z: 0 }, wpos: { x: 0, y: 0, z: 0 } }, settings: { $22: 1 } }, m), selection: { file: 'p.nc', name: 'p.nc' }, ticks: {} });
-  const ls = stepsOf(laser), cs = stepsOf(cnc);
-  assert.equal(ls.laser, true); assert.equal(ls.steps[1].title, 'Matériau et mise au point'); assert.match(ls.steps[1].detail, /mise au point/); assert.match(ls.steps[1].next, /Aucune commande/);
-  assert.match(ls.steps[2].next, /cadrage/); assert(!/plaque/.test(ls.steps[2].detail));
-  assert.equal(cs.steps[1].title, 'Outil et matière'); assert.match(cs.steps[2].detail, /plaque/);
-  const incoherent = machine('laser'); incoherent.machineProfile.coherent = false;
-  assert.match(stepsOf(incoherent).steps[3].detail, /incohérents/);
+  assert.equal(byId('home-plate'), undefined, 'no legacy plate for a laser'); assert.equal(byId('home-frame'),undefined);
+  assert.equal(byId('home-resume-line').textContent,'Reprendre à un début de passe…');assert.equal(byId('home-resume-line').disabled,true);assert.equal(byId('home-resume-line').title,'Aucun début de passe identifiable.');
+  status(Object.assign({},laser,idle));assert.equal(byId('home-resume-line').disabled,false);
+  status(Object.assign({},laser,idle,{programPause:{kind:'M6',tool:1},canSpindleStop:true,spindleSpeed:500}));assert.match(byId('home-program-pause-text').textContent,/pas géré pour un laser/);assert.equal(byId('home-pause-m5').textContent,'Éteindre le laser (M5)');
   // Commissioning: the spindle step is a checklist without command; the test file never emits.
   const ctx = { window: {} }; vm.runInNewContext(read('commissioning.js'), ctx); const C = ctx.window.CNCCommissioning;
   assert.equal(C.result('spindle', { laser: true, checks: { goggles: true, enclosure: true, air: true } }), '');
@@ -321,7 +306,7 @@ async function gating() {
   strip.render(machine('cnc', { spindleSpeed: 12000, fresh: true }));
   assert.match(strip.text('t-spindle'), /tr\/min/); assert.equal(strip.label('t-spindle'), 'Broche'); assert.equal(strip.text('t-machine'), 'Fraiseuse · CNC');
   strip.render(machine(null)); assert.equal(strip.text('t-machine'), 'sans nom · non confirmé');
-  for (const name of ['status-strip.js', 'job-resume.js', 'job-preparation.js', 'commissioning.js', 'display-settings.js', 'job-controls.js']) assert(!/puissance mesurée/i.test(read(name)), name);
+  for (const name of ['status-strip.js', 'job-resume.js', 'check-screen.js', 'commissioning.js', 'display-settings.js', 'job-controls.js']) assert(!/puissance mesurée/i.test(read(name)), name);
 }
 function stripFixture() {
   const nodes = {};

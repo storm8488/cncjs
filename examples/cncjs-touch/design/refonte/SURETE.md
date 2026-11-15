@@ -147,3 +147,22 @@ Les autres corrections P3 ne changent que l'affichage, le traitement de refus d�
 - Arrêter/Pause par l'action principale ne subissent plus le gel de 600 ms du changement de bouton introduit en L1 : la spec impose un arrêt immédiat. test-remise-en-route vérifie le départ immédiat de stop ; rétablir ce gel fait échouer cette assertion. Aucun octet ni séquence machine modifié.
 - Connexion : même list puis open, mêmes options et relecture juste avant ouverture ; un port unique non connu du stockage va désormais à la confirmation conformément à la spec. L'ouverture reste un geste séparé dans la carte ; jamais de réouverture d'un port utilisé. test-connect-cnc conserve les témoins de port disparu, utilisé, erreurs, délais et fermeture de session.
 - Les tests Machine couvrent gardes, propriétaires et refus sur place ; le banc réel du service sur LUNYEE couvre origine, D2, alarme pendant un travail ouvert, stop et nouvelle origine. Les lignes du programme du sender ne sont pas exécutées par le pont partagé. Aucun essai matériel ni revue matérielle revendiqué.
+## L4 — Page command mapping
+
+File loading calls `cncJobControls.load(file)` from `step-files-main` and stays
+on File. Reload remedies keep the loaded machine filename as their target.
+Ordinary start is on `step-check-main`; an outside snapshot or ticket and an
+unproven work offset cannot open its normal confirmation. The existing server
+guards, revision, generation, transport, nonce, expiry and checkbox remain.
+
+The deliberate D1 path is only in Control details: `prepare` carries
+`operation: 'start', override: 'travel', revision`; confirmation sends only its
+nonce with the existing envelope. Server `overridable` remains authoritative,
+including the unsafe-program protection. An override change closes the dialog.
+
+Laser framing moves from Home to `check-frame-start` with the same
+`machine/frame-prepare`, confirmation and `machine/frame` sequence. Both rapid
+rows call the same `override {kind: 'rapid', value}` owner. No production server
+code or G-code changes in L4. Tests: `test-derogation`, `test-check-screen`,
+`test-start-override`, `test-job-dialog`, and the existing server safety suites.
+The corpus test alone migrates its old geometry API from `check` to `place`.

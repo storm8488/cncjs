@@ -30,10 +30,11 @@ addEventListener: (n, f) => {
   for (const source of ['ticket', 'snapshot']) {
     const f = load();
     await f.connect(f.machine({ programCheck: source === 'snapshot' ? outside : null }));
-    f.el('job-start').click();
-    f.answer(f.posts().at(-1), { nonce: 'n', expiresIn: 15, programCheck: source === 'ticket' ? outside : null }); await f.flush();
-    assert.equal(f.el('job-dialog').hidden, false, 'the refusal check remains visible');
-    assert.equal(f.el('job-program-check').getAttribute('data-verdict'), 'outside');
+    f.controls().start();
+    if(source==='snapshot'){assert.equal(f.posts().length,0,'snapshot overrun never requests a normal ticket');f.controls().dispose();continue;}
+    f.answer(f.posts().at(-1), { nonce: 'n', expiresIn: 15, programCheck: outside }); await f.flush();
+    assert.equal(f.el('job-dialog').hidden,true,'a late outside ticket never opens the ordinary start dialog');
+    assert.equal(f.el('job-feedback').getAttribute('data-state'),'failed','the late outside ticket gives a visible refusal');
     f.advance(600);f.el('job-check').checked = true; f.el('job-check').fire('change');
     assert.equal(f.el('job-confirm').disabled, true, source + ': no ordinary confirmation over a proven overrun');
     f.el('job-confirm').fire('click'); await f.flush();
@@ -41,13 +42,13 @@ addEventListener: (n, f) => {
     f.controls().dispose();
   }
   for (const verdict of ['unknown', 'validated']) {
-    const f = load(); await f.connect(); f.el('job-start').click();
+    const f = load(); await f.connect(); f.controls().start();
     f.answer(f.posts().at(-1), { nonce: 'n', expiresIn: 15, programCheck: { verdict, axes: {} } }); await f.flush();
     f.advance(600);f.el('job-check').checked = true; f.el('job-check').fire('change'); assert.equal(f.el('job-confirm').disabled, false, verdict + ' remains confirmable');
     f.controls().dispose();
   }
   {
-    const f = load(); await f.connect(); f.el('job-start').click();
+    const f = load(); await f.connect(); f.controls().start();
     f.answer(f.posts().at(-1), { nonce: 'n', expiresIn: 15, programCheck: { verdict: 'unknown' } }); await f.flush();
     f.advance(600);f.el('job-check').checked = true; f.el('job-check').fire('change'); assert.equal(f.el('job-confirm').disabled, false);
     f.push([f.machine({ programCheck: outside })]);
@@ -74,7 +75,7 @@ addEventListener: (n, f) => {
 }
     assert.equal(f.window.CNCProgramCheckView.describe(outside).reasons.join(' '), expected.join(' '));
     // The 409 remains useful when a later snapshot no longer carries its reasons.
-    f.push([f.machine()]); f.el('job-start').click(); f.answer(f.posts().at(-1), refusal, 409); await f.flush();
+    f.push([f.machine()]); f.controls().start(); f.answer(f.posts().at(-1), refusal, 409); await f.flush();
     for (const text of expected) {
  assert(f.el('job-feedback').textContent.includes(text), '409: ' + text);
 }

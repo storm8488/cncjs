@@ -22,7 +22,7 @@ assert(html.indexOf('real-motion.js') > html.indexOf('touch-shell.js'), 'real-mo
 // The texts the real page's scripts produce: no mode word of the old checks, outside simulation branches.
 const MODE_WORDS = /vérification seule|expériment|à blanc|préparer sans mouvement|aucun mouvement envoyé|sans bouger|vitesse du test|préparation locale|palpage réel non activé/i;
 const loaded = [...html.matchAll(/<script defer src="([a-z0-9-]+\.js)\?/g)].map((m) => m[1]).filter((n) => !/^i18n-messages/.test(n));
-for (const n of ['real-motion.js', 'touch-shell.js', 'interface-guide.js', 'job-preparation.js', 'zero-piece.js', 'commissioning.js']) {
+for (const n of ['real-motion.js', 'touch-shell.js', 'interface-guide.js', 'check-screen.js', 'zero-piece.js', 'commissioning.js']) {
   assert(loaded.includes(n), 'index.html loads ' + n);
   const src = read(n), hits = [...src.matchAll(/\b(?:t|tv2|uiLocale\.t)\('((?:[^'\\]|\\.)*)'\)/g)].map((m) => m[1]).filter((p) => MODE_WORDS.test(p));
   assert.deepEqual(hits, [], n + ': no mode word of the old checks');

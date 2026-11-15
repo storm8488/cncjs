@@ -32,12 +32,12 @@ async function fixture(machinePatch) {
     addEventListener: on, removeEventListener(n, f) { events[n] = (events[n] || []).filter((x) => x !== f); } });
   node('previously-inert').inert = true; right.inert = false; dialog.hidden = true;
   const machine = Object.assign({ port: 'SIMULATION', type: 'Virtual', generation: 'g1', revision: 1, name: 'leaf.nc', fresh: true, statusAgeMs: 0, activeState: 'Idle', workflow: 'idle',
-    canLoad: true, canStart: true, canResume: false, canPause: false, canStop: false, canMacro: false }, machinePatch || {});
+    canLoad: true, workOffset:{state:'proven'},canStart: true, canResume: false, canPause: false, canStop: false, canMacro: false }, machinePatch || {});
   const sim = { request(method, body) { if (method === 'GET') return Promise.resolve({ controllers: [Object.assign({}, machine)] }); calls.push(body); if (body.action === 'prepare') return new Promise((r) => { pending = r; }); return Promise.resolve({}); } };
   const win = { cncJobSimulation: sim, addEventListener: on, removeEventListener: doc.removeEventListener, dispatchEvent() {} };
   vm.runInNewContext(fs.readFileSync(process.env.CNC_JOB_CONTROLS || __dirname + '/touch/job-controls.js', 'utf8'), { window: win, document: doc, Date: { now: () => now }, Promise, CustomEvent: function () {}, setInterval: () => 1, clearInterval() {}, XMLHttpRequest() { throw Error('No hardware/network permitted'); } });
   const flush = () => new Promise(setImmediate); await flush();
-  async function open(trigger, extra) { node(trigger).focus(); if (trigger === 'macro') win.cncJobControls.prepareMacro('m1'); else node(trigger).click(); await flush(); const f = pending; pending = null; f(Object.assign({ nonce: 'ticket', name: 'leaf.nc', expiresIn: 15 }, extra)); await flush(); assert.equal(dialog.hidden, false, 'dialog opened by ' + trigger); }
+  async function open(trigger, extra) { node(trigger).focus(); if (trigger === 'macro') win.cncJobControls.prepareMacro('m1'); else if(trigger==='job-start')win.cncJobControls.start();else node(trigger).click(); await flush(); const f = pending; pending = null; f(Object.assign({ nonce: 'ticket', name: 'leaf.nc', expiresIn: 15 }, extra)); await flush(); assert.equal(dialog.hidden, false, 'dialog opened by ' + trigger); }
   function key(k, shiftKey = false) { let prevented = false; emit('keydown', { key: k, shiftKey, preventDefault() { prevented = true; }, stopImmediatePropagation() {} }); return prevented; }
   const inertPath = (n) => { for (let x = n; x; x = x.parentNode) if (x.inert) return x.id; return null; };
   return { node, doc, win, machine, calls, emit, flush, open, key, inertPath, dialog, banner, advance(ms) { now += ms; } };

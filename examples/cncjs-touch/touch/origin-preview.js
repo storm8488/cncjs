@@ -61,7 +61,7 @@
   function current(meta, m) {
     var view = root.CNCProgramCheckView, pc = view && m.programCheck ? view.describe(m.programCheck) : null;
     if (pc) return { tone: pc.verdict === 'validated' ? 'ok' : pc.verdict === 'outside' ? 'danger' : 'neutral', text: t('Origine actuelle : ') + pc.summary };
-    var r = check().check(meta, m);
+    var r = {state:'unknown',message:t('non vérifié')};
     return { tone: r.state === 'ok' ? 'ok' : r.state === 'outside' ? 'danger' : 'neutral', text: t('Origine actuelle : ') + r.message };
   }
   // Overlays (spec §8.3) for a fresh idle report: [] when the work position is not usable.
@@ -195,7 +195,6 @@
   var s = null;
   function el(tag, cls, text) { var n = doc.createElement(tag); if (cls) n.className = cls; if (text) n.textContent = text; return n; }
   function setText(node, text) { if (node.textContent !== text) node.textContent = text; if (node.hidden !== !text) node.hidden = !text; }
-  function setTone(node, tone) { if (node.getAttribute('data-tone') !== tone) node.setAttribute('data-tone', tone); }
   function setHidden(node, hidden) { if (node.hidden !== hidden) node.hidden = hidden; }
   function unavailable() {
     var gl = root.CNCPreviewGL, dash = root.cncDashboardView;
@@ -298,8 +297,8 @@
     var n = s.nodes;
     setText(n.file, parts.file || '');
     setHidden(n.legend, !parts.legend);
-    setText(n.verdict, parts.verdict ? parts.verdict.text : ''); setTone(n.verdict, parts.verdict ? parts.verdict.tone : 'neutral');
-    setText(n.current, parts.current ? parts.current.text : ''); setTone(n.current, parts.current ? parts.current.tone : 'neutral');
+    setText(n.verdict, '');
+    setText(n.current, '');
     setText(n.state, parts.state || '');
     setHidden(n.view, !s.handle);
   }
@@ -313,7 +312,7 @@
       closeView();
       // Preparation can retain the card while the layout is held. A closed
       // scene must not leave its previous placement looking verified.
-      show({ file: s.file, verdict: { tone: 'neutral', text: t('Vérification suspendue : non suivi') } });
+      show({ file: s.file, state: t('Vérification suspendue : non suivi') });
       return;
     }
     if (s.v2 && ph === 'idle' && (!v2() || (root.cncV2.state && !root.cncV2.state().safeIdle) ||
@@ -339,6 +338,8 @@
     if (s.meta === undefined) { show({ file: s.file }); return; }
     if (!s.meta) { closeView(); show({ file: s.file, state: t('Aperçu sans parcours 3D : régénérez-le dans Fichiers.') }); return; }
     var r = model(m, s.meta, v2() ? null : stockOf(s.meta));
+    // Control owns the travel verdict; this dialog shows placement geometry only.
+    r.overlays.forEach(function(o){if(o.id==='outline')o.colour='neutral';});
     if (v2()) {
       installPlacement();
       if (placementProvider) {

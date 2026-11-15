@@ -10,9 +10,9 @@ async function check(withSimulator) {
  await new Promise(setImmediate);
  if(withSimulator){
   listeners['cnc-library-select']({detail:{file:'leaf.nc',name:'leaf.nc'}});
-  el('job-load').handlers.click();await new Promise(setImmediate);
+  context.window.cncJobControls.load();await new Promise(setImmediate);
   assert.match(el('file').textContent,/SIMULATION/);assert.match(el('file').textContent,/Chargé dans le simulateur/);
-  el('job-start').handlers.click();await new Promise(setImmediate);
+  context.window.cncJobControls.start();await new Promise(setImmediate);
   now+=600;el('job-check').checked=true;el('job-confirm').handlers.click();await new Promise(setImmediate);
   assert.match(el('job-state').textContent,/Run/);
   el('job-pause').handlers.click();await new Promise(setImmediate);assert.match(el('job-state').textContent,/Hold/);

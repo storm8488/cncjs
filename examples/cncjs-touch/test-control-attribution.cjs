@@ -17,7 +17,7 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
   await f.connect();
   assert(f.requests.find((r) => f.isStream(r.url)).url.endsWith('/touch-events?clientId=' + encodeURIComponent(id)), 'the stream carries the id (presence)');
   f.window.dispatchEvent({ type: 'cnc-library-select', detail: { file: 'part.nc', name: 'part.nc' } });
-  f.el('job-load').click();
+  f.controls().load();
   const load1 = f.posts().at(-1);
   assert.equal(load1.body.action, 'load'); assert.equal(load1.body.clientId, id); assert.match(load1.body.clientLabel, /^Tablette [a-z0-9]{4}$/);
   f.answer(load1, { message: 'Chargé' }); await f.flush();
@@ -25,7 +25,7 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
   const again = load({ storage }); assert.equal(again.controls().clientId(), id, 'reload keeps the same id'); again.controls().dispose();
   // A PC (no touch points) names itself "Poste": the other devices see which one pilots.
   const desk = load({ storage: new Map(storage), touchPoints: 0 }); await desk.connect();
-  desk.window.dispatchEvent({ type: 'cnc-library-select', detail: { file: 'part.nc', name: 'part.nc' } }); desk.el('job-load').click();
+  desk.window.dispatchEvent({ type: 'cnc-library-select', detail: { file: 'part.nc', name: 'part.nc' } }); desk.controls().load();
   assert.match(desk.posts().at(-1).body.clientLabel, /^Poste [a-z0-9]{4}$/); desk.controls().dispose();
 
   // 2. Unreadable id: a malformed stored value is replaced; a storage that throws gives a page-long id.
@@ -65,7 +65,7 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
   f.push([f.machine({ control: { owner: other, lastChange: null } })]);
   f.window.dispatchEvent({ type: 'cnc-library-select', detail: { file: 'part.nc', name: 'part.nc' } });
   assert(f.el('job-load').disabled&&f.el('job-start').disabled,'another owner refuses the visible commands');
-  f.push([f.machine({control:{owner:null,lastChange:null}})]);f.el('job-load').click(); const refused = f.posts().at(-1);
+  f.push([f.machine({control:{owner:null,lastChange:null}})]);f.controls().load(); const refused = f.posts().at(-1);
   f.push([f.machine({control:{owner:other,lastChange:null}})]);
   f.answer(refused, { message: 'Pilotage de COM3 attribué à « Tablette B » (tablette, ana) : …', code: 'ECONTROL', owner: other }, 409); await f.flush();
   assert.match(f.el('job-feedback').textContent, /^Refusé : pilotage attribué à « Tablette B »/);
@@ -75,7 +75,7 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
   f.push([f.machine({control:{owner:other,lastChange:null}})]);assert.match(f.el('job-feedback').textContent,/pilotage attribué/,'same state keeps refusal');
   f.push([f.machine({control:{owner:null,lastChange:null}})]);assert.equal(f.el('job-feedback').textContent,'','C-30c: stale refusal cleared');assert.equal(f.el('job-feedback').getAttribute('data-state'),'');
   // Any other 409 keeps the server message as it is.
-  f.el('job-load').click(); f.answer(f.posts().at(-1), { message: 'Machine occupée.' }, 409); await f.flush();
+  f.controls().load(); f.answer(f.posts().at(-1), { message: 'Machine occupée.' }, 409); await f.flush();
   assert.equal(f.el('job-feedback').textContent, 'Machine occupée.');
   f.push([f.machine({control:{owner:other,lastChange:null}})]);assert.equal(f.el('job-feedback').textContent,'Machine occupée.','other failures survive a pilot change');
 

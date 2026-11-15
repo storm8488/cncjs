@@ -452,10 +452,10 @@
     },
     {
       "id": "DE-08",
-      "sort": "inchangé",
-      "ecran": "Suivi › Cadrage du programme (laser)",
-      "selecteur": "#home-frame-start",
-      "etat": "Carte visible profil laser et workflow idle ; désactivé avec la raison si laserFrame non pris en charge.",
+      "sort": "déplacé",
+      "ecran": "check",
+      "selecteur": "#check-frame-start",
+      "etat": "Laser capability, fresh state, control lease and normal frame-prepare confirmation.",
       "requete": {
         "canal": "http",
         "methode": "POST",
@@ -473,8 +473,8 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation (machine) et flux obligatoires ; Le déplacement vient de l’appareil dont le flux transportId est ouvert ; atRest : available, pas de palpage ni chargement, workflow idle, pas d’alarme, pas de jog en cours, Idle, file vide, pas d’automatisme ; framePlan",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L4",
+      "fait": true
     },
     {
       "id": "ZE-01",
@@ -730,12 +730,12 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation / transportId vérifiés seulement s’ils sont fournis ; tolérés périmés pour pause, stop, spindleStop, jog-stop ; idle : available, pas de palpage, pas de jog, workflow idle, état Idle, file vide ; Chargement unique, fichier de la bibliothèque",
-      "lot": "L1",
+      "lot": "L4",
       "fait": true
     },
     {
       "id": "FI-02",
-      "sort": "inchangé",
+      "sort": "supprimé",
       "ecran": "Suivi",
       "selecteur": "#home-job-load",
       "etat": "Masqué sans sélection ou pendant un travail ; désactivé comme #job-load.",
@@ -749,12 +749,13 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation / transportId vérifiés seulement s’ils sont fournis ; tolérés périmés pour pause, stop, spindleStop, jog-stop ; idle : available, pas de palpage, pas de jog, workflow idle, état Idle, file vide ; Chargement unique, fichier de la bibliothèque",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L4",
+      "fait": true,
+      "remplace": "recharger-fichier, targeted at machine.name"
     },
     {
       "id": "FI-03",
-      "sort": "inchangé",
+      "sort": "supprimé",
       "ecran": "Préparer › Préparation guidée (feuille)",
       "selecteur": "#ks-prep-load",
       "etat": "Visible si l’étape Fichier n’est pas « ok », une sélection existe et #job-load est actif.",
@@ -768,8 +769,9 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation / transportId vérifiés seulement s’ils sont fournis ; tolérés périmés pour pause, stop, spindleStop, jog-stop ; idle : available, pas de palpage, pas de jog, workflow idle, état Idle, file vide ; Chargement unique, fichier de la bibliothèque",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L4",
+      "fait": true,
+      "remplace": "#step-files-main and cncJobControls.load(file)"
     },
     {
       "id": "FI-04",
@@ -993,9 +995,9 @@
     {
       "id": "CO-03",
       "sort": "inchangé",
-      "ecran": "Suivi › Corrections › Rapides",
-      "selecteur": "button[data-kind=rapid][data-value=25|50|100]",
-      "etat": "Carte #home-overrides (masquée si le serveur ne publie pas canOverride). Actif si état frais, pas occupé et canRapidOverride (aussi au repos). v2 : rangée déplacée dans la feuille « Broche et rapides » (#home-v2-more-overrides « Broche / rapides… »).",
+      "ecran": "check, home",
+      "selecteur": "#check-rapids button[data-kind=\"rapid\"][data-value=\"25\"]",
+      "etat": "Shared rapidRow, state from canRapidOverride, reported override and pilot; same override transport.",
       "requete": {
         "canal": "http",
         "methode": "POST",
@@ -1007,8 +1009,8 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; rapidOverridable : available ; travail en cours / pause, ou repos Idle sans file ; Valeur admise",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L4",
+      "fait": true
     },
     {
       "id": "RL-01",
@@ -1287,15 +1289,23 @@
     {
       "id": "N-02",
       "sort": "nouveau",
-      "ecran": "à réaliser",
-      "selecteur": null,
-      "etat": "à réaliser",
+      "ecran": "check",
+      "selecteur": "#check-override-open",
+      "etat": "Details only: proven reference and offset, outside and overridable, fresh idle state and pilot.",
       "requete": {
-        "action": "prepare start override travel"
+        "canal": "http",
+        "methode": "POST",
+        "chemin": "/api/touch-job",
+        "corps": {
+          "action": "prepare",
+          "operation": "start",
+          "override": "travel",
+          "revision": "<revision>"
+        }
       },
-      "refus": "gardes du serveur",
+      "refus": "Server guards remain authoritative; changed override closes the confirmation.",
       "lot": "L4",
-      "fait": false
+      "fait": true
     },
     {
       "id": "N-03",

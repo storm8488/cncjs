@@ -20,7 +20,7 @@
   var simulationPage=document.body.getAttribute('data-simulation')==='true';
   home.parentNode.insertAdjacentHTML('beforeend',uiLocale.html('<div class="job-dashboard"><div id="home-left" class="home-left"><div class="job-art"><img id="home-job-image" alt="Aperçu du fichier" hidden><p id="home-image-status">Sélectionnez un fichier pour afficher son aperçu.</p></div></div><div class="job-metrics"><h2 id="home-job-title" class="ks-sr-only">Suivi du travail</h2><div class="t-card home-progress"><div class="home-progress-head"><strong id="home-job-percent">—</strong><div class="home-progress-text"><p id="home-job-eta">Temps restant : —</p><p id="home-job-motion" class="home-job-motion" hidden></p><p id="home-job-name" class="ks-sr-only"></p></div></div><progress id="home-job-progress" max="100" value="0" aria-label="Avancement du travail"></progress></div><div id="home-coords" class="home-coords"></div><div class="home-live-tiles"><div class="t-card"><small>Avance réelle</small><b id="home-live-feed">—</b></div><div class="t-card"><small id="home-live-spindle-label">Broche réelle</small><b id="home-live-spindle">—</b></div></div><p id="home-job-note" class="ks-sr-only"></p></div></div>'));
   var execution=document.querySelector('.library-execution');
-  $('home-job-note').insertAdjacentHTML('afterend',uiLocale.html('<p id="home-job-ready" class="t-notice" role="status"></p><p id="home-job-selection" class="t-help"></p><button id="home-job-load" class="t-btn home-load" disabled>Charger la sélection</button><div id="home-job-primary-row" class="home-job-actions home-job-primary"><button id="home-job-start" class="t-btn t-btn--primary" disabled>Démarrer…</button><button id="home-job-pause" class="t-btn t-btn--warn t-btn--lg" disabled>Pause</button></div><div id="home-job-resume-row" class="home-job-actions home-job-resume" hidden><button id="home-job-resume" class="t-btn t-btn--primary" disabled>Reprendre…</button></div><p id="home-job-feedback" class="t-sent" role="status"></p><div class="home-stop"><button id="home-job-stop" class="t-btn t-btn--danger" disabled>Arrêter le travail</button><span class="t-help">Arrêt logiciel · pas un arrêt d’urgence</span></div>'));
+  $('home-job-note').insertAdjacentHTML('afterend',uiLocale.html('<p id="home-job-ready" class="t-notice" role="status"></p><p id="home-job-selection" class="t-help"></p><div id="home-job-primary-row" class="home-job-actions home-job-primary"><button id="home-job-pause" class="t-btn t-btn--warn t-btn--lg" disabled>Pause</button></div><div id="home-job-resume-row" class="home-job-actions home-job-resume" hidden><button id="home-job-resume" class="t-btn t-btn--primary" disabled>Reprendre…</button></div><p id="home-job-feedback" class="t-sent" role="status"></p><div class="home-stop"><button id="home-job-stop" class="t-btn t-btn--danger" disabled>Arrêter le travail</button><span class="t-help">Arrêt logiciel · pas un arrêt d’urgence</span></div>'));
   // The real page keeps its coordinate cards (#wx…, #mx…, written by app.js): they move under the progress.
   var coordsBox=$('home-coords');
   ['home-work-card','home-machine-card'].forEach(function(id){var card=$(id);if(card&&coordsBox&&typeof coordsBox.appendChild==='function')coordsBox.appendChild(card);});
@@ -29,7 +29,7 @@
   // Reprendre… in place, and a double tap must not reach it. Arrêter is never delayed. A clock set
   // back after a tap does not keep them frozen.
   var coolUntil=0;
-  ['load','start','pause','resume','stop'].forEach(function(action){
+  ['pause','resume','stop'].forEach(function(action){
     $('home-job-'+action).addEventListener('click',function(){
       var source=$('job-'+action),controls=window.cncJobControls;
       if(this.disabled||!source||source.disabled)return;
@@ -37,6 +37,16 @@
       if(controls&&typeof controls[action]==='function')controls[action]();
     });
   });
+  function rapidMarkup(prefix,label){return '<div class="t-override t-override--rapid" data-kind="rapid"><div class="t-ov-name">'+label+'<b id="'+prefix+'-override-rapid">—</b></div><div class="t-ov-row">'+[25,50,100].map(function(n){return '<button type="button" class="t-btn t-btn--ghost" data-kind="rapid" data-value="'+n+'" aria-pressed="false" disabled>'+n+' %</button>';}).join('')+'</div></div>';}
+  var rapidHosts=[];
+  function rapidState(host,prefix,d){var m=d&&d.machine,allowed=!!(m&&m.fresh&&!d.busy&&(!d.pilot||d.pilot.state!=='other')&&('canRapidOverride' in m?m.canRapidOverride:m.canOverride)),v=m&&m.overrides&&m.overrides.rapid;
+    var read=$(prefix+'-override-rapid');if(read&&read.textContent!==(typeof v==='number'?v+' %':'—'))read.textContent=typeof v==='number'?v+' %':'—';
+    Array.prototype.forEach.call(host.querySelectorAll('button[data-kind="rapid"]'),function(b){if(b.disabled===allowed)b.disabled=!allowed;var pressed=String(typeof v==='number'&&Number(b.getAttribute('data-value'))===v);if(b.getAttribute('aria-pressed')!==pressed)b.setAttribute('aria-pressed',pressed);});
+    var note=$(prefix+'-rapid-reason'),reason=allowed?'':m&&m.rapidOverrideReason?(uiLocale.message||uiLocale.t)(m.rapidOverrideReason):uiLocale.t('Impossible pour l’instant.');if(note&&note.textContent!==reason)note.textContent=reason;
+  }
+  function rapidRow(host,prefix){host.innerHTML=rapidMarkup(prefix,uiLocale.t('Rapides au départ'))+'<p id="'+prefix+'-rapid-reason"></p>';host.addEventListener('click',overrideClick);rapidHosts.push({host:host,prefix:prefix});if(rapidDetail)rapidState(host,prefix,rapidDetail);}
+  var rapidDetail=null;
+  window.addEventListener('cnc-job-status',function(e){rapidDetail=e.detail||{};rapidHosts.forEach(function(r){rapidState(r.host,r.prefix,rapidDetail);});});
   // Realtime overrides (feed and spindle), active only while a program runs or is held.
   // Overrides under the preview: ±10 % and 100 % as large steps, ±1 % as a second level.
   $('home-left').insertAdjacentHTML('beforeend',uiLocale.html('<div id="home-overrides" class="home-overrides t-card" hidden><div class="home-overrides-head"><p class="home-overrides-title">Corrections</p><p id="home-live" class="home-live ks-sr-only"></p></div><p id="home-spindle-warning" class="t-notice" data-tone="warn" role="alert" hidden></p>')+
@@ -46,9 +56,8 @@
         [[-10,'−10 %',''],[0,'100 %',' t-btn--ghost'],[10,'+10 %',''],[-1,'−1 %',' t-btn--ghost t-fine'],[1,'+1 %',' t-btn--ghost t-fine']].map(function(step){return '<button type="button" class="t-btn'+step[2]+'" data-kind="'+kind+'" data-value="'+step[0]+'" disabled>'+step[1]+'</button>';}).join('')+'</div></div>';
     }).join('')+
     // Rapids (G0 only): 25 / 50 / 100 %, also at rest so a first run can start slowed.
-    '<div class="t-override t-override--rapid" data-kind="rapid"><div class="t-ov-name">'+uiLocale.t('Rapides')+'<b id="home-override-rapid">—</b></div><div class="t-ov-row">'+
-      [[25,'25 %'],[50,'50 %'],[100,'100 %']].map(function(step){return '<button type="button" class="t-btn t-btn--ghost" data-kind="rapid" data-value="'+step[0]+'" aria-pressed="false" disabled>'+step[1]+'</button>';}).join('')+'</div></div>'+
-    uiLocale.html('<p id="home-override-note" class="t-help"></p><p id="home-rapid-note" class="t-help"></p></div>'));
+    rapidMarkup('home',uiLocale.t('Rapides'))+
+    uiLocale.html('<p id="home-rapid-reason"></p><p id="home-override-note" class="t-help"></p><p id="home-rapid-note" class="t-help"></p></div>'));
   relabel();
   var overridesBox=$('home-overrides');
   // The same relay serves the rows Performance v2 shows in their sheet (« Broche / rapides… »).
@@ -76,7 +85,7 @@
   function visible(name){var screen=$('screen-'+name);return !document.hidden&&!!screen&&screen.classList.contains('active');}
   // A text is written into its single text node: replacing the node (textContent) also
   // restyles it, at every report for the live values.
-  function set(id,key,value){var el=$(id);if(el[key]===value)return;var n=key==='textContent'&&el.firstChild;if(n&&n.nodeType===3&&!n.nextSibling)n.data=value;else el[key]=value;}
+  function set(id,key,value){var el=$(id);if(!el||el[key]===value)return;var n=key==='textContent'&&el.firstChild;if(n&&n.nodeType===3&&!n.nextSibling)n.data=value;else el[key]=value;}
   function cancelPreview(){
     request++;var xhr=previewRequest;previewRequest=null;
     if(xhr&&typeof xhr.abort==='function')xhr.abort();
@@ -230,6 +239,7 @@
       if(button.disabled!==!on)button.disabled=!on;
       if(isRapid){var pressed=String(rapid!==null&&Number(button.getAttribute('data-value'))===rapid);if(button.getAttribute('aria-pressed')!==pressed)button.setAttribute('aria-pressed',pressed);}
     });
+    if(rapidDetail){rapidState(overridesBox,'home',rapidDetail);if(v2&&v2.rowHost)rapidState(v2.rowHost,'home',rapidDetail);}
     set('home-rapid-note','textContent',rapidOn?(rapid!==null&&rapid<100?uiLocale.t('Rapides ralentis : Grbl revient à 100 % à la fin du programme (M2/M30) ou après un arrêt.'):uiLocale.t('Rapides à 25 % conseillés pour le premier essai d’un programme.')):'');
     // Real values from Grbl's FS: field. A feed hold stops the axes, not the spindle.
     var liveOk=!!(c&&c.fresh),feed=liveOk&&finiteNumber(c.feedrate)?c.feedrate:null,rpm=liveOk&&finiteNumber(c.spindleSpeed)?c.spindleSpeed:null;
@@ -631,7 +641,7 @@
   function kidsOf(node){return Array.prototype.slice.call(node.children);}
   function applyV2(on,board,left,tiles,overrides){
     var art=$('home-job-image').parentNode,second=$('home-gauge-eta-second'),unknown=$('home-gauge-eta-unknown');
-    var controls=zones.controls,stop=$('home-job-stop').parentNode,actions=[$('home-job-load'),$('home-job-primary-row'),$('home-job-resume-row')];
+    var controls=zones.controls,stop=$('home-job-stop').parentNode,actions=[$('home-job-primary-row'),$('home-job-resume-row')];
     if(art.parentNode!==left)art=left.firstChild;
     if(on){
       if(!v2.built)buildV2(overrides);
@@ -869,7 +879,7 @@
   window.addEventListener('pagehide',function(){forgetLoaded('');});
   window.addEventListener('cnc-screen-lock',function(e){if(e&&e.detail)forgetLoaded('');});
   // cancelLoadedPreview(): for the consumer (origin-preview.js on unmount, screen change, lock, hidden).
-  window.cncDashboardView={mount:mount,unmount:unmount,loadedPreview:loadedPreview,cancelLoadedPreview:function(){forgetLoaded('');}};
+  window.cncDashboardView={mount:mount,unmount:unmount,rapidRow:rapidRow,loadedPreview:loadedPreview,cancelLoadedPreview:function(){forgetLoaded('');}};
   mount();
   render();
 })();

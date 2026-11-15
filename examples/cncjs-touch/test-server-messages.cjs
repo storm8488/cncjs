@@ -191,13 +191,13 @@ const refusal = (fn) => { try { fn(); } catch (err) { return err; } throw new Er
   // The job controls show a coded refusal (HTTP 409) in English, an uncoded one as sent.
   const f = load({ language: 'en' }); await f.connect();
   f.window.dispatchEvent({ type: 'cnc-library-select', detail: { file: 'part.nc', name: 'part.nc' } });
-  f.el('job-load').click();
+  f.controls().load();
   f.answer(f.posts().at(-1), { message: 'Avance inconnue avant la ligne 40 : choisissez une ligne plus loin.', code: 'ETOUCH_RESUME_FEED', params: { from: 40 } }, 409); await f.flush();
   assert.equal(f.el('job-feedback').textContent, 'Feed rate unknown before line 40: choose a later line.');
   assert.equal(f.el('job-feedback').getAttribute('data-state'), 'failed');
-  f.el('job-load').click(); f.answer(f.posts().at(-1), { message: 'Machine occupée, cas propre au serveur.' }, 409); await f.flush();
+  f.controls().load(); f.answer(f.posts().at(-1), { message: 'Machine occupée, cas propre au serveur.' }, 409); await f.flush();
   assert.equal(f.el('job-feedback').textContent, 'Machine occupée, cas propre au serveur.');
-  f.el('job-load').click(); f.answer(f.posts().at(-1), {}, 500); await f.flush();
+  f.controls().load(); f.answer(f.posts().at(-1), {}, 500); await f.flush();
   assert.equal(f.el('job-feedback').textContent, 'Controls unavailable (HTTP 500).');
   // The error keeps its code and values for callers (resume dialog, real moves).
   const c = f.controls();

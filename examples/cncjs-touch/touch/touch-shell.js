@@ -48,7 +48,7 @@
   function fitLibrary(){
     var compact=window.innerHeight<650||window.innerWidth<1100;
     if(document.body.classList.contains('t-compact')!==compact)document.body.classList.toggle('t-compact',compact);
-    window.dispatchEvent(new CustomEvent('cnc-library-page-size',{detail:compact?3:5}));window.dispatchEvent(new CustomEvent('cnc-history-page-size',{detail:compact?4:6}));}
+    window.dispatchEvent(new CustomEvent('cnc-library-page-size',{detail:compact?3:window.innerHeight<880?4:6}));window.dispatchEvent(new CustomEvent('cnc-history-page-size',{detail:compact?4:6}));}
   window.addEventListener('resize',fitLibrary);fitLibrary();
   // Wide workstation (PERFORMANCE-UI-SPEC.md 2.2, body.perf-wide): Performance profile, hardware WebGL
   // (body.perf-gpu, preview-3d.js) and a landscape window of at least 1300 x 880 CSS px. The style
@@ -126,24 +126,22 @@
     }
   });
   var info=sheet('ks-file-info',uiLocale.t('Détails du fichier et de l’aperçu'));
-  ['library-preview-note','library-regenerate','library-regenerate-status','job-state','job-selected'].forEach(function(id){info.content.appendChild(document.getElementById(id));});
+  ['library-status','library-preview-note','library-regenerate','library-regenerate-status','job-state','job-selected'].forEach(function(id){info.content.appendChild(document.getElementById(id));});
   var machineDetails=sheet('ks-machine-details',uiLocale.t('Détails de la machine'));
   var machineContent=document.getElementById('machine-details-content');if(machineContent){machineContent.hidden=false;machineDetails.content.appendChild(machineContent);}
   var portLabel=document.querySelector('label[for="job-port"]');machineDetails.content.appendChild(portLabel);machineDetails.content.appendChild(document.getElementById('job-port'));
   var limits=document.getElementById('machine-limits-content');if(limits)machineDetails.content.appendChild(limits);
   var machineDetailsOpen=document.getElementById('machine-details-open');if(machineDetailsOpen)machineDetailsOpen.addEventListener('click',machineDetails.open);
   var tools=document.createElement('div');tools.className='ks-file-tools';
-  var dimensionsPanel=sheet('ks-dimensions',uiLocale.t('Dimensions du parcours XY')),dimensionsContent=document.getElementById('library-dimensions-content');
-  dimensionsContent.hidden=false;dimensionsPanel.content.appendChild(dimensionsContent);
-  var dimensionsButton=document.createElement('button');dimensionsButton.type='button';dimensionsButton.textContent=uiLocale.t('Dimensions XY');dimensionsButton.addEventListener('click',dimensionsPanel.open);tools.appendChild(dimensionsButton);
-  var detailsButton=document.createElement('button');detailsButton.type='button';detailsButton.textContent=uiLocale.t('Détails de l’aperçu');detailsButton.addEventListener('click',info.open);tools.appendChild(detailsButton);
-  var followButton=document.createElement('button');followButton.type='button';followButton.textContent=uiLocale.t('Ouvrir le suivi →');followButton.addEventListener('click',function(){go('home');});tools.appendChild(followButton);
+  var dimensionsContent=document.getElementById('library-dimensions-content');dimensionsContent.hidden=false;info.content.appendChild(dimensionsContent);
+  var detailsButton=document.createElement('button');detailsButton.type='button';detailsButton.textContent=uiLocale.t('Détails du fichier');detailsButton.addEventListener('click',info.open);tools.appendChild(detailsButton);
   document.querySelector('.library-detail').appendChild(tools);
   var upload=sheet('ks-upload',uiLocale.t('Ajouter un fichier à la bibliothèque'));
   var uploadBlock=document.getElementById('library-upload');uploadBlock.open=true;uploadBlock.querySelector('summary').hidden=true;upload.content.appendChild(uploadBlock);
-  var uploadButton=document.createElement('button');uploadButton.type='button';uploadButton.className='ks-upload-button';uploadButton.textContent=uiLocale.t('+ Ajouter un fichier');uploadButton.addEventListener('click',upload.open);document.querySelector('.library-list-panel').appendChild(uploadButton);
+  var uploadButton=document.createElement('button');uploadButton.type='button';uploadButton.className='ks-upload-button';uploadButton.textContent=uiLocale.t('+ Ajouter un fichier');uploadButton.addEventListener('click',upload.open);tools.insertBefore(uploadButton,tools.firstChild);
+  var projectOpen=document.getElementById('project-open');if(projectOpen){projectOpen.textContent=uiLocale.t('Fiche du projet');tools.appendChild(projectOpen);}
+  ['library-project','library-meta','library-selection-state'].forEach(function(id){var node=document.getElementById(id);if(node)info.content.appendChild(node);});
   var refresh=document.getElementById('library-refresh');document.querySelector('.library-list-title').appendChild(refresh);document.querySelector('.library-header').hidden=true;
-  document.getElementById('job-load').textContent=uiLocale.t('Charger et ouvrir le Suivi');
   document.querySelector('.library-execution h2').textContent=simulation?uiLocale.t('Travail simulé'):uiLocale.t('Exécution sur la machine');
   function bindSheet(id,title,contentId,buttonId){
     var panel=sheet(id,title),content=document.getElementById(contentId);
@@ -151,8 +149,8 @@
     document.getElementById(buttonId).addEventListener('click',panel.open);
   }
   if(simulation)bindSheet('ks-origin-help-sheet',uiLocale.t('Comprendre l’origine'),'ks-origin-explanation','ks-origin-info');
-  var preparationActions=document.querySelector('#screen-jog .ks-preparation-actions');
-  if(!preparationActions){preparationActions=document.createElement('div');preparationActions.className='ks-preparation-actions';document.querySelector('#screen-jog .ks-panel-intro').appendChild(preparationActions);}
+  var preparationActions=simulation&&document.querySelector('#screen-jog .ks-preparation-actions');
+  if(simulation&&!preparationActions){preparationActions=document.createElement('div');preparationActions.className='ks-preparation-actions';document.querySelector('#screen-jog .ks-panel-intro').appendChild(preparationActions);}
   var probeEntry=document.querySelector('#screen-jog .probe-entry');if(probeEntry){probeEntry.textContent=simulation?uiLocale.t('Palpage X / Y / Z'):uiLocale.t('Sonde');preparationActions.appendChild(probeEntry);}
   if(simulation){var originInfo=document.getElementById('ks-origin-info');originInfo.textContent=uiLocale.t('Aide aux repères');preparationActions.appendChild(originInfo);
     var originProbe=document.createElement('button');originProbe.type='button';originProbe.className='ks-secondary';originProbe.textContent=uiLocale.t('Ouvrir le palpage X / Y / Z');originProbe.addEventListener('click',function(){go('probe');});document.getElementById('ks-origin-explanation').appendChild(originProbe);}
@@ -244,7 +242,7 @@
   // Shared with later modules (macros): sheets with focus trapping and navigation.
   var detailSheet=null;
   function details(data){data=data||{};if(!detailSheet)detailSheet=sheet('ks-details',uiLocale.t('Détails'));detailSheet.content.textContent='';(data.lignes||[]).forEach(function(line){var p=document.createElement('p');p.textContent=String(line.libelle||'')+' : '+String(line.valeur===undefined?'—':line.valeur);detailSheet.content.appendChild(p);});if(data.brut){var pre=document.createElement('pre');pre.textContent=JSON.stringify(data.brut,null,2);detailSheet.content.appendChild(pre);}detailSheet.open();}
-  window.cncShell={details:details,sheet:sheet,closeSheet:closeSheet,go:go,preparationActions:preparationActions,v2Mounts:v2Mounts,screen:function(){return active;}};
+  window.cncShell={details:details,sheet:sheet,closeSheet:closeSheet,go:go,v2Mounts:v2Mounts,screen:function(){return active;}};
   go('machine');
   if(window.cncSeance)window.cncSeance.render();
 })();

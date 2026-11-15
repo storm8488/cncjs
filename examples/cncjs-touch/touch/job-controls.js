@@ -13,13 +13,13 @@
     uiLocale.html('<label for="job-port">Contrôleur CNCjs</label><select id="job-port"><option value="">Aucune machine connectée</option></select>') +
     uiLocale.html('<p id="job-state" role="status">Lecture de l’état…</p>') +
     uiLocale.html('<p id="job-selected"></p><p id="job-loaded">Aucun fichier chargé.</p><p id="job-reason" role="status"></p><progress id="job-progress" max="100" value="0"></progress>') +
-    uiLocale.html('<div class="job-buttons"><button id="job-load" disabled>Charger le fichier sélectionné</button>') +
-    uiLocale.html('<button id="job-start" class="job-start" disabled>Démarrer…</button><button id="job-pause" disabled>Pause</button>') +
+    uiLocale.html('<div class="job-buttons">') +
+    uiLocale.html('<button id="job-pause" disabled>Pause</button>') +
     uiLocale.html('<button id="job-resume" disabled>Reprendre…</button><button id="job-stop" class="job-stop" disabled>Arrêter le travail</button></div>') +
     uiLocale.html('<p id="job-feedback" role="status">Le chargement ne démarre pas le travail.</p>') +
     uiLocale.html('<p class="mute">L’arrêt logiciel ne remplace pas l’arrêt physique de la machine.</p>') +
     uiLocale.html('<div id="job-dialog" class="job-dialog" role="dialog" aria-modal="true" aria-labelledby="job-dialog-title" hidden>') +
-    uiLocale.html('<div class="job-dialog-card"><h2 id="job-dialog-title">Confirmer le démarrage</h2><p id="job-dialog-file"></p><p id="job-travel" class="job-travel" hidden></p><div id="job-program-check" class="t-pcheck" hidden></div><p id="job-note" class="job-note" hidden></p>') +
+    uiLocale.html('<div class="job-dialog-card"><h2 id="job-dialog-title">Confirmer le démarrage</h2><p id="job-dialog-file"></p><p id="job-note" class="job-note" hidden></p>') +
     uiLocale.html('<p id="job-warning">')+(simulation?uiLocale.t('Test des boutons uniquement. Aucun mouvement ni activation du laser.'):uiLocale.t('Cette action met la machine en mouvement et peut activer l’outil. Vérifiez la machine, l’origine et la zone de travail.'))+uiLocale.html('</p><button type="button" id="job-dialog-modify" hidden>Modifier…</button>') +
     uiLocale.html('<label class="job-confirm-label t-check"><input id="job-check" type="checkbox"><span id="job-check-text">')+(simulation?uiLocale.t('Je souhaite lancer cette simulation.'):uiLocale.t('Je suis devant la machine et prêt à lancer ce fichier.'))+uiLocale.html('</span></label>') +
     // The confirmation window is visible: a countdown in words and a bar that empties.
@@ -292,7 +292,7 @@
     if(t.operation==='frame')return laserFrame(state)&&state.revision===t.revision;
     if(Object.prototype.hasOwnProperty.call(COMMANDS,t.operation))return !!state[COMMANDS[t.operation]];
     if(state.revision!==t.revision)return false;
-    return t.operation==='start'?!!state.canStart:!!state.canResume;
+    return t.operation==='start'?!!(simulation||state.workOffset&&state.workOffset.state==='proven')&&(t.override?!!(state.homed&&!state.referenceLost&&state.programCheck&&state.programCheck.overridable&&outside(state.programCheck)):!!state.canStart):!!state.canResume;
   }
   function outside(check){return !!(check&&(check.verdict==='outside'||['X','Y','Z'].some(function(a){return check.axes&&check.axes[a]&&check.axes[a].verdict==='outside';})));}
   function confirmable(displayOnly){
@@ -304,7 +304,7 @@
   }
   function otherDialog(own){
     var self=$(own||'job-dialog');
-    return document.querySelectorAll&&Array.prototype.some.call(document.querySelectorAll('[role="dialog"]'),function(node){return node!==self&&!node.hidden&&node.getClientRects().length;});
+    return document.querySelectorAll&&Array.prototype.some.call(document.querySelectorAll('[role="dialog"]'),function(node){return node!==self&&!(node.classList&&node.classList.contains('ks-sheet'))&&!node.hidden&&node.getClientRects().length;});
   }
   // rotating: the server renews the event stream (every minute); the machine
   // state stays shown, but confirmations bound to the old stream are void.
@@ -535,7 +535,8 @@
         if(data.snapshot)apply(data.snapshot,Date.now()-started);
       }
       return data;
-    }).catch(function(e){showRefusal(e,host);if(ownGeneration===generation&&id>=feedbackSequence){feedbackSequence=id;text('job-feedback',e.message);setFeedbackState(e&&e.uncertain?'uncertain':'failed');if(e&&e.control)controlFeedback=e;if(action==='blockProbe'&&e.blockProbe&&window.cncZeroPiece)window.cncZeroPiece.failure(e.blockProbe,current);}throw e;})
+    }).catch(function(e){if(e&&e.code==='ETOUCH_START_OVERRIDE_CHANGED'){dismiss();if(window.cncCheckScreen)window.cncCheckScreen.overrideChanged();}
+      showRefusal(e,host);if(ownGeneration===generation&&id>=feedbackSequence){feedbackSequence=id;text('job-feedback',e.message);setFeedbackState(e&&e.uncertain?'uncertain':'failed');if(e&&e.control)controlFeedback=e;if(action==='blockProbe'&&e.blockProbe&&window.cncZeroPiece)window.cncZeroPiece.failure(e.blockProbe,current);}throw e;})
       .then(function(data){finish();return data;},function(e){finish();throw e;});
   }
   // operation: 'start' | 'resume' (the loaded program) | 'macro' (extra.macroId).
@@ -544,16 +545,21 @@
   function prepare(operation,extra) {
     if(busy||!current){var reason=busy?uiLocale.t('Opération en cours…'):uiLocale.t('État indisponible.');text('job-feedback',reason);setFeedbackState('failed');showRefusal(new Error(reason),refusalHost());render();return Promise.resolve({opened:false,error:new Error(reason)});}
     var port=current.port,revision=current.revision, ownGeneration=generation, ownConfirmation=++confirmation, started=elapsedClock(),origin=document.activeElement;
+    var sourceSheet=origin&&typeof origin.closest==='function'?origin.closest('.ks-sheet'):null;
     var request=operation==='macro'?{operation:'macro',macroId:extra&&extra.macroId}:standalone(operation)?{operation:operation}:{operation:operation,revision:revision};
     // Commands with parameters (the plate probe: thickness and search distance).
-    if(standalone(operation)&&operation!=='macro'&&extra)Object.keys(extra).forEach(function(k){request[k]=extra[k];});
+    if((standalone(operation)&&operation!=='macro'||operation==='start')&&extra)Object.keys(extra).forEach(function(k){request[k]=extra[k];});
     preparing++;
     return (operation==='frame'?command('machine',{operation:'frame-prepare'}):command('prepare',request)).then(function(data){
       preparing--;
-      if(ownGeneration!==generation||ownConfirmation!==confirmation||document.hidden||!current||current.port!==port||(!standalone(operation)&&current.revision!==revision))return {opened:false,error:null};
+      if(ownGeneration!==generation||ownConfirmation!==confirmation||document.hidden||sourceSheet&&sourceSheet.hidden||!current||current.port!==port||(!standalone(operation)&&current.revision!==revision))return {opened:false,error:null};
       until=started+Math.min(15,Number(data.expiresIn)||0)*1000;
       if(elapsedClock()<started||elapsedClock()>=until){var late=uiLocale.t('Confirmation expirée. Préparez une nouvelle confirmation.');text('job-feedback',late);setFeedbackState('failed');render();return {opened:false,error:new Error(late)};}
       ticket={nonce:data.nonce,operation:operation,port:port,revision:revision,generation:generation,started:started,programCheck:data.programCheck||current.programCheck,override:!!(data.override&&Array.isArray(data.override.blocking)&&data.override.blocking.length)};
+      if(operation==='start'&&!ticket.override&&outside(ticket.programCheck)){
+        var blocked=serverRefusal({code:'ETOUCH_START_OUTSIDE',params:{},reasons:ticket.programCheck.blocking||[],message:uiLocale.t('Le fichier dépasse la course de la machine.')},409);
+        dismiss(false);text('job-feedback',blocked.message);setFeedbackState('failed');showRefusal(blocked,refusalHost());render();return {opened:false,error:blocked};
+      }
       if(!confirmable(true)||otherDialog()){dismiss(false);return {opened:false,error:null};}
       dialogReturn=origin;
       // One stack of layers with the other overlays (strip-guard.js): a confirmation opened from a
@@ -578,20 +584,29 @@
       if(operation==='start'&&!simulation)$('job-warning').textContent=uiLocale.t(current.machineProfile&&current.machineProfile.kind==='laser'?'Le laser s’allume et la tête se déplace.':'La broche démarre et la machine se déplace.');
       if(operation==='frame'){$('job-warning').textContent=uiLocale.t('La tête fait le tour du fichier, laser éteint.');$('job-check-text').textContent=uiLocale.t('Je suis devant la machine et la table est dégagée.');}
       if(operation==='macro'){$('job-warning').textContent=uiLocale.t('Une macro peut déplacer la machine et faire tourner la broche.');$('job-check-text').textContent=uiLocale.t('Je suis devant la machine et je connais cette macro.');}
-      if(operation==='start'&&ticket.programCheck&&ticket.programCheck.verdict==='unknown')$('job-check-text').textContent=uiLocale.t('Je suis devant la machine et j’ai vérifié que le fichier tient dans la machine.');
+      if(operation==='start'&&!simulation&&ticket.programCheck&&ticket.programCheck.verdict==='unknown')$('job-check-text').textContent=uiLocale.t('Je suis devant la machine et j’ai vérifié que le fichier tient dans la machine.');
       // The target machine (label and kind, from the server's profile) and the piloting device.
       $('job-dialog-file').textContent=(operation==='blockProbe'&&data.name?(uiLocale.message||uiLocale.t)(data.name):data.name||current.originalName||current.name||'')+' · '+port+(simulation?'':' · '+targetText(current)+' · '+uiLocale.t('Pilote : ')+(pilot.value||'—'));
       var identity=$('job-dialog-file').textContent;$('job-dialog-file').setAttribute('data-details',identity);$('job-dialog-file').textContent=data.name||current.originalName||current.name||'';
       if(!$('job-dialog-details')){var detailsButton=document.createElement('button');detailsButton.type='button';detailsButton.id='job-dialog-details';detailsButton.textContent=uiLocale.t('Détails');$('job-dialog-file').parentNode&&$('job-dialog-file').parentNode.insertBefore(detailsButton,$('job-warning'));}
       if($('job-dialog-details'))$('job-dialog-details').onclick=function(){if(window.cncShell)window.cncShell.details({lignes:[{libelle:uiLocale.t('Machine'),valeur:identity}].concat(operation==='blockProbe'?[{libelle:uiLocale.t('Sonde'),valeur:note}]:[]),brut:operation==='blockProbe'?data.blockProbe:null});};
 
-      // Start of a real job: the server's travel pre-check of this exact program (F2), joined to the
-      // ticket; unknown is never shown as a green light. Without it (older server), the client's
-      // XY estimate from the preview of this program version.
-      var checked=operation==='start'&&!simulation&&window.CNCProgramCheckView?window.CNCProgramCheckView.show($('job-program-check'),data.programCheck||current.programCheck||null):null;
-      if(!checked&&$('job-program-check'))$('job-program-check').hidden=true;
-      if(window.CNCTravelCheck){var img=$('home-job-image'),pv=img&&samePreview(img.cncPreview,current)?img.cncPreview:null;
-        window.CNCTravelCheck.show($('job-travel'),operation==='start'&&!simulation&&!checked?window.CNCTravelCheck.check(pv,current):null);}
+      if(ticket.override){
+        var view=window.CNCProgramCheckView, overs=data.override.blocking.map(function(r){return view?view.overText(r,false):uiLocale.t('dépasse');}).join(' · ');
+        $('job-dialog-title').textContent=uiLocale.t('Démarrer malgré le dépassement');
+        $('job-confirm').textContent=uiLocale.t('Démarrer malgré le dépassement');
+        $('job-warning').textContent=overs+'. '+uiLocale.t('La machine s’arrêtera en alarme et perdra sa position.');
+        var firstOver=data.override.blocking[0],over=(firstOver.params||firstOver).over;
+        $('job-check-text').textContent=uiLocale.t('Je suis devant la machine et je sais que le fichier dépasse de {n} mm.').replace('{n}',view?view.fmt(over):String(over));
+      }
+      prop('job-confirm','className',ticket.override?'t-btn t-btn--warn':'t-btn t-btn--primary');
+      var startStatus=$('job-start-status'),startDrawing=$('job-start-drawing');
+      if(!startStatus){startStatus=document.createElement('p');startStatus.id='job-start-status';$('job-warning').parentNode.insertBefore(startStatus,$('job-warning'));}
+      if(!startDrawing){startDrawing=document.createElement('div');startDrawing.id='job-start-drawing';startDrawing.className='check-drawing';$('job-warning').parentNode.insertBefore(startDrawing,$('job-warning'));}
+      startStatus.hidden=operation!=='start'||ticket.override;
+      if(operation==='start'&&!ticket.override)startStatus.textContent=uiLocale.t(ticket.programCheck&&ticket.programCheck.verdict==='validated'?'Tient dans la machine.':'Course non vérifiée.')+(ticket.programCheck&&ticket.programCheck.verdict!=='validated'&&window.CNCProgramCheckView?' '+window.CNCProgramCheckView.axisLines(ticket.programCheck).filter(function(a){return a.verdict==='unknown';}).map(function(a){return a.text;}).join(' · '):'');
+      startDrawing.hidden=!ticket.override;
+      if(ticket.override&&window.CNCProgramCheckView)startDrawing.innerHTML=window.CNCProgramCheckView.drawing(Object.assign({},ticket.programCheck,{blocking:data.override.blocking}),'side');
       // Tool change resume or a resume from a line: what will happen, in one line.
       // Block probe: the server's numbers of this ticket (search, lateral move, depth, reach).
       var note=operation==='blockProbe'?(window.CNCProbeReal?window.CNCProbeReal.dialogNote(data.blockProbe):''):window.CNCJobResume&&!simulation?window.CNCJobResume.dialogNote(operation,current,request):'';if($('job-note')){$('job-note').textContent=note;$('job-note').hidden=!note;}
@@ -608,14 +623,14 @@
   bind(window,'cnc-library-select',function(event){selection=event.detail;if(store)store.set({selection:selection});render();});
   bind($('job-port'),'change',function(){generation++;explicitPort=!!$('job-port').value;halt=null;dismiss();latestMachine=machines.filter(function(m){return m.port===$('job-port').value;})[0]||null;render();});
   function sessionRefuses(){return !current||!current.fresh||pilot.state==='other'||!!systemCommand;}
-  function load(){
-    if(sessionRefuses()||$('job-load').disabled||!selection||busy||!current||!current.canLoad)return;
-    dismiss();return command('load',{file:selection.file}).catch(function(){/* Refusal is shown by command. */});
+  function load(file){
+    file=typeof file==='string'?file:selection&&selection.file;
+    if(sessionRefuses()||!file||busy||!current||!current.canLoad)return;
+    dismiss();return command('load',{file:file}).catch(function(){/* Refusal is shown by command. */});
   }
-  function start(){if(busy)return prepare('start');if(sessionRefuses()||$('job-start').disabled||busy||!current||!current.canStart)return Promise.resolve({opened:false,error:null});return prepare('start');}
+  function start(){if(busy)return prepare('start');if(sessionRefuses()||!current.canStart||outside(current.programCheck)||!simulation&&(!current.workOffset||current.workOffset.state!=='proven'))return Promise.resolve({opened:false,error:null});return prepare('start');}
+  function startOverride(){if(sessionRefuses()||busy||!current.homed||current.referenceLost||!current.workOffset||current.workOffset.state!=='proven'||!outside(current.programCheck)||!current.programCheck.overridable)return Promise.resolve({opened:false,error:null});return prepare('start',{override:'travel'});}
   function resume(){if(sessionRefuses()||$('job-resume').disabled||busy||!current||!current.canResume)return Promise.resolve({opened:false,error:null});return prepare('resume');}
-  bind($('job-load'),'click',load);
-  bind($('job-start'),'click',start);
   bind($('job-resume'),'click',resume);
   function pause(){if($('job-pause').disabled)return;dismiss();return command('pause').catch(function(){/* Refusal is shown by command. */});}
   function stop(){if($('job-stop').disabled)return;dismiss();return command('stop').catch(function(){/* Refusal is shown by command. */});}
@@ -633,6 +648,7 @@
     if(t.operation==='blockProbe')sent.then(function(){if(probeRun===t.port)probeRun=null;render();},function(){if(probeRun===t.port)probeRun=null;render();});
     sent.then(function(){
       // Tells the commissioning assistant which confirmed command the server accepted.
+      if(t.operation==='start'&&window.cncShell)window.cncShell.go('home');
       if(Object.prototype.hasOwnProperty.call(COMMANDS,t.operation))window.dispatchEvent(new CustomEvent('cnc-command-sent',{detail:t.operation}));
     }).catch(function(){/* Optional browser facility unavailable. */});
   });
@@ -717,7 +733,7 @@
   function dispose(){if(disposed)return;dismiss(false);closePilot(false);disposed=true;if(typeof clearInterval==='function')clearInterval(interval);if(stream)stream.dispose();bindings.forEach(function(fn){fn();});requests.forEach(function(xhr){xhr.onload=xhr.onerror=xhr.ontimeout=null;xhr.abort();});requests=[];}
   bind(window,'pagehide',function(event){if(event&&event.persisted){observationSuspended=true;dismiss();if(stream)stream.reconnect();else unavailable(uiLocale.t('Retour à la page : attendre un nouvel état.'));}else dispose();});
   bind(window,'pageshow',function(event){if(event&&event.persisted)resumeObservation();});
-  window.cncJobControls={load:load,start:start,resume:resume,pause:pause,stop:stop,
+  window.cncJobControls={load:load,start:start,startOverride:startOverride,checkFile:function(file){return run('check',{file:file});},resume:resume,pause:pause,stop:stop,
     verifyOffset:function(){if(busy||!current||!current.workOffset||!current.workOffset.canVerify)return Promise.resolve();return command('verifyOffset');},refresh:function(){poll(true);},dispose:dispose,
     // Realtime override step (kind: feed | spindle | rapid; value as accepted by the server).
     override:function(kind,value){if(busy||!current)return Promise.reject(new Error(uiLocale.t('Opération en cours…')));return command('override',{kind:kind,value:value});},
