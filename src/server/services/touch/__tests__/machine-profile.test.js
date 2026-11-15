@@ -15,6 +15,7 @@ import {
 } from '../machine-profile';
 import { catalogCodes, expectCatalogMatch } from './touch-codes-catalog';
 import { provenOffset } from './support/proven-offset';
+import { offsetRefusal } from '../work-offset';
 
 const SETTINGS = {
   $10: '1',
@@ -105,7 +106,7 @@ const family = 'grbl-1.1';
 const signature = signatureOf(SETTINGS, '1.1h', '1.1h');
 const record = (kind, extra = {}) => ({ id: 'm-0123456789ab', label: 'Atelier', kind, signature, createdAt: 'x', updatedAt: 'x', ...extra });
 
-const setup = ({ machines = [], enabled = true, homed = true, settings = SETTINGS, store = true } = {}) => {
+const setup = ({ machines = [], enabled = true, homed = true, settings = SETTINGS, store = true, workOffset = provenOffset } = {}) => {
   jest.useFakeTimers();
   const ctx = { now: 10000, enabled, machines, sets: [], history: [], c: fakeController('TEST', settings), programs: { ...PROGRAMS } };
   ctx.controllers = { TEST: ctx.c };
@@ -133,7 +134,7 @@ const setup = ({ machines = [], enabled = true, homed = true, settings = SETTING
     fingerprintOf: (name) => Promise.resolve({ fingerprint: sha256(Buffer.from(ctx.programs[name])), size: 1, mtimeMs: 1 })
   };
   const history = { record: (event) => ctx.history.push(event) };
-  ctx.service = createService({ get: () => ctx.controllers }, config, () => ctx.now, { workOffset: provenOffset, control: ctx.control, history, files });
+  ctx.service = createService({ get: () => ctx.controllers }, config, () => ctx.now, { workOffset, control: ctx.control, history, files });
   services.push(ctx.service);
   ctx.generation = ctx.service.list()[0].generation;
   ctx.service.openTransport('tA', A);
@@ -607,6 +608,16 @@ describe('program check for a laser (§4)', () => {
 describe('laser framing (§4)', () => {
   const LINES = ['M5', '$J=G90 G21 X10 Y20 F1000', '$J=G90 G21 X60 Y20 F1000', '$J=G90 G21 X60 Y50 F1000', '$J=G90 G21 X10 Y50 F1000', '$J=G90 G21 X10 Y20 F1000'];
   const laserSetup = (options = {}) => setup({ machines: [record('laser')], settings: { ...SETTINGS, $32: '1' }, ...options });
+
+  test('D2: framing waits for the work offset proven against $# (ETOUCH_OFFSET_*), nothing written meanwhile', async () => {
+    let refusal = offsetRefusal('ETOUCH_OFFSET_CHECKING');
+    const ctx = laserSetup({ workOffset: () => ({ ...provenOffset(), proven: () => !refusal, refusal: () => refusal }) });
+    await ctx.req('load', { file: 'frame.nc' });
+    expect((await refusalOf(ctx.machine('frame-prepare'))).code).toBe('ETOUCH_OFFSET_CHECKING');
+    expect(ctx.c.written).toEqual([]);
+    refusal = null;
+    expect((await ctx.machine('frame-prepare')).frame.lines).toEqual(LINES);
+  });
 
   test('prepare → ticket → frame: M5 first, then bounded absolute jogs one at a time, never M3/M4/S', async () => {
     const ctx = laserSetup();

@@ -612,6 +612,28 @@ offsetProven: s.workOffset.state === 'proven'
     expect(ctx.offset()).toMatchObject({ state: 'unknown', detail: 'interrupted' });
   });
 
+  test('Pause, spindle stop and a jog stop end the transaction where it is too', async () => {
+    const ctx = await setup();
+    await ctx.proven();
+    ctx.g.mute = true;
+    await ctx.home();
+    const stops = [
+      () => ctx.req('pause'),
+      () => ctx.req('spindleStop'),
+      () => ctx.req('motion', { operation: 'jog-stop' })
+    ];
+    for (const stop of stops) {
+      await ctx.until(() => ctx.offset().state === 'checking');
+      const before = ctx.lines();
+      await stop().catch(() => null);
+      expect(ctx.offset()).toMatchObject({ state: 'unknown', detail: 'interrupted' });
+      // Nothing more from the transaction (the spindle stop writes its own M5 at rest).
+      await ctx.tick(1000);
+      expect(ctx.since(before).filter((l) => l !== 'M5')).toEqual([]);
+      await ctx.req('verifyOffset');
+    }
+  });
+
   test('a pause the program asked for (M6): `$#` only, never a reload', async () => {
     const ctx = await setup();
     await ctx.proven();

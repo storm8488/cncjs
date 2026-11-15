@@ -470,7 +470,7 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-const setup = async ({ world = {}, homed = true, tested = true, enabled = true } = {}) => {
+const setup = async ({ world = {}, homed = true, tested = true, enabled = true, workOffset = provenOffset } = {}) => {
   jest.useFakeTimers();
   const ctx = { now: 100000, history: [] };
   const { c, g } = fakeGrbl(ctx, world);
@@ -481,7 +481,7 @@ const setup = async ({ world = {}, homed = true, tested = true, enabled = true }
     { get: () => ctx.controllers },
     { get: (key) => ({ 'touch.motion.enabled': enabled, events: [], macros: [], 'touch.machines': [] }[key]) },
     () => ctx.now,
-    { workOffset: provenOffset, control: ctx.control, history: { record: (event) => ctx.history.push(event) } }
+    { workOffset, control: ctx.control, history: { record: (event) => ctx.history.push(event) } }
   );
   services.push(ctx.service);
   ctx.state = () => ctx.service.list()[0];
@@ -1713,5 +1713,25 @@ describe('block probe: the LUNYEE options of the fake Grbl (PLAN-CORRECTIONS § 
     expect(ok.blockProbe).toMatchObject({ state: 'done', written: 'yes' });
     expect(loaded.g.sent.filter((l) => /^(\$#|G38\.3|G10)/.test(l)).map((l) => l.split(' ')[0])).toEqual(['$#', 'G38.3', 'G38.3', 'G10']);
     expect(loaded.g.collisions).toEqual([]);
+  }, 60000);
+
+  // D2: the G10 written at the end loads the offset again; it is proven anew. A failure before
+  // WRITE wrote nothing: the proof holds.
+  test('S48 the work offset is invalidated after the G10 of the cycle, not after a failure that wrote nothing', async () => {
+    const causes = [];
+    const spy = () => ({ ...provenOffset(), invalidate: (cause) => causes.push(cause) });
+    const ctx = await setup({ workOffset: spy });
+    causes.splice(0);
+    await ctx.launch({ axes: 'Z', wcs: 'G54', diameter: 6, profile: PROFILE });
+    const { ok } = await ctx.finish();
+    expect(ok.blockProbe).toMatchObject({ state: 'done', written: 'yes' });
+    expect(causes).toEqual(['zero']);
+    services.splice(0).forEach((service) => service.dispose());
+    causes.splice(0);
+    const none = await setup({ workOffset: spy, world: { solids: [] } });
+    causes.splice(0);
+    await none.launch({ axes: 'Z', wcs: 'G54', diameter: 6, profile: PROFILE });
+    await none.failedCleanly('ETOUCH_PROBE_NO_CONTACT');
+    expect(causes).toEqual([]);
   }, 60000);
 });
