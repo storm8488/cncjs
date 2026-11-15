@@ -3,11 +3,11 @@
 ## P1 page contract (2026-11-15)
 
 - `test-start-override.cjs`: quantified D1 snapshot/409 refusals in FR/EN/ES, all six possible axis/side reasons, ticket and live checks, checked-ticket invalidation, no direct-handler bypass; unknown stays confirmable with the checkbox. Converts A2-1.
-- `test-work-offset.cjs`: all four offset codes on Files, Follow, Probe and Prepare in FR/EN/ES; coded HTTP refusals and settings-reading refusal. The existing real-motion fixture is exported without running its tests when required; its language option now loads the real catalogues.
+- `test-work-offset.cjs`: all four offset codes on Files, Follow, Probe and Prepare in FR/EN/ES, including Follow when loading is also refused; coded HTTP refusals and settings-reading refusal. The existing real-motion fixture is exported without running its tests when required; its language option now loads the real catalogues.
 - `test-probe-defaults.cjs`: defaults compared with the server's real `LIMITS`, no physical dimensions invented, saved choices preserved, explicit invalid/null data remains unconfigured, Z alone needs no corner.
 - `test-commissioning.cjs` converts A2-6: Relire follows `canReadSettings` in Idle and Alarm; absent/false flags refuse. `test-real-motion.cjs` and `test-machine-screen.cjs` replace their old unlock-first expectations with this server contract; their existing assertions remain.
 - `test-server-messages.cjs` converts A2-7 using real S6 errors, optional null alarm/WCS values and 409s in three languages. It rejects the two unused resume templates. The temporary A2-1/A2-6/A2-7 files are removed after conversion.
-- The three fake-controller benches inject a local proven offset and inert `writeln`; they do not validate D2. `test-essai-xy-reel.cjs` remains outside the offline verifier because it starts a loopback server.
+- The three fake-controller benches inject a local proven offset and inert `writeln`; they do not validate D2. `test-page-benches.cjs`, registered in the offline verifier, captures their service options before any listener, timer or browser starts. `test-essai-xy-reel.cjs` remains outside the offline verifier because it starts a loopback server.
 - Standalone page ESLint uses the local `.eslintrc.cjs` (`eslint:recommended`); `touch/*.js` is parsed as ES2017 script, without Babel. This replaces inherited React application style rules for this subtree; no repository-wide configuration is changed. Empty optional browser catch blocks are documented, without changing their behavior.
 
 ## Reproduce the offline checks

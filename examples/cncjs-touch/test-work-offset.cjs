@@ -31,6 +31,9 @@ const cases = [
       for (const id of ['file', 'job-reason']) assert(f.el(id).textContent.includes(expected), id + ' ' + language + ' ' + r.code);
       listeners['cnc-job-status']({ detail: { machine: m, simulation: false } });
       assert(dom.node('home-job-ready').textContent.includes(expected), 'Follow ' + language + ' ' + r.code);
+      const loadingRefused = { ...m, canLoad: false, loadReason: fallback, refusals: { start: r, load: r } };
+      listeners['cnc-job-status']({ detail: { machine: loadingRefused, simulation: false } });
+      assert(dom.node('home-job-ready').textContent.includes(expected), 'Follow load refusal ' + language + ' ' + r.code);
       const probe = context.window.CNCProbeReal.launchState({ machine: { ...m, operator: { wcs: 'G54' }, canBlockProbe: false, blockProbeReason: fallback, refusals: { blockProbe: r } }, wcs: 'G54', connected: true, validate: () => [] });
       assert.equal(probe.ready, false); assert.equal(probe.reason, expected, 'Probe ' + language + ' ' + r.code);
       const next = machine({ refusals: { setOrigin: r, jog: r } });
