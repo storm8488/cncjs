@@ -2314,6 +2314,10 @@ describe('F2: the travel pre-check of the loaded program follows the machine sta
     check = ctx.state().programCheck;
     expect(check.verdict).toBe('outside');
     expect(check.axes.Z.reasons[0]).toMatch(/Hors course Z : -43 → -35 mm machine \(course -40 → 0\)/);
+    // D1: a proven overrun refuses the start, with the overrun in the operator's terms.
+    expect(check.blocking.map((b) => [b.code, b.params])).toEqual([['ETOUCH_TRAVEL_TOO_LOW', { over: '3.5', min: '-43', limit: '-39.5' }]]);
+    expect(ctx.state().canStart).toBe(false);
+    await expect(ctx.req('prepare', { operation: 'start', revision: ctx.state().revision })).rejects.toMatchObject({ code: 'ETOUCH_START_OUTSIDE', params: { count: 1 } });
     // An alarm loses the reference.
     ctx.c.runner.emit('alarm', { message: '1' });
     ctx.report();

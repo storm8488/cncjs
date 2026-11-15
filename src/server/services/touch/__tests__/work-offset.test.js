@@ -474,8 +474,9 @@ offsetProven: s.workOffset.state === 'proven'
     await ctx.proven();
     // The true verdict now: −20 → −2 on G54 Z −115 is −135 → −117 machine, below −130.
     expect(ctx.state().programCheck.axes.Z.verdict).toBe('outside');
-    expect(ctx.state().canStart).toBe(true);
-    expect(ctx.state().refusals.start).toBeUndefined();
+    // D1 (S3): an overrun proven once the offset is proven refuses the start in its turn.
+    expect(ctx.state().canStart).toBe(false);
+    expect(ctx.state().refusals.start).toMatchObject({ code: 'ETOUCH_START_OUTSIDE', params: { count: 1 } });
 
     await ctx.req('load', { file: 'reprise.nc', fromLine: 7 });
     expect(ctx.state().resume).toMatchObject({ from: 7 });

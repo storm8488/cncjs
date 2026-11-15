@@ -5,6 +5,7 @@
 export const provenOffset = () => ({
   state: () => 'proven',
   proven: () => true,
+  proof: () => 0,
   checking: () => false,
   // Called at each status report and $G report; invalidations, stops and `verifyOffset` change nothing here.
   tick: () => {},

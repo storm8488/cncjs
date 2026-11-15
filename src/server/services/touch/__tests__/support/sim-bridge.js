@@ -6,7 +6,9 @@
 //   - `silentConnect`: no banner parsed at the start (the LUNYEE board is not restarted by
 //     opening its port: the version is known only from `$I`);
 //   - a feeder that sends nothing in Alarm and empties itself, as GrblController's;
-//   - what the simulator says by itself (PRB, a deferred alarm, a limit switch) parsed too.
+//   - what the simulator says by itself (PRB, a deferred alarm, a limit switch) parsed too;
+//   - `gcode:load` and `gcode:start` (lot S3, D1): the sender takes the program and the workflow
+//     runs, both noted in `jobs`; no line of the program is streamed to the simulator.
 import { EventEmitter } from 'events';
 import GrblRunner from '../../../../controllers/Grbl/GrblRunner';
 
@@ -35,7 +37,8 @@ export const bridge = (sim, { silentConnect = false } = {}) => {
     sender: Object.assign(new EventEmitter(), { state: { name: '', context: {}, total: 0 } }),
     workflow: Object.assign(new EventEmitter(), { state: 'idle' }),
     feeder: { toJSON: () => ({ queue: 0, pending: false }) },
-    written: []
+    written: [],
+    jobs: []
   };
   Object.defineProperty(c, 'settings', { get: () => runner.settings });
   c.sender.toJSON = () => ({ ...c.sender.state });
@@ -72,6 +75,16 @@ export const bridge = (sim, { silentConnect = false } = {}) => {
       parse(sim.processRealtimeCommand('\x85'));
     } else if (WRITTEN[name] !== undefined) {
       c.writeln(WRITTEN[name]);
+    } else if (name === 'gcode:load') {
+      const [file, program, context, done] = args;
+      c.jobs.push(['gcode:load', file]);
+      c.sender.state = { name: file, context, total: String(program).split('\n').length };
+      c.sender.emit('load');
+      done(null);
+    } else if (name === 'gcode:start') {
+      c.jobs.push(['gcode:start']);
+      c.workflow.state = 'running';
+      c.workflow.emit('start');
     } else {
       throw new Error('unexpected command ' + name);
     }

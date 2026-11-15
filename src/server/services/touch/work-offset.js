@@ -101,7 +101,9 @@ export const createWorkOffset = (deps) => {
     // $G reports received, and how many had come at the last invalidation: a transaction
     // starts on a $G received after it (a WCO: changed by another client may come before its $G).
     modals: 0,
-    modalFloor: 0
+    modalFloor: 0,
+    // Proofs made so far: the one a D1 override is bound to (job-service.js travelOf).
+    proofs: 0
   };
 
   const tolerance = () => TOLERANCE[reportUnits()] || null;
@@ -128,6 +130,7 @@ export const createWorkOffset = (deps) => {
     }
     s.run = null;
     s.state = 'proven';
+    s.proofs += 1;
     s.failure = null;
     changed();
   };
@@ -410,6 +413,8 @@ export const createWorkOffset = (deps) => {
   return {
     state: () => s.state,
     proven: () => s.state === 'proven',
+    // Which proof holds now (a number), or null when none does.
+    proof: () => (s.state === 'proven' ? s.proofs : null),
     checking: () => !!s.run,
     tick,
     modal,

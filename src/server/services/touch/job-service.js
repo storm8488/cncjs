@@ -157,6 +157,24 @@ const conflict = (message) => {
   return err;
 };
 
+// D1 (a start proven outside the travel): refusals with a stable code, the values of their French
+// message and, for ETOUCH_START_OUTSIDE, the coded overruns behind it (`reasons`, program-check.js).
+export const START_MESSAGES = {
+  ETOUCH_START_OUTSIDE: 'Départ refusé : le programme sort de la course de la machine (dépassements : {count}).',
+  ETOUCH_START_NO_OVERRIDE: 'Départ hors course impossible : les limites logicielles de la carte ($20) ne sont pas actives, rien n’arrêterait le dépassement.',
+  ETOUCH_START_OVERRIDE_CHANGED: 'Le programme, l’origine ou la machine ont changé depuis la confirmation du départ hors course : confirmez à nouveau.'
+};
+
+const startRefusal = (code, params = {}, reasons) => {
+  const err = conflict(START_MESSAGES[code].replace(/\{(\w+)\}/g, (all, name) => String(params[name])));
+  err.code = code;
+  err.params = params;
+  if (reasons) {
+    err.reasons = reasons;
+  }
+  return err;
+};
+
 const hasAutomations = (config) => {
   return (config.get('events') || []).some((event) => event.enabled !== false);
 };
@@ -569,7 +587,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
           // Our own start names its actor; a start made from the classic interface does not.
           const actor = r.job.startActor || { kind: 'socket', id: 'cncjs', label: 'interface CNCjs' };
           r.job.startActor = null;
-          log({ event: 'start', ...jobInfo(r.job), controller: controllerInfo(c, r), startedAt: new Date().toISOString(), actor });
+          // D1: a start of ours that overrode a proven overrun says so.
+          const override = r.job.overrideStart ? { override: true } : {};
+          r.job.overrideStart = false;
+          log({ event: 'start', ...jobInfo(r.job), controller: controllerInfo(c, r), startedAt: new Date().toISOString(), ...override, actor });
           changed();
         }
       };
@@ -837,7 +858,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
   // Stop sequence (feed hold, then soft reset once at rest): see halt.js.
   const { haltPlan, halt } = createHalt({ clock, controllers, record, later, spindleOn });
 
-  const readyFor = (c, action, revision) => {
+  const readyFor = (c, action, revision, travel = null) => {
     const j = validJob(c, revision);
     available(c);
     if (record(c).probing) {
@@ -931,7 +952,54 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     if (hasAutomations(config)) {
       throw conflict('Des automatismes CNCjs sont configurés. Leur compatibilité doit être vérifiée avant utilisation.');
     }
+    // D1, last: a deliberate override is only asked for once every other guard passed.
+    if (action === 'start') {
+      travelReady(c, j, travel);
+    }
     return j;
+  };
+
+  // D1: the check of the loaded program now (a resume from a line: its rebuilt program, preamble
+  // included), and what a deliberate override is bound to: the overruns shown (axis, side, how
+  // far), the file, the board's session, the D2 proof, $23 and the travel.
+  const travelOf = (c, r, j) => {
+    // Every load analyses its program (job-load.js); a job without one has nothing to check.
+    if (!j.analysis) {
+      return { check: null, signature: null };
+    }
+    const check = checkProgram(j.analysis, machineForCheck(c, r));
+    const s = allSettings(c);
+    const signature = JSON.stringify({
+      overruns: check.blocking.map((b) => [b.code, b.params.axis || 'Z', b.params.sign || '', b.params.over]),
+      revision: j.revision,
+      fingerprint: j.fingerprint,
+      startups: r.startups,
+      proof: r.offset.proof(),
+      mask: s.$23 === undefined ? null : String(s.$23),
+      travel: [130, 131, 132].map((n) => (s['$' + n] === undefined ? null : String(s['$' + n])))
+    });
+    return { check, signature };
+  };
+
+  // `travel`: null (an ordinary start), { request: true } (prepare with override: 'travel'), or
+  // { signature } (the start of a ticket that overrides). Never overrides D2 or the reference
+  // guard: both are checked before (readyFor).
+  const travelReady = (c, j, travel) => {
+    const r = record(c);
+    const { check, signature } = travelOf(c, r, j);
+    if (!check || !check.blocking.length) {
+      return;
+    }
+    if (!travel) {
+      throw startRefusal('ETOUCH_START_OUTSIDE', { count: check.blocking.length }, check.blocking);
+    }
+    // Without the board's own soft limits, nothing would stop the overrun: never overridden.
+    if (!check.overridable) {
+      throw startRefusal('ETOUCH_START_NO_OVERRIDE');
+    }
+    if (travel.signature && travel.signature !== signature) {
+      throw startRefusal('ETOUCH_START_OVERRIDE_CHANGED');
+    }
   };
 
   // Overrides act on the running (or held) program only.
@@ -1812,6 +1880,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       if (!['start', 'resume', 'macro', 'unlock', 'home', 'spindle', 'zeroZ', 'blockProbe', 'set-origin'].includes(body.operation)) {
         throw conflict('Action invalide.');
       }
+      // D1: the second, deliberate gesture of a start proven outside the travel, for a start only.
+      if (body.override !== undefined && (body.operation !== 'start' || body.override !== 'travel')) {
+        throw conflict('Action invalide.');
+      }
       const nonce = crypto.randomBytes(24).toString('hex');
       let name;
       // What an operation adds to its confirmation (block probe: the plan).
@@ -1849,24 +1921,32 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       if (COMMISSIONING[body.operation] || body.operation === 'macro') {
         return { ...ticketOf(null), ...extra };
       }
-      const j = readyFor(c, body.operation, body.revision);
+      const travel = body.override === 'travel' ? { request: true } : null;
+      const j = readyFor(c, body.operation, body.revision, travel);
       name = j.originalName;
       if (body.operation === 'resume') {
         r.ticket = { nonce, revision: j.revision, operation: body.operation, expires: clock() + TICKET_LIFETIME_MS, transportId: body.transportId };
         return ticketOf(null);
       }
       // A start confirmation is issued only for the file as loaded (A5), and
-      // carries the travel pre-check (F2) as a warning: `unknown` is never a
-      // green light, and the operator is told why.
+      // carries the travel pre-check (F2): `unknown` is a warning, never a
+      // green light, and the operator is told why; a proven overrun refuses it
+      // (D1) unless this is the override, bound to what it overrides.
       return sameFileAsLoaded(j).then(() => {
-        readyFor(c, 'start', body.revision);
+        readyFor(c, 'start', body.revision, travel);
         // The stream closed meanwhile (rotation, Wi-Fi lost): its confirmations
         // were revoked, none is issued to it afterwards (bug hunt E-5).
         if (!transports.has(body.transportId)) {
           throw conflict('Connexion de suivi interrompue. Confirmez à nouveau.');
         }
-        r.ticket = { nonce, revision: j.revision, operation: 'start', expires: clock() + TICKET_LIFETIME_MS, transportId: body.transportId };
-        return ticketOf(j.analysis ? checkProgram(j.analysis, machineForCheck(c, r)) : null);
+        const { check, signature } = travelOf(c, r, j);
+        const override = travel && check && check.blocking.length ? signature : null;
+        r.ticket = { nonce, revision: j.revision, operation: 'start', expires: clock() + TICKET_LIFETIME_MS, transportId: body.transportId, override };
+        if (!override) {
+          return ticketOf(check);
+        }
+        log({ event: 'override', kind: 'travel', stage: 'confirmed', ...jobInfo(j), controller: controllerInfo(c, r), overruns: check.blocking, actor: actor || null });
+        return { ...ticketOf(check), override: { blocking: check.blocking } };
       });
     }
 
@@ -1937,7 +2017,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       if (!t || t.nonce !== body.nonce || t.operation !== a || clock() > t.expires || t.transportId !== body.transportId) {
         throw conflict('Confirmation expirée ou déjà utilisée.');
       }
-      const j = readyFor(c, a, t.revision);
+      // D1: a ticket that overrides a proven overrun starts only on the very overruns confirmed.
+      const travel = a === 'start' && t.override ? { signature: t.override } : null;
+      const j = readyFor(c, a, t.revision, travel);
       if (a === 'resume') {
         // The program already sits in CNCjs's sender: a resume from a pause
         // stays synchronous (the stop/M6 sequences and their tests rely on it).
@@ -1954,11 +2036,18 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       // (cached fingerprint) first, and the machine re-checked after that
       // asynchronous step (A5).
       return sameFileAsLoaded(j).then(() => {
-        readyFor(c, a, t.revision);
+        readyFor(c, a, t.revision, travel);
+        // Still outside now (the override was needed): logged before anything is sent.
+        const { check } = travel ? travelOf(c, r, j) : { check: null };
+        const overriding = !!(check && check.blocking.length);
+        if (overriding) {
+          log({ event: 'override', kind: 'travel', stage: 'started', ...jobInfo(j), controller: controllerInfo(c, r), overruns: check.blocking, actor: actor || null });
+        }
         j.wcsAtStart = modalWcs(r);
         j.started = true;
         j.external = false;
         j.ownStart = true;
+        j.overrideStart = overriding;
         j.startActor = actor || null;
         c.command('gcode:start');
         return { message: 'Démarrage demandé.' };

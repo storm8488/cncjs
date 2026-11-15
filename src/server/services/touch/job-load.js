@@ -160,13 +160,16 @@ export const createLoader = (deps) => {
     const mode = resumeMode(c);
     const { text: gcode, fingerprint } = await readProgram(body.file);
     const plan = buildResume(gcode, Number(body.line), { name: body.file.replace(/--touch-\d{14}-[a-f0-9]{16}(?=\.[^.]+$)/, ''), mode });
+    const r = record(c);
     const summary = { ...plan };
     delete summary.program;
     summary.preview = { version: 1, fingerprint, fromLine: plan.from, preamble: plan.preamble.slice(), kind: plan.mode };
+    // D1: the travel check of the program the resume would send, preamble included; its start
+    // goes through the same refusal as any start.
+    summary.programCheck = checkProgram(analyzeProgram(plan.program), machineForCheck(c, r));
     // The plan the operator saw: "Charger la reprise" of the same file and line
     // must rebuild it from the same program (E9). One plan per tracking
     // connection: another screen's "Vérifier" does not replace it (phase 7).
-    const r = record(c);
     const checked = r.resumeChecked || (r.resumeChecked = new Map());
     const key = typeof body.transportId === 'string' ? body.transportId : '';
     checked.delete(key);

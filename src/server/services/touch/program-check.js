@@ -456,6 +456,34 @@ const laserCheck = (analysis, laser) => {
   };
 };
 
+// How far past the usable bound, in mm, rounded up to the tenth: raising the stock (or moving the
+// origin) by that much is enough.
+const overOf = (distance) => Math.ceil(distance * 10 - ROUNDING_MM) / 10;
+
+// D1: the overruns of an axis judged outside, one per side, in the operator's terms. `limit` is
+// the usable bound; Z says too low or too high, X and Y the side (+ or −) past the travel.
+const overruns = (axis, entry) => {
+  const out = [];
+  const { usable, machineMin: min, machineMax: max } = entry;
+  if (min < usable.low - ROUNDING_MM) {
+    const over = fmt(overOf(usable.low - min));
+    const limit = fmt(usable.low);
+    const beyond = 'Le programme dépasse la course de ' + over + ' mm en ' + axis + '− (' + axis + ' machine ' + fmt(min) + ', limite ' + limit + ').';
+    out.push(axis === 'Z'
+      ? reason('ETOUCH_TRAVEL_TOO_LOW', { over, min: fmt(min), limit }, 'Le programme descend ' + over + ' mm trop bas (Z machine ' + fmt(min) + ', limite ' + limit + ').')
+      : reason('ETOUCH_TRAVEL_BEYOND', { axis, sign: '−', over, value: fmt(min), limit }, beyond));
+  }
+  if (max > usable.high + ROUNDING_MM) {
+    const over = fmt(overOf(max - usable.high));
+    const limit = fmt(usable.high);
+    const beyond = 'Le programme dépasse la course de ' + over + ' mm en ' + axis + '+ (' + axis + ' machine ' + fmt(max) + ', limite ' + limit + ').';
+    out.push(axis === 'Z'
+      ? reason('ETOUCH_TRAVEL_TOO_HIGH', { over, max: fmt(max), limit }, 'Le programme monte ' + over + ' mm trop haut (Z machine ' + fmt(max) + ', limite ' + limit + ').')
+      : reason('ETOUCH_TRAVEL_BEYOND', { axis, sign: '+', over, value: fmt(max), limit }, beyond));
+  }
+  return out;
+};
+
 // Compares an analysis with the machine:
 //   machine = { settings: {$20,$22,$23,$130,$131,$132}, mpos: {x,y,z}, wpos: {x,y,z},
 //               modal: {units, distance, wcs} (fresh $G only, else null),
@@ -548,6 +576,8 @@ export const checkProgram = (analysis, machine = {}) => {
   } else if (softLimits === 0) {
     info.push('Limites logicielles Grbl inactives ($20=0) : aucune protection de la carte.');
   }
+  // D1: every proven overrun, in the operator's terms (job-service.js refuses the start on them).
+  const blocking = [];
 
   AXES.forEach((axis, i) => {
     const reasons = global.slice();
@@ -624,6 +654,7 @@ export const checkProgram = (analysis, machine = {}) => {
     const listed = outside.concat(reasons);
     if (outside.length) {
       entry.verdict = 'outside';
+      blocking.push(...overruns(axis, entry));
     } else if (!reasons.length) {
       entry.verdict = 'validated';
     }
@@ -669,7 +700,11 @@ export const checkProgram = (analysis, machine = {}) => {
     uninterpreted: analysis.uninterpreted,
     moves: analysis.moves,
     lines: analysis.lines,
-    scope: 'Course machine X/Y/Z et profondeur Z du programme, dans le repère de travail : ni brides, ni outil, ni matière.'
+    scope: 'Course machine X/Y/Z et profondeur Z du programme, dans le repère de travail : ni brides, ni outil, ni matière.',
+    // D1: the proven overruns ({ code, params, message }), empty when there is none; whether the
+    // start may still be confirmed deliberately (the board's soft limits on, $20=1).
+    blocking,
+    overridable: softLimits === 1
   };
   if (machine.laser) {
     out.laser = laserCheck(analysis, machine.laser);
