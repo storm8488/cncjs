@@ -9,14 +9,15 @@ const assert = require('assert').strict, fs = require('fs'), vm = require('vm');
 const { createDOM } = require('./dom-fixture.cjs');
 const profile = { name: 'Bloc atelier', corner: '--', directionX: 1, directionY: 1, thickness: 5, faceX: -9.9, faceY: -9.9, fast: 100, slow: 25, search: 10, retract: 2, clearance: 5 };
 function screen(options = {}) {
-  const dom = createDOM([]), listeners = {}, events = [], calls = [];
+  const dom = createDOM([]), listeners = {}, events = [], calls = [], numeric=[];
+  const measured=dom.element('input');measured.setAttribute('data-probe-field','thickness');
   dom.node('probe-confirm').parentElement = dom.document.body;
   const notes = [dom.element('p'), dom.element('p')], ops = ['Z', 'X', 'Y', 'XYZ'].map((a) => { const b = dom.element('button'); b.setAttribute('data-probe-operation', a); return b; });
   const picked = {}; dom.document.querySelector = (sel) => picked[sel] || (picked[sel] = dom.element('div'));
-  dom.document.querySelectorAll = (sel) => (sel === '[data-probe-operation]' ? ops : sel === '#screen-probe-transfer .probe-note' ? notes : []);
+  dom.document.querySelectorAll = (sel) => (sel === '[data-probe-field]' ? [measured] : sel === '[data-probe-operation]' ? ops : sel === '#screen-probe-transfer .probe-note' ? notes : []);
   const stored = new Map([['cnc-touch-probes-v1-real', JSON.stringify({ version: 1, profiles: [profile], selected: 0, diameter: options.diameter === undefined ? 6 : options.diameter, removed: null })]]);
   let answer = { opened: true, error: null };
-  const window = { CNCProbeTransfer: require('./touch/probe-transfer.js'), CNCProbeProfiles: require('./touch/probe-profiles.js'), CNCProfileStorage: require('./touch/profile-storage.js'),
+  const window = { CNCNumeric:{bind:(field,rules)=>numeric.push({field,rules})},CNCProbeTransfer: require('./touch/probe-transfer.js'), CNCProbeProfiles: require('./touch/probe-profiles.js'), CNCProfileStorage: require('./touch/profile-storage.js'),
     cncJobControls: { prepareCommand(op, extra) { calls.push([op, JSON.parse(JSON.stringify(extra))]); return Promise.resolve(answer); } },
     addEventListener(n, f) { (listeners[n] || (listeners[n] = [])).push(f); }, dispatchEvent(e) { events.push(e); (listeners[e.type] || []).slice().forEach((f) => f(e)); } };
   // As in index.html: the catalogs and cncI18n, then the model and probe-real.js, then probe-ui.js.
@@ -27,13 +28,15 @@ function screen(options = {}) {
   const $ = dom.node, flush = () => new Promise(setImmediate);
   const status = (machine, extra = {}) => window.dispatchEvent({ type: 'cnc-job-status', detail: Object.assign({ machine, simulation: false, busy: false, transportConnected: true, pilot: { state: 'mine', value: 'Cet appareil' } }, extra) });
   const show = (name) => window.dispatchEvent({ type: 'cnc-screen-change', detail: name });
-  return { dom, $, picked, ops, calls, events, status, show, flush, window, answer: (a) => { answer = a; } };
+  return { dom, $, picked, ops, calls, events, status, show, flush, window, numeric, answer: (a) => { answer = a; } };
 }
 const machine = (patch) => Object.assign({ port: '/dev/ttyUSB0', fresh: true, activeState: 'Idle', workflow: 'idle', operator: { wcs: 'G54', reportUnits: 'mm' }, canStop: false, canZeroZ: true, zeroZReason: '',
   canBlockProbe: true, blockProbeReason: '', blockProbe: null, probing: false }, patch || {});
 (async () => {
   const s = screen(), $ = s.$;
   s.show('probe');
+  assert(s.numeric.find(n=>n.field.getAttribute('data-probe-field')==='thickness').rules.optional,'profile measurement can be emptied');
+  assert(s.numeric.find(n=>n.field===$('probe-diameter')).rules.optional,'diameter can be emptied');
   // Real header, real launch visible (labelled after the operation), the bench preparation hidden.
   assert.equal(s.picked['#screen-probe .ks-panel-intro h2'].textContent, 'Sonde : palpage, profils et diagnostic');
   assert.equal(s.picked['#screen-probe .ks-panel-intro p'].textContent, 'Palpage réel au bloc · exécuté par la machine');

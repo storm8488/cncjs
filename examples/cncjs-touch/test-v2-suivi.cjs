@@ -121,7 +121,7 @@ async function cases(entries) {
     }],
     ['Pause, Arrêter and override relays are the existing ones, also from the sheet', async () => {
       const s = await suivi(); s.send(); s.layout(true); s.p.frame();
-      const clicks = []; s.node('job-pause').addEventListener('click', () => clicks.push('pause')); s.node('job-stop').addEventListener('click', () => clicks.push('stop'));
+      const clicks = [];s.p.window.cncJobControls.pause=()=>clicks.push('pause');s.p.window.cncJobControls.stop=()=>clicks.push('stop');
       s.running(); s.node('home-job-pause').click(); s.node('home-job-stop').click(); assert.deepEqual(clicks, ['pause', 'stop']);
       s.node('home-v2-more-overrides').click(); assert.deepEqual(s.opened, ['perf-v2-overrides-sheet']);
       s.node('home-v2-time-detail').click(); assert.deepEqual(s.opened, ['perf-v2-overrides-sheet', 'perf-v2-time-sheet']);

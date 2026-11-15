@@ -10,8 +10,7 @@ function fixture(simulation){
  const listeners={},clicks={};
  node('job-pause').addEventListener('click',()=>{clicks.pause=(clicks.pause||0)+1;});
  node('job-stop').addEventListener('click',()=>{clicks.stop=(clicks.stop||0)+1;});
- const window={cncI18n:{t:s=>s,html:s=>s,locale:'fr-FR'},addEventListener(n,f){listeners[n]=f;},removeEventListener(n){delete listeners[n];}};
- const realCreate=document.createElement;
+ const window={cncJobControls:{pause:()=>{clicks.pause=(clicks.pause||0)+1;},stop:()=>{clicks.stop=(clicks.stop||0)+1;}},cncI18n:{t:s=>s,html:s=>s,locale:'fr-FR'},addEventListener(n,f){listeners[n]=f;},removeEventListener(n){delete listeners[n];}};
  document.createElement=tag=>{const e=element(tag);Object.defineProperty(e,'innerHTML',{set(){e._path={attributes:{},setAttribute(k,v){this.attributes[k]=v;}};},get(){return '';}});e.querySelector=()=>e._path;return e;};
  const clock={now:1e12};
  vm.runInNewContext(fs.readFileSync(__dirname+'/touch/status-strip.js','utf8'),{document,window,Date:{now:()=>clock.now}});
@@ -31,7 +30,7 @@ assert.equal(f.byId('t-spindle').textContent,'0 tr/min');assert.equal(f.byId('t-
 let writes=f.stats.writes;f.send({machine:m(),transportConnected:true});assert.equal(f.stats.writes,writes,'no unchanged writes');
 // A value held in a single text node is written into that node (replacing the node restyles it).
 {const feedNode=f.byId('t-feed'),textNode={nodeType:3,data:'—',nextSibling:null};Object.defineProperty(feedNode,'firstChild',{get:()=>textNode,configurable:true});
- const before=f.stats.writes;f.send({machine:m({feedrate:1234}),transportConnected:true});
+ f.send({machine:m({feedrate:1234}),transportConnected:true});
  assert.match(textNode.data,/1.234 mm\/min/);assert.equal(f.byId('t-feed').textContent,'0 mm/min','the node was not replaced');
  delete feedNode.firstChild;f.send({machine:m(),transportConnected:true});writes=f.stats.writes;}
 f.send({machine:m({activeState:'Run',workflow:'running',feedrate:1800,spindleSpeed:12000,name:'a.nc',originalName:'Support moteur.nc',canPause:true,canStop:true}),transportConnected:true});
@@ -40,6 +39,13 @@ assert.match(f.byId('t-spindle').textContent,/12.000 tr\/min/);assert.match(f.by
 assert.equal(f.byId('t-file').textContent,'Support moteur.nc');
 assert(!f.byId('t-pause').hidden&&!f.byId('t-stop').hidden&&!f.byId('t-pause').disabled&&!f.byId('t-stop').disabled);
 f.byId('t-pause').click();f.byId('t-stop').click();assert.equal(f.clicks.pause,1);assert.equal(f.clicks.stop,1);
+// Direct calls still obey disabled guards and work with inert source buttons.
+{
+ const under=fixture(false);under.send({machine:m({activeState:'Run',workflow:'running',canPause:true,canStop:true}),transportConnected:true});
+ under.node('job-pause').inert=true;under.node('job-stop').inert=true;
+ under.node('job-pause').click=under.node('job-stop').click=()=>{throw Error('inert source clicked');};
+ under.byId('t-pause').click();under.byId('t-stop').click();assert.deepEqual(under.clicks,{pause:1,stop:1},'direct actions under a dialog');
+}
 // A disabled job button is never relayed.
 f.node('job-stop').disabled=true;f.byId('t-stop').click();assert.equal(f.clicks.stop,1);f.node('job-stop').disabled=false;
 f.send({machine:m({activeState:'Hold:0',workflow:'paused',canPause:false,canStop:true,canResume:true}),transportConnected:true});

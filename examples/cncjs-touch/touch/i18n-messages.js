@@ -1228,3 +1228,5 @@ window.CNCTouchMessages.push(
 ["Rechargement indisponible : attendez le retour au repos.","Reload unavailable: wait until the machine is back at rest.","Recarga no disponible: espere a que la máquina vuelva al reposo."],
 ["Fermez la confirmation ouverte avant de recharger.","Close the open confirmation before reloading.","Cierre la confirmación abierta antes de recargar."]
 );
+
+window.CNCTouchMessages.push([' · Sélection différente : ',' · Different selection: ',' · Selección diferente: ']);

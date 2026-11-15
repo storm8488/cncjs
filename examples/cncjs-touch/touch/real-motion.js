@@ -255,7 +255,7 @@
       if(s.stopped)post({operation:'jog-stop',port:s.port}).catch(noop);
       // Sent: the machine runs it; its end is read on the positions, never announced here.
       s.answered=true;s.until=now()+60000*s.step/s.feed+STEP_MARGIN_MS;
-      if(!s.stopped)tell(s.label+t('envoyé à la machine.'),'confirmed');
+      if(!s.stopped&&!s.refused)tell(s.label+t('envoyé à la machine.'),'confirmed');
     },function(e){
       if(stepping!==s)return;
       tell(s.label+refusal(e),e&&e.uncertain?'uncertain':'failed');
@@ -477,7 +477,7 @@
     if(hold&&caps()&&!on('jogContinuous'))stopHold(t('fonction désactivée'));
     // A jog the server ended by itself (bound, alarm, keepalive): said once, in its own words.
     var lj=motion()&&motion().lastJog;
-    if(lj&&lj.at!==lastJogAt){if(!first&&lj.reason&&lj.reason!=='operator'&&lj.message)tell(t('Déplacement arrêté : ')+msg(lj.message)+'.','failed');lastJogAt=lj.at;}
+    if(lj&&lj.at!==lastJogAt){if(stepping&&lj.result==='refused')stepping.refused=true;if(!first&&lj.reason&&lj.reason!=='operator'&&lj.message)tell(t('Déplacement arrêté : ')+msg(lj.message)+'.','failed');lastJogAt=lj.at;}
     first=false;
     followStep();confirmStop();render();
   });

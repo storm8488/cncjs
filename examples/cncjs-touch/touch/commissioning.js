@@ -160,7 +160,7 @@
   function laser(){return !!(window.cncProfile&&window.cncProfile.kind()==='laser');}
   function titleOf(id){return id==='spindle'&&laser()?t('Laser : sécurité et mise au point'):TITLES[id];}
   function shown(text){return window.cncI18n&&window.cncI18n.message?window.cncI18n.message(text):t(text);}
-  function command(fn){var c=jc();if(!c)return;try{var p=fn(c);if(p&&typeof p.then==='function')p.then(function(r){if(r&&r.message)set(status,shown(r.message));},function(e){set(status,shown(e.message));});}catch(e){set(status,shown(e.message));}}
+  function command(fn){var c=jc();if(!c)return;try{var p=fn(c);if(p&&typeof p.then==='function')p.then(function(r){if(r&&r.opened===false&&r.error)set(status,shown(r.error.message));else if(r&&r.message)set(status,shown(r.message));},function(e){set(status,shown(e.message));});}catch(e){set(status,shown(e.message));}}
   function record(r){var e=entry(port);if(!e)return;e.results=e.results||{};e.results[STEPS[index]]=r;save();}
   function finish(how){
     if(!port){shell.go('menu');return;}
@@ -184,7 +184,7 @@
   function lamp(label){var box=el('div','ks-wiz-lamp'),name=el('b','',label),state=el('span','','—');box.appendChild(name);box.appendChild(state);return {box:box,state:state};}
   function setLamp(l,text,cls){set(l.state,text);if(l.box.className!=='ks-wiz-lamp '+cls)l.box.className='ks-wiz-lamp '+cls;}
   var unlockButton=null;
-  function unlockControl(){return button(t('Déverrouiller ($X)…'),'ks-secondary',function(){command(function(c){c.prepareCommand('unlock');});});}
+  function unlockControl(){return button(t('Déverrouiller ($X)…'),'ks-secondary',function(){command(function(c){return c.prepareCommand('unlock');});});}
 
   // Laser profile, instead of the spindle test: safety and focus as a checklist; nothing is sent.
   function laserView(box){
@@ -280,7 +280,7 @@
       box.appendChild(para(t('La machine va se déplacer seule vers ses fins de course (Z d’abord), puis s’en dégager.')));
       box.appendChild(para(t('Gardez la main sur l’arrêt d’urgence. Appuyez si un axe part dans le mauvais sens ou ne s’arrête pas au contact.'),'ks-wiz-alert'));
       box.appendChild(checkbox('hand',t('Main sur l’arrêt d’urgence, zone dégagée.')));
-      var start=button(t('Lancer la prise d’origine ($H)…'),'ks-wiz-next',function(){command(function(c){c.prepareCommand('home');});});box.appendChild(start);
+      var start=button(t('Lancer la prise d’origine ($H)…'),'ks-wiz-next',function(){command(function(c){return c.prepareCommand('home');});});box.appendChild(start);
       var state=para('','ks-wiz-strong'),why=para('','ks-help');box.appendChild(state);box.appendChild(why);
       unlockButton=unlockControl();box.appendChild(unlockButton);
       return function(m){
@@ -295,7 +295,7 @@
       box.appendChild(checkbox('empty',t('Aucune fraise dans la pince ; écrou de pince bien serré ou retiré.')));
       box.appendChild(checkbox('clear',t('Variateur sous tension, câbles et mains loin de la broche.')));
       var row=el('div','ks-wiz-row');
-      var start=button('','ks-wiz-next',function(){st.spindleAsked=true;command(function(c){c.prepareCommand('spindle');});});
+      var start=button('','ks-wiz-next',function(){st.spindleAsked=true;command(function(c){return c.prepareCommand('spindle');});});
       var stop=button(t('Arrêter la broche (M5)'),'ks-secondary ks-wiz-danger',function(){command(function(c){return c.spindleStop();});});
       row.appendChild(start);row.appendChild(stop);box.appendChild(row);
       var live=para('','ks-wiz-strong'),note=para(t('Grbl affiche la vitesse demandée, pas une mesure : comparez avec la fréquence du variateur (24 000 tr/min = 400 Hz, soit 1 Hz pour 60 tr/min).'),'ks-help');

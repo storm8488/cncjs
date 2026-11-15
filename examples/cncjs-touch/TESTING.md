@@ -1,5 +1,18 @@
 # Validation scope
 
+## P3 independent page fixes (2026-11-15)
+
+- A2-10 is converted into test-dashboard-pause-guard.cjs: refused resume reason in FR/EN/ES, warning tone, unchanged cooldown, direct Pause/Stop with inert source buttons.
+- A2-9 is converted into test-job-resume.cjs: stopped file as default, different selection named, CNC/laser plans prefixed with the target name; late plans cannot bypass an edited line or the current loading refusal.
+- A2-8 is converted into test-commissioning.cjs: refused home, unlock and spindle preparations are shown on the assistant step. Busy preparation feedback is checked by test-control-attribution.cjs and test-feedback-states.cjs.
+- V2-1 is converted into test-dashboard.cjs: progress at most 99 while running; run timer reset on entry into running, including a PC restart of the same revision; foreign preview fingerprint rejected. The existing paused-time rhythm estimate remains covered.
+- A2-5 part (c) moves into test-control-attribution.cjs; parts (a)/(b) remain for L1/L2. Only a displayed ECONTROL refusal clears when the pilot state changes. A refused takeover keeps the server message.
+- test-status-strip.cjs, test-v2-mounts.cjs and test-v2-suivi.cjs count direct actions instead of hidden-button clicks. Integration checks retain confirmation cancellation, disabled guards and the last busy target on state loss.
+- test-real-motion.cjs covers Grbl refusal after HTTP acceptance and the inverse response order. test-probe-real.cjs verifies structured HTTP outcomes in three languages, preserving the error code.
+- test-numeric-pad.cjs and test-probe-real-ui.cjs cover clearing optional probe values without admitting out-of-range zero. test-macros.cjs covers hiding an empty entry and showing it again with macros.
+
+All tests extend existing registered files; no new page test name is needed. Browser and hardware validation remain separate.
+
 ## P2 kiosk page (2026-11-15)
 
 - `test-backlight.cjs`: load-time locality discovery outside Settings, local reload wake, no remote automatic writes, permanent remote refusal, awake touch wake after more than five seconds, serialized requests, pending dim/wake and disposal. Existing slider, retry and gesture checks remain. A3-1 scenarios 1/2 are converted to these page tests; the real server startup/wake behavior is covered by the S5 Jest tests. The rejected blind-touch shield assertion is the documented D3 limit, not a removed page guard.

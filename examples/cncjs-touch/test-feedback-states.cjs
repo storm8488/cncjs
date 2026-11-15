@@ -77,10 +77,10 @@ function expect(cond,label){if(!cond)findings.push(label);console.log((cond?'ok 
  expect(f.calls.at(-1).action==='stop','Stop sent while a prepare is pending');
  f.answer().resolve({message:'Arrêt demandé.'});await f.flush();prep.reject(new Error('Refusé.'));await f.flush();
  expect(fb.textContent==='Arrêt demandé.'&&state()==='confirmed','the older prepare refusal does not overwrite the newer Stop answer');
- // 6. Second tap on Start during busy: no call, no text change.
- f.node('job-start').click();await f.flush();const n=f.calls.length,text=fb.textContent;
+ // 6. Busy preparation sends nothing else and now explains the refusal (P3).
+ f.node('job-start').click();await f.flush();const n=f.calls.length;
  f.node('job-start').click();f.node('job-start').handlers.click.call(f.node('job-start'),{});await f.flush();
- expect(f.calls.length===n&&fb.textContent===text,'second tap on Start while busy: no call, no text');
+ expect(f.calls.length===n&&fb.textContent==='Opération en cours…','second tap on Start while busy: no call, explicit refusal');
  f.answer().reject(new Error('Refusé.'));await f.flush();
  if(findings.length){console.error('\nxv-ui-feedback: '+findings.length+' finding(s):\n- '+findings.join('\n- '));process.exit(1);}
  console.log('PASS feedback states: the dot follows the text after a cancelled or expired confirmation, immediate refusal, lost answer without replay, Stop during a pending prepare, second tap ignored.');

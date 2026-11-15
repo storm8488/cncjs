@@ -58,11 +58,12 @@
   }
   function planText(plan){
     var pv=plan&&plan.preview&&typeof plan.preview==='object'?plan.preview:null;
+    var file=plan&&plan.file?t('Fichier : ')+plan.file+' · ':'';
     if(laserPlan(plan)){
       var lines=[t('Ligne ')+plan.from+' / '+plan.total+' : '+plan.line+'.',t('Début de passe : laser éteint (M5), G0 en XY jusqu’au départ (Z rétabli seulement si le programme garde un Z constant), puis M3/M4 et consigne S du programme.')];
       if(pv&&Array.isArray(pv.preamble)&&pv.preamble.length)lines.push(t('Lignes envoyées avant la reprise : ')+pv.preamble.filter(function(l){return typeof l==='string';}).join(' · ')+'.');
       if(Array.isArray(plan.notes))plan.notes.forEach(function(n){if(typeof n==='string'&&n)lines.push(message(n));});
-      return lines.join(' ');
+      return file+lines.join(' ');
     }
     var parts=[t('Ligne ')+plan.from+' / '+plan.total+' : '+plan.line+'.'];
     parts.push(t('Départ : Z ')+plan.safeZ+t(', puis X ')+plan.position.X+' Y '+plan.position.Y+t(', plongée à Z ')+plan.position.Z+'.');
@@ -70,7 +71,7 @@
     if(plan.coolant)parts.push(t('Arrosage ')+plan.coolant+'.');
     if(plan.tool!==null&&plan.tool!==undefined)parts.push(t('Outil attendu : T')+plan.tool+t(' (vérifiez qu’il est en place et que le zéro Z lui correspond).'));
     if(Array.isArray(plan.notes))plan.notes.forEach(function(n){if(typeof n==='string'&&n)parts.push(message(n));});
-    return parts.join(' ');
+    return file+parts.join(' ');
   }
   var api={pauseText:pauseText,dialogNote:dialogNote,laserOf:laserOf,capabilityOf:capabilityOf,suggestedLine:suggestedLine,planText:planText,plateNote:plateNote,lastZeroText:lastZeroText,PLANNER_MARGIN:PLANNER_MARGIN,
     setPendingPlate:function(p){pendingPlate=p;}};
@@ -109,9 +110,9 @@
   [plateTitle,thickLabel,fieldRow(thick,THICK_RULES),searchLabel,fieldRow(search,SEARCH_RULES),probe,plateHelp,plateLast,plateStatus].forEach(function(n){plate.appendChild(n);});
   if(window.CNCNumeric&&typeof window.CNCNumeric.bind==='function'){window.CNCNumeric.bind(thick,THICK_RULES);window.CNCNumeric.bind(search,SEARCH_RULES);window.CNCNumeric.bind(input,LINE_RULES);}
   var PLATE_KEY='cncjs-touch-plate-v1';
-  function loadPlate(){try{var v=JSON.parse(localStorage.getItem(PLATE_KEY)||'null');if(v&&typeof v==='object'){thick.value=v.thickness>0?String(v.thickness):'';search.value=v.search>0?String(v.search):'10';return;}}catch(_){}
+  function loadPlate(){try{var v=JSON.parse(localStorage.getItem(PLATE_KEY)||'null');if(v&&typeof v==='object'){thick.value=v.thickness>0?String(v.thickness):'';search.value=v.search>0?String(v.search):'10';return;}}catch(_){/* Storage is optional. */}
     thick.value='';search.value='10';}
-  function savePlate(p){try{localStorage.setItem(PLATE_KEY,JSON.stringify(p));}catch(_){}}
+  function savePlate(p){try{localStorage.setItem(PLATE_KEY,JSON.stringify(p));}catch(_){/* Storage is optional. */}}
   // Shared parser (numeric-pad.js): {state, value, message}; only 'ok' carries a value.
   function parsed(v,rules){
     if(window.CNCNumeric&&typeof window.CNCNumeric.parse==='function')return window.CNCNumeric.parse(v,rules);
@@ -134,14 +135,18 @@
   frameStart.addEventListener('click',function(){var c=controls();if(frameStart.disabled||!c||typeof c.prepareFrame!=='function')return;c.prepareFrame();});
   loadPlate();
   after(ready,pause);after(pause,open);after(open,panel);after(panel,plate);after(plate,frame);
-  var machine=null,selection=window.cncLibrarySelection||null,checked=null,sequence=0,plateMessage='';
+  var machine=null,selection=window.cncLibrarySelection||null,checked=null,sequence=0,plateMessage='',resumeFile='';
   function controls(){return window.cncJobControls;}
   function set(node,key,value){if(node[key]!==value)node[key]=value;}
-  function canResumeFromLine(){return !!(machine&&selection&&machine.fresh&&machine.workflow==='idle'&&machine.canLoad);}
+  function targetFile(){return machine&&typeof machine.stoppedFile==='string'&&machine.stoppedFile?machine.stoppedFile:selection&&selection.file||'';}
+  function canResumeFromLine(){return !!(machine&&targetFile()&&machine.fresh&&machine.workflow==='idle'&&machine.canLoad);}
   // A laser resumes only at a pass boundary the server identifies: unsupported, the button stays
   // shown but disabled with the server's reason (never a decorative button).
   function laserResume(){return laserOf(machine)?capabilityOf(machine,'laserResume'):null;}
-  function close(){panel.hidden=true;checked=null;sequence++;set(load,'disabled',true);set(plan,'textContent','');if(window.cncResumePreview)window.cncResumePreview.hide(panel);}
+  function close(){panel.hidden=true;checked=null;resumeFile='';sequence++;set(load,'disabled',true);set(plan,'textContent','');if(window.cncResumePreview)window.cncResumePreview.hide(panel);}
+  function resumeHint(){var s=suggestedLine(machine,resumeFile);return t('Fichier : ')+resumeFile+(selection&&selection.file!==resumeFile?t(' · Sélection différente : ')+selection.file:'')+' · '+(typeof machine.stoppedAtLine==='number'&&machine.stoppedFile===resumeFile?
+      t('Dernier arrêt après la ligne ')+machine.stoppedAtLine+t(' (acquittée). Jusqu’à 15 mouvements acquittés peuvent ne pas avoir été exécutés : ligne proposée ')+s+'.':
+      t('Numéro de ligne tel qu’affiché pendant le travail (lignes non vides).')+(laserOf(machine)?' '+t('Laser : le serveur reprend au début de passe qu’il identifie (laser éteint par M5, S0 ou un G0 après une découpe).'):''));}
   function render(){
     var p=machine&&machine.programPause;
     var laser=laserOf(machine),lr=laserResume();
@@ -167,8 +172,9 @@
     set(open,'disabled',!!lr&&!lr.supported);set(open,'title',lr&&!lr.supported?(lr.reason||t('Reprise laser indisponible.')):'');
     // A job that starts closes the panel; a passing refusal (an M5 or a $G on
     // its way) only disables the load and keeps the check.
-    if(!panel.hidden&&(!machine||!selection||machine.workflow!=='idle'))close();
+    if(!panel.hidden&&(!machine||resumeFile!==targetFile()||machine.workflow!=='idle'))close();
     else set(load,'disabled',!checked||!can);
+    if(!panel.hidden)set(hint,'textContent',resumeHint());
     // Presentation only (performance-v2.css): an open plate or resume form gets its room in the v2 messages slot.
     var left=document.getElementById('home-left'),board=left&&left.parentNode,form=!plate.hidden||!panel.hidden?'1':'0';
     if(board&&typeof board.setAttribute==='function'&&board.getAttribute('data-v2-form')!==form)board.setAttribute('data-v2-form',form);
@@ -176,20 +182,18 @@
   function line(){var p=parsed(input.value,LINE_RULES);return p.state==='ok'?p.value:null;}
   open.addEventListener('click',function(){
     if(!canResumeFromLine()||open.disabled)return;
-    var s=suggestedLine(machine,selection.file);input.value=s===null?'':String(s);
-    set(hint,'textContent',typeof machine.stoppedAtLine==='number'&&machine.stoppedFile===selection.file?
-      t('Dernier arrêt après la ligne ')+machine.stoppedAtLine+t(' (acquittée). Jusqu’à 15 mouvements acquittés peuvent ne pas avoir été exécutés : ligne proposée ')+s+'.':
-      t('Numéro de ligne tel qu’affiché pendant le travail (lignes non vides).')+(laserOf(machine)?' '+t('Laser : le serveur reprend au début de passe qu’il identifie (laser éteint par M5, S0 ou un G0 après une découpe).'):''));
+    resumeFile=targetFile();var s=suggestedLine(machine,resumeFile);input.value=s===null?'':String(s);
+
     panel.hidden=false;render();
   });
   cancel.addEventListener('click',function(){close();render();});
-  input.addEventListener('input',function(){checked=null;set(load,'disabled',true);set(plan,'textContent','');});
+  input.addEventListener('input',function(){sequence++;checked=null;set(load,'disabled',true);set(plan,'textContent','');});
   check.addEventListener('click',function(){
-    var n=line(),c=controls(),own=++sequence;
+    var n=line(),c=controls(),own=++sequence,file=resumeFile;checked=null;set(load,'disabled',true);
     if(n===null){var why=parsed(input.value,LINE_RULES);set(plan,'textContent',t('Indiquez une ligne (2 ou plus).')+(why.message?' '+why.message:''));return;}
     if(!c||typeof c.resumePlan!=='function')return;
     set(plan,'textContent',t('Vérification…'));
-    c.resumePlan(selection.file,n).then(function(data){if(own!==sequence)return;checked={file:selection.file,line:n};set(plan,'textContent',planText(data));set(load,'disabled',false);
+    c.resumePlan(file,n).then(function(data){if(own!==sequence||file!==resumeFile)return;checked={file:file,line:n};set(plan,'textContent',planText(Object.assign({},data,{file:file})));set(load,'disabled',!canResumeFromLine());
       // The server's exact preamble and the file from the resume line, drawn by lot C (never recomputed here).
       if(window.cncResumePreview)window.cncResumePreview.show(panel,data&&data.preview);},
       function(e){if(own!==sequence)return;checked=null;set(load,'disabled',true);set(plan,'textContent',e.message);});
@@ -221,6 +225,6 @@
     }
     if(typeof window.requestAnimationFrame==='function')window.requestAnimationFrame(show);else show();
   });
-  window.addEventListener('cnc-library-select',function(e){selection=e&&e.detail||null;if(checked&&(!selection||checked.file!==selection.file))close();render();});
+  window.addEventListener('cnc-library-select',function(e){selection=e&&e.detail||null;if(!panel.hidden&&resumeFile!==targetFile())close();render();});
   render();
 })(typeof window==='object'?window:this);

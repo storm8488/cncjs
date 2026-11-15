@@ -19,6 +19,7 @@
     var ready=!!(machine&&machine.fresh&&machine.canMacro);
     var key=JSON.stringify([macros,ready,machine&&machine.macroReason]);
     var disabled=!machine||!macros.length;
+    if(button.hidden!==!macros.length)button.hidden=!macros.length;
     if(button.disabled!==disabled)button.disabled=disabled;
     if(key===signature)return;signature=key;
     var keep=Object.create(null);

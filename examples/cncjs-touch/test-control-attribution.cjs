@@ -70,9 +70,12 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
   assert.match(f.el('job-feedback').textContent, /touchez Pilote dans le bandeau et prenez le pilotage avec un motif/);
   assert.equal(f.el('job-feedback').getAttribute('data-state'), 'failed');
   assert(!f.posts().some((r) => r.body.action === 'control'), 'a refusal never takes over by itself');
+  f.push([f.machine({control:{owner:other,lastChange:null}})]);assert.match(f.el('job-feedback').textContent,/pilotage attribué/,'same state keeps refusal');
+  f.push([f.machine({control:{owner:null,lastChange:null}})]);assert.equal(f.el('job-feedback').textContent,'','C-30c: stale refusal cleared');assert.equal(f.el('job-feedback').getAttribute('data-state'),'');
   // Any other 409 keeps the server message as it is.
   f.el('job-load').click(); f.answer(f.posts().at(-1), { message: 'Machine occupée.' }, 409); await f.flush();
   assert.equal(f.el('job-feedback').textContent, 'Machine occupée.');
+  f.push([f.machine({control:{owner:other,lastChange:null}})]);assert.equal(f.el('job-feedback').textContent,'Machine occupée.','other failures survive a pilot change');
 
   // 6. Takeover dialog: opened by a tap (from the strip chip), focus on the reason, background inert.
   const chip = f.el('t-pilot'); chip.focus();
@@ -103,7 +106,7 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
   assert.deepEqual({ op: takeovers[0].body.operation, reason: takeovers[0].body.reason, id: takeovers[0].body.clientId }, { op: 'takeover', reason: 'Opérateur devant la machine', id });
   // A refused takeover (reason rejected by the server) stays in the dialog with its message.
   f.answer(takeovers[0], { message: 'Prise de pilotage refusée : indiquez un motif (3 caractères au moins).', code: 'ECONTROL', owner: other }, 409); await f.flush();
-  assert.equal(f.el('pilot-dialog').hidden, false); assert.match(f.el('pilot-feedback').textContent, /Refusé : pilotage attribué à « Tablette B »/);
+  assert.equal(f.el('pilot-dialog').hidden, false); assert.equal(f.el('pilot-feedback').textContent, 'Prise de pilotage refusée : indiquez un motif (3 caractères au moins).');
   f.el('pilot-takeover').click(); const accepted = f.posts().filter((r) => r.body.action === 'control').at(-1);
   f.answer(accepted, { owner: { kind: 'touch', id }, previous: other, role: 'operator' }); await f.flush();
   assert.equal(f.el('pilot-dialog').hidden, true); assert.equal(f.el('job-feedback').textContent, 'Pilotage pris par cet appareil.'); assert.equal(f.document.activeElement, chip);
@@ -150,3 +153,22 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
   assert(!/t-pilot[^{]*\{[^}]*display:none/.test(css), 'no rule hides the chip');
   console.log('PASS control attribution (F5): persistent clientId, unreadable id regenerated, two owners, ECONTROL refusal, cancelled and confirmed takeover, focus return, Pause/Stop always active, chip always shown.');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+(async()=>{
+ const f=load();await f.connect();const waiting=f.controls().prepareCommand('home');const req=f.posts().at(-1),count=f.posts().length;
+ const second=await f.controls().prepareCommand('home');assert.equal(second.opened,false);assert.equal(second.error.message,'Opération en cours…');
+ assert.equal(f.el('job-feedback').textContent,second.error.message,'C-31: busy preparation is visible');assert.equal(f.posts().length,count);
+ f.answer(req,{message:'Home refused'},409);await waiting;f.controls().dispose();
+})().catch(e=>{console.error(e);process.exitCode=1;});
+
+(async()=>{
+ const f=load();await f.connect(f.machine({workflow:'running',activeState:'Run',canPause:true,canStop:true,canLoad:false,canStart:false}));
+ f.el('main').inert=true;f.el('job-pause').inert=true;f.el('job-stop').inert=true;f.el('job-dialog').hidden=false;
+ const pausing=f.controls().pause();assert(f.el('job-dialog').hidden,'direct Pause closes a confirmation');
+ let req=f.posts().at(-1);assert.equal(req.body.action,'pause');f.answer(req,{message:'Pause'});await pausing;
+ f.push([]);assert(f.lastStatus().halt,'busy target retained when the state disappears');
+ const stopping=f.controls().stop();req=f.posts().at(-1);assert.equal(req.body.action,'stop');assert.equal(req.body.port,'COM3');
+ f.answer(req,{message:'Arrêt'});await stopping;
+ f.push([f.machine()]);const count=f.posts().length;assert.equal(f.controls().pause(),undefined);assert.equal(f.controls().stop(),undefined);
+ assert.equal(f.posts().length,count,'disabled direct actions send nothing');f.controls().dispose();
+})().catch(e=>{console.error(e);process.exitCode=1;});

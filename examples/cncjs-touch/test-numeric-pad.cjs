@@ -22,8 +22,8 @@ assert.equal(N.press('⌫','12',{}),'1');assert.equal(N.press('Effacer','12',{})
 assert.equal(N.press('9','123456789012345678',{}),'123456789012345678','18 characters at most');
 assert.equal(N.KEYS.length,14);
 // Modal pad bound to a field (DOM).
-const {document,node,element}=require('./dom-fixture.cjs').createDOM(['home']);
-const listeners={},events=[];
+const {document}=require('./dom-fixture.cjs').createDOM(['home']);
+const listeners={};
 const window={cncI18n:{t:s=>s},addEventListener:(n,f)=>listeners[n]=f};
 document.body.children=[];document.body.appendChild=function(c){this.children.push(c);c.parentNode=this;};
 // The fixture's createElement lacks querySelectorAll on lists of buttons and isConnected: add what the pad needs.
@@ -62,6 +62,11 @@ listeners.keydown||document.handlers.keydown({key:'Escape',preventDefault(){}});
 line.handlers.click();assert(!modal.hidden);listeners['cnc-screen-change']();assert(modal.hidden);
 // A disabled field never opens the pad.
 line.disabled=true;line.handlers.click();assert(modal.hidden);
+// Optional blanks are accepted; zero and malformed drafts still obey their rules.
+const optional=document.createElement('input');optional.value='8';let changes=0;optional.addEventListener('change',()=>changes++);
+Pad.bind(optional,{optional:true,min:1,max:10});optional.handlers.click();key('Effacer').click();all.find(e=>e.textContent==='Valider').click();
+assert(modal.hidden,'C-44: optional empty draft accepted');assert.equal(optional.value,'');assert.equal(changes,1);
+optional.value='0';optional.handlers.click();all.find(e=>e.textContent==='Valider').click();assert(!modal.hidden,'optional zero is range checked');all.find(e=>e.textContent==='Annuler').click();
 // Every phrase is in the FR/EN/ES catalog.
 const source=fs.readFileSync(__dirname+'/touch/numeric-pad.js','utf8');
 const phrases=[...source.matchAll(/\bt\('((?:[^'\\]|\\.)*)'\)/g)].map(m=>m[1]);

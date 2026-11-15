@@ -105,7 +105,9 @@
   var messageObserver=typeof window.MutationObserver==='function'?new window.MutationObserver(syncMessages):null;
   if(messageObserver)messageObserver.observe(messages,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['hidden']});
   syncMessages();
-  function relay(id){var source=$(id);if(source&&!source.disabled)source.click();}
+  function relay(id){var source=$(id),c=window.cncJobControls,action=id==='job-pause'?'pause':id==='job-stop'?'stop':null;
+    if(!source||source.disabled)return;
+    if(action){if(c&&typeof c[action]==='function')c[action]();}else source.click();}
   // A tap on Pause, Resume or Unlock freezes those three for 600 ms: a double tap
   // cannot reach the button that replaces the first one (Pause becoming Resume).
   // Stop is never delayed.
@@ -191,11 +193,11 @@
     attr(pause,'title',lostTitle);attr(stop,'title',lostTitle);attr(state,'title',lostTitle);
     prop(resume,'disabled',!m||!m.canResume);prop(unlock,'disabled',!m||!m.canUnlock);
     // The pilot never changes what Pause and Stop accept: the server takes them from everyone.
-    var p=!simulation&&detail.pilot&&typeof detail.pilot==='object'?detail.pilot:null,pilotState=p?p.state:'unknown';
-    text(pilotValue,p&&p.value?p.value:'—');attr(pilot,'data-state',pilotState);
+    var pilotDetail=!simulation&&detail.pilot&&typeof detail.pilot==='object'?detail.pilot:null,pilotState=pilotDetail?pilotDetail.state:'unknown';
+    text(pilotValue,pilotDetail&&pilotDetail.value?pilotDetail.value:'—');attr(pilot,'data-state',pilotState);
     // Read by the stylesheet only (lot Menu M1): another device's name takes the machine name's room.
     attr(banner,'data-pilot',pilotState);
-    var pilotTitle=p&&p.sentence?p.sentence:uiLocale.t('Pilotage : état machine indisponible.');attr(pilot,'title',pilotTitle);attr(pilot,'aria-label',uiLocale.t('Pilote : ')+pilotTitle);
+    var pilotTitle=pilotDetail&&pilotDetail.sentence?pilotDetail.sentence:uiLocale.t('Pilotage : état machine indisponible.');attr(pilot,'title',pilotTitle);attr(pilot,'aria-label',uiLocale.t('Pilote : ')+pilotTitle);
     prop(pilot,'hidden',simulation);
   }
   var disposed=false;

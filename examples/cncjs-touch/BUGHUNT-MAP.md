@@ -1,5 +1,11 @@
 # Carte de l'interface CNCjs Touch pour la chasse aux bugs
 
+## P3 page corrections (2026-11-15)
+
+The current page explains a refused resume on Suivi and resumes the stopped file by default, naming any different library selection. Suivi and the strip invoke shared Pause/Stop functions with the existing guards. Running progress stays below 100, resets its clock at each entry into running, and rejects a foreign preview estimate. Refused commissioning preparations, stale pilot refusals, delayed Grbl jog refusals and structured probe failures have durable tests. Optional probe values can be cleared; the empty macro entry is hidden; takeover refusals retain the server reason.
+
+Temporary A2-8/A2-9/A2-10/V2-1 proofs are converted and removed; A2-5 retains parts (a)/(b), with (c) moved to test-control-attribution.cjs. No machine command or server guard changes.
+
 ## Mise à jour P2 — kiosque et démarrage (2026-11-15)
 
 - C-10/C-15 : `backlight.js` lit `local` au chargement, réveille seulement le kiosque et garde définitivement le refus distant. Les touchers éveillés relancent un réveil idempotent après plus de 5 s, une requête de veille à la fois. Le voile et les gardes travail/pause/alarme du `screen-saver.js` subsistent.

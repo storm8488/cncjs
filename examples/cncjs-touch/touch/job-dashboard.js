@@ -31,10 +31,11 @@
   var coolUntil=0;
   ['load','start','pause','resume','stop'].forEach(function(action){
     $('home-job-'+action).addEventListener('click',function(){
-      var source=$('job-'+action);
+      var source=$('job-'+action),controls=window.cncJobControls;
       if(this.disabled||!source||source.disabled)return;
       if(action==='pause'||action==='resume'){var now=Date.now();if(now>=coolUntil-600&&now<coolUntil)return;coolUntil=now+600;}
-      source.click();
+      if(action==='pause'||action==='stop'){if(controls&&typeof controls[action]==='function')controls[action]();}
+      else source.click();
     });
   });
   // Realtime overrides (feed and spindle), active only while a program runs or is held.
@@ -173,9 +174,10 @@
     (list||[]).forEach(function(u){if(u.kind==='rapid')return;if(!counts[u.kind]){counts[u.kind]={n:0,line:u.line};order.push(u.kind);}counts[u.kind].n++;});
     return order.map(function(k){var c=counts[k];return (c.n>1?c.n+' × ':'')+uiLocale.t(UNKNOWN_TEXT[k]||'inconnue')+uiLocale.t(' (l. ')+c.line+(c.n>1?'…':'')+')';}).join(', ');
   }
+  function samePreview(pv,c){return !!(pv&&c&&pv.file===c.name&&!(c.fingerprint&&pv.fingerprint&&!samePrint(c.fingerprint,pv.fingerprint)));}
   function motionText(c,file,now){
     var ME=window.CNCMotionEstimate,img=$('home-job-image'),pv=img&&img.cncPreview;motionLeft=null;
-    if(!ME||!pv||pv.file!==file||img.hidden)return '';
+    if(!ME||!pv||pv.file!==file||c&&!samePreview(pv,c)||img.hidden)return '';
     var est=pv.estimate;
     if(!est)return uiLocale.t('Estimation par les mouvements : indisponible pour cet aperçu (régénérez-le dans Fichiers).');
     var rates=c&&!simulation?ME.ratesFrom(c.settings):null,running=!!(c&&(c.workflow==='running'||c.workflow==='paused')),parts=[];
@@ -279,9 +281,10 @@
       var runKey=c.port+':'+c.name+':'+c.revision+':'+c.total,pvRun=$('home-job-image')&&$('home-job-image').cncPreview,MEr=window.CNCMotionEstimate;
       if(!runTrack||runTrack.key!==runKey||c.workflow==='idle')runTrack={key:runKey,active:0,last:now};
       var runDt=(now-runTrack.last)/1000;if(runDt>0&&runDt<=3&&c.workflow==='running'&&!/^alarm/i.test(String(c.activeState||'')))runTrack.active+=runDt;runTrack.last=now;
-      var runP=MEr&&typeof MEr.executedPercent==='function'&&pvRun&&pvRun.file===c.name&&pvRun.estimate?MEr.executedPercent(pvRun.estimate,MEr.ratesFrom(c.settings),runTrack.active,p):null;
+      var runP=MEr&&typeof MEr.executedPercent==='function'&&samePreview(pvRun,c)&&pvRun.estimate?MEr.executedPercent(pvRun.estimate,MEr.ratesFrom(c.settings),runTrack.active,p):null;
       if(runP!==null)p=runP;
     }
+    if(valid&&c.workflow==='running')p=Math.min(99,p);
     var percent=valid?Math.floor(p)+' %':'—',remaining=null,eta=uiLocale.t('Temps restant : —');
     var key=c?simulation+':'+c.port+':'+c.name+':'+c.revision+':'+c.total:'',alarmNow=!!(c&&/^alarm/i.test(String(c.activeState||'')));
     if(!valid){track=null;eta=c&&c.fresh&&!c.name?uiLocale.t('Temps restant : chargez un fichier'):uiLocale.t('Temps restant : état indisponible');}
@@ -299,7 +302,7 @@
       else if(p>=100&&(simulation||c.finished===true))eta=simulation?uiLocale.t('Terminé — 0 s restantes'):uiLocale.t('Terminé — programme exécuté jusqu’au bout');
       // An alarm overrides the texts that expect motion to go on or a stop without cause (display only).
       else if(alarmNow)eta=uiLocale.t('Alarme — estimation suspendue');
-      else if(p>=100)eta=uiLocale.t('Toutes les lignes acquittées — attendre la fin des mouvements');
+      else if(c.received===c.total)eta=uiLocale.t('Toutes les lignes acquittées — attendre la fin des mouvements');
       else if(c.workflow==='idle'&&!c.canStart)eta=uiLocale.t('Travail arrêté — temps restant indisponible');
       else if(c.canStart)eta=simulation?(remaining!==null?uiLocale.t('Durée simulée : ')+duration(remaining):uiLocale.t('Temps restant : état indisponible')):uiLocale.t('Temps restant : après démarrage');
       else if(c.workflow==='paused')eta=uiLocale.t('En pause — ')+(remaining!==null?remainingText(remaining)+uiLocale.t(' restantes'):uiLocale.t('estimation suspendue'));
@@ -312,7 +315,7 @@
         // CNCjs still waits for Grbl's reply while Grbl stays idle: a lost line or acknowledgement.
         c.workflow==='running'&&finiteNumber(c.stalledMs)?uiLocale.t('Travail bloqué ? Grbl est au repos depuis ')+Math.round(c.stalledMs/1000)+uiLocale.t(' s alors que CNCjs attend encore sa réponse (ligne ou acquittement perdu). Si rien ne bouge, arrêtez le travail.'):
         c.workflow==='running'?uiLocale.t('Travail en cours.'):
-        failed&&window.CNCGrblHelp&&finiteNumber(c.jobLastError)?uiLocale.t('Dernière erreur : ')+window.CNCGrblHelp.text(window.CNCGrblHelp.error(c.jobLastError)):c.workflow==='paused'?uiLocale.t('Travail en pause.'):c.canStart?uiLocale.t('Fichier chargé, prêt à démarrer.'):!c.canLoad?((c.loadReason||c.startReason)?(window.CNCProgramCheckView?window.CNCProgramCheckView.refusal(c,c.loadReason?'load':'start'):(uiLocale.message||uiLocale.t)(c.loadReason||c.startReason)):uiLocale.t('Commande indisponible.')):
+        failed&&window.CNCGrblHelp&&finiteNumber(c.jobLastError)?uiLocale.t('Dernière erreur : ')+window.CNCGrblHelp.text(window.CNCGrblHelp.error(c.jobLastError)):c.workflow==='paused'?(!c.canResume&&c.resumeReason?(window.CNCProgramCheckView?window.CNCProgramCheckView.refusal(c,'resume'):(uiLocale.message||uiLocale.t)(c.resumeReason)):uiLocale.t('Travail en pause.')):c.canStart?uiLocale.t('Fichier chargé, prêt à démarrer.'):!c.canLoad?((c.loadReason||c.startReason)?(window.CNCProgramCheckView?window.CNCProgramCheckView.refusal(c,c.loadReason?'load':'start'):(uiLocale.message||uiLocale.t)(c.loadReason||c.startReason)):uiLocale.t('Commande indisponible.')):
         // Start refused for another reason than a reload (spindle still turning, homing...): the server's reason (UI-5).
         c.name&&(same||c.refusals&&c.refusals.start)&&c.startReason&&c.startReason!=='Rechargez le fichier avant un nouveau démarrage.'?(window.CNCProgramCheckView?window.CNCProgramCheckView.refusal(c,'start'):(uiLocale.message||uiLocale.t)(c.startReason)):
         c.name?(same?uiLocale.t('Rechargez le fichier pour un nouveau départ.'):uiLocale.t('Choisissez et chargez le fichier du prochain travail.')):
@@ -339,7 +342,9 @@
     if(visible('files'))set('job-progress-summary','textContent',percent+' · '+eta);
   }
   window.addEventListener('cnc-library-select',function(e){selection=e.detail;render();});
-  window.addEventListener('cnc-job-status',function(e){machine=e.detail.machine;halt=!machine&&e.detail.halt&&typeof e.detail.halt==='object'?e.detail.halt:null;simulation=e.detail.simulation;busy=!!e.detail.busy;feedback=e.detail.feedback||'';
+  window.addEventListener('cnc-job-status',function(e){var next=e.detail.machine;
+    if(next&&next.workflow==='running'&&(!machine||machine.workflow!=='running'||programOf(next)!==programOf(machine))){runTrack=null;}
+    machine=next;halt=!machine&&e.detail.halt&&typeof e.detail.halt==='object'?e.detail.halt:null;simulation=e.detail.simulation;busy=!!e.detail.busy;feedback=e.detail.feedback||'';
     // Sent / confirmed / failed / uncertain, mirrored from job-controls.js (ui-2027.css .t-sent).
     var fb=$('home-job-feedback'),state=e.detail.feedbackState||'';if(fb&&typeof fb.setAttribute==='function'&&(!fb.getAttribute||fb.getAttribute('data-state')!==state))fb.setAttribute('data-state',state);
     loadedStatus();

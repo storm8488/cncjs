@@ -54,7 +54,7 @@ const flush=()=>new Promise(setImmediate);
 byId('home-resume-check').click();
 (async()=>{
   await flush();
-  assert.deepEqual(calls.at(-1),['plan','a.nc',185]);assert.match(byId('home-resume-plan').textContent,/^Ligne 12 \/ 16/);assert.equal(byId('home-resume-load').disabled,false);
+  assert.deepEqual(calls.at(-1),['plan','a.nc',185]);assert.match(byId('home-resume-plan').textContent,/^Fichier : a\.nc · Ligne 12 \/ 16/);assert.equal(byId('home-resume-load').disabled,false);
   // Editing the line asks for a new check.
   byId('home-resume-input').value='190';byId('home-resume-input').handlers.input();assert.equal(byId('home-resume-load').disabled,true);
   planResult=Promise.reject(new Error('Position avant la ligne 190 inconnue'));byId('home-resume-check').click();await flush();
@@ -105,5 +105,24 @@ byId('home-resume-check').click();
   assert.equal(scrolls.length,1,'nothing when the plate card is hidden');delete window.requestAnimationFrame;
   // Both pages load the module after the dashboard that creates #home-job-ready.
   for(const name of ['index.html','simulation.html']){const html=fs.readFileSync(__dirname+'/touch/'+name,'utf8'),at=f=>html.indexOf(f+'?v=');assert(at('job-resume.js')>at('job-dashboard.js')&&at('job-dashboard.js')>0,name);}
+  // A2-9: stopped file is the default even with another library selection.
+  listeners['cnc-library-select'].forEach(f=>f({detail:{file:'b.nc',name:'b.nc'}}));
+  status(idle);byId('home-resume-line').click();assert.equal(byId('home-resume-input').value,'185');
+  assert.match(byId('home-resume-hint').textContent,/a\.nc.*b\.nc/);
+  listeners['cnc-library-select'].forEach(f=>f({detail:{file:'d.nc',name:'d.nc'}}));
+  assert.match(byId('home-resume-hint').textContent,/a\.nc.*d\.nc/,'a selection changed while open is named without changing the resume target');
+  byId('home-resume-check').click();await flush();assert.deepEqual(calls.at(-1),['plan','a.nc',185]);
+  assert.match(byId('home-resume-plan').textContent,/^Fichier : a\.nc/);
+  byId('home-resume-load').click();await flush();assert.deepEqual(calls.at(-1),['load','a.nc',185]);
+  assert.match(R.planText({...plan,file:'a.nc'}),/^Fichier : a\.nc/);
+  assert.match(R.planText({...plan,mode:'laser',file:'laser.nc'}),/^Fichier : laser\.nc/);
+  status(idle);byId('home-resume-line').click();let resolvePlan;
+  planResult=new Promise(resolve=>{resolvePlan=resolve;});byId('home-resume-check').click();
+  byId('home-resume-input').value='190';byId('home-resume-input').handlers.input();resolvePlan(plan);await flush();
+  assert.equal(byId('home-resume-load').disabled,true,'editing while a plan is in flight invalidates its answer');
+  planResult=new Promise(resolve=>{resolvePlan=resolve;});byId('home-resume-check').click();
+  status({...idle,canLoad:false});resolvePlan(plan);await flush();
+  assert.equal(byId('home-resume-load').disabled,true,'a late plan does not bypass the current loading guard');
+  status({...idle,stoppedFile:'c.nc'});assert.equal(byId('home-resume-panel').hidden,true,'another stopped file closes the old plan');
   console.log('PASS job resume: pause texts, suggested line after a stop, check then load, M5 during a tool change, dialog note, translations and page order.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

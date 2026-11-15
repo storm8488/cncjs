@@ -60,7 +60,7 @@
   var pilot={state:'unknown',value:'—',sentence:''},takeoverSeen=null,pilotReturn=null,pilotBackground=[],pilotSending=false;
   // Host command (shutdown, restart…) holding the machine on the server: {title, since} or null,
   // carried by every snapshot (stream packet and HTTP read); shown in a status line under the strip.
-  var systemCommand=null,feedbackState='';
+  var systemCommand=null,feedbackState='',controlFeedback=null;
   // Pause / Arrêter during a loss of the state (stream muted, HTTP read failing, offline flag):
   // the last controller seen busy (a job, a jog, anything Stop can end) stays the target of
   // these two commands, which the server accepts without the stream (relayed by HTTP). Every
@@ -77,7 +77,7 @@
   // state of the cycle reaches this page, so Pause and Arrêter target it at once (also when the state is lost).
   var probeRun=null;
   // Action feedback state (ui-2027.css .t-sent): sent → confirmed | failed | uncertain (no answer).
-  function setFeedbackState(state){feedbackState=state;if(state!=='confirmed'){feedbackExpect=null;feedbackReached=false;}var node=$('job-feedback');if(node&&typeof node.setAttribute==='function'&&typeof node.getAttribute==='function'&&node.getAttribute('data-state')!==state)node.setAttribute('data-state',state);}
+  function setFeedbackState(state){controlFeedback=null;feedbackState=state;if(state!=='confirmed'){feedbackExpect=null;feedbackReached=false;}var node=$('job-feedback');if(node&&typeof node.setAttribute==='function'&&typeof node.getAttribute==='function'&&node.getAttribute('data-state')!==state)node.setAttribute('data-state',state);}
   // A planned stream renewal (every minute) is not a disconnection: for up to 3 s
   // the transport still counts as connected and no notice is shown, while the
   // confirmations bound to the old stream are void as before.
@@ -147,6 +147,9 @@
       var m=r.message.slice(0,300);return uiLocale.format?uiLocale.format(r.code,r.params,m):m;}):[];
     var e=new Error((data&&data.code&&uiLocale.format?uiLocale.format(data.code,data.params,fallback):fallback)+(why.length?' '+why.join(' '):''));
     if(data&&typeof data.code==='string'){e.code=data.code;e.params=data.params||null;}
+    if(data&&data.blockProbe&&window.CNCProbeReal&&typeof window.CNCProbeReal.failureText==='function'){
+      var b=data.blockProbe;e.message=window.CNCProbeReal.failureText(b.failure,b.written,b.needsHoming);
+    }
     return e;
   }
   function api(method,body) {
@@ -166,7 +169,7 @@
         // Session refused (401, or CNCjs' plain-text 403 « Forbidden Access »): not a refusal of the
         // command; app.js renews the session (or asks to sign in again) and the stream rechecks it.
         else if(xhr.status===401||(xhr.status===403&&(raw||!data||typeof data!=='object'))){sessionRefused();reject(raw||!data||typeof data.message!=='string'||!data.message?new Error(uiLocale.t('Session CNCjs expirée.')):serverRefusal(data,xhr.status));}
-        else if(data&&data.code==='ECONTROL')reject(controlRefusal(data));
+        else if(data&&data.code==='ECONTROL')reject(body&&body.action==='control'?serverRefusal(data,xhr.status):controlRefusal(data));
         else reject(serverRefusal(data,xhr.status));};
       // No answer is not a refusal: the command may have been applied (the next state says).
       xhr.onerror=xhr.ontimeout=function(){done();var e=new Error(uiLocale.t('Connexion perdue ou réponse incertaine. Vérifiez l’état avant toute nouvelle action.'));e.uncertain=true;reject(e);};
@@ -331,7 +334,8 @@
     var grace=compact&&!simulation&&!transportId&&renewalGrace();
     var transportConnected=compact&&!simulation?(!!transportId&&!!stream&&stream.alive())||grace:sinceSeen()<3000;
     var command=online?systemCommand:null;
-    pilot=pilotOf(online?current:null);
+    var previousPilot=pilot.state;pilot=pilotOf(online?current:null);
+    if(controlFeedback&&previousPilot!==pilot.state){text('job-feedback','');text('pilot-feedback','');setFeedbackState('');}
     if(pilot.takenOver&&pilot.changeAt!==takeoverSeen){takeoverSeen=pilot.changeAt;text('job-feedback',pilot.takenOver);setFeedbackState('failed');}
     else if(pilot.idleNotice&&pilot.changeAt!==takeoverSeen){takeoverSeen=pilot.changeAt;text('job-feedback',pilot.idleNotice);setFeedbackState('');}
     renderPilotDialog();previewIdentity(online?current:null);
@@ -523,14 +527,14 @@
         if(data.snapshot)apply(data.snapshot,Date.now()-started);
       }
       return data;
-    }).catch(function(e){if(ownGeneration===generation&&id>=feedbackSequence){feedbackSequence=id;text('job-feedback',e.message);setFeedbackState(e&&e.uncertain?'uncertain':'failed');}throw e;})
+    }).catch(function(e){if(ownGeneration===generation&&id>=feedbackSequence){feedbackSequence=id;text('job-feedback',e.message);setFeedbackState(e&&e.uncertain?'uncertain':'failed');if(e&&e.control)controlFeedback=e;}throw e;})
       .then(function(data){finish();return data;},function(e){finish();throw e;});
   }
   // operation: 'start' | 'resume' (the loaded program) | 'macro' (extra.macroId).
   // The promise never rejects: {opened: true} once the dialog is shown, else {opened: false, error}
   // (error null when the confirmation was dropped silently: another dialog, a new stream, a hidden page).
   function prepare(operation,extra) {
-    if(busy||!current)return Promise.resolve({opened:false,error:new Error(busy?uiLocale.t('Opération en cours…'):uiLocale.t('État indisponible.'))});
+    if(busy||!current){var reason=busy?uiLocale.t('Opération en cours…'):uiLocale.t('État indisponible.');text('job-feedback',reason);setFeedbackState('failed');render();return Promise.resolve({opened:false,error:new Error(reason)});}
     var port=current.port,revision=current.revision, ownGeneration=generation, ownConfirmation=++confirmation, started=elapsedClock(),origin=document.activeElement;
     var request=operation==='macro'?{operation:'macro',macroId:extra&&extra.macroId}:standalone(operation)?{operation:operation}:{operation:operation,revision:revision};
     // Commands with parameters (the plate probe: thickness and search distance).
@@ -582,8 +586,10 @@
   });
   bind($('job-start'),'click',function(){prepare('start');});
   bind($('job-resume'),'click',function(){prepare('resume');});
-  bind($('job-pause'),'click',function(){dismiss();command('pause').catch(function(){});});
-  bind($('job-stop'),'click',function(){dismiss();command('stop').catch(function(){});});
+  function pause(){if($('job-pause').disabled)return;dismiss();return command('pause').catch(function(){/* Refusal is shown by command. */});}
+  function stop(){if($('job-stop').disabled)return;dismiss();return command('stop').catch(function(){/* Refusal is shown by command. */});}
+  bind($('job-pause'),'click',pause);
+  bind($('job-stop'),'click',stop);
   bind($('job-dismiss'),'click',dismiss);
   bind($('job-check'),'change',function(){$('job-confirm').disabled=!this.checked||!confirmable();});
   bind($('job-confirm'),'click',function(){
@@ -676,7 +682,7 @@
   function dispose(){if(disposed)return;dismiss(false);closePilot(false);disposed=true;if(typeof clearInterval==='function')clearInterval(interval);if(stream)stream.dispose();bindings.forEach(function(fn){fn();});requests.forEach(function(xhr){xhr.onload=xhr.onerror=xhr.ontimeout=null;xhr.abort();});requests=[];}
   bind(window,'pagehide',function(event){if(event&&event.persisted){observationSuspended=true;dismiss();if(stream)stream.reconnect();else unavailable(uiLocale.t('Retour à la page : attendre un nouvel état.'));}else dispose();});
   bind(window,'pageshow',function(event){if(event&&event.persisted)resumeObservation();});
-  window.cncJobControls={refresh:function(){poll(true);},dispose:dispose,
+  window.cncJobControls={pause:pause,stop:stop,refresh:function(){poll(true);},dispose:dispose,
     // Realtime override step (kind: feed | spindle | rapid; value as accepted by the server).
     override:function(kind,value){if(busy||!current)return Promise.reject(new Error(uiLocale.t('Opération en cours…')));return command('override',{kind:kind,value:value});},
     // Opens the confirmation for a CNCjs macro; the macro runs only after the confirmed nonce.

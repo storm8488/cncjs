@@ -119,3 +119,15 @@ Rapport Astra `scratchpad/refonte/codex/SURETE-REVUE.md` lu en entier. Les six p
 **Remarques supplémentaires de la revue.** Le diagnostic sous `$13=1` est corrigé et testé. Les deux limites de preuve du pont demeurent : `gcode:start` n'y exécute pas le fichier et son appel direct à `generateStatusReport()` contourne `homeReports:false`. Aucun essai ajouté ici avec le vrai sender ni absence de Home/cadence réelle des rapports ; il faut ces essais avant de conclure sur l'exécution dérogée et la reconnaissance du homing sans Home. Les tests au faux contrôleur ne remplacent pas ces essais. Ne pas déduire une approbation de sûreté du seul passage des suites.
 
 Les essais matériels du § 6 du plan restent requis, notamment : cadence Home/WCO, D2 après homing dans les deux hypothèses de décalage, frontières des six courses et erreur du jog, `$I`/`$$` en alarme, zéro G10 L2, plaque interrompue immédiatement, G38.3 sans contact, reset au repos/en mouvement, perte de référence et reprise, rétroéclairage réel. Aucun accès à la CNC, à la Surface ou à la RT, aucun déploiement, aucun accès réseau n'entre dans ce lot. La relecture Fable, les parcours de page et le harnais complet restent à l'orchestrateur.
+
+
+## Complément P3 — appels de la page (2026-11-15)
+
+Ce complément ne vaut pas relecture matérielle ni validation du harnais. Aucun code serveur ou octet Grbl modifié.
+
+| Chemin | Avant → après | Preuve locale |
+|---|---|---|
+| Pause / Arrêter de Suivi et du bandeau | click sur un bouton caché → cncJobControls.pause() / stop(), aussi utilisés par les boutons sources. Même garde disabled, annulation de confirmation, command('pause'/'stop'), cible de secours halt, liberté des arrêts et refroidissement de 600 ms de Pause. Arrêter reste immédiat. | test-status-strip.cjs, test-dashboard-pause-guard.cjs, test-control-attribution.cjs : source inert sans click ; confirmation annulée ; arrêt vers le dernier port actif quand l'état est perdu ; disabled ne fait aucun POST ; témoins de refroidissement conservés. |
+| Chargement d'une reprise | Sélection de la bibliothèque → fichier arrêté par défaut, à défaut sélection ; fichier nommé avant vérification puis dans le plan. Une réponse d'une ancienne ligne, d'un ancien fichier ou reçue alors que canLoad est faux n'arme pas Charger. Charger appelle toujours loadFrom(file, line), avec les gardes du serveur et la confirmation de départ ultérieure. | test-job-resume.cjs : sélection distincte, ligne suggérée, fichier effectivement vérifié/chargé, saisie pendant la requête et refus de chargement survenu pendant la requête. |
+
+Les autres corrections P3 ne changent que l'affichage, le traitement de refus déjà reçus ou des champs locaux non configurés. Les relectures de sûreté et les essais du matériel restent à l'orchestrateur.

@@ -55,7 +55,7 @@ function block(file,start,end) {const s=read(file),a=s.indexOf(start),b=s.indexO
   document.body.getAttribute=()=>null;const banner=node('real-banner');const listeners={},frames=[],clicks=[];
   node('job-pause').addEventListener('click',()=>clicks.push('pause'));node('job-stop').addEventListener('click',()=>clicks.push('stop'));
   document.createElement=tag=>{const e=element(tag);Object.defineProperty(e,'innerHTML',{set(){e._path={setAttribute(){}};}});e.querySelector=()=>e._path;return e;};
-  const window={cncI18n:{t:s=>s,html:s=>s},requestAnimationFrame:f=>{frames.push(f);return frames.length;},cancelAnimationFrame(){},
+  const window={cncJobControls:{pause:()=>clicks.push('pause'),stop:()=>clicks.push('stop')},cncI18n:{t:s=>s,html:s=>s},requestAnimationFrame:f=>{frames.push(f);return frames.length;},cancelAnimationFrame(){},
     addEventListener(n,f){(listeners[n]||=[]).push(f);},removeEventListener(){}};
   vm.runInNewContext(read('status-strip.js'),{window,document,Date});
   const before=banner.children.slice(),m=window.cncStatusStrip.v2Mounts();assert(m.context&&m.messages);assert(!m.pause&&!m.stop);

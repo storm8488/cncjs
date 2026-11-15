@@ -296,8 +296,8 @@
   $('probe-diameter').addEventListener('change',function(){var value=parse(this.value);diameter=typeof value==='number'&&isFinite(value)&&value>0&&value<=100?value:null;persist();invalidate();});
   // The kiosk has no system keyboard: every measured value takes the shared numeric pad (numeric-pad.js).
   if(window.CNCNumeric&&typeof window.CNCNumeric.bind==='function'){
-    document.querySelectorAll('[data-probe-field]').forEach(function(el){var k=el.getAttribute('data-probe-field'),b=model.fields[k];if(el.tagName!=='INPUT'||!b)return;window.CNCNumeric.bind(el,{min:b[0],max:b[1],negative:b[0]<0,unit:k==='fast'||k==='slow'?'mm/min':'mm',label:(el.parentElement&&el.parentElement.textContent||k).trim()});});
-    window.CNCNumeric.bind($('probe-diameter'),{min:0.001,max:100,negative:false,unit:'mm',label:uiLocale.t('Outil / pige · diamètre mm')});
+    document.querySelectorAll('[data-probe-field]').forEach(function(el){var k=el.getAttribute('data-probe-field'),b=model.fields[k];if(el.tagName!=='INPUT'||!b)return;window.CNCNumeric.bind(el,{optional:true,min:b[0],max:b[1],negative:b[0]<0,unit:k==='fast'||k==='slow'?'mm/min':'mm',label:(el.parentElement&&el.parentElement.textContent||k).trim()});});
+    window.CNCNumeric.bind($('probe-diameter'),{optional:true,min:0.001,max:100,negative:false,unit:'mm',label:uiLocale.t('Outil / pige · diamètre mm')});
   }
   // The profile name takes the shared text keyboard (text-keyboard.js).
   if(window.CNCTextKeyboard)window.CNCTextKeyboard.bind($('probe-profile-name'),{label:uiLocale.t('Nom du profil')});

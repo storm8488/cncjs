@@ -240,3 +240,18 @@ assert.equal(model.compensate('Z', -119.565, p({ thickness: 5 }), 6), -124.565);
   assert.equal(es.cncI18n.message('Origine G54 réglée par palpage Z.'), 'Origen G54 ajustado por sondeo Z.');
 }
 console.log('PASS probe real: prepare body, launch reasons in order, confirmation note, 22 step labels, progress and end texts (origin unchanged / maybe changed, $H), translated refusal field, shared compensation vectors, FR/EN/ES texts and ETOUCH_PROBE_* codes.');
+
+(async()=>{
+ const {load}=require('./job-controls-fixture.cjs');
+ for(const language of ['fr','en','es']){
+  const i=page(language),f=load();await f.connect();f.window.CNCProbeReal=i.CNCProbeReal;
+  const result=f.controls().prepareCommand('blockProbe',{}),req=f.posts().at(-1);
+  const failure={code:'ETOUCH_PROBE_NO_CONTACT',params:{axis:'Z'},message:'No fallback should be shown'};
+  const blockProbe={failure,written:'no',needsHoming:true};
+  f.answer(req,{code:failure.code,params:failure.params,message:'untranslated failure',blockProbe},409);
+  const answer=await result;await f.flush();
+  assert.equal(answer.opened,false);assert.equal(answer.error.code,failure.code,'structured refusal preserves its code');assert.equal(answer.error.message,i.CNCProbeReal.failureText(failure,'no',true),'C-41: HTTP failure outcome in '+language);
+  assert.equal(f.el('job-feedback').textContent,answer.error.message);
+  f.controls().dispose();
+ }
+})().catch(e=>{console.error(e);process.exitCode=1;});

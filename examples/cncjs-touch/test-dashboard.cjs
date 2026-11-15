@@ -270,3 +270,32 @@ console.log('PASS: strict finite counters, stale status, clock jumps, pause, sle
   console.log('PASS wide Suivi: zones built only under perf-wide and undone in order, IDs kept, Arrêter alone at the bottom, remaining time with its source and second estimate, acknowledged line, overrides read, curve in an animation frame at most once a second and never while hidden.');
 }
 
+
+// P3: real progress and preview identity.
+function progressFixture() {
+  const ME=require('./touch/motion-estimate.js');
+  let clock = 10000;
+  const events = {}, dom = require('./dom-fixture.cjs').createDOM(['home']);
+  const window = { CNCMotionEstimate: ME, addEventListener: (n, f) => { events[n] = f; }, performance: { now: () => clock } };
+  vm.runInNewContext(fs.readFileSync(__dirname + '/touch/job-dashboard.js', 'utf8'), { window, document: dom.document, Date: { now: () => clock },
+    localStorage: { getItem: () => null }, XMLHttpRequest: function () { throw Error('Unexpected network request'); } });
+  let machine = { port: 'P', name: 'part.nc', revision: 'r1', fingerprint: 'sha256:aa', fresh: true, total: 50, received: 5, workflow: 'running', activeState: 'Run' };
+  const send = (changes) => { machine = { ...machine, ...changes }; events['cnc-job-status']({ detail: { machine, simulation: false } }); };
+  return { send, advance: (ms) => { clock += ms; }, percent: () => dom.node('home-job-percent').textContent,
+    preview: (p) => { dom.node('home-job-image').cncPreview = p; } };
+}
+
+{
+ const est={version:1,feedSeconds:100},f=progressFixture();f.send({});f.preview({file:'part.nc',fingerprint:'sha256:aa',estimate:est});
+ for(let i=1;i<=10;i++){f.advance(1000);f.send({received:5+2*i});}
+ f.send({received:50});assert.notEqual(f.percent(),'100 %','C-34: Run is not completion');
+ f.send({workflow:'idle',activeState:'Idle',finished:true,received:0});assert.equal(f.percent(),'100 %');
+ f.advance(5000);f.send({});f.send({finished:false,workflow:'running',activeState:'Run',received:0});
+ f.advance(1000);f.send({received:10});assert.equal(f.percent(),'1 %','C-52: new run starts its clock at zero');
+ f.send({workflow:'paused'});f.advance(2000);f.send({workflow:'running',received:10});
+ f.advance(1000);f.send({received:12});assert.equal(f.percent(),'1 %','each entry in running resets the clock');
+ const g=progressFixture();g.send({fingerprint:'sha256:bb'});g.preview({file:'part.nc',fingerprint:'sha256:aa',estimate:{version:1,feedSeconds:10}});
+ for(let i=1;i<=5;i++){g.advance(1000);g.send({received:5+7*i});}
+ assert.equal(g.percent(),'80 %','C-53: previous version estimate ignored');
+ g.send({received:50});assert.equal(g.percent(),'99 %','no matching estimate: capped at 99');
+}

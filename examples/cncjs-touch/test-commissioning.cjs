@@ -20,7 +20,7 @@ function fixture(saved){
  function all(node){return node.children.flatMap(c=>[c,...all(c)]);}
  const find=(pred)=>all(screen).find(pred);
  const byText=(text)=>find(n=>n.tagName==='BUTTON'&&n.textContent.indexOf(text)===0);
- return {dom,window,handlers,store,screens,calls,screen,find,byText,
+ return {dom,window,controls,handlers,store,screens,calls,screen,find,byText,
   data:()=>JSON.parse(store.get('cncjs-touch-commissioning-v1')||'{}'),
   send(machine){handlers['cnc-job-status']({detail:{machine,simulation:false}});},
   title:()=>find(n=>n.tagName==='H2').textContent,
@@ -202,3 +202,14 @@ assert.equal(reread.disabled,true,'an absent capability never grants a read');
 
 }
 console.log('PASS commissioning: step model, auto-open on the first real controller, persistence and resume, guarded commands, spindle stop on leave, skip under confirmation.');
+
+// A2-8: a preparation resolves its refusal instead of rejecting it.
+(async()=>{
+ for(const [step,op,label,checks] of [[5,'home','Lancer la prise d’origine ($H)…',1],[5,'unlock','Déverrouiller ($X)…',0],[6,'spindle','Démarrer à ',2]]){
+  const f=fixture(JSON.stringify({machines:{'/dev/ttyUSB0':{status:'progress',step,results:{}}}}));
+  f.send(M({canUnlock:true}));f.window.cncCommissioning.open();for(let i=0;i<checks;i++)f.tick(i);
+  const why='Opération en cours…';let asked='';f.controls.prepareCommand=operation=>{asked=operation;return Promise.resolve({opened:false,error:new Error(why)});};
+  const button=f.byText(label);assert(button,'fixture: '+label);button.click();await new Promise(setImmediate);
+  assert.equal(asked,op);assert(f.find(n=>n.textContent===why),'C-31: assistant refusal '+op);
+ }
+})().catch(e=>{console.error(e);process.exitCode=1;});

@@ -707,6 +707,15 @@ if (require.main === module) (async () => {
     f.answer(start, { message: 'Refusé.', code: 'ETOUCH_X' }, 409); await f.flush();
     assert.equal(f.motion('jog-stop').length, 0, 'a refused jog-start (answered) needs no stop');
   }
+  // C-24: a Grbl step refusal wins over a late accepted HTTP response.
+  for(const reportFirst of [false,true]){
+    const f=await ready();f.arrows['X+'].click();const req=f.motion('jog').at(-1);
+    const refused=machine({motion:{...machine().motion,lastJog:{at:1,result:'refused',reason:'error:15',message:'Grbl a refusé le jog (error:15)',axis:'X'}}});
+    if(reportFirst)f.push([refused]);
+    f.answer(req,{message:'Pas envoyé.'});await f.flush();f.push([refused]);await f.flush();
+    assert.match(f.el('jog-feedback').textContent,/refusé.*15/i,'C-24: refusal replaces acceptance, response race '+reportFirst);
+    assert.equal(f.el('jog-feedback').getAttribute('data-state'),'failed');
+  }
   // 15. Idle release (control.lastChange.type 'idle') and lease ended by absence: told by job-controls.
   {
     const f = load(); const id = f.controls().clientId();
