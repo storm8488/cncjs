@@ -498,7 +498,10 @@ describe('program check (F2): coded reasons (ETOUCH_CHECK_*)', () => {
     ['ETOUCH_CHECK_ARC_FROM_UNKNOWN', P('G21 G90', 'G0 X0', 'G2 X10 Y0 I5 J0 F100'), {}, { line: 3 }],
     ['ETOUCH_CHECK_ARC_RADIUS', P('G21 G90', 'G0 X0 Y0', 'G2 X10 Y0 R1 F100'), {}, { line: 3 }],
     // D2: the work offset not proven against $# yet (work-offset.js).
-    ['ETOUCH_CHECK_OFFSET_UNPROVEN', SQUARE, { offsetProven: false }, {}]
+    ['ETOUCH_CHECK_OFFSET_UNPROVEN', SQUARE, { offsetProven: false }, {}],
+    // C-57, C-61: a line Grbl reads otherwise; C-58: G49 with an inherited tool length offset.
+    ['ETOUCH_CHECK_SYNTAX', P('G21 G90', 'G0 Z5', 'G1 Z-1 40 F100'), {}, { line: 3 }],
+    ['ETOUCH_CHECK_TLO_CANCEL', P('G21 G90 G49', 'G0 Z5'), { parameters: { G92: { x: 0, y: 0, z: 0 }, TLO: 2 } }, { line: 1 }]
   ];
   // Every list of reasons has its coded twin: same length, same order, same text.
   const expectParallel = (r) => {
@@ -522,7 +525,7 @@ describe('program check (F2): coded reasons (ETOUCH_CHECK_*)', () => {
   test('every ETOUCH_CHECK_* row of the client catalog is emitted by one case above', () => {
     const catalog = catalogCodes().filter((code) => /^ETOUCH_CHECK_/.test(code)).sort();
     expect(cases.map(([code]) => code).sort()).toEqual(catalog);
-    expect(catalog).toHaveLength(30);
+    expect(catalog).toHaveLength(32);
   });
 
   test('French reasons and verdicts are those of the uncoded check; a validated program has none', () => {
@@ -619,5 +622,57 @@ describe('program check: homing convention learnt (C-04) and margin before the f
     expect(programCheck('G21 G90\nG0 X307.6', lunyee({ homeAt: LEARNT })).axes.X.verdict).toBe('outside');
     expect(programCheck('G21 G90\nG53 G0 X408', lunyee({ homeAt: LEARNT })).axes.X.verdict).toBe('outside');
     expect(programCheck('G21 G90\nG0 X-100 Y-100', lunyee({ homeAt: LEARNT })).verdict).toBe('validated');
+  });
+});
+
+// C-57, C-61 (V4-N3, V4-N7): Grbl drops every space before reading a line, so `Z-1 40` is
+// Z−140 for the board; and a `$` line is a system command (a setting written, a homing…).
+// C-58 (V4-N4): G49 cancels an inherited tool length offset, which the reported WCO includes.
+describe('program check: lines Grbl reads otherwise (C-57, C-61) and G49 over an inherited TLO (C-58)', () => {
+  const codesOf = (r, axis) => r.axes[axis].codedReasons.map((c) => c.code);
+
+  test('a number split by spaces is read without them by Grbl: every axis unknown, the line listed', () => {
+    const r = programCheck('G21 G90\nG0 Z5\nG1 Z-1 40 F100\nG1 X10', machine());
+    // Followed as Z−1, the check would have validated it; Grbl reads Z−140 (machine −180).
+    expect(r.verdict).toBe('unknown');
+    ['X', 'Y', 'Z'].forEach((axis) => {
+      expect(r.axes[axis].verdict).toBe('unknown');
+      expect(codesOf(r, axis)).toContain('ETOUCH_CHECK_SYNTAX');
+    });
+    expect(r.uninterpreted).toEqual([{ line: 3, code: 'G1 Z-1 40 F100', impact: true }]);
+    expect(r.blocking).toEqual([]);
+    // A sign or a decimal point set apart is read otherwise as well.
+    expect(programCheck('G21 G90\nG0 X - 5', machine()).codedReasons.map((c) => c.code)).toContain('ETOUCH_CHECK_SYNTAX');
+    expect(programCheck('G21 G90\nG0 X1 .5', machine()).codedReasons.map((c) => c.code)).toContain('ETOUCH_CHECK_SYNTAX');
+  });
+
+  test('spaces that change nothing, and spaces in comments, are not a syntax issue', () => {
+    expect(programCheck('G21 G90\nG0 X10 Y10\nG1 Z-1 F100\nG1 X 20 F 300 (Z-1 40)\nG1X0Y0 ; X - 5', machine()).verdict).toBe('validated');
+  });
+
+  test('a `$` line in a program (a setting, a homing) leaves every axis unknown', () => {
+    ['$20=0', '$H', '$X'].forEach((line) => {
+      const r = programCheck('G21 G90\nG0 X10 Y10 Z5\n' + line + '\nG1 Z-1 F100', machine());
+      expect(r.verdict).toBe('unknown');
+      expect(r.axes.Z.codedReasons.find((c) => c.code === 'ETOUCH_CHECK_SYNTAX')).toMatchObject({ params: { line: 3 } });
+      expect(r.uninterpreted).toEqual([{ line: 3, code: line, impact: true }]);
+    });
+  });
+
+  test('G49 with an inherited tool length offset leaves Z unknown; with none, or none known, as before; G53 still compared', () => {
+    const params = (TLO) => ({ parameters: { G54: { x: -250, y: -150, z: -42 }, G92: { x: 0, y: 0, z: 0 }, TLO } });
+    const prog = 'G21 G90 G54 G49\nG0 Z5\nG0 X0 Y0\nG1 Z-3 F100\nG1 X40 F500';
+    const withTlo = programCheck(prog, machine(params(2)));
+    expect(withTlo.axes.Z).toMatchObject({ verdict: 'unknown' });
+    expect(codesOf(withTlo, 'Z')).toEqual(['ETOUCH_CHECK_TLO_CANCEL']);
+    expect(withTlo.axes.X.verdict).toBe('validated');
+    expect(programCheck(prog, machine(params(0))).verdict).toBe('validated');
+    expect(programCheck(prog, machine(params('0.000'))).verdict).toBe('validated');
+    expect(programCheck(prog, machine()).verdict).toBe('validated');
+    // Without G49 the inherited offset is the one reported: nothing to say.
+    expect(programCheck(prog.replace(' G49', ''), machine(params(2))).verdict).toBe('validated');
+    // A G53 target does not depend on any offset: still outside.
+    const g53 = programCheck('G21 G90 G49\nG53 G0 Z10', machine(params(2)));
+    expect(g53.axes.Z.verdict).toBe('outside');
   });
 });

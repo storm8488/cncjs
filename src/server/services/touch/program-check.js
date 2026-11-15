@@ -74,6 +74,15 @@ const words = (code) => {
   return out;
 };
 
+// Grbl drops every space of a line before reading it (protocol.c) and CNCjs sends the line as
+// written: a line whose words change once its spaces are gone (`Z-1 40` is Z−140, `X - 5` is
+// X−5) is read otherwise by the board (C-57).
+const sameWithoutSpaces = (code) => {
+  const spaced = words(code);
+  const packed = words(code.replace(/\s+/g, ''));
+  return spaced.length === packed.length && spaced.every(([letter, value], i) => letter === packed[i][0] && value === packed[i][1]);
+};
+
 const fmt = (n) => String(Math.round(n * 1000) / 1000);
 
 // A reason: the French text (unchanged) with its stable code and its values.
@@ -111,6 +120,8 @@ export const analyzeProgram = (gcode) => {
     wcs: null,
     wcsChanges: [],
     offsetChanges: [],
+    // First line with G49 (tool length offset cancelled), or null.
+    tloCancel: null,
     machineMoves: [],
     uninterpreted: [],
     extent: { X: null, Y: null, Z: null },
@@ -161,6 +172,13 @@ export const analyzeProgram = (gcode) => {
     if (/^%/.test(code) || /[[\]#]/.test(code)) {
       listed(lineNo, raw.trim().slice(0, 40), true);
       AXES.forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_MACRO', { line: lineNo }, 'Macro ou expression CNCjs à la ligne ' + lineNo + ' : contenu non prévisible.')));
+      continue;
+    }
+    // A line the board reads otherwise (C-57), or a system command ($20=0, $H…, C-61): what
+    // follows cannot be judged from what was read here.
+    if (/^\$/.test(code) || !sameWithoutSpaces(code)) {
+      listed(lineNo, raw.trim().slice(0, 40), true);
+      AXES.forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_SYNTAX', { line: lineNo }, 'Ligne ' + lineNo + ' lue autrement par la carte (espace dans un nombre, ou commande $) : non interprétée.')));
       continue;
     }
     const w = words(code);
@@ -231,6 +249,11 @@ export const analyzeProgram = (gcode) => {
           }
         } else if (a.wcs !== next) {
           a.wcsChanges.push(lineNo);
+        }
+      } else if (v === 49) {
+        // Cancels the tool length offset (C-58): judged against the inherited one (checkProgram).
+        if (a.tloCancel === null) {
+          a.tloCancel = lineNo;
         }
       } else if (v === 92 || v === 92.1 || v === 10) {
         a.offsetChanges.push({ line: lineNo, code: 'G' + v });
@@ -578,6 +601,9 @@ export const checkProgram = (analysis, machine = {}) => {
   }
   // D1: every proven overrun, in the operator's terms (job-service.js refuses the start on them).
   const blocking = [];
+  // C-58: an inherited tool length offset, known from `$#` (D2 reads it), cancelled by the program.
+  const inheritedTlo = number(machine.parameters && machine.parameters.TLO);
+  const tloCancelled = Number.isInteger(analysis.tloCancel) && inheritedTlo !== null && inheritedTlo !== 0;
 
   AXES.forEach((axis, i) => {
     const reasons = global.slice();
@@ -606,6 +632,12 @@ export const checkProgram = (analysis, machine = {}) => {
     const unproven = machine.offsetProven === false && !!extent;
     if (unproven) {
       reasons.push(reason('ETOUCH_CHECK_OFFSET_UNPROVEN', {}, 'Origine de la pièce pas encore vérifiée auprès de la carte : course non vérifiable.'));
+    }
+    // C-58: the reported WCO includes the inherited tool length offset; G49 in the program drops it
+    // from some line on: the work Z extent is not followed (G53 targets still are).
+    const tloDropped = axis === 'Z' && !!extent && tloCancelled;
+    if (tloDropped) {
+      reasons.push(reason('ETOUCH_CHECK_TLO_CANCEL', { line: analysis.tloCancel }, 'Le programme annule le décalage d’outil (G49 ligne ' + analysis.tloCancel + ') alors qu’un décalage d’outil est actif : position Z non prévisible.'));
     }
     const entry = { axis, verdict: 'unknown', min: null, max: null, low: null, high: null, usable: null, reasons: [], codedReasons: [] };
     if (extent) {
@@ -644,7 +676,7 @@ export const checkProgram = (analysis, machine = {}) => {
       }
     };
     if (entry.low !== null && !global.length) {
-      if (extent && offset[axis] !== null && !unproven) {
+      if (extent && offset[axis] !== null && !unproven && !tloDropped) {
         compare(entry.min + offset[axis], entry.max + offset[axis], 'ETOUCH_CHECK_OUTSIDE', 'Hors course ' + axis + ' : ', ' mm machine');
       }
       if (machineExtent) {
