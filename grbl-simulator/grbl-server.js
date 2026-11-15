@@ -3,7 +3,7 @@
 /**
  * Grbl Simulator TCP Server
  * A TCP socket server that simulates a Grbl CNC controller
- * Usage: node grbl-server.js [port]
+ * Usage: node grbl-server.js [port] [--host 127.0.0.1] [--control 5001] [--profile lunyee]
  */
 
 const net = require('net');
@@ -25,7 +25,8 @@ class GrblServer {
         this.clients = new Map();
         // IMPORTANT: Single shared simulator for all clients
         // This ensures position and state persist across connections
-        this.simulator = new GrblSimulator();
+        // (profile 'lunyee': the operator's board, see grbl-simulator.js profileOf)
+        this.simulator = new GrblSimulator({ profile: options.profile });
     }
 
     start() {
@@ -83,8 +84,8 @@ class GrblServer {
         simulator.on('data', dataListener);
         this.clients.get(socket).dataListener = dataListener;
 
-        // Send startup message
-        if (!this.muted) socket.write(simulator.getStartupMessage());
+        // Send startup message (not by the LUNYEE board: opening its port does not restart it, L14)
+        if (!this.muted && !simulator.profile) socket.write(simulator.getStartupMessage());
 
         // Handle incoming data
         socket.on('data', (data) => {
@@ -301,7 +302,7 @@ class GrblServer {
 
 // CLI entry point
 if (require.main === module) {
-    // node grbl-server.js [port] [--host 127.0.0.1] [--control 5001]
+    // node grbl-server.js [port] [--host 127.0.0.1] [--control 5001] [--profile lunyee]
     const args = process.argv.slice(2);
     const option = (name) => {
         const i = args.indexOf(name);
@@ -314,7 +315,8 @@ if (require.main === module) {
 
     const server = new GrblServer(port, {
         host: option('--host'),
-        controlPort: control === undefined ? undefined : parseInt(control)
+        controlPort: control === undefined ? undefined : parseInt(control),
+        profile: option('--profile')
     });
     server.start();
 }
