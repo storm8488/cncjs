@@ -4,61 +4,14 @@
 // through CNCjs's own GrblRunner parser: real protocol lines both ways, real
 // time. No serial port, no machine. What the simulator does not model is
 // listed where it matters (see audit31-machine.md).
-import { EventEmitter } from 'events';
-import GrblRunner from '../../../controllers/Grbl/GrblRunner';
 import { createService } from '../job-service';
 import { createControl } from '../control';
+// The simulator as a CNCjs controller (support/sim-bridge.js, shared with the LUNYEE tests).
+import { bridge } from './support/sim-bridge';
 
 const GrblSimulator = require('../../../../../grbl-simulator/grbl-simulator');
 
 const A = { kind: 'touch', id: 'tablet-A', label: 'Tablette A' };
-
-// A controller whose serial line is the simulator: `gcode` lines go through
-// processLineAsync (answers parsed by GrblRunner), jogCancel writes 0x85 as a
-// realtime byte, and a status query is parsed every 25 ms like CNCjs's poll.
-const bridge = (sim) => {
-  const runner = new GrblRunner();
-  const c = {
-    type: 'Grbl',
-    options: { port: 'SIM' },
-    ready: true,
-    isClose: () => false,
-    runner,
-    sender: Object.assign(new EventEmitter(), { state: { name: '', context: {}, total: 0 } }),
-    workflow: Object.assign(new EventEmitter(), { state: 'idle' }),
-    feeder: { toJSON: () => ({ queue: 0, pending: false }) },
-    written: []
-  };
-  Object.defineProperty(c, 'settings', { get: () => runner.settings });
-  c.sender.toJSON = () => ({ ...c.sender.state });
-  const parse = (text) => String(text).split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
-.forEach((l) => runner.parse(l));
-  c.command = (name, ...args) => {
-    if (name === 'gcode') {
-      [].concat(args[0]).forEach((line) => {
-        c.written.push(line + '\n');
-        sim.processLineAsync(line, parse);
-      });
-    } else if (name === 'jogCancel') {
-      c.written.push('\x85');
-      parse(sim.processRealtimeCommand('\x85'));
-    } else {
-      throw new Error('unexpected command ' + name);
-    }
-  };
-  parse(sim.getStartupMessage());
-  parse(sim.listSettings().replace(/ok\s*$/, ''));
-  // [GC:…] only: its `ok` would be taken for an answer to a line of ours.
-  const modal = () => parse(sim.listParserState().replace(/ok\s*$/, ''));
-  modal();
-  const poll = setInterval(() => parse(sim.generateStatusReport()), 25);
-  const gc = setInterval(modal, 500);
-  c.close = () => {
-    clearInterval(poll);
-    clearInterval(gc);
-  };
-  return c;
-};
 
 const wait = (ms) => new Promise((resolve) => {
   setTimeout(resolve, ms);

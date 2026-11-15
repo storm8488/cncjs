@@ -32,7 +32,18 @@ const catalog = () => {
 // still planned or running is recorded (`overlaps`). Each of the six offsets
 // G54-G59 is kept apart (G10 L20 P writes its own). $G polls ([GC] + ok) come
 // every 500 ms. It never touches a serial port.
+//
+// Option `lunyee` (PLAN-CORRECTIONS § 2.2, the field facts of the board): three offsets kept
+// apart, the stored one (`$#`), the executed one (the targets) and the reported one (WCO:);
+// after a homing the last two are zero (`executedAfterHoming: 'stored'`: only the reported
+// one) until loaded again by another system (G54-G59 alone on a line), G10 L2/L20 on the
+// active one, a reset or M2/M30. WCO: comes in the status payload one report in ten and at
+// the report after a change, and CNCjs's WPos follows the last one. A G38.3 or G53 G1 target
+// outside the soft limits ($23 bits, far end 0.2 mm early) raises ALARM:2 before any move, then
+// the board restarts (banner, Alarm, MPos 0). A reset in motion: ALARM:3, then the same
+// restart. $H, $HX, $HY, $HZ lines run the whole cycle. `probeStuck`: permanent contact.
 const SCALE = 0.1;
+const LUNYEE_INSET = 0.2;
 const round3 = (n) => Math.round(n * 1000) / 1000;
 const TOP = -119.565;
 const block = (corner = '--') => {
@@ -43,8 +54,17 @@ const block = (corner = '--') => {
   return { x0: Math.min(fx, fx - 30 * cX), x1: Math.max(fx, fx - 30 * cX), y0: Math.min(fy, fy - 30 * cY), y1: Math.max(fy, fy - 30 * cY), top: TOP };
 };
 
-const fakeGrbl = (ctx, { solids = [block()], radius = 3, start = { x: 100, y: 100, z: -110 } } = {}) => {
+const fakeGrbl = (ctx, {
+  solids = [block()], radius = 3, start = { x: 100, y: 100, z: -110 }, lunyee = false, executedAfterHoming = 'zero', probeStuck = false
+} = {}) => {
   const g = {
+    lunyee,
+    // LUNYEE: { executed, reported } zero after a homing, or null (the stored offset); the
+    // last WCO: reported (strings, as CNCjs keeps it) and the reports until the next one.
+    offsetVoid: null,
+    lastWco: null,
+    wcoCounter: 0,
+    stuck: probeStuck,
     m: { x: 0, y: 0, z: 0 },
     wco: { x: 20, y: 30, z: -100 },
     // G55-G59 (P2-P6); G54 (P1) is `wco`.
@@ -96,7 +116,7 @@ const fakeGrbl = (ctx, { solids = [block()], radius = 3, start = { x: 100, y: 10
   g.modal = modal;
   g.spindle = 0;
   const f3 = (n) => n.toFixed(3);
-  const touching = (p) => (g.pinForced !== null ? g.pinForced : g.solids.some((s) => {
+  const touching = (p) => g.stuck || (g.pinForced !== null ? g.pinForced : g.solids.some((s) => {
     const dx = Math.max(s.x0 - p.x, 0, p.x - s.x1);
     const dy = Math.max(s.y0 - p.y, 0, p.y - s.y1);
     return p.z <= s.top + 1e-9 && Math.hypot(dx, dy) <= g.radius + 1e-9;
@@ -108,9 +128,21 @@ const fakeGrbl = (ctx, { solids = [block()], radius = 3, start = { x: 100, y: 10
     return p.z < s.top - 0.005 && Math.hypot(dx, dy) < g.radius - 0.005;
   });
   // The active offset (G54 → wco, G55-G59 → others).
-  g.offset = (p = ['G54', 'G55', 'G56', 'G57', 'G58', 'G59'].indexOf(modal.wcs) + 1) => (p === 1 ? g.wco : g.others[p]);
+  g.activeIndex = () => ['G54', 'G55', 'G56', 'G57', 'G58', 'G59'].indexOf(modal.wcs) + 1;
+  g.offset = (p = g.activeIndex()) => (p === 1 ? g.wco : g.others[p]);
+  const ZERO = { x: 0, y: 0, z: 0 };
+  // LUNYEE: the offset the moves use, and the one the board reports.
+  g.executed = () => (g.offsetVoid && g.offsetVoid.executed ? ZERO : g.offset());
+  g.reported = () => (g.offsetVoid && g.offsetVoid.reported ? ZERO : g.offset());
+  // LUNYEE: the stored offset is loaded again; the next report carries WCO:.
+  const reload = () => {
+    g.offsetVoid = null;
+    g.wcoCounter = 0;
+  };
   g.refresh = () => {
-    const o = g.offset();
+    // CNCjs computes WPos from the last WCO: it received (LUNYEE); the standard fake from G54-G59.
+    const last = g.lunyee && g.lastWco ? { x: Number(g.lastWco.x), y: Number(g.lastWco.y), z: Number(g.lastWco.z) } : null;
+    const o = last || (g.lunyee ? g.reported() : g.offset());
     const w = { x: g.m.x - o.x, y: g.m.y - o.y, z: g.m.z - o.z };
     c.runner.state = {
       status: {
@@ -118,6 +150,7 @@ const fakeGrbl = (ctx, { solids = [block()], radius = 3, start = { x: 100, y: 10
         subState: g.subState,
         mpos: { x: f3(g.m.x), y: f3(g.m.y), z: f3(g.m.z) },
         wpos: { x: f3(w.x), y: f3(w.y), z: f3(w.z) },
+        ...(g.lunyee && g.lastWco ? { wco: { ...g.lastWco } } : {}),
         spindle: g.spindle,
         feedrate: 0
       },
@@ -125,14 +158,65 @@ const fakeGrbl = (ctx, { solids = [block()], radius = 3, start = { x: 100, y: 10
     };
   };
   g.report = () => {
+    let wco = null;
+    if (g.lunyee) {
+      if (g.wcoCounter > 0) {
+        g.wcoCounter -= 1;
+      } else {
+        g.wcoCounter = 9;
+        const o = g.reported();
+        wco = { x: f3(o.x), y: f3(o.y), z: f3(o.z) };
+        g.lastWco = wco;
+      }
+    }
     g.refresh();
     const state = g.active + (g.subState !== null && g.active === 'Hold' ? ':' + g.subState : '');
     const pin = touching(g.m) ? '|Pn:P' : '';
-    c.runner.emit('status', { raw: '<' + state + '|MPos:' + f3(g.m.x) + ',' + f3(g.m.y) + ',' + f3(g.m.z) + '|FS:0,' + g.spindle + pin + '>' });
+    const field = wco ? '|WCO:' + wco.x + ',' + wco.y + ',' + wco.z : '';
+    const raw = '<' + state + '|MPos:' + f3(g.m.x) + ',' + f3(g.m.y) + ',' + f3(g.m.z) + '|FS:0,' + g.spindle + pin + field + '>';
+    c.runner.emit('status', wco ? { raw, wco: { ...wco } } : { raw });
   };
+  // LUNYEE: the board restarts (after ALARM:n when given): nothing more runs, MPos 0,0,0, G54,
+  // G92 and the tool offset cleared, the stored offset loaded, locked in Alarm.
+  const restart = (alarm) => {
+    if (alarm) {
+      c.runner.emit('alarm', { message: String(alarm), raw: 'ALARM:' + alarm });
+    }
+    g.queue = [];
+    g.current = null;
+    g.homeEnd = null;
+    g.m = { x: 0, y: 0, z: 0 };
+    g.active = 'Alarm';
+    g.subState = null;
+    Object.assign(modal, { motion: 'G0', wcs: 'G54', distance: 'G90', units: 'G21', spindle: 'M5', feedrate: 'G94' });
+    g.g92 = { x: '0.000', y: '0.000', z: '0.000' };
+    g.tlo = '0.000';
+    reload();
+    c.runner.emit('startup', { firmware: 'Grbl', version: '1.1f' });
+  };
+  // LUNYEE: a machine target outside the soft limits (bit of $23 set: [0, travel], otherwise
+  // [-travel, 0]; the far end refused LUNYEE_INSET early).
+  const outsideTravel = (to) => ['x', 'y', 'z'].some((k, i) => {
+    const travel = Number(c.settings.settings['$13' + i]);
+    const towardsPlus = Math.floor(Number(c.settings.settings.$23) / 2 ** i) % 2 === 1;
+    const low = towardsPlus ? 0 : -travel + LUNYEE_INSET;
+    const high = towardsPlus ? travel - LUNYEE_INSET : 0;
+    return to[k] < low || to[k] > high;
+  });
   const reset = () => {
     if (g.ignoreReset) {
       return;
+    }
+    if (g.lunyee) {
+      // In motion (a held one included, or a homing), the board restarts and loses its position.
+      if (g.current || ['Run', 'Hold', 'Home'].includes(g.active)) {
+        restart(3);
+        return;
+      }
+      g.g92 = { x: '0.000', y: '0.000', z: '0.000' };
+      g.tlo = '0.000';
+      modal.wcs = 'G54';
+      reload();
     }
     g.queue = [];
     g.current = null;
@@ -176,7 +260,7 @@ const fakeGrbl = (ctx, { solids = [block()], radius = 3, start = { x: 100, y: 10
         feed = v;
       } else {
         const k = axis.toLowerCase();
-        to[k] = /^G53/.test(line) ? v : v + g.offset()[k];
+        to[k] = /^G53/.test(line) ? v : v + g.executed()[k];
       }
     });
     return { to, feed };
@@ -219,13 +303,41 @@ const fakeGrbl = (ctx, { solids = [block()], radius = 3, start = { x: 100, y: 10
       done(line, { ok: true, prb: 0 });
       return;
     }
-    let m = /^G10 L20 P(\d) (.+)$/.exec(line);
-    if (m) {
-      const o = g.offset(Number(m[1]));
-      m[2].split(' ').forEach((word) => {
+    if (g.lunyee) {
+      if (/^G5[4-9]$/.test(line)) {
+        // Only another system loads a stored offset; the active one again does nothing.
+        if (line !== modal.wcs) {
+          modal.wcs = line;
+          reload();
+        }
+        done(line, { ok: true, prb: 0 });
+        return;
+      }
+      if (/^M0*(2|30)$/.test(line)) {
+        Object.assign(modal, { motion: 'G1', wcs: 'G54', distance: 'G90', spindle: 'M5', feedrate: 'G94' });
+        reload();
+        done(line, { ok: true, prb: 0 });
+        return;
+      }
+      if (/^\$H[XYZ]?$/.test(line)) {
+        // The whole cycle, whatever the axis letter; `ok` at its end (advance).
+        g.active = 'Home';
+        g.homeEnd = ctx.now + 1500;
+        return;
+      }
+    }
+    let m = /^G10 L(2|20) P(\d) (.+)$/.exec(line);
+    if (m && (m[1] === '20' || g.lunyee)) {
+      // P0: the active system.
+      const p = Number(m[2]) || g.activeIndex();
+      const o = g.offset(p);
+      m[3].split(' ').forEach((word) => {
         const k = word[0].toLowerCase();
-        o[k] = g.m[k] - Number(word.slice(1)) + g.writeSkew;
+        o[k] = m[1] === '2' ? Number(word.slice(1)) : g.m[k] - Number(word.slice(1)) + g.writeSkew;
       });
+      if (g.lunyee && p === g.activeIndex()) {
+        reload();
+      }
       done(line, { ok: true, prb: 0 });
       return;
     }
@@ -236,6 +348,11 @@ const fakeGrbl = (ctx, { solids = [block()], radius = 3, start = { x: 100, y: 10
     }
     const probe = m[1] === 'G38.3';
     const { to, feed } = machineTarget(line);
+    if (g.lunyee && outsideTravel(to)) {
+      // Checked when the line is read: ALARM:2 before any move, then the board restarts.
+      restart(2);
+      return;
+    }
     const from = { ...g.m };
     const distance = Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z);
     const motion = { line, probe, from, to, distance, t0: ctx.now, dur: Math.max(1, 60000 * distance / feed * SCALE), done: 0 };
@@ -312,6 +429,11 @@ const fakeGrbl = (ctx, { solids = [block()], radius = 3, start = { x: 100, y: 10
       if (ctx.now >= g.homeEnd) {
         g.m = { x: 0, y: 0, z: 0 };
         g.active = 'Idle';
+        if (g.lunyee) {
+          // WCO:0,0,0 reported at once while $# keeps the stored offset.
+          g.offsetVoid = { executed: executedAfterHoming === 'zero', reported: true };
+          g.wcoCounter = 0;
+        }
         c.runner.emit('ok');
       }
       return;
@@ -1424,5 +1546,135 @@ describe('block probe: real cycle on a fake Grbl', () => {
     const rest = await setup();
     await rest.req('spindleStop', {});
     expect(rest.g.sent).toEqual(['M5']);
+  }, 60000);
+});
+
+describe('block probe: the LUNYEE options of the fake Grbl (PLAN-CORRECTIONS § 2.2)', () => {
+  const ZERO = { x: 0, y: 0, z: 0 };
+  // What CNCjs and the board would see: the WCO: of each report, the machine target of each
+  // move, the answers to $#, the alarms and the banners.
+  const watch = (ctx) => {
+    const seen = { wco: [], starts: [], params: {}, events: [] };
+    ctx.c.runner.on('status', (p) => {
+      if (p.wco) {
+        seen.wco.push([p.wco.x, p.wco.y, p.wco.z].map(Number));
+      }
+    });
+    ctx.c.runner.on('parameters', (p) => {
+      seen.params[p.name] = p.value;
+    });
+    ctx.c.runner.on('alarm', (a) => seen.events.push('ALARM:' + a.message));
+    ctx.c.runner.on('startup', () => seen.events.push('startup'));
+    ctx.g.onStart = (line, motion) => seen.starts.push({ line, to: { ...motion.to } });
+    return seen;
+  };
+  const send = (ctx, line) => ctx.c.command('gcode', line);
+  const atRest = (ctx) => ctx.g.active === 'Idle' && !ctx.g.current && ctx.g.queue.length === 0;
+
+  test('S44 WCO:0,0,0 after the homing while $# keeps G54, the moves use a zero offset; G55 then G54 loads it again; $HX homes again', async () => {
+    const ctx = await setup({ world: { lunyee: true }, tested: false });
+    const seen = watch(ctx);
+    // Twenty reports: WCO: in two of them, zero.
+    await ctx.tick(1000);
+    expect(seen.wco).toEqual([[0, 0, 0], [0, 0, 0]]);
+    expect(ctx.c.runner.state.status.wpos).toEqual(ctx.c.runner.state.status.mpos);
+    send(ctx, '$#');
+    await ctx.tick(100);
+    expect(seen.params.G54).toEqual({ x: '20.000', y: '30.000', z: '-100.000' });
+    // G54 again changes nothing: a work target is a machine target.
+    send(ctx, 'G54');
+    send(ctx, 'G38.3 Z-105 F100');
+    await ctx.until(() => atRest(ctx));
+    expect(seen.starts.at(-1).to.z).toBe(-105);
+    // Another system, then G54: the stored offset is loaded, reported at the next report.
+    send(ctx, 'G55');
+    send(ctx, 'G54');
+    await ctx.tick(100);
+    expect(seen.wco.at(-1)).toEqual([20, 30, -100]);
+    send(ctx, 'G38.3 Z-8 F100');
+    await ctx.until(() => atRest(ctx));
+    expect(seen.starts.at(-1).to.z).toBe(-108);
+    expect(Number(ctx.c.runner.state.status.wpos.z)).toBeCloseTo(-8, 3);
+    // $HX: the whole cycle, then WCO:0,0,0 again.
+    send(ctx, '$HX');
+    await ctx.tick(200);
+    expect(ctx.g.active).toBe('Home');
+    await ctx.tick(1500);
+    expect(ctx.g.active).toBe('Idle');
+    expect(ctx.g.m).toEqual(ZERO);
+    expect(seen.wco.at(-1)).toEqual([0, 0, 0]);
+
+    // executedAfterHoming 'stored': WCO:0,0,0 reported, the moves keep G54.
+    services.splice(0).forEach((service) => service.dispose());
+    const stored = await setup({ world: { lunyee: true, executedAfterHoming: 'stored' }, tested: false });
+    const storedSeen = watch(stored);
+    await stored.tick(1000);
+    expect(storedSeen.wco).toEqual([[0, 0, 0], [0, 0, 0]]);
+    send(stored, 'G38.3 Z-8 F100');
+    await stored.until(() => atRest(stored));
+    expect(storedSeen.starts.at(-1).to.z).toBe(-108);
+
+    // probeStuck: the contact stays whatever the contact test hook says.
+    const stuck = fakeGrbl({ now: 0 }, { lunyee: true, probeStuck: true });
+    const raws = [];
+    stuck.c.runner.on('status', (p) => raws.push(p.raw));
+    stuck.g.pinForced = false;
+    stuck.g.report();
+    expect(raws[0]).toMatch(/\|Pn:P/);
+  }, 60000);
+
+  test('S45 a target outside the soft limits: ALARM:2 when the line is read, nothing moves, the board restarts at MPos 0', async () => {
+    const ctx = await setup({ world: { lunyee: true }, tested: false });
+    const seen = watch(ctx);
+    // 0.1 mm before the refused band (Z -129.8 with $132=130): it runs.
+    send(ctx, 'G53 G1 Z-129.7 F500');
+    await ctx.until(() => atRest(ctx));
+    expect(ctx.g.m.z).toBeCloseTo(-129.7, 3);
+    expect(seen.events).toEqual([]);
+    // The executed offset is zero after the homing: work Z -131 is machine Z -131.
+    send(ctx, 'G38.3 Z-131 F100');
+    await ctx.tick(100);
+    expect(seen.events).toEqual(['ALARM:2', 'startup']);
+    expect(ctx.g.minTip).toBeCloseTo(-129.7, 3);
+    expect(ctx.g.m).toEqual(ZERO);
+    expect(ctx.g.active).toBe('Alarm');
+    expect(ctx.state().homed).toBe(false);
+    // The stored offset is loaded by the restart.
+    await ctx.tick(600);
+    expect(seen.wco.at(-1)).toEqual([20, 30, -100]);
+
+    // In the band: refused as well.
+    services.splice(0).forEach((service) => service.dispose());
+    const band = await setup({ world: { lunyee: true }, tested: false });
+    const bandSeen = watch(band);
+    send(band, 'G53 G1 Z-129.9 F500');
+    await band.tick(100);
+    expect(bandSeen.events).toEqual(['ALARM:2', 'startup']);
+    expect(bandSeen.starts).toEqual([]);
+    expect(band.g.m).toEqual(ZERO);
+  }, 60000);
+
+  test('S46 a reset in motion: ALARM:3, the board restarts at MPos 0, not homed; at rest the position stays', async () => {
+    const ctx = await setup({ world: { lunyee: true }, tested: false });
+    const seen = watch(ctx);
+    send(ctx, 'G53 G1 X150 F600');
+    await ctx.tick(200);
+    expect(ctx.g.active).toBe('Run');
+    expect(ctx.g.m.x).toBeGreaterThan(100);
+    ctx.c.command('reset');
+    expect(seen.events).toEqual(['ALARM:3', 'startup']);
+    expect(ctx.g.m).toEqual(ZERO);
+    expect(ctx.g.active).toBe('Alarm');
+    await ctx.tick(100);
+    expect(ctx.state().homed).toBe(false);
+
+    services.splice(0).forEach((service) => service.dispose());
+    const rest = await setup({ world: { lunyee: true }, tested: false });
+    const restSeen = watch(rest);
+    rest.c.command('reset');
+    expect(restSeen.events).toEqual(['startup']);
+    expect(rest.g.m).toEqual({ x: 100, y: 100, z: -110 });
+    await rest.tick(100);
+    expect(restSeen.wco.at(-1)).toEqual([20, 30, -100]);
   }, 60000);
 });
