@@ -170,10 +170,11 @@ async function busySession() {
       if (paintBusy) { p.frame(); await p.complete(); }
       assert.equal(p.requests.length,0,'active opening cannot request v2');
       p.status(); p.frame(); await p.complete();
-      assert.equal(p.requests.length,0,'activity stays latched until next opening: '+JSON.stringify(patch));
-      assert.equal(p.api.state().pending,true);
-      assert.equal(p.api.state().open,false);
-      assert.equal(p.api.state().layout,false);
+      const latched=!patch.homing;
+      assert.equal(p.requests.length,latched?0:BOOTSTRAP.length,'work stays latched; startup homing waits for fresh Idle: '+JSON.stringify(patch));
+      assert.equal(p.api.state().pending,latched);
+      assert.equal(p.api.state().open,!latched);
+      assert.equal(p.api.state().layout,!latched);
       const next = page({values:p.values});
       next.status(); next.frame(); await next.complete();
       assert(next.api.state().ready && next.api.state().layout,'a new idle opening can activate');

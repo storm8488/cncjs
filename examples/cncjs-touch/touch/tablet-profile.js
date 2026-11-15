@@ -34,7 +34,7 @@
   function fire(previous){
     classes();
     var detail={performance:performance,kind:kind,machine:profile,previous:previous};
-    try{window.dispatchEvent(new CustomEvent('cnc-profile-change',{detail:detail}));}catch(_){}
+    try{window.dispatchEvent(new CustomEvent('cnc-profile-change',{detail:detail}));}catch(_){/* Keep the existing fallback when storage or parsing fails. */}
   }
   function setPerformance(p){
     if(PROFILES.indexOf(p)<0)return {ok:false,persisted:false,profile:performance,message:t('Profil de performances inconnu.')};
@@ -75,10 +75,10 @@
   function loadOne(file){
     if(Object.prototype.hasOwnProperty.call(loading,file))return loading[file];
     var promise=new Promise(function(resolve,reject){
+      function failed(){delete loading[file];delete v2PendingLoads[file];reject(new Error('v2-catalog-unavailable'));}
       if(file==='i18n-messages-v2.js'){
         // Despite its historical .js suffix this is JSON DATA. Never a script or eval.
         var xhr=new window.XMLHttpRequest();
-        function failed(){delete loading[file];delete v2PendingLoads[file];reject(new Error('v2-catalog-unavailable'));}
         xhr.open('GET',file+'?v='+ADVANCED_VERSION,true);xhr.timeout=15000;
         xhr.onload=function(){
           if(!v2Gate()){failed();return;}
@@ -225,7 +225,7 @@
   function v2SetPreference(enabled){
     if(typeof enabled!=='boolean')return {ok:false,persisted:false,message:v2Message()};
     var persisted=false;
-    try{var raw=JSON.stringify({version:1,enabled:enabled});window.localStorage.setItem(V2_KEY,raw);persisted=window.localStorage.getItem(V2_KEY)===raw;}catch(_){}
+    try{var raw=JSON.stringify({version:1,enabled:enabled});window.localStorage.setItem(V2_KEY,raw);persisted=window.localStorage.getItem(V2_KEY)===raw;}catch(_){/* Keep the existing fallback when storage or parsing fails. */}
     v2StorageFailed=!persisted;
     if(persisted)v2Preference={enabled:enabled,storage:'ok'};
     // Even if persistence fails, an explicit stop releases this page's resources.
@@ -304,9 +304,9 @@
     // Establish first arrival even while v2 is unavailable. All consumers, safe
     // Idle and read leases use this same clock; missing snapshots never clear it.
     v2RememberReport(m);
-    // Latch every observed activity, even if it stops before the first RAF. Missing
-    // telemetry is still allowed to wait for a known Idle on this page opening.
-    if(!v2Layout&&((m&&(m.workflow&&m.workflow!=='idle'||m.activeState&&m.activeState!=='Idle'||m.canStop||m.loading||m.homing||
+    // Work observed before the first rest keeps v1 for this session. Startup
+    // recovery (Alarm, Home) only waits: v2Idle still requires proven fresh rest.
+    if(!v2Layout&&((m&&(m.workflow&&m.workflow!=='idle'||m.activeState&&!/^(Idle|Alarm|Home)$/.test(m.activeState)||m.canStop||m.loading||
       m.probing||m.probeBusy||v2Number(m.spindleSpeed)&&m.spindleSpeed>0||m.motion&&(m.motion.jog||m.motion.cancelling)))||d.busy||d.halt||d.systemCommand))v2Blocked=true;
     v2Refresh();
   }

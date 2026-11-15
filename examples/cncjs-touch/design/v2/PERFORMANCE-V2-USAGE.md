@@ -30,7 +30,7 @@ Si une condition manque, l’entrée « Interface Performance v2 » n’apparaî
 3. Le message « Changement préparé pour la prochaine session au repos » s’affiche, dans Réglages et dans le bandeau. **La page ne se recharge pas** et rien ne bouge.
 4. La v2 s’ouvre à la **prochaine ouverture de l’interface**, machine au repos avec un rapport récent. Rechargez donc l’interface vous-même au repos, ou attendez le prochain démarrage du kiosque.
 
-Si l’interface s’ouvre alors qu’un travail tourne, ou si l’état de la machine est inconnu, la v2 ne s’ouvre pas pendant cette session : elle attendra une ouverture au repos.
+Si l’interface voit un travail avant son premier repos, la v2 ne s’ouvre pas pendant cette session. Un état inconnu, une alarme ou une prise d’origine attendent le premier repos confirmé par un rapport récent ; la v2 peut alors s’ouvrir si toutes ses conditions sont réunies.
 
 Le choix est mémorisé dans ce navigateur seulement (clé `cncjs-touch-performance-ui-v2`). Si le navigateur refuse de l’enregistrer, Réglages affiche « Changement non enregistré : stockage du navigateur indisponible. ».
 

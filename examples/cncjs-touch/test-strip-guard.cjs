@@ -168,7 +168,7 @@ for (const pageFile of ['index.html', 'simulation.html']) {
 {
   const classes = new Set(), listeners = {};
   const ctx = { window: { addEventListener: (n, f) => { listeners[n] = f; }, removeEventListener() {} }, setTimeout: () => 1, clearTimeout() {},
-    document: { documentElement: { classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c) } }, getElementById: () => ({ textContent: '' }) } };
+    document: { addEventListener() {}, documentElement: { classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c) } }, getElementById: () => ({ textContent: '' }) } };
   vm.createContext(ctx); vm.runInContext(read('startup.js'), ctx);
   assert(!classes.has('cnc-degraded'));
   listeners.error({ target: { tagName: 'SCRIPT' } });

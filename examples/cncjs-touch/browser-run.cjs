@@ -1627,7 +1627,7 @@ async function v2Closed(cdp, fx, summary) {
       fx.setPhase('idle');
       await setViewport(cdp, w, h, 1);
       await v2Storage(cdp, fx.base, opts);
-      const st = await v2Open(cdp, fx.base + page + '?v2-closed=' + encodeURIComponent(label), false);
+      await v2Open(cdp, fx.base + page + '?v2-closed=' + encodeURIComponent(label), false);
       for (const [name] of SCREENS) await goScreen(cdp, name);
       const after = await cdp.evaluate(V2_STATE);
       const dom = compare ? await cdp.evaluate(V2_DOM) : null;
@@ -2223,7 +2223,7 @@ async function screensMeasure(summary) {
 // exactly one tab, nothing between the strip and the sticky tabs once scrolled, the selected tab distinct and
 // readable, « Appliquer » shown on every tab, the Wi-Fi form with its keyboard, the first tap (arming) of a Tablette
 // command and of the update install (never the second), the refusals during a job, and no system request while
-// Affichage or Machine is shown. Every API is answered by the fixture (preview-server.cjs), VERSION.json and
+// Affichage or Machine is shown, except the single startup version read (P2). Every API is answered by the fixture (preview-server.cjs), VERSION.json and
 // api.github.com included: nothing leaves the loopback.
 const SETTINGS_TABS = ['display', 'machine', 'system'];
 const SETTINGS_REQUEST = /\/api\/touch-system|\/api\/touch-wifi|\/api\/touch-updates|\/api\/commands|VERSION\.json|api\.github\.com/;
@@ -2237,7 +2237,7 @@ const SETTINGS_LIMITS = { theme: 0, size: 0, brightness: 120, sleep: 350, langua
 // Every XHR the page opens, with the Réglages tab at that moment and its body (installed before the fixture
 // replaces XMLHttpRequest, which it then wraps too).
 const SETTINGS_TRAP = '(function(){var log=window.__brRequests=[];function wrap(F){if(!F||F.__brWrapped)return F;var W=function(){var x=new F(),open=x.open,send=x.send,e=null;' +
-  'x.open=function(m,u){var p=document.getElementById("screen-settings");e={method:m,url:String(u),tab:p?p.getAttribute("data-settings-tab"):null,active:!!(p&&p.classList.contains("active"))};log.push(e);return open.apply(x,arguments);};' +
+  'x.open=function(m,u){var p=document.getElementById("screen-settings");e={method:m,url:String(u),tab:p?p.getAttribute("data-settings-tab"):null,active:!!(p&&p.classList.contains("active")),startup:!!(document.documentElement&&document.documentElement.classList.contains("cnc-loading"))};log.push(e);return open.apply(x,arguments);};' +
   'x.send=function(b){if(e)e.body=b==null?"":String(b).slice(0,200);return send.apply(x,arguments);};return x;};W.__brWrapped=true;W.prototype=F.prototype;["UNSENT","OPENED","HEADERS_RECEIVED","LOADING","DONE"].forEach(function(k){W[k]=F[k];});return W;}' +
   'var current=wrap(window.XMLHttpRequest);try{Object.defineProperty(window,"XMLHttpRequest",{configurable:true,get:function(){return current;},set:function(F){current=wrap(F);}});}catch(_){}})();';
 // The panel at the top of the current tab: children shown, tab buttons, scroll needed to see the bottom of each control.
@@ -2361,11 +2361,17 @@ async function settingsWalk(cdp, tag, dir, results, info, opts) {
   info.placement = {};
   base.forEach((c, i) => { info.placement[c.key] = SETTINGS_TABS.filter((t) => info.tabs[t].children[i].shown).join('+') || (c.hidden ? 'hidden' : 'none'); });
 }
-// Requests seen by the trap: system ones only while Système is shown, never a host command, install or Wi-Fi change.
+// Only the single cache-busted startup metadata read may precede System.
+function settingsOffTabRequests(list) {
+  const startupVersion = (r) => r.method === 'GET' && /^VERSION\.json\?\d+$/.test(r.url) && r.startup === true;
+  const boot = list.filter(startupVersion);
+  return list.filter((r) => !(r.active && r.tab === 'system') && !(boot.length === 1 && startupVersion(r)));
+}
+// Requests seen by the trap: system ones only while Système is shown (startup version excepted), never a host command, install or Wi-Fi change.
 async function settingsRequests(cdp, tag, info) {
   const list = (await cdp.evaluate('window.__brRequests||[]')) || [];
-  info.requests = list.filter((r) => SETTINGS_REQUEST.test(r.url)).map((r) => ({ method: r.method, url: r.url, tab: r.tab, active: r.active, action: (/"action"\s*:\s*"([^"]+)"/.exec(r.body || '') || [])[1] || '' }));
-  info.requests.filter((r) => !(r.active && r.tab === 'system')).forEach((r) => failures.push(tag + ': ' + r.method + ' ' + r.url + ' while ' + (r.active ? 'the « ' + r.tab + ' » tab' : 'another screen') + ' is shown'));
+  info.requests = list.filter((r) => SETTINGS_REQUEST.test(r.url)).map((r) => ({ method: r.method, url: r.url, tab: r.tab, active: r.active, startup: r.startup, action: (/"action"\s*:\s*"([^"]+)"/.exec(r.body || '') || [])[1] || '' }));
+  settingsOffTabRequests(info.requests).forEach((r) => failures.push(tag + ': ' + r.method + ' ' + r.url + ' while ' + (r.active ? 'the « ' + r.tab + ' » tab' : 'another screen') + ' is shown'));
   info.requests.filter((r) => r.method !== 'GET' && !(/touch-wifi/.test(r.url) && r.action === 'scan')).forEach((r) => failures.push(tag + ': ' + r.method + ' ' + r.url + ' ' + r.action + ' sent (only a Wi-Fi scan is allowed here)'));
   if (list.some((r) => /^https?:/.test(r.url) && !/^https:\/\/api\.github\.com\/repos\/fixture\//.test(r.url))) failures.push(tag + ': request outside the fixture: ' + list.filter((r) => /^https?:/.test(r.url)).map((r) => r.url).join(', '));
 }
@@ -2746,7 +2752,7 @@ function writeSummary(summary) {
   if (summary.settings && summary.settings.length) {
     L.push('## Réglages (`settings.json`, `settings-v2.json`, `settings-*/`, `v2-settings-*/`)');
     L.push('');
-    L.push('Scroll in px needed to see the bottom of each control from the top of its tab (— not shown). Goals, enforced at 1366 x 768 Éco laser, standard text: ' + Object.keys(SETTINGS_LIMITS).map((k) => k + ' ≤ ' + SETTINGS_LIMITS[k]).join(', ') + '. System requests: all seen while Système was shown.');
+    L.push('Scroll in px needed to see the bottom of each control from the top of its tab (— not shown). Goals, enforced at 1366 x 768 Éco laser, standard text: ' + Object.keys(SETTINGS_LIMITS).map((k) => k + ' ≤ ' + SETTINGS_LIMITS[k]).join(', ') + '. System requests: all seen while Système was shown, except the single startup version GET.');
     L.push('');
     L.push('| Variant | Affichage | Machine | Système | System requests |');
     L.push('| --- | --- | --- | --- | ---: |');
@@ -2843,4 +2849,4 @@ async function main() {
 // The measurement scripts (measure-*.cjs) reuse the DevTools client, the browser
 // launcher and the fixture starter; run the harness only as a program.
 if (require.main === module) main().catch((e) => { console.error('browser-run: ' + (e.stack || e.message)); process.exit(1); });
-module.exports = { FILE_COLUMN, GUIDE_MODE, guideChecks, strictCheck, loadExceptions, infoClipOf, stoppedChecks, stoppedLayoutChecks, GOALS, RESPONSIVE, MEASURE, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors };
+module.exports = { FILE_COLUMN, GUIDE_MODE, guideChecks, strictCheck, loadExceptions, infoClipOf, stoppedChecks, stoppedLayoutChecks, settingsOffTabRequests, GOALS, RESPONSIVE, MEASURE, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors };

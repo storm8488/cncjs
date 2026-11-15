@@ -1217,3 +1217,14 @@ window.CNCTouchMessages.push(
 ['L’arrêt d’urgence physique reste le seul arrêt garanti.','The physical emergency stop remains the only guaranteed stop.','La parada de emergencia física sigue siendo la única parada garantizada.'],
 ['Zéro Z avec une plaque : dans Suivi, machine au repos. Profils et diagnostic de la sonde : panneau Sonde.','Z zero with a plate: in Monitor, machine idle. Probe profiles and diagnostic: Probe panel.','Cero Z con placa: en Seguimiento, máquina en reposo. Perfiles y diagnóstico de la sonda: panel Sonda.'],
 ['Commandes réelles : Déverrouiller ($X) et Prise d’origine ($H) sur cet écran, chacune avec sa confirmation ; déplacements et zéros de travail depuis Préparer ; zéro Z avec plaque depuis Suivi.','Real commands: Unlock ($X) and Homing ($H) on this screen, each with its confirmation; moves and work zeros from Prepare; Z zero with a plate from Monitor.','Comandos reales: Desbloquear ($X) y Búsqueda de origen ($H) en esta pantalla, cada uno con su confirmación; desplazamientos y ceros de trabajo desde Preparar; cero Z con placa desde Seguimiento.']);
+
+// Kiosk startup and loaded/installed interface versions.
+window.CNCTouchMessages.push(
+["Recharger","Reload","Recargar"],
+["Chargement incomplet. Vérifiez la connexion puis réessayez.","Loading incomplete. Check the connection and try again.","Carga incompleta. Compruebe la conexión y reintente."],
+["Le chargement prend plus de temps que prévu. Vous pouvez patienter ou réessayer.","Loading is taking longer than expected. You can wait or try again.","La carga tarda más de lo previsto. Puede esperar o reintentar."],
+["Interface chargée : ","Loaded interface: ","Interfaz cargada: "],
+["Version installée : ","Installed version: ","Versión instalada: "],
+["Rechargement indisponible : attendez le retour au repos.","Reload unavailable: wait until the machine is back at rest.","Recarga no disponible: espere a que la máquina vuelva al reposo."],
+["Fermez la confirmation ouverte avant de recharger.","Close the open confirmation before reloading.","Cierre la confirmación abierta antes de recargar."]
+);

@@ -90,4 +90,11 @@ assert(overlay.hidden);assert.equal(timers.size,1);tick(60000);assert(!overlay.h
   fire('touchend',{touches:[]});tick(450);assert(ov.hidden);assert.deepEqual(seen,[true,false],'no second wake');
   assert(win.cncScreenSaver.preview());win.cncScreenSaver.configure(0);assert.deepEqual(seen,[true,false,true,false],'a configuration change wakes too');
 }
+// C-33: browser shortcuts keep their default action, but never reach machine controls.
+for(const shortcut of [{key:'R',code:'KeyR',ctrlKey:true,shiftKey:true},{key:'r',code:'KeyR',metaKey:true},{key:'F5',code:'F5'},{key:'x',code:'KeyX',altKey:true}]){
+  api.configure(0);assert(api.preview());
+  for(const type of ['keydown','keyup']){const e=event(type,shortcut);assert(!e.prevented,'browser shortcut passes through');assert(e.stopped,'shortcut never reaches the page');}
+  tick(450);assert(overlay.hidden,'shortcut wakes the screen saver');
+}
+api.configure(0);assert(api.preview());assert(event('keydown',{key:'a',code:'KeyA'}).prevented,'ordinary keys stay shielded');event('keyup',{key:'a',code:'KeyA'});tick(450);
 console.log('PASS: sleep deadlines, independent clock, visibility return and wake shield; job/pause/alarm/probe inhibition, stale/disconnected/other-controller retention, confirmed-idle reset, automatic wake and no timer during work.');

@@ -65,7 +65,11 @@
   }
   function activity(e) {
     if (asleep || waking) {
-      e.preventDefault(); e.stopImmediatePropagation(); track(e); announce(false);
+      // Preserve browser shortcuts (including the first reload during sleep),
+      // while stopping propagation to every machine control below the shield.
+      var shortcut=/^key/.test(e.type)&&(e.ctrlKey||e.altKey||e.metaKey||e.key==='F5'||e.code==='F5');
+      if(!shortcut)e.preventDefault();
+      e.stopImmediatePropagation(); track(e); announce(false);
       // Keep the shield through release and the following synthetic/double click.
       if (e.type === 'click' || e.type === 'pointerup' || e.type === 'mouseup' || e.type === 'touchend' || e.type === 'keyup') {
         asleep = false; waking = true;

@@ -1,5 +1,15 @@
 # Validation scope
 
+## P2 kiosk page (2026-11-15)
+
+- `test-backlight.cjs`: load-time locality discovery outside Settings, local reload wake, no remote automatic writes, permanent remote refusal, awake touch wake after more than five seconds, serialized requests, pending dim/wake and disposal. Existing slider, retry and gesture checks remain. A3-1 scenarios 1/2 are converted to these page tests; the real server startup/wake behavior is covered by the S5 Jest tests. The rejected blind-touch shield assertion is the documented D3 limit, not a removed page guard.
+- `test-screen-saver.cjs`: A3-1 reload shortcut converted; Ctrl/Alt/Meta/F5 keep the browser default and stop propagation. Ordinary keys, pointers, release and synthetic clicks retain their shield.
+- `test-tablet-actions.cjs`: one cache-busted loaded-version read, later installed version kept separate, no automatic reload, local guards and a final server check for explicit reload (including stale/moving/paused, spindle and host maintenance refusals). The browser harness off-tab assertion allows only one timestamped version GET during startup; offline negative tests still reject duplicates, late reads, POST and other system APIs.
+- `test-v2-gate.cjs`: V3-1 converted using the existing shared fixture; disconnected/Alarm/Home then fresh Idle opens v2, while observed work keeps v1. Existing Eco/software/laser exclusions, report-age and bootstrap cancellation checks remain.
+- `test-startup.cjs`: all five bootstrap strings equal the FR/EN/ES catalogue before deferred modules exist; invalid/blocked storage falls back to French, and late DOM arrival preserves failure text. Without JavaScript the static `noscript` fallback remains French.
+
+No new page test file; these five durable tests are already in `verify-project.cjs`. The loaded version is the metadata read at opening, not an integrity hash of the scripts in browser memory. No hardware outcome follows from these mocked checks.
+
 ## P1 page contract (2026-11-15)
 
 - `test-start-override.cjs`: quantified D1 snapshot/409 refusals in FR/EN/ES, all six possible axis/side reasons, ticket and live checks, checked-ticket invalidation, no direct-handler bypass; unknown stays confirmable with the checkbox. Converts A2-1.

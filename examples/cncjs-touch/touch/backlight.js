@@ -12,7 +12,7 @@
   if(!panel)return;
   var MIN=5,STEP=5,KEY='cncjs-touch-backlight-v1',MODES=['off','min','keep'];
   var mode='off';
-  try{var saved=JSON.parse(localStorage.getItem(KEY)||'null');if(saved&&MODES.indexOf(saved.sleep)>=0)mode=saved.sleep;}catch(_){}
+  try{var saved=JSON.parse(localStorage.getItem(KEY)||'null');if(saved&&MODES.indexOf(saved.sleep)>=0)mode=saved.sleep;}catch(_){/* Keep the existing fallback when storage or parsing fails. */}
 
   function el(tag,cls,text){var n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}
   function set(n,value){if(n.textContent!==value)n.textContent=value;}
@@ -36,7 +36,14 @@
   // Just before the screen sleep card (Affichage tab); older layouts: before the footer.
   var anchor=panel.querySelector('.ks-display-sleep')||panel.querySelector('.ks-display-footer');panel.insertBefore(card,anchor||null);
 
-  var state=null,inflight=null,pending=null,loading=null,disposed=false;
+  var state=null,inflight=null,pending=null,loading=null,disposed=false,local=null;
+  function locality(code,data){
+    // Once refused, this page never attempts automatic backlight changes again.
+    if(local===false)return;
+    if(data&&(data.local===false||data.code==='ETOUCH_BACKLIGHT_REMOTE'))local=false;
+    else if(data&&data.local===true)local=true;
+    if(local===false){saverNext=null;wakePending=false;clearTimeout(wakeTimer);wakeTimer=null;}
+  }
   function token(){try{return JSON.parse(localStorage.getItem('cnc')).state.session.token||'';}catch(_){return '';}}
   function apiBase(){try{return window.cncState.get().apiBase;}catch(_){return '/api';}}
   function shown(){var tab=panel.getAttribute('data-settings-tab');return !disposed&&!document.hidden&&panel.classList.contains('active')&&(!tab||tab==='display');}
@@ -45,7 +52,7 @@
     var x=new XMLHttpRequest();x.open(method,apiBase()+'/touch-backlight',true);x.timeout=5000;
     x.setRequestHeader('Authorization','Bearer '+credential);
     if(body)x.setRequestHeader('Content-Type','application/json');
-    x.onload=function(){var data=null;try{data=JSON.parse(x.responseText);}catch(_){}done(x.status,data);};
+    x.onload=function(){var data=null;try{data=JSON.parse(x.responseText);}catch(_){/* Keep the existing fallback when storage or parsing fails. */}locality(x.status,data);done(x.status,data);};
     x.onerror=x.ontimeout=function(){done(0,null);};
     x.send(body?JSON.stringify(body):null);return x;
   }
@@ -57,17 +64,19 @@
     set(value,state&&typeof state.percent==='number'?Number(slider.value)+' %':'—');
     var why=!state?'':!state.available?t('Aucun rétroéclairage réglable sur cet ordinateur.'):!state.writable?t('Réglage bloqué : CNCjs n’a pas le droit de modifier la luminosité (règle udev à installer, voir README).'):'';
     if(why)set(status,why);
+    sleepSelect.disabled=local===false;
   }
   function message(code,data){
     return code===401||code===403?t('Session CNCjs requise : ouvrez CNCjs et connectez-vous.'):code===404?t('Ce serveur CNCjs ne gère pas la luminosité.'):(data&&data.message)||t('Luminosité indisponible.');
   }
-  function load(){
-    if(loading||inflight||!shown())return;
+  function load(initial){
+    if(disposed||loading||inflight||(!initial&&!shown()))return;
     loading=request('GET',null,function(code,data){
       loading=null;if(disposed)return;
       if(code===200&&data&&typeof data==='object'){state=data;if(typeof data.userPercent==='number')state.percent=data.userPercent;set(status,'');}
       else{state=null;set(status,message(code,data));}
       paint();
+      if(initial&&local===true)saver({wake:true});
     });
   }
   function send(percent){
@@ -88,13 +97,16 @@
   // Screen saver: one request at a time, the latest wish (dim or wake) wins.
   // A wake that fails (server busy, timeout) would leave the panel dark: it is
   // retried a few times, then again on the next touch, until the server confirms.
-  var dimmed=false,saverBusy=false,saverNext=null,wakePending=false,wakeTries=0,wakeTimer=null;
+  var dimmed=false,saverBusy=false,saverNext=null,wakePending=false,wakeTries=0,wakeTimer=null,lastWake=-Infinity;
+  function clock(){return window.performance&&typeof window.performance.now==='function'?window.performance.now():Date.now();}
   function saver(body){
+    if(disposed||local===false)return;
     if(saverBusy){saverNext=body;return;}
     saverBusy=true;
-    if(body.wake){wakePending=true;clearTimeout(wakeTimer);wakeTimer=null;}
+    if(body.wake){lastWake=clock();wakePending=true;clearTimeout(wakeTimer);wakeTimer=null;}
     var x=request('POST',body,function(code){
       saverBusy=false;
+      if(disposed||local===false){saverNext=null;paint();return;}
       if(body.wake){
         // No controllable backlight here (404/409) or no session (401/403): a retry on every touch would not help.
         if(code===200||code===401||code===403||code===404||code===409){wakePending=false;wakeTries=0;}
@@ -104,17 +116,22 @@
     });
     if(!x){saverBusy=false;saverNext=null;}
   }
-  function retryWake(){if(wakePending&&!dimmed&&!saverBusy&&!wakeTimer){wakeTries=0;saver({wake:true});}}
+  function retryWake(e){
+    if(disposed||local===false||dimmed||saverBusy||wakeTimer)return;
+    if(wakePending){wakeTries=0;saver({wake:true});}
+    else if(local===true&&(!e||e.type==='pointerdown')&&clock()-lastWake>5000)saver({wake:true});
+  }
   document.addEventListener('pointerdown',retryWake,true);document.addEventListener('keydown',retryWake,true);
   window.addEventListener('cnc-screen-saver-sleep',function(e){
     var asleep=!!(e&&e.detail);
+    if(local===false)return;
     if(asleep){
       if(mode==='keep'||(state&&!usable()))return;
       dimmed=true;wakePending=false;clearTimeout(wakeTimer);wakeTimer=null;saver({percent:mode==='off'?0:MIN,temporary:true});
     }else if(dimmed){dimmed=false;saver({wake:true});}
   });
   sleepSelect.addEventListener('change',function(){
-    if(MODES.indexOf(sleepSelect.value)<0)return;
+    if(local===false||MODES.indexOf(sleepSelect.value)<0)return;
     mode=sleepSelect.value;
     try{localStorage.setItem(KEY,JSON.stringify({sleep:mode}));}catch(_){set(status,t('Choix appliqué ; mémorisation indisponible dans ce navigateur.'));}
   });
@@ -159,9 +176,7 @@
   window.addEventListener('cnc-screen-change',function(){dropDrag();load();});
   window.addEventListener('cnc-settings-tab',function(e){dropDrag();if(e&&e.detail==='display')load();});
   document.addEventListener('visibilitychange',function(){dropDrag();load();});
-  window.addEventListener('pagehide',function(e){if(e&&e.persisted)return;disposed=true;});
-  paint();load();
-  // A page reloaded while the screen saver had the panel off (an update, a crash) wakes it.
-  if(token())saver({wake:true});
+  window.addEventListener('pagehide',function(e){if(e&&e.persisted)return;disposed=true;clearTimeout(wakeTimer);wakeTimer=null;});
+  paint();load(true);
   window.cncBacklight={state:function(){return {state:state,inflight:!!inflight,pending:pending};}};
 })();

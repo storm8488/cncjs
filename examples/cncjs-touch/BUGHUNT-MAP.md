@@ -1,5 +1,15 @@
 # Carte de l'interface CNCjs Touch pour la chasse aux bugs
 
+## Mise à jour P2 — kiosque et démarrage (2026-11-15)
+
+- C-10/C-15 : `backlight.js` lit `local` au chargement, réveille seulement le kiosque et garde définitivement le refus distant. Les touchers éveillés relancent un réveil idempotent après plus de 5 s, une requête de veille à la fois. Le voile et les gardes travail/pause/alarme du `screen-saver.js` subsistent.
+- C-33 : les touches Ctrl/Alt/Meta/F5 réveillent sans annuler le raccourci du navigateur ; leur propagation vers les commandes reste arrêtée.
+- C-49 : `tablet-actions.js` garde la version lue au chargement, relit l'installation à l'ouverture de Système et offre Recharger au repos seulement, après une dernière lecture locale du serveur. La lecture d'un fichier de version n'atteste pas les octets d'un ancien script en cache.
+- C-35 : alarme et prise d'origine attendent un vrai repos frais au lieu de bloquer la session v2. Travail, chargement, palpage, `busy` et `halt` restent mémorisés ; par prudence, les anciens blocages pour broche active, jog, annulation et commande système restent aussi conservés (écart P2 au plan). Les autres portes restent intactes.
+- C-64 : cinq textes FR/EN/ES dans le bootstrap bloquant, comparés au catalogue. Le stockage illisible retombe sur FR.
+
+Preuves A3-1 et V3-1 converties dans `test-backlight.cjs`, `test-screen-saver.cjs` et `test-v2-gate.cjs`. L'assertion exigeant l'interception d'un toucher lorsque le panneau est éteint par une autre page locale est écartée conformément au § 1.3 du plan. Ce cas ne supprime pas le voile de la veille propre à la page. Les essais de rétroéclairage réel, kiosque et Chromium 106 restent à faire.
+
 ## Mise à jour P1 — contrat D1, D2 et D4 (2026-11-15)
 
 La carte historique ci-dessous décrit l'état avant corrections. La page courante affiche les chiffres de `programCheck.blocking` dans Fichiers et Suivi ; un ticket ordinaire hors course ne peut pas être confirmé, même avec une case déjà cochée. `CNCProgramCheckView.refusal(machine, operation)` partage le formatage des refus d'instantané. Les refus D2 passent par leurs codes et paramètres sur Suivi, Sonde et Préparer ; aucun bouton `verifyOffset` ni de dérogation n'est ajouté dans P1.

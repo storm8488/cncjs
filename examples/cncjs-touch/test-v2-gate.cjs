@@ -83,6 +83,7 @@ function page(options = {}) {
     advance(ms) { mono += ms; }, frames, get api() { return window.cncV2; }};
 }
 async function tests() {
+  await firstRest();
   await repeatedReportClock();
   await hiddenBootstrap();
   const p = page();
@@ -336,5 +337,18 @@ async function hiddenBootstrap() {
   }
   console.log('PASS v2 hidden bootstrap: all seven boundaries cancelled, late execution ignored, next-opening restart only.');
 }
-module.exports={page,read,tick,KEY,BOOTSTRAP,repeatedReportClock,hiddenBootstrap};
+async function firstRest(){
+  // C-35: startup recovery is not a machining session. Every gate still waits
+  // for a new, fresh Idle report before requesting any v2 resource.
+  for(const states of [[{activeState:'Alarm'},{activeState:'Home',homing:true}],[{activeState:'Alarm'}],[{activeState:'Home',homing:true}]]){
+    const p=page();p.status(null);p.frame();
+    for(const state of states){p.status(state);p.frame();assert.equal(p.requests.length,0);}
+    p.status();p.frame();await p.complete();assert(p.classes.has('perf-v2'),'startup recovery opens v2 at the first rest');p.emit('pagehide');
+  }
+  for(const [machine,detail] of [[{workflow:'running',activeState:'Run'},{}],[{workflow:'paused'},{}],[{canStop:true},{}],[{loading:true},{}],[{probing:true},{}],[{}, {busy:true}],[{}, {halt:{canStop:true}}]]){
+    const p=page();p.status(machine,detail);p.frame();p.status();p.frame();await p.complete();
+    assert.equal(p.requests.length,0,'observed work keeps v1 for this session');assert(!p.classes.has('perf-v2'));p.emit('pagehide');
+  }
+}
+module.exports={page,read,tick,KEY,BOOTSTRAP,repeatedReportClock,hiddenBootstrap,firstRest};
 if(require.main===module) tests().catch(e=>{console.error(e);process.exitCode=1;});

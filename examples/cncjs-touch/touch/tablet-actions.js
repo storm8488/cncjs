@@ -25,7 +25,11 @@
   box.appendChild(help);
   var foot=section.lastChild;section.insertBefore(box,foot||null);
 
-  var disposed=false,commands=[],buttons=[],armed=null,armTimer=null,busy=false,listXhr=null,info=null,checkedAt=-Infinity,remote=null;
+  var installedVersion=el('p','ks-tablet-installed',''),reload=el('button','ks-tablet-reload ks-secondary',t('Recharger'));
+  var reloadNote=el('p','ks-system-note','');reload.type='button';
+  installedVersion.hidden=reload.hidden=reloadNote.hidden=true;
+  box.appendChild(installedVersion);box.appendChild(reload);box.appendChild(reloadNote);
+  var disposed=false,commands=[],buttons=[],armed=null,armTimer=null,busy=false,listXhr=null,info=null,installed=null,versionXhr=null,opened=false,checkedAt=-Infinity,remote=null;
   function token(){try{return JSON.parse(localStorage.getItem('cnc')).state.session.token||'';}catch(_){return '';}}
   function apiBase(){try{return window.cncState.get().apiBase;}catch(_){return '/api';}}
   function machine(){try{return window.cncState.get().machine;}catch(_){return null;}}
@@ -37,7 +41,7 @@
     var x=new XMLHttpRequest();x.open(method,url,true);x.timeout=8000;
     if(auth){var c=token();if(!c){done(401,null);return null;}x.setRequestHeader('Authorization','Bearer '+c);}
     if(body!==undefined)x.setRequestHeader('Content-Type','application/json');
-    x.onload=function(){var data=null;try{data=JSON.parse(x.responseText);}catch(_){}done(x.status,data);};
+    x.onload=function(){var data=null;try{data=JSON.parse(x.responseText);}catch(_){/* Keep the existing fallback when storage or parsing fails. */}done(x.status,data);};
     x.onerror=x.ontimeout=function(){done(0,null);};
     x.send(body===undefined?null:JSON.stringify(body));return x;
   }
@@ -54,7 +58,31 @@
     if(blocked&&buttons.length)set(status,t('Indisponible pendant un travail en cours ou en pause.'));
     else if(running&&buttons.length)set(status,t('Commande système en cours : ')+running.title);
     else if(armed)set(status,t('Touchez à nouveau pour confirmer (8 s).'));
+    var why=reloadReason();reload.disabled=busy||!!why;
+    set(reloadNote,why||t('Le rechargement efface le journal de cette page et les saisies non enregistrées. Exportez ou enregistrez-les avant de continuer.'));
   }
+  function reloadReason(){
+    var d;try{d=window.cncState.get();}catch(_){return t('Rechargement indisponible : attendez le retour au repos.');}
+    var m=d&&d.machine,s=window.cncScreenSaver&&window.cncScreenSaver.status();
+    if(!d||d.busy||d.halt||d.systemCommand||s&&s.blocked||m&&(!m.fresh||m.workflow!=='idle'||m.activeState!=='Idle'||m.spindleSpeed!==0||
+      m.canStop||m.loading||m.homing||m.probing||m.probeBusy||m.motion&&(m.motion.jog||m.motion.cancelling)))return t('Rechargement indisponible : attendez le retour au repos.');
+    var dialogs=document.querySelectorAll('[role="dialog"]');
+    for(var i=0;i<dialogs.length;i++)if(!dialogs[i].hidden&&dialogs[i].getClientRects().length)return t('Fermez la confirmation ouverte avant de recharger.');
+    return '';
+  }
+  reload.addEventListener('click',function(){
+    if(disposed||!shown()||reload.hidden||busy||reloadReason())return;
+    busy=true;paint();
+    // Reload removes Pause/Stop: recheck every controller just before doing it.
+    request('GET',apiBase()+'/touch-job',undefined,true,function(code,data){
+      busy=false;if(disposed)return;
+      var controllers=data&&data.controllers,why=reloadReason();
+      if(code!==200||!Array.isArray(controllers)||data.systemCommand||controllers.some(function(c){return !c||!c.fresh||c.workflow!=='idle'||c.activeState!=='Idle'||c.spindleSpeed!==0||
+        c.canStop||c.loading||c.homing||c.probing||c.probeBusy||c.motion&&(c.motion.jog||c.motion.cancelling);}))why=t('Rechargement indisponible : attendez le retour au repos.');
+      if(why||!shown()){paint();if(why)set(reloadNote,why);return;}
+      window.location.reload();
+    });
+  });
   function run(command){
     if(busy||jobActive()||systemCommand())return;
     if(armed!==command.id){armed=command.id;clearTimeout(armTimer);armTimer=setTimeout(disarm,CONFIRM_MS);paint();return;}
@@ -123,12 +151,16 @@
   function short(sha){return typeof sha==='string'?sha.slice(0,7):'';}
   function renderVersion(){
     if(!info){set(version,t('Version de l’interface inconnue (déploiement manuel).'));set(update,'');return;}
-    set(version,t('Interface ')+short(info.commit)+(info.branch?' · '+info.branch:'')+(info.deployedAt?' · '+t('installée le ')+date(info.deployedAt):''));
+    set(version,t('Interface chargée : ')+short(info.commit)+(info.branch?' · '+info.branch:'')+(info.deployedAt?' · '+t('installée le ')+date(info.deployedAt):''));
+    var different=!!(installed&&installed.commit!==info.commit);
+    installedVersion.hidden=reload.hidden=reloadNote.hidden=!different;
+    set(installedVersion,different?t('Version installée : ')+short(installed.commit):'');
+    var current=installed||info;
     if(!remote)set(update,info.repo?t('Recherche de mise à jour…'):'');
     else if(remote.error)set(update,t('Vérification de mise à jour impossible (pas d’accès à GitHub).'));
-    else if(remote.sha===info.commit)set(update,t('À jour.'));
+    else if(remote.sha===current.commit)set(update,t('À jour.'));
     else set(update,t('Mise à jour disponible : ')+short(remote.sha)+(remote.message?' — '+remote.message:''));
-    var state=!remote||remote.error?'unknown':remote.sha===info.commit?'current':'available';
+    var state=!remote||remote.error?'unknown':remote.sha===current.commit?'current':'available';
     if(update.getAttribute('data-state')!==state)update.setAttribute('data-state',state);
   }
   function checkRemote(){
@@ -139,18 +171,23 @@
       renderVersion();
     });
   }
-  function loadVersion(){
-    request('GET','VERSION.json?'+Date.now(),undefined,false,function(code,data){
-      info=code===200&&data&&typeof data.commit==='string'&&/^[0-9a-f]{7,40}$/.test(data.commit)?{commit:data.commit,branch:typeof data.branch==='string'?data.branch:'',repo:typeof data.repo==='string'&&/^[\w.-]+\/[\w.-]+$/.test(data.repo)?data.repo:'',deployedAt:data.deployedAt}:null;
-      renderVersion();checkRemote();
+  function loadVersion(initial){
+    if(disposed||versionXhr)return;
+    versionXhr=request('GET','VERSION.json?'+Date.now(),undefined,false,function(code,data){
+      versionXhr=null;if(disposed)return;
+      var read=code===200&&data&&typeof data.commit==='string'&&/^[0-9a-f]{7,40}$/.test(data.commit)?{commit:data.commit,branch:typeof data.branch==='string'?data.branch:'',repo:typeof data.repo==='string'&&/^[\w.-]+\/[\w.-]+$/.test(data.repo)?data.repo:'',deployedAt:data.deployedAt}:null;
+      if(initial)info=read;
+      installed=read;
+      renderVersion();if(shown())checkRemote();paint();
     });
   }
 
-  function refresh(){if(!shown()){if(armed)disarm();return;}loadList();if(info)checkRemote();else loadVersion();paint();}
+  function refresh(){if(!shown()){opened=false;if(armed)disarm();return;}loadList();if(!opened)loadVersion(false);opened=true;if(info)checkRemote();paint();}
   window.addEventListener('cnc-settings-tab',refresh);
   window.addEventListener('cnc-screen-change',refresh);
-  window.addEventListener('cnc-job-status',function(){if(shown()&&buttons.length)paint();});
+  window.addEventListener('cnc-job-status',function(){if(shown())paint();});
+  window.addEventListener('cnc-screen-saver-status',function(){if(shown())paint();});
   window.addEventListener('pagehide',function(e){if(e&&e.persisted)return;disposed=true;clearTimeout(armTimer);});
-  renderVersion();
+  renderVersion();loadVersion(true);
   window.cncTabletActions={state:function(){return {commands:commands.length,armed:armed,busy:busy};}};
 })();
