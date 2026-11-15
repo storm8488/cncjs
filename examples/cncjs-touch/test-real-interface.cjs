@@ -16,7 +16,7 @@ for (const words of ['VÉRIFICATION SEULE', 'à blanc', 'Vitesse du test', 'Orig
 const zeros = [...html.matchAll(/<button id="jog-zero-(x|y|z|xyz)"[^>]*\bdata-origin\b[^>]*data-axis="(x|y|z|xyz)"/g)].map((m) => m[1] + '=' + m[2]);
 assert.deepEqual(zeros, ['x=x', 'y=y', 'z=z', 'xyz=xyz'], 'Zéro X / Y / Z / XYZ carry their axes');
 assert.deepEqual([...html.matchAll(/data-step="([0-9.]+)"/g)].map((m) => m[1]), ['0.1', '1', '10', '25', '50', '100'], 'steps 0.1 / 1 / 10 / 25 / 50 / 100 mm (the server accepts the same list)');
-assert(/data-step="hold" hidden>Continu</.test(html), '« Continu » among the steps, hidden until the server offers it');
+assert(/data-step="hold">Continu</.test(html), '« Continu » among the steps, always visible, disabled by server permission');
 assert(/<div class="steps" id="feeds"><\/div>/.test(html), 'the speeds come from the server limits (real-motion.js)');
 assert(html.indexOf('real-motion.js') > html.indexOf('touch-shell.js'), 'real-motion.js after touch-shell.js (the actions row exists)');
 // The texts the real page's scripts produce: no mode word of the old checks, outside simulation branches.

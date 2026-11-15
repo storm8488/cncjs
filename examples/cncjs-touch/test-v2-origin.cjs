@@ -19,7 +19,7 @@ async function reviewOriginFixes() {
       p.window.cncShell = {
         preparationActions: ui.document.createElement('div'),
         sheet: () => ({ content: ui.document.createElement('div'), open() {} }),
-        v2Mounts: () => ({ prepare: { screen: 'jog', root: ui.screen, content, origin: content } })
+        v2Mounts: () => ({ prepare: { screen: 'check', root: ui.screen, content, origin: content } })
       };
       p.window.CNCPreviewGL = ui.win.CNCPreviewGL;
       p.window.cncState = { get: () => ({ machine: state() }) };
@@ -28,7 +28,7 @@ async function reviewOriginFixes() {
       p.run('travel-check.js'); p.run('origin-preview.js');
       // These modules are already installed; the fixture provides no real loader.
       p.window.cncProfile.loadAdvanced = () => Promise.resolve();
-      p.emit('cnc-screen-change', 'jog'); p.run('job-preparation.js');
+      p.emit('cnc-screen-change', 'check'); p.run('job-preparation.js');
       const flush = async () => { for (let i = 0; i < 5; i++) { await new Promise(setImmediate); p.frame(); } };
       p.status(state()); await flush();
       const card = ui.document.getElementById('op-card');
@@ -42,7 +42,7 @@ async function reviewOriginFixes() {
       if (close === 'preference') p.api.setPreference(false);
       assert.equal(verdict.getAttribute('data-tone'), 'ok', 'status and gate handlers do not render');
       const suspended = { fr: 'Vérification suspendue : non suivi', en: 'Verification suspended: not monitored', es: 'Verificación suspendida: sin seguimiento' }[language];
-      function neutral(label) {
+      const neutral=function(label) {
         assert.equal(p.api.gate(), false, label + ': v2 remains closed');
         assert.equal(card.parentNode, ui.screen, label + ': preparation keeps the card');
         assert.equal(verdict.getAttribute('data-tone'), 'neutral', label + ': old green verdict is cleared');
@@ -85,7 +85,7 @@ async function reviewOriginFixes() {
         assert(read, 'dashboard cancellation is scoped to the original promise'); read.cancelled++;
       };
       p.run('travel-check.js'); p.run('origin-preview.js');
-      p.emit('cnc-screen-change', 'jog'); p.window.CNCOriginPreview.mount(ui.screen); p.frame();
+      p.emit('cnc-screen-change', 'check'); p.window.CNCOriginPreview.mount(ui.screen); p.frame();
       assert.equal(reads.length, 1);
       if (transition === 'run') p.status(state({ workflow: 'running', activeState: 'Run' }));
       if (transition === 'eco') p.window.cncProfile.setPerformance('eco');
@@ -153,7 +153,7 @@ async function reviewOriginFixes() {
       // Return to the same program before delivering the superseded response.
       safeIdle = true; isLocked = false; ui.document.hidden = false; ui.screen.classList.add('active');
       if (transition === 'unmount') w.CNCOriginPreview.mount(ui.screen);
-      if (transition === 'screen') emit('cnc-screen-change', 'jog');
+      if (transition === 'screen') emit('cnc-screen-change', 'check');
       if (transition === 'lock') emit('cnc-screen-lock', false);
       if (transition === 'hidden') emit('doc:visibilitychange');
       ui.status(state()); await ui.flush();
@@ -204,7 +204,7 @@ async function reviewOriginFixes() {
     if (transition === 'pagehide') emit('pagehide');
     assert.equal(reads[0].cancelled, 1, transition + ': promoted card cancels immediately');
     safeIdle = true; isLocked = false; ui.document.hidden = false; ui.screen.classList.add('active');
-    emit('cnc-screen-change', 'jog'); emit('cnc-screen-lock', false); emit('doc:visibilitychange');
+    emit('cnc-screen-change', 'check'); emit('cnc-screen-lock', false); emit('doc:visibilitychange');
     ui.status(state()); await ui.flush();
     reads[0].resolve(pview()); await ui.flush();
     assert.equal(ui.opened.length, 0, transition + ': promotion never revives an invalidated read');
@@ -251,7 +251,7 @@ async function reviewOriginFixes() {
     w.CNCOriginPreview.mount(ui.screen); ui.status(state()); await ui.flush(); assert.equal(calls, 1);
     if (transition === 'screen') {
       ui.screen.classList.remove('active'); emit('cnc-screen-change', 'home');
-      ui.screen.classList.add('active'); emit('cnc-screen-change', 'jog');
+      ui.screen.classList.add('active'); emit('cnc-screen-change', 'check');
     } else { w.CNCOriginPreview.unmount(); w.CNCOriginPreview.mount(ui.screen); }
     ui.status(state()); await ui.flush(); assert.equal(calls, 2);
     resolveOld(pview()); await ui.flush();

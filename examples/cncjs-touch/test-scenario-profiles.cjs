@@ -20,9 +20,9 @@ assert.deepEqual(callers, ['job-preparation.js', 'preview-3d.js'], 'loadAdvanced
 {
   // The visual origin (Performance UI, lot O) loads only when originWanted() holds, which requires Performance.
   const src = read('job-preparation.js'), wanted = src.slice(src.indexOf('function originWanted('), src.indexOf('function originSync('));
-  assert.match(wanted, /P\.performance\(\) === 'performance'/, 'the visual origin requires the Performance profile');
+  assert.match(wanted, /p\.performance\(\)==='performance'/, 'the visual origin requires the Performance profile');
   const sync = src.slice(src.indexOf('function originSync('), src.indexOf('.loadAdvanced(', src.indexOf('function originSync(')));
-  assert.match(sync, /if \(!originWanted\(\)\)[^;]*;[\s\S]*return;/, 'originSync returns before loading when the origin is not wanted');
+  assert.match(sync, /if\(!originWanted\(\)\)\{[\s\S]*return;/, 'originSync returns before loading when the origin is not wanted');
 }
 {
   // Two callers: openFree (returns before loading in eco) and the inline view, reached only through inlineMode (false without Performance).

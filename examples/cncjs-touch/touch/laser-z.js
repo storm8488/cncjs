@@ -20,7 +20,7 @@
     each('h2', function (h) { if (text(h) === t('Axe Z') || text(h) === 'Axe Z') tag(h); });
   }
   // Labels that name Z: renamed to XY while Z is hidden, the original text kept to put it back.
-  var RENAME = [['.ks-origin-zero', 'Zéro XYZ', 'Zéro XY'], ['.probe-entry', 'Palpage X / Y / Z', 'Palpage X / Y']];
+  var RENAME = [['.ks-origin-zero', 'Zéro XYZ ici', 'Zéro XY ici'], ['.ks-origin-zero', 'Zéro XYZ', 'Zéro XY'], ['.probe-entry', 'Palpage X / Y / Z', 'Palpage X / Y']];
   function textNodes(e, out) { Array.prototype.forEach.call(e.childNodes || [], function (n) { if (n.nodeType === 3) out.push(n); else textNodes(n, out); }); return out; }
   function rename(hide) {
     RENAME.forEach(function (rule) {

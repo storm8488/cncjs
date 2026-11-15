@@ -19,7 +19,7 @@
 //   M6 RT / Éco / laser / software GPU / narrow window identical to v1 with the preference ON: no v2
 //      request, class, event, frame or element, and the same page as with the preference absent.
 // A check that fails here names the lot that owns the code; it is never weakened to pass.
-const assert = require('assert').strict, fs = require('fs'), vm = require('vm');
+const assert = require('assert').strict, vm = require('vm');
 const { page, read } = require('./test-v2-gate.cjs');
 const { createDOM } = require('./dom-fixture.cjs');
 const { preparerPage, idle: prepIdle } = require('./test-v2-preparer-fixture.cjs');
@@ -209,10 +209,10 @@ async function suiviPage(options = {}) {
   });
 
   // =============================== Préparer (L5) ===============================
-  await check('Préparer v2: comparison, dimensions, jog panel — M1 M2 M3, card kept while the layout is held', async () => {
+  await check('Control placement — M1 M2 M3, card kept while the layout is held', async () => {
     const P = preparerPage({ preview: null });
     const sent = []; trap(P.window, sent);
-    P.status(prepIdle()); P.show('jog'); await P.flush(); P.resolveLoads(); await P.flush();
+    P.status(prepIdle()); P.show('check'); await P.flush(); P.resolveLoads(); await P.flush();
     assert.equal(P.calls.mount.length, 1, 'origin card mounted once at rest');
     P.v2.placement = { version: 1, available: true, identity: { jobKey: 'k', file: 'a.nc', fingerprint: 'sha256:aa' }, current: null, hypothesis: { axes: ['x', 'y'], deltaMm: { x: 18, y: 12 }, zUnchanged: true },
       travel: { verdict: 'unknown', source: null, marginsMm: null, zVerified: false, collisionsVerified: false }, declarations: [] };
@@ -220,7 +220,7 @@ async function suiviPage(options = {}) {
     const roots = () => [P.content];
     // Every v2 button of the presenter, twice.
     const buttons = all(P.content).filter((n) => n.tagName === 'BUTTON');
-    assert(buttons.length >= 5, 'v2 Préparer buttons built (' + buttons.map((b) => b.id) + ')');
+    assert.equal(buttons.length,0,'the removed comparison presenter creates no relays; permanent controls are covered by test-zero-machine');
     for (let k = 0; k < 2; k++) for (const b of buttons) { if (b.handlers.click) b.handlers.click({ target: b }); await P.flush(); }
     const readsAtRest = P.calls.reads;
     // A job, a pause, an alarm, a stale report: no rendering in the handler, no read, the card stays.

@@ -20,3 +20,36 @@
 ['contexte WebGL perdu','WebGL context lost','contexto WebGL perdido'],
 ["sens de prise d’origine inversé ($23) : selon la compilation du firmware, la course est [−$13x, 0] ou [0, $13x].","axis homing the other way ($23): depending on the firmware build, the travel is [−$13x, 0] or [0, $13x].","eje con referencia en sentido contrario ($23): según la compilación del firmware, el recorrido es [−$13x, 0] o [0, $13x]."]
 );
+
+// Zero piece, manual and machine-origin zeros (L3a).
+(window.CNCTouchMessages=window.CNCTouchMessages||[]).push(
+["Position pièce","Work position","Posición de la pieza"],
+["Déplacer","Move","Mover"],
+["Zéro X ici","Zero X here","Cero X aquí"],
+["Zéro Y ici","Zero Y here","Cero Y aquí"],
+["Zéro Z ici","Zero Z here","Cero Z aquí"],
+["Zéro XYZ ici","Zero XYZ here","Cero XYZ aquí"],
+["Zéro XY ici","Zero XY here","Cero XY aquí"],
+["Autres zéros…","Other zeros…","Otros ceros…"],
+["Autres zéros","Other zeros","Otros ceros"],
+["Position machine","Machine position","Posición de máquina"],
+["Zéro {axes} ici","Zero {axes} here","Cero {axes} aquí"],
+["Zéro {axes} à l’origine machine","{axes} zero at machine origin","Cero {axes} en el origen de máquina"],
+["Poser le zéro {axes} ici","Set {axes} zero here","Fijar el cero {axes} aquí"],
+["Mettre le zéro {axes} à l’origine machine","Set {axes} zero at machine origin","Fijar el cero {axes} en el origen de máquina"],
+["Le zéro {axes} de la pièce sera l’origine de la machine. ","The workpiece {axes} zero will be at the machine origin. ","El cero {axes} de la pieza será el origen de máquina. "],
+["pièce : ","workpiece: ","pieza: "],
+["Le zéro de cet axe est placé à l’origine de la machine. Aucun axe ne bouge.","The zero of this axis is set at the machine origin. No axis moves.","El cero de este eje se fija en el origen de máquina. Ningún eje se mueve."],
+["{axe} à l’origine machine","{axe} at machine origin","{axe} en el origen de máquina"],
+["Origine machine pas prise.","Machine not homed.","Máquina sin referenciar."],
+["Origine machine pas prise : 1 mm au plus, sans continu.","Machine not homed: 1 mm maximum, no continuous jog.","Máquina sin referenciar: 1 mm como máximo, sin movimiento continuo."],
+["Zéro {axes} posé. Aucun axe ne bouge.","{axes} zero set. No axis moves.","Cero {axes} fijado. Ningún eje se mueve."],
+["Amenez le point du laser sur le coin de la pièce, puis touchez Zéro XY ici.","Move the laser spot to the workpiece corner, then tap Zero XY here.","Lleve el punto láser a la esquina de la pieza y toque Cero XY aquí."],
+["Un laser n’a pas de palpage.","A laser has no probing.","Un láser no tiene sondeo."],
+["CNC ou laser ? Déclarez la machine.","CNC or laser? Declare the machine.","¿CNC o láser? Declare la máquina."],
+["Posé à {heure}","Set at {heure}","Fijado a las {heure}"],
+["à la main : {axes}","by hand: {axes}","a mano: {axes}"],
+["bloc {axes}","block {axes}","bloque {axes}"],
+["plaque : Z seul","plate: Z only","placa: solo Z"]
+);
+(window.CNCTouchMessages=window.CNCTouchMessages||[]).push(['La machine a refusé le déplacement (erreur {n}).','The machine refused the move (error {n}).','La máquina rechazó el movimiento (error {n}).']);

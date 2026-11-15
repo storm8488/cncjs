@@ -4,7 +4,7 @@
 // is enabled (the :disabled rules keep their colours).
 const assert = require('assert').strict, fs = require('fs'), path = require('path');
 const read = (n) => fs.readFileSync(path.join(__dirname, 'touch', n), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-const tokens = read('design-tokens.css'), ui = read('ui-2027.css'), origin = read('origin-preview.css'), probe = read('probe.css');
+const tokens = read('design-tokens.css'), ui = read('ui-2027.css'), probe = read('probe.css');
 
 // ---- Tokens of both themes. ----
 function theme(selector) {
@@ -32,34 +32,13 @@ function rule(css, selector, alone) {
 }
 // Outlines of the enabled controls (M2): --faint, the :disabled and aria-pressed rules unchanged.
 for (const [css, sel] of [[ui, '.ks-ui #screen-jog .jog'], [ui, '.ks-ui #screen-jog .steps'], [ui, '.ks-ui #screen-jog .ks-secondary'], [ui, '.ks-ui .ks-coordinate-table button'],
-  [ui, '.ks-preparation-actions .ks-secondary'], [origin, 'body.perf-origin #screen-jog[data-pv2] .pv2-bar button'], [origin, 'body.perf-origin #screen-jog[data-pv2] .pv2-jog-open'],
-  [origin, 'body.perf-origin #screen-jog[data-pv2] .pv2-tools button'], [probe, '.probe-operations button'], [probe, '.probe-tabs button']]) {
+  [ui, '.ks-preparation-actions .ks-secondary'], [probe, '.probe-operations button'], [probe, '.probe-tabs button']]) {
   assert.match(rule(css, sel), /border:1px solid var\(--faint\)/, sel);
 }
 assert.match(rule(ui, '.ks-ui #screen-jog .pad-mid'), /border:1px dashed var\(--faint\)/);
 assert.doesNotMatch(rule(ui, '.ks-ui #screen-jog .jog:disabled'), /--faint/, 'disabled cross: its own rule');
-// Comparison bar (O1): one row in its fixed 48 px track, the title shrinks, « Cotes » stays reachable.
-assert.match(rule(origin, 'body.perf-origin #screen-jog[data-pv2] .pv2-bar'), /flex-wrap:nowrap/);
-const title = rule(origin, 'body.perf-origin #screen-jog[data-pv2] .pv2-bar-title');
-assert.match(title, /flex:1 1 0;min-width:0/); assert.doesNotMatch(title, /margin-right:auto/);
-assert.match(rule(origin, 'body.perf-origin #screen-jog[data-pv2] .pv2-bar button', true), /flex:none;white-space:nowrap/);
-assert.match(origin, /grid-template-rows:auto 48px minmax\(0,1fr\) auto 104px/, 'the bar row stays 48 px');
-// « Poser X Y ici… » greyed out (A3): its own colours, not app.css's opacity 0.4 on top (1.65:1).
-assert.match(rule(origin, 'body.perf-origin #screen-jog[data-pv2] .pv2-set-xy:disabled'), /color:var\(--disabled-fg\);background:var\(--disabled-bg\);border-color:var\(--line\);opacity:1/);
-// Dry-run line (O3 / O11): two lines kept in v1 and the cross mode (the cross no longer jumps between states), hidden
-// beside the comparison where it described a cross that is not shown.
-assert.match(rule(ui, '.ks-ui #screen-jog #jog-msg', true), /line-height:1\.3;min-height:2\.6em/);
-assert.match(rule(origin, 'body.perf-origin #screen-jog[data-pv2="compare"] #jog-msg'), /display:none/);
-// Step segments (O12): 12 px between targets.
-assert.match(rule(ui, '.ks-ui #screen-jog .steps'), /gap:var\(--tap-gap\)/);
-// Seven steps (finitions chantier 4): two rows of four with « Continu » on two columns (v1, compact: 41 px wide on one
-// row at 1024 × 600); one row 4 px apart under the cross of v2 (no room for a second row), « Continu » at its width.
-assert.match(rule(ui, '.ks-ui #screen-jog #steps', true), /^display:grid;grid-template-columns:repeat\(4,minmax\(0,1fr\)\)$/);
-assert.match(rule(ui, '.ks-ui #screen-jog .step[data-step="hold"]', true), /grid-column:span 2/);
-assert.match(rule(ui, '.ks-ui #screen-jog #steps .step', true), /^min-height:var\(--tap\)$/);
-assert.match(rule(origin, 'body.perf-origin #screen-jog.screen[data-pv2="jog"] #steps .step', true), /^min-height:58px$/);
-assert.match(rule(origin, 'body.perf-origin #screen-jog.screen[data-pv2="jog"] #steps', true), /^display:flex;gap:4px$/);
-assert.match(rule(origin, 'body.perf-origin #screen-jog.screen[data-pv2="jog"] #steps .step[data-step="hold"]', true), /flex:0 0 auto/);
+// L3a replaces comparison/jog modes with the common cross and two step rows.
+const zero=read('responsive.css');assert.match(zero,/.ks-zero-cross \.jog\{width:96px;height:96px;min-width:96px;min-height:96px/);assert.match(zero,/.ks-zero-axis\{[^}]*min-height:64px/);assert.match(zero,/#steps\{[^}]*gap:12px/);
 // The three step lists of the fixtures are the server's (motion.js STEPS): the screens show the seven buttons.
 const STEPS = /export const STEPS = \[([^\]]+)\]/.exec(fs.readFileSync(__dirname + '/../../src/server/services/touch/motion.js', 'utf8'))[1].replace(/\s/g, '');
 for (const f of ['browser-run.cjs', 'browser-strip.cjs', 'test-real-motion.cjs']) assert(fs.readFileSync(__dirname + '/' + f, 'utf8').replace(/\s/g, '').includes('steps:[' + STEPS + ']'), f + ': steps of the server');
@@ -92,7 +71,6 @@ assert.doesNotMatch(rule(probe, '.probe-screen .probe-note'), /font-size/);
 // title (the cross rose by 50 px during a job); v2 comparison, the title column narrows instead of wrapping the
 // actions (the tools left the side column).
 assert.match(rule(ui, 'body.ks-ui.display-large:not(.perf-origin) #screen-jog #jog-msg'), /flex-basis:100%/);
-assert.match(rule(origin, 'body.perf-origin #screen-jog[data-pv2="compare"] .ks-panel-intro>div:first-child'), /flex-basis:0;min-width:auto/);
 // Rail of a sub-screen (Astra 3): « Retour » + 7 entries scrolled at 768 px (8 × 76 + 7 × 12 > 680), which narrowed
 // the rail and cut « Preparar », « Máquina »…; after « Retour » the entries are 72 px and the eight fit.
 {
@@ -103,4 +81,4 @@ assert.match(rule(origin, 'body.perf-origin #screen-jog[data-pv2="compare"] .ks-
   // « Segui-miento » takes two lines in ES large text (83.2 px measured): still within the room.
   assert(76 + 6 * 72 + 84 + gaps <= room, 'eight entries fit after « Retour »');
 }
-console.log('PASS préparer style: --faint outlines ≥ 3:1 in both themes, comparison bar on one row, greyed « Poser X Y ici… » without extra opacity, dry-run line on two lines, 12 px step gap, probe stop white on red, no probe text under 16 px.');
+console.log('PASS Zero piece style: contrast in both themes, shared 96px cross and 64px zeros with 12px gaps, probe stop white on red, no probe text under 16px.');

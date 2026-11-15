@@ -151,7 +151,7 @@
  *   mounts.get('home'|'files'|'prepare'|'machine'|'history'|'settings') ->
  *   {screen,root,content,origin}; root is the existing section, content a hidden empty
  *   #perf-v2-<screen> container reserved for its presenter (unhide only when ready).
- *   prepare maps to #screen-jog; origin is null in simulation, content otherwise.
+ *   prepare maps to #screen-check; origin is null in simulation, content otherwise.
  *   mounts.strip() -> {context,messages}; existing read-only context/message cells,
  *   no new strip cell and NO safety button references. Shell/strip own placements.
  *   L4 scopes CSS under body.perf-v2, preserves command IDs/relays and fixed boxes;
@@ -168,7 +168,7 @@
  *   - L0 integration adds the completed heavy modules and L4 CSS to the guarded
  *     loader. L7 performs real browser hit-tests; VM node identity is not a hit-test.
  *
- * LIFECYCLE — scope(screen[,slot]), prepare maps to jog; screen null = shared model.
+ * LIFECYCLE — scope(screen[,slot]), prepare maps to check; screen null = shared model.
  *   L2 uses scope(null,'geometry') for the owned cache; borrowers name their own slot.
  *   This makes borrower cleanup precede buffer-owner cleanup, including providers.
  *   token() -> lease|null: only safe Idle, visible, unlocked and gate open.
@@ -248,7 +248,7 @@
   };
   api.mounts={get:function(screen){var s=window.cncShell;return s&&s.v2Mounts?s.v2Mounts()[screen]||null:null;},
     strip:function(){var s=window.cncStatusStrip;return s&&s.v2Mounts?s.v2Mounts():null;}};
-  function visible(screen){return !ended&&!document.hidden&&!locked&&api.gate()&&(!screen||active===(screen==='prepare'?'jog':screen));}
+  function visible(screen){return !ended&&!document.hidden&&!locked&&api.gate()&&(!screen||active===(screen==='prepare'?'check':screen));}
   function invoke(fn,reason){try{fn(reason);}catch(_){/* One failing consumer must not prevent the others releasing. */}}
   function scope(screen,slot){
     if(slot!==undefined&&!stubs[slot])throw new Error('Unknown v2 resource owner');

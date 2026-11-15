@@ -24,6 +24,8 @@
       var over=Math.max(Number(params.low)-Number(params.min),Number(params.max)-Number(params.high));
       values.N=isFinite(over)?String(Math.ceil(Math.max(0,over)*10)/10):'—';
     }
+    var jogError=/Grbl a refusé le jog \(error:(\d+)\)/.exec(message);
+    if(jogError){phrase=t('La machine a refusé le déplacement (erreur {n}).');values.n=jogError[1];remedies=['details'];}
     if(window.cncI18n&&window.cncI18n.language==='fr')values.N=String(values.N).replace('.',',');
     phrase=phrase.replace(/\{([A-Za-z]+)\}/g,function(all,key){return Object.prototype.hasOwnProperty.call(values,key)?String(values[key]):'—';});
     return {famille:row[0],phrase:phrase,remedes:remedies,details:{titre:t('Détails'),lignes:[{libelle:t('Code'),valeur:error.code||'—'},{libelle:t('Message'),valeur:message}],brut:error}};

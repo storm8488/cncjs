@@ -42,21 +42,12 @@ const cases = [
       motion.push([next]); await motion.flush();
       assert.equal(motion.el('jog-zero-x').disabled, true);
       assert.equal(motion.el('jog-zero-x').title, expected, 'Prepare origin ' + language + ' ' + r.code);
-      assert.equal(motion.el('jog-msg').textContent, expected, 'Prepare movement ' + language + ' ' + r.code);
+      assert.equal(motion.el('motion-status').textContent, expected, 'Prepare movement ' + language + ' ' + r.code);
       // A coded HTTP refusal also uses the same template.
       f.push([f.machine()]); f.el('job-start').click(); f.answer(f.posts().at(-1), { ...r, message: fallback }, 409); await f.flush();
       assert.equal(f.el('job-feedback').textContent, expected);
     }
-    const reading = { code: 'ETOUCH_SETTINGS_READING', params: {} };
-    const readReason = i.format(reading.code, reading.params, '');
-    motion.push([machine({ canReadSettings: false, homeReason: 'Réglage $22 inconnu : relisez les réglages de la carte.', readSettingsReason: readReason, refusals: { readSettings: reading } })]);
-    await motion.flush();
-    const read = motion.el('jog-read-settings'), before = motion.posts().length;
-    assert.equal(read.hidden, false); assert.equal(read.disabled, true); assert.equal(read.title, readReason);
-    read.click(); assert.equal(motion.posts().length, before, 'refused read sends nothing');
-    motion.push([machine({ activeState: 'Alarm', canReadSettings: true, homeReason: 'Réglage $22 inconnu : relisez les réglages de la carte.' })]);
-    await motion.flush(); assert.equal(read.disabled, false); assert.equal(read.title, '');
-    read.click(); assert.equal(motion.posts().at(-1).body.action, 'readSettings');
+    assert.equal(motion.nodes['jog-read-settings'],undefined,'shared reading remedy replaces the removed local read button');
     f.controls().dispose(); motion.controls().dispose(); motion.fireWindow('pagehide');
   }
   console.log('PASS D2: four codes, FR/EN/ES, Files/Follow/Probe/Prepare and HTTP refusals, no machine or network.');

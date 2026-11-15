@@ -9,6 +9,15 @@ const assert=require('assert').strict,{createBench}=require('./parcours-server.c
  const who={kind:'touch',id:'local-page',label:'Tablet'};b.service.openTransport('recovery-test',who);
  const home=async function(){const m=await until(m=>m.canHome);const body={port:'SIM',generation:m.generation,transportId:'recovery-test',clientId:'local-page'};const ticket=await post('/api/touch-job',{...body,action:'prepare',operation:'home'});assert(ticket.nonce);await post('/api/touch-job',{...body,action:'home',nonce:ticket.nonce});return until(m=>m.homed&&m.workOffset.state==='proven');}
  let ready=await home();assert.equal(ready.referenceLost,null);assert.equal(ready.workOffset.state,'proven');
+ // P6 writes through the same prepare/nonce owner; the service proves D2 after every zero.
+ for(const params of [{axes:['X']},{axes:['X','Y','Z']},{axes:['X'],at:'machine'}]){
+   const m=await until(m=>m.homed&&m.workOffset.state==='proven'&&m.motion.canSetOrigin);
+   const before={...m.coordinates.mpos},body={port:'SIM',generation:m.generation,transportId:'recovery-test',clientId:'local-page'};
+   const ticket=await post('/api/touch-job',{...body,action:'prepare',operation:'set-origin',...params});assert(ticket.nonce);
+   const result=await post('/api/touch-job',{...body,action:'set-origin',nonce:ticket.nonce});assert(result.message);
+   const after=await until(m=>m.workOffset.state==='proven'&&m.motion.canSetOrigin);assert.deepEqual(after.coordinates.mpos,before,'zero does not move an axis');
+   for(const axis of params.axes)assert.equal(Number(after.coordinates.wpos[axis.toLowerCase()]),params.at==='machine'?Number(before[axis.toLowerCase()]):0);
+ }
  await post('/parcours/sim',{input:'job',clientId:'local-page',transportId:'recovery-test'});assert.equal(b.service.list()[0].workflow,'running');
  await post('/parcours/sim',{input:'limit',axis:'x',on:true});await post('/parcours/sim',{input:'limit',axis:'x',on:false});
  const incident=await until(m=>m.lastAlarm&&m.lastAlarm.code===1);assert.equal(incident.homed,false);assert(incident.referenceLost);

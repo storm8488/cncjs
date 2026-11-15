@@ -200,7 +200,7 @@
   function unavailable() {
     var gl = root.CNCPreviewGL, dash = root.cncDashboardView;
     if (!gl || typeof gl.open !== 'function' || typeof gl.checkOverlays !== 'function' || !dash || typeof dash.loadedPreview !== 'function' || !check()) return t('module absent');
-    try { if (root.cncGpu && root.cncGpu.state().lost) return t('contexte WebGL perdu'); } catch (_) {}
+    try { if (root.cncGpu && root.cncGpu.state().lost) return t('contexte WebGL perdu'); } catch (_) { /* Optional capability unavailable. */ }
     return '';
   }
   function performance() { try { return root.cncProfile.performance() === 'performance'; } catch (_) { return false; } }
@@ -324,7 +324,7 @@
       // asked again when the state comes back, even for the same program.
       if (!s.meta) s.metaKey = '';
       // Frozen and greyed: the last placement stays, nothing new is computed.
-      if (s.handle && s.last.length) { var grey = frozen(s.last), key = JSON.stringify(grey); if (key !== s.sent) { s.handle.setOverlays(grey); s.sent = key; } }
+      if (s.handle && s.last.length) { var grey = frozen(s.last), greyKey = JSON.stringify(grey); if (greyKey !== s.sent) { s.handle.setOverlays(grey); s.sent = greyKey; } }
       show({ file: s.file, legend: !!s.handle, state: t('État machine indisponible : aperçu figé.') }); return;
     }
     if (ph === 'alarm' || ph === 'running' || ph === 'paused') {
@@ -382,7 +382,7 @@
       if (s.pending) s.pending();
       s.screenActive = !s.screen.classList || s.screen.classList.contains('active');
       s.locked = locked();
-      on(root, 'cnc-screen-change', function (e) { s.screenActive = e.detail === 'jog'; cancelUnavailable(); schedule(); });
+      on(root, 'cnc-screen-change', function (e) { s.screenActive = e.detail === 'check'; cancelUnavailable(); schedule(); });
       on(root, 'pagehide', function () { s.closedBy = 'pagehide'; if (s.pending) s.pending(); });
       on(root, 'cnc-v2-data', function (e) { if (e.detail && e.detail.slot === 'placement') schedule(); });
       if (doc.addEventListener) on(doc, 'visibilitychange', function () { cancelUnavailable(); schedule(); });
@@ -416,7 +416,7 @@
     var currentNode = el('p', 'op-note op-current'); currentNode.hidden = true; card.appendChild(currentNode);
     var state = el('p', 'op-note op-state'); state.setAttribute('data-tone', 'neutral'); state.setAttribute('role', 'status'); state.hidden = true; card.appendChild(state);
     screen.appendChild(card);
-    var machine = null; try { machine = root.cncState.get().machine || null; } catch (_) {}
+    var machine = null; try { machine = root.cncState.get().machine || null; } catch (_) { /* Optional capability unavailable. */ }
     s = { screen: screen, card: card, view: view, nodes: { file: file, legend: legend, verdict: verdictNode, current: currentNode, state: state, view: view },
       listeners: [], frame: null, handle: null, closing: false, closedBy: '', failure: '', machine: machine, meta: undefined, metaKey: '', request: 0, last: [], sent: '', file: '', v2: false,
       screenActive: !screen.classList || screen.classList.contains('active'), locked: locked(),
@@ -456,7 +456,7 @@
     closeView();
     if (own.pending) own.pending();
     if (own.life) own.life.dispose();
-    if (own.frame !== null) { var caf = root.cancelAnimationFrame || root.clearTimeout; try { caf(own.frame); } catch (_) {} }
+    if (own.frame !== null) { var caf = root.cancelAnimationFrame || root.clearTimeout; try { caf(own.frame); } catch (_) { /* Optional capability unavailable. */ } }
     own.listeners.forEach(function (l) { l[0].removeEventListener(l[1], l[2]); });
     if (own.card.parentNode) own.card.parentNode.removeChild(own.card);
     if (doc.body && doc.body.classList) doc.body.classList.remove('perf-origin');

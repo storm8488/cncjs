@@ -53,14 +53,14 @@ function load(options = {}) {
   // steps, Zéro XYZ, speed, controller and answer lines), the cross; the speed sheet elsewhere.
   const screen = element('screen-jog', 'SECTION'); el('main').appendChild(screen); screen.classList.add('active');
   const intro = screen.appendChild(element('intro')), actions = intro.appendChild(element('prep-actions'));
-  intro.appendChild(element('jog-msg', 'P')).textContent = 'Machine non prête.';
+  intro.appendChild(element('motion-status', 'P')).textContent = 'Machine non prête.';
   const coords = screen.appendChild(element('coords')), heading = coords.appendChild(element('coords-h2', 'H2'));
   heading.textContent = 'Coordonnées du contrôleur';
   const zeros = ['x', 'y', 'z', 'xyz'].map((a) => { const b = coords.appendChild(element('jog-zero-' + a, 'BUTTON')); b.textContent = 'Zéro ' + a.toUpperCase(); b.setAttribute('data-origin', ''); b.setAttribute('data-axis', a); b.disabled = true; return b; });
   const stepBox = coords.appendChild(element('steps'));
   const steps = ['0.1', '1', '10', 'hold'].map((v) => { const b = stepBox.appendChild(element('step-' + v, 'BUTTON')); b.setAttribute('data-step', v); b.className = 'step' + (v === '1' ? ' active' : ''); if (v === 'hold') b.hidden = true; b.textContent = v === 'hold' ? 'Continu' : v; return b; });
   coords.appendChild(element('ks-jog-settings', 'BUTTON')).textContent = 'Vitesse…';
-  coords.appendChild(element('jog-controller', 'P')); coords.appendChild(element('jog-feedback', 'P'));
+  coords.appendChild(element('jog-controller', 'P')); coords.appendChild(element('motion-feedback', 'P'));
   const cross = screen.appendChild(element('cross')), mid = cross.appendChild(element('pad-mid'));
   const arrows = {};
   [['X', 1], ['X', -1], ['Y', 1], ['Y', -1], ['Z', 1], ['Z', -1]].forEach(([a, d]) => { const b = cross.appendChild(element('arrow-' + a + (d > 0 ? '+' : '-'), 'BUTTON')); b.className = 'jog'; b.setAttribute('data-axis', a); b.setAttribute('data-dir', String(d)); b.disabled = true; arrows[a + (d > 0 ? '+' : '-')] = b; });
@@ -80,7 +80,7 @@ function load(options = {}) {
     'pilot-reason', 'pilot-dismiss', 'pilot-reason-a', 'pilot-reason-b', 'pilot-feedback', 'pilot-dialog-text', 'job-dialog-title', 'job-dialog-file', 'job-countdown', 'job-countdown-bar',
     'job-state', 'job-selected', 'job-loaded', 'job-reason'].forEach(el);
   function XHR() { this.responseText = ''; this.status = 0; this.headers = {}; this.open = (method, url) => { this.method = method; this.url = url; }; this.setRequestHeader = (k, v) => { this.headers[k] = v; }; this.send = (b) => { this.body = b && JSON.parse(b); requests.push(this); }; this.abort = () => { this.aborted = true; }; }
-  const window = { location: { pathname: '/cnc/touch/' }, navigator: { onLine: true, maxTouchPoints: 5 }, XMLHttpRequest: XHR,
+  const window = { cncSeance:{motionFeedback(v){el('motion-status').textContent=v.status;el('motion-feedback').textContent=v.feedback;el('motion-feedback').setAttribute('data-state',v.state);},refuser(e){events.push({type:'refusal',detail:e});}}, location: { pathname: '/cnc/touch/' }, navigator: { onLine: true, maxTouchPoints: 5 }, XMLHttpRequest: XHR,
     setInterval(fn, ms) { intervals.set(++timerId, { fn, ms }); return timerId; }, clearInterval(id) { intervals.delete(id); },
     addEventListener(n, f) { (listeners[n] || (listeners[n] = [])).push(f); }, removeEventListener(n, f) { listeners[n] = (listeners[n] || []).filter((x) => x !== f); },
     dispatchEvent(e) { events.push(e); (listeners[e.type] || []).slice().forEach((f) => f(e)); } };
@@ -91,11 +91,13 @@ function load(options = {}) {
     const store = { 'cncjs-touch-language-v1': options.locale };
     window.cncI18nStore = store;
   }
+  ['zero-more-open','zero-machine-open','zero-laser-help','zero-laser-note','zero-kind-help','zero-kind-open'].forEach(el);
+  window.cncShell={sheet(id){const overlay=body.appendChild(element(id)),content=overlay.appendChild(element(id+'-content'));overlay.hidden=true;return {content,open(){overlay.hidden=false;}};},closeSheet(){el('ks-zero-more').hidden=true;},details(data){events.push({type:'details',detail:data});}};
   const localStorage = { getItem: (k) => (storage.has(k) ? storage.get(k) : null), setItem: (k, v) => storage.set(k, String(v)) };
   const context = { window, document: doc, XMLHttpRequest: XHR, localStorage, CustomEvent: function (type, o) { this.type = type; this.detail = o.detail; },
     Date: class extends Date { static now() { return now; } }, Math, Promise, JSON, setInterval: window.setInterval, clearInterval: window.clearInterval };
   vm.createContext(context);
-  for (const file of (options.locale ? ['i18n-messages.js', 'i18n-messages-machine.js', 'i18n.js'] : []).concat(['cnc-state.js', 'job-stream.js', 'program-check-view.js', 'job-controls.js', 'real-motion.js'])) vm.runInContext(fs.readFileSync(path.join(__dirname, 'touch', file), 'utf8'), context, { filename: file });
+  for (const file of (options.locale ? ['i18n-messages.js', 'i18n-messages-machine.js', 'i18n-messages-origin.js', 'i18n.js'] : []).concat(['cnc-state.js', 'job-stream.js', 'program-check-view.js', 'job-controls.js', 'real-motion.js'])) vm.runInContext(fs.readFileSync(path.join(__dirname, 'touch', file), 'utf8'), context, { filename: file });
   const isStream = (url) => /\/touch-events(\?clientId=[^&]+)?$/.test(url);
   const flush = async () => { for (let i = 0; i < 4; i++) await new Promise(setImmediate); };
   function answer(xhr, data, status = 200) { xhr.status = status; xhr.responseText = JSON.stringify(data); xhr.onload(); }
@@ -144,7 +146,7 @@ const down = (b) => b.fire('pointerdown', { pointerId: 7, button: 0 });
 async function ready(patch) { const f = load(); await f.connect(machine(patch)); return f; }
 async function holding(f, button = 'Y+') {
   f.el('step-hold').click(); await f.flush();
-  assert.equal(f.el('jog-msg').textContent, 'Les flèches déplacent la machine · continu · 250 mm/min · relâchez pour arrêter');
+  assert.equal(f.el('motion-status').textContent, 'Les flèches déplacent la machine · continu · 250 mm/min · relâchez pour arrêter');
   down(f.arrows[button]); await f.flush();
   const start = f.motion('jog-start').at(-1);
   assert(start, 'pointerdown sends jog-start');
@@ -162,29 +164,24 @@ if (require.main === module) (async () => {
   {
     const f = await ready({ capabilities: caps(false), motion: { canJog: false, jogReason: DISABLED, continuousReason: { X: DISABLED, Y: DISABLED, Z: DISABLED }, canSetOrigin: false, setOriginReason: DISABLED, maxFeed: {} } });
     assert(allArrows(f).every((b) => b.disabled) && f.zeros.every((b) => b.disabled), 'arrows and zeros greyed out');
-    assert.equal(f.el('jog-msg').textContent, 'Déplacements non activés sur ce serveur CNCjs (touch.motion.enabled).');
-    assert.equal(f.arrows['X+'].title, f.el('jog-msg').textContent, 'a greyed arrow carries the same sentence');
+    assert.equal(f.el('motion-status').textContent, 'Déplacements non activés sur ce serveur CNCjs (touch.motion.enabled).');
+    assert.equal(f.arrows['X+'].title, f.el('motion-status').textContent, 'a greyed arrow carries the same sentence');
     f.arrows['X+'].fire('click'); f.zeros[0].fire('click'); f.tick(); await f.flush();
     assert.equal(f.motion().length, 0, 'no motion request at all'); assert.equal(f.posts().filter((r) => r.body.action === 'prepare').length, 0);
     assert.equal(f.nodes['real-motion-open'], undefined, 'no separate « Déplacement réel » entry'); assert.equal(f.nodes['real-motion'], undefined, 'no separate panel');
     const v = 'Version Grbl inconnue : attendez la bannière de démarrage ou lisez les réglages ($I).';
     f.push([machine({ capabilities: { jog: { supported: false, enabled: false, reason: v }, jogContinuous: { supported: false, enabled: false, reason: v }, setOrigin: { supported: false, enabled: false, reason: v } } })]); await f.flush();
-    assert.equal(f.el('jog-msg').textContent, 'Version de la carte inconnue : touchez Relire les réglages.');
-    // « Relire les réglages ($$) » is offered where the refusal shows, and reads $$ through job-controls.
-    assert.equal(f.el('jog-read-settings').hidden, false); assert.equal(f.el('jog-read-settings').disabled, false);
-    f.el('jog-read-settings').click(); await f.flush();
-    assert.equal(f.posts().at(-1).body.action, 'readSettings');
+    assert.equal(f.el('motion-status').textContent, 'Version de la carte inconnue : touchez Relire les réglages.');
     const old = await ready({ capabilities: undefined, motion: undefined });
-    assert.equal(old.el('jog-msg').textContent, 'Ce serveur CNCjs ne permet pas les déplacements depuis la tablette.');
-    assert(allArrows(old).every((b) => b.disabled)); assert.equal(old.el('jog-read-settings').hidden, true);
+    assert.equal(old.el('motion-status').textContent, 'Ce serveur CNCjs ne permet pas les déplacements depuis la tablette.');
     noPreview(f); noPreview(old);
   }
   // 2. Enabled: one step per tap with the stream's identity, 1 mm and 250 mm/min by default; steps and
   //    speed taken from the controls; the server's refusal said as what to do; the answer never says « done ».
   {
     const f = await ready();
-    assert.equal(f.el('jog-msg').textContent, 'Les flèches déplacent la machine · pas 1 mm · 250 mm/min');
-    assert.equal(f.el('coordinate-frame-label').textContent, ' · G54 · mm');
+    assert.equal(f.el('motion-status').textContent, 'Les flèches déplacent la machine · pas 1 mm · 250 mm/min');
+    assert.equal(f.nodes['coordinate-frame-label'], undefined, 'frame is only in Details');
     assert.equal(f.el('pad-mid').textContent, '1 mm'); assert.equal(f.el('ks-jog-settings').textContent, 'Vitesse · 250 mm/min…');
     assert.deepEqual(f.el('feeds').children.map((b) => b.getAttribute('data-feed')), ['100', '250', '500'], 'speeds bounded by the slowest axis ($112 = 500)');
     assert.match(f.el('jog-feed-limits').textContent, /Avance max X \/ Y \/ Z : 1000 \/ 1000 \/ 500 mm\/min/);
@@ -194,22 +191,22 @@ if (require.main === module) (async () => {
     const s = f.motion('jog')[0];
     assert.deepEqual([s.body.axis, s.body.direction, s.body.step, s.body.feed, s.body.port, s.body.generation, s.body.transportId], ['X', 1, 1, 250, 'COM3', 'gen-1', 'stream-one']);
     assert.match(s.body.clientId, /^t-/);
-    assert.equal(f.el('jog-feedback').textContent, 'X+ · 1 mm · 250 mm/min : envoi…'); assert.equal(f.el('jog-feedback').getAttribute('data-state'), 'sent');
+    assert.equal(f.el('motion-feedback').textContent, 'X+ · 1 mm · 250 mm/min : envoi…'); assert.equal(f.el('motion-feedback').getAttribute('data-state'), 'sent');
     f.answer(s, { message: 'Pas de 1 mm en X+ envoyé ($J=G91 G21 X1 F250).', command: '$J=G91 G21 X1 F250' }); await f.flush();
-    assert.equal(f.el('jog-feedback').textContent, 'X+ · 1 mm · 250 mm/min : envoyé à la machine.');
-    assert.equal(f.el('jog-feedback').getAttribute('data-state'), 'confirmed');
+    assert.equal(f.el('motion-feedback').textContent, 'X+ · 1 mm · 250 mm/min : envoyé à la machine.');
+    assert.equal(f.el('motion-feedback').getAttribute('data-state'), 'confirmed');
     // In flight until a report shows the machine free again: the other controls wait.
     assert(allArrows(f).every((b) => b.disabled) && f.steps.every((b) => b.disabled) && f.zeros.every((b) => b.disabled), 'everything waits while the step runs');
     f.push([withMotion({ canJog: false, jogReason: 'Déplacement précédent non terminé : attendez le retour au repos (Idle).' }, { activeState: 'Jog' })]); await f.flush();
-    assert.equal(f.el('jog-msg').textContent, 'Déplacement en cours : attendez l’arrêt.');
+    assert.equal(f.el('motion-status').textContent, 'Déplacement en cours : attendez l’arrêt.');
     f.push([machine({ revision: 'rev-2' })]); await f.flush(); f.advance(400); f.tick(1000);
     assert.equal(f.arrows['X+'].disabled, false, 'free again once a report shows it');
     // 10 mm, refused by the server on an unhomed machine: the table's sentence.
     f.el('step-10').click(); f.arrows['X-'].click(); await f.flush();
     const big = f.motion('jog').at(-1); assert.deepEqual([big.body.step, big.body.direction], [10, -1]);
     f.answer(big, { message: 'Pas de 10 mm refusé : au-delà de 1 mm, il faut une machine référencée et une course connue (référencement ($H) non constaté depuis le dernier redémarrage de la carte).' }, 409); await f.flush();
-    assert.equal(f.el('jog-feedback').textContent, 'X− · 10 mm · 250 mm/min : Refusé : Pas de 10 mm refusé : machine non référencée ou course inconnue. Faites la prise d’origine (Machine) ; sinon 1 mm au plus.');
-    assert.equal(f.el('jog-feedback').getAttribute('data-state'), 'failed');
+    assert.equal(f.el('motion-feedback').textContent, 'X− · 10 mm · 250 mm/min : Refusé : Pas de 10 mm refusé : machine non référencée ou course inconnue. Faites la prise d’origine (Machine) ; sinon 1 mm au plus.');
+    assert.equal(f.el('motion-feedback').getAttribute('data-state'), 'failed');
     // 0.1 mm and 500 mm/min reach the request.
     f.advance(400); f.el('step-0.1').click(); f.el('feeds').children.find((b) => b.getAttribute('data-feed') === '500').click(); await f.flush();
     assert.equal(f.el('pad-mid').textContent, '0.1 mm'); assert.equal(f.el('ks-jog-settings').textContent, 'Vitesse · 500 mm/min…');
@@ -217,10 +214,10 @@ if (require.main === module) (async () => {
     const small = f.motion('jog').at(-1); assert.deepEqual([small.body.axis, small.body.direction, small.body.step, small.body.feed], ['Z', -1, 0.1, 500]);
     // A refusal of the pilot (ECONTROL): job-controls' actionable sentence, as is.
     f.answer(small, { message: 'Machine pilotée par Tablette B.', code: 'ECONTROL', owner: { kind: 'touch', id: 't-b-1234', label: 'Tablette B' } }, 409); await f.flush();
-    assert.match(f.el('jog-feedback').textContent, /Refusé : pilotage attribué à « Tablette B »/);
+    assert.match(f.el('motion-feedback').textContent, /Refusé : pilotage attribué à « Tablette B »/);
     // No answer: uncertain, the position must be checked.
     f.advance(400); f.arrows['Z+'].click(); await f.flush(); f.motion('jog').at(-1).onerror(); await f.flush();
-    assert.match(f.el('jog-feedback').textContent, /Sans réponse du serveur : vérifiez la position avant de continuer\.$/); assert.equal(f.el('jog-feedback').getAttribute('data-state'), 'uncertain');
+    assert.match(f.el('motion-feedback').textContent, /Sans réponse du serveur : vérifiez la position avant de continuer\.$/); assert.equal(f.el('motion-feedback').getAttribute('data-state'), 'uncertain');
     noPreview(f);
     // The coordinates are never written here (coordinate-display.js copies the reported ones).
     assert(!/mpos\.[xyz]\s*=|wpos\.[xyz]\s*=/.test(fs.readFileSync(path.join(__dirname, 'touch', 'real-motion.js'), 'utf8')));
@@ -228,14 +225,14 @@ if (require.main === module) (async () => {
   // 2b. Unhomed at rest: the hint under the coordinates; a frame unknown: no « repère inconnu » label.
   {
     const f = await ready({ homed: false, operator: { reportUnits: 'mm', wcs: null } });
-    assert.equal(f.el('jog-feedback').textContent, 'Machine non référencée : pas de 1 mm au plus, pas de continu. Prise d’origine dans Machine.');
-    assert.equal(f.el('coordinate-frame-label').textContent, ' · mm');
+    assert.equal(f.el('motion-feedback').textContent, 'Machine non référencée : pas de 1 mm au plus, pas de continu. Prise d’origine dans Machine.');
+    assert.equal(f.nodes['coordinate-frame-label'],undefined);
   }
-  // 3. « Continu »: hidden without the server's capability; hold → keepalive → release (jog-stop), the
+  // 3. « Continu »: visible but disabled without the server's capability; hold → keepalive → release (jog-stop), the
   //    held button never greyed out while canJog is false (its release must reach it).
   {
     const f = await ready({ capabilities: caps(true, { jogContinuous: { supported: true, enabled: false, reason: DISABLED } }) });
-    assert.equal(f.el('step-hold').hidden, true, '« Continu » hidden without jogContinuous');
+    assert.equal(f.el('step-hold').hidden,false,'Continu remains visible');assert.equal(f.el('step-hold').disabled,true,'refused Continu is striped');
     f.el('step-hold').fire('click'); await f.flush(); assert.equal(f.el('pad-mid').textContent, '1 mm', 'no hold mode without the capability');
   }
   {
@@ -247,7 +244,7 @@ if (require.main === module) (async () => {
     f.tick(150); await f.flush();
     assert.equal(f.motion('jog-keepalive').length, 0, 'no keepalive before the server accepted');
     f.answer(start, { jogId: 'j1', keepalivePeriodMs: 100, keepaliveTimeoutMs: 250, distanceMm: 49, message: 'Déplacement continu Y+ (au plus 49 mm, 250 mm/min) : relâchez pour arrêter.' }); await f.flush();
-    assert.equal(f.el('jog-msg').textContent, 'Déplacement continu Y+ : relâchez pour arrêter.');
+    assert.equal(f.el('motion-status').textContent, 'Déplacement continu Y+ : relâchez pour arrêter.');
     assert(Array.from(f.intervals.values()).some((i) => i.ms === 100), 'keepalive every 100 ms (the server period, at most 150 ms)');
     f.tick(100); await f.flush();
     const k = f.motion('jog-keepalive'); assert.equal(k.length, 1); assert.equal(k[0].body.jogId, 'j1');
@@ -265,13 +262,13 @@ if (require.main === module) (async () => {
     f.answer(stop, { message: 'Déplacement arrêté : annulation de jog (0x85) envoyée.' }); await f.flush();
     // Contre-revue M2: the answer says the cancel went out, not that the machine stopped. Still Jog and
     // cancelling: « attente de l'arrêt » stays; a recent report at rest: « arrêté ».
-    assert.equal(f.el('jog-feedback').textContent, 'Y+ · continu : annulation envoyée, attente de l’arrêt…');
-    assert.equal(f.el('jog-feedback').getAttribute('data-state'), 'sent');
+    assert.equal(f.el('motion-feedback').textContent, 'Y+ · continu : annulation envoyée, attente de l’arrêt…');
+    assert.equal(f.el('motion-feedback').getAttribute('data-state'), 'sent');
     f.push([withMotion({ canJog: false, cancelling: true, jogReason: 'Déplacement précédent non terminé : attendez le retour au repos (Idle).' }, { activeState: 'Jog' })]); await f.flush();
-    assert.equal(f.el('jog-feedback').textContent, 'Y+ · continu : annulation envoyée, attente de l’arrêt…');
+    assert.equal(f.el('motion-feedback').textContent, 'Y+ · continu : annulation envoyée, attente de l’arrêt…');
     // A double press right after the release is ignored; later a new press starts a new jog.
     f.push([machine()]); await f.flush();
-    assert.equal(f.el('jog-feedback').textContent, 'Y+ · continu : arrêté.'); assert.equal(f.el('jog-feedback').getAttribute('data-state'), 'confirmed');
+    assert.equal(f.el('motion-feedback').textContent, 'Y+ · continu : arrêté.'); assert.equal(f.el('motion-feedback').getAttribute('data-state'), 'confirmed');
     down(f.arrows['Y+']); await f.flush(); assert.equal(f.motion('jog-start').length, 1);
     f.advance(400); down(f.arrows['Y+']); await f.flush(); assert.equal(f.motion('jog-start').length, 2);
     // In hold mode a click never sends a step.
@@ -311,7 +308,7 @@ if (require.main === module) (async () => {
     f.arrows['Y+'].fire('pointerup');
     f.answer(f.motion('jog-stop')[0], { message: 'Déplacement arrêté : annulation de jog (0x85) envoyée.' }); await f.flush();
     f.push([machine({ port: 'COM4', controllerId: 'COM4', generation: 'gen-4' })]); await f.flush();
-    assert.equal(f.el('jog-feedback').textContent, 'Y+ · continu : annulation envoyée, attente de l’arrêt…');
+    assert.equal(f.el('motion-feedback').textContent, 'Y+ · continu : annulation envoyée, attente de l’arrêt…');
   }
   // Contre-revue M1: a step in flight is cancelled when the report goes stale, and stays followed until the
   // server lets it go (past its nominal time, « Déplacement précédent non terminé » still holds it).
@@ -334,22 +331,8 @@ if (require.main === module) (async () => {
     g.push([machine({ revision: 'r9' })]); await g.flush();
     assert.equal(g.arrows['X+'].disabled, false);
   }
-  // Contre-revue M3: « Zéro XYZ » asked from a visible relay (v2 summary) while its own row is not shown.
-  {
-    const f = await ready();
-    const via = f.el('body').appendChild(f.el('pv2-tool-zero'));
-    f.zeros[3].noBox = true;
-    f.zeros[3].click(); await f.flush();
-    assert.equal(f.posts().filter((r) => r.body.action === 'prepare').length, 0, 'the hidden button itself does nothing');
-    via.closest = (sel) => (sel === '#pv2-tool-zero' ? via : null);
-    f.fireDoc('click', { target: via }); await f.flush();
-    const prep = f.posts().filter((r) => r.body.action === 'prepare').at(-1);
-    assert(prep, 'one request through the relay'); assert.deepEqual(prep.body.axes, ['X', 'Y', 'Z']);
-    const g = await ready({ motion: Object.assign(machine().motion, { canSetOrigin: false, setOriginReason: 'Travail en cours.' }) });
-    const gv = g.el('body').appendChild(g.el('pv2-tool-zero')); gv.closest = (sel) => (sel === '#pv2-tool-zero' ? gv : null);
-    g.fireDoc('click', { target: gv }); await g.flush();
-    assert.equal(g.posts().filter((r) => r.body.action === 'prepare').length, 0, 'refused origin: nothing through the relay');
-  }
+  // L3a removes the hidden v2 zero relay. A hidden origin button still sends nothing.
+  {const f=await ready();f.zeros[3].noBox=true;f.zeros[3].click();await f.flush();assert.equal(f.posts().filter(r=>r.body.action==='prepare').length,0);}
   // 4. Every exit stops the held jog: no keepalive after it.
   for (const [name, act] of [['pointercancel', (f) => f.arrows['Y+'].fire('pointercancel')], ['pointerleave', (f) => f.arrows['Y+'].fire('pointerleave')],
     ['blur', (f) => f.fireWindow('blur')], ['hidden', (f) => { f.document.hidden = true; f.fireDoc('visibilitychange'); }],
@@ -415,18 +398,18 @@ if (require.main === module) (async () => {
     await started(f, 'j7');
     f.tick(100); await f.flush();
     f.answer(f.motion('jog-keepalive')[0], { message: 'Maintien reçu trop tard : déplacement annulé (0x85).' }, 409); await f.flush();
-    assert.match(f.el('jog-feedback').textContent, /Maintien reçu trop tard/);
+    assert.match(f.el('motion-feedback').textContent, /Maintien reçu trop tard/);
     f.tick(100); await f.flush(); assert.equal(f.motion('jog-keepalive').length, 1, 'no keepalive after a refusal');
     assert.equal(f.motion('jog-stop').length, 1);
     f.advance(400); down(f.arrows['Y+']); await f.flush();
     f.answer(f.motion('jog-start').at(-1), { jogId: 'j7b', keepalivePeriodMs: 100 }); await f.flush();
     f.tick(100); await f.flush();
     f.answer(f.motion('jog-keepalive').at(-1), { active: false, message: 'Déplacement terminé ou annulé : fin de la course autorisée atteinte.' }); await f.flush();
-    assert.match(f.el('jog-feedback').textContent, /fin de la course autorisée atteinte/);
+    assert.match(f.el('motion-feedback').textContent, /fin de la course autorisée atteinte/);
     const n = f.motion('jog-keepalive').length; f.tick(100); await f.flush(); assert.equal(f.motion('jog-keepalive').length, n);
     // The server's own end of a jog (motion.lastJog, not a release): said once.
     f.push([withMotion({ lastJog: { result: 'cancelled', reason: 'keepalive', message: 'maintien non confirmé à temps (connexion lente ou perdue)', at: 99 } })]); await f.flush();
-    assert.equal(f.el('jog-feedback').textContent, 'Déplacement arrêté : maintien non confirmé à temps (connexion lente ou perdue).');
+    assert.equal(f.el('motion-feedback').textContent, 'Déplacement arrêté : maintien non confirmé à temps (connexion lente ou perdue).');
   }
   // 8. Per axis in « Continu »: only the arrows of the axis the server refuses are greyed out; all three: the sentence.
   {
@@ -438,7 +421,7 @@ if (require.main === module) (async () => {
     assert.equal(f.arrows['X+'].title, 'Continu indisponible : machine non référencée ou course inconnue. Faites la prise d’origine (Machine) ou utilisez les pas.');
     down(f.arrows['X+']); await f.flush(); assert.equal(f.motion('jog-start').length, 0, 'no jog-start on a refused axis');
     f.push([withMotion({ continuousReason: { X: why, Y: why, Z: why } })]); await f.flush();
-    assert.equal(f.el('jog-msg').textContent, 'Continu indisponible : machine non référencée ou course inconnue. Faites la prise d’origine (Machine) ou utilisez les pas.');
+    assert.equal(f.el('motion-status').textContent, 'Continu indisponible : machine non référencée ou course inconnue. Faites la prise d’origine (Machine) ou utilisez les pas.');
     // Just after a homing, a $23 axis at 0 may be ambiguous to the server: what to do is said.
     const amb = 'Maintien continu impossible : convention de course ambiguë à cette position (Y 0, bit $23 à 1 : -400 → 0 ou 0 → 400) : aucun déplacement n’y est sûr dans les deux ; déplacez l’axe depuis l’interface classique et faites vérifier la convention (étape 0 de HANDOFF.md).';
     f.push([withMotion({ continuousReason: { X: '', Y: amb, Z: '' } })]); await f.flush();
@@ -455,9 +438,9 @@ if (require.main === module) (async () => {
     f.answer(prep, { nonce: 'n1', name: 'Origine X du repère G54 à la position actuelle (G10 L20 P1 X0)', operation: 'set-origin', expiresIn: 15, generation: 'gen-1' }); await f.flush();
     assert.equal(f.el('real-motion-ticket').hidden, false);
     // Contre-revue P3: the work position (Travail column) goes to 0, not the machine position.
-    assert.equal(f.el('real-motion-ticket-plan').textContent, 'Repère G54 · X 12.500 → 0 · mm. Aucun axe ne bouge.');
+    assert.equal(f.el('real-motion-ticket-plan').textContent, 'X pièce : 12,500 → 0 mm. Aucun axe ne bouge.');
     assert.match(f.el('real-motion-ticket-name').textContent, /G10 L20 P1 X0/);
-    assert.equal(f.el('real-motion-origin-confirm').textContent, 'Confirmer l’origine X · G54');
+    assert.equal(f.el('real-motion-origin-confirm').textContent, 'Poser le zéro X ici');
     assert.match(f.el('real-motion-ticket-left').textContent, /^Confirmation valable 15 s · Arrêter reste disponible/);
     assert.equal(f.el('real-banner').inert, false, 'the strip (Pause / Arrêter) stays usable'); assert.equal(f.el('main').inert, true);
     assert.equal(f.arrows['X+'].disabled, true, 'no move while an origin waits');
@@ -465,14 +448,14 @@ if (require.main === module) (async () => {
     const set = f.posts().at(-1); assert.deepEqual([set.body.action, set.body.nonce, set.body.generation], ['set-origin', 'n1', 'gen-1']);
     assert.equal(f.el('real-motion-ticket').hidden, true); assert.equal(f.el('main').inert, false, 'the background is restored');
     f.answer(set, { message: 'Origine X du repère G54 réglée à la position actuelle (G10 L20 P1 X0).' }); await f.flush();
-    assert.equal(f.el('jog-feedback').textContent, 'Origine X · G54 réglée.');
+    assert.equal(f.el('motion-feedback').textContent, 'Zéro X posé. Aucun axe ne bouge.');
     // Zéro XYZ: one preparation for the three axes, never three zeros in a row.
     const count = f.posts().filter((r) => r.body.action === 'prepare').length;
     f.el('jog-zero-xyz').click(); await f.flush();
     assert.equal(f.posts().filter((r) => r.body.action === 'prepare').length, count + 1);
     const xyz = f.posts().at(-1); assert.deepEqual(xyz.body.axes, ['X', 'Y', 'Z']);
     f.answer(xyz, { nonce: 'n2', name: 'Origine X Y Z du repère G54 à la position actuelle (G10 L20 P1 X0 Y0 Z0)', expiresIn: 15, generation: 'gen-1' }); await f.flush();
-    assert.equal(f.el('real-motion-ticket-plan').textContent, 'Repère G54 · X 12.500 → 0 · Y 3.000 → 0 · Z 1.000 → 0 · mm. Aucun axe ne bouge.');
+    assert.equal(f.el('real-motion-ticket-plan').textContent, 'X 12,500 → 0 · Y 3,000 → 0 · Z 1,000 → 0 mm. Aucun axe ne bouge.');
     // Expired ticket: the confirmation sends nothing.
     f.advance(16000); const n = f.posts().length; f.el('real-motion-origin-confirm').click(); await f.flush();
     assert.equal(f.posts().length, n, 'an expired ticket sends nothing');
@@ -482,12 +465,12 @@ if (require.main === module) (async () => {
     f.el('jog-zero-xyz').setAttribute('data-axis', 'xy'); f.el('jog-zero-xyz').click(); await f.flush();
     assert.deepEqual(f.posts().at(-1).body.axes, ['X', 'Y']);
     f.answer(f.posts().at(-1), { message: 'Repère de travail inconnu ou état $G trop ancien : attendez un rapport récent.' }, 409); await f.flush();
-    assert.equal(f.el('jog-feedback').textContent, 'Origine X Y : Refusé : Repère de travail inconnu ou état $G trop ancien : attendez un rapport récent.');
+    assert.equal(f.el('motion-feedback').textContent, 'Origine X Y : Refusé : Repère de travail inconnu ou état $G trop ancien : attendez un rapport récent.');
     // Cancel and Escape send nothing; leaving Préparer closes the dialog.
     f.el('jog-zero-y').click(); await f.flush();
     f.answer(f.posts().at(-1), { nonce: 'n3', name: 'Origine Y', expiresIn: 15, generation: 'gen-1' }); await f.flush();
     f.el('real-motion-ticket').fire('keydown', { key: 'Escape' });
-    assert.equal(f.el('real-motion-ticket').hidden, true); assert.equal(f.el('jog-feedback').textContent, 'Définition d’origine annulée : rien n’a été envoyé.');
+    assert.equal(f.el('real-motion-ticket').hidden, true); assert.equal(f.el('motion-feedback').textContent, 'Définition d’origine annulée : rien n’a été envoyé.');
     f.el('jog-zero-y').click(); await f.flush();
     f.answer(f.posts().at(-1), { nonce: 'n4', name: 'Origine Y', expiresIn: 15, generation: 'gen-1' }); await f.flush();
     f.screen.classList.remove('active'); f.fireWindow('cnc-screen-change', { detail: 'home' });
@@ -559,7 +542,7 @@ if (require.main === module) (async () => {
     const n = f.posts().length;
     f.el('real-motion-origin-confirm').click(); await f.flush();
     assert.equal(f.posts().length, n, 'nothing sent'); assert.equal(f.el('real-motion-ticket').hidden, true);
-    assert.equal(f.el('jog-feedback').textContent, 'Alarme 1 : Déverrouiller ($X) ou Prise d’origine ($H) dans Machine.');
+    assert.equal(f.el('motion-feedback').textContent, 'Alarme 1 : Déverrouiller ($X) ou Prise d’origine ($H) dans Machine.');
   }
   // Locked screen, Préparer not shown, a hidden page: nothing is sent, even by a programmatic click.
   for (const [name, act] of [['locked', (f) => { f.window.cncScreenLock = { locked: () => true }; }], ['other screen', (f) => { f.screen.classList.remove('active'); }],
@@ -592,7 +575,7 @@ if (require.main === module) (async () => {
     ['idle but refused ($13=1)', { operator: { reportUnits: 'in', wcs: 'G54' }, motion: Object.assign(machine().motion, { canJog: false, jogReason: 'Rapports en pouces ($13=1) ou réglage $13 inconnu : le déplacement réel exige $13=0.' }) }, 'Rapports de la carte en pouces ($13=1) : réglez $13=0 sur la carte pour déplacer depuis la tablette.']];
   for (const [name, patch, sentence] of ROWS) {
     const f = await ready(patch);
-    assert.equal(f.el('jog-msg').textContent, sentence, name);
+    assert.equal(f.el('motion-status').textContent, sentence, name);
     assert(allArrows(f).every((b) => b.disabled), name + ': every arrow greyed out');
     // The zeros follow the same rows, except a refusal of the jog alone ($13): the origin has its own (canSetOrigin).
     if (!/^idle but refused/.test(name)) assert(f.zeros.every((b) => b.disabled), name + ': the zeros too');
@@ -603,32 +586,30 @@ if (require.main === module) (async () => {
   {
     // $13 unknown: « Relire les réglages ($$) » offered at rest; $13=1 known: not offered (a reading changes nothing).
     const f = await ready({ operator: { reportUnits: null, wcs: 'G54' }, motion: Object.assign(machine().motion, { canJog: false, jogReason: 'Rapports en pouces ($13=1) ou réglage $13 inconnu : le déplacement réel exige $13=0.' }) });
-    assert.equal(f.el('jog-read-settings').hidden, false);
+    assert.match(f.el('motion-status').textContent,/Réglage \$13 inconnu/);
     const inch = await ready({ operator: { reportUnits: 'in', wcs: 'G54' }, motion: Object.assign(machine().motion, { canJog: false, jogReason: 'Rapports en pouces ($13=1) ou réglage $13 inconnu : le déplacement réel exige $13=0.' }) });
-    assert.equal(inch.el('jog-read-settings').hidden, true, '$13=1 known: no « Relire »');
     // Contre-revue P2-2: « Réglage $22 inconnu » (capital R) is recognised; the read is available in alarm when the server allows it.
+    assert.match(inch.el('motion-status').textContent,/pouces/);
     const cap22 = await ready({ motion: Object.assign(machine().motion, { canSetOrigin: false, setOriginReason: 'Réglage $22 inconnu : relisez les réglages de la carte.' }) });
-    assert.equal(cap22.el('jog-read-settings').hidden, false, '« Réglage $22 inconnu » offers the reading');
+    assert(cap22.zeros.every(b=>b.disabled));
     const al = await ready({ activeState: 'Alarm', alarmCode: 1, homeReason: 'Réglage $22 inconnu : relisez les réglages de la carte.',
       motion: Object.assign(machine().motion, { canJog: false, jogReason: 'Machine en alarme (ALARM:1) : déverrouillez ($X) ou référencez ($H) d’abord.', canSetOrigin: false, setOriginReason: 'Réglage $22 inconnu : relisez les réglages de la carte.' }) });
     const ALARM_REREAD = 'Touchez Relire les réglages ($$).';
-    assert.equal(al.el('jog-msg').textContent, ALARM_REREAD);
-    assert.equal(al.el('jog-read-settings').hidden, false); assert.equal(al.el('jog-read-settings').disabled, false);
-    assert.equal(al.el('jog-read-settings').title, '', 'the server permits a read in alarm');
+    assert.equal(al.el('motion-status').textContent, ALARM_REREAD);
     const v = 'Version Grbl inconnue : attendez la bannière de démarrage ou lisez les réglages ($I).';
     const alv = await ready({ activeState: 'Alarm', capabilities: { jog: { supported: false, enabled: false, reason: v }, jogContinuous: { supported: false, enabled: false, reason: v }, setOrigin: { supported: false, enabled: false, reason: v } } });
-    assert.equal(alv.el('jog-msg').textContent, ALARM_REREAD, 'unknown version can be read in alarm');
+    assert.equal(alv.el('motion-status').textContent, ALARM_REREAD, 'unknown version can be read in alarm');
     // The stream down (row 2), and nothing published since (rows 1 / 3).
     const g = await ready(); await g.reconnect(machine({ revision: 'x' })); g.lastStatus();
     g.window.dispatchEvent({ type: 'cnc-job-status', detail: { machine: machine(), transportConnected: false, simulation: false, pilot: null } });
-    assert.equal(g.el('jog-msg').textContent, 'Suivi interrompu : déplacement bloqué jusqu’à son retour.');
+    assert.equal(g.el('motion-status').textContent, 'Suivi interrompu : déplacement bloqué jusqu’à son retour.');
     g.window.dispatchEvent({ type: 'cnc-job-status', detail: { machine: null, transportConnected: true, observedAt: g.now(), simulation: false, pilot: null } });
-    assert.equal(g.el('jog-msg').textContent, 'Aucune machine connectée : touchez Connecter la CNC dans le Menu.');
+    assert.equal(g.el('motion-status').textContent, 'Aucune machine connectée : touchez Connecter la CNC dans le Menu.');
     g.window.dispatchEvent({ type: 'cnc-job-status', detail: { machine: null, transportConnected: true, observedAt: g.now() - 5000, simulation: false, pilot: null } });
-    assert.equal(g.el('jog-msg').textContent, 'État machine trop ancien : attendez un rapport récent.');
+    assert.equal(g.el('motion-status').textContent, 'État machine trop ancien : attendez un rapport récent.');
     // Row 0 even with the stream down.
     g.window.dispatchEvent({ type: 'cnc-job-status', detail: { machine: withMotion({ cancelUnconfirmed: true }), transportConnected: false, simulation: false, pilot: null } });
-    assert.equal(g.el('jog-msg').textContent, 'ANNULATION NON CONFIRMÉE : utilisez l’arrêt physique si la machine bouge encore');
+    assert.equal(g.el('motion-status').textContent, 'ANNULATION NON CONFIRMÉE : utilisez l’arrêt physique si la machine bouge encore');
   }
   // Every sentence of the table has its EN and ES rows (the catalogue, i18n.js).
   {
@@ -650,7 +631,7 @@ if (require.main === module) (async () => {
       const f = await ready();
       f.arrows['X+'].click(); await f.flush();
       f.answer(f.motion('jog').at(-1), { message: reason }, 409); await f.flush();
-      assert.match(f.el('jog-feedback').textContent.replace(/^X\+ · 1 mm · 250 mm\/min : Refusé : /, ''), out, reason);
+      assert.match(f.el('motion-feedback').textContent.replace(/^X\+ · 1 mm · 250 mm\/min : Refusé : /, ''), out, reason);
     }
   }
   // 13. Sobriety: twenty identical reports write nothing; a simulation event is ignored; three seconds
@@ -665,7 +646,7 @@ if (require.main === module) (async () => {
     f.advance(3100); Array.from(f.intervals.values()).filter((i) => i.ms === 1000).forEach((i) => i.fn()); await f.flush();
     assert(allArrows(f).every((b) => b.disabled) && f.zeros.every((b) => b.disabled), 'stale: everything greyed out');
     // job-controls' own clock may say the stream is muted first: either sentence says why.
-    assert.match(f.el('jog-msg').textContent, /^(État machine trop ancien : attendez un rapport récent\.|Suivi interrompu : déplacement bloqué jusqu’à son retour\.)$/);
+    assert.match(f.el('motion-status').textContent, /^(État machine trop ancien : attendez un rapport récent\.|Suivi interrompu : déplacement bloqué jusqu’à son retour\.)$/);
   }
   // 14. Arrêter (strip, Suivi or preview viewer) during a hold ends the keepalives in the same tap,
   //     before the stop is relayed; the job's stop still leaves at once (Audit 31, R-M1).
@@ -713,9 +694,11 @@ if (require.main === module) (async () => {
     const refused=machine({motion:{...machine().motion,lastJog:{at:1,result:'refused',reason:'error:15',message:'Grbl a refusé le jog (error:15)',axis:'X'}}});
     if(reportFirst)f.push([refused]);
     f.answer(req,{message:'Pas envoyé.'});await f.flush();f.push([refused]);await f.flush();
-    assert.match(f.el('jog-feedback').textContent,/refusé.*15/i,'C-24: refusal replaces acceptance, response race '+reportFirst);
-    assert.equal(f.el('jog-feedback').getAttribute('data-state'),'failed');
+    assert.match(f.el('motion-feedback').textContent,/refusé.*15/i,'C-24: refusal replaces acceptance, response race '+reportFirst);
+    assert.equal(f.el('motion-feedback').getAttribute('data-state'),'failed');
   }
+  // L3a: losing control must never swallow the release of a held arrow.
+  {const f=await ready();await started(f,'held-before-takeover');f.push([machine({control:{owner:{kind:'touch',id:'other',label:'PC',present:true}}})]);await f.flush();f.arrows['Y+'].fire('pointerup');await f.flush();assert(f.motion('jog-stop').length>=1,'release still sends jog-stop after control loss');f.controls().dispose();f.fireWindow('pagehide');}
   // 15. Idle release (control.lastChange.type 'idle') and lease ended by absence: told by job-controls.
   {
     const f = load(); const id = f.controls().clientId();

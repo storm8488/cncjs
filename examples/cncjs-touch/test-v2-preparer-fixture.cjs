@@ -9,7 +9,7 @@ const idle = (patch = {}) => Object.assign({ port: 'A', generation: 'g1', revisi
   fresh: true, activeState: 'Idle', workflow: 'idle', statusAgeMs: 0, canStart: true, canLoad: true,
   coordinates: { mpos: { x: -100, y: -50, z: -10 }, wpos: { x: 18, y: 12, z: 0 } }, operator: { wcs: 'G54', reportUnits: 'mm' }, settings: { $22: '1' } }, patch);
 function preparerPage(options = {}) {
-  const dom = createDOM(['jog']), { document, node, element, activeScreens } = dom;
+  const dom = createDOM([options.screen||'check']), { document, node, element, activeScreens } = dom;
   const classes = new Set(options.v2 === false ? [] : ['perf-v2']);
   document.body.classList = { contains: n => classes.has(n), add: n => classes.add(n), remove: n => classes.delete(n), toggle(n, on) { if (on) classes.add(n); else classes.delete(n); } };
   document.body.getAttribute = () => null;
@@ -41,7 +41,7 @@ function preparerPage(options = {}) {
     gate: () => v2.gate,
     state: () => ({ layout: v2.layout, open: v2.gate, safeIdle: v2.safeIdle, holdLayout: v2.layout && !v2.safeIdle }),
     use: slot => slot === 'placement' ? { snapshot: () => v2.placement || empty, update: input => { calls.updates.push(input); return v2.placement || empty; } } : { snapshot: () => null },
-    mounts: { get: name => name === 'prepare' && v2.layout ? { screen: 'jog', root: node('screen-jog'), content, origin: options.simulation ? null : content } : null },
+    mounts: { get: name => name === 'prepare' && v2.layout ? { screen: 'check', root: node('screen-check'), content, origin: options.simulation ? null : content } : null },
     lifecycle: { scope: () => life }
   };
   window.cncDashboardView = { loadedPreview: () => { calls.reads++; return Promise.resolve(options.preview === undefined ? null : options.preview); } };

@@ -100,13 +100,19 @@
       else zeroCause=cause('zero-non-confirme','La machine n’a pas confirmé le zéro pièce.',['verifier-zero']);
     }
     var traces=m?[m.motion&&m.motion.lastOrigin,m.blockProbe&&m.blockProbe.state==='done'&&m.blockProbe.written==='yes'?m.blockProbe:null,m.zeroZ].filter(function(o){return o&&!o.failed;}):[];
-    var zeroDone=proven&&traces.length>0,check=m&&m.programCheck,outside=!!(check&&(check.verdict==='outside'||['X','Y','Z'].some(function(a){return check.axes&&check.axes[a]&&check.axes[a].verdict==='outside';})));
+    var zeroDone=proven&&!!(m&&m.homed===true&&!m.referenceLost)&&traces.length>0,check=m&&m.programCheck,outside=!!(check&&(check.verdict==='outside'||['X','Y','Z'].some(function(a){return check.axes&&check.axes[a]&&check.axes[a].verdict==='outside';})));
     var done={machine:!!(m&&online&&m.fresh&&p.state!=='other'&&!alarm&&!settings&&m.homed===true&&!m.referenceLost&&!m.lastAlarm&&m.firmware&&m.settingsCount>0),files:!!(m&&m.name),jog:zeroDone,check:!!(m&&proven&&check&&check.verdict==='validated'&&m.canStart&&!outside),home:!!(m&&m.finished)};
     var machineView=machineLines(input,global,rank);
     if(machineView.incident)done.machine=false;
     var suite=running?'home':order.filter(function(k){return !done[k];})[0]||'check';
     if(machineView.action==='suite:files')machineView.action='suite:'+(order.slice(1).filter(function(k){return !done[k];})[0]||'check');
-    var words={machine:done.machine?'Prête':global?global.texte:'En attente',files:done.files?'Chargé':selection?'Choisi':'Aucun fichier',jog:m&&m.probing?'Palpage…':!proven?'À vérifier':zeroDone?'Posé':'Ancien zéro',check:!m||!m.name?'En attente':!proven?'Zéro pièce à vérifier':outside?'Dépasse':check&&check.verdict==='unknown'?'Non vérifié':m.jobStopped?'À recharger':done.check?'Tient':'En attente',home:alarm?'Alarme':m&&m.jobStopped?'Arrêté':m&&m.workflow==='paused'?'Pause':m&&m.workflow==='running'?'En cours':done.home?'Terminé':'Rien en cours'};
+    var words={machine:done.machine?'Prête':global?global.texte:'En attente',files:done.files?'Chargé':selection?'Choisi':'Aucun fichier',jog:m&&m.probing?'Palpage…':!proven||m&&(!m.homed||m.referenceLost)?'À vérifier':zeroDone?'Posé':'Ancien zéro',check:!m||!m.name?'En attente':!proven?'Zéro pièce à vérifier':outside?'Dépasse':check&&check.verdict==='unknown'?'Non vérifié':m.jobStopped?'À recharger':done.check?'Tient':'En attente',home:alarm?'Alarme':m&&m.jobStopped?'Arrêté':m&&m.workflow==='paused'?'Pause':m&&m.workflow==='running'?'En cours':done.home?'Terminé':'Rien en cours'};
+    var zeroContext='';
+    if(zeroDone&&!(m&&m.probing)){
+      var trace=traces.slice().sort(function(a,b){return (b.endedAt||b.at||0)-(a.endedAt||a.at||0);})[0],at=trace.endedAt||trace.at;
+      if(typeof at==='number'&&at>0)words.jog=t('Posé à {heure}').replace('{heure}',new Date(at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}));
+      zeroContext=trace===m.zeroZ?t('plaque : Z seul'):t(trace===m.blockProbe?'bloc {axes}':'à la main : {axes}').replace('{axes}',Array.isArray(trace.axes)?trace.axes.join(''):trace.operation||'—');
+    }
     if(m&&m.workflow==='running')words.home=t('En cours')+' · '+(m.total>0?Math.min(99,Math.floor((m.received||0)/m.total*100)):'—')+' %';
     if(m&&m.jobStopped&&typeof m.stoppedAtLine==='number')words.home=t('Arrêté ligne {n}').replace('{n}',String(m.stoppedAtLine));
     if(alarm){var alarmCode=m.lastAlarm&&m.lastAlarm.code||m.alarmCode;if(alarmCode)words.home=t('Alarme')+' '+alarmCode;}
@@ -120,22 +126,22 @@
     var etapes={},barres={};
     order.forEach(function(k,i){
       var a=actions[k],abnormal=k==='machine'&&!!(global&&['main-ailleurs','information-ancienne','alarme-usinage','alarme'].indexOf(global.id)>=0||m&&(m.lastAlarm||m.referenceLost))||k==='jog'&&!!zeroCause||k==='check'&&(outside||!!(check&&check.verdict==='unknown'))||k==='home'&&!!(alarm||m&&m.jobStopped);
-      var c=rank>0&&rank<=6?global:own[k],blocked=rank>0&&rank<=6&&k!=='jog'&&a.id!==(global.remedes[0]||'');
+      var c=rank>0&&rank<=6||k==='jog'&&global?global:own[k],blocked=rank>0&&rank<=6&&k!=='jog'&&a.id!==(global.remedes[0]||'');
       // Navigation, stop and release never inherit a machine command refusal.
       if(k==='home'&&a.id==='pause')blocked=false;
       if(blocked){a.allowed=false;c=global;}else if(!a.allowed)c=k==='machine'?c:global||c||fromRefusal(m&&m.refusals&&m.refusals[k==='check'?'start':k==='files'?'load':'resume']||{});
       if(k==='machine'&&a.id==='connecter'&&input.connectionBusy)c=machineView.cause;
-      if(done[k]&&!(k==='files'&&selection&&m&&selection.file!==m.name)&&k!=='home'&&k!=='machine'&&!(global&&rank<=6)){
+      if(done[k]&&!(k==='files'&&selection&&m&&selection.file!==m.name)&&k!=='home'&&k!=='machine'&&k!=='jog'&&!(global&&rank<=6)){
         var next=order.slice(i+1).filter(function(n){return !done[n];})[0]||'check';a={id:'suite:'+next,allowed:true};
       }
       var label=a.id.indexOf('suite:')===0?t('Suite : {etape} →').replace('{etape}',t(a.id==='suite:home'&&kind==='laser'?'Gravure':labels[a.id.slice(6)])):k==='machine'&&a.id==='changer-ligne'?machineView.resumeLine===null?t('Reprendre à une ligne…'):t('Reprendre à la ligne {n}…').replace('{n}',machineView.resumeLine):t({charger:'Charger ce fichier',demarrer:kind==='laser'?'Démarrer la gravure…':'Démarrer l’usinage…',reprendre:'Reprendre…',pause:'Pause'}[a.id]||remedies[a.id]||'Détails');
-      etapes[k]={etat:!online&&!h?'inconnu':abnormal?'alerte':done[k]?'fait':suite===k?'suite':'attente',mot:t(words[k]),contexte:m&&m.name?(m.originalName||m.name):''};
+      etapes[k]={etat:!online&&!h?'inconnu':abnormal?'alerte':done[k]?'fait':suite===k?'suite':'attente',mot:t(words[k]),contexte:k==='jog'?zeroContext:m&&m.name?(m.originalName||m.name):''};
       barres[k]={cause:c||cause('pret',done[k]?'Tout est prêt.':words[k],[],'neutre'),remedes:(c&&c.remedes||[]).filter(function(id){return id!==a.id&&!(k==='machine'&&id==='remise-en-route');}).map(function(id){return {id:id,actif:!(id in guards)||guards[id]};}),details:!!c,action:{id:a.id,libelle:label,style:a.allowed?k==='jog'&&!zeroDone?'contour':'plein':'raye'}};
     });
     return {etapes:etapes,suite:suite,barres:barres,lignes:machineView.rows,machine:machineView,globale:global,rang:rank};
   }
   window.CNCSeance={evaluate:evaluate};
-  var lastAction='',handlers={},last={},selection=window.cncLibrarySelection||null,manual=false,arrived=false,result=null,armed={},pendingRefusal=null;
+  var lastAction='',handlers={},last={},selection=window.cncLibrarySelection||null,manual=false,arrived=false,result=null,armed={},pendingRefusal=null,motionFeedback=null;
   function setText(n,v){if(n&&n.textContent!==v)n.textContent=v;}
   function attr(n,k,v){if(n&&n.getAttribute(k)!==v)n.setAttribute(k,v);}
   function prop(n,k,v){if(n&&n[k]!==v)n[k]=v;}
@@ -185,9 +191,19 @@
     var active=shell.screen(),b=result.barres[active];if(active==='more'){var version=document.getElementById('more-version'),loaded=window.cncTabletActions&&window.cncTabletActions.loadedVersion&&window.cncTabletActions.loadedVersion(),stamp=window.cncProfile&&window.cncProfile.version||'—';if(loaded&&loaded.commit)stamp+=' · '+String(loaded.commit).slice(0,8);setText(version,t('CNCjs Touch · page {version}').replace('{version}',stamp));}if(!b)return;
     if(active==='machine')paintMachine();
     var r=pendingRefusal&&pendingRefusal.screen===active?pendingRefusal.refusal:null;
+    var movement=active==='jog'&&motionFeedback;
+    if(movement&&movement.stopUnconfirmed)r={phrase:t('ANNULATION NON CONFIRMÉE : utilisez l’arrêt physique si la machine bouge encore'),remedes:['details']};
+    if(movement&&!r){
+      if(movement.stale&&(!result.globale||result.rang>4))r=window.cncRefus&&window.cncRefus.lire({code:'ETOUCH_MACHINE_STALE'});
+      else if(!(result.globale&&result.rang<=10)){
+        if(movement.blocked)r=window.cncRefus&&window.cncRefus.lire(movement.error);
+        else if(movement.state==='failed')r=window.cncRefus&&window.cncRefus.lire({message:movement.feedback});
+      }
+    }
     var prefix='step-'+active+'-',by=function(id){return document.getElementById(prefix+id);};
     if(active==='home')setText(by('title'),'5 · '+t(laser?'Gravure':'Usinage'));
     setText(by('state'),result.etapes[active].mot);setText(by('context'),result.etapes[active].contexte);setText(by('cause'),r?'! '+r.phrase:(active==='machine'||b.cause.id==='pret'?'':t('Il manque : '))+b.cause.texte);
+    if(movement&&!r&&!result.globale&&movement.feedback&&movement.state!=='failed'&&(movement.state!=='confirmed'||last.machine&&last.machine.workOffset&&last.machine.workOffset.state==='proven'))setText(by('cause'),movement.feedback);
     var ids=r?r.remedes.map(function(id){return {id:id,actif:true};}):b.remedes;
     ['remedy','remedy2'].forEach(function(slot,i){var node=by(slot),item=ids[i];if(!node)return;prop(node,'hidden',!item);if(item){attr(node,'data-action',item.id);setText(node,t(remedies[item.id]));prop(node,'disabled',!item.actif);}});
     prop(by('details'),'hidden',!r&&!b.details);
@@ -218,13 +234,13 @@
   handlers['changer-ligne']=function(){window.cncShell.go('home');var b=document.getElementById('home-resume-line');if(b&&!b.disabled)b.click();};
   handlers['reprendre-debut']=handlers['recharger-fichier'];handlers['reessayer-controle']=function(){window.cncShell.go('check');};
   handlers.recommencer=function(){if(lastAction&&lastAction!=='recommencer')return lancer(lastAction);return lancer('details');};
-  window.cncSeance={enregistrer:function(id,fn){handlers[id]=fn;},lancer:lancer,libelle:function(id){return t(remedies[id]||labels[id]||id);},refuser:refuse,render:paint,state:function(){return result;}};
+  window.cncSeance={enregistrer:function(id,fn){handlers[id]=fn;},lancer:lancer,libelle:function(id){return t(remedies[id]||labels[id]||id);},refuser:refuse,render:paint,state:function(){return result;},motionFeedback:function(value){if(JSON.stringify(value)===JSON.stringify(motionFeedback))return;motionFeedback=value;paint();}};
   if(!window.addEventListener)return;
   window.addEventListener('cnc-job-status',function(e){if(!e.detail||!!e.detail.simulation!==(document.body.getAttribute('data-simulation')==='true'))return;last=e.detail;paint();if(!arrived&&result&&window.cncShell){arrived=true;if(!manual)window.cncShell.go(result.suite);}});
   window.addEventListener('cnc-library-select',function(e){selection=e.detail;pendingRefusal=null;paint();});
   document.addEventListener('visibilitychange',function(){if(!document.hidden)paint();});
   document.addEventListener('input',function(){if(pendingRefusal){pendingRefusal=null;paint();}});
-  window.addEventListener('cnc-screen-change',function(e){pendingRefusal=null;armed[e.detail]=Date.now()+600;paint();});
+  window.addEventListener('cnc-screen-change',function(e){pendingRefusal=null;motionFeedback=null;armed[e.detail]=Date.now()+600;paint();});
   window.addEventListener('cnc-sheet-change',function(){paint();});
   document.addEventListener('pointerdown',function(e){if(e.isTrusted)manual=true;},true);
   document.addEventListener('keydown',function(e){if(e.isTrusted)manual=true;},true);

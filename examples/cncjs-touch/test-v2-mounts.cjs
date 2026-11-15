@@ -6,7 +6,7 @@ function block(file,start,end) {const s=read(file),a=s.indexOf(start),b=s.indexO
   const mountSource=block('touch-shell.js','  // BEGIN V2 MOUNTS','  // END V2 MOUNTS');
   for(const simulation of [false,true]) for(const withPerformanceCard of [false,true]) {
     const p=page({simulation}); const nodes={};
-    for(const name of ['home','files','jog','machine','history','settings']) nodes['screen-'+name]=p.document.createElement('section');
+    for(const name of ['home','files','jog','check','machine','history','settings']) nodes['screen-'+name]=p.document.createElement('section');
     nodes['ks-machine-details']=p.document.createElement('section');
     const settings=nodes['screen-settings'];
     if(withPerformanceCard) {
@@ -27,7 +27,7 @@ function block(file,start,end) {const s=read(file),a=s.indexOf(start),b=s.indexO
     for(const [name,m] of Object.entries(mounts)) {assert.equal(m.root.children.length,name==='settings'&&withPerformanceCard?4:1);assert(m.content.hidden);assert.equal(m.content.id,'perf-v2-'+name);}
     if(withPerformanceCard) assert.equal(settings.children[1],mounts.settings.content,'settings mount immediately after Performance, before existing L6 entry');
     const settingsOrder=settings.children.slice();
-    assert.equal(mounts.prepare.origin,simulation?null:mounts.prepare.content);
+    assert.equal(mounts.prepare.origin,simulation?null:mounts.prepare.content);assert.equal(mounts.prepare.root,nodes['screen-check']);assert.equal(mounts.prepare.screen,'check');
     p.status({workflow:'running'}); p.window.cncProfile.setPerformance('eco'); p.frame();
     assert.equal(p.window.testMounts(),mounts,'same mount nodes throughout work/loss/Eco');
     assert(Object.entries(mounts).every(([name,m])=>m.root.children.length===(name==='settings'&&withPerformanceCard?4:1)));

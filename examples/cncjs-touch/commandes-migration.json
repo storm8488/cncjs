@@ -287,9 +287,9 @@
     },
     {
       "id": "OR-07",
-      "sort": "inchangé",
-      "ecran": "Préparer (Déplacer / Origine)",
-      "selecteur": "#jog-read-settings",
+      "sort": "supprimé",
+      "ecran": "jog",
+      "selecteur": null,
       "etat": "Masqué sauf réglage ou version inconnus (settingsMissing) et pas de jog en cours ; actif Idle + workflow idle.",
       "requete": {
         "canal": "http",
@@ -300,8 +300,9 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; idle : available, pas de palpage, pas de jog, workflow idle, état Idle, file vide ; noJob : available, pas de palpage, pas de jog du service, workflow idle, file CNCjs vide, pas de chargement",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L3a",
+      "fait": true,
+      "remplace": "Shared step remedy: readSettings, unchanged owner and server permission"
     },
     {
       "id": "OR-08",
@@ -324,8 +325,8 @@
     {
       "id": "DE-01",
       "sort": "inchangé",
-      "ecran": "Préparer › Axes X / Y, Axe Z",
-      "selecteur": "#screen-jog .jog[data-axis][data-dir] (mode pas)",
+      "ecran": "jog",
+      "selecteur": "#screen-jog .jog[data-axis][data-dir]",
       "etat": "v1 : carte .ks-motion-arrows de Préparer. v2 : cachée en mode « comparaison », visible après « Déplacer la machine… » (#pv2-jog-open). Désactivées avec leur raison (moveReason : suivi, état, pilote, capacité, palpage, travail, alarme, jog en cours, ticket d’origine, continu par axe).",
       "requete": {
         "canal": "http",
@@ -341,14 +342,14 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Fonction de déplacement : Grbl ≥ 1.1 connu et .cncrc touch.motion.enabled === true ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Le déplacement vient de l’appareil dont le flux transportId est ouvert ; atRest : available, pas de palpage ni chargement, workflow idle, pas d’alarme, pas de jog en cours, Idle, file vide, pas d’automatisme ; $13 = 0 ; pas ∈ STEPS ; avance 1 … $11x (500 si inconnu) ; broche → pas ≤ 0,1 ; pas > 1 mm : référencé + course connue ; cible dans la course ; ≤ 60 s",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L3a",
+      "fait": true
     },
     {
       "id": "DE-02",
       "sort": "inchangé",
-      "ecran": "Préparer › Axes",
-      "selecteur": "#screen-jog .jog (mode Continu, #steps [data-step=hold])",
+      "ecran": "jog",
+      "selecteur": "#screen-jog .jog[data-axis][data-dir]",
       "etat": "Comme DE-01 ; « Continu » visible seulement si capabilities.jogContinuous.enabled ; raison par axe (référence, course, broche).",
       "requete": {
         "canal": "http",
@@ -363,8 +364,8 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Fonction de déplacement : Grbl ≥ 1.1 connu et .cncrc touch.motion.enabled === true ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Le déplacement vient de l’appareil dont le flux transportId est ouvert ; atRest : available, pas de palpage ni chargement, workflow idle, pas d’alarme, pas de jog en cours, Idle, file vide, pas d’automatisme ; Machine référencée et course connue ; broche arrêtée ; ≥ 0,5 mm avant le bord (marge 1 mm)",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L3a",
+      "fait": true
     },
     {
       "id": "DE-03",
@@ -441,13 +442,13 @@
     {
       "id": "DE-07",
       "sort": "inchangé",
-      "ecran": "Préparer › Pas · mm ; feuille « Vitesse de déplacement »",
-      "selecteur": "#steps .step[data-step], #feeds .step[data-feed], #ks-jog-settings, #pv2-tool-speed",
+      "ecran": "jog",
+      "selecteur": "#steps .step[data-step], #feeds .step[data-feed], #ks-jog-settings",
       "etat": "Choix locaux ; pas filtrés par capabilities.jog.steps, vitesses ≤ min($110–$112) (500 si inconnu) ; désactivés pendant un jog.",
       "requete": null,
       "refus": "Action indisponible dans cet état.",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L3a",
+      "fait": true
     },
     {
       "id": "DE-08",
@@ -478,7 +479,7 @@
     {
       "id": "ZE-01",
       "sort": "inchangé",
-      "ecran": "Préparer › Coordonnées du contrôleur",
+      "ecran": "jog",
       "selecteur": "#jog-zero-x, #jog-zero-y, #jog-zero-z",
       "etat": "v1 : tableau des coordonnées. v2 : tableau caché en mode comparaison, visible en mode « Déplacer la machine… ». Désactivé avec la raison originReason (état, capacité setOrigin, ticket ou jog en cours). Laser sans Z : Zéro Z masqué.",
       "requete": {
@@ -500,13 +501,13 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Fonction de déplacement : Grbl ≥ 1.1 connu et .cncrc touch.motion.enabled === true ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Ticket à usage unique : nonce, même opération, 15 s, même flux ; atRest : available, pas de palpage ni chargement, workflow idle, pas d’alarme, pas de jog en cours, Idle, file vide, pas d’automatisme ; originReady : repère actif connu par un $G récent ; positions machine connues ; repère et position inchangés à l’exécution",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L3a",
+      "fait": true
     },
     {
       "id": "ZE-02",
       "sort": "inchangé",
-      "ecran": "Préparer › Coordonnées du contrôleur",
+      "ecran": "jog",
       "selecteur": "#jog-zero-xyz",
       "etat": "v1 seulement : en v2 la ligne .ks-motion-zero est cachée dans les deux modes (relais ZE-03). Laser avec Z masqué : libellé « Zéro XY » et data-axis=\"xy\".",
       "requete": {
@@ -530,8 +531,8 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Fonction de déplacement : Grbl ≥ 1.1 connu et .cncrc touch.motion.enabled === true ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; Ticket à usage unique : nonce, même opération, 15 s, même flux ; atRest : available, pas de palpage ni chargement, workflow idle, pas d’alarme, pas de jog en cours, Idle, file vide, pas d’automatisme ; originReady : repère actif connu par un $G récent ; positions machine connues ; repère et position inchangés à l’exécution",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L3a",
+      "fait": true
     },
     {
       "id": "ZE-03",
@@ -1298,15 +1299,25 @@
     {
       "id": "N-03",
       "sort": "nouveau",
-      "ecran": "à réaliser",
-      "selecteur": null,
-      "etat": "à réaliser",
+      "ecran": "jog",
+      "selecteur": "#ks-zero-more .ks-zero-machine",
+      "etat": "canSetOrigin, homed, proven workOffset; per-axis refusal until its inputs change",
       "requete": {
-        "action": "set-origin at machine"
+        "canal": "http",
+        "action": "prepare",
+        "operation": "set-origin",
+        "at": "machine",
+        "axes": [
+          "X | Y | Z"
+        ],
+        "confirmation": {
+          "action": "set-origin",
+          "nonce": "bound ticket"
+        }
       },
-      "refus": "gardes du serveur",
+      "refus": "Existing origin guards plus machineOriginReady: homed, proven workOffset, G92/TLO zero on selected axes. No movement.",
       "lot": "L3a",
-      "fait": false
+      "fait": true
     },
     {
       "id": "N-04",

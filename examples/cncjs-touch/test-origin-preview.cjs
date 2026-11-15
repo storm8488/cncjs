@@ -75,7 +75,7 @@ function page(options = {}) {
   const document = { head, body, currentScript: null, createElement: t => new El(t), createTextNode: v => new Text(v),
     getElementById: id => html.all().find(e => e.id === id) || null,
     querySelector: sel => sel[0] === '.' ? html.all().find(e => e.classList.contains(sel.slice(1))) || null : null };
-  const screen = body.appendChild(new El('section')); screen.id = 'screen-jog'; screen.className = 'screen' + (options.active === false ? '' : ' active');
+  const screen = body.appendChild(new El('section')); screen.id = 'screen-check'; screen.className = 'screen' + (options.active === false ? '' : ' active');
   // Jog controls of Préparer: the test proves none of them is ever clicked.
   for (const id of ['jog-x-plus', 'jog-x-minus', 'zero-x', 'zero-y', 'zero-xyz']) { const b = screen.appendChild(new El('button')); b.id = id; b.addEventListener('click', () => clicks.push('handler:' + id)); }
   const win = { document, console, Promise, JSON, Math, Object, Array, String, Number, Date, Error, ArrayBuffer, Float32Array, Set, Map, isFinite, setTimeout, clearTimeout,
@@ -286,7 +286,7 @@ if (require.main === module) (async () => {
     w.cncDashboardView._setPreview(meta);
     const before = Object.fromEntries(Object.entries(w.listeners).filter(([, v]) => v.length).map(([k, v]) => [k, v.length]));
     O.mount(p.screen);
-    assert.equal(p.screen.children.at(-1), card(p), '#op-card is the last child of #screen-jog');
+    assert.equal(p.screen.children.at(-1), card(p), '#op-card is the last child of #screen-check');
     assert.equal(card(p).className, 'card op-card'); assert(p.body.classList.contains('perf-origin'));
     const link = p.document.head.children.find(e => e.id === 'op-style');
     assert.equal(link.href, 'origin-preview.css?v=prof15', 'stylesheet with the ?v= of its own script');
@@ -405,20 +405,20 @@ if (require.main === module) (async () => {
   }
   {
     let q = await preparation();
-    eq(q.loads, [['preview-gl.js', 'origin-preview.js']]); eq(q.mounts, [['mount', 'screen-jog']]);
+    eq(q.loads, [['preview-gl.js', 'origin-preview.js']]); eq(q.mounts, [['mount', 'screen-check']]);
     // Leaving Préparer unmounts; coming back mounts again (module already loaded).
     q.screen.className = 'screen'; q.win.dispatchEvent(new q.win.CustomEvent('cnc-screen-change', { detail: 'home' })); await q.flush();
     eq(q.mounts.at(-1), ['unmount']);
-    q.screen.className = 'screen active'; q.win.dispatchEvent(new q.win.CustomEvent('cnc-screen-change', { detail: 'jog' })); await q.flush();
-    eq(q.mounts.at(-1), ['mount', 'screen-jog']);
+    q.screen.className = 'screen active'; q.win.dispatchEvent(new q.win.CustomEvent('cnc-screen-change', { detail: 'check' })); await q.flush();
+    eq(q.mounts.at(-1), ['mount', 'screen-check']);
     // Layout no longer wide, eco, laser: unmounted.
     q.win.cncLayout._set(false); await q.flush(); eq(q.mounts.at(-1), ['unmount']);
-    q.win.cncLayout._set(true); await q.flush(); eq(q.mounts.at(-1), ['mount', 'screen-jog']);
+    q.win.cncLayout._set(true); await q.flush(); eq(q.mounts.at(-1), ['mount', 'screen-check']);
     q.win.cncProfile._set('eco'); await q.flush(); eq(q.mounts.at(-1), ['unmount']);
-    q.win.cncProfile._set('performance'); await q.flush(); eq(q.mounts.at(-1), ['mount', 'screen-jog']);
+    q.win.cncProfile._set('performance'); await q.flush(); eq(q.mounts.at(-1), ['mount', 'screen-check']);
     q.win.cncProfile._set('performance', 'laser'); await q.flush(); eq(q.mounts.at(-1), ['unmount']);
-    const loadsBefore = q.loads.length; q.win.dispatchEvent(new q.win.CustomEvent('cnc-screen-change', { detail: 'jog' })); await q.flush(); assert.equal(q.loads.length, loadsBefore, 'laser: nothing loaded');
-    q.win.cncProfile._set('performance', null); await q.flush(); eq(q.mounts.at(-1), ['mount', 'screen-jog'], 'unknown machine type: CNC behaviour');
+    const loadsBefore = q.loads.length; q.win.dispatchEvent(new q.win.CustomEvent('cnc-screen-change', { detail: 'check' })); await q.flush(); assert.equal(q.loads.length, loadsBefore, 'laser: nothing loaded');
+    q.win.cncProfile._set('performance', null); await q.flush(); eq(q.mounts.at(-1), ['mount', 'screen-check'], 'unknown machine type: CNC behaviour');
     // The hint line under the « Origine de travail » step, filled by hint(); the tick stays manual.
     q.win.dispatchEvent(new q.win.CustomEvent('cnc-job-status', { detail: { machine: machine(-350, -250, 0, 0), simulation: false } }));
     const origin = q.content.all().find(e => e.getAttribute('data-step') === 'origin'), hintLine = origin.all().find(e => e.classList.contains('ks-prep-origin-hint'));

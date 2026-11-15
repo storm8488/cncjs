@@ -13,6 +13,7 @@ function page(language='fr',simulation=false){
     n.removeEventListener=(name,fn)=>{n.handlers[name]=(n.handlers[name]||[]).filter(f=>f!==fn);};
     n.querySelector=s=>select.selectOne(s,n.children||[]);n.querySelectorAll=s=>select.selectAll(s,n.children||[]);
     n.getAttribute=k=>n.attribs&&Object.prototype.hasOwnProperty.call(n.attribs,k)?n.attribs[k]:null;
+    n.hasAttribute=k=>n.getAttribute(k)!==null;
     n.setAttribute=(k,v)=>{stats.writes++;(n.attribs||(n.attribs={}))[k]=String(v);};
     n.removeAttribute=k=>{stats.writes++;delete n.attribs[k];};
     n.contains=other=>other===n||(n.children||[]).some(c=>c.contains(other));
@@ -28,6 +29,7 @@ function page(language='fr',simulation=false){
     Object.defineProperties(n,{
       tagName:{get:()=>String(n.name||'').toUpperCase()},nodeType:{get:()=>n.type==='text'?3:1},parentNode:{get:()=>n.parent},
       firstChild:{get:()=>n.children&&n.children[0]||null},lastChild:{get:()=>n.children&&n.children[n.children.length-1]||null},
+      childNodes:{get:()=>n.children||[]},nodeValue:{get:()=>n.type==='text'?n.data:null,set:v=>{if(n.type==='text')n.data=String(v);}},
       nextSibling:{get:()=>n.next},previousSibling:{get:()=>n.prev},
       textContent:{get:()=>n.type==='text'?n.data:utils.getText(n),set:v=>{stats.writes++;if(n.type==='text'){n.data=String(v);return;}(n.children||[]).slice().forEach(utils.removeElement);const c=decorate(parser.parseDOM(String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;'))[0]||{type:'text',data:'',parent:null,prev:null,next:null});utils.appendChild(n,c);}},
       innerHTML:{get:()=>serialize(n.children||[]),set:v=>{stats.writes++;(n.children||[]).slice().forEach(utils.removeElement);parser.parseDOM(v).slice().forEach(c=>{walk(c);utils.appendChild(n,c);});}}

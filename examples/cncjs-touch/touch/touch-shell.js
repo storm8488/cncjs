@@ -77,7 +77,7 @@
     if(build!==true||!v||!v.state().layout||!v.state().safeIdle)return {};
     v2Slots={};
     ['home','files','prepare','machine','history','settings'].forEach(function(name){
-      var screen=name==='prepare'?'jog':name,root=name==='machine'?document.getElementById('ks-machine-details'):document.getElementById('screen-'+screen);
+      var screen=name==='prepare'?'check':name,root=name==='machine'?document.getElementById('ks-machine-details'):document.getElementById('screen-'+screen);
       if(!root)return;
       var content=document.createElement('div');content.id='perf-v2-'+name;content.hidden=true;
       content.setAttribute('data-v2-mount',name);
@@ -148,12 +148,12 @@
     content.hidden=false;panel.content.appendChild(content);
     document.getElementById(buttonId).addEventListener('click',panel.open);
   }
-  bindSheet('ks-origin-help-sheet',uiLocale.t('Comprendre l’origine'),'ks-origin-explanation','ks-origin-info');
-  var preparationActions=document.createElement('div');preparationActions.className='ks-preparation-actions';
+  if(simulation)bindSheet('ks-origin-help-sheet',uiLocale.t('Comprendre l’origine'),'ks-origin-explanation','ks-origin-info');
+  var preparationActions=document.querySelector('#screen-jog .ks-preparation-actions');
+  if(!preparationActions){preparationActions=document.createElement('div');preparationActions.className='ks-preparation-actions';document.querySelector('#screen-jog .ks-panel-intro').appendChild(preparationActions);}
   var probeEntry=document.querySelector('#screen-jog .probe-entry');if(probeEntry){probeEntry.textContent=simulation?uiLocale.t('Palpage X / Y / Z'):uiLocale.t('Sonde');preparationActions.appendChild(probeEntry);}
-  var originInfo=document.getElementById('ks-origin-info');originInfo.textContent=uiLocale.t('Aide aux repères');preparationActions.appendChild(originInfo);
-  document.querySelector('#screen-jog .ks-panel-intro').appendChild(preparationActions);
-  var originProbe=document.createElement('button');originProbe.type='button';originProbe.className='ks-secondary';originProbe.textContent=simulation?uiLocale.t('Ouvrir le palpage X / Y / Z'):uiLocale.t('Ouvrir la sonde');originProbe.addEventListener('click',function(){go('probe');});document.getElementById('ks-origin-explanation').appendChild(originProbe);
+  if(simulation){var originInfo=document.getElementById('ks-origin-info');originInfo.textContent=uiLocale.t('Aide aux repères');preparationActions.appendChild(originInfo);
+    var originProbe=document.createElement('button');originProbe.type='button';originProbe.className='ks-secondary';originProbe.textContent=uiLocale.t('Ouvrir le palpage X / Y / Z');originProbe.addEventListener('click',function(){go('probe');});document.getElementById('ks-origin-explanation').appendChild(originProbe);}
   if(simulation){
     bindSheet('ks-origin-reset-sheet',uiLocale.t('Réinitialiser la simulation'),'ks-origin-reset-content','ks-origin-reset');
     bindSheet('ks-machine-help-sheet',uiLocale.t('Test d’alarme fictive'),'ks-machine-explanation','ks-machine-info');

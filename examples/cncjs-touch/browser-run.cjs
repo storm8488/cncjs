@@ -874,7 +874,7 @@ async function responsiveVariant(cdp, url, w, h, dpr, opts) {
 }
 // Préparer with the origin preview of lot O (#op-card, body.perf-origin): measured with O's card when
 // the page mounted it, else with a placeholder card of the same id, to check D's grid around it.
-const ORIGIN_CARD = '(function(){var s=document.getElementById("screen-jog");if(!s)return false;var c=document.getElementById("op-card");' +
+const ORIGIN_CARD = '(function(){var s=document.getElementById("screen-check");if(!s)return false;var c=document.getElementById("op-card");' +
   'if(!c){c=document.createElement("section");c.id="op-card";c.className="card op-card";c.setAttribute("data-browser-run","placeholder");' +
   'var h=document.createElement("h2");h.textContent="Où le programme se placera";var v=document.createElement("div");v.style.cssText="flex:1 1 auto;min-height:260px;background:#101820;border-radius:10px";' +
   'c.appendChild(h);c.appendChild(v);s.appendChild(c);}document.body.classList.add("perf-origin");return true;})()';
@@ -887,11 +887,9 @@ async function responsiveMeasure(cdp, realUrl, simUrl, summary) {
       await measureScreens(cdp, realUrl, label, dirName, dpr, summary, true);
       if (opts && opts.wide) {
         if (!(await cdp.evaluate(ORIGIN_CARD))) throw new Error('Préparer not found');
-        await measureScreens(cdp, realUrl, label + ' + #op-card', dirName + '-op-card', dpr, summary, true, [['jog', 'Préparer']]);
-        // The canvas of the origin card never lies within 24 px of a jog arrow (spec 5.4).
-        const gap = await cdp.evaluate('(function(){var c=document.getElementById("op-card").getBoundingClientRect(),m=Infinity;Array.prototype.forEach.call(document.querySelectorAll("#screen-jog .jog"),function(b){var r=b.getBoundingClientRect();if(!r.width)return;var dx=Math.max(c.left-r.right,r.left-c.right,0),dy=Math.max(c.top-r.bottom,r.top-c.bottom,0);m=Math.min(m,Math.max(dx,dy));});return m;})()');
-        if (!(gap >= 24)) failures.push('responsive ' + label + ': #op-card ' + gap + ' px from a jog arrow, goal 24');
-        log(label + ' Préparer + #op-card: nearest jog arrow ' + gap + ' px from the card');
+        await measureScreens(cdp, realUrl, label + ' + #op-card', dirName + '-op-card', dpr, summary, true, [['jog', 'Zéro pièce'],['check','Contrôle']]);
+        const placementHost=await cdp.evaluate('!!document.querySelector("#screen-check #op-card")&&!document.querySelector("#screen-jog #op-card")');
+        if(!placementHost)failures.push('responsive '+label+': placement must belong to Control');
         // Leaving the wide layout (Éco chosen, for instance) puts Suivi back exactly as it was.
         const back = await cdp.evaluate('(async function(){var c=document.getElementById("op-card");if(c&&c.getAttribute("data-browser-run"))c.remove();document.body.classList.remove("perf-origin","perf-gpu");' +
           'window.dispatchEvent(new CustomEvent("cnc-gpu-change",{detail:{hardware:false}}));await new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(r);});});' +
@@ -936,7 +934,7 @@ async function responsiveMeasure(cdp, realUrl, simUrl, summary) {
       }
       // One sheet, then the numeric pad stacked on it.
       await goScreen(cdp, 'jog');
-      await cdp.evaluate('document.getElementById("ks-origin-info").click();true'); await sleep(400);
+      await cdp.evaluate('document.getElementById("zero-more-open").click();true'); await sleep(400);
       await hitCheck(cdp, ctx, 'sheet', ['t-pause', 't-stop'], { required: true }, report);
       await cdp.evaluate('(function(){var i=document.getElementById("responsive-run-input");if(!i){i=document.createElement("input");i.id="responsive-run-input";document.getElementById("screen-jog").appendChild(i);}window.CNCNumeric.open(i,{label:"Test",unit:"mm",min:0,max:50});return true;})()'); await sleep(400);
       if (!(await cdp.evaluate('!!document.getElementById("t-numpad")&&!document.getElementById("t-numpad").hidden'))) failures.push('responsive ' + ctx + ': numeric pad not opened over the sheet');
@@ -1298,13 +1296,13 @@ function v2SameRects(ctx, report) {
 }
 async function v2Sheets(cdp, ctx, where, ids, report) {
   // The v2 sheets of Suivi, the origin help sheet of Préparer and the numeric pad stacked on it.
-  for (const [screen, button] of [['home', 'home-v2-more-overrides'], ['home', 'home-v2-time-detail'], ['jog', 'ks-origin-info']]) {
+  for (const [screen, button] of [['home', 'home-v2-more-overrides'], ['home', 'home-v2-time-detail'], ['jog', 'zero-more-open']]) {
     await goScreen(cdp, screen);
     const opened = await cdp.evaluate('(function(){var b=document.getElementById(' + JSON.stringify(button) + ');if(!b||b.hidden||b.disabled||!b.getClientRects().length)return false;b.click();return true;})()');
     if (!opened) { failures.push('v2 ' + ctx + ' ' + where + ': ' + button + ' not available to open its sheet'); continue; }
     await sleep(400);
     await v2Hits(cdp, ctx, where + ' + sheet ' + button, ids, report);
-    if (button === 'ks-origin-info') {
+    if (button === 'zero-more-open') {
       await cdp.evaluate('(function(){var i=document.getElementById("v2-run-input");if(!i){i=document.createElement("input");i.id="v2-run-input";document.getElementById("screen-jog").appendChild(i);}window.CNCNumeric.open(i,{label:"Test",unit:"mm",min:0,max:50});return true;})()');
       await sleep(300);
       await v2Hits(cdp, ctx, where + ' + sheet + numeric pad', ids, report);
@@ -1380,7 +1378,7 @@ async function v2RealPass(cdp, fx, w, h, summary, report, v1) {
     if (!v1) {
       // Each presenter looked for on its own screen (Préparer mounts its card only while shown).
       const shown = {};
-      for (const [screen, key, sel] of [['home', 'band', '#home-v2-confidence'], ['home', 'sequence', '#home-v2-sequence'], ['files', 'files', '.lv2'], ['jog', 'prepare', '#pv2-summary'], ['settings', 'settings', '#ks-v2-card'], ['settings', 'quality', '#ks-v2-quality'], ['machine', 'machine', '#v2m-condition'], ['history', 'history', '#perf-v2-history']]) {
+      for (const [screen, key, sel] of [['home', 'band', '#home-v2-confidence'], ['home', 'sequence', '#home-v2-sequence'], ['files', 'files', '.lv2'], ['jog', 'prepare', '.ks-motion-arrows'], ['settings', 'settings', '#ks-v2-card'], ['settings', 'quality', '#ks-v2-quality'], ['machine', 'machine', '#v2m-condition'], ['history', 'history', '#perf-v2-history']]) {
         await goScreen(cdp, screen);
         // Réglages: the v2 cards live on the « Machine et performances » tab.
         if (screen === 'settings') await selectSettingsTab(cdp, 'machine');
@@ -1390,32 +1388,12 @@ async function v2RealPass(cdp, fx, w, h, summary, report, v1) {
       info.presenters = shown;
       // Suivi, Préparer and Réglages carry their v2 presenter at rest; Fichiers, Machine, Journal are reported.
       ['band', 'sequence', 'prepare', 'settings', 'quality'].forEach((k) => { if (!shown[k]) failures.push('v2 ' + ctx + ': v2 presenter « ' + k + ' » not shown at rest'); });
-      // Préparer: the three comparison modes and the jog zone (scene unchanged, jog 24 px away, 96 px arrows).
-      await goScreen(cdp, 'jog');
-      const before = await cdp.evaluate('(function(){var c=document.querySelector("#op-card canvas")||document.getElementById("op-card");return c?JSON.stringify(c.getBoundingClientRect()):null;})()');
-      for (const mode of ['hypothesis', 'current', 'both']) {
-        await cdp.evaluate('(function(){var b=document.getElementById("pv2-mode-' + mode + '");if(b)b.click();return true;})()'); await sleep(300);
-        const pressed = await cdp.evaluate('(function(){var b=document.getElementById("pv2-mode-' + mode + '");return b?b.getAttribute("aria-pressed"):null;})()');
-        if (pressed !== 'true') failures.push('v2 ' + ctx + ': Préparer mode ' + mode + ' not pressed after a tap (' + pressed + ')');
-      }
-      await v2Capture(cdp, ctx, null, 'Préparer', 'idle-comparison', results);
-      const openJog = await cdp.evaluate('(function(){var b=document.getElementById("pv2-jog-open");if(!b||!b.getClientRects().length)return false;b.click();return true;})()');
-      if (!openJog) failures.push('v2 ' + ctx + ': « Déplacer la machine… » not shown');
-      else {
-        await sleep(500);
-        await v2Capture(cdp, ctx, null, 'Préparer', 'idle-jog-panel', results);
-        const jog = await cdp.evaluate('(function(){var c=(document.querySelector("#op-card canvas")||document.getElementById("op-card"));if(!c)return null;c=c.getBoundingClientRect();var m=Infinity,min=Infinity,n=0;' +
-          'Array.prototype.forEach.call(document.querySelectorAll("#screen-jog .jog"),function(b){var r=b.getBoundingClientRect();if(!r.width||!b.getClientRects().length)return;n++;min=Math.min(min,r.width,r.height);var dx=Math.max(c.left-r.right,r.left-c.right,0),dy=Math.max(c.top-r.bottom,r.top-c.bottom,0);m=Math.min(m,Math.max(dx,dy));});return {gap:m,min:min,count:n};})()');
-        info.jog = jog;
-        if (!jog || !jog.count) failures.push('v2 ' + ctx + ': jog panel opened without jog arrows');
-        else {
-          if (!(jog.gap >= 24)) failures.push('v2 ' + ctx + ': jog arrow ' + jog.gap + ' px from the Préparer scene, goal 24');
-          if (jog.min < GOALS.jog - 0.5) failures.push('v2 ' + ctx + ': jog arrow ' + jog.min + ' px, goal ' + GOALS.jog);
-        }
-        await cdp.evaluate('(function(){var b=document.getElementById("pv2-jog-close");if(b)b.click();return true;})()'); await sleep(500);
-        const after = await cdp.evaluate('(function(){var c=document.querySelector("#op-card canvas")||document.getElementById("op-card");return c?JSON.stringify(c.getBoundingClientRect()):null;})()');
-        if (before !== after) failures.push('v2 ' + ctx + ': Préparer scene not restored to the same frame after the jog panel (' + before + ' → ' + after + ')');
-      }
+      // Zero piece: all six arrows are present without a preliminary tap.
+      await goScreen(cdp,'jog');
+      await v2Capture(cdp,ctx,null,'Zéro pièce','idle-jog',results);
+      const jog=await cdp.evaluate('(function(){var a=[].slice.call(document.querySelectorAll("#screen-jog .jog"));return {count:a.filter(function(b){return b.getClientRects().length;}).length,min:Math.min.apply(Math,a.map(function(b){var r=b.getBoundingClientRect();return Math.min(r.width,r.height);})),old:!!document.querySelector("#pv2-jog-open,#pv2-jog-close,#pv2-set-xy,#pv2-tool-zero")};})()');
+      info.jog=jog;
+      if(jog.count!==6||jog.min<GOALS.jog-0.5||jog.old)failures.push('v2 '+ctx+': permanent cross '+JSON.stringify(jog));
       // Réglages: the diagnostic on request.
       await goScreen(cdp, 'settings'); await selectSettingsTab(cdp, 'machine');
       await cdp.evaluate('(function(){var b=document.getElementById("ks-v2-diagnostic-run");if(b)b.click();return true;})()'); await sleep(400);
@@ -1943,7 +1921,7 @@ async function screensProbe(cdp, fx, v, summary) {
 // without the capability at the end.
 const SCREENS_REAL_READY = '(function(){var b=document.querySelector("#screen-jog .jog");return !!(b&&!b.disabled&&b.getClientRects().length);})()';
 const SCREENS_REAL_STATE = '(function(){var $=function(id){return document.getElementById(id);},a=[].slice.call(document.querySelectorAll("#screen-jog .jog")),z=[].slice.call(document.querySelectorAll("#screen-jog [data-origin]"));' +
-  'return {msg:($("jog-msg")||{}).textContent||"",arrows:a.filter(function(b){return !b.disabled;}).length,zeros:z.filter(function(b){return !b.disabled;}).length,mid:(document.querySelector("#screen-jog .pad-mid")||{}).textContent||"",' +
+  'return {msg:($("step-jog-cause")||{}).textContent||"",arrows:a.filter(function(b){return !b.disabled;}).length,zeros:z.filter(function(b){return !b.disabled;}).length,mid:(document.querySelector("#screen-jog .pad-mid")||{}).textContent||"",' +
   'hold:!!(document.querySelector("#steps [data-step=hold]")&&!document.querySelector("#steps [data-step=hold]").hidden),ticket:!!($("real-motion-ticket")&&!$("real-motion-ticket").hidden)};})()';
 async function screensReal(cdp, fx, v, summary) {
   const tag = 'screens ' + v.id + ' reel', results = [], at = (s) => 'screens-jog-' + v.id + '-' + s;
@@ -1952,8 +1930,11 @@ async function screensReal(cdp, fx, v, summary) {
     await cdp.waitFor('(function(){var m=window.cncState&&window.cncState.get().machine;return !!(m&&m.capabilities&&m.motion&&' + SCREENS_READY.idle + ');})()', 20000, 'real-move capability');
     await goScreen(cdp, 'jog');
     // v2 Préparer: the cross is in the move area, opened by the operator (« Déplacer la machine… »).
-    if (v.v2) { await cdp.evaluate('(function(){var b=document.getElementById("pv2-jog-open");if(b&&b.getClientRects().length)b.click();return true;})()'); await sleep(600); }
     await cdp.waitFor(SCREENS_REAL_READY, 10000, 'real arrows enabled');
+    const geometry=await cdp.evaluate('(function(){var a=[].slice.call(document.querySelectorAll("#screen-jog .jog")),z=["x","y","z"].map(function(a){return document.getElementById("jog-zero-"+a).getBoundingClientRect();});return {arrows:a.filter(function(b){return b.getClientRects().length;}).map(function(b){var r=b.getBoundingClientRect();return [r.width,r.height];}),gap:[z[1].top-z[0].bottom,z[2].top-z[1].bottom]};})()');
+    const laser=String(v.id).indexOf('laser')>=0;
+    if(!geometry.arrows.length||geometry.arrows.some(r=>r[0]<95.5||r[1]<95.5))failures.push(tag+': arrows must measure 96 px without opening a panel');
+    if(!laser&&geometry.gap.some(g=>g<11.5))failures.push(tag+': zero gaps '+JSON.stringify(geometry.gap));
     let state = await cdp.evaluate(SCREENS_REAL_STATE);
     if (state.zeros < 1 || !state.hold) failures.push(tag + ': at rest, Zéro buttons or « Continu » not offered: ' + JSON.stringify(state));
     let page = await cdp.evaluate(SCREENS_PAGE);
@@ -1984,7 +1965,7 @@ async function screensReal(cdp, fx, v, summary) {
     // The origin confirmation (Zéro X): measured with the page under it inert.
     if (!await cdp.evaluate('(function(){var b=document.getElementById("jog-zero-x");if(!b||b.disabled)return false;window.__brRealMoves=true;b.click();return true;})()')) throw new Error('Zéro X not offered');
     try { await cdp.waitFor('(function(){var d=document.getElementById("real-motion-ticket");return !!(d&&!d.hidden);})()', 10000, 'origin confirmation'); }
-    catch (e) { throw new Error(e.message + ' (answer: ' + await cdp.evaluate('(document.getElementById("jog-feedback")||{}).textContent') + ')'); }
+    catch (e) { throw new Error(e.message + ' (answer: ' + await cdp.evaluate('(document.getElementById("step-jog-cause")||{}).textContent') + ')'); }
     finally { await cdp.evaluate('window.__brRealMoves=false;true'); }
     await sleep(400);
     await screensCapture(cdp, at('reel-origine'), 'jog', 'Préparer · confirmation d’origine', tag, await cdp.evaluate(SCREENS_PAGE), results, { stay: true, panel: true });
@@ -1994,8 +1975,8 @@ async function screensReal(cdp, fx, v, summary) {
     fx.staleSince = Date.now(); fx.staleIdle = true; await sleep(4500);
     state = await cdp.evaluate(SCREENS_REAL_STATE);
     if (state.arrows || state.zeros) failures.push(tag + ': stale report, arrows or zeros still enabled: ' + JSON.stringify(state));
-    const words = await cdp.evaluate('window.cncI18n.t("État machine trop ancien : attendez un rapport récent.")');
-    if (state.msg.trim() !== words.trim()) failures.push(tag + ': stale report not said on the status line: ' + state.msg);
+    const words = await cdp.evaluate('[window.cncSeance.state().barres.jog.cause.texte,window.cncRefus.lire({code:"ETOUCH_MACHINE_STALE"}).phrase]');
+    if (!words.some(word=>state.msg.replace(/^! /,'').trim() === word.trim())) failures.push(tag + ': stale report not said on the status line: ' + state.msg);
     page = await cdp.evaluate(SCREENS_PAGE);
     await screensCapture(cdp, at('reel-perime'), 'jog', 'Préparer · rapport ancien', tag, page, results, { stay: true });
     log(tag + ': ' + results.length + ' captures, status line « ' + state.msg + ' »');
@@ -2789,6 +2770,17 @@ async function parcoursMeasure(cdp,summary){
     await tap('step-machine-main');await cdp.waitFor('!!document.querySelector("#ks-connect .ks-connect-go")',5000,'connection question');
     await cdp.evaluate('document.querySelector("#ks-connect .ks-connect-go").click();true');touches++;
     await home();if(touches!==5)throw Error('P1 must take exactly five touches');const P1=touches;
+    const P6=[];
+    for(const zero of ['x','xyz','machine-x']){
+      await cdp.evaluate('window.__p6OriginAt=(window.cncState.get().machine.motion.lastOrigin||{}).at;window.cncShell.go("files");true');touches=0;
+      await cdp.evaluate('document.querySelector("[data-ks-screen=jog]").click();true');touches++;
+      if(zero==='machine-x'){await tap('zero-more-open');await tap('zero-at-machine-x');}else await tap('jog-zero-'+zero);
+      await cdp.waitFor('!!document.getElementById("real-motion-ticket")&&!document.getElementById("real-motion-ticket").hidden',5000,'zero confirmation');
+      await tap('real-motion-origin-confirm');
+      await cdp.waitFor('(function(){var m=window.cncState.get().machine;return m&&m.workOffset.state==="proven"&&m.motion.canSetOrigin&&m.motion.lastOrigin&&m.motion.lastOrigin.at!==window.__p6OriginAt;})()',20000,'zero written and proven');
+      P6.push(touches);
+    }
+    if(JSON.stringify(P6)!=='[3,3,4]')throw Error('P6 must take 3 / 3 / 4 touches: '+JSON.stringify(P6));
     // Set up the competing owner explicitly; this setup is not part of the operator path.
     await cdp.evaluate('fetch("/api/touch-job",{method:"POST",body:JSON.stringify({action:"control",operation:"release",port:"SIM",clientId:window.cncJobControls.clientId()})}).then(function(r){if(!r.ok)throw Error("release setup failed");return fetch("/parcours/sim",{method:"POST",body:JSON.stringify({input:"pilot"})});})');
     await cdp.waitFor('window.cncJobControls.pilot().state==="other"',15000,'other device owns control');touches=0;
@@ -2798,7 +2790,7 @@ async function parcoursMeasure(cdp,summary){
     await cdp.waitFor('(function(){var m=window.cncState.get().machine;return m&&m.lastAlarm&&m.lastAlarm.code===1&&!m.homed;})()',15000,'limit alarm during the job');touches=0;
     await tap('t-stop');await cdp.waitFor('(window.cncState.get().machine||{}).jobStopped===true',10000,'job stopped');await tap('t-recover');
     await cdp.waitFor('window.cncShell.screen()==="machine"&&!document.getElementById("machine-incident").hidden',5000,'incident on Machine');await home();
-    if(touches!==5)throw Error('P8 through homing must take five touches');summary.parcours={P1,P8ThroughHoming:touches,P9,profile:'lunyee',alarm:1,physicalMachine:false,senderLinesSimulated:true};
+    if(touches!==5)throw Error('P8 through homing must take five touches');summary.parcours={P1,P6,P8ThroughHoming:touches,P9,profile:'lunyee',alarm:1,physicalMachine:false,senderLinesSimulated:true};
   }finally{fixture.child.kill();}
 }
 async function main() {

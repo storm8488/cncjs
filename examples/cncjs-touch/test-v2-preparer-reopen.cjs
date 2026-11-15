@@ -15,7 +15,7 @@ const { preparerPage, idle } = require('./test-v2-preparer-fixture.cjs');
   p = preparerPage(); p.status(idle()); await p.flush(); p.resolveLoads(); await p.flush();
   assert.equal(p.calls.mount.length, 1, 'normal mount while the gate is open');
   p.show('home'); assert.equal(p.calls.unmount, 1);
-  p.v2.gate = false; p.show('jog'); await p.flush(); p.rejectLoads('v2-gate-closed'); await p.flush();
+  p.v2.gate = false; p.show('check'); await p.flush(); p.rejectLoads('v2-gate-closed'); await p.flush();
   assert.equal(p.calls.mount.length, 1, 'the closed v2 session does not reopen an origin already loaded');
   // 3. Without the v2 layout (v1 page), a missing preview-gl.js still mounts the card (it says why).
   p = preparerPage({ v2: false, contract: false }); p.status(idle()); await p.flush();

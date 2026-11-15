@@ -762,7 +762,7 @@
     // Work origin (F1): {axes} asks the server for a ticket (prepare set-origin), {nonce} confirms it.
     origin:function(extra){
       if(simulation)return Promise.reject(new Error(uiLocale.t('Simulation : aucun déplacement réel.')));
-      return (extra&&extra.nonce?run('set-origin',{nonce:extra.nonce}):run('prepare',{operation:'set-origin',axes:extra&&extra.axes})).then(answered);
+      return (extra&&extra.nonce?run('set-origin',{nonce:extra.nonce}):run('prepare',Object.assign({operation:'set-origin',axes:extra&&extra.axes},extra&&extra.at==='machine'?{at:'machine'}:{}))).then(answered);
     }};
   // The snapshot joined to an answer is applied at once (the stream may bring it later).
   function answered(data){if(data&&data.snapshot&&!disposed)apply(data.snapshot,0);return data;}

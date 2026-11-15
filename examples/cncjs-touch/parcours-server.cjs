@@ -16,7 +16,7 @@ function createBench(){
   const program='G21 G90 G54\nG0 X10 Y10\nG1 X20 F100\nM30\n';
   const fingerprint=require('../../src/server/services/touch/program-identity.js').fingerprint(program);
   const file={text:program,fingerprint,size:Buffer.byteLength(program),mtimeMs:1};
-  const service=createService({get:()=>controllers},{get:()=>[]},undefined,{files:{readProgram:async()=>file,fingerprintOf:async()=>({fingerprint,size:file.size,mtimeMs:1})}});
+  const service=createService({get:()=>controllers},{get:key=>key==='touch.motion.enabled'?true:[]},undefined,{files:{readProgram:async()=>file,fingerprintOf:async()=>({fingerprint,size:file.size,mtimeMs:1})}});
   let sequence=0,transport=0;
   const streams=new Set(),clients=new Map();
   function packet(id){return {version:1,epoch:'parcours-lunyee',sequence:++sequence,sentAt:Date.now(),transportId:id,controllers:service.list()};}

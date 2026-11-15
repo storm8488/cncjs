@@ -31,7 +31,7 @@
   var DISABLED='Déplacements réels non activés : validation matérielle supervisée requise (voir HANDOFF.md).';
   var machine=null,connected=false,pilot=null,received=null,observedAt=null,lastJogAt=null,first=true;
   var mode='step',step=1,feed=250,hold=null,stepping=null,quietUntil=0;
-  var ticket=null,originBusy=false,settingsBusy=false,last=null,dialog=null,restore=null,returnTo=null,clock=null,disposed=false,seq=0;
+  var ticket=null,originBusy=false,last=null,dialog=null,restore=null,returnTo=null,clock=null,disposed=false,seq=0;
   // The arrows pressed in « Continu » (one per button, several fingers): the click that may follow
   // each release never sends a step.
   var downHold=[];
@@ -57,7 +57,7 @@
   function stale(){return received===null||now()-received>=STALE_MS;}
   function shown(){return !!(screen.classList&&screen.classList.contains('active'))&&!document.hidden;}
   function locked(){var l=window.cncScreenLock;return !!(l&&typeof l.locked==='function'&&l.locked());}
-  function fmt(v){var n=typeof v==='string'&&v.trim()!==''?Number(v):v;return typeof n==='number'&&isFinite(n)?n.toFixed(3):'—';}
+  function fmt(v){var n=typeof v==='string'&&v.trim()!==''?Number(v):v;return typeof n==='number'&&isFinite(n)?n.toLocaleString(uiLocale.locale||'fr-FR',{minimumFractionDigits:3,maximumFractionDigits:3}):'—';}
   function units(){var o=machine&&machine.operator;return o&&o.reportUnits==='mm'?'mm':o&&o.reportUnits==='in'?t('pouces'):'';}
   function wcs(){var o=machine&&machine.operator;return o&&typeof o.wcs==='string'&&/^G5[4-9]$/.test(o.wcs)?o.wcs:'';}
   function dir(d){return d>0?'+':'−';}
@@ -140,7 +140,20 @@
     var r=machine&&machine.refusals&&machine.refusals[operation];
     return r&&uiLocale.format?uiLocale.format(r.code,r.params,fallback):reasonText(fallback);
   }
-  function originReason(){return originState()||ours();}
+  function originReason(at,axis){
+    var why=originState()||ours();if(why||at!=='machine')return why;
+    if(!machine||machine.homed!==true||machine.referenceLost)return t('Origine machine pas prise.');
+    var o=machine.workOffset;if(!o||o.state!=='proven')return presented({code:o&&o.code||'ETOUCH_OFFSET_UNCONFIRMED'}).phrase;
+    var failure=machineRefusals[axis];return failure?presented(failure.error).phrase:'';
+  }
+  function presented(error){return window.cncRefus?window.cncRefus.lire(error):{phrase:error.message||t('Action refusée.'),remedes:['details'],details:{brut:error}};}
+  function showRefusal(error){if(sheetShown())return;if(window.cncSeance)window.cncSeance.refuser(error);}
+  function originError(at,axis){
+    if(at==='machine'&&machine&&(machine.homed!==true||machine.referenceLost))return {code:'ETOUCH_ORIGIN_NOT_HOMED'};
+    if(at==='machine'&&machine&&(!machine.workOffset||machine.workOffset.state!=='proven'))return {code:machine.workOffset&&machine.workOffset.code||'ETOUCH_OFFSET_UNCONFIRMED'};
+    if(at==='machine'&&machineRefusals[axis])return machineRefusals[axis].error;
+    return machine&&machine.refusals&&machine.refusals.setOrigin||{message:originState()};
+  }
   // The origin refused by the state or the server (our own move or ticket aside).
   function originState(){
     var g=common();if(g)return g;
@@ -150,10 +163,10 @@
   }
 
   // ---- What was asked and what the server answered (#jog-feedback) ----
-  function tell(text,state){last={text:text,state:state||''};render();}
+  function tell(text,state){last={text:text,state:state||'',key:originKey()};render();}
   function refusal(e){
     if(e&&e.uncertain)return t('Sans réponse du serveur : vérifiez la position avant de continuer.');
-    if(e&&(e.control||e.code))return String(e.message||'');
+    if(e&&(e.control||e.code)){showRefusal(e);return String(e.message||'');}
     return t('Refusé : ')+reasonText(e&&e.message?e.message:t('raison inconnue'));
   }
 
@@ -278,34 +291,34 @@
 
   // ---- Work origin, two steps (server ticket, then confirmation here) ----
   function dropTicket(text){if(!ticket)return;ticket=null;closePanel(true);if(text)tell(text,'failed');else render();}
-  // via: the visible button that relays this one (v2 summary, job-preparation.js), checked in its place.
-  function askOrigin(b,via){
-    if(ticket||originBusy||(via?!usable(via)||b.disabled:!usable(b)))return;
+  function askOrigin(b){
+    var at=b.getAttribute('data-origin-at')==='machine'?'machine':'here';
+    if(ticket||originBusy||!usable(b)||at==='machine'&&(!sheetShown()||inert(b)))return;
     var axes=String(b.getAttribute('data-axis')||'').toUpperCase().split('').filter(function(a){return AXES.indexOf(a)>=0;});
     if(!axes.length)return;
-    var why=originReason();if(why){tell(why,'failed');return;}
+    var why=originReason(at,axes[0]);if(why){tell(why,'failed');return;}
     var c=controls();if(!c||typeof c.origin!=='function'){tell(t('Commandes indisponibles : rechargez la page.'),'failed');return;}
     originBusy=true;var port=machine.port,generation=machine.generation,label=t('Origine ')+axes.join(' ')+' : ';
     tell(label+t('demande de confirmation…'),'sent');
-    c.origin({axes:axes}).then(function(d){
+    c.origin(Object.assign({axes:axes},at==='machine'?{at:'machine'}:{})).then(function(d){
       originBusy=false;
       // Préparer left, another controller or board start meanwhile: nothing is offered.
-      if(!d||!d.nonce||!machine||machine.port!==port||machine.generation!==generation||!shown()||locked()){render();return;}
+      if(!d||!d.nonce||!machine||machine.port!==port||machine.generation!==generation||!shown()||locked()||at==='machine'&&!sheetShown()){render();return;}
       ticket={nonce:d.nonce,name:String(d.name||''),axes:axes,port:port,generation:d.generation||generation,until:now()+Math.min(15,Number(d.expiresIn)||0)*1000,
-        wcs:wcs(),units:units(),wpos:machine.coordinates&&machine.coordinates.wpos||{}};
-      last=null;openPanel();
-    },function(e){originBusy=false;tell(label+refusal(e),e&&e.uncertain?'uncertain':'failed');});
+        at:at,wcs:wcs(),units:units(),wpos:machine.coordinates&&machine.coordinates.wpos||{},mpos:machine.coordinates&&machine.coordinates.mpos||{}};
+      last=null;if(at==='machine'&&window.cncShell)window.cncShell.closeSheet();openPanel();
+    },function(e){originBusy=false;if(at==='machine'){moreFailure={error:e,key:originKey()};if(e&&e.code==='ETOUCH_ORIGIN_OFFSETS')machineRefusals[axes[0]]=moreFailure;}tell(label+refusal(e),e&&e.uncertain?'uncertain':'failed');});
   }
   function ticketValid(k){return !!k&&now()<k.until&&!!machine&&machine.port===k.port&&machine.generation===k.generation&&connected;}
   function confirmOrigin(){
     var k=ticket;if(!k)return;
     if(!ticketValid(k)||!shown()||locked()){dropTicket(t('Confirmation expirée ou état changé : demandez-la à nouveau.'));return;}
     // The state seen since the ticket (alarm, job, stale report, origin refused): nothing is sent.
-    var why=originState();if(why){dropTicket(why);return;}
+    var why=originState();if(!why&&k.at==='machine')why=!machine.homed||machine.referenceLost?t('Origine machine pas prise.'):!machine.workOffset||machine.workOffset.state!=='proven'?t('Le zéro pièce n’est pas vérifié.'):'';if(why){dropTicket(why);return;}
     ticket=null;closePanel(true);originBusy=true;
-    var label=t('Origine ')+k.axes.join(' ')+(k.wcs?' · '+k.wcs:'')+' : ';
+    var label=t('Origine ')+k.axes.join(' ')+' : ';
     tell(label+t('envoi…'),'sent');
-    controls().origin({nonce:k.nonce}).then(function(){tell(t('Origine ')+k.axes.join(' ')+(k.wcs?' · '+k.wcs:'')+t(' réglée.'),'confirmed');},
+    controls().origin({nonce:k.nonce}).then(function(){tell(t('Zéro {axes} posé. Aucun axe ne bouge.').replace('{axes}',k.axes.join('')),'confirmed');},
       function(e){tell(label+refusal(e),e&&e.uncertain?'uncertain':'failed');}).then(function(){originBusy=false;render();});
   }
 
@@ -316,8 +329,9 @@
     var card=make('div','job-dialog-card');panel.appendChild(card);
     card.appendChild(make('h2','','real-motion-ticket-title',t('Définir l’origine de travail')));
     var plan=make('p','','real-motion-ticket-plan'),name=make('p','','real-motion-ticket-name'),left=make('p','','real-motion-ticket-left');
-    card.appendChild(plan);card.appendChild(name);card.appendChild(left);
-    var actions=make('div','job-dialog-actions'),cancel=make('button','t-btn t-btn--ghost','real-motion-origin-cancel',t('Annuler')),confirm=make('button','t-btn t-btn--warn','real-motion-origin-confirm');
+    card.appendChild(plan);name.hidden=true;card.appendChild(name);card.appendChild(left);
+    var details=make('button','t-btn t-btn--ghost','real-motion-origin-details',t('Détails'));card.appendChild(details);details.addEventListener('click',function(){if(ticket&&window.cncShell)window.cncShell.details({lignes:[{libelle:t('Repère'),valeur:ticket.wcs},{libelle:t('Message'),valeur:ticket.name}],brut:ticket.name});});
+    var actions=make('div','job-dialog-actions'),cancel=make('button','t-btn t-btn--ghost','real-motion-origin-cancel',t('Annuler')),confirm=make('button','t-btn t-btn--primary','real-motion-origin-confirm');
     actions.appendChild(cancel);actions.appendChild(confirm);card.appendChild(actions);
     document.body.appendChild(panel);
     cancel.addEventListener('click',function(){dropTicket(t('Définition d’origine annulée : rien n’a été envoyé.'));});
@@ -352,28 +366,40 @@
   function renderTicket(){
     if(!dialog||dialog.panel.hidden)return;
     var k=ticket;if(!k)return;
-    // The work position (the Travail column) the origin sets to 0, never the machine position.
+    var axes=k.axes.join(''),machineZero=k.at==='machine';
+    setText($('real-motion-ticket-title'),t(machineZero?'Zéro {axes} à l’origine machine':'Zéro {axes} ici').replace('{axes}',axes));
     var co=machine&&machine.coordinates&&machine.coordinates.wpos||k.wpos;
-    setText(dialog.plan,(k.wcs?t('Repère ')+k.wcs+' · ':'')+k.axes.map(function(a){return a+' '+fmt(co[a.toLowerCase()])+' → 0';}).join(' · ')+(k.units?' · '+k.units:'')+'. '+t('Aucun axe ne bouge.'));
-    setText(dialog.name,msg(k.name));
+    var values=k.axes.map(function(a){return a+' '+fmt(co[a.toLowerCase()])+' → '+(machineZero?fmt(k.mpos[a.toLowerCase()]):'0');}).join(' · ');
+    setText(dialog.plan,(machineZero?t('Le zéro {axes} de la pièce sera l’origine de la machine. ').replace('{axes}',axes):'')+(k.axes.length===1?axes+' '+t('pièce : '):'')+(k.axes.length===1?values.slice(2):values)+' '+(k.units||'—')+'. '+t('Aucun axe ne bouge.'));
+    setText(dialog.name,k.name);
     setText(dialog.left,t('Confirmation valable ')+Math.max(0,Math.ceil((k.until-now())/1000))+' s · '+t('Arrêter reste disponible dans le bandeau.'));
-    setText(dialog.confirm,t('Confirmer l’origine ')+k.axes.join(' ')+(k.wcs?' · '+k.wcs:''));
+    setText(dialog.confirm,t(machineZero?'Mettre le zéro {axes} à l’origine machine':'Poser le zéro {axes} ici').replace('{axes}',axes));
   }
 
   // ---- The static controls of Préparer ----
   var arrows=list(screen,'.jog'),stepBox=$('steps'),feedBox=$('feeds'),zeros=list(screen,'[data-origin]');
-  var status=$('jog-msg'),feedback=$('jog-feedback'),controller=$('jog-controller'),limits=$('jog-feed-limits'),speed=$('ks-jog-settings'),mid=screen.querySelector('.pad-mid');
-  var frameLabel=null,title=screen.querySelector('.ks-motion-coordinates h2');
-  if(title){frameLabel=make('span','coordinate-frame','coordinate-frame-label','');title.appendChild(frameLabel);}
-  // « Relire les réglages » where the refusal shows (CNCjs forgets $$ after a board restart).
-  var reread=make('button','ks-secondary','jog-read-settings',t('Relire les réglages ($$)'));reread.hidden=true;
-  var host=screen.querySelector('.ks-preparation-actions')||screen.querySelector('.ks-panel-intro');if(host)host.appendChild(reread);
-  reread.addEventListener('click',function(){
-    var c=controls();if(!usable(reread)||settingsBusy||!c||typeof c.readSettings!=='function')return;
-    settingsBusy=true;tell(t('Relecture des réglages de la carte ($$)…'),'sent');
-    c.readSettings().then(function(){tell(t('Réglages relus : vérifiez que les commandes sont de nouveau disponibles.'),'confirmed');},
-      function(e){tell(refusal(e),e&&e.uncertain?'uncertain':'failed');}).then(function(){settingsBusy=false;render();});
-  });
+  var limits=$('jog-feed-limits'),speed=$('ks-jog-settings'),mid=screen.querySelector('.pad-mid');
+  var machineRefusals={},moreFailure=null,more=null,moreButtons=[];
+  function originKey(){return JSON.stringify([machine&&machine.port,machine&&machine.generation,machine&&machine.coordinates,machine&&machine.workOffset,machine&&machine.homed,machine&&machine.referenceLost,machine&&machine.activeState,machine&&machine.fresh,cap('setOrigin'),pilot&&pilot.state]);}
+  function sheetShown(){var n=$('ks-zero-more');return !!(n&&!n.hidden&&!document.hidden&&shown());}
+  if(window.cncShell&&window.cncShell.sheet){
+    more=window.cncShell.sheet('ks-zero-more',t('Autres zéros'));
+    more.content.appendChild(make('p','',null,t('Le zéro de cet axe est placé à l’origine de la machine. Aucun axe ne bouge.')));
+    AXES.forEach(function(axis){var button=make('button','ks-zero-machine','zero-at-machine-'+axis.toLowerCase(),t('{axe} à l’origine machine').replace('{axe}',axis));button.setAttribute('data-origin-at','machine');button.setAttribute('data-axis',axis);if(axis==='Z')button.setAttribute('data-laser-z','');more.content.appendChild(button);moreButtons.push(button);button.addEventListener('click',function(){askOrigin(button);});});
+    more.cause=make('div','','zero-more-cause');more.content.appendChild(more.cause);
+    if($('zero-more-open'))$('zero-more-open').addEventListener('click',function(){more.open();render();});
+  }
+  if($('zero-machine-open'))$('zero-machine-open').addEventListener('click',function(){if(!window.cncShell)return;var co=machine&&machine.coordinates&&machine.coordinates.mpos;window.cncShell.details({titre:t('Position machine'),lignes:AXES.map(function(axis){return {libelle:axis,valeur:fmt(co&&co[axis.toLowerCase()])+' '+(units()||'—')};}),brut:co||null});});
+  var moreSignature='';
+  function renderMore(){
+    if(!sheetShown()||!more)return;
+    Object.keys(machineRefusals).forEach(function(axis){if(machineRefusals[axis].key!==originKey())delete machineRefusals[axis];});
+    if(moreFailure&&moreFailure.key!==originKey())moreFailure=null;
+    var error=null;
+    moreButtons.forEach(function(button){var axis=button.getAttribute('data-axis'),why=originReason('machine',axis);prop(button,'disabled',!!why);attr(button,'title',why||null);if(why&&!error)error=originError('machine',axis);});
+    if(!error&&moreFailure)error=moreFailure.error;
+    var key=JSON.stringify([error,originKey()]);if(key!==moreSignature){moreSignature=key;if(window.cncRefus){window.cncRefus.effacer(more.cause);if(error)window.cncRefus.montrer(more.cause,error);}}
+  }
   var stepButtons=list(stepBox,'button');
   stepButtons.forEach(function(b){b.addEventListener('click',function(){
     if(hold||stepping||!usable(b))return;
@@ -423,9 +449,12 @@
     var busy=!!hold||!!stepping;
     stepButtons.forEach(function(b){
       var v=b.getAttribute('data-step'),isHold=v==='hold';
-      prop(b,'hidden',isHold?!on('jogContinuous'):!!allowed&&allowed.indexOf(Number(v))<0);
+      var unreferenced=!!(machine&&(machine.homed!==true||machine.referenceLost));
+      var forbidden=(isHold?!on('jogContinuous'):!!allowed&&allowed.indexOf(Number(v))<0)||unreferenced&&(isHold||Number(v)>1);
+      prop(b,'hidden',false);attr(b,'data-forbidden',String(forbidden));
+      attr(b,'title',forbidden?unreferenced?t('Origine machine pas prise : 1 mm au plus, sans continu.'):presented({code:'ETOUCH_MOTION_DISABLED'}).phrase:null);
       var pressed=isHold?mode==='hold':mode==='step'&&Number(v)===step;
-      klass(b,'active',pressed);attr(b,'aria-pressed',String(pressed));prop(b,'disabled',busy);
+      klass(b,'active',pressed);attr(b,'aria-pressed',String(pressed));prop(b,'disabled',busy||forbidden);
     });
     feedButtons.forEach(function(b){var pressed=Number(b.getAttribute('data-feed'))===feed;klass(b,'active',pressed);attr(b,'aria-pressed',String(pressed));prop(b,'disabled',busy);});
     var mf=m&&m.maxFeed||{};
@@ -437,12 +466,10 @@
     arrows.forEach(function(b){
       var held=!!(hold&&hold.button===b),axis=b.getAttribute('data-axis'),why=held?'':moveReason(axis);
       if(!held&&!(axis in reasons)){reasons[axis]=why;if(!why)all=false;}
-      prop(b,'disabled',!held&&!!why);attr(b,'title',why||null);attr(b,'data-held',String(held));
+      prop(b,'disabled',!held&&!!why);attr(b,'title',why&&window.cncRefus?presented(machine&&machine.refusals&&machine.refusals.jog||{message:why}).phrase:why||null);attr(b,'data-held',String(held));
     });
     var oz=originReason();
-    zeros.forEach(function(b){prop(b,'disabled',!!oz);attr(b,'title',oz||null);});
-    prop(reread,'hidden',!(machine&&connected&&settingsMissing())||busy);prop(reread,'disabled',settingsBusy||!machine||machine.canReadSettings!==true);
-    attr(reread,'title',reread.disabled&&!settingsBusy?codedReason('readSettings',machine&&machine.readSettingsReason||''):null);
+    zeros.forEach(function(b){prop(b,'disabled',!!oz);attr(b,'title',oz&&window.cncRefus?presented(originError()).phrase:oz||null);});
     // The status line: what to do now, or what the arrows do.
     var g=jogReason(),text;
     if(m&&m.cancelUnconfirmed)text=g;
@@ -451,12 +478,17 @@
     else if(ours())text=ours();
     else if(all&&reasons.X)text=reasons.X;
     else text=t('Les flèches déplacent la machine · ')+(mode==='hold'?t('continu · ')+feed+' mm/min'+t(' · relâchez pour arrêter'):t('pas ')+step+' mm · '+feed+' mm/min');
-    setText(status,text);
-    setText(controller,machine&&machine.port?t('Contrôleur suivi : ')+machine.port:t('Contrôleur suivi : aucun'));
+
     var f=last;
+    if(f&&(f.state==='failed'||f.state==='confirmed')&&f.key!==originKey()){last=null;f=null;}
     if(!f&&machine&&connected&&machine.homed!==true&&!g)f={text:t('Machine non référencée : pas de 1 mm au plus, pas de continu. Prise d’origine dans Machine.'),state:''};
-    setText(feedback,f?f.text:'');attr(feedback,'data-state',f&&f.state?f.state:null);
-    setText(frameLabel,wcs()?' · '+wcs()+(units()?' · '+units():''):units()?' · '+units():'');
+    if(window.cncSeance&&window.cncSeance.motionFeedback)window.cncSeance.motionFeedback({status:text,feedback:f&&f.text||'',state:f&&f.state||'',blocked:!!g,error:machine&&machine.refusals&&machine.refusals.jog||{message:g},stale:stale(),stopUnconfirmed:!!(m&&m.cancelUnconfirmed)});
+    list(screen,'[data-zero-unit]').forEach(function(n){setText(n,units()||'—');});
+    var kind=window.cncProfile&&window.cncProfile.kind?window.cncProfile.kind():machine&&machine.machineProfile&&machine.machineProfile.kind;
+    prop(screen.querySelector('.ks-preparation-actions'),'hidden',kind!=='cnc');
+    ['zero-laser-help','zero-laser-note'].forEach(function(id){prop($(id),'hidden',kind!=='laser');});
+    ['zero-kind-help','zero-kind-open'].forEach(function(id){prop($(id),'hidden',kind==='cnc'||kind==='laser');});
+    renderMore();
     renderTicket();
   }
   function viewClock(){
@@ -493,9 +525,7 @@
   window.addEventListener('cnc-screen-lock',function(e){if(e&&e.detail){stopHold(t('écran verrouillé'));closePanel(false);stopStep(t('écran verrouillé'));}});
   // The page leaving: the request may not get out, the stream closing stops the jog on the server.
   window.addEventListener('pagehide',function(e){stopHold(t('page quittée'));stopStep(t('page quittée'));if(e&&e.persisted)return;disposed=true;if(clock!==null){clearInterval(clock);clock=null;}});
-  // « Zéro XYZ » (XY in laser) asked from the v2 summary (#pv2-tool-zero, job-preparation.js) while its own row
-  // is not shown: the same ticket and confirmation, the visible button checked in place of the hidden one.
-  document.addEventListener('click',function(e){var n=e&&e.target,via=n&&typeof n.closest==='function'?n.closest('#pv2-tool-zero'):null,b=$('jog-zero-xyz');if(via&&b)askOrigin(b,via);});
   window.cncRealMotion={holding:function(){return !!hold;},stop:function(){var a=stopHold(t('arrêt demandé')),b=stopStep(t('arrêt demandé'));return a||b;}};
+  window.addEventListener('cnc-sheet-change',function(){moreSignature='';renderMore();});
   viewClock();render();
 })();
