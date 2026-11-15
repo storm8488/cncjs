@@ -1,5 +1,39 @@
 # Validation scope
 
+## L6 More, languages and final cleanup (2026-11-16)
+
+- `test-textes-regles.cjs`, registered in `verify-project.cjs`, checks operator
+  text in the stage/dialog modules and the static page. Only the exact Details
+  phrases and the timing/resume Details functions are exempt. Dynamic resume
+  confirmations cannot leak the source line, modal words or technical notes;
+  the complete plan and notes remain in Details.
+- `test-i18n.cjs` also parses authored HTML text and accessible attributes and
+  every guide data row, requiring nonempty FR/EN/ES columns. The shared
+  `page-text-fixture.cjs` treats script bodies and protocol values separately.
+  Host messages translate fixed envelopes while preserving SSIDs, counts and
+  OS diagnostics as data. `test-refus-table.cjs` exercises every server/catalogue
+  code in all languages, checks remedies, unresolved placeholders, technical
+  words and the French 90-character limit.
+- `test-more-screen.cjs` checks the shared headers, More rail selection and an
+  actual assistant opening from its tile. `test-interface-guide.cjs` and the
+  no-simulation test cover seven topics, incident shortcuts and Back to More.
+- `test-server-history.cjs` covers block-probe values, uncertainty and the
+  finite-XYZ whitelist without raw commands or secrets. `test-real-history.cjs`
+  covers one retained Eco command outcome and zero hidden repaint. The v2
+  journal keeps outcomes observed before its renderer opened.
+- Wi-Fi/update tests count zero hidden writes on ten job packets, a late HTTP
+  answer and document hiding; reopening reapplies current guards. Leaving the
+  update screen cancels polls and the installation's second tap. Backlight tests
+  check the remote explanation and hatch without changing the D3 write policy.
+
+`browser-run --only screens` now measures all seven guide pages; existing EN
+variants remain enabled. Run only `screens,e2e,settings` for this lot; the full
+harness belongs to the orchestrator. The local Edge attempt and the full
+`measure-refonte.cjs --out .../apres` fail before scenarios with `WebSocket error`.
+The static `dead,cache` measurements run separately; they prove byte/reference
+counts, not layout or tablet speed. C9 is not delivered without EN/ES browser
+validation. The final exact suite results are in the L6 report and audit.
+
 ## P3 independent page fixes (2026-11-15)
 
 - A2-10 is converted into test-dashboard-pause-guard.cjs: refused resume reason in FR/EN/ES, warning tone, unchanged cooldown, direct Pause/Stop with inert source buttons.

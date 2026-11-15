@@ -70,7 +70,7 @@ assert.doesNotMatch(rule(probe, '.probe-screen .probe-note'), /font-size/);
 // Préparer header with « Déplacement réel » in large text (harness lot-jog-fix): v1, the dry-run line stays under the
 // title (the cross rose by 50 px during a job); v2 comparison, the title column narrows instead of wrapping the
 // actions (the tools left the side column).
-assert.match(rule(ui, 'body.ks-ui.display-large:not(.perf-origin) #screen-jog #jog-msg'), /flex-basis:100%/);
+assert(!ui.includes('body.ks-ui.display-large:not(.perf-origin) #screen-jog #jog-msg'),'removed comparison message has no stale large-text stylesheet');
 // Rail of a sub-screen (Astra 3): « Retour » + 7 entries scrolled at 768 px (8 × 76 + 7 × 12 > 680), which narrowed
 // the rail and cut « Preparar », « Máquina »…; after « Retour » the entries are 72 px and the eight fit.
 {

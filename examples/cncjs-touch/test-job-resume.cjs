@@ -6,12 +6,12 @@ const assert=require('assert').strict,fs=require('fs'),vm=require('vm');
 const R=require('./touch/job-resume');
 // Texts.
 const m6={kind:'M6',message:'T2 M6',tool:2,restartSpindle:{mode:'M3',speed:12000}};
-assert.match(R.pauseText(m6),/^Changement d’outil T2 : .*M5.*zéro Z.*La broche sera relancée \(M3 S12000, 3 s\)/);
-assert.match(R.pauseText({kind:'M0',message:'M0 (brides)',tool:null}),/^Pause demandée par le programme \(M0\) : M0 \(brides\)\./);
+assert.match(R.pauseText(m6),/^Changement d’outil T2 : .*arrêtez la broche.*zéro Z.*La broche sera relancée \(12000 tr\/min, 3 s\)/);
+assert.equal(R.pauseText({kind:'M0',message:'M0 (brides)',tool:null}),'Pause demandée par le fichier. Touchez Reprendre quand vous êtes prêt.');
 assert.match(R.pauseText({kind:'error',message:'error:24'}),/reprenez à une ligne/);
 assert.equal(R.pauseText(null),'');assert.equal(R.pauseText({kind:'other'}),'');
 assert.match(R.dialogNote('resume',{programPause:m6}),/^Outil T2 en place et zéro Z vérifié \?/);
-assert.match(R.dialogNote('start',{resume:{from:120,total:900,line:'G1 X5',tool:3}}),/^Reprise à la ligne 120 \/ 900 : G1 X5 — outil attendu T3\./);
+assert.match(R.dialogNote('start',{resume:{from:120,total:900,line:'G1 X5',tool:3}}),/^Reprise à la ligne 120 \/ 900 — outil attendu T3\./);
 assert.equal(R.dialogNote('start',{resume:null}),'');assert.equal(R.dialogNote('resume',{programPause:{kind:'M0'}}),'');
 assert.equal(R.suggestedLine({stoppedAtLine:200,stoppedFile:'a.nc'},'a.nc'),185);
 assert.equal(R.suggestedLine({stoppedAtLine:10,stoppedFile:'a.nc'},'a.nc'),2);
@@ -20,7 +20,8 @@ const plan={from:12,total:16,line:'G2 X50 Y40 I10 J0',safeZ:5,position:{X:40,Y:3
 assert.equal(R.planText(plan),'Ligne 12 / 16 : G2 X50 Y40 I10 J0. Départ : Z 5, puis X 40 Y 30, plongée à Z -1.5. Broche M3 S12000 relancée 3 s avant la plongée. Arrosage M8. Outil attendu : T2 (vérifiez qu’il est en place et que le zéro Z lui correspond).');
 // Server notes (A1: units, work frame, clearance) are appended to the plan and to the start note, as written.
 assert.match(R.planText(Object.assign({},plan,{notes:['Note A.','Note B.']})),/correspond\)\. Note A\. Note B\.$/);
-assert.match(R.dialogNote('start',{resume:{from:1,total:2,line:'G0',tool:null,notes:['Unités converties.']}}),/plonge\. Unités converties\.$/);
+assert.match(R.dialogNote('start',{resume:{from:1,total:2,line:'G0',tool:null,notes:['Unités converties.']}}),/plonge\.$/);
+assert(!R.dialogNote('start',{resume:{from:1,total:2,line:'G0',tool:null,notes:['Unités converties.']}}).includes('Unités converties.'),'technical notes live in Details');
 assert.equal(R.planText(plan),R.planText(Object.assign({},plan,{notes:[]})),'no notes, no change');
 // Every phrase used by the module is in the FR/EN/ES catalog.
 const source=fs.readFileSync(__dirname+'/touch/job-resume.js','utf8');

@@ -21,7 +21,7 @@ La v2 ne s’ouvre que si quatre conditions sont réunies :
 3. le **GPU matériel** est reconnu par le test existant (pas de rendu logiciel) ;
 4. la fenêtre est **large** : au moins 1300 × 880 px CSS, en paysage (le poste large).
 
-Si une condition manque, l’entrée « Interface Performance v2 » n’apparaît pas dans Réglages et l’interface reste exactement celle d’avant. C’est le cas sur la Surface RT, en Éco, sur une tablette plus petite et en rendu logiciel.
+Si une condition manque, la ligne de rendu dans Réglages en donne la raison et la page conserve le rendu v1. C’est le cas sur la Surface RT, en Éco, sur une tablette plus petite et en rendu logiciel.
 
 ### Activer
 
@@ -36,8 +36,8 @@ Le choix est mémorisé dans ce navigateur seulement (clé `cncjs-touch-performa
 
 ### Désactiver
 
-- **Réglages › Interface Performance v2** : touchez le bouton, il passe à « Désactivée ». Les calculs et la scène v2 s’arrêtent tout de suite. **La disposition reste celle de la v2 jusqu’à la fin de la session**, pour que rien ne bouge sous le doigt. L’ancienne disposition revient à la prochaine ouverture au repos.
-- **Choisir Éco** arrête aussi tout de suite les ressources de la v2. Pendant un travail, la grille reste figée ; elle revient à l’ancienne disposition dès que la machine est de nouveau au repos.
+- **Réglages › Interface Performance v2** : touchez le bouton, il passe à « Désactivée ». Les calculs et la scène v2 s’arrêtent tout de suite. **La disposition reste celle de la v2 jusqu’à la fin de la session**, pour que rien ne bouge sous le doigt. Le rendu v1 revient à la prochaine ouverture au repos.
+- **Choisir Éco** arrête aussi tout de suite les ressources de la v2. Pendant un travail, la grille reste figée ; elle revient à le rendu v1 dès que la machine est de nouveau au repos.
 - **Perte du GPU** (contexte graphique perdu) : la vue 3D est remplacée par une vue fixe dans le même cadre. Les commandes ne bougent pas.
 
 ### Réglages de rendu (session v2 seulement)
@@ -50,119 +50,57 @@ Dans Réglages, sous « Rendu 3D de cette session » :
 
 Ces choix n’agissent que sur l’affichage. **Diagnostic du rendu** affiche, à la demande, GPU matériel, résolution, DPR et qualité effective. **Mesurer 60 images** ne fonctionne qu’au repos, avec un état récent. C’est une mesure isolée, pas une garantie.
 
-## 2. Lire les écrans
+## 2. Suivre la séance
 
-### Suivi
-
-À gauche, la **scène** : parcours du programme, partie acquittée et repère d’outil.
-
-Sous la scène, la **bande de confiance**, toujours au même endroit :
-
-| Élément | Ce qu’il dit |
-| --- | --- |
-| « Programme chargé : … » | le programme que la machine a reçu (pas la sélection de Fichiers) |
-| « G54 · mm » | le repère et les unités du rapport ; « Repère inconnu » s’ils ne sont pas connus |
-| « Rapport frais · < 1 s » | le dernier rapport de Grbl a moins de 2,5 s |
-| « Rapport périmé (> 2,5 s) » | plus de 2,5 s sans rapport : position et avancement sont **figés**, pas extrapolés |
-| « Rapport inconnu » | aucun rapport exploitable (flux perdu, simulation) |
-| « Géométrie complète / simplifiée / inconnue » | ce que la scène dessine |
-| « Acquitté par Grbl » / « À acquitter » | la couleur du parcours |
-
-Le rappel « Acquitté = accepté par Grbl, pas nécessairement usiné » est important : une ligne acquittée est entrée dans la mémoire de Grbl. **Elle n’est pas forcément usinée.**
-
-Dans la carte des coordonnées, la position est « Rapportée · rapport frais », « Figée · rapport périmé » ou « Inconnue · pas de rapport ». La couleur est toujours doublée par un mot.
-
-Sous la scène, la **frise « Séquence prévue · estimée / Ensuite »** :
-
-- elle indique la séquence du programme et la suivante ;
-- elles sont préparées au repos, à partir du fichier ;
-- « Déclarée dans le fichier » vient d’un commentaire ou d’un outil du programme ;
-- « Regroupement inféré, pas une opération nommée » est une déduction de la tablette ;
-- « Ordre du fichier, pas heure de début » rappelle qu’il n’y a pas d’horaire ;
-- « Séquences non préparées » veut dire que l’information manque. Rien n’est inventé.
-
-À droite, une seule colonne de surveillance :
-
-1. avancement et ligne acquittée ;
-2. **temps restant**, avec sa source juste dessous. C’est une estimation, sans accélérations ; « Détail du temps » dit ce qu’elle ne compte pas (pauses, interventions, durées inconnues) ;
-3. **coordonnées** de travail rapportées ;
-4. **avance rapportée et S rapporté**, avec la courbe de la dernière minute ;
-   - « S rapporté » est la consigne que Grbl renvoie. **Ce n’est pas une mesure de tachymètre.**
-   - Sur la courbe, un trou est un **trou de données**, jamais un zéro.
-   - Les traits verticaux marquent les corrections et les pauses rapportées. Le texte sous la courbe les compte (« Corrections : 1 · trous de données : 2 »).
-5. **correction d’avance** (−10 %, −1 %, 100 %, +1 %, +10 %) : les mêmes boutons qu’avant. « Broche / rapides… » ouvre, dans une fiche, les corrections de broche et de rapides ;
-6. les commandes du Suivi (Démarrer…, Pause, Arrêter le travail), inchangées.
-
-**Ouvrir le Journal depuis la courbe.** Touchez un trait de la courbe. Le Journal s’ouvre sur l’intervalle de cet événement. « ← Retour à Suivi » ramène la vue. Rien n’est envoyé à la machine.
-
-**Examiner un détail (vue 3D).** Le bouton « Examiner » de la vue 3D active la loupe. Touchez un segment, au doigt ou au stylet. La tablette affiche les coordonnées nominales, la ligne du programme et la passe. Si plusieurs segments sont proches, elle propose les candidats. « Revenir au direct » rend la vue telle qu’elle était. La sélection est **visuelle** : elle ne déplace jamais l’outil.
-
-### Fichiers
-
-En haut du détail, deux colonnes côte à côte :
-
-- **Sélection** : le fichier que vous regardez ;
-- **Chargé dans la machine** : le programme que la machine a reçu.
-
-Elles comparent le nom et la version, les dimensions de l’aperçu, l’outil et la matière déclarés et l’empreinte. « La sélection n’est pas le programme chargé. » signale une différence. Une empreinte différente rend les informations déclarées invalides.
-
-**Sélectionner ne charge pas ; charger ne démarre pas.** Le chargement suit les mêmes gardes qu’avant. Pendant un travail, Pause et Arrêter restent dans le bandeau.
-
-### Préparer
-
-À gauche, la scène **Placement · dessus XY** :
-
-- « Les deux » montre l’origine actuelle et l’hypothèse ensemble ;
-- « Actuelle » montre l’origine actuelle seule ;
-- « Hypothèse XY » montre le placement si le zéro X Y était posé à la position actuelle de l’outil ;
-- « Cotes » montre ou masque, sous la scène, au plus quatre cotes, chacune avec sa source : « fiche projet, pas une mesure », « saisie opérateur, pas une mesure » ou « programme, valeur nominale ».
-
-À droite :
-
-- **1 · Programme chargé**, avec sa révision ;
-- **2 · Origine X Y**, avec son état (« À confirmer », « Inconnu », « Suspendu ») et les décalages X et Y. Un décalage inconnu s’affiche « — », jamais zéro ;
-- « Z conserve son origine actuelle. » : l’hypothèse ne concerne que X et Y ;
-- le verdict de course :
-  - « Dans la course machine en X et Y » ou « Hors course machine en X ou Y » est une estimation de la tablette ($130–$132). Ce n’est pas le contrôle du serveur. Z et collisions ne sont pas vérifiés ;
-  - « △ Course machine non vérifiée » s’affiche quand les données manquent ($23, course, repère ou unités) ;
-- **Déplacer l’outil…** ouvre la zone de jog : les flèches et les vérifications existantes, avec des cibles de 96 px. « Revenir à la comparaison » rend la scène au même cadrage.
-
-Pendant un travail, une pause ou une alarme, la carte garde sa place et affiche « Comparaison suspendue : … ». Les zéros restent dans la carte des coordonnées, avec leur confirmation. **Toucher le dessin ne déplace jamais l’outil**, et une scène qui semble correcte ne coche aucune étape de préparation.
+Les rendus Éco et Performance suivent le même rail : **Machine → Fichier → Zéro pièce → Contrôle → Usinage**, puis **Plus**. Sur le laser, Usinage s’appelle Gravure. Les commandes gardent la même place quand le rendu change.
 
 ### Machine
 
-« Condition actuelle » donne :
+Connectez la CNC et prenez la main. La page indique les réglages à relire, la prise d’origine à faire et la vérification du zéro pièce. Un refus présente son bouton remède sur place. Après un incident, suivez les lignes dans l’ordre ; déverrouiller ne rend pas sa position à une machine qui l’a perdue.
 
-- le titre lisible de l’alarme et son code ALARM ;
-- l’origine de l’information : rapportée par la carte, ou déduite (« Aucun code reçu : cause non rapportée par la carte. ») ;
-- une explication et la prochaine action possible ;
-- la fraîcheur du rapport et l’appareil pilote.
+La mise en service s’ouvre seulement si vous la demandez, depuis cette étape, Plus ou Réglages. Ses confirmations restent obligatoires. La fin ou l’abandon de l’assistant revient à Machine.
 
-« Paramètres de course » liste les valeurs connues et inconnues, avec leurs unités.
+### Fichier
 
-Déverrouiller et la prise d’origine restent à leur place, avec leurs conditions et leurs confirmations. La v2 n’ajoute ni terminal ni macro.
+Choisissez un fichier pour voir son aperçu, son emprise, sa profondeur et le contrôle de course du serveur avec le zéro actuel. Charger ne démarre aucun mouvement et laisse cet écran ouvert. Une autre sélection ne remplace pas le fichier chargé. Un contrôle indisponible propose Réessayer.
 
-### Journal
+### Zéro pièce
 
-La liste chronologique est à gauche, le détail de l’événement touché à droite.
+Les déplacements, les zéros ici ou à l’origine machine, la plaque et le bloc sont réunis. Les flèches et les pas restent visibles. Ma sonde contient vos mesures et la sauvegarde des profils ; Tester ouvre le diagnostic commun, également utilisé par la mise en service.
 
-- Les filtres « Tous / Commande / État / Connexion » trient la liste.
-- « Cette session / Serveur » choisit la source.
-- « Contexte du journal » rappelle le programme et l’intervalle quand le Journal est ouvert depuis la courbe.
-- « Tout le journal » enlève l’intervalle.
-- Le Journal est en **lecture seule** : il n’a aucun bouton pour rejouer une commande.
-- Les 100 derniers événements de cet appareil sont effacés au rechargement. Une information absente reste absente.
+Avant de palper, touchez le bloc avec la fraise puis écartez-le. Si le contact reste permanent, le diagnostic guide la vérification de la pince et de la broche débranchée. Ne remettez la broche sous tension qu’après avoir terminé les manipulations.
 
-### Réglages
+### Contrôle
 
-Voir la partie 1. Les réglages système gardent leurs interdictions pendant un travail ou un mouvement.
+Vérifiez l’emprise et la profondeur, puis démarrez depuis cette étape. Le dessin utilise le verdict du serveur. Un dépassement prouvé bloque le départ ; un résultat non vérifiable reste annoncé. Les remèdes permettent de refaire le zéro ou de choisir un autre fichier.
+
+Détails du contrôle donne les valeurs techniques et, seulement quand le serveur l’autorise, la dérogation explicite à un dépassement. Elle ne contourne jamais une origine machine perdue ni un zéro pièce non confirmé. La vue 3D de placement s’ouvre à votre demande, au repos ; aucun toucher sur le dessin ne déplace la machine.
+
+### Usinage ou Gravure
+
+L’aperçu et Arrêter l’usinage sont à gauche ; l’avancement, les positions pièce et les trois rangées Vitesse, Broche, Rapides sont à droite. La barre d’étape donne Pause ou Reprendre selon l’état. Une pause ne garantit pas l’arrêt de la broche. L’encart dit ce qui manque et propose les actions autorisées par la machine.
+
+La courbe et la séquence de la v2 restent des informations. Touchez un événement de la courbe pour ouvrir le Journal dans son contexte ; le retour retrouve la vue. Détails du temps donne les données techniques. Le point bleu ne dépasse jamais le dernier rapport reçu ; une information ancienne le fige.
+
+En changement d’outil ou après la fin, Zéro Z à la plaque reste accessible quand la machine le permet. Reprendre à une ligne utilise le fichier arrêté, même si un autre aperçu est choisi. Son volet vérifie automatiquement la ligne affichée ; une ancienne réponse ne peut pas autoriser une autre ligne. Détails garde le trajet, le préambule et les notes complets. Charger la reprise mène au Contrôle avant le départ confirmé.
+
+### Plus
+
+Cinq tuiles donnent Journal, Réglages, Mise en service, Guide et Macros. Sans macro, la tuile reste rayée avec sa raison. La mise en service affiche son état ou la date du bilan enregistré. La ligne de version donne la page chargée et sa valeur de cache.
+
+Chaque sous-écran garde le rail sur Plus et propose **← Plus** dans son en-tête.
+
+- **Journal** : Cette session garde au plus 100 événements de cette page et les retours de commandes, en Éco comme en Performance. Exportez avant de recharger. Serveur lit l’historique durable de tous les appareils, 500 entrées au plus, par pages. Les contacts et valeurs du palpage au bloc sont consultables ; aucun événement ne peut être rejoué. Un zéro peut être resté inchangé, avoir été écrit ou avoir peut-être changé : le journal conserve cette distinction.
+- **Réglages** : Affichage, Machine et performances, Système gardent leur organisation et la portée de chaque réglage. Sur une page distante, la luminosité Pendant la veille est rayée avec « Réglable seulement sur la tablette de la machine. ». Le curseur explicite conserve les permissions données par le serveur.
+- **Guide** : une page par étape, puis Après un incident et La sonde.
+
+Système distingue la version chargée de la version installée. Recharger demande un repos sûr, vérifié aussi auprès du serveur ; il n’est jamais automatique. Quitter l’écran des mises à jour annule le second toucher d’installation et le suivi périodique de son affichage, sans interrompre une tâche déjà acceptée par le serveur.
 
 ## 3. Limites à connaître
 
-- **Rien n’est mesuré sur la pièce.** Le parcours est celui du programme. La v2 ne connaît ni la fixation, ni le faux-rond, ni le diamètre réel de l’outil. Elle ne fait aucune détection de collision.
-- **Aucune extrapolation.** Le repère d’outil ne dépasse pas le dernier rapport. Au-delà de 2,5 s, il se fige et le dit. Le temps restant est une estimation sans accélérations, jamais un compte à rebours.
-- **Le brut, les brides et les cotes sont des déclarations** (fiche projet, saisie, programme). Ce ne sont pas des mesures.
-- **Le verdict de course est une estimation de la tablette.** Le contrôle du serveur reste celui qui compte. Un `$23` inconnu laisse le verdict « non vérifié ».
-- **La simulation** (`simulation.html`) n’a ni rapport Grbl ni origine visuelle. La bande y affiche « Rapport inconnu », et Préparer n’y montre pas la comparaison.
-- **Un geste n’est jamais une commande.** Rotation, zoom, loupe, toucher de la courbe ou du dessin : affichage seulement.
-- **Ce qui a été vérifié, et ce qui reste à vérifier sur la tablette et à la machine**, est décrit dans `PERFORMANCE-V2-VALIDATION.md`. Jusqu’à ces mesures, la v2 n’est publiée que sous `/touch-next/`, pas sur le kiosque.
+- Le parcours vient du fichier. La page ne mesure ni la pièce, ni les brides, ni le diamètre réel de la fraise ; elle ne détecte pas les collisions.
+- Une ligne reçue par la machine n’est pas forcément déjà usinée. Le temps restant est une estimation.
+- Le verdict de course vient du serveur ; le dessin et le placement 3D ne le remplacent pas. Un résultat inconnu ne prouve pas que le fichier tient.
+- Rotation, zoom, loupe et toucher de la courbe servent à l’affichage. Les mouvements gardent leurs commandes et confirmations.
+- La page de simulation est un banc distinct. Aucun de ses fichiers exclus n’est réintroduit dans la page de la tablette.
+- La validation logicielle sur PC ne vaut pas essai matériel. Les contrôles de disposition, du tactile, de Chromium 106, de la Surface et de la CNC restent à effectuer selon le protocole de la refonte. Le harnais ciblé L6 n’a pas atteint ses scénarios dans le bac à sable : connexion Edge refusée avant le rendu.

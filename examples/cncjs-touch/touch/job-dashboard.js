@@ -230,7 +230,7 @@
       if(isRapid){var pressed=String(rapid!==null&&Number(button.getAttribute('data-value'))===rapid);if(button.getAttribute('aria-pressed')!==pressed)button.setAttribute('aria-pressed',pressed);}
     });
     if(rapidDetail){rapidState(overridesBox,'home',rapidDetail);if(v2&&v2.rowHost)rapidState(v2.rowHost,'home',rapidDetail);}
-    set('home-rapid-note','textContent',rapidOn?(rapid!==null&&rapid<100?uiLocale.t('Rapides ralentis : Grbl revient à 100 % à la fin du programme (M2/M30) ou après un arrêt.'):uiLocale.t('Rapides à 25 % conseillés pour le premier essai d’un programme.')):'');
+    set('home-rapid-note','textContent',rapidOn?(rapid!==null&&rapid<100?uiLocale.t('Les rapides reviennent à 100 % à la fin du fichier ou après un arrêt.'):uiLocale.t('Rapides à 25 % conseillés pour le premier essai d’un programme.')):'');
     // Real values from Grbl's FS: field. A feed hold stops the axes, not the spindle.
     var liveOk=!!(c&&c.fresh),feed=liveOk&&finiteNumber(c.feedrate)?c.feedrate:null,rpm=liveOk&&finiteNumber(c.spindleSpeed)?c.spindleSpeed:null;
     // The live values are written only while Suivi is shown (mount() renders again on opening):
@@ -264,7 +264,7 @@
     if(homeShown&&simulationPage&&c&&c.workPosition)['x','y','z'].forEach(function(a){set('home-sim-'+a,'textContent',finiteNumber(c.workPosition[a])?c.workPosition[a].toFixed(3):'—');});
     var spinning=!!(c&&c.workflow==='paused'&&rpm!==null&&rpm>0);
     set('home-spindle-warning','hidden',!spinning);
-    set('home-spindle-warning','textContent',spinning?(laser()?uiLocale.t('Pause : la consigne S reste active. En mode laser ($32=1), Grbl coupe l’émission tant que les axes sont arrêtés ; gardez la protection en place.'):/^Hold/.test(String(c.activeState||''))&&(c.subState===1||/^Hold:1/.test(String(c.activeState||'')))?uiLocale.t('Pause : les axes ralentissent jusqu’à l’arrêt et la broche tourne toujours. Ne mettez pas les mains près de l’outil.'):
+    set('home-spindle-warning','textContent',spinning?(laser()?uiLocale.t('Pause : le laser peut reprendre à tout moment. Gardez la protection en place.'):/^Hold/.test(String(c.activeState||''))&&(c.subState===1||/^Hold:1/.test(String(c.activeState||'')))?uiLocale.t('Pause : les axes ralentissent jusqu’à l’arrêt et la broche tourne toujours. Ne mettez pas les mains près de l’outil.'):
       // Hold:0 (or a hold without sub-state) and Idle (M0 / M6 pause at rest): the axes are stopped (phase 7).
       /^(Hold|Idle)/.test(String(c.activeState||''))?uiLocale.t('Pause : les axes sont arrêtés mais la broche tourne toujours (Grbl ne l’arrête pas en pause). Ne mettez pas les mains près de l’outil.'):
       // CNCjs pauses its sender on a Grbl error without a feed hold: the planned moves go on (Astra 60, rehearsal).

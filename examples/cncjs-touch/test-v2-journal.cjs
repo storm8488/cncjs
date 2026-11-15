@@ -21,23 +21,23 @@ function timeline(p){
   p.status({...m,fresh:false});
 }
 (async()=>{
-  // RT / v1: no command entries, no frame, no v2 element; the v1 journal is untouched.
+  // RT / v1 keeps command outcomes too, without a frame or any v2 element.
   {
     const p=journalPage({eligible:false,noV2:true});p.show('history');timeline(p);
     const report=p.window.cncSessionJournal;assert(report);
     assert.equal(p.frames.size,0,'v1 journal requests no frame');
     assert.equal(find(p.node('screen-history'),'v2k-list'),null);
     assert.equal(p.node('screen-history').getAttribute('data-v2-presenter'),null);
-    assert(!text(p.node('real-history-list')).includes('Demande envoyée'),'v1 journal records no command feedback');
+    assert(text(p.node('real-history-list')).includes('Connexion perdue ou réponse incertaine.'),'v1 journal keeps command feedback');
   }
   const p=journalPage();timeline(p);
   // Handlers do not render; the mount is filled in a frame, only on the visible Journal.
   p.open();const content=p.mount('history').content;assert.equal(content.children.length,0);
   p.show('history');assert.equal(content.children.length,0,'no rendering in an event handler');
   p.frame();assert.equal(content.hidden,false);assert.equal(p.node('screen-history').getAttribute('data-v2-presenter'),'on');
-  const list=find(content,'v2k-list'),detail=find(content,'v2k-detail'),rows=()=>list.children.filter(li=>li.getAttribute('data-id'));
-  // Commands captured before perf-v2 was drawn are not invented; capture starts with the v2 layout.
-  assert(!rows().some(r=>r.getAttribute('data-category')==='command'),'no command feedback recorded before the v2 layout');
+  const list=find(content,'v2k-list'),rows=()=>list.children.filter(li=>li.getAttribute('data-id'));
+  // Switching renderer retains the command outcomes already observed in v1.
+  assert.equal(rows().filter(r=>r.getAttribute('data-category')==='command').length,4,'command feedback captured before the v2 layout');
   // Fresh page with the v2 layout from the start: the same timeline is recorded.
   const q=journalPage();q.open();timeline(q);q.show('history');q.frame();
   const qc=q.mount('history').content,qlist=find(qc,'v2k-list'),qrows=()=>qlist.children.filter(li=>li.getAttribute('data-id'));

@@ -197,7 +197,7 @@
     zeroZ:[uiLocale.t('Le palpage descend Z jusqu’au contact avec la plaque. Vérifiez la plaque et la pince.'),uiLocale.t('Je suis devant la machine, la plaque et la pince sont en place.')],
     blockProbe:[uiLocale.t('Le palpage déplace l’outil jusqu’au contact avec le bloc. Dégagez la zone autour du bloc.'),uiLocale.t('Je suis devant la machine, le bloc et la pince sont en place.')],
     // Laser framing (PROFILES-CONTRACT.md §4): XY moves around the program, M5 first, never emits.
-    frame:[uiLocale.t('Le cadrage déplace la tête en XY autour du programme chargé, à la hauteur actuelle, laser éteint (M5 envoyé d’abord). Arrêter interrompt le mouvement.'),uiLocale.t('Je suis devant la machine et la zone est dégagée.')]
+    frame:[uiLocale.t('Le cadrage fait le tour du fichier à la hauteur actuelle, laser éteint. Dégagez la zone.'),uiLocale.t('Je suis devant la machine et la zone est dégagée.')]
   };
   function inStrip(node){return !!(node&&typeof node.closest==='function'&&node.closest('#real-banner,#simulation-banner'));}
   function stripKept(){return STRIP_STOPS.map($).filter(inStrip);}
@@ -441,7 +441,7 @@
       feedbackReached=true;
       // The server's pause answer asks to wait for Hold: once a recent report (< 1 s) says Hold, that wait is over
       // (text only). An old Hold kept by the server (reports lost) does not confirm this pause.
-      if(feedbackExpect==='paused'&&feedbackRaw===PAUSE_WAIT&&/^hold/i.test(String(m.activeState||''))&&m.fresh===true&&typeof m.statusAgeMs==='number'&&m.statusAgeMs<1000){feedbackRaw='';text('job-feedback',uiLocale.t('Pause confirmée : la machine est en Hold.'));}
+      if(feedbackExpect==='paused'&&feedbackRaw===PAUSE_WAIT&&/^hold/i.test(String(m.activeState||''))&&m.fresh===true&&typeof m.statusAgeMs==='number'&&m.statusAgeMs<1000){feedbackRaw='';text('job-feedback',uiLocale.t('Pause confirmée : les axes sont arrêtés.'));}
       return;
     }
     if(feedbackReached){feedbackExpect=null;feedbackReached=false;text('job-feedback','');setFeedbackState('');}
@@ -583,7 +583,18 @@
       $('job-dialog-file').textContent=(operation==='blockProbe'&&data.name?(uiLocale.message||uiLocale.t)(data.name):data.name||current.originalName||current.name||'')+' · '+port+(simulation?'':' · '+targetText(current)+' · '+uiLocale.t('Pilote : ')+(pilot.value||'—'));
       var identity=$('job-dialog-file').textContent;$('job-dialog-file').setAttribute('data-details',identity);$('job-dialog-file').textContent=data.name||current.originalName||current.name||'';
       if(!$('job-dialog-details')){var detailsButton=document.createElement('button');detailsButton.type='button';detailsButton.id='job-dialog-details';detailsButton.textContent=uiLocale.t('Détails');$('job-dialog-file').parentNode&&$('job-dialog-file').parentNode.insertBefore(detailsButton,$('job-warning'));}
-      if($('job-dialog-details'))$('job-dialog-details').onclick=function(){if(window.cncShell)window.cncShell.details({lignes:[{libelle:uiLocale.t('Machine'),valeur:identity}].concat(operation==='blockProbe'?[{libelle:uiLocale.t('Sonde'),valeur:note}]:[]),brut:operation==='blockProbe'?data.blockProbe:null});};
+      var resumeDetails=current.resume,pauseDetails=current.programPause;
+      if($('job-dialog-details'))$('job-dialog-details').onclick=function(){
+        if(!window.cncShell)return;
+        var lines=[{libelle:uiLocale.t('Machine'),valeur:identity}];
+        if(operation==='blockProbe')lines.push({libelle:uiLocale.t('Sonde'),valeur:note});
+        if(operation==='start'&&resumeDetails){
+          if(resumeDetails.line)lines.push({libelle:uiLocale.t('Ligne'),valeur:resumeDetails.line});
+          if(Array.isArray(resumeDetails.notes))lines.push({libelle:uiLocale.t('Notes de reprise'),valeur:resumeDetails.notes.filter(function(s){return typeof s==='string';}).map(function(s){return (uiLocale.message||uiLocale.t)(s);}).join('\n')});
+        }
+        if(operation==='resume'&&pauseDetails&&pauseDetails.message)lines.push({libelle:uiLocale.t('Message du fichier'),valeur:pauseDetails.message});
+        window.cncShell.details({lignes:lines,brut:operation==='blockProbe'?data.blockProbe:null});
+      };
 
       if(ticket.override){
         var view=window.CNCProgramCheckView, overs=data.override.blocking.map(function(r){return view?view.overText(r,false):uiLocale.t('dépasse');}).join(' · ');
@@ -756,7 +767,7 @@
     // Full $$ list and firmware banner, read-only.
     settings:function(){if(!current)return Promise.reject(new Error(uiLocale.t('État indisponible.')));return run('settings');},
     // Attribution of control (F5): this device's identity, who pilots now, the pilot dialog.
-    clientId:function(){return clientId;},clientLabel:function(){return clientLabel;},pilot:function(){return pilot;},openPilot:openPilot,closePilot:closePilot,
+    clientId:function(){return clientId;},clientLabel:function(){return clientLabel;},pilot:function(){return pilot;},openPilot:openPilot,
     // Real moves (F1, experimental; real-motion.js): jog, jog-start and jog-keepalive need a fresh
     // state, the open stream and the generation (run). jog-stop is never held back by the client:
     // it goes out even with a lost stream or an old state, to the port given or the last one shown.

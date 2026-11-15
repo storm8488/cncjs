@@ -34,7 +34,7 @@
     var x = new XMLHttpRequest(); x.open(method, apiBase() + '/touch-wifi', true); x.timeout = timeout;
     x.setRequestHeader('Authorization', 'Bearer ' + c);
     if (body !== undefined) x.setRequestHeader('Content-Type', 'application/json');
-    x.onload = function () { var data = null; try { data = JSON.parse(x.responseText); } catch (_) {} done(x.status, data); };
+    x.onload = function () { var data = null; try { data = JSON.parse(x.responseText); } catch (_) { /* An invalid response keeps the request fallback. */ } done(x.status, data); };
     x.onerror = x.ontimeout = function () { done(0, null); };
     x.send(body === undefined ? null : JSON.stringify(body));
   }
@@ -81,6 +81,7 @@
 
   var busy = false, chosen = null, loaded = false, networks = [];
   function disable() {
+    if (!shown()) return;
     var blocked = busy || jobActive();
     scanButton.disabled = blocked; hiddenButton.disabled = blocked; join.disabled = blocked; forget.disabled = blocked;
     Array.prototype.forEach.call(list.querySelectorAll('button'), function (b) { b.disabled = blocked; });
@@ -88,9 +89,10 @@
     if (jobActive() && !busy) set(status, t('Travail en cours : réseau Wi-Fi non modifiable.'));
   }
   // 401, or CNCjs' plain-text 403 (« Forbidden Access »): the session is refused, not the action.
-  function message(code, data, fallback) { return data && data.message ? data.message : code === 0 ? t('Serveur CNCjs injoignable.') : code === 401 || (code === 403 && !data) ? t('Session CNCjs requise : ouvrez CNCjs et connectez-vous.') : fallback; }
+  function serverText(value) { return (uiLocale.message || t)(value); }
+  function message(code, data, fallback) { return data && data.message ? serverText(data.message) : code === 0 ? t('Serveur CNCjs injoignable.') : code === 401 || (code === 403 && !data) ? t('Session CNCjs requise : ouvrez CNCjs et connectez-vous.') : fallback; }
   function showCurrent(data) {
-    if (!data || data.available === false) { set(current, data && data.reason ? data.reason : t('Wi-Fi indisponible.')); return; }
+    if (!data || data.available === false) { set(current, data && data.reason ? serverText(data.reason) : t('Wi-Fi indisponible.')); return; }
     set(current, data.ssid ? t('Connecté à « ') + data.ssid + t(' »') + (data.signal !== null && data.signal !== undefined ? ' · ' + data.signal + ' %' : '') : t('Aucun réseau Wi-Fi connecté.'));
   }
   function load() {
@@ -175,8 +177,10 @@
       disable();
     });
   });
-  window.addEventListener('cnc-settings-tab', function (e) { if (e && e.detail === 'system') load(); });
+  window.addEventListener('cnc-settings-tab', function (e) { if (e && e.detail === 'system' && shown()) { disable(); load(); } });
   window.addEventListener('cnc-job-status', disable);
+  window.addEventListener('cnc-screen-change', function () { if (shown()) disable(); });
+  document.addEventListener('visibilitychange', function () { if (shown()) disable(); });
   if (shown() && !loaded) load();
   window.cncWifiSettings = { load: load, state: function () { return { busy: busy, chosen: chosen ? (chosen.hidden ? '(masqué)' : chosen.ssid) : null, formOpen: !form.hidden, keyboard: !keyboard.hidden && !form.hidden, layer: keys.state().layer, upper: keys.state().upper, target: target === ssidInput ? 'ssid' : 'password' }; } };
 })();

@@ -27,7 +27,7 @@ function setup(state, filled, t) {
   if (filled) ['ks-system-head', 'ks-system-status', 'ks-system-grid', 'ks-system-actions-head', 'ks-help ks-system-actions-note', 'ks-help'].forEach((c) => { const n = el('div'); n.className = c; section.appendChild(n); });
   if (filled) section.querySelector = (sel) => section.children.find((c) => sel === '.' + c.className) || null;
   panel.attrs['data-settings-tab'] = 'system';
-  const document = { hidden: false, createElement: el, getElementById: (id) => (id === 'ks-system' ? section : id === 'screen-settings' ? panel : null) };
+  const document = { hidden: false, addEventListener: (n, f) => { listeners[n] = f; }, createElement: el, getElementById: (id) => (id === 'ks-system' ? section : id === 'screen-settings' ? panel : null) };
   const window = { addEventListener: (n, f) => { listeners[n] = f; }, cncI18n: { t: t || ((s) => s) }, cncState: { get: () => ({ apiBase: '/api', machine: state.machine }) } };
   function XMLHttpRequest() { this.headers = {}; }
   XMLHttpRequest.prototype.open = function (m, u) { this.method = m; this.url = u; };
@@ -39,7 +39,7 @@ function setup(state, filled, t) {
   vm.runInNewContext(source, { window, document, XMLHttpRequest, localStorage, JSON, setTimeout: (f) => f(), Array });
   const box = filled ? section.children.find((c) => c.className === 'ks-system-block ks-wifi') : section.children[0];
   const by = (text) => find(box, (c) => c.tagName === 'BUTTON' && c.textContent === text);
-  return { box, section, requests, answer, listeners, by, find: (pred) => find(box, pred), window };
+  return { box, section, panel, document, requests, answer, listeners, by, find: (pred) => find(box, pred), window };
 }
 
 // Place: first block of Système, under the host status line and above the figures.
@@ -64,6 +64,26 @@ function setup(state, filled, t) {
 
 const state = { machine: { workflow: 'idle' } };
 const s = setup(state);
+// C1: hidden settings never rewrite controls on job packets. Reopening uses
+// the latest machine state before the operator can touch a network action.
+{
+  const m={machine:{workflow:'idle'}},p=setup(m);
+  let writes=0;
+  for(const button of p.box.querySelectorAll('button')){
+    let disabled=button.disabled;
+    Object.defineProperty(button,'disabled',{get:()=>disabled,set:v=>{writes++;disabled=v;}});
+  }
+  p.panel.classList.contains=()=>false;
+  m.machine.workflow='running';
+  for(let n=0;n<10;n++)p.listeners['cnc-job-status']();
+  assert.equal(writes,0,'no hidden disabled writes');
+  p.panel.classList.contains=()=>true;p.listeners['cnc-screen-change']();
+  assert(p.by('Rechercher les réseaux').disabled,'latest guard applied on reopening');
+  writes=0;p.document.hidden=true;p.listeners['cnc-job-status']();
+  assert.equal(writes,0,'no hidden document writes');
+  p.document.hidden=false;m.machine.workflow='idle';p.listeners.visibilitychange();
+  assert(!p.by('Rechercher les réseaux').disabled);
+}
 // Système tab opened: the current network is read once.
 s.listeners['cnc-settings-tab']({ detail: 'system' });
 let x = s.requests.pop(); assert.equal(x.method, 'GET'); assert.equal(x.url, '/api/touch-wifi'); assert.equal(x.headers.Authorization, 'Bearer tok');

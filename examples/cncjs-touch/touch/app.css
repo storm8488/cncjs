@@ -165,11 +165,6 @@ button:focus-visible{
 }
 
 /* Préparation origine et palpage */
-.origin-actions{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:12px;
-}
 .origin-actions button,.probe-action{
   min-height:72px;
   padding:12px;
@@ -522,31 +517,6 @@ main {
 }
 #screen-settings p {
   margin: 8px 0;
-}
-#display-size {
-  display: block;
-  width: 100%;
-  min-height: 52px;
-  margin-top: 8px;
-  padding: 10px;
-  background: var(--bg);
-  color: var(--txt);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  font: inherit;
-}
-.display-check {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 52px;
-  cursor: pointer;
-}
-#display-machine {
-  width: 26px;
-  height: 26px;
-  min-height: 0;
-  flex: 0 0 26px;
 }
 .display-hide-machine #screen-home .home-machine-coordinates {
   display: none;

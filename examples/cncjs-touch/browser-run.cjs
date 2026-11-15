@@ -2020,7 +2020,7 @@ async function screensReal(cdp, fx, v, summary) {
   summary.measurements.push({ variant: tag, dir: 'screens-jog-' + v.id + '-reel-*', dpr: 1, results, strict: true, overlap: true, v2: !!v.v2 });
 }
 // Lot Transverses (M7, M10): the usage guide, measured like a screen (text ≥ 16 px, targets, overflow) on each of its
-// four topics, its topic tabs at 48 px at least, the open topic marked, and the mode named by the catalogue's word of
+// seven topics, its topic tabs at 48 px at least, the open topic marked, and the mode named by the catalogue's word of
 // the interface language (i18n-messages.js: the English « simulation » is the French word, so no French-word test).
 const SCREENS_GUIDE = '(function(){var g=document.getElementById("screen-guide");if(!g||!g.classList.contains("active"))return null;var on=g.querySelector("[aria-pressed=true]"),p=g.querySelector(".ks-panel-intro p");' +
   'return {tabs:[].map.call(g.querySelectorAll("[data-guide-page]"),function(b){return Math.round(b.getBoundingClientRect().height*10)/10;}),open:on?on.getAttribute("data-guide-page"):null,active:on?getComputedStyle(on).boxShadow:null,mode:p?p.textContent.trim():""};})()';
@@ -2028,7 +2028,7 @@ const GUIDE_MODE = { real: { fr: 'interface réelle', en: 'real interface', es: 
 function guideChecks(g, lang, sim, page) {
   const out = [], word = GUIDE_MODE[sim ? 'sim' : 'real'][lang];
   if (!g) return ['guide not shown'];
-  if (g.tabs.length !== 4 || g.tabs.some((h) => h < 48)) out.push('guide tabs ' + g.tabs.join(', ') + ' px (goal 4 × 48)');
+  if (g.tabs.length !== 7 || g.tabs.some((h) => h < 48)) out.push('guide tabs ' + g.tabs.join(', ') + ' px (goal 7 × 48)');
   if (g.open !== String(page)) out.push('topic ' + page + ' not open (' + g.open + ')');
   if (!/inset/.test(g.active || '')) out.push('open guide topic not marked (' + g.active + ')');
   if (!word || !g.mode || g.mode.indexOf(word) < 0) out.push('mode « ' + g.mode + ' », expected the ' + lang + ' word « ' + word + ' »');
@@ -2037,7 +2037,7 @@ function guideChecks(g, lang, sim, page) {
 const GUIDE_TOPIC = (page) => '(function(){var b=document.querySelector(\'#screen-guide [data-guide-page="' + page + '"]\');if(b)b.click();return !!b;})()';
 async function screensGuide(cdp, v, summary, sim) {
   const tag = 'screens ' + v.id + ' guide', results = [];
-  for (let page = 0; page < 4; page++) {
+  for (let page = 0; page < 7; page++) {
     const dir = 'screens-guide-' + v.id + (page ? '-' + (page + 1) : '');
     try {
       // Topic 1 as the guide opens it (index 0), then each tab tapped like the operator; nothing is sent.

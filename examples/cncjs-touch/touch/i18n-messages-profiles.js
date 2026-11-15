@@ -424,3 +424,13 @@
 ['Rien ne doit dépasser à moins de {reach} mm de la fraise.','Keep all obstructions at least {reach} mm from the cutter.','Nada debe sobresalir a menos de {reach} mm de la fresa.'],
 ['Le dessin montre où placer la fraise. Il ne voit pas le bloc.','The drawing shows where to place the cutter. It cannot see the block.','El dibujo indica dónde colocar la fresa. No detecta el bloque.']
 );
+
+// Legacy host response envelopes.
+window.CNCTouchMessages.push(
+["Connecté au réseau Wi-Fi « {value} ».","Connected to Wi-Fi network “{value}”.","Conectado a la red Wi-Fi «{value}»."],
+["Réseau « {value} » oublié.","Network “{value}” forgotten.","Red «{value}» olvidada."],
+["{value} mise(s) à jour disponible(s).","{value} update(s) available.","{value} actualización(es) disponible(s)."],
+["{value} paquet(s) mis à jour.","{value} package(s) updated.","{value} paquete(s) actualizado(s)."],
+["{value} paquet(s) mis à jour. Redémarrage de la tablette nécessaire.","{value} package(s) updated. Tablet restart required.","{value} paquete(s) actualizado(s). Es necesario reiniciar la tableta."],
+["Mise à jour impossible : {value}","Update failed: {value}","Error al actualizar: {value}"]
+);

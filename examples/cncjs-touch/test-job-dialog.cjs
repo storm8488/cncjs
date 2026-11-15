@@ -31,6 +31,25 @@ async function fixture(monotonic=false){
  return {node,doc,win,machine,calls,emit,flush,begin,resolve,open,check,advance(ms){now+=ms;elapsed+=ms;},jumpWall:ms=>now+=ms};
 }
 (async()=>{
+ // L6: technical resume lines and file-authored pause messages remain readable
+ // in Details without being copied to the operator confirmation or its ticket.
+ {
+   const f=await fixture();let details;
+   f.win.cncShell={details:value=>{details=value;}};
+   f.machine.resume={from:42,total:100,line:'G1 X5',notes:['G54 work frame']};
+   f.win.cncJobControls.refresh();await f.flush();await f.open();
+   f.node('job-dialog-details').onclick();
+   assert(details.lignes.some(r=>r.valeur==='G1 X5'));
+   assert(details.lignes.some(r=>r.valeur==='G54 work frame'));
+   assert(!JSON.stringify(details).includes('ticket'),'details never copy the confirmation nonce');
+ }
+ {
+   const f=await fixture();let details;
+   f.win.cncShell={details:value=>{details=value;}};
+   Object.assign(f.machine,{activeState:'Hold',workflow:'paused',canStart:false,canResume:true,programPause:{kind:'M0',message:'M0 (check clamps)'}});
+   f.win.cncJobControls.refresh();await f.flush();f.win.cncJobControls.resume();await f.flush();await f.resolve();
+   f.node('job-dialog-details').onclick();assert(details.lignes.some(r=>r.valeur==='M0 (check clamps)'),'file message is preserved in Details');
+ }
  for(const jump of [-3600000,3600000]){
    const timed=await fixture(true);await timed.open();timed.jumpWall(jump);timed.advance(14399);
    timed.win.cncJobControls.refresh();await timed.flush();timed.check();assert.equal(timed.node('job-confirm').disabled,false);

@@ -48,7 +48,7 @@ assert(has('.ks-ui.t-compact .t-coords-card .t-coords','grid-template-columns:au
 // The preview note lies over the bottom of the image instead of a 44 px column beside it.
 assert(has('.ks-ui.t-compact .job-art #home-image-status:not(:only-child)','position:absolute'),'compact preview note over the image');
 // 12 px between Charger la sélection and Démarrer / Pause (6 px column gap + 6 px).
-assert(has('.ks-ui .job-metrics>.home-load','margin-bottom:6px'),'12 px under Charger la sélection');
+assert(!css.includes('.job-metrics>.home-load'),'removed loading row has no stale compact stylesheet');
 assert(has('.ks-ui.t-compact #screen-jog.active','grid-template-columns:minmax(0,1fr) auto')&&has('.ks-ui.t-compact #screen-jog.kept','grid-template-columns:minmax(0,1fr) auto'),'Préparer: the cross card takes its own width');
 assert(has('.ks-ui.t-compact .ks-coordinate-table tbody tr','height:48px'),'48 px table rows in compact');
 assert(read('responsive.css').includes('.ks-ui #machine-layout[data-incident=true]{grid-template-columns:minmax(0,1fr)}'),'Machine reflows in compact view');
@@ -95,7 +95,8 @@ assert(!/\['status-bar','simulation-banner','real-banner','notice'\]/.test(fit)&
 assert(has('.t-system-command','position:fixed'),'system command status line (fallback without the strip)');
 assert(has('.ks-ui .t-messages>.t-system-command','border-left-color:var(--info)'),'system command line in the strip cell');
 // Dark-theme failure marks drawn with the readable text red (the --danger fill is 1.86:1 on --surface-2).
-assert(has('.t-sent[data-state="failed"]::before','background:var(--danger-text)')&&has('.ks-prep-step[data-state="blocking"] .ks-prep-mark','background:var(--danger-text)'),'failure marks in --danger-text');
+assert(has('.t-sent[data-state="failed"]::before','background:var(--danger-text)'),'failure marks in --danger-text');
+assert(!css.includes('.ks-prep-step'),'retired preparation checklist has no stale styles');
 for(const s of ['sent','confirmed','failed','uncertain'])assert(find('.t-sent[data-state="'+s+'"]').length,'feedback state '+s);
 // The freshness details live with the coordinates on the real page.
 assert(read('index.html').includes('class="ks-machine-coordinates"'),'coordinates card marked');

@@ -1,7 +1,6 @@
 body.ks-ui{--card:var(--surface);--txt:var(--fg);--ks-rail:88px;background:var(--bg);color:var(--fg);font-size:18px}
 .ks-ui #screen-limits.active{grid-template-columns:minmax(0,1fr)}
 .ks-readonly{color:var(--mute);font-size:14px;white-space:nowrap;border:1px solid var(--line-strong);border-radius:5px;padding:8px 12px}
-.ks-limits-link{border-bottom:3px solid var(--ok-text)}
 .ks-limits-table{width:100%;border-collapse:collapse;table-layout:fixed;font-variant-numeric:tabular-nums}
 .ks-limits-table th,.ks-limits-table td{padding:20px 12px;border-bottom:1px solid var(--line);text-align:center}
 .ks-limits-table th:first-child{width:36%;text-align:left;font-weight:400}
@@ -21,7 +20,6 @@ body.ks-real.display-large{font-size:20px}.ks-real.display-large .screen p,.ks-r
 .ks-real #status-bar button{min-height:30px;padding:4px 12px}
 .ks-sheet a{display:block;margin-top:16px;color:var(--info-text)}
 .ks-real #screen-settings select,.ks-real #screen-settings button{font:inherit;min-height:52px}
-.ks-real #screen-settings .display-check{align-items:center}
 @media(max-width:650px){.ks-ui #real-banner{gap:8px;padding:6px 10px}}
 .ks-ui main{left:var(--ks-rail)!important;width:calc(100% - var(--ks-rail))!important;bottom:0!important;padding:16px!important}
 .ks-ui #tabbar{top:64px;left:0;bottom:0;right:auto;width:var(--ks-rail);height:auto;flex-direction:column;justify-content:flex-start;gap:8px;border-top:0;padding:12px 8px!important}
@@ -40,7 +38,6 @@ body.ks-real.display-large{font-size:20px}.ks-real.display-large .screen p,.ks-r
 .ks-dimensions-table th,.ks-dimensions-table td{padding:14px 8px;border-bottom:1px solid var(--line);text-align:right;overflow-wrap:anywhere}
 .ks-dimensions-table th:first-child{width:56px;text-align:left;color:var(--ok-text);white-space:nowrap}
 .ks-dimensions-table thead th{font-size:14px;font-weight:400;color:var(--mute)}.ks-dimensions-table tbody{font-size:22px}
-#ks-dimensions #library-dimensions-file{font-size:17px;color:var(--fg);line-height:1.25;margin:8px 0}
 @media(max-height:650px){.ks-dimensions-table th,.ks-dimensions-table td{padding:9px 6px}.ks-dimensions-table tbody{font-size:20px}}
 .ks-sheet[hidden]{display:none!important}.ks-sheet{position:fixed;inset:0;z-index:600;background:#000b;display:flex;align-items:center;justify-content:center;padding:20px}
 .ks-sheet-card{width:min(700px,95vw);background:var(--surface);border:1px solid var(--line-strong);border-radius:12px;padding:24px;box-shadow:0 20px 80px #0008}
@@ -196,5 +193,17 @@ body.ks-real.display-large{font-size:20px}.ks-real.display-large .screen p,.ks-r
 .ks-backlight-mode{min-height:48px;padding:6px 10px;font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--line-strong);border-radius:8px}
 
 /* Current content hosts retain the existing card rules. */
+.ks-ui .ks-sub-head{grid-column:1/-1;display:flex;align-items:center;gap:12px;min-height:48px}
+.ks-ui .ks-sub-head .ks-back{width:160px;min-height:48px;flex:none;font:inherit;font-size:16px;background:var(--surface);color:var(--fg);border:1px solid var(--line-strong);border-radius:6px}
+.ks-ui .ks-sub-head h2{margin:0;color:var(--fg);font-size:20px}
+body.ks-ui main>#screen-history.active,body.ks-ui main>#screen-history.kept{grid-template-rows:48px auto minmax(0,1fr)}
+.ks-ui .ks-guide-tabs{flex-wrap:wrap}
+.ks-ui .ks-guide-tabs button{min-width:120px;min-height:48px;font-size:16px;padding:8px}
+.ks-ui .ks-backlight-sleep.is-unavailable{background:repeating-linear-gradient(135deg,transparent,transparent 6px,var(--line) 6px,var(--line) 8px)}
+#screen-more .ks-tile small:before{content:"";display:inline-block;width:10px;height:10px;margin-right:8px;border-radius:50%;background:var(--mute)}
+#screen-more .ks-tile[data-state=done] small:before{background:var(--ok-text)}
+#screen-more .ks-tile[data-state=progress] small:before{background:var(--warn-text)}
+.ks-ui #screen-more .ks-tile:disabled{opacity:1;color:var(--disabled-fg);background:var(--disabled-bg);background-image:repeating-linear-gradient(135deg,var(--disabled-stripe) 0 6px,transparent 6px 14px)}
+.ks-ui #screen-more .ks-tile:disabled small{color:var(--disabled-fg)}
 
 .ks-ui #screen-home .ks-step-body>.card>h2,.ks-ui #file{display:none}

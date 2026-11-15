@@ -267,9 +267,9 @@ async function gating() {
   const R = require('./touch/job-resume.js');
   const laser = machine('laser'), cnc = machine('cnc');
   const m6 = { kind: 'M6', tool: 2, restartSpindle: { mode: 'M3', speed: 12000 } };
-  assert.match(R.pauseText(m6, laser), /pas géré pour un laser/); assert.match(R.pauseText(m6, cnc), /^Changement d’outil T2/);
+  assert.match(R.pauseText(m6, laser), /Ce laser ne gère pas/); assert.match(R.pauseText(m6, cnc), /^Changement d’outil T2/);
   assert.equal(R.dialogNote('resume', Object.assign({ programPause: m6 }, laser)), '');
-  assert.match(R.dialogNote('start', Object.assign({ resume: { from: 40, total: 90, line: 'G1 X5 S800' } }, laser)), /^Reprise laser à la ligne 40 \/ 90 : G1 X5 S800\. Laser éteint \(M5\).*consigne S/);
+  assert.match(R.dialogNote('start', Object.assign({ resume: { from: 40, total: 90, line: 'G1 X5 S800' } }, laser)), /^Reprise laser à la ligne 40 \/ 90\. Le laser reste éteint pendant le déplacement, puis reprend la puissance du fichier\./);
   assert.match(R.dialogNote('start', Object.assign({ resume: { from: 40, total: 90, line: 'G1 X5' } }, cnc)), /plonge/);
   const lp = R.planText({ from: 40, total: 90, line: 'G0 X10 Y5', kind: 'laser', preview: { version: 1, kind: 'laser', preamble: ['M5', 'G21', 'G90', 'G0 X10 Y5'] } });
   assert.match(lp, /Début de passe : laser éteint/); assert.match(lp, /M5 · G21 · G90 · G0 X10 Y5/); assert(!/puissance/i.test(lp)); assert(!/plongée/.test(lp));
@@ -291,7 +291,7 @@ async function gating() {
   assert.equal(byId('home-plate'), undefined, 'no legacy plate for a laser'); assert.equal(byId('home-frame'),undefined);
   assert.equal(byId('home-resume-line').textContent,'Reprendre à un début de passe…');assert.equal(byId('home-resume-line').disabled,true);assert.equal(byId('home-resume-line').title,'Aucun début de passe identifiable.');
   status(Object.assign({},laser,idle));assert.equal(byId('home-resume-line').disabled,false);
-  status(Object.assign({},laser,idle,{workflow:'paused',canResume:true,programPause:{kind:'M6',tool:1},canSpindleStop:true,spindleSpeed:500}));assert.match(byId('home-notice-text').textContent,/pas géré pour un laser/);assert.equal(byId('home-pause-m5').textContent,'Éteindre le laser');
+  status(Object.assign({},laser,idle,{workflow:'paused',canResume:true,programPause:{kind:'M6',tool:1},canSpindleStop:true,spindleSpeed:500}));assert.match(byId('home-notice-text').textContent,/Ce laser ne gère pas/);assert.equal(byId('home-pause-m5').textContent,'Éteindre le laser');
   // Commissioning: the spindle step is a checklist without command; the test file never emits.
   const ctx = { window: {} }; vm.runInNewContext(read('commissioning.js'), ctx); const C = ctx.window.CNCCommissioning;
   assert.equal(C.result('spindle', { laser: true, checks: { goggles: true, enclosure: true, air: true } }), '');

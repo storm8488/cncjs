@@ -1,5 +1,30 @@
 # Carte de l'interface CNCjs Touch pour la chasse aux bugs
 
+## L6 — Plus et textes (2026-11-16)
+
+La carte historique ci-dessous conserve les anciens noms ; la navigation actuelle
+est celle de `design/refonte/SPEC-REFONTE.md`. `touch-shell.js` possède Plus et
+l'en-tête commun de ses sous-écrans. `commissioning.js` possède l'ouverture et
+le bilan de l'assistant, sans ouverture automatique ni commande nouvelle.
+`interface-guide.js` décrit les cinq étapes, les incidents et la sonde.
+
+`real-history.js::describeEntry` présente aussi les contacts et les valeurs du
+palpage au bloc, uniquement les nombres finis X/Y/Z. Le même formateur alimente
+la vue v2. Les retours de commandes entrent dans le journal de session en v1
+comme en v2 ; `session-journal.js` garde ses 100 entrées et ses exports filtrés.
+`wifi-settings.js::disable` et `system-updates.js::paint` n'écrivent plus hors de
+l'onglet Système visible. Les réponses tardives de mise à jour restent dans le
+modèle ; quitter cet écran coupe le sondage et désarme Installer.
+
+Les tests `textes-regles`, `i18n`, `refus-table`, `more-screen`, `interface-guide`,
+`server-history`, `real-history`, `wifi-settings`, `system-updates` et `backlight`
+portent ces contrats. Les identifiants de commandes et les gardes serveur ne
+changent pas. Trois exports sans consommateur sont retirés :
+`cncJobControls.closePilot`, `cncJobFollow.prefs`, `CNCCommissioning.LASER_CHECKS` ;
+leurs fonctions internes restent. `cncStatusStrip.toggleMessages` est conservé,
+car `measure-overlay.cjs` l'appelle. Les catalogues restent chargés en français
+(C9 non livré, validation navigateur indisponible).
+
 ## P3 page corrections (2026-11-15)
 
 The current page explains a refused resume on Suivi and resumes the stopped file by default, naming any different library selection. Suivi and the strip invoke shared Pause/Stop functions with the existing guards. Running progress stays below 100, resets its clock at each entry into running, and rejects a foreign preview estimate. Refused commissioning preparations, stale pilot refusals, delayed Grbl jog refusals and structured probe failures have durable tests. Optional probe values can be cleared; the empty macro entry is hidden; takeover refusals retain the server reason.

@@ -7,7 +7,7 @@ const fs = require('node:fs'), path = require('node:path'), vm = require('node:v
 const dir = path.join(__dirname, 'touch');
 const key = s => s.trim().replace(/\s+/g, ' ');
 const sandbox = { window: {} };
-const others = ['i18n-messages.js', 'i18n-messages-machine.js', 'i18n-messages-profiles.js'];
+const others = ['i18n-messages.js', 'i18n-messages-machine.js', 'i18n-messages-profiles.js', 'i18n-messages-origin.js'];
 others.forEach(f => vm.runInNewContext(fs.readFileSync(path.join(dir, f), 'utf8'), sandbox));
 const before = sandbox.window.CNCTouchMessages.length, otherKeys = new Set(sandbox.window.CNCTouchMessages.map(r => key(r[0])));
 vm.runInNewContext(fs.readFileSync(path.join(dir, 'i18n-messages-viz.js'), 'utf8'), sandbox);
@@ -30,7 +30,7 @@ for (const f of files) {
   }
 }
 // Phrases translated through a table (job-dashboard UNKNOWN_TEXT, preview-inspect REASONS).
-const tables = [[/var UNKNOWN_TEXT=\{([^}]*)\}/, 'job-dashboard.js'], [/var REASONS = \{([\s\S]*?)\n  \};/, 'preview-inspect.js']];
+const tables = [[/var UNKNOWN_TEXT=\{([^}]*)\}/, 'job-dashboard.js'], [/var REASONS = \{([\s\S]*?)\n {2}\};/, 'preview-inspect.js']];
 for (const [re, f] of tables) {
   const body = re.exec(fs.readFileSync(path.join(dir, f), 'utf8'))[1];
   for (const m of body.matchAll(/:\s*'((?:[^'\\]|\\.)*)'/g)) if (!known.has(key(m[1]))) missing.push(f + ' (table): ' + m[1]);

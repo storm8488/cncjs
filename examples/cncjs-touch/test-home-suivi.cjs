@@ -41,11 +41,10 @@ assert(has(perf, V2 + '[data-v2-alert="1"]:not([data-v2-summary="1"]) #home-v2-i
 assert(has(perf, V2 + '[data-v2-actions-empty="1"] #home-v2-actions', /^display:none$/), 'v2: an empty action row gives its room');
 // Revue : « Palper le zéro Z… » was cut at the bottom of the 235 px slot, at rest on a real CNC (canZeroZ) as during a probe.
 assert(has(perf, V2 + ' #home-plate-title', /height:0/) && has(perf, V2 + ' #home-plate', /padding-top:var\(--sp-1\)/), 'v2 plate card compact enough for its button');
-const ui = rules(touch('ui-2027.css'));
-assert(has(ui, '#home-frame-start:disabled~#home-frame-help', /display:none/), 'laser framing: no help while Cadrer… is disabled');
-assert(has(ui, '.ks-ui .home-job-primary[data-run="1"]', /grid-template-columns:1fr 2fr/), 'during a job the active Pause takes the large cell');
+assert(!touch('ui-2027.css').includes('#home-frame-start'), 'removed framing control has no stale stylesheet');
+assert(!touch('ui-2027.css').includes('.home-job-primary'), 'removed primary row has no stale stylesheet');
 // Final harness: in the small cell, « Démarrer… » at 24 px broke across two lines at 1024 x 600 (142 px wide).
-assert(has(ui, '.ks-ui .home-job-primary[data-run="1"] #home-job-start', /font-size:var\(--fs-20\)/), 'during a job Démarrer… at 20 px, its word whole');
+assert(!touch('ui-2027.css').includes('#home-job-start'), 'removed start control has no stale stylesheet');
 
 // ---- A page of the fixture: i18n (optional language), job-dashboard.js, job-resume.js ----
 function page(options = {}) {
@@ -195,7 +194,7 @@ for (const lang of [null, 'es']) {
   const text = R.planText({from: 12, total: 100, line: 'G1 X1', safeZ: 5, position: {X: 1, Y: 2, Z: -1}, notes: ['Le programme ne fixe pas ses unités (G20/G21) : la machine garde les siennes.', 'Repère G55 choisi à la ligne 4 : la reprise part des positions redonnées sous ce repère.']});
   assert.match(text, /El programa no fija sus unidades \(G20\/G21\): la máquina mantiene las suyas\./);
   assert.match(text, /Repère G55 choisi à la ligne 4/, 'a note with values stays as the server wrote it');
-  assert.match(R.dialogNote('start', {resume: {from: 12, total: 100, line: 'G1 X1', notes: ['Le programme ne fixe pas son mode d’avance (G94) : la machine garde le sien.']}}), /El programa no fija su modo de avance \(G94\)/);
+  assert.match(R.planText({from: 12, total: 100, line: 'G1 X1', safeZ:5,position:{X:1,Y:2,Z:-1},notes: ['Le programme ne fixe pas son mode d’avance (G94) : la machine garde le sien.']}), /El programa no fija su modo de avance \(G94\)/,'server notes remain in Details');
 }
 // Every complete-sentence refusal of the touch services (conflict('…')) has its catalogue row.
 {

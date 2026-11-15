@@ -1,6 +1,6 @@
 /* Mise en service: a step-by-step check of a newly connected machine before its
- * first job (E-stop, limit switches, probe, homing, spindle, air cut). It opens
- * by itself the first time a real controller is seen (simulator ports aside),
+ * first job (E-stop, limit switches, probe, homing, spindle, air cut). Opened
+ * explicitly from Machine, More or Settings,
  * can be skipped under the operator's responsibility, resumes where it was left
  * and remembers the outcome per controller port. $X, $H and the spindle test go
  * through cncJobControls and its confirmation dialog, checked again by the
@@ -108,7 +108,7 @@
     else if(detail==='unlock'){st.sent=false;st.left=false;st.homing=false;}
     return st;
   }
-  window.CNCCommissioning={STEPS:STEPS,observe:observe,result:result,program:program,settingsText:settingsText,commandSent:commandSent,LASER_CHECKS:LASER_CHECKS};
+  window.CNCCommissioning={STEPS:STEPS,observe:observe,result:result,program:program,settingsText:settingsText,commandSent:commandSent};
 
   if(typeof document==='undefined')return;
   var shell=window.cncShell,main=document.querySelector('main');
@@ -315,7 +315,7 @@
       box.appendChild(para(l?t('Dernier essai : un vrai programme, laser éteint du début à la fin (M5, aucune commande M3 ni M4). Il trace un carré de 40 mm autour de l’origine, sans mouvement en Z.'):t('Dernier essai : un vrai programme, broche à vitesse mini, outil en l’air. Il trace un carré de 40 mm autour de l’origine, sans descendre sous Z 0.')));
       var steps=el('ol','ks-wiz-list');
       [t('Ajoutez le fichier d’essai à la bibliothèque.'),l?t('Dans CNCjs, placez la tête au-dessus du centre de la table, sans matériau dessous, et mettez X et Y à zéro à cet endroit.'):t('Dans CNCjs, placez la broche (sans fraise) au-dessus du centre de la table, à 30 mm au moins au-dessus de tout, et mettez X, Y et Z à zéro à cet endroit.'),
-        t('Dans Fichiers, choisissez essai-en-l-air, chargez-le et démarrez, main sur l’arrêt d’urgence.')].forEach(function(s){steps.appendChild(el('li','',s));});
+        t('Dans Fichier, chargez essai-en-l-air. Dans Contrôle, démarrez, main sur l’arrêt d’urgence.')].forEach(function(s){steps.appendChild(el('li','',s));});
       box.appendChild(steps);
       var row=el('div','ks-wiz-row');
       var add=button(t('Ajouter le fichier d’essai'),'ks-secondary',function(){
@@ -329,7 +329,7 @@
       var manual=checkbox('ran',t('Le programme s’est déroulé normalement jusqu’au bout.'));box.appendChild(manual);
       return function(){
         add.disabled=!!st.created;
-        set(state,st.finished?t('Programme d’essai terminé ✓'):st.created?t('Fichier prêt : lancez-le depuis Fichiers.'):'');
+        set(state,st.finished?t('Programme d’essai terminé ✓'):st.created?t('Fichier prêt : lancez-le depuis Contrôle.'):'');
         manual.hidden=!st.created||!!st.finished;
       };
     },
@@ -361,11 +361,11 @@
     set(title,titleOf(id));set(progress,t('Mise en service · étape ')+(index+1)+' / '+STEPS.length+(port?' · '+port:''));
     dotNodes.forEach(function(d,k){var r=e&&e.results&&e.results[STEPS[k]];var cls=k===index?'current':r==='skipped'?'skipped':r?'ok':'';if(d.className!==cls)d.className=cls;});
     content.textContent='';set(status,'');skipBox.hidden=true;
-    view=VIEWS[id](content);observe(id,st,machine);refresh();
+    view=VIEWS[id](content);observe(id,st,machine);refresh();settingsCard();
   }
   // Opens the assistant for the selected controller, resuming a run in progress.
   function open(){
-    if(!port){set(settingsStatus,t('Aucune machine connectée : connectez-la dans CNCjs.'));return;}
+    if(!port){set(settingsStatus,t('Aucune machine connectée.'));if(window.cncRefus)window.cncRefus.montrer(document.getElementById('screen-'+shell.screen()),{code:'ETOUCH_MACHINE_CONNECTION'});return;}
     var e=entry(port);
     if(!e||e.status!=='progress'){e=data.machines[port]={status:'progress',step:0,results:{},started:stamp()};save();}
     shell.go('commissioning');go(e.step||0);
@@ -388,6 +388,8 @@
     set(settingsStatus,!port?t('Aucune machine connectée.'):!e?t('Jamais faite pour ')+port+'.':e.status==='done'?t('Faite le ')+dateText(e.date)+' · '+port:
       e.status==='skipped'?t('Passée le ')+dateText(e.date)+t(' sous la responsabilité de l’opérateur.'):t('En cours : étape ')+((e.step||0)+1)+' / '+STEPS.length+'.');
     if(settingsButton)set(settingsButton,e&&e.status==='progress'?t('Reprendre l’assistant'):e?t('Relancer l’assistant'):t('Lancer l’assistant'));
+    var tile=document.querySelector('[data-ks-tile="commissioning"]'),hint=tile&&typeof tile.querySelector==='function'&&tile.querySelector('small');
+    if(hint){set(hint,e&&e.status==='done'?t('Faite le ')+dateText(e.date):e&&e.status==='progress'?t('En cours : étape ')+((e.step||0)+1)+' / '+STEPS.length:t('Mise en service de la machine'));tile.setAttribute('data-state',e&&e.status||'unknown');}
   }
   window.addEventListener('cnc-command-sent',function(e){
     if(!view||!e)return;

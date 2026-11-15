@@ -16,7 +16,8 @@
     if(error.code==='ETOUCH_OFFSET_CHECKING'){phrase=t('La machine vérifie le zéro pièce. Attendez quelques secondes.');remedies=[];}
     if(error.code==='ETOUCH_OFFSET_MISMATCH'||error.code==='ETOUCH_PROBE_OFFSET'){phrase=t('La machine n’applique pas le zéro pièce enregistré. Refaites-le.');remedies=['refaire-zero','verifier-zero'];}
     if(error.code==='ETOUCH_START_OUTSIDE'&&error.reasons&&error.reasons.length)return lire(error.reasons[0]);
-    if(error.code==='ETOUCH_CHECK_OUTSIDE_G53'){phrase=t('Le fichier demande une position hors de la machine, ligne {N}. Refaire le zéro n’y change rien.');remedies=['choisir-fichier'];}
+    if(error.code==='ETOUCH_CHECK_OUTSIDE_G53'){phrase=t('La ligne {N} sort de la machine. Refaire le zéro n’y change rien.');remedies=['choisir-fichier'];}
+    if(error.code==='ETOUCH_MACHINE_OPERATION')phrase=t('Cette commande n’est pas reconnue. Rechargez la page au repos.');
     if(error.code==='ETOUCH_MACHINE_LASER_MODE_ON')phrase=t('Le mode laser est actif dans la machine.');
     if(error.code==='ETOUCH_TRAVEL_TOO_LOW')phrase=t('Le fichier descend {N} mm trop bas. Relevez la pièce, puis refaites le zéro Z.');
     if(error.code==='ETOUCH_TRAVEL_TOO_HIGH')phrase=t('Le fichier monte {N} mm trop haut. Abaissez la pièce, puis refaites le zéro Z.');

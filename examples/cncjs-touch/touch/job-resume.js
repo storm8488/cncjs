@@ -18,10 +18,10 @@
   function laserPlan(p){return !!(p&&(p.mode==='laser'||p.kind==='laser'||p.preview&&p.preview.kind==='laser'));}
   function pauseText(p,c){
     if(!p)return '';
-    if(p.kind==='M6'&&laserOf(c))return t('Pause sur M6 : le changement d’outil n’est pas géré pour un laser. Arrêtez le travail et vérifiez le programme.');
-    if(p.kind==='M6')return t('Changement d’outil')+(p.tool!==null&&p.tool!==undefined?' T'+p.tool:'')+t(' : attendez l’arrêt, arrêtez la broche (M5), changez l’outil et refaites le zéro Z si sa longueur change, puis touchez Reprendre.')+
-      (p.restartSpindle?t(' La broche sera relancée (')+spindleText(p.restartSpindle)+t(', 3 s) avant la reprise.'):'');
-    if(p.kind==='M0'||p.kind==='M1')return t('Pause demandée par le programme (')+p.kind+')'+(p.message?' : '+p.message:'')+t('. Touchez Reprendre quand vous êtes prêt.');
+    if(p.kind==='M6'&&laserOf(c))return t('Ce laser ne gère pas le changement d’outil. Arrêtez et vérifiez le fichier.');
+    if(p.kind==='M6')return t('Changement d’outil')+(p.tool!==null&&p.tool!==undefined?' T'+p.tool:'')+t(' : attendez l’arrêt, arrêtez la broche, changez la fraise et refaites le zéro Z.')+
+      (p.restartSpindle?t(' La broche sera relancée (')+p.restartSpindle.speed+t(' tr/min')+t(', 3 s) avant la reprise.'):'');
+    if(p.kind==='M0'||p.kind==='M1')return t('Pause demandée par le fichier. Touchez Reprendre quand vous êtes prêt.');
     if(p.kind==='error')return t('Pause sur une erreur Grbl : arrêtez le travail, corrigez la cause, puis reprenez à une ligne.');
     return '';
   }
@@ -42,16 +42,15 @@
     if(!c)return '';
     var p=c.programPause;
     if(operation==='resume'&&p&&p.kind==='M6'&&laserOf(c))return '';
-    if(operation==='resume'&&p&&p.kind==='M6')return t('Outil')+(p.tool!==null&&p.tool!==undefined?' T'+p.tool:'')+t(' en place et zéro Z vérifié ?')+(p.restartSpindle?t(' La broche sera relancée (')+spindleText(p.restartSpindle)+t(', 3 s) avant la reprise.'):'');
+    if(operation==='resume'&&p&&p.kind==='M6')return t('Outil')+(p.tool!==null&&p.tool!==undefined?' T'+p.tool:'')+t(' en place et zéro Z vérifié ?')+(p.restartSpindle?t(' La broche sera relancée (')+p.restartSpindle.speed+t(' tr/min')+t(', 3 s) avant la reprise.'):'');
     if(operation==='start'&&c.resume&&(laserOf(c)||laserPlan(c.resume))){var lr=c.resume;
-      return t('Reprise laser à la ligne ')+lr.from+' / '+lr.total+' : '+lr.line+t('. Laser éteint (M5), déplacement en XY jusqu’au début de passe (Z rétabli seulement si le programme garde un Z constant), puis M3/M4 et consigne S du programme.')+notesText(lr.notes);}
+      return t('Reprise laser à la ligne ')+lr.from+' / '+lr.total+t('. Le laser reste éteint pendant le déplacement, puis reprend la puissance du fichier.');}
     if(operation==='start'&&c.resume){var r=c.resume;
-      return t('Reprise à la ligne ')+r.from+' / '+r.total+' : '+r.line+(r.tool!==null&&r.tool!==undefined?t(' — outil attendu T')+r.tool:'')+t('. La machine monte à la hauteur de dégagement, se place en XY, relance la broche puis plonge.')+notesText(r.notes);}
+      return t('Reprise à la ligne ')+r.from+' / '+r.total+(r.tool!==null&&r.tool!==undefined?t(' — outil attendu T')+r.tool:'')+t('. La machine monte à la hauteur de dégagement, se place en XY, relance la broche puis plonge.');}
     return '';
   }
   // Server notes on a rebuilt program (units, work frame, clearance): French strings written by the
   // server, like its messages; its fixed notes are in the catalogue, the others are shown as they come.
-  function notesText(notes){return Array.isArray(notes)&&notes.length?' '+notes.filter(function(n){return typeof n==='string'&&n;}).map(message).join(' '):'';}
   function suggestedLine(c,file){
     if(!c||typeof c.stoppedAtLine!=='number'||!isFinite(c.stoppedAtLine)||c.stoppedAtLine<=0||c.stoppedFile!==file)return null;
     return Math.max(2,c.stoppedAtLine-PLANNER_MARGIN);

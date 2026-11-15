@@ -1,5 +1,5 @@
 'use strict';
-// Usage guide: four pages in two columns, the page buttons, the shortcuts of the
+// Usage guide: seven pages in two columns, the page buttons, the shortcuts of the
 // troubleshooting page, the way back to the settings and the entry button.
 // Synthetic DOM, no browser.
 const fs=require('fs'),vm=require('vm'),assert=require('assert').strict;
@@ -17,7 +17,7 @@ function load(simulation){
       querySelectorAll(selector){assert.equal(selector,'[data-guide-page]');return pageButtons;}};
     return el;
   }
-  const pageButtons=[0,1,2,3].map(n=>{const b=element('button');b.attributes['data-guide-page']=String(n);return b;});
+  const pageButtons=[0,1,2,3,4,5,6].map(n=>{const b=element('button');b.attributes['data-guide-page']=String(n);return b;});
   ['guide-left','guide-right','guide-back'].forEach(id=>{byId[id]=element('div');});
   const main=element('main'),intro=element('div');
   const document={body:{getAttribute:k=>k==='data-simulation'?String(simulation):null},createElement:element,
@@ -32,26 +32,30 @@ assert.equal(g.main.children.length,1);assert.equal(g.main.children[0].id,'scree
 assert.match(g.main.children[0].html,/interface réelle/);
 // Page 0 is shown at once: a title then three paragraphs per column.
 assert.deepEqual(left.children.map(c=>c.tagName),['H2','P','P','P']);
-assert.equal(left.children[0].textContent,'Fichiers → Suivi');
-assert.deepEqual(g.pageButtons.map(b=>b.getAttribute('aria-pressed')),['true','false','false','false']);
+assert.equal(left.children[0].textContent,'1 · Machine');
+assert.deepEqual(g.pageButtons.map(b=>b.getAttribute('aria-pressed')),['true','false','false','false','false','false','false']);
 // Changing page replaces both columns and the pressed state.
 g.pageButtons[2].click();
-assert.equal(left.children[0].textContent,'Confort sur la Surface');assert.equal(right.children[0].textContent,'Préférences et navigation');
-assert.deepEqual(g.pageButtons.map(b=>b.getAttribute('aria-pressed')),['false','false','true','false']);
-// The troubleshooting page adds three shortcuts, once, even when pressed again.
-g.pageButtons[3].click();g.pageButtons[3].click();
+assert.equal(left.children[0].textContent,'3 · Zéro pièce');assert.equal(right.children[0].textContent,'Comprendre l’origine');
+assert.deepEqual(g.pageButtons.map(b=>b.getAttribute('aria-pressed')),['false','false','true','false','false','false','false']);
+// The incident page keeps the three shortcuts, once, even when pressed again.
+g.pageButtons[5].click();g.pageButtons[5].click();
 const shortcuts=[...left.children,...right.children].filter(c=>c.tagName==='BUTTON');
 assert.equal(shortcuts.length,3);
 shortcuts.forEach(b=>b.click());
 assert.deepEqual([...g.navigations].sort(),['files','history','machine']);
-assert.match(right.textContent,/Fraîcheur des données/,'real interface: no simulated alarm advice');
+assert.match(left.textContent,/prise d’origine/,'incident recovery starts in Machine');
 // Leaving that page removes its shortcuts.
 g.pageButtons[0].click();assert.equal([...left.children,...right.children].filter(c=>c.tagName==='BUTTON').length,0);
 // Way back to the settings, and the entry button placed in the settings intro.
 g.navigations.length=0;g.byId['guide-back'].click();
 assert.equal(g.intro.children.length,1);assert.equal(g.intro.children[0].id,'display-guide');g.intro.children[0].click();
-assert.deepEqual(g.navigations,['settings','guide']);
+assert.deepEqual(g.navigations,['more','guide']);
 // Simulation: mode label and the simulated alarm advice.
 const s=load(true);assert.match(s.main.children[0].html,/simulation/);
-s.pageButtons[3].click();assert.match(s.byId['guide-right'].textContent,/Alarme fictive/);
-console.log('PASS interface guide: four pages, pressed state, shortcuts once on the troubleshooting page, navigation back and entry, real/simulation advice.');
+s.pageButtons[4].click();assert.match(s.byId['guide-right'].textContent,/simulés/);
+for(const [i,title] of ['1 · Machine','2 · Fichier','3 · Zéro pièce','4 · Contrôle','5 · Usinage','Après un incident','La sonde'].entries()){
+ g.pageButtons[i].click();assert.equal(left.children[0].textContent,title);
+ assert(!/Préparer|Suivi|G54|\$H/.test(left.textContent+right.textContent),'current session vocabulary');
+}
+console.log('PASS interface guide: seven session pages, pressed state, incident shortcuts once, More return and real/simulation advice.');

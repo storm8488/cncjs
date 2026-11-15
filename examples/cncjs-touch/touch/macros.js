@@ -37,6 +37,10 @@
     while(list.children.length>macros.length)list.removeChild(list.lastChild);
     Object.keys(rows).forEach(function(id){if(!keep[id])delete rows[id];});
     setText(status,!machine?uiLocale.t('État machine indisponible.'):!macros.length?uiLocale.t('Aucune macro définie dans CNCjs.'):ready?uiLocale.t('Machine au repos : touchez une macro pour la confirmer.'):(machine.macroReason?(uiLocale.message||uiLocale.t)(machine.macroReason):uiLocale.t('Macros indisponibles dans l’état actuel.')));
+    if(window.cncRefus){
+      if(macros.length&&!ready&&machine){setText(status,'');window.cncRefus.montrer(panel.content,machine.refusals&&machine.refusals.macro||{message:machine.macroReason});}
+      else window.cncRefus.effacer(panel.content);
+    }
   }
   window.addEventListener('cnc-job-status',function(e){machine=e.detail&&e.detail.machine||null;pilot=e.detail&&e.detail.pilot||null;render();});
   render();

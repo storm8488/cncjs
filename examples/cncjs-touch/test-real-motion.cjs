@@ -571,8 +571,8 @@ if (require.main === module) (async () => {
     ['sleep', { activeState: 'Sleep' }, 'Carte en veille : réinitialisez-la (bouton de la carte ou remise sous tension).'],
     ['other state', { activeState: 'Check' }, 'La machine doit être au repos : état Check.'],
     // Contre-revue m1: $13 unknown (reportUnits null) → read $$; $13=1 known (inches) → set $13=0, no reading.
-    ['idle but refused ($13 unknown)', { operator: { reportUnits: null, wcs: 'G54' }, motion: Object.assign(machine().motion, { canJog: false, jogReason: 'Rapports en pouces ($13=1) ou réglage $13 inconnu : le déplacement réel exige $13=0.' }) }, 'Réglage $13 inconnu : touchez Relire les réglages ($$).'],
-    ['idle but refused ($13=1)', { operator: { reportUnits: 'in', wcs: 'G54' }, motion: Object.assign(machine().motion, { canJog: false, jogReason: 'Rapports en pouces ($13=1) ou réglage $13 inconnu : le déplacement réel exige $13=0.' }) }, 'Rapports de la carte en pouces ($13=1) : réglez $13=0 sur la carte pour déplacer depuis la tablette.']];
+    ['idle but refused ($13 unknown)', { operator: { reportUnits: null, wcs: 'G54' }, motion: Object.assign(machine().motion, { canJog: false, jogReason: 'Rapports en pouces ($13=1) ou réglage $13 inconnu : le déplacement réel exige $13=0.' }) }, 'La machine n’a pas encore donné ses réglages.'],
+    ['idle but refused ($13=1)', { operator: { reportUnits: 'in', wcs: 'G54' }, motion: Object.assign(machine().motion, { canJog: false, jogReason: 'Rapports en pouces ($13=1) ou réglage $13 inconnu : le déplacement réel exige $13=0.' }) }, 'La machine doit donner ses positions en millimètres. Faites vérifier ses réglages.']];
   for (const [name, patch, sentence] of ROWS) {
     const f = await ready(patch);
     assert.equal(f.el('motion-status').textContent, sentence, name);
@@ -586,10 +586,10 @@ if (require.main === module) (async () => {
   {
     // $13 unknown: « Relire les réglages ($$) » offered at rest; $13=1 known: not offered (a reading changes nothing).
     const f = await ready({ operator: { reportUnits: null, wcs: 'G54' }, motion: Object.assign(machine().motion, { canJog: false, jogReason: 'Rapports en pouces ($13=1) ou réglage $13 inconnu : le déplacement réel exige $13=0.' }) });
-    assert.match(f.el('motion-status').textContent,/Réglage \$13 inconnu/);
+    assert.match(f.el('motion-status').textContent,/La machine n’a pas encore donné ses réglages/);
     const inch = await ready({ operator: { reportUnits: 'in', wcs: 'G54' }, motion: Object.assign(machine().motion, { canJog: false, jogReason: 'Rapports en pouces ($13=1) ou réglage $13 inconnu : le déplacement réel exige $13=0.' }) });
     // Contre-revue P2-2: « Réglage $22 inconnu » (capital R) is recognised; the read is available in alarm when the server allows it.
-    assert.match(inch.el('motion-status').textContent,/pouces/);
+    assert.match(inch.el('motion-status').textContent,/millimètres/);
     const cap22 = await ready({ motion: Object.assign(machine().motion, { canSetOrigin: false, setOriginReason: 'Réglage $22 inconnu : relisez les réglages de la carte.' }) });
     assert(cap22.zeros.every(b=>b.disabled));
     const al = await ready({ activeState: 'Alarm', alarmCode: 1, homeReason: 'Réglage $22 inconnu : relisez les réglages de la carte.',
@@ -625,9 +625,9 @@ if (require.main === module) (async () => {
     for (const [reason, out] of [
       ['Pas de 10 mm refusé : au-delà de 1 mm, il faut une machine référencée et une course connue (course $130 inconnue).', /^Pas de 10 mm refusé : machine non référencée/],
       ['Maintien continu impossible : course $131 inconnue. Utilisez les pas (1 mm au plus).', /^Continu indisponible : machine non référencée/],
-      ['Broche en rotation : maintien continu refusé ; pas de 0.1 mm au plus.', /^Broche en rotation : pas de continu, pas de 0,1 mm au plus\. Arrêtez la broche \(M5\)\.$/],
+      ['Broche en rotation : maintien continu refusé ; pas de 0.1 mm au plus.', /^La broche tourne : arrêtez-la avant de déplacer en continu\.$/],
       ['Avance hors limites pour Z : de 1 à 300 mm/min (limite $112).', /^Vitesse trop élevée pour Z : 300 mm\/min au plus\./],
-      ['Pas refusé : position machine X 5 hors de la course supposée (-400 → 0) : vérifiez $23 et l’origine machine.', /^Position machine incohérente avec la course/]]) {
+      ['Pas refusé : position machine X 5 hors de la course supposée (-400 → 0) : vérifiez $23 et l’origine machine.', /^Position machine incohérente : refaites la prise d’origine/]]) {
       const f = await ready();
       f.arrows['X+'].click(); await f.flush();
       f.answer(f.motion('jog').at(-1), { message: reason }, 409); await f.flush();

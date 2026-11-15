@@ -1,5 +1,29 @@
 # Spécification : interface du mode Performance (Surface Pro 3)
 
+Current organization after refonte L6 (2026-11-16): the session rail is Machine,
+File, Work zero, Check, Machining (Engraving for a laser), More in both renderers.
+The historical screen names below describe the original performance design;
+`design/refonte/SPEC-REFONTE.md` and its L1–L6 amendments take precedence for
+navigation, command positions and operator wording. More contains Journal,
+Settings, Commissioning, Guide and Macros. Its sub-screens share a 48 px header
+with a 160 px Back to More button; the rail continues to mark More.
+
+L6 keeps the Settings organization and every machine guard. A remote page's
+sleep brightness choice is disabled, hatched and explained on the card. The
+commissioning tile opens the existing assistant explicitly and shows its saved
+outcome. Guide follows the five session steps, Incident recovery and Probe.
+Journal now displays finite XYZ block-probe contacts, origin and written values
+from the server history; commands remain read only. Session command outcomes
+are retained in Eco too, with the same 100-event cap and export whitelist.
+
+C1/C2 suppress Wi-Fi control writes and update painting while the system tab is
+hidden. Reopening paints the current guards; leaving cancels update polling and
+installation arming. C5/C6 remove proven dead CSS, old guide rows and unused
+exports, preserving simulation-only styles and APIs used by measurement tools.
+French catalogue loading is unchanged: C9 is withheld because the mandatory
+EN/ES browser validation cannot run in this sandbox. No new periodic timer,
+dependency, external request or server command is introduced.
+
 P3 clarification (2026-11-15), shared by Eco and Performance: Suivi shows the translated resume refusal in its warning line. A line resume targets the stopped file by default and names it in the hint and plan. Pause/Stop in Suivi and the strip call the shared controls directly, retaining disabled guards, cooldown and lost-state target. Running progress is capped at 99 even with every line acknowledged; its clock resets on each entry into running. Motion estimates require the loaded file identity (fingerprints compared when both are known). Rhythm-estimate pause accounting and server completion/error states remain unchanged.
 
 Précision P2 (2026-11-15) : la veille agit sur le rétroéclairage uniquement pour la page reconnue locale par le serveur. Le kiosque se réveille au chargement et au toucher (au plus un envoi toutes les cinq secondes quand la page est éveillée) ; la page distante garde seulement son voile. Une alarme ou une prise d'origine avant le premier repos ne bloque plus la v2 pour la session : toutes les conditions de `v2Idle` restent exigées au premier repos. Un travail déjà observé conserve la v1. Système distingue la version lue au chargement de celle installée depuis ; Recharger exige le repos, vérifié aussi auprès du serveur. Les cinq textes du démarrage ont leur table FR/EN/ES indépendante du catalogue différé.

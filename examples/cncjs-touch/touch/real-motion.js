@@ -78,11 +78,11 @@
   function reasonText(r){
     r=String(r||'');if(!r)return '';
     var m;
-    if(/^Rapports en pouces \(\$13=1\) ou réglage \$13 inconnu/.test(r))return inches()?t('Rapports de la carte en pouces ($13=1) : réglez $13=0 sur la carte pour déplacer depuis la tablette.'):t('Réglage $13 inconnu : touchez Relire les réglages ($$).');
+    if(/^Rapports en pouces \(\$13=1\) ou réglage \$13 inconnu/.test(r))return inches()?t('La machine doit donner ses positions en millimètres. Faites vérifier ses réglages.'):t('La machine n’a pas encore donné ses réglages.');
     if((m=/^Pas de ([\d.]+) mm refusé : au-delà de/.exec(r)))return t('Pas de ')+m[1]+t(' mm refusé : machine non référencée ou course inconnue. Faites la prise d’origine (Machine) ; sinon 1 mm au plus.');
     if((m=/convention de course ambiguë à cette position \(([XYZ]) /.exec(r)))return t('Course ')+m[1]+t(' ambiguë à cette position : refaites la prise d’origine (Machine) pour fixer le sens de la course.');
-    if(/hors de la course supposée/.test(r))return t('Position machine incohérente avec la course ($23, $130–$132) : refaites la prise d’origine et faites vérifier les réglages.');
-    if(/^Broche en rotation : maintien continu refusé/.test(r))return t('Broche en rotation : pas de continu, pas de 0,1 mm au plus. Arrêtez la broche (M5).');
+    if(/hors de la course supposée/.test(r))return t('Position machine incohérente : refaites la prise d’origine et vérifiez les réglages.');
+    if(/^Broche en rotation : maintien continu refusé/.test(r))return t('La broche tourne : arrêtez-la avant de déplacer en continu.');
     if(/^Maintien continu impossible/.test(r))return t('Continu indisponible : machine non référencée ou course inconnue. Faites la prise d’origine (Machine) ou utilisez les pas.');
     if((m=/^Avance hors limites pour ([XYZ]) : de 1 à ([\d.]+) mm\/min/.exec(r)))return t('Vitesse trop élevée pour ')+m[1]+' : '+m[2]+t(' mm/min au plus. Choisissez une vitesse plus basse.');
     return msg(r);
@@ -458,7 +458,7 @@
     });
     feedButtons.forEach(function(b){var pressed=Number(b.getAttribute('data-feed'))===feed;klass(b,'active',pressed);attr(b,'aria-pressed',String(pressed));prop(b,'disabled',busy);});
     var mf=m&&m.maxFeed||{};
-    setText(limits,t('Avance max X / Y / Z : ')+AXES.map(function(a){return mf[a]&&mf[a].max?mf[a].max:'—';}).join(' / ')+' mm/min'+(AXES.some(function(a){return mf[a]&&mf[a].source==='fallback';})?t(' · limite prudente ($11x inconnu)'):''));
+    setText(limits,t('Avance max X / Y / Z : ')+AXES.map(function(a){return mf[a]&&mf[a].max?mf[a].max:'—';}).join(' / ')+' mm/min'+(AXES.some(function(a){return mf[a]&&mf[a].source==='fallback';})?t(' · vitesse maximale inconnue'):''));
     setText(speed,t('Vitesse · ')+feed+' mm/min…');
     setText(mid,mode==='hold'?t('continu'):step+' mm');
     // The arrows: a held button is never disabled (its release must reach it); the others wait.

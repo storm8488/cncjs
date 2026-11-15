@@ -169,6 +169,11 @@ function kiosk(locality,failedRead=false){
 {
   const remote=kiosk(false),select=remote.dom.node('screen-settings').children[0].children[3].children[1];
   assert(select.disabled,'remote sleep selector is disabled');
+  const remoteCard=remote.dom.node('screen-settings').children[0];
+  assert(remoteCard.children[5],'remote page explains the disabled sleep choice');
+  assert.equal(remoteCard.children[5].textContent,'Réglable seulement sur la tablette de la machine.');
+  assert.equal(remoteCard.children[5].hidden,false,'remote reason remains visible');
+  assert(remoteCard.children[3].className.includes('is-unavailable'),'remote choice is hatched');
   remote.sleep(true);remote.sleep(false);remote.clock.now=6000;remote.touch();
   assert.equal(remote.req.length,1,'remote page never dims or wakes, including at load');
   const unknown=kiosk(null,true);unknown.sleep(true);

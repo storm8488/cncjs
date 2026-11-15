@@ -185,7 +185,7 @@ querySelector: (s) => (s === 'main' ? main : el()) };
     assert.match(main.children[0].html, /<p>Mode actuel : simulación<\/p>/, 'simulation mode named in Spanish: ' + main.children[0].html.slice(0, 160));
   }
   // The guide names the dot the preview draws (blue), in the three languages.
-  const dot = [...catalogue.values()].find((r) => /indique la position G54 connue/.test(r[0]));
+  const dot = [...catalogue.values()].find((r) => /indique la position pièce connue/.test(r[0]));
   assert.match(dot[0], /point bleu/); assert.match(dot[1], /blue dot/); assert.match(dot[2], /punto azul/);
   assert.match(touch('interface-guide.js'), /Le point bleu indique/);
   // Intro and compact paragraphs at 16 px, tabs at 48 px in the compact layout, the open topic marked.
@@ -252,7 +252,7 @@ querySelector: (s) => (s === 'main' ? main : el()) };
   assert.equal(column({ left: 0, right: 150, top: 10, bottom: 60 }, false).w, 0, 'a hidden file is not drawn');
   assert.equal(column({ left: 120, right: 270, top: 10, bottom: 60 }).w, 80, 'a file inside the zone: its visible width');
   // The guide's mode word: the catalogue's word of each language (the English « simulation » is the French word), never empty.
-  const g = (mode) => ({ tabs: [48, 48, 48, 48], open: '0', active: 'rgb(0, 0, 0) 0px -4px 0px 0px inset', mode });
+  const g = (mode) => ({ tabs: [48, 48, 48, 48, 48, 48, 48], open: '0', active: 'rgb(0, 0, 0) 0px -4px 0px 0px inset', mode });
   for (const [lang, sim, row] of [['fr', true, 'simulation'], ['en', true, 'simulation'], ['es', true, 'simulation'], ['fr', false, 'interface réelle'], ['en', false, 'interface réelle'], ['es', false, 'interface réelle']]) {
     const r = catalogue.get(row), word = r[['fr', 'en', 'es'].indexOf(lang)];
     assert.equal(H.GUIDE_MODE[sim ? 'sim' : 'real'][lang], word, 'harness word = catalogue word, ' + lang);

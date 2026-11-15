@@ -1,3 +1,4 @@
+/* global globalThis */
 (function (root) {
   'use strict';
   var uiLocale=(typeof window!=='undefined'&&window.cncI18n)||{t:function(s){return s;},html:function(s){return s;}};
@@ -59,8 +60,8 @@
         previous = next;
         return sequence !== before;
       },
-      // Performance v2 only (real-history.js adds it under body.perf-v2): the action feedback
-      // already shown by job-controls, kept as sent / confirmed / refused / uncertain.
+      // Action feedback kept as sent / confirmed / refused / uncertain in both
+      // renderers. The report retains only this text, never a command ticket.
       command: function (state, message) {
         if (['sent', 'confirmed', 'refused', 'uncertain'].indexOf(state) < 0) return false;
         add('command', clean(message, 300), null, { command: state });

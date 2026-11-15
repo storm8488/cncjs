@@ -137,7 +137,7 @@
   // One server entry → title, detail and tone. Only listed fields are shown, never a raw entry
   // (the server already drops tickets and tokens; nothing here prints an unknown field).
   var EVENTS = { load: 'Fichier chargé', start: 'Travail démarré', pause: 'Pause', resume: 'Reprise', stop: 'Travail arrêté', error: 'Ligne refusée par Grbl', alarm: 'Alarme', aborted: 'Carte redémarrée pendant le travail',
-    origin: 'Définition d’origine', jog: 'Déplacement manuel', 'jog-cancel-unconfirmed': 'Arrêt de déplacement non confirmé', frame: 'Cadrage', machine: 'Fiche machine modifiée' };
+    origin: 'Définition d’origine', probe: 'Palpage au bloc', jog: 'Déplacement manuel', 'jog-cancel-unconfirmed': 'Arrêt de déplacement non confirmé', frame: 'Cadrage', machine: 'Fiche machine modifiée' };
   var CHANGES = { claim: 'Pilotage pris', release: 'Pilotage libéré', takeover: 'Pilotage repris', expired: 'Pilotage libéré (appareil absent)', absent: 'Pilote absent', restored: 'Pilote revenu' };
   function str(v, max) { return typeof v === 'string' ? v.slice(0, max || 120) : typeof v === 'number' && isFinite(v) ? String(v) : ''; }
   // Reasons outside control (src/server/services/touch/motion.js): a failed origin carries the server's French
@@ -170,6 +170,17 @@
     else what = EVENTS[e.event] ? uiLocale.t(EVENTS[e.event]) : str(e.event, 40) || '?';
     var when = new Date(e.at), time = isFinite(when.getTime()) ? when.toLocaleString(window.cncI18n ? window.cncI18n.locale : 'fr-FR') : str(e.at, 40);
     var program = str(e.program, 120) || str(e.file, 120), parts = [];
+    if(e.event==='probe'){
+      parts.push(uiLocale.t(e.result==='set'?'Zéro pièce posé.':'Palpage échoué. Vérifiez le zéro pièce.'));
+      if(/^(XYZ|X|Y|Z)$/.test(e.axes))parts.push(e.axes);
+      [['contacts','Contacts : '],['origin','Origine machine mesurée : '],['values','Position pièce écrite : ']].forEach(function(pair){
+        var values=e[pair[0]],axes=[];
+        if(!values||typeof values!=='object'||Array.isArray(values))return;
+        ['X','Y','Z'].forEach(function(axis){var v=values[axis];if(typeof v==='number'&&isFinite(v))axes.push(axis+' '+v.toLocaleString(uiLocale.locale||'fr-FR',{maximumFractionDigits:6})+' mm');});
+        if(axes.length)parts.push(uiLocale.t(pair[1])+axes.join(' · '));
+      });
+      if(['no','yes','possible'].indexOf(e.written)>=0)parts.push(uiLocale.t(e.written==='no'?'Le zéro pièce n’a pas changé.':e.written==='yes'?'Le zéro pièce a été écrit.':'Le zéro pièce a peut-être changé. Vérifiez-le.'));
+    }
     if (str(e.fromLine)) parts.push(uiLocale.t('depuis la ligne ') + str(e.fromLine));
     if (str(e.line)) parts.push(uiLocale.t('ligne ') + str(e.line));
     if (str(e.code, 20)) parts.push(uiLocale.t('code ') + str(e.code, 20));
@@ -289,12 +300,13 @@
     if (document.hidden || !$('screen-history').classList.contains('active')) return;
     v2.frame = window.requestAnimationFrame(v2Render);
   }
-  // The action feedback job-controls already shows, recorded only under the v2 layout.
+  // Keep command outcomes in the session journal in both renderers. The v2
+  // adapter also attaches these same entries to its contextual chart markers.
   function v2Feedback(detail) {
     var state = detail && detail.feedbackState, signature = state ? state + '|' + (detail.feedback || '') : '';
     if (signature === v2.feedback) return;
     v2.feedback = signature;
-    if (FEEDBACK[state] && v2Layout()) changed(journal.command(FEEDBACK[state], String(detail.feedback || '')));
+    if (FEEDBACK[state]) changed(journal.command(FEEDBACK[state], String(detail.feedback || '')));
   }
   var CATEGORIES = { command: 'command', connection: 'connection', session: 'connection', availability: 'connection' };
   // Local entry -> L0 journal event, with the identity and stamps captured at the event.

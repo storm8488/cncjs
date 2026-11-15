@@ -128,5 +128,5 @@
   window.addEventListener('cnc-job-status',onStatus);
   // A new selection or load hides the previous summary.
   window.addEventListener('cnc-library-select',function(){showSummary(false);});
-  window.cncJobFollow={prefs:function(){return {open:prefs.open,lock:prefs.lock};},describe:describe,duration:duration};
+  window.cncJobFollow={describe:describe,duration:duration};
 })();

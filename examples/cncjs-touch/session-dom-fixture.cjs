@@ -46,7 +46,7 @@ function page(language='fr',simulation=false){
   const context={window,document,localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},location:{origin:'http://127.0.0.1'},CustomEvent:function(type,o){this.type=type;this.detail=o&&o.detail;},Event:function(type){this.type=type;},Date:class extends Date{static now(){return now;}},setTimeout:f=>timers.push(f),clearTimeout(){},setInterval(){},clearInterval(){},console,Promise};
   vm.createContext(context);
   function run(file){vm.runInContext(fs.readFileSync(path.join(__dirname,'touch',file),'utf8'),context,{filename:file});}
-  for(const f of ['i18n-messages.js','i18n-messages-refus.js','i18n.js','refus.js','seance.js'])run(f);
+  for(const f of ['i18n-messages.js','i18n-messages-origin.js','i18n-messages-refus.js','i18n.js','refus.js','seance.js'])run(f);
   // Owners create their real markup before the shell. Their XHRs never leave this process.
   context.XMLHttpRequest=function(){this.open=()=>{};this.setRequestHeader=()=>{};this.send=()=>{};};
   run('shared-library.js');run('job-controls.js');run('machine-limits.js');run('display-settings.js');window.cncProfile={version:/ADVANCED_VERSION='([^']+)'/.exec(fs.readFileSync(path.join(__dirname,'touch/tablet-profile.js'),'utf8'))[1]};

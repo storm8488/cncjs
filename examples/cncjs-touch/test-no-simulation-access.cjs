@@ -84,7 +84,7 @@ function guide(simulation,language){
       querySelectorAll(){return buttons;}};
     return el;
   }
-  const buttons=[0,1,2,3].map(n=>{const b=element('button');b.attributes['data-guide-page']=String(n);return b;});
+  const buttons=[0,1,2,3,4,5,6].map(n=>{const b=element('button');b.attributes['data-guide-page']=String(n);return b;});
   ['guide-left','guide-right','guide-back'].forEach(id=>{byId[id]=element('div');});
   const main=element('main'),intro=element('div');
   const document={body:{getAttribute:k=>k==='data-simulation'?String(simulation):null},createElement:element,getElementById:id=>byId[id]||null,
@@ -97,7 +97,7 @@ function guide(simulation,language){
 }
 for(const language of ['fr','en','es']){
   const g=guide(false,language);
-  assert.equal(g.pages.length,4);
+  assert.equal(g.pages.length,7);
   g.pages.forEach((p,n)=>p.forEach((col,c)=>{assert.equal(col[0].tag,'H2',language+' page '+n+' column '+c+': title');assert(col.length>=2,language+' page '+n+' column '+c+': a paragraph');}));
   g.texts.forEach(t=>assert(!FORBIDDEN.test(t),language+': simulation wording in the real guide: '+t));
   const s=guide(true,language);

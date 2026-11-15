@@ -209,9 +209,9 @@ async function dropAndReconnect(f, epoch) {
     f.push([f.machine({ workflow: 'paused', activeState: 'Hold:0', fresh: false, statusAgeMs: 5000, canResume: false, canStop: true })]); await f.flush();
     assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Pause demandée. Attendre l’état Hold.', 'an old Hold is no confirmation');
     f.push([f.machine({ workflow: 'paused', activeState: 'Hold:1', canResume: false, canStop: true })]); await f.flush();
-    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Pause confirmée : la machine est en Hold.', 'the wait is over once Hold is reported');
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Pause confirmée : les axes sont arrêtés.', 'the wait is over once Hold is reported');
     assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').getAttribute('data-state'), 'confirmed');
-    assert.equal(f.lastStatus().feedback, 'Pause confirmée : la machine est en Hold.', 'Suivi shows the same line');
+    assert.equal(f.lastStatus().feedback, 'Pause confirmée : les axes sont arrêtés.', 'Suivi shows the same line');
     f.push([f.machine({ workflow: 'idle', activeState: 'Idle' })]); await f.flush();
     assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, '', 'still cleared once the paused job is stopped elsewhere');
   }

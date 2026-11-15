@@ -22,7 +22,7 @@ function find(root, pred) { let hit = null; const walk = (x) => x.children.forEa
 
 const state = { machine: { workflow: 'idle' } }, requests = [], listeners = {}, timers = [];
 const section = el('div'), panel = el('section'); panel.attrs['data-settings-tab'] = 'system';
-const document = { hidden: false, createElement: el, addEventListener() {}, getElementById: (id) => (id === 'ks-system' ? section : id === 'screen-settings' ? panel : null) };
+const document = { hidden: false, createElement: el, addEventListener(n,f) { listeners[n]=f; }, getElementById: (id) => (id === 'ks-system' ? section : id === 'screen-settings' ? panel : null) };
 const window = { addEventListener: (n, f) => { listeners[n] = f; }, cncI18n: { t: (s) => s, locale: 'fr-FR' }, cncState: { get: () => ({ apiBase: '/api', machine: state.machine }) } };
 function XMLHttpRequest() { this.headers = {}; }
 XMLHttpRequest.prototype.open = function (m, u) { this.method = m; this.url = u; };
@@ -94,7 +94,7 @@ state.machine = { workflow: 'idle' }; listeners['cnc-job-status']();
 listeners['cnc-settings-tab']({ detail: 'system' }); answer(requests.pop(), 200, { ...IDLE, checkedAt: at });
 install.click(); assert.equal(install.getAttribute('data-state'), 'armed');
 panel.attrs['data-settings-tab'] = 'machine'; listeners['cnc-settings-tab']({ detail: 'machine' });
-assert.equal(install.getAttribute('data-state'), 'idle', 'no second tap left pending on a hidden tab');
+assert.equal(window.cncSystemUpdates.state().armed, false, 'no second tap left pending on a hidden tab');
 assert.equal(requests.length, 0);
 panel.attrs['data-settings-tab'] = 'system'; listeners['cnc-settings-tab']({ detail: 'system' });
 answer(requests.pop(), 200, { ...IDLE, running: { action: 'check', since: 3 } });
@@ -115,5 +115,27 @@ state.machine = { workflow: 'idle' };
 listeners['cnc-settings-tab']({ detail: 'system' });
 answer(requests.pop(), 200, { available: false, reason: 'Mises à jour indisponibles : pas de gestionnaire apt sur l’ordinateur du serveur CNCjs.' });
 assert.match(text(), /pas de gestionnaire apt/); assert.equal(check.disabled, true);
+// C2: packets and late HTTP answers keep the model current without painting
+// the hidden tab, and leaving the screen cancels polls and install arming.
+{
+  let writes=0,disabled=check.disabled;
+  assert.equal(typeof listeners['cnc-screen-change'],'function','update lifecycle watches screen changes');
+  Object.defineProperty(check,'disabled',{get:()=>disabled,set:v=>{writes++;disabled=v;}});
+  listeners['cnc-settings-tab']({detail:'system'});const late=requests.pop();
+  panel.classList.contains=()=>false;listeners['cnc-screen-change']();writes=0;
+  for(let n=0;n<10;n++)listeners['cnc-job-status']();
+  answer(late,200,{...IDLE,running:{action:'check',since:4}});
+  assert.equal(writes,0,'no paint for packets or late answers on a hidden screen');
+  assert.equal(flush(),0,'no poll hidden');
+  panel.classList.contains=()=>true;listeners['cnc-screen-change']();
+  assert(check.disabled,'latest running state painted on reopening');
+  answer(requests.pop(),200,IDLE);
+  install.click();assert(window.cncSystemUpdates.state().armed);
+  document.hidden=true;listeners.visibilitychange();
+  assert(!window.cncSystemUpdates.state().armed,'hidden document disarms install');
+  writes=0;listeners['cnc-job-status']();assert.equal(writes,0);
+  document.hidden=false;listeners.visibilitychange();
+  assert.equal(install.getAttribute('data-state'),'idle');
+}
 for (const page of ['index.html', 'simulation.html']) assert(fs.readFileSync(path.join(__dirname, 'touch', page), 'utf8').includes('system-updates.js?v='), page);
 console.log('PASS system updates: status on the Système tab, check and install posted to api/touch-updates, install confirmed by a second tap, running task followed until it ends, restart needed shown, server refusal and failed task told, blocked during a job, unavailable without apt.');

@@ -19,7 +19,7 @@
   names['probe-transfer']=uiLocale.t('Sauvegarde des profils');
   names['probe-preparation']=uiLocale.t('Préparation du palpage');
   }
-  names['guide']=uiLocale.t('Guide d’utilisation');
+  names['guide']=uiLocale.t('Guide');
   names['commissioning']=uiLocale.t('Mise en service');
   var main=document.querySelector('main'),nav=document.getElementById('tabbar'),banner=document.getElementById(simulation?'simulation-banner':'real-banner');
   document.body.classList.add('ks-ui');
@@ -32,7 +32,7 @@
   more.innerHTML=uiLocale.html('<h2>Plus</h2><div class="ks-tiles"></div><p id="more-version"></p>');main.insertBefore(more,main.firstChild);
   var check=document.createElement('section');check.id='screen-check';check.className='screen';check.innerHTML='<div id="check-verdict" class="card t-pcheck"></div>';main.appendChild(check);
   var tileHints={history:'Événements et exports',settings:'Affichage, système',commissioning:'Mise en service de la machine',guide:'Le fil de la séance',macros:'Aucune macro dans CNCjs'};
-  ['history','settings','commissioning','guide','macros'].forEach(function(name){var b=document.createElement('button');b.type='button';b.className='ks-tile';b.setAttribute('data-ks-tile',name);b.innerHTML=icon(paths[name]?name:'check')+'<div class="ks-tile-text"><span></span><small></small></div>';b.querySelector('span').textContent=name==='macros'?uiLocale.t('Macros'):names[name];b.querySelector('small').textContent=uiLocale.t(tileHints[name]);if(simulation&&name==='commissioning'){b.disabled=true;b.querySelector('small').textContent=uiLocale.t('Mise en service : page réelle uniquement.');}if(name==='macros'){b.id='ks-macros-open';b.disabled=true;}else b.addEventListener('click',function(){go(name);});more.querySelector('.ks-tiles').appendChild(b);});
+  ['history','settings','commissioning','guide','macros'].forEach(function(name){var b=document.createElement('button');b.type='button';b.className='ks-tile';b.setAttribute('data-ks-tile',name);b.innerHTML=icon(paths[name]?name:'check')+'<div class="ks-tile-text"><span></span><small></small></div>';b.querySelector('span').textContent=name==='macros'?uiLocale.t('Macros'):names[name];b.querySelector('small').textContent=uiLocale.t(tileHints[name]);if(simulation&&name==='commissioning'){b.disabled=true;b.querySelector('small').textContent=uiLocale.t('Mise en service : page réelle uniquement.');}if(name==='macros'){b.id='ks-macros-open';b.disabled=true;}else b.addEventListener('click',function(){if(name==='commissioning'&&window.cncCommissioning)window.cncCommissioning.open();else go(name);});more.querySelector('.ks-tiles').appendChild(b);});
   nav.innerHTML='';
   var mainScreens=['machine','files','jog','check','home','more'],keptScreens=['more','jog','files','check','home','machine','history'];
   mainScreens.forEach(function(name,i){var b=document.createElement('button');b.type='button';b.className='ks-nav';b.setAttribute('data-ks-screen',name);b.setAttribute('aria-label',names[name]);if(i<5){b.setAttribute('data-seance-step',String(i+1));b.setAttribute('data-seance-state','inconnu');b.innerHTML='<span class="ks-step-number">'+(i+1)+'<small class="ks-step-mark">?</small></span><span class="ks-nav-name"></span>';}else b.innerHTML='<b>···</b><span class="ks-nav-name"></span>';var rail={machine:'Ma­chine',check:'Con­trôle',home:'Usi­nage'};b.querySelector('.ks-nav-name').textContent=uiLocale.t(rail[name]||names[name]);b.addEventListener('click',function(){go(name);});nav.appendChild(b);});
@@ -178,7 +178,7 @@
     document.querySelectorAll('.screen').forEach(function(s){var on=s===root;s.classList.toggle('active',on);if(on&&keptScreens.indexOf(name)>=0&&!s.classList.contains('kept'))s.classList.add('kept');});
     var navScreen=name==='probe'||name.indexOf('probe-')===0?'jog':name==='limits'?'machine':mainScreens.indexOf(name)<0?'more':name;
     document.querySelectorAll('.ks-nav').forEach(function(b){var on=b.getAttribute('data-ks-screen')===navScreen;b.classList.toggle('active',on);if(on)b.setAttribute('aria-current',navScreen===name?'page':'location');else b.removeAttribute('aria-current');});
-    if(mainScreens.indexOf(name)<0&&!root.querySelector('.ks-back')){var back=document.createElement('button');back.type='button';back.className='ks-back';var destination=navScreen==='more'?'more':navScreen;back.textContent='← '+names[destination];back.addEventListener('click',function(){go(destination);});root.insertBefore(back,root.firstChild);}
+    if(mainScreens.indexOf(name)<0&&!root.querySelector('.ks-sub-head')){var back=root.querySelector('#guide-back')||document.createElement('button');back.type='button';back.className='ks-back';var destination=navScreen==='more'?'more':navScreen;back.textContent='← '+names[destination];if(back.id!=='guide-back')back.addEventListener('click',function(){go(destination);});var subhead=document.createElement('header');subhead.className='ks-sub-head';subhead.appendChild(back);var subTitle=document.createElement('h2');subTitle.textContent=names[name];subhead.appendChild(subTitle);root.insertBefore(subhead,root.firstChild);}
     document.getElementById('ks-title').textContent=names[name]||names.more;
     window.dispatchEvent(new CustomEvent('cnc-screen-change',{detail:name}));
   }

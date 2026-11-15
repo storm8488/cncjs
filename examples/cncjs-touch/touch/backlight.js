@@ -33,6 +33,7 @@
   [['off',t('Écran éteint')],['min',t('Luminosité minimale')],['keep',t('Inchangée')]].forEach(function(o){var opt=el('option','',o[1]);opt.value=o[0];sleepSelect.appendChild(opt);});
   sleepSelect.value=mode;sleepRow.appendChild(sleepSelect);card.appendChild(sleepRow);
   var status=el('p','ks-help ks-backlight-status','');status.setAttribute('role','status');card.appendChild(status);
+  var sleepReason=el('p','ks-help ks-backlight-local',t('Réglable seulement sur la tablette de la machine.'));sleepReason.hidden=true;card.appendChild(sleepReason);
   // Just before the screen sleep card (Affichage tab); older layouts: before the footer.
   var anchor=panel.querySelector('.ks-display-sleep')||panel.querySelector('.ks-display-footer');panel.insertBefore(card,anchor||null);
 
@@ -65,6 +66,8 @@
     var why=!state?'':!state.available?t('Aucun rétroéclairage réglable sur cet ordinateur.'):!state.writable?t('Réglage bloqué : CNCjs n’a pas le droit de modifier la luminosité (règle udev à installer, voir README).'):'';
     if(why)set(status,why);
     sleepSelect.disabled=local===false;
+    sleepReason.hidden=local!==false;
+    sleepRow.className='ks-backlight-sleep'+(local===false?' is-unavailable':'');
   }
   function message(code,data){
     return code===401||code===403?t('Session CNCjs requise : ouvrez CNCjs et connectez-vous.'):code===404?t('Ce serveur CNCjs ne gère pas la luminosité.'):(data&&data.message)||t('Luminosité indisponible.');

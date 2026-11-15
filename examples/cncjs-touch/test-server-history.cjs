@@ -128,7 +128,7 @@ assert(requests.every((x) => x.method === 'GET' && x.body === null));
   const d = require('./dom-fixture.cjs').createDOM([]), esReq = [], h = {}, esCard = d.element('div', 'history-card');
   d.document.querySelector = (sel) => (sel === '#screen-history .ks-history-card' ? esCard : d.node('panel'));
   d.document.querySelectorAll = () => [];
-  function EsXHR() { this.headers = {}; this.open = (m, u) => { this.method = m; this.url = u; }; this.setRequestHeader = () => {}; this.send = () => { esReq.push(this); }; this.abort = () => {}; }
+  const EsXHR=function () { this.headers = {}; this.open = (m, u) => { this.method = m; this.url = u; }; this.setRequestHeader = () => {}; this.send = () => { esReq.push(this); }; this.abort = () => {}; };
   const w = { cncI18n: { t, html: t, language: 'es', locale: 'es-ES' }, cncSessionJournal: window.cncSessionJournal, cncState: window.cncState, CNCJobStream: {}, addEventListener(n, f) { h[n] = f; } };
   vm.runInNewContext(fs.readFileSync(__dirname + '/touch/real-history.js', 'utf8'), { document: d.document, window: w, Date, Blob, XMLHttpRequest: EsXHR, localStorage: context.localStorage });
   d.activeScreens.add('history'); h['cnc-screen-change']({ detail: 'history' });
@@ -142,3 +142,13 @@ assert(requests.every((x) => x.method === 'GET' && x.body === null));
   assert(!shown.some((s) => /définition|refusé|arrêt|perdue|bougé/.test(s)), 'no French left in the Spanish reasons: ' + shown.join(' | '));
 }
 console.log('PASS server history (F4): session vs server sources, paged by before, read-only, empty, HTTP/network/invalid errors, stale answers ignored, listed fields only (no secret).');
+// L6: block probe measurements are read from the durable entry in v1 as in
+// the v2 adapter; only finite XYZ values are displayed, never its raw command.
+session.click();server.click();
+answer(requests.at(-1),{entries:[{seq:20,at:at(20),event:'probe',kind:'block',axes:'XYZ',result:'set',contacts:{X:10.25,Y:20,Z:-3,token:'SECRET'},origin:{X:1,Y:2,Z:-10},values:{X:0,Y:0,Z:10},command:'G10 SECRET',password:'SECRET'},
+ {seq:19,at:at(19),event:'probe',result:'failed',written:'possible',contacts:{X:'SECRET',Y:null,Z:Infinity}}],total:2,more:false});
+assert.match(list()[0],/Palpage au bloc/);assert.match(list()[0],/Contacts : X 10,25 mm · Y 20 mm · Z -3 mm/);
+assert.match(list()[0],/Position pièce écrite : X 0 mm · Y 0 mm · Z 10 mm/);
+assert.match(list()[1],/Le zéro pièce a peut-être changé/);
+assert(!/SECRET|G10|Infinity|NaN/.test(list().join(' ')),'probe details keep the whitelist');
+assert(requests.every(x=>x.method==='GET'&&x.body===null),'probe history remains read only');

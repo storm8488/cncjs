@@ -31,7 +31,7 @@
     var x = new XMLHttpRequest(); x.open(method, apiBase() + '/touch-updates', true); x.timeout = 10000;
     x.setRequestHeader('Authorization', 'Bearer ' + c);
     if (body !== undefined) x.setRequestHeader('Content-Type', 'application/json');
-    x.onload = function () { var data = null; try { data = JSON.parse(x.responseText); } catch (_) {} done(x.status, data); };
+    x.onload = function () { var data = null; try { data = JSON.parse(x.responseText); } catch (_) { /* An invalid response keeps the request fallback. */ } done(x.status, data); };
     x.onerror = x.ontimeout = function () { done(0, null); };
     x.send(body === undefined ? null : JSON.stringify(body));
   }
@@ -52,16 +52,18 @@
   var busy = false, info = null, notice = '', armed = false, armTimer = null, pollTimer = null, loaded = false;
   function running() { return !!(info && info.running); }
   // 401, or CNCjs' plain-text 403 (« Forbidden Access »): the session is refused, not the action.
-  function message(code, data, fallback) { return data && data.message ? data.message : code === 0 ? t('Serveur CNCjs injoignable.') : code === 401 || (code === 403 && !data) ? t('Session CNCjs requise : ouvrez CNCjs et connectez-vous.') : fallback; }
+  function serverText(value) { return (uiLocale.message || t)(value); }
+  function message(code, data, fallback) { return data && data.message ? serverText(data.message) : code === 0 ? t('Serveur CNCjs injoignable.') : code === 401 || (code === 403 && !data) ? t('Session CNCjs requise : ouvrez CNCjs et connectez-vous.') : fallback; }
   function clock(ms) { try { return new Date(ms).toLocaleTimeString(uiLocale.locale || undefined, { hour: '2-digit', minute: '2-digit' }); } catch (_) { return ''; } }
   function disarm() { clearTimeout(armTimer); armTimer = null; armed = false; paint(); }
   function paint() {
+    if (!shown()) return;
     var blocked = busy || running() || jobActive() || !info || info.available === false;
     checkButton.disabled = blocked; installButton.disabled = blocked;
     set(installButton, armed ? t('Confirmer : installer les mises à jour') : t('Installer les mises à jour'));
     installButton.setAttribute('data-state', armed ? 'armed' : 'idle');
     if (!info) return;
-    if (info.available === false) { set(summary, info.reason || t('Mises à jour indisponibles.')); names.hidden = true; reboot.hidden = true; return; }
+    if (info.available === false) { set(summary, info.reason ? serverText(info.reason) : t('Mises à jour indisponibles.')); names.hidden = true; reboot.hidden = true; return; }
     var list = Array.isArray(info.packages) ? info.packages : [];
     if (info.running) set(summary, info.running.action === 'install' ? t('Installation des mises à jour en cours… n’éteignez pas la tablette.') : t('Recherche des mises à jour en cours…'));
     else if (!info.checkedAt) set(summary, t('Pas encore vérifié depuis le démarrage de CNCjs.'));
@@ -77,7 +79,7 @@
     else if (armed) set(status, t('Touchez à nouveau pour confirmer (8 s).'));
     else if (notice) set(status, notice);
     else if (info.running) set(status, '');
-    else if (info.lastRun) set(status, (info.lastRun.ok ? '' : t('Échec : ')) + info.lastRun.message);
+    else if (info.lastRun) set(status, (info.lastRun.ok ? '' : t('Échec : ')) + serverText(info.lastRun.message));
   }
   function schedule() {
     clearTimeout(pollTimer); pollTimer = null;
@@ -106,9 +108,15 @@
     if (!armed) { armed = true; clearTimeout(armTimer); armTimer = setTimeout(disarm, CONFIRM_MS); paint(); return; }
     clearTimeout(armTimer); armTimer = null; armed = false; start('install');
   });
-  window.addEventListener('cnc-settings-tab', function (e) { if (e && e.detail === 'system') load(); else { clearTimeout(pollTimer); pollTimer = null; if (armed) disarm(); } });
+  window.addEventListener('cnc-settings-tab', function (e) { if (e && e.detail === 'system' && shown()) { paint(); load(); } else { clearTimeout(pollTimer); pollTimer = null; if (armed) disarm(); } });
   window.addEventListener('cnc-job-status', function () { if (jobActive()) disarm(); else paint(); });
-  document.addEventListener('visibilitychange', function () { if (shown() && running()) load(); });
+  function visibility() {
+    if (!shown()) { clearTimeout(pollTimer); pollTimer = null; if (armed) disarm(); return; }
+    paint();
+    if (running()) load();
+  }
+  window.addEventListener('cnc-screen-change', visibility);
+  document.addEventListener('visibilitychange', visibility);
   if (shown() && !loaded) load();
   window.cncSystemUpdates = { load: load, state: function () { return { busy: busy, armed: armed, running: running(), info: info }; } };
 })();

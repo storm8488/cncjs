@@ -27,6 +27,9 @@ for(const language of ['en','es']){
  assert.equal(i.html('<h2>Fichiers'),language==='en'?'<h2>Files':'<h2>Archivos');
  // Réglages, three tabs: new labels, note, intro and restart message exist in both languages.
  const en=language==='en';
+ assert.equal(i.message('Connecté au réseau Wi-Fi « Fichiers {value} ».') ,en?'Connected to Wi-Fi network “Fichiers {value}”.':'Conectado a la red Wi-Fi «Fichiers {value}».','SSID is data, never a translation key or template');
+ assert.equal(i.message('2 paquet(s) mis à jour. Redémarrage de la tablette nécessaire.'),en?'2 package(s) updated. Tablet restart required.':'2 paquete(s) actualizado(s). Es necesario reiniciar la tableta.');
+ assert.equal(i.message('Mise à jour impossible : E: detail'),en?'Update failed: E: detail':'Error al actualizar: E: detail');
  assert.equal(i.t('Affichage'),en?'Display':'Pantalla');assert.equal(i.t('Machine et performances'),en?'Machine & performance':'Máquina y rendimiento');assert.equal(i.t('Système'),en?'System':'Sistema');
  assert.equal(i.t('Actions système'),en?'System actions':'Acciones del sistema');
  assert.equal(i.t('Machine au repos uniquement · confirmation par un second appui'),en?'Machine idle only · confirm with a second tap':'Solo con la máquina en reposo · confirmar con un segundo toque');
@@ -87,12 +90,12 @@ for(const name of ['index.html','simulation.html']){const html=fs.readFileSync(p
  // Origin's held v2 card can show a deferred line after the gate closes. Only
  // calls inside a positive s.v2 branch may use this catalogue; v1/RT calls keep
  // requiring a static row. Parse the guard rather than excluding the module.
- function v2Branches(src){
+ const v2Branches=function(src){
   const ranges=[],ast=require('acorn').parse(src,{ecmaVersion:2017});
   function positive(n){return n.type==='MemberExpression'&&!n.computed&&n.object.type==='Identifier'&&n.object.name==='s'&&n.property.name==='v2'||n.type==='LogicalExpression'&&n.operator==='&&'&&(positive(n.left)||positive(n.right));}
   function visit(n){if(!n||typeof n!=='object')return;if(n.type==='IfStatement'&&positive(n.test))ranges.push([n.consequent.start,n.consequent.end]);Object.keys(n).forEach(k=>{const v=n[k];if(Array.isArray(v))v.forEach(visit);else if(v&&typeof v==='object')visit(v);});}
   visit(ast);return ranges;
- }
+ };
  assert.deepEqual(v2Branches("if (!s.v2) t('v1'); if (s.v2 || fallback) t('v1');"),[],'v1 paths cannot borrow deferred translations');
  const guarded="if (s.v2 && closed) { t('v2'); } else { t('v1'); }",ranges=v2Branches(guarded);
  assert(ranges.some(([a,b])=>guarded.indexOf("t('v2')")>=a&&guarded.indexOf("t('v2')")<b));
@@ -103,7 +106,18 @@ for(const name of ['index.html','simulation.html']){const html=fs.readFileSync(p
  const catalogs=['i18n-messages.js'].concat(fs.readdirSync(path.join(__dirname,'touch')).filter(n=>/^i18n-messages-[a-z]+\.js$/.test(n)));
  const sandbox={window:{}};catalogs.forEach(n=>vm.runInNewContext(fs.readFileSync(path.join(__dirname,'touch',n),'utf8'),sandbox));
  const known=new Set();
- sandbox.window.CNCTouchMessages.forEach(row=>{const key=row[0].trim().replace(/\s+/g,' ');assert(!known.has(key),'duplicate across catalogs: '+row[0]);assert.equal(row.length,3);known.add(key);});
+ sandbox.window.CNCTouchMessages.forEach(row=>{const key=row[0].trim().replace(/\s+/g,' ');assert(!known.has(key),'duplicate across catalogs: '+row[0]);assert.equal(row.length,3);row.forEach(value=>assert(typeof value==='string'&&value.trim(),'FR/EN/ES row: '+row[0]));known.add(key);});
+ // Literal markup is translated by html(), including attributes. Brand names,
+ // dimension symbols and the font sample are invariant in all three languages.
+ const invariant=new Set(['CNCjs TOUCH','mm','1 mm','Aa']);
+ for(const {file,value} of require('./page-text-fixture.cjs').authoredMarkup()){
+  const key=value.trim().replace(/\s+/g,' ');assert(known.has(key)||invariant.has(key),file+': markup without FR/EN/ES: '+key);
+ }
+ // The guide translates its data table at render time rather than calling t()
+ // on each literal. Check every page, including the simulation-only sentence.
+ for(const r of require('./page-text-fixture.cjs').literals('interface-guide.js')){
+  if(r.ancestors.some(n=>n.type==='VariableDeclarator'&&n.id.name==='pages'))assert(known.has(r.value.trim()),'guide row: '+r.value);
+ }
  for(const name of ['index.html','simulation.html']){const html=fs.readFileSync(path.join(__dirname,'touch',name),'utf8');catalogs.forEach(n=>{assert(html.indexOf(n+'?')>0,name+' loads '+n);assert(html.indexOf(n+'?')<html.indexOf('i18n.js?'),name+': '+n+' before i18n.js');});}
  const missing=[];
  for(const file of fs.readdirSync(path.join(__dirname,'touch')).filter(n=>n.endsWith('.js')&&!/^(i18n|i18n-messages(-[a-z]+)?|startup)\.js$/.test(n))){

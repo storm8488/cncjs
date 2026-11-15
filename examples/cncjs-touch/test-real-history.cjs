@@ -105,10 +105,17 @@ ids['real-history-prev'].handlers.click();assert.match(ids['real-history-page'].
 activeScreens.clear();status({...machine,activeState:'Alarm'});const hiddenCount=stats.writes;
 socketHandlers.disconnect();socketHandlers.disconnect();assert.equal(stats.writes,hiddenCount);
 activeScreens.add('history');handlers['cnc-screen-change']({detail:'history'});assert(stats.writes>hiddenCount);
+const outcome={detail:{machine,simulation:false,feedbackState:'failed',feedback:'Refus détaillé de la commande.'}};
+activeScreens.clear();const hiddenFeedback=stats.writes;
+handlers['cnc-job-status'](outcome);handlers['cnc-job-status'](outcome);
+assert.equal(stats.writes,hiddenFeedback,'command feedback is stored without hidden DOM work in Eco');
+activeScreens.add('history');handlers['cnc-screen-change']({detail:'history'});
+assert.match(ids['real-history-list'].children[0].children[0].textContent,/Refus détaillé/);
 ids['real-export-json'].handlers.click();assert.match(download.name,/^cnc-journal-.*\.json$/);
 download.blob.text().then(content=>{
  const report=JSON.parse(content);assert.equal(report.mode,'interface-reelle');assert(!content.includes('SECRET'));
  assert.equal(report.events.filter(e=>e.kind==='connection'&&e.message.includes('indisponible')).length,1);
+ assert.equal(report.events.filter(e=>e.kind==='command'&&e.message==='Refus détaillé de la commande.').length,1,'Eco retains one command outcome in export');
  ids['real-export-text'].handlers.click();assert.match(download.name,/\.txt$/);
  console.log('PASS: real journal transitions, freshness, deduplication, 100-event cap, export whitelist, pagination, simulation isolation and zero hidden/unchanged repaint.');
 }).catch(e=>{console.error(e);process.exitCode=1;});
