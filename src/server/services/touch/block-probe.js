@@ -53,6 +53,10 @@ const SUPERVISE_MS = 100;
 const RELEASE_MS = 7000;
 const PRB_WAIT_MS = 1000;
 const LINE_MARGIN_MS = 15000;
+// C-03: the active offset of `$#` and the WCO: of a report received after its ok agree within
+// this (mm, the report units the probe needs), and that report comes within this time.
+const OFFSET_TOL = 0.0025;
+const WCO_WAIT_MS = 5000;
 
 // Server bounds of the profile, independent of the page's form.
 const LIMITS = {
@@ -104,7 +108,8 @@ export const MESSAGES = {
   ETOUCH_PROBE_PILOT: 'Pilotage requis : cet appareil doit piloter la machine pour palper. Touchez Pilote dans le bandeau.',
   ETOUCH_PROBE_G92: 'Décalage temporaire G92 actif : annulez-le (G92.1) avant de palper.',
   ETOUCH_PROBE_TLO: 'Compensation de longueur d’outil active : annulez-la (G49) avant de palper.',
-  ETOUCH_PROBE_PARAMETERS: 'Paramètres de la carte ($#) illisibles : palpage annulé avant tout mouvement.'
+  ETOUCH_PROBE_PARAMETERS: 'Paramètres de la carte ($#) illisibles : palpage annulé avant tout mouvement.',
+  ETOUCH_PROBE_OFFSET: 'La carte n’applique pas l’origine enregistrée en {axis} ({stored} mm enregistré, {reported} mm appliqué) : palpage annulé avant tout mouvement.'
 };
 
 const SUFFIX_UNCHANGED = ' Origine de travail inchangée.';
@@ -751,6 +756,8 @@ export const createBlockProbe = (deps) => {
           throw classify(tracker);
         }
         probing.outstanding = false;
+        // The report count at the line's ok: a report after it is newer than the line.
+        session.okReports = tracker.reportsAtOk;
         if (probe) {
           await waitFor(() => prb.length > 0, PRB_WAIT_MS);
         }
@@ -925,6 +932,22 @@ export const createBlockProbe = (deps) => {
       }
       if (Math.abs(tlo) > 1e-6) {
         throw failure('ETOUCH_PROBE_TLO');
+      }
+      // C-03: every G38.3 runs in work coordinates computed from the reported offset; the active
+      // system of `$#` (G92 and TLO zero) must be what a report carrying WCO:, received after
+      // the ok of `$#`, gives. The D2 guard of blockReady checked it already: this is its double.
+      const stored = parameters[params.wcs] || {};
+      if (AXES.some((axis) => num(stored[axis.toLowerCase()]) === null)) {
+        throw failure('ETOUCH_PROBE_PARAMETERS');
+      }
+      const okReports = session.okReports;
+      if (!(await waitFor(() => !!r.wco && r.wco.report > okReports, WCO_WAIT_MS))) {
+        throw failure('ETOUCH_PROBE_PARAMETERS');
+      }
+      const apart = AXES.find((axis) => Math.abs(r.wco[axis.toLowerCase()] - num(stored[axis.toLowerCase()])) > OFFSET_TOL);
+      if (apart) {
+        const k = apart.toLowerCase();
+        throw failure('ETOUCH_PROBE_OFFSET', { axis: apart, stored: fmt(num(stored[k])), reported: fmt(r.wco[k]) });
       }
       const origin = {};
       if (params.axes === 'Z') {

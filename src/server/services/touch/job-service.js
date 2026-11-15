@@ -318,11 +318,16 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         // A work offset reported since the board started: what CNCjs needs to
         // turn a WPos report ($10 bit 0 clear) into a machine position (F1).
         const wco = payload && payload.wco;
-        if (wco && ['x', 'y', 'z'].every((axis) => Number.isFinite(Number(wco[axis])) && String(wco[axis]).trim() !== '')) {
+        const explicitWco = !!wco && ['x', 'y', 'z'].every((axis) => Number.isFinite(Number(wco[axis])) && String(wco[axis]).trim() !== '');
+        if (explicitWco) {
           r.wcoSeen = true;
           r.wcoAt = clock();
         }
         r.reports += 1;
+        // The last explicit WCO: and the report that carried it (the block probe's check, C-03).
+        if (explicitWco) {
+          r.wco = { report: r.reports, x: Number(wco.x), y: Number(wco.y), z: Number(wco.z) };
+        }
         const active = controllerStatus(c).activeState || '';
         let ownCycle = false;
         // Our $H outstanding and the board entering Alarm (from another state, no ALARM:n line): the
@@ -429,6 +434,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         r.foreignHome = null;
         r.wcoSeen = false;
         r.wcoAt = null;
+        r.wco = null;
         // A Home state seen before the restart says nothing about the new session.
         r.sawHome = false;
         r.startups += 1;

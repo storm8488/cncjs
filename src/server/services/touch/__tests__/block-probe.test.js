@@ -160,13 +160,15 @@ const fakeGrbl = (ctx, {
   };
   g.report = () => {
     let wco = null;
-    if (g.lunyee) {
-      if (g.wcoCounter > 0) {
-        g.wcoCounter -= 1;
-      } else {
-        g.wcoCounter = 9;
-        const o = g.reported();
-        wco = { x: f3(o.x), y: f3(o.y), z: f3(o.z) };
+    // WCO: one report in ten, and at the report after a change (Grbl 1.1 at rest; LUNYEE in
+    // every state). The standard fake reports it too: the block probe checks `$#` against it (C-03).
+    if (g.wcoCounter > 0) {
+      g.wcoCounter -= 1;
+    } else {
+      g.wcoCounter = 9;
+      const o = g.lunyee ? g.reported() : g.offset();
+      wco = { x: f3(o.x), y: f3(o.y), z: f3(o.z) };
+      if (g.lunyee) {
         g.lastWco = wco;
       }
     }
@@ -339,6 +341,8 @@ const fakeGrbl = (ctx, {
       if (g.lunyee && p === g.activeIndex()) {
         reload();
       }
+      // The next report carries WCO:.
+      g.wcoCounter = 0;
       done(line, { ok: true, prb: 0 });
       return;
     }
@@ -1677,5 +1681,37 @@ describe('block probe: the LUNYEE options of the fake Grbl (PLAN-CORRECTIONS § 
     expect(rest.g.m).toEqual({ x: 100, y: 100, z: -110 });
     await rest.tick(100);
     expect(restSeen.wco.at(-1)).toEqual([20, 30, -100]);
+  }, 60000);
+
+  // C-03 (A1-7 = A4-1), converted from the proof test bughunt-A1-7: the work offset taken as
+  // proven by D2 (provenOffset), so that the block probe's own check at CHECK is what stops it.
+  test('S47 WCO:0 after the homing while $# keeps G54: stopped at CHECK, before any G38.3, origin unchanged; once loaded again, the probe runs', async () => {
+    const refused = async (executedAfterHoming) => {
+      services.splice(0).forEach((service) => service.dispose());
+      const ctx = await setup({ world: { lunyee: true, executedAfterHoming } });
+      expect(ctx.state()).toMatchObject({ homed: true, canBlockProbe: true, workOffset: { state: 'proven' } });
+      await ctx.launch({ axes: 'Z', wcs: 'G54', diameter: 6, profile: PROFILE });
+      await ctx.failedCleanly('ETOUCH_PROBE_OFFSET');
+      // Only `$#`: no G38.3 (its work target would be 100 mm off if the board applies G54).
+      expect(ctx.g.sent).toEqual(['$#']);
+      const { err } = ctx.outcome;
+      expect(err.params).toEqual({ axis: 'X', stored: '20', reported: '0' });
+      expect(err.message).toBe('La carte n’applique pas l’origine enregistrée en X (20 mm enregistré, 0 mm appliqué) : palpage annulé avant tout mouvement. Origine de travail inchangée.');
+      expect(ctx.history.filter((e) => e.event === 'probe')).toEqual([expect.objectContaining({ result: 'failed', code: 'ETOUCH_PROBE_OFFSET', written: 'no' })]);
+    };
+    // Both hypotheses of the offset executed after the homing (FIRMWARE.md E-B).
+    await refused('zero');
+    await refused('stored');
+    // G55 then G54 (what D2 sends): the stored offset applied and reported, the probe goes on.
+    services.splice(0).forEach((service) => service.dispose());
+    const loaded = await setup({ world: { lunyee: true } });
+    send(loaded, 'G55');
+    send(loaded, 'G54');
+    await loaded.tick(200);
+    await loaded.launch({ axes: 'Z', wcs: 'G54', diameter: 6, profile: PROFILE });
+    const { ok } = await loaded.finish();
+    expect(ok.blockProbe).toMatchObject({ state: 'done', written: 'yes' });
+    expect(loaded.g.sent.filter((l) => /^(\$#|G38\.3|G10)/.test(l)).map((l) => l.split(' ')[0])).toEqual(['$#', 'G38.3', 'G38.3', 'G10']);
+    expect(loaded.g.collisions).toEqual([]);
   }, 60000);
 });
