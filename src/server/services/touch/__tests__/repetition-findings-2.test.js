@@ -5,6 +5,7 @@
 // controller of the repository's own tests.
 import { EventEmitter } from 'events';
 import { createService } from '../job-service';
+import { provenOffset } from './support/proven-offset';
 
 const fakeController = (port = 'TEST') => {
   const c = {
@@ -38,7 +39,12 @@ afterEach(() => {
 const setup = (c = fakeController(), clock) => {
   const ctx = { now: 10000, c };
   ctx.controllers = { TEST: ctx.c };
-  ctx.service = createService({ get: () => ctx.controllers }, { get: (key) => ({ macros: [], events: [] }[key]) }, clock || (() => ctx.now), { files: {} });
+  ctx.service = createService(
+    { get: () => ctx.controllers },
+    { get: (key) => ({ macros: [], events: [] }[key]) },
+    clock || (() => ctx.now),
+    { workOffset: provenOffset, files: {} }
+  );
   services.push(ctx.service);
   ctx.generation = ctx.service.list()[0].generation;
   ctx.service.openTransport('t');

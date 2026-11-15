@@ -10,6 +10,7 @@ import { promises as fs } from 'fs';
 import os from 'os';
 import path from 'path';
 import { createService } from '../job-service';
+import { provenOffset } from './support/proven-offset';
 
 const fakeController = (port = 'TEST') => {
   const c = {
@@ -59,7 +60,12 @@ afterEach(() => {
 const setup = () => {
   const ctx = { now: 10000, c: fakeController() };
   ctx.controllers = { TEST: ctx.c };
-  ctx.service = createService({ get: () => ctx.controllers }, { get: (key) => ({ watchDirectory: root, macros: [] }[key] || []) }, () => ctx.now);
+  ctx.service = createService(
+    { get: () => ctx.controllers },
+    { get: (key) => ({ watchDirectory: root, macros: [] }[key] || []) },
+    () => ctx.now,
+    { workOffset: provenOffset }
+  );
   services.push(ctx.service);
   ctx.generation = ctx.service.list()[0].generation;
   ctx.transportId = 'offline-transport';

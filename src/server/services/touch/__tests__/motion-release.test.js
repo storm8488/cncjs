@@ -7,6 +7,7 @@
 import { EventEmitter } from 'events';
 import { createService } from '../job-service';
 import { createControl } from '../control';
+import { provenOffset } from './support/proven-offset';
 
 const fakeController = (port = 'TEST') => {
   const c = {
@@ -58,7 +59,7 @@ const setup = () => {
     { get: () => ctx.controllers },
     { get: (key) => ({ 'touch.motion.enabled': true, events: [], macros: [{ id: 'm1', name: 'M', content: 'G0 X0' }] }[key]) },
     () => ctx.now,
-    { control: ctx.control, history: { record: () => {} } }
+    { workOffset: provenOffset, control: ctx.control, history: { record: () => {} } }
   );
   services.push(ctx.service);
   ctx.generation = ctx.service.list()[0].generation;

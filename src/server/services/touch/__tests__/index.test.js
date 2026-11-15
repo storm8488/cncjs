@@ -173,6 +173,33 @@ describe('touch facade (history, control, socket and host-command policies)', ()
     expect(mockSocketCommands).toEqual([]);
   });
 
+  test('D2: while the work offset check writes its lines, a socket command that is not safe is refused; a stop ends the check and passes', () => {
+    touch.start();
+    const c = fakeController('COM3');
+    c.settings = { version: '1.1f', settings: { $13: '0' } };
+    store.set('controllers', { COM3: c });
+    // A fresh $G, then a fresh Idle report: the real service starts its check (`$#`, unanswered here).
+    c.state.parserstate = { modal: { wcs: 'G54', units: 'G21', distance: 'G90', motion: 'G0', spindle: 'M5' } };
+    touch.snapshot();
+    c.runner.emit('parserstate', c.state.parserstate);
+    c.runner.emit('status', {});
+    expect(c.commands).toEqual([['gcode', '$#']]);
+    expect(touch.snapshot().controllers[0].workOffset.state).toBe('checking');
+    const socket = fakeSocket('s5');
+    mockSocketCommands.splice(0);
+    expect(touch.refuseSocket(socket, 'COM3', 'command', 'gcode')).toMatchObject({ code: 'ETOUCH_OFFSET_CHECKING', message: expect.stringMatching(/^Vérification de l’origine de la pièce/) });
+    expect(touch.refuseSocket(socket, 'COM3', 'writeln', 'G10 L20 P1 X0')).toMatchObject({ code: 'ETOUCH_OFFSET_CHECKING' });
+    expect(touch.refuseSocket(socket, 'COM3', 'command', 'statusreport')).toBeNull();
+    expect(mockSocketCommands).toEqual([]);
+    expect(touch.snapshot().controllers[0].workOffset.state).toBe('checking');
+    // A feed hold from the PC: the check ends where it is, the hold goes its way.
+    expect(touch.refuseSocket(socket, 'COM3', 'write', '!')).toBeNull();
+    expect(touch.snapshot().controllers[0].workOffset).toMatchObject({ state: 'unknown', detail: 'interrupted' });
+    expect(touch.refuseSocket(socket, 'COM3', 'command', 'gcode')).toBeNull();
+    expect(mockSocketCommands).toEqual([['COM3', false]]);
+    expect(c.commands).toEqual([['gcode', '$#']]);
+  });
+
   test('before start, the policies allow everything (no control module yet)', () => {
     expect(touch.refuseSocket(fakeSocket('s3'), 'COM3', 'command', 'gcode:start')).toBeNull();
     expect(touch.refuseSystemCommand({ kind: 'http', id: 'http:x' })).toBeNull();

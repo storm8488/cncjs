@@ -21,6 +21,13 @@ jest.mock('../../config/settings', () => {
   const actual = jest.requireActual('../../config/settings').default;
   return { __esModule: true, default: { ...actual, rcfile: p.join(o.tmpdir(), 'xvf-e2e-rc', '.cncrc'), route: '/' } };
 });
+// D2: the fake controller never answers `$#`; the work offset is taken as proven.
+jest.mock('../../services/touch/job-service', () => {
+  const actual = jest.requireActual('../../services/touch/job-service');
+  const { provenOffset } = jest.requireActual('../../services/touch/__tests__/support/proven-offset');
+  const createService = (store, config, clock, options = {}) => actual.createService(store, config, clock, { workOffset: provenOffset, ...options });
+  return { ...actual, createService };
+});
 jest.mock('../../services/taskrunner', () => {
   const E = require('events');
   const t = new E();

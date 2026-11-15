@@ -6,6 +6,7 @@ import vm from 'vm';
 import { createService } from '../job-service';
 import { createControl } from '../control';
 import { blockParams, blockPlan, originOf, MESSAGES } from '../block-probe';
+import { provenOffset } from './support/proven-offset';
 
 // The page's side of the contract: its pure module and its catalog of the server's codes.
 const TOUCH = path.join(__dirname, '../../../../../examples/cncjs-touch/touch');
@@ -476,7 +477,7 @@ const setup = async ({ world = {}, homed = true, tested = true, enabled = true }
     { get: () => ctx.controllers },
     { get: (key) => ({ 'touch.motion.enabled': enabled, events: [], macros: [], 'touch.machines': [] }[key]) },
     () => ctx.now,
-    { control: ctx.control, history: { record: (event) => ctx.history.push(event) } }
+    { workOffset: provenOffset, control: ctx.control, history: { record: (event) => ctx.history.push(event) } }
   );
   services.push(ctx.service);
   ctx.state = () => ctx.service.list()[0];

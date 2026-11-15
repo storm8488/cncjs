@@ -455,6 +455,9 @@ const laserCheck = (analysis, laser) => {
 //               parameters: {G54: {x,y,z}, …, G92: {…}, TLO: n} ($# if known, else null),
 //               homed: true when a homing cycle was seen complete since the last board restart,
 //               reportUnits: 'mm' | 'in' | null,
+//               offsetProven: false while the work offset the board applies is not proven equal to
+//                 `$#` (D2, work-offset.js): no work extent is compared then (G53 targets still are);
+//                 absent, the reported offset is taken as it is,
 //               laser: { sMax } only for a machine declared laser (adds `laser` to the result) }
 export const checkProgram = (analysis, machine = {}) => {
   const s = machine.settings || {};
@@ -555,6 +558,11 @@ export const checkProgram = (analysis, machine = {}) => {
     if (offset[axis] === null && (extent || analysis.unknownAxes[axis])) {
       reasons.push(reason('ETOUCH_CHECK_POSITION_UNKNOWN', { axis }, 'Position machine ou de travail ' + axis + ' inconnue.'));
     }
+    // D2: a work extent means nothing in machine coordinates until the offset is proven.
+    const unproven = machine.offsetProven === false && !!extent;
+    if (unproven) {
+      reasons.push(reason('ETOUCH_CHECK_OFFSET_UNPROVEN', {}, 'Origine de la pièce pas encore vérifiée auprès de la carte : course non vérifiable.'));
+    }
     const entry = { axis, verdict: 'unknown', min: null, max: null, low: null, high: null, reasons: [], codedReasons: [] };
     if (extent) {
       entry.min = extent.min * scale;
@@ -587,7 +595,7 @@ export const checkProgram = (analysis, machine = {}) => {
       }
     };
     if (entry.low !== null && !global.length) {
-      if (extent && offset[axis] !== null) {
+      if (extent && offset[axis] !== null && !unproven) {
         compare(entry.min + offset[axis], entry.max + offset[axis], 'ETOUCH_CHECK_OUTSIDE', 'Hors course ' + axis + ' : ', ' mm machine');
       }
       if (machineExtent) {

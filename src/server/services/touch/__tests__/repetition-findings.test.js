@@ -10,6 +10,7 @@ import path from 'path';
 import { createService } from '../job-service';
 import { createControl } from '../control';
 import { buildResume } from '../resume';
+import { provenOffset } from './support/proven-offset';
 
 const fakeController = (port = 'TEST') => {
   const c = {
@@ -87,7 +88,7 @@ const setup = () => {
     { get: () => ctx.controllers },
     { get: (key) => ({ watchDirectory: root, macros: [], events: [] }[key]) },
     () => ctx.now,
-    { history: { record: (e) => ctx.logged.push(e) }, control: createControl({ clock: () => ctx.now }) }
+    { workOffset: provenOffset, history: { record: (e) => ctx.logged.push(e) }, control: createControl({ clock: () => ctx.now }) }
   );
   services.push(ctx.service);
   ctx.generation = ctx.service.list()[0].generation;

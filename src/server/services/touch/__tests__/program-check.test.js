@@ -494,7 +494,9 @@ describe('program check (F2): coded reasons (ETOUCH_CHECK_*)', () => {
     ['ETOUCH_CHECK_RELATIVE_FROM_UNKNOWN', P('G21 G90', 'G0 X0', 'G91', 'G0 Y5'), {}, { line: 4, axis: 'Y' }],
     ['ETOUCH_CHECK_ARC_PLANE', P('G21 G90 G18', 'G0 X0 Z0', 'G2 X10 Z0 I5 K0 F100'), {}, { line: 3 }],
     ['ETOUCH_CHECK_ARC_FROM_UNKNOWN', P('G21 G90', 'G0 X0', 'G2 X10 Y0 I5 J0 F100'), {}, { line: 3 }],
-    ['ETOUCH_CHECK_ARC_RADIUS', P('G21 G90', 'G0 X0 Y0', 'G2 X10 Y0 R1 F100'), {}, { line: 3 }]
+    ['ETOUCH_CHECK_ARC_RADIUS', P('G21 G90', 'G0 X0 Y0', 'G2 X10 Y0 R1 F100'), {}, { line: 3 }],
+    // D2: the work offset not proven against $# yet (work-offset.js).
+    ['ETOUCH_CHECK_OFFSET_UNPROVEN', SQUARE, { offsetProven: false }, {}]
   ];
   // Every list of reasons has its coded twin: same length, same order, same text.
   const expectParallel = (r) => {
@@ -518,7 +520,7 @@ describe('program check (F2): coded reasons (ETOUCH_CHECK_*)', () => {
   test('every ETOUCH_CHECK_* row of the client catalog is emitted by one case above', () => {
     const catalog = catalogCodes().filter((code) => /^ETOUCH_CHECK_/.test(code)).sort();
     expect(cases.map(([code]) => code).sort()).toEqual(catalog);
-    expect(catalog).toHaveLength(29);
+    expect(catalog).toHaveLength(30);
   });
 
   test('French reasons and verdicts are those of the uncoded check; a validated program has none', () => {

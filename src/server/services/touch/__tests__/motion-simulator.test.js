@@ -8,6 +8,7 @@ import { createService } from '../job-service';
 import { createControl } from '../control';
 // The simulator as a CNCjs controller (support/sim-bridge.js, shared with the LUNYEE tests).
 import { bridge } from './support/sim-bridge';
+import { provenOffset } from './support/proven-offset';
 
 const GrblSimulator = require('../../../../../grbl-simulator/grbl-simulator');
 
@@ -40,7 +41,7 @@ describe('real motion against the Grbl 1.1h simulator (F1)', () => {
     sim.settings[110] = 1000;
     sim.settings[111] = 1000;
     c = bridge(sim);
-    service = createService({ get: () => ({ SIM: c }) }, { get: (key) => ({ 'touch.motion.enabled': true, events: [], macros: [] }[key]) }, undefined, { control: createControl() });
+    service = createService({ get: () => ({ SIM: c }) }, { get: (key) => ({ 'touch.motion.enabled': true, events: [], macros: [] }[key]) }, undefined, { workOffset: provenOffset, control: createControl() });
     service.list();
     service.openTransport('tA', A);
     await wait(60);

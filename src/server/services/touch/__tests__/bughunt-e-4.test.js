@@ -14,6 +14,7 @@ import { promises as fs } from 'fs';
 import os from 'os';
 import path from 'path';
 import { createService } from '../job-service';
+import { provenOffset } from './support/proven-offset';
 
 const fakeController = () => {
   const c = {
@@ -60,7 +61,7 @@ test('E-4 : travail chargé par la tablette, démarré et terminé depuis le PC 
     { get: () => ({ TEST: c }) },
     { get: (key) => ({ watchDirectory: root, macros: [], events: [] }[key]) },
     () => now,
-    { history: { record: (e) => recorded.push(e) } }
+    { workOffset: provenOffset, history: { record: (e) => recorded.push(e) } }
   );
   try {
     const generation = service.list()[0].generation;

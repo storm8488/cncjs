@@ -19,6 +19,7 @@ import config from '../../configstore';
 import { createController } from '../../../controllers/__tests__/helpers/createController';
 import { createService } from '../job-service';
 import { createControl } from '../control';
+import { provenOffset } from './support/proven-offset';
 
 jest.mock('../../../lib/logger', () => {
   const l = () => ({ error: () => {}, warn: () => {}, info: () => {}, verbose: () => {}, debug: () => {}, silly: () => {} });
@@ -50,7 +51,12 @@ beforeEach(async () => {
   writes = made.writes;
   clearInterval(controller.queryTimer);
   const registry = { '/dev/null': controller };
-  service = createService({ get: () => registry }, { get: (key, def) => ({ watchDirectory: root, events: [], macros: [] }[key] ?? def) }, undefined, { control: createControl() });
+  service = createService(
+    { get: () => registry },
+    { get: (key, def) => ({ watchDirectory: root, events: [], macros: [] }[key] ?? def) },
+    undefined,
+    { workOffset: provenOffset, control: createControl() }
+  );
   service.list();
   service.openTransport('tA', A);
 

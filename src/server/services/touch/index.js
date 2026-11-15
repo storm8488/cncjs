@@ -118,16 +118,35 @@ const fullHoming = (kind, cmdOrData) => {
   return kind === 'writeln' && typeof cmdOrData === 'string' && /^[ \t]*\$h[ \t]*$/i.test(cmdOrData);
 };
 
+// Socket commands and raw writes that stop or hold the machine (PLAN-CORRECTIONS § 1.6).
+const SOCKET_STOP_COMMANDS = ['gcode:stop', 'stop', 'feeder:stop', 'feedhold', 'gcode:pause', 'pause', 'reset'];
+const socketStopping = (kind, cmdOrData) => {
+  if (kind === 'command') {
+    return SOCKET_STOP_COMMANDS.includes(cmdOrData);
+  }
+  const line = String(cmdOrData === undefined || cmdOrData === null ? '' : cmdOrData).replace(/[\r\n]/g, '').trim();
+  return line.length > 0 && Array.from(line).every((ch) => ch === '!' || ch === '\x18');
+};
+
 const refuseSocket = (socket, port, kind, cmdOrData) => {
   if (!control) {
     return null;
   }
   const safe = kind === 'command' ? safeCommand(cmdOrData) : safeWrite(cmdOrData);
+  // A stop ends the work offset check (D2) where it is, then goes its own way.
+  if (safe && socketStopping(kind, cmdOrData)) {
+    service.socketStop(port);
+  }
   try {
     control.authorize(port, socketActor(socket), kind === 'command' ? cmdOrData : kind, { safe });
     // Allowed: what it sends decides whether a homing cycle seen next may teach the
     // travel convention (job-service socketCommand). Stops and status queries change nothing.
     if (!safe) {
+      // Nothing that moves or writes passes between two lines of the work offset check (D2).
+      const busy = service.socketRefusal(port);
+      if (busy) {
+        return { message: busy.message, code: busy.code };
+      }
       service.socketCommand(port, fullHoming(kind, cmdOrData));
     }
     return null;

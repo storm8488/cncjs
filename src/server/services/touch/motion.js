@@ -975,6 +975,8 @@ export const createMotion = (deps) => {
     const entry = { event: 'origin', controller: controllerInfo(c, r), wcs, axes, machine, command: line, actor: actor || null };
     return new Promise((resolve, reject) => {
       const fail = (message) => {
+        // The G10 may have been written: the offset is proven anew (D2).
+        r.offset.invalidate('zero');
         s.lastOrigin = { at: Date.now(), wcs, axes, failed: message };
         log({ ...entry, result: 'failed', reason: message });
         changed();
@@ -1010,6 +1012,8 @@ export const createMotion = (deps) => {
             return;
           }
           s.lastOrigin = { at: Date.now(), wcs, axes, machine };
+          // The G10 loads the offset again: it is proven anew (D2).
+          r.offset.invalidate('zero');
           log({ ...entry, result: 'set' });
           changed();
           resolve({ message: 'Origine ' + axes.join(' ') + ' du repère ' + wcs + ' réglée à la position actuelle (' + line + ').' });

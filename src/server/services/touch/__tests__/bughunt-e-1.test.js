@@ -24,6 +24,7 @@ import { createControl } from '../control';
 import { fingerprint as sha256 } from '../program-identity';
 import { signatureOf } from '../machine-profile';
 import { expectCatalogMatch } from './touch-codes-catalog';
+import { provenOffset } from './support/proven-offset';
 
 describe('E-1 : $23 et le contrôle de course serveur', () => {
   test('Grbl 1.1 standard, bit X de $23 à 1, MPos X=-350 après $H : un programme X 0→60 (machine -350→-290) n’est pas hors course', () => {
@@ -124,7 +125,12 @@ describe('E-1 (suite) : cadrage laser refusé à tort sur une machine $23=3 (Grb
       fingerprintOf: () => Promise.resolve({ fingerprint: sha256(Buffer.from(PROGRAM)), size: 1, mtimeMs: 1 })
     };
     const control = createControl({ now: () => ctx.now, elapsed: () => ctx.now });
-    const service = createService({ get: () => ({ TEST: ctx.c }) }, config, () => ctx.now, { control, history: { record: () => {} }, files });
+    const service = createService(
+      { get: () => ({ TEST: ctx.c }) },
+      config,
+      () => ctx.now,
+      { workOffset: provenOffset, control, history: { record: () => {} }, files }
+    );
     services.push(service);
     const generation = service.list()[0].generation;
     service.openTransport('tA', A);

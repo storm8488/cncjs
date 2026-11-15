@@ -14,6 +14,7 @@ import { promises as fs } from 'fs';
 import os from 'os';
 import path from 'path';
 import { createService } from '../job-service';
+import { provenOffset } from './support/proven-offset';
 
 const fakeController = () => {
   const c = {
@@ -57,7 +58,8 @@ test('E-5 : flux fermé pendant prepare(start) → aucune confirmation en attent
   const service = createService(
     { get: () => ({ TEST: c }) },
     { get: (key) => ({ watchDirectory: root, macros: [], events: [] }[key]) },
-    () => 10000
+    () => 10000,
+    { workOffset: provenOffset }
   );
   try {
     const generation = service.list()[0].generation;

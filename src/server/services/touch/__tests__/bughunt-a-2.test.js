@@ -7,6 +7,7 @@
 // éteint pendant que la broche tourne, sans M5 possible jusqu'au retour du service.
 import { EventEmitter } from 'events';
 import { createService } from '../job-service';
+import { provenOffset } from './support/proven-offset';
 
 const fakeController = (port = 'TEST') => {
   const c = {
@@ -38,7 +39,7 @@ afterEach(() => {
 
 test('A-2 : une commande hôte sensible est refusée pendant que la broche tourne (Idle, M3 S12000 rapporté)', () => {
   const ctx = { now: 10000, c: fakeController() };
-  ctx.service = createService({ get: () => ({ TEST: ctx.c }) }, { get: () => [] }, () => ctx.now);
+  ctx.service = createService({ get: () => ({ TEST: ctx.c }) }, { get: () => [] }, () => ctx.now, { workOffset: provenOffset });
   services.push(ctx.service);
   ctx.service.list(); // enregistre le contrôleur (écouteur de rapports)
   ctx.c.runner.emit('status');

@@ -9,6 +9,7 @@ import {
   DISABLED_MESSAGE, KEEPALIVE_TIMEOUT_MS, FALLBACK_MAX_FEED, SESSION_MARGIN_MS
 } from '../motion';
 import { catalogCodes, expectCatalogMatch } from './touch-codes-catalog';
+import { provenOffset } from './support/proven-offset';
 
 // A fake Grbl controller: `written` holds the exact bytes GrblController
 // would put on the serial line for the commands the service uses
@@ -71,7 +72,7 @@ const setup = ({ enabled = true, homed = false, hasKey = true } = {}) => {
     { get: () => ctx.controllers },
     { get: (key) => ({ ...(hasKey ? { 'touch.motion.enabled': ctx.enabled } : {}), events: [], macros: [] }[key]) },
     () => ctx.now,
-    { control: ctx.control, history: { record: (event) => ctx.history.push(event) } }
+    { workOffset: provenOffset, control: ctx.control, history: { record: (event) => ctx.history.push(event) } }
   );
   services.push(ctx.service);
   ctx.generation = ctx.service.list()[0].generation;
@@ -1808,7 +1809,7 @@ describe('cross-check 6 · 2. D1 : position machine déduite de WPos ($10 sans l
       { get: () => ({ TEST: c }) },
       { get: (key) => ({ 'touch.motion.enabled': true, events: [], macros: [] }[key]) },
       () => box.now,
-      { control: createControl({ now: () => box.now, elapsed: () => box.now }), history: { record: () => {} } }
+      { workOffset: provenOffset, control: createControl({ now: () => box.now, elapsed: () => box.now }), history: { record: () => {} } }
     );
     services.push(service);
     service.openTransport('tA', A);
@@ -2026,7 +2027,7 @@ describe('motion, cross-check 7', () => {
       { get: () => ({ TEST: ctx.c }) },
       { get: (key) => ({ 'touch.motion.enabled': ctx.enabled, events: [], macros: [] }[key]) },
       () => ctx.now,
-      { control: ctx.control, history: { record: (e) => ctx.history.push(e) } }
+      { workOffset: provenOffset, control: ctx.control, history: { record: (e) => ctx.history.push(e) } }
     );
     services.push(ctx.service);
     ctx.generation = ctx.service.list()[0].generation;
@@ -2092,7 +2093,7 @@ describe('motion, cross-check 7', () => {
       { get: () => ({ TEST: c }) },
       { get: (key) => ({ 'touch.motion.enabled': true, events: [], macros: [] }[key]) },
       () => box.now,
-      { control: createControl({ now: () => box.now, elapsed: () => box.now }), history: { record: () => {} } }
+      { workOffset: provenOffset, control: createControl({ now: () => box.now, elapsed: () => box.now }), history: { record: () => {} } }
     );
     services.push(service);
     service.openTransport('tA', A);

@@ -11,6 +11,7 @@ import { createService } from '../job-service';
 import { createStream } from '../touch-stream';
 import { createControl } from '../control';
 import { createHistory } from '../history';
+import { provenOffset } from './support/proven-offset';
 
 const fakeTimers = () => {
   let id = 0;
@@ -99,7 +100,7 @@ test('la rotation planifiée du flux de la tablette pilote n’écrit rien dans 
     onEvent: (event) => history.record({ event: 'control', change: event.type, port: event.port, owner: event.owner })
   });
   const c = fakeController();
-  const service = createService({ get: () => ({ A: c }) }, { get: (k) => (k === 'watchDirectory' ? dir : []) }, () => box.now, { control, history });
+  const service = createService({ get: () => ({ A: c }) }, { get: (k) => (k === 'watchDirectory' ? dir : []) }, () => box.now, { workOffset: provenOffset, control, history });
   const stream = createStream(service, { clock: () => box.now, timers });
   const A = { kind: 'touch', id: 't-abc-1234', label: 'Tablette 1234', user: '' };
 

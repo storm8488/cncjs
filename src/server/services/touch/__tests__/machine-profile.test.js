@@ -14,6 +14,7 @@ import {
   signatureOf, settingsRead, matchMachine, describeProfile, firmwareFamily, createProfiles, MECHANICS
 } from '../machine-profile';
 import { catalogCodes, expectCatalogMatch } from './touch-codes-catalog';
+import { provenOffset } from './support/proven-offset';
 
 const SETTINGS = {
   $10: '1',
@@ -132,7 +133,7 @@ const setup = ({ machines = [], enabled = true, homed = true, settings = SETTING
     fingerprintOf: (name) => Promise.resolve({ fingerprint: sha256(Buffer.from(ctx.programs[name])), size: 1, mtimeMs: 1 })
   };
   const history = { record: (event) => ctx.history.push(event) };
-  ctx.service = createService({ get: () => ctx.controllers }, config, () => ctx.now, { control: ctx.control, history, files });
+  ctx.service = createService({ get: () => ctx.controllers }, config, () => ctx.now, { workOffset: provenOffset, control: ctx.control, history, files });
   services.push(ctx.service);
   ctx.generation = ctx.service.list()[0].generation;
   ctx.service.openTransport('tA', A);

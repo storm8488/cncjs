@@ -23,8 +23,10 @@ jest.mock('../../services/taskrunner', () => {
 // exercised for real); tests that only need the API wiring stub the reservation.
 jest.mock('../../services/touch', () => {
   const { createService } = require('../../services/touch/job-service');
+  // D2: this fake registry never answers `$#`; the work offset is taken as proven.
+  const { provenOffset } = require('../../services/touch/__tests__/support/proven-offset');
   const state = { registry: {}, now: 10000 };
-  const service = createService({ get: () => state.registry }, { get: () => [] }, () => state.now);
+  const service = createService({ get: () => state.registry }, { get: () => [] }, () => state.now, { workOffset: provenOffset });
   return {
     __esModule: true,
     default: {

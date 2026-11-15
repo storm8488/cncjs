@@ -9,6 +9,8 @@ import { createHistory } from '../history';
 import { createControl } from '../control';
 import { fingerprint as sha256 } from '../program-identity';
 import monitor from '../../monitor';
+import { provenOffset } from './support/proven-offset';
+import { offsetRefusal, MESSAGES } from '../work-offset';
 
 // A fake Grbl controller that records commands and mimics the sender/workflow
 // transitions the service observes. It never touches a serial port.
@@ -86,7 +88,7 @@ const setup = (options = {}) => {
     { get: () => ctx.controllers },
     { get: (key) => ({ watchDirectory: root, macros: ctx.macros }[key] || ctx.events) },
     () => ctx.now,
-    options
+    { workOffset: provenOffset, ...options }
   );
   services.push(ctx.service);
   ctx.generation = ctx.service.list()[0].generation;
@@ -397,8 +399,12 @@ describe('job service', () => {
     const monoSpy = jest.spyOn(performance, 'now').mockImplementation(() => mono);
     try {
       const c = fakeController();
-      const service = createService({ get: () => ({ TEST: c }) },
-        { get: (key) => (key === 'watchDirectory' ? root : []) });
+      const service = createService(
+        { get: () => ({ TEST: c }) },
+        { get: (key) => (key === 'watchDirectory' ? root : []) },
+        undefined,
+        { workOffset: provenOffset }
+      );
       service.openTransport('t');
       const generation = service.list()[0].generation;
       const req = (action, extra = {}) => service.action({ port: 'TEST', generation, transportId: 't', action, ...extra });
@@ -649,7 +655,7 @@ describe('job service', () => {
     const ctx = setup();
     ctx.events = { macros: [{ id: 'm1', name: 'Dégagement Z', content: 'G53 G0 Z-5' }, { id: 'bad' }, null], events: [] };
     const config = { get: (key) => ({ watchDirectory: root, macros: ctx.events.macros, events: ctx.events.events })[key] };
-    const service = createService({ get: () => ctx.controllers }, config, () => ctx.now);
+    const service = createService({ get: () => ctx.controllers }, config, () => ctx.now, { workOffset: provenOffset });
     const generation = service.list()[0].generation;
     service.openTransport('t');
     const req = (action, extra = {}) => service.action({ port: 'TEST', generation, transportId: 't', action, ...extra });
@@ -1762,7 +1768,7 @@ describe('job service', () => {
       const c = fakeController();
       const controllers = { TEST: c };
       let now = 10000;
-      const service = createService({ get: () => controllers }, { get: () => [] }, () => now);
+      const service = createService({ get: () => controllers }, { get: () => [] }, () => now, { workOffset: provenOffset });
       services.push(service);
       c.runner.emit('status');
       c.runner.emit('status'); // nobody listened
@@ -2545,7 +2551,7 @@ const xvSetup = () => {
       return ctx.registry;
     }
   };
-  ctx.service = createService(store, { get: () => [] }, () => ctx.now);
+  ctx.service = createService(store, { get: () => [] }, () => ctx.now, { workOffset: provenOffset });
   services.push(ctx.service);
   ctx.stream = createStream(ctx.service, { clock: () => ctx.now, timers: ctx.timers });
   [ctx.tick] = ctx.timers.intervals.values();
@@ -2855,7 +2861,7 @@ describe('job service F5, cross-check 3', () => {
       { get: () => ctx.controllers },
       { get: (key) => ({ watchDirectory: root, macros: [] }[key] || ctx.events) },
       () => box.now,
-      { control, history: options.history }
+      { workOffset: provenOffset, control, history: options.history }
     );
     services.push(ctx.service);
     ctx.generation = ctx.service.list()[0].generation;
@@ -3160,7 +3166,7 @@ describe('job service A5 and F2, cross-check 3', () => {
     const ctx = { now: 10000, events: [], c: fakeController() };
     ctx.controllers = { TEST: ctx.c };
     const config = { get: (key) => ({ watchDirectory: root, macros: [] }[key] || ctx.events) };
-    ctx.service = createService({ get: () => ctx.controllers }, config, () => ctx.now, options);
+    ctx.service = createService({ get: () => ctx.controllers }, config, () => ctx.now, { workOffset: provenOffset, ...options });
     services.push(ctx.service);
     ctx.generation = ctx.service.list()[0].generation;
     ctx.transportId = 't';
@@ -3412,7 +3418,7 @@ commands: []
     ctx.controllers = { TEST: ctx.c };
     const store = { get: () => ctx.controllers };
     const config = { get: (key) => ({ watchDirectory: root, macros: [] }[key] || []) };
-    ctx.service = createService(store, config, () => box.now, { control });
+    ctx.service = createService(store, config, () => box.now, { workOffset: provenOffset, control });
     services.push(ctx.service);
     ctx.generation = ctx.service.list()[0].generation;
     ctx.transportId = 'stream-A';
@@ -3594,7 +3600,12 @@ describe('job service F5, cross-check 7', () => {
     const events = [];
     const control = createControl({ now: () => box.now, elapsed: () => box.now, graceMs: 60000, onEvent: (e) => events.push(e) });
     const ctx = { c: fakeController(), control, box, events };
-    ctx.service = createService({ get: () => ({ TEST: ctx.c }) }, { get: (key) => ({ watchDirectory: root, macros: [] }[key] || []) }, () => box.now, { control });
+    ctx.service = createService(
+      { get: () => ({ TEST: ctx.c }) },
+      { get: (key) => ({ watchDirectory: root, macros: [] }[key] || []) },
+      () => box.now,
+      { workOffset: provenOffset, control }
+    );
     services.push(ctx.service);
     ctx.generation = ctx.service.list()[0].generation;
     ctx.service.openTransport('stream-A', A);
@@ -3747,7 +3758,7 @@ describe('job service, final cross-check (xvf)', () => {
       { get: () => ctx.controllers },
       { get: (key) => ({ 'touch.motion.enabled': true, events: [], macros: [] }[key]) },
       () => ctx.now,
-      { control: ctx.control, history: { record: (event) => ctx.history.push(event) } }
+      { workOffset: provenOffset, control: ctx.control, history: { record: (event) => ctx.history.push(event) } }
     );
     services.push(ctx.service);
     ctx.generation = ctx.service.list()[0].generation;
@@ -3956,7 +3967,7 @@ describe('job service, re-check of c4c048c7 (xvg)', () => {
       { get: () => ctx.controllers },
       { get: (key) => ({ 'touch.motion.enabled': true, events: [], macros: [{ id: 'm1', name: 'M', content: 'G0 X0' }] }[key]) },
       () => ctx.now,
-      { control: ctx.control, history: { record: (event) => ctx.history.push(event) } }
+      { workOffset: provenOffset, control: ctx.control, history: { record: (event) => ctx.history.push(event) } }
     );
     services.push(ctx.service);
     ctx.generation = ctx.service.list()[0].generation;
@@ -4327,7 +4338,7 @@ describe('job service, re-check of 98941288 (xvh)', () => {
       { get: () => ctx.controllers },
       { get: (key) => ({ 'touch.motion.enabled': true, events: [], macros: [{ id: 'm1', name: 'M', content: 'G0 X0' }] }[key]) },
       () => ctx.now,
-      { control: ctx.control, history: { record: () => {} } }
+      { workOffset: provenOffset, control: ctx.control, history: { record: () => {} } }
     );
     services.push(ctx.service);
     ctx.generation = ctx.service.list()[0].generation;
@@ -4785,3 +4796,26 @@ describe('job service, re-check of 98941288 (xvh)', () => {
 });
 
 /* eslint-enable no-await-in-loop */
+
+describe('job service: the coded refusal behind each reason (snapshot `refusals`, PLAN-CORRECTIONS § 4.2)', () => {
+  test('a coded refusal is published with its code and values; a reason without a code is not', async () => {
+    let refusal = null;
+    const ctx = setup({ workOffset: () => ({ ...provenOffset(), proven: () => !refusal, refusal: () => refusal }) });
+    const state = await ctx.loaded();
+    expect(state).toMatchObject({ canStart: true, canMacro: true, refusals: {} });
+    refusal = offsetRefusal('ETOUCH_OFFSET_UNCONFIRMED', { detail: 'no-report' });
+    const now = ctx.state();
+    expect(now).toMatchObject({ canStart: false, startReason: MESSAGES.ETOUCH_OFFSET_UNCONFIRMED, canMacro: false });
+    expect(now.refusals).toEqual({
+      start: { code: 'ETOUCH_OFFSET_UNCONFIRMED', params: { detail: 'no-report' } },
+      macro: { code: 'ETOUCH_OFFSET_UNCONFIRMED', params: { detail: 'no-report' } }
+    });
+    // Refused too, by a French text without a code: not published in `refusals`.
+    expect(now.canResume).toBe(false);
+    expect(now.resumeReason).toBeTruthy();
+    expect(now.canUnlock).toBe(false);
+    expect(now.unlockReason).toBeTruthy();
+    refusal = null;
+    expect(ctx.state().refusals).toEqual({});
+  });
+});

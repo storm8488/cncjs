@@ -265,6 +265,8 @@ export const createPlateProbe = (deps) => {
         r.zeroZ = { at: Date.now(), thickness: p.thickness, machineZ: r.probing.machineZ, wcs: r.wcs };
         const retract = r.probing.retract;
         r.probing = null;
+        // The G10 loads the offset again: it is proven anew (D2).
+        r.offset.invalidate('zero');
         changed();
         return { message: 'Zéro Z réglé avec la plaque de ' + p.thickness + ' mm (contact à Z machine ' + fmt(r.zeroZ.machineZ) + ', repère ' + r.zeroZ.wcs + '). Outil dégagé à Z ' + fmt(retract) + '.' };
       })
@@ -275,6 +277,8 @@ export const createPlateProbe = (deps) => {
           r.job.probeFailed = true;
         }
         r.probing = null;
+        // The G10 may have been written (D2).
+        r.offset.invalidate('zero');
         changed();
         throw err;
       });

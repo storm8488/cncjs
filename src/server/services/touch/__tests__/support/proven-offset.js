@@ -1,16 +1,19 @@
 // `options.workOffset` for the services built by the tests written before D2: their fake
 // controllers do not answer `$#`, so the work offset is taken as proven, always. It exists
-// only under __tests__. The interface is the one PLAN-CORRECTIONS § 1.1 describes (a factory
-// called once per controller); lot S2 adjusts it to work-offset.js.
+// only under __tests__. Same interface as createWorkOffset (work-offset.js): a factory called
+// once per controller record.
 export const provenOffset = () => ({
   state: () => 'proven',
   proven: () => true,
   checking: () => false,
-  // Called at each status report; invalidations, stops and `verifyOffset` change nothing here.
+  // Called at each status report and $G report; invalidations, stops and `verifyOffset` change nothing here.
   tick: () => {},
+  modal: () => {},
   invalidate: () => {},
   cancel: () => {},
   verify: () => {},
+  retry: () => {},
+  refusal: () => null,
   snapshot: () => ({
     state: 'proven',
     code: null,
@@ -21,6 +24,7 @@ export const provenOffset = () => ({
     reported: null,
     reloaded: false,
     attempts: 0,
-    canVerify: false
-  })
+    canVerify: true
+  }),
+  signature: () => 'proven'
 });

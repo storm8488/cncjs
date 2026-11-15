@@ -366,12 +366,13 @@ const publicPlan = (plan) => {
 // deps (from job-service.js):
 //   config, clock(), conflict(message), controllers(), record(c), later(c, r, fn, ms, cancel), changed(), log(event),
 //   controllerInfo(c, r), allSettings(c), modalWcs(r), probeInput, control, transports, transportActors,
-//   zeroZReady(c), answers(c, r), quiet(c, r, t, ms), haltPlan(c), halt(c, plan), homingActive(r), requireCapability(c, name)
+//   zeroZReady(c), answers(c, r), quiet(c, r, t, ms), haltPlan(c), halt(c, plan), homingActive(r), requireCapability(c, name),
+//   offsetReady(c)  throws while the work offset is not proven equal to `$#` (D2, work-offset.js)
 // Returns { blockReady, bind, name, ticket, run, stop, forget, holds, transportClosed }.
 export const createBlockProbe = (deps) => {
   const {
     config, clock, conflict, controllers, record, later, changed, log, controllerInfo, allSettings, modalWcs,
-    probeInput, control, transports, transportActors, zeroZReady, answers, quiet, haltPlan, halt, homingActive, requireCapability
+    probeInput, control, transports, transportActors, zeroZReady, answers, quiet, haltPlan, halt, homingActive, requireCapability, offsetReady
   } = deps;
 
   // The cycle in progress on a record (also while it is stopping).
@@ -440,6 +441,8 @@ export const createBlockProbe = (deps) => {
     if (!test.done || !Number.isFinite(test.ageMs) || test.ageMs > TEST_MAX_AGE_MS || (failedAt !== null && !(probe.testedAt > failedAt))) {
       throw conflict(TEXT.test);
     }
+    // Every G38.3 runs in work coordinates (D2).
+    offsetReady(c);
   };
 
   const limitsFor = (travel) => {
@@ -1009,6 +1012,10 @@ export const createBlockProbe = (deps) => {
 
     const finish = () => {
       session.done = true;
+      // A G10 written (or maybe written) loads the offset again: it is proven anew (D2).
+      if (probing.written !== 'no') {
+        r.offset.invalidate('zero');
+      }
       if (runner) {
         runner.removeListener('startup', onStartup);
         runner.removeListener('alarm', onAlarm);
