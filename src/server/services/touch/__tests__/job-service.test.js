@@ -67,6 +67,7 @@ beforeAll(async () => {
   await fs.writeFile(path.join(root, 'resume.nc'), ['G21 G90 G94', 'M3 S9000', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200',
     'G1 X10 F800', 'G1 Y10', 'G1 X0', 'G0 Z5', 'M5', 'M30'].join('\n'));
   await fs.writeFile(path.join(root, 'square.nc'), ['G21 G90 G54 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-3 F100', 'G1 X40 F500', 'G1 Y30', 'G1 X0', 'G1 Y0', 'G0 Z5', 'M30'].join('\n'));
+  await fs.writeFile(path.join(root, 'wide.nc'), ['G21 G90 G54 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-3 F100', 'G1 X400 F500', 'G0 Z5', 'M30'].join('\n'));
 });
 
 afterAll(async () => {
@@ -2329,6 +2330,41 @@ describe('F2: the travel pre-check of the loaded program follows the machine sta
     ctx.c.runner.emit('startup', {});
     ctx.report();
     expect(ctx.state().homed).toBe(false);
+  });
+
+  // C-04 (A1-3): on the LUNYEE ($23=3) X and Y home towards their negative end and the board
+  // forces the origin there; our own homing cycle that ends at 0 teaches it to the check.
+  test('the homing convention learnt by our own cycle reaches the check: X and Y judged in [0, travel]', async () => {
+    const ctx = setup();
+    ctx.c.settings.settings = { ...ctx.c.settings.settings, $10: 1, $13: 0, $20: 1, $22: 1, $23: 3, $130: 408, $131: 396, $132: 130 };
+    const at = (activeState, m) => {
+      ctx.c.state.status = { activeState, mpos: { ...m }, wpos: { x: m.x - 100, y: m.y - 100, z: m.z + 115 } };
+      ctx.report();
+    };
+    ctx.c.state.parserstate = { modal: { wcs: 'G54', units: 'G21', distance: 'G90' } };
+    at('Alarm', { x: 37, y: 52, z: -8 });
+    ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
+    const home = await ctx.req('prepare', { operation: 'home' });
+    await ctx.req('home', { nonce: home.nonce });
+    at('Home', { x: 12, y: 30, z: -1 });
+    ctx.now += 20000;
+    at('Idle', { x: 0, y: 0, z: 0 });
+    at('Idle', { x: 150, y: 120, z: -100 });
+    ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
+    expect(ctx.state().homed).toBe(true);
+    await ctx.req('load', { file: 'square.nc' });
+    let check = ctx.state().programCheck;
+    expect(check.axes.X).toMatchObject({ verdict: 'validated', usable: { low: 0, high: 407.5 }, machineMin: 100, machineMax: 140 });
+    expect(check.axes.Y).toMatchObject({ verdict: 'validated', usable: { low: 0, high: 395.5 } });
+    expect(check.verdict).toBe('validated');
+    // 400 mm wide from X machine 100: X machine up to 500 for 408 of travel.
+    await ctx.req('load', { file: 'wide.nc' });
+    check = ctx.state().programCheck;
+    expect(check.axes.X).toMatchObject({ verdict: 'outside', machineMax: 500 });
+    // A homing cycle of another client (Home then Idle) teaches nothing: unknown again.
+    at('Home', { x: 5, y: 5, z: 0 });
+    at('Idle', { x: 150, y: 120, z: -100 });
+    expect(ctx.state().programCheck.axes.X.verdict).toBe('unknown');
   });
 
   test('a program that leaves its units to the machine, a stale $G, and a macro file: never a green light', async () => {

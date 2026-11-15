@@ -12,8 +12,15 @@
 // stable ETOUCH_CHECK_* code and the values of its French message, so a client
 // can show it in its own language; the French text is unchanged.
 
+// The homing convention per axis and the usable travel (C-04, C-06), shared with the moves.
+// Explicit extension: examples/cncjs-touch loads this module with Node's native ES module loader.
+// eslint-disable-next-line import/extensions
+import { envelopeOf, usableOf } from './motion.js';
+
 const MM_PER_INCH = 25.4;
+// Arc geometry only; travel comparisons are strict (float rounding guard only).
 const TOLERANCE_MM = 0.001;
+const ROUNDING_MM = 1e-9;
 const AXES = ['X', 'Y', 'Z'];
 const TWO_PI = 2 * Math.PI;
 
@@ -454,6 +461,9 @@ const laserCheck = (analysis, laser) => {
 //               modal: {units, distance, wcs} (fresh $G only, else null),
 //               parameters: {G54: {x,y,z}, …, G92: {…}, TLO: n} ($# if known, else null),
 //               homed: true when a homing cycle was seen complete since the last board restart,
+//               homeAt: where our last full homing cycle left the machine, with its $23
+//                 ({ X, Y, Z, mask }, job-service.js homeMpos) or null: an axis homed towards its
+//                 negative end found at 0 has the travel [0, $13x] (motion.js envelopeOf),
 //               reportUnits: 'mm' | 'in' | null,
 //               offsetProven: false while the work offset the board applies is not proven equal to
 //                 `$#` (D2, work-offset.js): no work extent is compared then (G53 targets still are);
@@ -528,6 +538,10 @@ export const checkProgram = (analysis, machine = {}) => {
     });
   }
   const mask = number(s.$23) || 0;
+  // The convention of each axis (motion.js envelopeOf): one candidate envelope, or two for an
+  // axis homed towards its negative end until our own homing found it at 0. Only the convention
+  // is taken from it: the reference and the positions are judged above.
+  const conventions = envelopeOf({ ...s, $22: 1, $23: mask }, true, { wcoSeen: true, homeAt: machine.homeAt || null });
   const softLimits = number(s.$20);
   if (softLimits === 1) {
     info.push('Limites logicielles Grbl actives ($20=1) : la carte refuserait elle-même un dépassement (alarme 2).');
@@ -543,7 +557,7 @@ export const checkProgram = (analysis, machine = {}) => {
     if (!extent && !machineExtent && !analysis.unknownAxes[axis]) {
       // The program never moves this axis: it stays where the operator left it.
       const idle = reason('ETOUCH_CHECK_AXIS_IDLE', { axis }, 'Axe ' + axis + ' non sollicité par le programme.');
-      axesOut[axis] = { axis, verdict: 'validated', min: null, max: null, low: null, high: null, reasons: [idle.message], codedReasons: [idle] };
+      axesOut[axis] = { axis, verdict: 'validated', min: null, max: null, low: null, high: null, usable: null, reasons: [idle.message], codedReasons: [idle] };
       return;
     }
     if (analysis.unknownAxes[axis]) {
@@ -563,7 +577,7 @@ export const checkProgram = (analysis, machine = {}) => {
     if (unproven) {
       reasons.push(reason('ETOUCH_CHECK_OFFSET_UNPROVEN', {}, 'Origine de la pièce pas encore vérifiée auprès de la carte : course non vérifiable.'));
     }
-    const entry = { axis, verdict: 'unknown', min: null, max: null, low: null, high: null, reasons: [], codedReasons: [] };
+    const entry = { axis, verdict: 'unknown', min: null, max: null, low: null, high: null, usable: null, reasons: [], codedReasons: [] };
     if (extent) {
       entry.min = extent.min * scale;
       entry.max = extent.max * scale;
@@ -571,26 +585,31 @@ export const checkProgram = (analysis, machine = {}) => {
     // Stock Grbl 1.1 keeps machine positions in [-travel, 0] whatever $23 says
     // (limits.c); a build with HOMING_FORCE_SET_ORIGIN, or Grbl_ESP32, gives
     // [0, travel] to an axis homed towards its negative end ($23 bit set). The
-    // report does not tell them apart (motion.js keeps both candidates): such an
-    // axis is not checked, never "inside" or "outside" from a guessed envelope.
+    // report does not tell them apart: such an axis is not checked, never
+    // "inside" or "outside" from a guessed envelope, until our own homing cycle
+    // found it at 0 under the same $23 (homeAt, C-04): then [0, travel] only.
+    // The bound away from the homing end keeps SOFT_LIMIT_MARGIN_MM (`usable`, C-06).
     if (travel !== null && travel > 0) {
-      if (Math.floor(mask / (2 ** i)) % 2 === 1) {
+      const candidates = conventions[axis].candidates;
+      if (!candidates || candidates.length !== 1) {
         const setting = '$' + (130 + i);
         const text = 'Sens de prise d’origine inversé ($23) en ' + axis + ' : selon la compilation du firmware, la course va de −' + setting + ' à 0 ou de 0 à ' + setting + ' ; axe non vérifié.';
         reasons.push(reason('ETOUCH_CHECK_HOMING_DIRECTION', { axis, setting: 130 + i }, text));
       } else {
-        entry.low = -travel;
-        entry.high = 0;
+        entry.low = candidates[0].low;
+        entry.high = candidates[0].high;
+        entry.usable = usableOf(candidates[0]);
       }
     }
     // With a doubtful reference (global), machine coordinates mean nothing:
     // no comparison at all, no false alarm. Otherwise what was followed is
-    // compared, even when another part of the program could not be.
+    // compared, even when another part of the program could not be: strictly
+    // with the usable bounds (no tolerance outwards).
     const outside = [];
     const compare = (min, max, code, label, unit) => {
       entry.machineMin = entry.machineMin === undefined ? min : Math.min(entry.machineMin, min);
       entry.machineMax = entry.machineMax === undefined ? max : Math.max(entry.machineMax, max);
-      if (min < entry.low - TOLERANCE_MM || max > entry.high + TOLERANCE_MM) {
+      if (min < entry.usable.low - ROUNDING_MM || max > entry.usable.high + ROUNDING_MM) {
         outside.push(reason(code, { axis, min: fmt(min), max: fmt(max), low: fmt(entry.low), high: fmt(entry.high) }, label + fmt(min) + ' → ' + fmt(max) + unit + ' (course ' + fmt(entry.low) + ' → ' + fmt(entry.high) + ').'));
       }
     };

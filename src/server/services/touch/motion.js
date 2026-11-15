@@ -46,6 +46,12 @@ export const FALLBACK_MAX_FEED = 500;
 export const MIN_FEED = 1;
 // A continuous jog stops this far before the end of the referenced travel.
 export const EDGE_MARGIN_MM = 1;
+// What the operator plans (a step, a program: program-check.js) keeps this far from the end of
+// the travel opposite the homing switch (C-06). Field fact on the LUNYEE ($132=130): a target at
+// Z −129.945 raised ALARM:2, one at −129.735 passed. A precaution until the board's own rule is
+// measured (test E-A), not a firmware rule. The homing end (0 in both conventions) stays exact:
+// the machine stands there after $H, and G53 G0 Z0 retracts must pass.
+export const SOFT_LIMIT_MARGIN_MM = 0.5;
 // Below this distance to the end of travel, no continuous jog starts.
 export const MIN_CONTINUOUS_MM = 0.5;
 const WATCH_MS = 50;
@@ -250,6 +256,13 @@ export const limitsAt = (env, pos, axis) => {
   };
 };
 
+// The usable part of travel limits (an envelope or limitsAt's intersection): the bound away from 0,
+// the end opposite the homing switch in both conventions, keeps SOFT_LIMIT_MARGIN_MM.
+export const usableOf = (limits) => ({
+  low: limits.low < 0 ? limits.low + SOFT_LIMIT_MARGIN_MM : limits.low,
+  high: limits.high > 0 ? limits.high - SOFT_LIMIT_MARGIN_MM : limits.high
+});
+
 // Longest planned duration of one `$J`: an unconfirmed cancel is repeated for
 // at least that long, and a jog never outlives its supervision by much.
 export const MAX_JOG_MS = 60000;
@@ -444,13 +457,15 @@ export const createMotion = (deps) => {
     const distance = p.direction * p.step;
     if (at.limits) {
       const target = pos + distance;
-      if (target < at.limits.low - 1e-6 || target > at.limits.high + 1e-6) {
+      // The far end keeps SOFT_LIMIT_MARGIN_MM (C-06); a step back inside from that band is allowed.
+      const usable = usableOf(at.limits);
+      if ((distance < 0 && target < usable.low - 1e-6) || (distance > 0 && target > usable.high + 1e-6)) {
         if (at.ambiguous) {
           throw conflict('Pas refusé : ' + at.ambiguous + '.');
         }
-        throw refusal('Pas refusé : ' + p.axis + ' sortirait de la course (' + fmt(target) + ' mm machine, course ' + fmt(at.limits.low) + ' → ' + fmt(at.limits.high) + ').',
+        throw refusal('Pas refusé : ' + p.axis + ' sortirait de la course (' + fmt(target) + ' mm machine, course ' + fmt(usable.low) + ' → ' + fmt(usable.high) + ').',
           'ETOUCH_MOTION_STEP_OUTSIDE',
-          { axis: p.axis, target: fmt(target), low: fmt(at.limits.low), high: fmt(at.limits.high) });
+          { axis: p.axis, target: fmt(target), low: fmt(usable.low), high: fmt(usable.high) });
       }
     }
     const ms = 60000 * p.step / p.feed;
@@ -1139,4 +1154,4 @@ export const createMotion = (deps) => {
   return { perform, precheck, stop, moving, originOperation, snapshot, signature, transportClosed, holds, forget, jogReady, bound, frame, enabled };
 };
 
-export default { createMotion, capabilitiesOf, envelopeOf, limitsAt, maxFeedOf, grblVersion, jogLine, originLine, motionEnabled };
+export default { createMotion, capabilitiesOf, envelopeOf, limitsAt, usableOf, maxFeedOf, grblVersion, jogLine, originLine, motionEnabled };

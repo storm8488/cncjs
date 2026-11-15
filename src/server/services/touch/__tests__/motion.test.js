@@ -251,7 +251,7 @@ describe('real jog (F1)', () => {
     await expect(ctx.motion('jog', { ...STEP, step: 10 })).rejects.toThrow(/Pas de 10 mm refusé.*référencement/);
     ctx.home();
     ctx.c.state.status.mpos.x = '-395.000';
-    await expect(ctx.motion('jog', { ...STEP, direction: -1, step: 10 })).rejects.toThrow(/sortirait de la course \(-405 mm machine, course -400 → 0\)/);
+    await expect(ctx.motion('jog', { ...STEP, direction: -1, step: 10 })).rejects.toThrow(/sortirait de la course \(-405 mm machine, course -399\.5 → 0\)/);
     // A 1 mm step is checked against the travel too once it is known.
     ctx.c.state.status.mpos.x = '-0.500';
     await expect(ctx.motion('jog', STEP)).rejects.toThrow(/sortirait/);
@@ -260,13 +260,40 @@ describe('real jog (F1)', () => {
     expect(ctx.c.written).toEqual(['$J=G91 G21 X10 F500\n']);
   });
 
+  // C-06 (A1-5): on the LUNYEE ($132=130) a target at Z −129.945 raised ALARM:2. A step keeps
+  // SOFT_LIMIT_MARGIN_MM before the end opposite the homing switch; the homing end stays exact.
+  test('a step keeps 0.5 mm before the far end of the travel, and may leave that band towards the inside', async () => {
+    const ctx = setup({ homed: true });
+    ctx.c.settings.settings.$132 = '130';
+    ctx.c.state.status.mpos.z = '-120.000';
+    // Target −130.000, the nominal end: refused, nothing written.
+    await expect(ctx.motion('jog', { ...STEP, axis: 'Z', direction: -1, step: 10, feed: 500 }))
+      .rejects.toThrow('Pas refusé : Z sortirait de la course (-130 mm machine, course -129.5 → 0).');
+    expect(ctx.c.written).toEqual([]);
+    // Target −129.6, inside the travel but in the band: refused too.
+    ctx.c.state.status.mpos.z = '-129.500';
+    await expect(ctx.motion('jog', { ...STEP, axis: 'Z', direction: -1, step: 0.1 })).rejects.toThrow(/Z sortirait de la course/);
+    expect(ctx.c.written).toEqual([]);
+    // In the band already: a step out of it towards the inside is allowed, one further out is not.
+    ctx.c.state.status.mpos.z = '-129.800';
+    await expect(ctx.motion('jog', { ...STEP, axis: 'Z', direction: -1, step: 0.1 })).rejects.toThrow(/Z sortirait de la course/);
+    await ctx.motion('jog', { ...STEP, axis: 'Z', direction: 1, step: 0.1 });
+    expect(ctx.c.written).toEqual(['$J=G91 G21 Z0.1 F500\n']);
+    ctx.settle();
+    // The homing end is exact: from Z −1, a 1 mm step up reaches 0.
+    ctx.c.state.status.mpos.z = '-1.000';
+    ctx.report();
+    await ctx.motion('jog', { ...STEP, axis: 'Z', direction: 1, step: 1 });
+    expect(ctx.c.written.at(-1)).toBe('$J=G91 G21 Z1 F500\n');
+  });
+
   test('25, 50 and 100 mm steps: referenced machine only, inside the travel, within 60 s', async () => {
     const ctx = setup();
     await expect(ctx.motion('jog', { ...STEP, step: 100 })).rejects.toThrow(/Pas de 100 mm refusé.*référencement/);
     await expect(ctx.motion('jog', { ...STEP, step: 30 })).rejects.toThrow(/pas invalide \(pas : 0,01 \/ 0,1 \/ 1 \/ 10 \/ 25 \/ 50 \/ 100 mm\)/);
     ctx.home();
     ctx.c.state.status.mpos.x = '-50.000';
-    await expect(ctx.motion('jog', { ...STEP, step: 100 })).rejects.toThrow(/sortirait de la course \(50 mm machine, course -400 → 0\)/);
+    await expect(ctx.motion('jog', { ...STEP, step: 100 })).rejects.toThrow(/sortirait de la course \(50 mm machine, course -399\.5 → 0\)/);
     await expect(ctx.motion('jog', { ...STEP, direction: -1, step: 100, feed: 50 })).rejects.toThrow(/Pas trop lent/);
     for (const step of [25, 50]) {
       await ctx.motion('jog', { ...STEP, direction: -1, step });
@@ -801,7 +828,7 @@ describe('cross-check 4 · 3. bornes', () => {
     const ctx = setup({ homed: true });
     ctx.c.settings.settings.$23 = '1';
     ctx.c.state.status.mpos.x = '1.500';
-    await expect(ctx.motion('jog', { ...STEP, direction: -1, step: 10 })).rejects.toThrow(/sortirait de la course \(-8.5 mm machine, course 0 → 400\)/);
+    await expect(ctx.motion('jog', { ...STEP, direction: -1, step: 10 })).rejects.toThrow(/sortirait de la course \(-8.5 mm machine, course 0 → 399\.5\)/);
     await ctx.motion('jog', { ...STEP, direction: -1, step: 1 });
     expect(ctx.c.written).toEqual(['$J=G91 G21 X-1 F500\n']);
   });
@@ -893,7 +920,7 @@ describe('cross-check 4 · 3. bornes', () => {
     ctx.settle();
     // Below 0 is outside the only convention left: refused, nothing written.
     const before = ctx.c.written.length;
-    await expect(ctx.motion('jog', { ...STEP, direction: -1, step: 0.1 })).rejects.toThrow(/X sortirait de la course \(-0\.1 mm machine, course 0 → 400\)/);
+    await expect(ctx.motion('jog', { ...STEP, direction: -1, step: 0.1 })).rejects.toThrow(/X sortirait de la course \(-0\.1 mm machine, course 0 → 399\.5\)/);
     expect(ctx.c.written.length).toBe(before);
     // An alarm forgets it with the homing: nothing moves until a new homing cycle is seen.
     ctx.c.runner.emit('alarm', 'ALARM:1');
@@ -995,10 +1022,10 @@ describe('cross-check 4 · 3. bornes', () => {
     Object.assign(ctx.c.state.status.mpos, ZERO);
     ctx.report();
     const before = ctx.c.written.length;
-    await expect(ctx.motion('jog', { ...STEP, direction: -1, step: 0.1 })).rejects.toThrow(/X sortirait de la course \(-0\.1 mm machine, course 0 → 400\)/);
-    await expect(ctx.motion('jog', { ...STEP, axis: 'Y', direction: -1, step: 0.1 })).rejects.toThrow(/Y sortirait de la course \(-0\.1 mm machine, course 0 → 400\)/);
+    await expect(ctx.motion('jog', { ...STEP, direction: -1, step: 0.1 })).rejects.toThrow(/X sortirait de la course \(-0\.1 mm machine, course 0 → 399\.5\)/);
+    await expect(ctx.motion('jog', { ...STEP, axis: 'Y', direction: -1, step: 0.1 })).rejects.toThrow(/Y sortirait de la course \(-0\.1 mm machine, course 0 → 399\.5\)/);
     // Z (bit 2 clear) keeps its single convention [-80, 0]: nothing above 0.
-    await expect(ctx.motion('jog', { ...STEP, axis: 'Z', step: 0.1 })).rejects.toThrow(/Z sortirait de la course \(0\.1 mm machine, course -80 → 0\)/);
+    await expect(ctx.motion('jog', { ...STEP, axis: 'Z', step: 0.1 })).rejects.toThrow(/Z sortirait de la course \(0\.1 mm machine, course -79\.5 → 0\)/);
     expect(ctx.c.written.length).toBe(before);
     // The tablet's guards are unchanged: spindle turning → steps of 0.1 mm at most, continuous refused.
     ctx.c.state.status.spindle = 12000;
@@ -1216,7 +1243,7 @@ describe('cross-check 4 · 3. bornes', () => {
     const ctx = setup({ homed: true });
     ctx.c.settings.settings.$23 = '1';
     ctx.c.state.status.mpos.x = '-395.000';
-    await expect(ctx.motion('jog', { ...STEP, direction: -1, step: 10 })).rejects.toThrow(/sortirait de la course \(-405 mm machine, course -400 → 0\)/);
+    await expect(ctx.motion('jog', { ...STEP, direction: -1, step: 10 })).rejects.toThrow(/sortirait de la course \(-405 mm machine, course -399\.5 → 0\)/);
     await ctx.motion('jog', { ...STEP, step: 10 });
     expect(ctx.c.written).toEqual(['$J=G91 G21 X10 F500\n']);
   });
@@ -2468,8 +2495,8 @@ describe('real moves (F1): stable refusal codes (ETOUCH_MOTION_*)', () => {
   test('ETOUCH_MOTION_STEP_OUTSIDE', async () => {
     const ctx = setup({ homed: true });
     ctx.c.state.status.mpos.x = '-395.000';
-    const err = await refused(ctx.motion('jog', { ...STEP, direction: -1, step: 10 }), 'ETOUCH_MOTION_STEP_OUTSIDE', { axis: 'X', target: '-405', low: '-400', high: '0' });
-    expect(err.message).toBe('Pas refusé : X sortirait de la course (-405 mm machine, course -400 → 0).');
+    const err = await refused(ctx.motion('jog', { ...STEP, direction: -1, step: 10 }), 'ETOUCH_MOTION_STEP_OUTSIDE', { axis: 'X', target: '-405', low: '-399.5', high: '0' });
+    expect(err.message).toBe('Pas refusé : X sortirait de la course (-405 mm machine, course -399.5 → 0).');
   });
 
   test('ETOUCH_MOTION_STEP_SLOW', async () => {

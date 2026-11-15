@@ -252,8 +252,9 @@ describe('program check (F2), cross-check 3: dépassements détectés', () => {
     const down = programCheck('G21 G90\nG0 Z5\nG1 Z-41 F100\nM30', machine());
     expect(down.axes.Z).toMatchObject({ verdict: 'outside', machineMin: -81 });
     expect(down.axes.Z.reasons[0]).toMatch(/Hors course Z : -81 → -35 mm machine \(course -80 → 0\)/);
-    // À la limite exacte : accepté (tolérance 1 µm).
-    expect(programCheck('G21 G90\nG0 Z40\nG1 Z-40 F100', machine()).axes.Z.verdict).toBe('validated');
+    // C-06: the far end (Z −80) keeps 0.5 mm, compared strictly; the homing end (Z 0) stays exact.
+    expect(programCheck('G21 G90\nG0 Z40\nG1 Z-39.5 F100', machine()).axes.Z.verdict).toBe('validated');
+    expect(programCheck('G21 G90\nG0 Z40\nG1 Z-40 F100', machine()).axes.Z.verdict).toBe('outside');
   });
 
   test('X avec repère G55 décalé lu dans $# : dépassement détecté là où G54 l’aurait validé', () => {
@@ -431,14 +432,15 @@ describe('program check (F2), cross-check 3: arcs', () => {
   // L1 (corrigé) : enveloppe exacte de l'arc ; un quart d'arc dans la course
   // près du bord n'est plus un faux « outside ».
   test('quart d’arc entièrement dans la course près du bord → validé (enveloppe exacte) ; le cercle complet au même endroit sort', () => {
-    const m = machine({ mpos: { x: -250, y: -200, z: -40 } });
+    // Origine à Y machine −199,5 : la borne utilisable du bout opposé à la prise d'origine (C-06).
+    const m = machine({ mpos: { x: -250, y: -199.5, z: -40 } });
     // Quart d'arc G2 de (0,0) à (10,10), centre (10,0) : y ∈ [0,10] réellement.
     const r = programCheck('G21 G90\nG0 X0 Y0\nG2 X10 Y10 I10 J0 F300', m);
-    expect(r.axes.Y).toMatchObject({ verdict: 'validated', machineMin: -200, machineMax: -190 });
+    expect(r.axes.Y).toMatchObject({ verdict: 'validated', machineMin: -199.5, machineMax: -189.5 });
     expect(r.verdict).toBe('validated');
     expect(programCheck('G21 G90\nG0 X0 Y0\nG1 X2.93 Y7.07 F300\nG1 X10 Y10', m).verdict).toBe('validated');
-    // Le même cercle parcouru en entier descend à y = -10 → Y machine -210.
-    expect(programCheck('G21 G90\nG0 X0 Y0\nG2 X0 Y0 I10 J0 F300', m).axes.Y).toMatchObject({ verdict: 'outside', machineMin: -210 });
+    // Le même cercle parcouru en entier descend à y = -10 → Y machine -209,5.
+    expect(programCheck('G21 G90\nG0 X0 Y0\nG2 X0 Y0 I10 J0 F300', m).axes.Y).toMatchObject({ verdict: 'outside', machineMin: -209.5 });
   });
 
   test('arc en G18/G19 ou en G90.1 : inconnu, jamais validé', () => {
@@ -561,5 +563,61 @@ describe('program check (F2): coded reasons (ETOUCH_CHECK_*)', () => {
     expect(r.verdict).toBe('unknown');
     expect(r.codedReasons).toEqual([{ code: null, params: {}, message: 'Code G5 (ligne 3) non interprété.' }]);
     expect(r.reasons).toEqual(['Code G5 (ligne 3) non interprété.']);
+  });
+});
+
+// The LUNYEE 4040 (Grbl_Esp32, $23=3): X and Y home towards their negative end and the board
+// forces the origin there ([0, +$130], [0, +$131]); Z homes towards + ([−$132, 0]). Work origin
+// at machine (100, 100, −115).
+const LUNYEE = { $13: '0', $20: '1', $22: '1', $23: '3', $130: '408', $131: '396', $132: '130' };
+const lunyee = (over = {}) => machine({
+  settings: LUNYEE,
+  mpos: { x: 150, y: 120, z: -100 },
+  wpos: { x: 50, y: 20, z: 15 },
+  ...over
+});
+// Our own full homing cycle, seen in Home, ended at MPos 0,0,0 under $23=3 (job-service.js homeMpos).
+const LEARNT = { X: 0, Y: 0, Z: 0, mask: 3 };
+
+describe('program check: homing convention learnt (C-04) and margin before the far limit (C-06)', () => {
+  test('convention learnt by our homing (X, Y at 0 under the same $23): X and Y are checked in [0, travel]', () => {
+    const r = programCheck(SQUARE, lunyee({ homeAt: LEARNT }));
+    // X machine 100 → 140, Y 100 → 130, Z −118 → −110.
+    expect(r.axes.X).toMatchObject({ verdict: 'validated', low: 0, high: 408, usable: { low: 0, high: 407.5 }, machineMin: 100, machineMax: 140 });
+    expect(r.axes.Y).toMatchObject({ verdict: 'validated', low: 0, high: 396, usable: { low: 0, high: 395.5 } });
+    expect(r.axes.Z).toMatchObject({ verdict: 'validated', low: -130, high: 0, usable: { low: -129.5, high: 0 } });
+    expect(r.verdict).toBe('validated');
+    // 400 mm wide from X machine 100: X machine up to 500 for 408 of travel.
+    const wide = programCheck('G21 G90 G54\nG0 Z5\nG0 X0 Y0\nG1 Z-3 F100\nG1 X400 F500\nG0 Z5', lunyee({ homeAt: LEARNT }));
+    expect(wide.axes.X).toMatchObject({ verdict: 'outside', machineMax: 500 });
+    expect(wide.verdict).toBe('outside');
+  });
+
+  test('without that lesson X and Y stay unknown: no homing of ours, another $23, an end away from 0', () => {
+    [null, { ...LEARNT, mask: 1 }, { ...LEARNT, X: -405, Y: -393 }].forEach((homeAt) => {
+      const r = programCheck(SQUARE, lunyee({ homeAt }));
+      ['X', 'Y'].forEach((axis) => {
+        expect(r.axes[axis]).toMatchObject({ verdict: 'unknown', low: null, high: null, usable: null });
+        expect(r.axes[axis].codedReasons.map((c) => c.code)).toEqual(['ETOUCH_CHECK_HOMING_DIRECTION']);
+      });
+      // Z (bit clear) has a single convention either way.
+      expect(r.axes.Z.verdict).toBe('validated');
+    });
+  });
+
+  test('a Z target at −129.945 machine (ALARM:2 on the real board) is outside; −129.5 is the last one inside', () => {
+    // A1-5: origin at Z machine −115; the program goes down to Z −14.945, i.e. −129.945 machine.
+    const deep = programCheck('G21 G90\nG0 Z5\nG1 Z-14.945 F300\nG0 Z5\n', lunyee());
+    expect(deep.axes.Z.machineMin).toBeCloseTo(-129.945, 3);
+    expect(deep.axes.Z.verdict).toBe('outside');
+    expect(programCheck('G21 G90\nG0 Z5\nG1 Z-14.5 F300\nG0 Z5\n', lunyee()).axes.Z.verdict).toBe('validated');
+    expect(programCheck('G21 G90\nG0 Z5\nG1 Z-14.501 F300\nG0 Z5\n', lunyee()).axes.Z.verdict).toBe('outside');
+    // The homing end stays exact: G53 G0 Z0 and a work Z reaching machine 0.
+    expect(programCheck('G21 G90\nG53 G0 Z0\nG0 Z115', lunyee()).axes.Z.verdict).toBe('validated');
+    // X and Y, convention learnt: 407.5 and 395.5 are the last usable positions.
+    expect(programCheck('G21 G90\nG0 X307.5 Y295.5', lunyee({ homeAt: LEARNT })).verdict).toBe('validated');
+    expect(programCheck('G21 G90\nG0 X307.6', lunyee({ homeAt: LEARNT })).axes.X.verdict).toBe('outside');
+    expect(programCheck('G21 G90\nG53 G0 X408', lunyee({ homeAt: LEARNT })).axes.X.verdict).toBe('outside');
+    expect(programCheck('G21 G90\nG0 X-100 Y-100', lunyee({ homeAt: LEARNT })).verdict).toBe('validated');
   });
 });

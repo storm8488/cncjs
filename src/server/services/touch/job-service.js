@@ -1484,6 +1484,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       modal: parser ? { units: parser.units, distance: parser.distance, wcs: parser.wcs } : null,
       parameters,
       homed: r.homed === true,
+      // The homing convention our own full cycle taught (C-04): an axis homed towards its
+      // negative end found at 0 is checked in [0, $13x]. Learnt only from a trusted machine
+      // position (homeEnd), so no other position fact is needed here.
+      homeAt: r.homeMpos,
       reportUnits,
       // D2: until proven, what depends on the work offset is not compared (program-check.js).
       offsetProven: r.offset.proven(),
