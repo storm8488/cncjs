@@ -104,7 +104,7 @@ const m = (patch) => Object.assign({ port: 'A', activeState: 'Idle', workflow: '
     // eslint-disable-next-line no-await-in-loop
     await f.connect(f.machine({ activeState: 'Run', probing: true, canStart: false, startReason: 'Palpage en cours.', canLoad: false, loadReason: 'Palpage en cours.', canStop: true }));
     f.controls().render && f.controls().render();
-    assert.equal(f.el('job-reason').textContent, word, language + ': job-reason in the interface language');
+    assert.equal(f.el('job-state-reason').textContent, word, language + ': job-reason in the interface language');
     assert(f.el('file').textContent.endsWith(word), language + ': #file (Suivi) ends with the same reason: ' + f.el('file').textContent);
     // Guards unchanged: no start nor load during a probe cycle, Stop allowed.
     assert.equal(f.el('job-start').disabled, true); assert.equal(f.el('job-load').disabled, true); assert.equal(f.el('job-stop').disabled, false);
@@ -113,8 +113,8 @@ const m = (patch) => Object.assign({ port: 'A', activeState: 'Idle', workflow: '
   {
     const f = load({ language: 'es' });
     await f.connect(f.machine({ activeState: 'Hold:0', workflow: 'paused', canStart: false, canResume: false, resumeReason: 'La reprise exige une pause simple confirmée par la machine.', canPause: false, canStop: true }));
-    assert.equal(f.el('job-reason').textContent, es('La reprise exige une pause simple confirmée par la machine.'));
-    assert.notEqual(f.el('job-reason').textContent, 'La reprise exige une pause simple confirmée par la machine.');
+    assert.equal(f.el('job-state-reason').textContent, es('La reprise exige une pause simple confirmée par la machine.'));
+    assert.notEqual(f.el('job-state-reason').textContent, 'La reprise exige une pause simple confirmée par la machine.');
     assert.equal(f.el('job-resume').disabled, true);
   }
   // A feed hold given from the PC: CNCjs still runs, the machine holds; the server's reason is shown (N1, phase 7).
@@ -122,12 +122,12 @@ const m = (patch) => Object.assign({ port: 'A', activeState: 'Idle', workflow: '
     const n1 = 'Pause donnée hors de cet écran : touchez Pause, puis Reprendre.';
     const f = load({ language: 'es' });
     await f.connect(f.machine({ activeState: 'Hold:0', workflow: 'running', canStart: false, canResume: false, resumeReason: n1, canPause: true, canStop: true }));
-    assert.equal(f.el('job-reason').textContent, es(n1), 'N1 reason shown while running in Hold');
+    assert.equal(f.el('job-state-reason').textContent, es(n1), 'N1 reason shown while running in Hold');
     assert.equal(f.el('job-resume').disabled, true); assert.equal(f.el('job-pause').disabled, false); assert.equal(f.el('job-stop').disabled, false);
     // Running and moving: the plain « Travail en cours. » stays.
     const g = load({ language: 'es' });
     await g.connect(g.machine({ activeState: 'Run', workflow: 'running', canStart: false, canResume: false, resumeReason: 'La reprise exige une pause simple confirmée par la machine.', canPause: true, canStop: true }));
-    assert.equal(g.el('job-reason').textContent, es('Travail en cours.'));
+    assert.equal(g.el('job-state-reason').textContent, es('Travail en cours.'));
   }
   // Spanish messages of the rehearsal name the buttons with their Spanish labels (phase 7, Astra).
   for (const [message, button] of [['Fichier modifié depuis « Vérifier » : vérifiez à nouveau la reprise.', 'Vérifier'],

@@ -38,12 +38,12 @@ const body = { axes: 'XYZ', wcs: 'G54', diameter: 6, profile: { thickness: 5, fa
   // Astra (relecture page, n° 1): the server may move before the first state of its cycle reaches the page; Pause and
   // Arrêter target the probe at once, and keep it when the state is then lost.
   f.tick();
-  assert.equal(f.el('job-stop').disabled, false, 'Arrêter usable while the confirmed probe is awaited'); assert.equal(f.el('job-pause').disabled, false, 'Pause usable too');
+  assert.equal(require('./command-state-fixture.cjs')(f.window,'job-stop').disabled, false, 'Arrêter usable while the confirmed probe is awaited'); assert.equal(require('./command-state-fixture.cjs')(f.window,'job-pause').disabled, false, 'Pause usable too');
   assert.equal(f.lastStatus().machine.canStop, true);
   assert.equal(f.lastStatus().probeRun, 'COM3', 'the awaited probe published for the Sonde screen (probe-ui.js)');
   f.answer(run, { message: 'Origine G54 réglée par palpage XYZ.', blockProbe: { id: 'b1', state: 'done' } }); await f.flush();
-  assert.equal(f.el('job-feedback').textContent, 'Origine G54 réglée par palpage XYZ.');
-  f.tick(); assert.equal(f.el('job-stop').disabled, true, 'answered: Arrêter follows the server again');
+  assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Origine G54 réglée par palpage XYZ.');
+  f.tick(); assert.equal(require('./command-state-fixture.cjs')(f.window,'job-stop').disabled, true, 'answered: Arrêter follows the server again');
   // Astra n° 3: a refusal that comes back after the controller changed (new generation) is dropped like a late ticket.
   opened = c.prepareCommand('blockProbe', body); const late = f.posts().at(-1);
   f.push([f.machine({ generation: 'gen-2', canBlockProbe: true, operator: { wcs: 'G54' } })]); await f.flush();
@@ -59,7 +59,7 @@ const body = { axes: 'XYZ', wcs: 'G54', diameter: 6, profile: { thickness: 5, fa
   // The server no longer allows it (contact before the run): the dialog closes and says why.
   f.push([f.machine({ canBlockProbe: false, blockProbeReason: 'Test du contact à faire : touchez l’outil avec le bloc puis relâchez (contact vu, puis libre) avant de palper.', operator: { wcs: 'G54' } })]); await f.flush();
   assert.equal(f.el('job-dialog').hidden, true);
-  assert.equal(f.el('job-feedback').textContent, 'Confirmation annulée : Test du contact à faire : touchez l’outil avec le bloc puis relâchez (contact vu, puis libre) avant de palper.');
+  assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Confirmation annulée : Test du contact à faire : touchez l’outil avec le bloc puis relâchez (contact vu, puis libre) avant de palper.');
   // A ticket is never kept for a machine that refuses: prepared, then refused before it opens.
   f.push([f.machine({ canBlockProbe: true, operator: { wcs: 'G54' } })]); await f.flush();
   opened = c.prepareCommand('blockProbe', body);

@@ -84,8 +84,8 @@ async function cases(entries) {
     ['outside perf-v2 nothing changes: v1 wide DOM, no sheet, no v2 node', async () => {
       const s = await suivi({v1: true}); s.send(); s.layout(true); s.p.frame();
       assert.equal(s.board.getAttribute('data-zones'), '2'); assert.equal(s.board.getAttribute('data-v2'), null);
-      assert.deepEqual(s.kids(s.left), ['job-art', 'tool-position-note', 'home-overrides']);
-      assert.deepEqual(s.kids(s.node('home-zone-gauges')), ['t-card home-progress', 'home-gauge-eta', 'home-coords', 'home-live-tiles', 'home-gauge-overrides', 'home-gauge-curve']);
+      assert.deepEqual(s.kids(s.left), ['job-art', 'tool-position-note', 'home-gauge-curve', 'home-stop']);
+      assert.equal(s.ov.parentNode,s.metrics,'all override rows in the permanent metrics column');
       assert.equal(s.opened.length, 0); assert(!s.dom.nodes['home-v2-confidence'] && !s.dom.nodes['perf-v2-overrides-sheet-content'], 'no v2 element built');
       // A cnc-v2-change on a v1 page re-arranges nothing.
       const before = s.shape(); s.p.emit('cnc-v2-change', s.p.api.state()); s.p.frame(); assert.equal(s.shape(), before);
@@ -96,25 +96,15 @@ async function cases(entries) {
       s.p.classes.add('perf-v2'); s.p.emit('cnc-v2-change', s.p.api.state());
       assert.equal(s.board.getAttribute('data-v2'), null, 'no grid change inside the event handler'); s.p.frame();
       assert.equal(s.board.getAttribute('data-v2'), 'suivi'); assert.equal(s.board.getAttribute('data-zones'), '2');
-      assert.deepEqual(s.kids(s.left), ['job-art', 'home-v2-confidence', 'tool-position-note', 'home-v2-sequence']);
-      assert.deepEqual(s.kids(s.node('home-zone-gauges')), ['t-card home-progress', 'home-gauge-eta', 'home-coords', 'home-gauge-curve', 'home-overrides']);
-      assert.equal(s.node('home-v2-position').parentNode, s.node('home-coords'), 'position state beside the reported coordinates');
-      assert.deepEqual(s.kids(s.node('home-gauge-curve')), ['home-gauge-curve-title', 'home-live-tiles', 'SVG', 'home-v2-curve-axis'], 'reported feed and S head the curve card');
-      assert.deepEqual(s.kids(s.node('home-v2-curve-axis')).slice(1, 2), ['home-v2-curve-events']);
-      assert.deepEqual(s.kids(s.ov), ['home-overrides-head', 't-override', 'home-v2-more', 'home-gauge-overrides'], 'feed row in the column, spindle/rapids in their sheet');
-      // D1: fixed slots. Messages that come and go (spindle warning, override reason, ready line, resume
-      // help, feedback) share one scrolling message slot; the commands have their own fixed action slot.
-      assert.deepEqual(s.kids(s.node('home-zone-controls')), ['home-v2-info', 'home-v2-actions', 'home-stop']);
-      assert.deepEqual(s.kids(s.node('home-v2-actions')), ['home-job-primary-row', 'home-job-resume-row']);
-      assert.deepEqual(s.kids(s.node('home-v2-info')), ['home-spindle-warning', 'home-job-note', 'home-job-ready', 'home-job-selection', 'home-job-feedback', 'home-override-note']);
-      const sheet = s.node('perf-v2-overrides-sheet-content'), time = s.node('perf-v2-time-sheet-content');
-      assert.deepEqual(sheet.children, [s.spindleRow, s.rapidRow, s.node('home-rapid-note')]);
-      assert.deepEqual(s.kids(time), ['home-v2-time-note', 'home-gauge-eta-second', 'home-gauge-eta-unknown']);
-      assert.equal(s.node('home-job-stop'), stop); assert.equal(s.node('home-job-pause'), pause);
-      assert.deepEqual(s.kids(s.node('home-zone-controls')).slice(-1), ['home-stop'], 'commands keep their order, Arrêter at the bottom');
+      assert.deepEqual(s.kids(s.left), ['job-art', 'tool-position-note', 'home-v2-sequence', 'home-gauge-curve', 'home-stop']);
+      assert.equal(s.ov.parentNode,s.metrics);assert.equal(s.spindleRow.parentNode,s.ov);assert.equal(s.rapidRow.parentNode,s.ov);
+      assert.equal(s.node('home-v2-position').parentNode,s.node('perf-v2-time-sheet-content'),'technical report in Details');
+      assert.deepEqual(s.kids(s.node('home-gauge-curve')),['home-gauge-curve-title','SVG','home-v2-curve-axis']);
+      assert.equal(s.node('home-job-stop'),stop);assert.equal(s.node('home-job-pause'),pause);
+      assert.equal(s.node('home-job-stop').parentNode.parentNode,s.left,'stop stays under the preview');
       // A wider window keeps one column: the curve never depends on three zones under v2.
       s.p.window.innerWidth = 1728; s.p.emit('resize'); s.p.frame();
-      assert.equal(s.board.getAttribute('data-zones'), '2'); assert.equal(s.node('home-gauge-curve').parentNode, s.node('home-zone-gauges'));
+      assert.equal(s.board.getAttribute('data-zones'), '2'); assert.equal(s.node('home-gauge-curve').parentNode, s.left);
       // Back out of perf-v2 at rest: exactly the v1 wide DOM, in order.
       s.p.window.innerWidth = 1366; s.p.classes.delete('perf-v2'); s.p.emit('cnc-v2-change', s.p.api.state()); s.p.frame();
       assert.equal(s.shape(), v1, 'v1 wide DOM restored'); assert.equal(s.board.getAttribute('data-v2'), null);
@@ -122,18 +112,17 @@ async function cases(entries) {
     ['Pause, Arrêter and override relays are the existing ones, also from the sheet', async () => {
       const s = await suivi(); s.send(); s.layout(true); s.p.frame();
       const clicks = [];s.p.window.cncJobControls.pause=()=>clicks.push('pause');s.p.window.cncJobControls.stop=()=>clicks.push('stop');
-      s.running(); s.node('home-job-pause').click(); s.node('home-job-stop').click(); assert.deepEqual(clicks, ['pause', 'stop']);
-      s.node('home-v2-more-overrides').click(); assert.deepEqual(s.opened, ['perf-v2-overrides-sheet']);
-      s.node('home-v2-time-detail').click(); assert.deepEqual(s.opened, ['perf-v2-overrides-sheet', 'perf-v2-time-sheet']);
+      s.running(); s.p.window.cncJobControls.pause(); s.node('home-job-stop').click(); assert.deepEqual(clicks, ['pause', 'stop']);
+      s.node('home-v2-time-detail').click(); assert.deepEqual(s.opened, ['perf-v2-time-sheet']);
       const button = s.spindleRow.children[0]; assert.equal(button.disabled, false, 'enabled by the same guard while running');
-      s.node('perf-v2-overrides-sheet-content').handlers.click({target: {closest: () => button}});
+      s.ov.handlers.click({target: {closest: () => button}});
       assert.deepEqual(s.overrides, [['spindle', 10]]);
       s.running({canOverride: false}); assert.equal(button.disabled, true, 'the moved buttons follow canOverride');
     }],
     ['observation: reset(identity), normalized facts, no rendering in the status handler', async () => {
       const s = await suivi(); s.send(); s.layout(true); s.p.frame();
-      const painted = s.text('home-v2-age'); assert.equal(painted, 'Rapport inconnu', 'no identity bound yet: unknown');
-      s.running({operator: {reportUnits: 'in', wcs: 'G55'}, feedrate: 10, coordinates: {wpos: {x: '1.5', y: '2', z: '-0.25'}}});
+      const painted = s.text('home-v2-age'); assert.equal(painted, 'Rapport frais · < 1 s', 'initial arranged status is already observed');
+      s.p.advance(1);s.running({operator: {reportUnits: 'in', wcs: 'G55'}, feedrate: 10, coordinates: {wpos: {x: '1.5', y: '2', z: '-0.25'}}});
       const o = s.obs().snapshot();
       assert.equal(o.identity.file, 'piece.nc'); assert.equal(o.identity.fingerprint, 'sha256:a'); assert(o.identity.jobKey);
       assert.equal(o.report.freshness, 'fresh'); assert.equal(o.report.units, 'in'); assert.equal(o.report.wcs, 'G55');
@@ -209,7 +198,7 @@ async function cases(entries) {
       assert.match(line, /^M[\d.]+ [\d.]+(L[\d.]+ [\d.]+)+/); assert.match(s.node('home-v2-curve-marks').getAttribute('d'), /^M[\d.]+ 0V70M[\d.]+ 0V70$/);
       assert.match(s.text('home-v2-curve-events'), /Corrections : 1/); assert.match(s.text('home-v2-curve-events'), /pauses : 1/);
       assert.match(s.text('home-gauge-curve-title'), /^Avance rapportée, dernière minute · 0 à 2\s000 mm\/min$/u);
-      const marks = s.obs().snapshot().markers; assert.deepEqual(JSON.parse(JSON.stringify(marks.map((m) => [m.kind, m.value, m.source]))),[['correction', 110, 'report'], ['pause', true, 'report']]);
+      const marks = s.obs().snapshot().markers; assert.deepEqual(JSON.parse(JSON.stringify(marks.map((m) => [m.kind, m.value, m.source]))),[['gap',null,'inferred'],['correction', 110, 'report'], ['pause', true, 'report']]);
       // A gap of data is a gap, not a line through it.
       s.p.advance(4000); s.running({feedrate: 900}); s.p.advance(1100); s.p.frame();
       assert.match(s.node('home-v2-curve-gaps').getAttribute('d'), /^M[\d.]+ 0H[\d.]+V70H[\d.]+Z/);

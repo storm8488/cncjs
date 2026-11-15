@@ -296,7 +296,7 @@ const MEASURE = String(function measure(goals) {
     if (c.contains('jog')) return 'jog';
     // "Charger la sélection" (home-load) is a secondary action by design (UI 2027: Démarrer or
     // Reprendre is the one primary action of Suivi), so it is measured against 48 px.
-    if (c.contains('t-btn--primary') || c.contains('t-btn--danger') || c.contains('t-btn--lg') || c.contains('job-start') || c.contains('job-stop') || c.contains('ks-tile') || /^(step-check-main|home-job-stop|home-job-pause|home-job-resume|job-confirm|job-dismiss|t-stop|t-pause|t-resume|t-recover)$/.test(el.id)) return 'primary';
+    if (c.contains('t-btn--primary') || c.contains('t-btn--danger') || c.contains('t-btn--lg') || c.contains('job-start') || c.contains('job-stop') || c.contains('ks-tile') || /^(step-check-main|home-job-stop|step-home-main|step-home-main|job-confirm|job-dismiss|t-stop|t-pause|t-resume|t-recover)$/.test(el.id)) return 'primary';
     return 'secondary';
   }
   // viewport-fit.js scales a screen that does not fit (transform: scale): boxes
@@ -609,7 +609,7 @@ async function e2e(cdp, simUrl, lang, summary) {
       return { dialog, stateWord: s.stateWord, percent: s.percent, feedback: s.feedback };
     });
     await step('pause', async () => {
-      await cdp.evaluate('(function(){var b=document.getElementById("t-pause");if(b&&!b.hidden&&!b.disabled){b.click();return "strip";}document.getElementById("home-job-pause").click();return "suivi";})()');
+      await cdp.evaluate('(function(){var b=document.getElementById("t-pause");if(b&&!b.hidden&&!b.disabled){b.click();return "strip";}document.getElementById("step-home-main").click();return "suivi";})()');
       await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="paused"', 15000, 'paused');
       await sleep(1200);
       await screenshot(cdp, path.join(dir, '06-paused.png'));
@@ -617,8 +617,8 @@ async function e2e(cdp, simUrl, lang, summary) {
       return { stateWord: s.stateWord, percent: s.percent, feedback: s.feedback };
     });
     await step('resume with confirmation', async () => {
-      await cdp.waitFor('(function(){var b=document.getElementById("home-job-resume");return !!b&&!b.disabled&&!b.closest("[hidden]");})()', 10000, 'Reprendre enabled');
-      await cdp.evaluate('document.getElementById("home-job-resume").click();true');
+      await cdp.waitFor('(function(){var b=document.getElementById("step-home-main");return !!b&&!b.disabled&&!b.closest("[hidden]");})()', 10000, 'Reprendre enabled');
+      await cdp.evaluate('document.getElementById("step-home-main").click();true');
       const dialog = await confirmDialog('07-resume-dialog');
       await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 15000, 'running again');
       await sleep(1200);
@@ -690,7 +690,7 @@ async function simMeasure(cdp, simUrl, summary) {
         await sleep(1500);
         await capture('home', 'Suivi', 'running');
         await capture('jog', 'Préparer', 'running');
-        await cdp.evaluate('(function(){var b=document.getElementById("t-pause");if(b&&!b.hidden&&!b.disabled)b.click();else document.getElementById("home-job-pause").click();return true;})()');
+        await cdp.evaluate('(function(){var b=document.getElementById("t-pause");if(b&&!b.hidden&&!b.disabled)b.click();else document.getElementById("step-home-main").click();return true;})()');
         await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="paused"', 15000, 'paused');
         await sleep(1200);
         await capture('home', 'Suivi', 'paused');
@@ -845,7 +845,7 @@ async function hitCheck(cdp, ctx, where, ids, opts, report) {
     if (!b.inView) failures.push('responsive ' + label + ': centre outside the window');
     else if (!b.hitOk) failures.push('responsive ' + label + ': centre covered by ' + b.hit);
     if (b.inert) failures.push('responsive ' + label + ': inert under ' + b.inert);
-    const goal = /^(t-pause|t-stop|t-resume|step-check-main|home-job-resume)$/.test(b.id) ? GOALS.primary : GOALS.secondary;
+    const goal = /^(t-pause|t-stop|t-resume|step-check-main|step-home-main)$/.test(b.id) ? GOALS.primary : GOALS.secondary;
     if (Math.min(b.w, b.h) < goal - 0.5) failures.push('responsive ' + label + ': ' + b.w + ' x ' + b.h + ' px, goal ' + goal);
   }
   return list;
@@ -927,9 +927,9 @@ async function responsiveMeasure(cdp, realUrl, simUrl, summary) {
       // Wide workstation: Pause and Arrêter of Suivi's Commandes zone too, Arrêter alone below Pause.
       if (opts && opts.wide) {
         await goScreen(cdp, 'home');
-        await hitCheck(cdp, ctx, 'running Suivi (zones)', ['home-job-pause', 'home-job-stop'], { scroll: true, required: true }, report);
-        const zones = await cdp.evaluate('(function(){var d=document.querySelector(".job-dashboard"),p=document.getElementById("home-job-pause").getBoundingClientRect(),s=document.getElementById("home-job-stop").getBoundingClientRect(),c=document.getElementById("home-zone-controls");' +
-          'return {zones:d&&d.getAttribute("data-zones"),stopInControls:!!(c&&c.contains(document.getElementById("home-job-stop"))),stopBelow:s.top>=p.bottom,side:!(s.top>=p.bottom||p.top>=s.bottom)};})()');
+        await hitCheck(cdp, ctx, 'running Suivi (zones)', ['step-home-main', 'home-job-stop'], { scroll: true, required: true }, report);
+        const zones = await cdp.evaluate('(function(){var d=document.querySelector(".job-dashboard"),p=document.getElementById("step-home-main").getBoundingClientRect(),s=document.getElementById("home-job-stop").getBoundingClientRect(),c=document.getElementById("home-left");' +
+          'return {zones:d&&d.getAttribute("data-zones"),stopInControls:!!(c&&c.contains(document.getElementById("home-job-stop"))),stopBelow:Math.abs(s.left+s.width/2-p.left-p.width/2)>380,side:false};})()');
         if (!zones.zones || !zones.stopInControls) failures.push('responsive ' + ctx + ': Suivi zones not built (' + JSON.stringify(zones) + ')');
         if (!zones.stopBelow || zones.side) failures.push('responsive ' + ctx + ': Arrêter not alone below Pause (' + JSON.stringify(zones) + ')');
       }
@@ -947,7 +947,7 @@ async function responsiveMeasure(cdp, realUrl, simUrl, summary) {
       await sleep(1200);
       await goScreen(cdp, 'home');
       await hitCheck(cdp, ctx, 'paused', ['t-stop', 't-resume'], { required: true }, report);
-      await hitCheck(cdp, ctx, 'paused Suivi', ['home-job-resume'], { scroll: true, required: true }, report);
+      await hitCheck(cdp, ctx, 'paused Suivi', ['step-home-main'], { scroll: true, required: true }, report);
       // Alarm during the job: Arrêter stays reachable on every screen.
       await goScreen(cdp, 'machine');
       if (await cdp.evaluate('(function(){var b=document.getElementById("sim-trigger-alarm");if(!b||b.disabled)return false;b.click();return true;})()')) {
@@ -1079,6 +1079,8 @@ function startV2Fixture() {
       }
       if (fx.phase !== 'stale' && fx.phase !== 'stopped') fx.frozen = { coordinates: c.coordinates, received: c.received, sent: c.sent };
       const f = fx.frozen || { coordinates: c.coordinates, received: c.received, sent: c.sent };
+      if(fx.phase==='finished')return Object.assign(c,{activeState:'Idle',workflow:'idle',finished:true,received:c.total,spindleSpeed:0,canLoad:true,canStop:false,canZeroZ:true});
+      if(fx.phase==='toolchange'||fx.phase==='resume-refused')return Object.assign(c,{activeState:'Idle',workflow:'paused',canResume:fx.phase==='toolchange',resumeReason:fx.phase==='resume-refused'?'Reprise impossible : arrêtez l’usinage.':'',programPause:fx.phase==='toolchange'?{kind:'M6',tool:2}:null,canSpindleStop:fx.phase==='toolchange',spindleStopReason:'Pendant un usinage, la broche s’arrête avec Arrêter l’usinage.',canStop:true,canZeroZ:fx.phase==='toolchange'});
       if (fx.phase === 'paused') return Object.assign(c, { activeState: 'Hold:0', workflow: 'paused', feedrate: 0, canPause: false, canResume: true, resumeReason: '', canStop: true, received: f.received, sent: f.sent, coordinates: f.coordinates });
       if (fx.phase === 'alarm') return Object.assign(c, { activeState: 'Alarm', workflow: 'running', alarmCode: 1, feedrate: 0, spindleSpeed: 0, canPause: false, canResume: false, canStop: true, canOverride: false, canRapidOverride: false, received: f.received, sent: f.sent, coordinates: f.coordinates });
       // Lot C: the job stopped (Arrêter) during an alarm, as the server reports it: at rest, still in ALARM, jobStopped,
@@ -1324,7 +1326,7 @@ function v2SameRects(ctx, report) {
 }
 async function v2Sheets(cdp, ctx, where, ids, report) {
   // The v2 sheets of Suivi, the origin help sheet of Préparer and the numeric pad stacked on it.
-  for (const [screen, button] of [['home', 'home-v2-more-overrides'], ['home', 'home-v2-time-detail'], ['jog', 'zero-more-open']]) {
+  for (const [screen, button] of [['home', 'home-v2-time-detail'], ['jog', 'zero-more-open']]) {
     await goScreen(cdp, screen);
     const opened = await cdp.evaluate('(function(){var b=document.getElementById(' + JSON.stringify(button) + ');if(!b||b.hidden||b.disabled||!b.getClientRects().length)return false;b.click();return true;})()');
     if (!opened) { failures.push('v2 ' + ctx + ' ' + where + ': ' + button + ' not available to open its sheet'); continue; }
@@ -1383,7 +1385,7 @@ async function v2Gestures(cdp, ctx, report, ids) {
 // baseline of the requests and of the strip rectangles.
 const SUIVI_LAYOUT = 'new Promise(function(done){requestAnimationFrame(function(){requestAnimationFrame(function(){var r=function(n){n=typeof n==="string"?document.getElementById(n)||document.querySelector(n):n;if(!n||!n.getClientRects().length)return null;var b=n.getBoundingClientRect();return [Math.round(b.left),Math.round(b.top),Math.round(b.width),Math.round(b.height)].join(",");};' +
   'done({perfV2:document.body.classList.contains("perf-v2"),wide:document.body.classList.contains("perf-wide"),zones:(document.querySelector(".job-dashboard")||{getAttribute:function(){return null;}}).getAttribute("data-v2"),' +
-  'left:r("home-left"),image:r("home-job-image"),commands:{feed:r(document.querySelector("#home-overrides .t-override")),more:r("home-v2-more-overrides"),time:r("home-v2-time-detail"),pause:r("home-job-pause"),stop:r("home-job-stop")},scroll:document.querySelector("main").scrollTop});});});})';
+  'left:r("home-left"),image:r("home-job-image"),commands:{feed:r(document.querySelector("#home-overrides .t-override")),more:r("home-overrides"),time:r("home-v2-time-detail"),pause:r("step-home-main"),stop:r("home-job-stop")},scroll:document.querySelector("main").scrollTop});});});})';
 async function v2RealPass(cdp, fx, w, h, summary, report, v1) {
   const ctx = (v1 ? 'v1 baseline ' : '') + 'real ' + w + 'x' + h, results = [], info = { ctx };
   const allIds = ['t-pause', 't-stop'];
@@ -1547,9 +1549,9 @@ async function v2EcoPass(cdp, fx, w, h, report) {
     fx.setPhase('running');
     await cdp.waitFor('(function(){var b=document.getElementById("t-pause");return !!b&&!b.hidden;})()', 15000, 'Pause shown');
     await sleep(800);
-    const before = await cdp.evaluate('(function(){var r=function(id){var n=document.getElementById(id);if(!n)return null;var b=n.getBoundingClientRect();return [Math.round(b.left),Math.round(b.top),Math.round(b.width),Math.round(b.height)].join(",");};return {pause:r("t-pause"),stop:r("t-stop"),image:r("home-job-image"),feed:r("home-v2-more-overrides"),requests:performance.getEntriesByType("resource").length};})()');
+    const before = await cdp.evaluate('(function(){var r=function(id){var n=document.getElementById(id);if(!n)return null;var b=n.getBoundingClientRect();return [Math.round(b.left),Math.round(b.top),Math.round(b.width),Math.round(b.height)].join(",");};return {pause:r("t-pause"),stop:r("t-stop"),image:r("home-job-image"),feed:r("home-overrides"),requests:performance.getEntriesByType("resource").length};})()');
     const eco = await cdp.evaluate('(async function(){window.cncProfile.setPerformance("eco");var gateAtOnce=window.cncV2.gate();await new Promise(function(r){setTimeout(r,1500);});var r=function(id){var n=document.getElementById(id);if(!n)return null;var b=n.getBoundingClientRect();return [Math.round(b.left),Math.round(b.top),Math.round(b.width),Math.round(b.height)].join(",");};' +
-      'return {gateAtOnce:gateAtOnce,state:window.cncV2.state(),perfV2:document.body.classList.contains("perf-v2"),pause:r("t-pause"),stop:r("t-stop"),image:r("home-job-image"),feed:r("home-v2-more-overrides"),' +
+      'return {gateAtOnce:gateAtOnce,state:window.cncV2.state(),perfV2:document.body.classList.contains("perf-v2"),pause:r("t-pause"),stop:r("t-stop"),image:r("home-job-image"),feed:r("home-overrides"),' +
       'newV2:performance.getEntriesByType("resource").slice(' + before.requests + ').map(function(e){return e.name;}).filter(function(n){return ' + V2_REQUEST + '.test(n);})};})()');
     info.before = before; info.eco = eco;
     if (eco.gateAtOnce) failures.push('v2 ' + ctx + ': v2 gate still open right after Éco was chosen');
@@ -1665,6 +1667,15 @@ async function v2Closed(cdp, fx, summary) {
   return out;
 }
 
+async function machiningPlaces(cdp,fx){
+  const samples=[];
+  for(const performance of ['eco','performance']){
+    fx.phase='idle';await setViewport(cdp,1366,911,1);await v2Storage(cdp,fx.base,{profile:performance});await v2Open(cdp,fx.base+'index.html?machining-places='+performance,performance==='performance');await goScreen(cdp,'home');await sleep(700);
+    samples.push(await cdp.evaluate('(function(){return Array.prototype.map.call(document.querySelectorAll("#home-job-stop,#step-home-main,#home-overrides button[data-kind]"),function(n){var r=n.getBoundingClientRect();return {id:n.id||n.getAttribute("data-kind")+":"+n.getAttribute("data-value"),x:r.left+r.width/2,y:r.top+r.height/2};});})()'));
+  }
+  if(samples[0].length!==15||samples[1].length!==15)throw Error('Machining commands missing in a renderer');
+  samples[0].forEach((a,i)=>{const b=samples[1][i];if(a.id!==b.id||Math.abs(a.x-b.x)>1||Math.abs(a.y-b.y)>1)throw Error('Machine command moved between v1 and v2: '+a.id);});return samples;
+}
 async function v2Measure(summary) {
   const fx = await startV2Fixture();
   const browser = await launchBrowser(1366, 911, V2_FLAGS), cdp = browser.cdp;
@@ -1684,6 +1695,7 @@ async function v2Measure(summary) {
     } catch (e) { failures.push('v2 software GPU: ' + e.message); }
     await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: V2_GPU_TRAP });
     v2.closed = await v2Closed(cdp, fx, summary);
+    v2.machiningPlaces=await machiningPlaces(cdp,fx);
     for (const [w, h] of V2_SIZES) {
       v2.passes.push(await v2RealPass(cdp, fx, w, h, summary, report, true));
       v2.passes.push(await v2RealPass(cdp, fx, w, h, summary, report, false));
@@ -1726,7 +1738,7 @@ async function v2Measure(summary) {
 // One folder per screen, variant and state: screens-<screen>-<variant>-<state>/<screen>.png|.json. Enforced like
 // the other strict variants, plus horizontal / vertical overflow and text over text. Visual only: every request
 // that is not a GET under /api/ is refused (403) by the fixture.
-const SCREENS_STATES = [['repos', 'idle'], ['depassement-prouve','outside'], ['course-non-verifiee','unknown'], ['zero-non-confirme','offset-failed'], ['port-ferme', 'closed'], ['sans-origine', 'unhomed'], ['arrete-sans-origine', 'stopped-unhomed'], ['pilote-pris', 'pilot'], ['homing', 'homing'], ['palpage', 'probing'], ['travail', 'running'], ['pause', 'paused'], ['alarme', 'alarm'], ['perime', 'stale'], ['hors-ligne', 'lost']];
+const SCREENS_STATES = [['repos', 'idle'], ['depassement-prouve','outside'], ['course-non-verifiee','unknown'], ['zero-non-confirme','offset-failed'], ['port-ferme', 'closed'], ['sans-origine', 'unhomed'], ['arrete-sans-origine', 'stopped-unhomed'], ['pilote-pris', 'pilot'], ['homing', 'homing'], ['palpage', 'probing'], ['travail', 'running'], ['pause', 'paused'], ['alarme', 'alarm'], ['alarme-arret','stopped'], ['termine','finished'], ['pause-fichier','toolchange'], ['reprise-refusee','resume-refused'], ['perime', 'stale'], ['hors-ligne', 'lost']];
 const SCREENS_READY = {
   closed: '!m',
   unhomed: 'm&&m.activeState==="Idle"&&m.homed===false',
@@ -1736,6 +1748,7 @@ const SCREENS_READY = {
   homing: 'm&&m.homing&&/^Home/.test(m.activeState||"")',
   probing: 'm&&m.probing',
   running: 'm&&m.workflow==="running"&&/^Run/.test(m.activeState||"")',
+  finished:'m&&m.finished===true',toolchange:'m&&m.programPause&&m.programPause.kind==="M6"','resume-refused':'m&&m.workflow==="paused"&&m.canResume===false',
   paused: 'm&&m.workflow==="paused"',
   alarm: 'm&&/^Alarm/.test(m.activeState||"")',
   stopped: 'm&&m.workflow==="idle"&&/^Alarm/.test(m.activeState||"")&&m.jobStopped===true'
@@ -2836,10 +2849,14 @@ async function parcoursMeasure(cdp,summary){
     await tap('step-files-main');await cdp.waitFor('(window.cncState.get().machine||{}).name==="recovery.nc"',10000,'loaded');
     if(await cdp.evaluate('window.cncShell.screen()')!=='files'||touches!==3)throw Error('P2 must stay on File in three touches');const P2=touches;
     // P7 through start: Control and its existing checkbox confirmation.
-    touches=0;await cdp.evaluate('document.querySelector("[data-ks-screen=check]").click();true');touches++;
+    await cdp.evaluate('window.cncShell.go("check");true');touches=0;
     await tap('step-check-main');await cdp.waitFor('!document.getElementById("job-dialog").hidden',5000,'start confirmation');await tap('job-check');await tap('job-confirm');
-    await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"',10000,'started');if(touches!==4)throw Error('P7 through start must take four touches');const P7=touches;
-    await tap('t-stop');await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="idle"',10000,'stop between paths');
+    await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"',10000,'started');if(touches!==3)throw Error('P7 start must take three touches');
+    await cdp.evaluate('document.querySelector("#home-overrides button[data-kind=rapid][data-value=50]").click();true');touches++;
+    await tap('step-home-main');await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="paused"',10000,'paused');
+    await tap('step-home-main');await cdp.waitFor('!document.getElementById("job-dialog").hidden',5000,'resume confirmation');await tap('job-check');await tap('job-confirm');
+    await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"',10000,'resumed');
+    await tap('t-stop');const P7=touches;if(P7!==9)throw Error('P7 must take nine touches');await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="idle"',10000,'stop between paths');
     // Set up the competing owner explicitly; this setup is not part of the operator path.
     await cdp.evaluate('fetch("/api/touch-job",{method:"POST",body:JSON.stringify({action:"control",operation:"release",port:"SIM",clientId:window.cncJobControls.clientId()})}).then(function(r){if(!r.ok)throw Error("release setup failed");return fetch("/parcours/sim",{method:"POST",body:JSON.stringify({input:"pilot"})});})');
     await cdp.waitFor('window.cncJobControls.pilot().state==="other"',15000,'other device owns control');touches=0;
@@ -2849,7 +2866,11 @@ async function parcoursMeasure(cdp,summary){
     await cdp.waitFor('(function(){var m=window.cncState.get().machine;return m&&m.lastAlarm&&m.lastAlarm.code===1&&!m.homed;})()',15000,'limit alarm during the job');touches=0;
     await tap('t-stop');await cdp.waitFor('(window.cncState.get().machine||{}).jobStopped===true',10000,'job stopped');await tap('t-recover');
     await cdp.waitFor('window.cncShell.screen()==="machine"&&!document.getElementById("machine-incident").hidden',5000,'incident on Machine');await home();
-    if(touches!==5)throw Error('P8 through homing must take five touches');summary.parcours={P1,P2,P6,P7ThroughStart:P7,P8ThroughHoming:touches,P9,profile:'lunyee',alarm:1,physicalMachine:false,senderLinesSimulated:true};
+    if(touches!==5)throw Error('P8 through homing must take five touches');
+    await tap('step-machine-main');await cdp.waitFor('!!document.getElementById("ks-resume-sheet")&&!document.getElementById("ks-resume-sheet").hidden',5000,'resume sheet');await tap('home-resume-load');
+    await cdp.waitFor('window.cncShell.screen()==="check"',10000,'resume loaded on Control');await tap('step-check-main');await tap('job-check');await tap('job-confirm');
+    await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"',10000,'recovery started');
+    if(touches!==10)throw Error('P8 must take ten touches');summary.parcours={P1,P2,P6,P7,P8:touches,P9,profile:'lunyee',alarm:1,physicalMachine:false,senderLinesSimulated:true};
   }finally{fixture.child.kill();}
 }
 async function main() {

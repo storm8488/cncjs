@@ -28,6 +28,7 @@
     latestState = null;
     coordinateSignature='';
     if (droTimer !== null) { clearTimeout(droTimer); droTimer = null; }
+    if(document.hidden||window.cncShell&&window.cncShell.screen()!=='home')return;
     ['wx','wy','wz','mx','my','mz'].forEach(function (id) { setText($(id), '–'); });
   }
 
@@ -163,11 +164,13 @@
 
   function paintCoordinates() {
     droTimer = null;
-    if (!latestState) return;
+    if (!latestState || document.hidden || window.cncShell && window.cncShell.screen()!=='home') return;
     lastPaint = Date.now();
     var w = latestState.wpos || {}, m = latestState.mpos || {};
     ['x','y','z'].forEach(function (axis) { setText($('w'+axis), num(w[axis])); setText($('m'+axis), num(m[axis])); });
   }
+  bind(window,'cnc-screen-change',function(e){if(e.detail==='home'){if(latestState)paintCoordinates();else clearCoords();}else if(droTimer!==null){clearTimeout(droTimer);droTimer=null;}});
+  bind(document,'visibilitychange',function(){if(!document.hidden)paintCoordinates();});
   function receive(type, state, port) {
     badge('st-ctrl', uiLocale.t('Contrôleur : ') + (port || type), 'ok');
     var s = state && state.status;
@@ -179,6 +182,7 @@
     if(signature===coordinateSignature)return;
     coordinateSignature=signature;
     latestState = s;
+    if (document.hidden || window.cncShell && window.cncShell.screen()!=='home') return;
     if (Date.now() - lastPaint >= 150) paintCoordinates();
     else if (droTimer === null) droTimer = setTimeout(paintCoordinates, 150 - (Date.now() - lastPaint));
   }

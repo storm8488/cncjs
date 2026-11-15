@@ -8,14 +8,13 @@ function fixture(saved){
   const {document,node,element}=require('./dom-fixture.cjs').createDOM(['home']);
   document.body.getAttribute=()=>null;
   const settings=node('screen-settings');settings.querySelector=()=>null;
-  const feedback=node('home-job-feedback'),parent=element('div');parent.appendChild(feedback);
+  const summary=element('div');summary.hidden=true;summary.appendChild(element('p'));const dismiss=element('button');dismiss.addEventListener('click',()=>{summary.hidden=true;const b=node('home-left').parentNode;if(b)b.setAttribute('data-v2-summary','0');});summary.appendChild(dismiss);
   let dialogs=[];document.querySelectorAll=()=>dialogs;
   const store=new Map(saved?[['cncjs-touch-job-follow-v1',saved]]:[]),listeners={},went=[],locks=[];let now=1e12;
   const window={cncI18n:{t:s=>s,locale:'fr-FR'},addEventListener:(n,f)=>listeners[n]=f,
-    cncShell:{go:n=>went.push(n)},cncScreenLock:{lock:()=>locks.push(true)}};
+    CNCJobResume:{summary(value){summary.hidden=!value;if(value){summary.children[0].textContent=value.text;summary.setAttribute('data-tone',value.tone);}const b=node('home-left').parentNode;if(b)b.setAttribute('data-v2-summary',value?'1':'0');}},cncShell:{go:n=>went.push(n)},cncScreenLock:{lock:()=>locks.push(true)}};
   vm.runInNewContext(fs.readFileSync(__dirname+'/touch/job-follow.js','utf8'),{document,window,Date:{now:()=>now},
     localStorage:{getItem:k=>store.has(k)?store.get(k):null,setItem:(k,v)=>store.set(k,v)},JSON,Math,Array,Object,String,Number});
-  const summary=parent.children.find(c=>c.id==='home-job-summary');
   return {node,settings,store,listeners,went,locks,summary,set dialogs(v){dialogs=v;},
     advance:ms=>{now+=ms;},screen:n=>listeners['cnc-screen-change']({detail:n}),
     send:m=>listeners['cnc-job-status']({detail:{simulation:false,machine:m}})};
@@ -32,7 +31,7 @@ f.advance(30000);f.send(M({workflow:'paused',activeState:'Hold:0',total:1200,rec
 f.advance(60000);f.send(M({workflow:'running',total:1200,received:400}));
 f.advance(45000);f.send(M({workflow:'idle',finished:true,total:1200,received:0}));
 assert.equal(f.summary.getAttribute('data-tone'),'ok');
-assert.equal(f.summary.children[0].textContent.replace(/[  ]/g,' '),'Travail terminé · Support.nc · durée 1 min 15 s · 1 200 lignes','the pause is not counted, lines come from the run');
+assert.equal(f.summary.children[0].textContent.replace(/[\u00a0\u202f]/g,' '),'Travail terminé · Support.nc · durée 1 min 15 s · 1 200 lignes','the pause is not counted, lines come from the run');
 f.summary.children[1].click();assert(f.summary.hidden);
 // Stopped before the end; then a program with Grbl errors.
 f.send(M({workflow:'running',total:50,received:1}));f.advance(5000);f.send(M({workflow:'running',total:50,received:20}));f.send(M({workflow:'idle'}));

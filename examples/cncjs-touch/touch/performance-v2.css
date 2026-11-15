@@ -165,32 +165,8 @@ body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v
 body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-curve-events{flex:1 1 auto;min-width:0;text-align:center;color:var(--fg);overflow:hidden;text-overflow:ellipsis}
 /* Correction d'avance : les corrections lues (avance, broche, rapides) au-dessus de −10, −1, 100 %, +1, +10
    (64 / 48 px). La carte garde sa place même sans état (masquée dans son rectangle, jamais retirée). */
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-overrides{height:164px;padding:var(--sp-2) var(--sp-3)!important;gap:6px;border:1px solid var(--line);border-radius:var(--r-l);align-content:start}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] #home-overrides[hidden]{display:grid!important;visibility:hidden}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-overrides-head{display:none}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .t-override{grid-template-columns:minmax(0,1fr);gap:0}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .t-override[data-kind="feed"] .t-ov-name{display:none}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-overrides{order:-1;height:21px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .t-override[data-kind="feed"] .t-ov-row{grid-template-columns:64px 48px minmax(0,1fr) 48px 64px;align-items:center}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .t-override[data-kind="feed"] .t-ov-row .t-btn{grid-row:1;min-height:var(--tap-primary);font-size:var(--fs-20);padding:0}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .t-override[data-kind="feed"] .t-ov-row .t-btn.t-fine{min-height:var(--tap);font-size:var(--fs-18)}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .t-override[data-kind="feed"] .t-ov-row .t-btn[data-value="-10"]{grid-column:1}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .t-override[data-kind="feed"] .t-ov-row .t-btn[data-value="-1"]{grid-column:2}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .t-override[data-kind="feed"] .t-ov-row .t-btn[data-value="0"]{grid-column:3}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .t-override[data-kind="feed"] .t-ov-row .t-btn[data-value="1"]{grid-column:4}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .t-override[data-kind="feed"] .t-ov-row .t-btn[data-value="10"]{grid-column:5}
-/* « Broche / rapides… » et « Détail du temps » : 48 px, séparés de 12 px ; les corrections lues dessous. */
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-more{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--tap-gap)}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-v2-more .t-btn{min-height:var(--tap);padding:0 var(--sp-2);font-size:var(--fs-16);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-body.ks-ui.perf-wide.perf-v2 .job-dashboard[data-zones][data-v2="suivi"] .home-gauge-overrides{font-size:var(--fs-16);line-height:1.3}
-
-/* --- Fiches (sous le bandeau, cncShell.sheet) -------------------------------------------------------- */
-body.ks-ui.perf-wide.perf-v2 #perf-v2-overrides-sheet .t-override{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--sp-2);margin-bottom:var(--sp-4)}
-body.ks-ui.perf-wide.perf-v2 #perf-v2-overrides-sheet .t-ov-name{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-3)}
-body.ks-ui.perf-wide.perf-v2 #perf-v2-overrides-sheet .t-ov-name b{display:inline;margin:0}
-body.ks-ui.perf-wide.perf-v2 #perf-v2-overrides-sheet .t-ov-row .t-btn{min-height:var(--tap-primary);font-size:var(--fs-20)}
-body.ks-ui.perf-wide.perf-v2 #perf-v2-overrides-sheet .t-ov-row .t-btn.t-fine,body.ks-ui.perf-wide.perf-v2 #perf-v2-overrides-sheet .t-override--rapid .t-ov-row .t-btn{min-height:var(--tap);font-size:var(--fs-18)}
-body.ks-ui.perf-wide.perf-v2 #perf-v2-overrides-sheet #home-rapid-note,body.ks-ui.perf-wide.perf-v2 #perf-v2-time-sheet .t-help{margin:0 0 var(--sp-3);font-size:var(--fs-18);line-height:1.4}
-body.ks-ui.perf-wide.perf-v2 #perf-v2-time-sheet .t-help[hidden],body.ks-ui.perf-wide.perf-v2 #perf-v2-overrides-sheet #home-rapid-note:empty{display:none}
+/* Command rows use responsive.css in both renderers. */
+body.ks-ui.perf-wide.perf-v2 #perf-v2-time-sheet .t-help{margin:0 0 var(--sp-3);font-size:var(--fs-18);line-height:1.4}
+body.ks-ui.perf-wide.perf-v2 #perf-v2-time-sheet .t-help[hidden]{display:none}
 
 /* Current content hosts retain the existing card rules. */

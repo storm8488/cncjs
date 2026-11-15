@@ -39,17 +39,17 @@ for (const host of ['localhost', '192.168.1.29']) {
     assert.ok(read, hostname + ': HTTP state read despite the offline flag');
     // The fallback read alone (stream not up yet) shows the running job: Pause and Arrêter usable.
     f.answer(read, { controllers: [f.machine({ workflow: 'running', activeState: 'Run', canPause: true, canStop: true, canStart: false })] }); await f.flush();
-    assert.equal(f.el('job-pause').disabled, false, hostname + ': Pause usable');
-    assert.equal(f.el('job-stop').disabled, false, hostname + ': Arrêter usable');
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-pause').disabled, false, hostname + ': Pause usable');
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-stop').disabled, false, hostname + ': Arrêter usable');
     f.tick();
     assert.match(f.lastStatus() && f.window.cncState.get().transportReason, /navigateur signale le réseau coupé/, hostname + ': warning shown');
     await f.connect(f.machine({ workflow: 'running', activeState: 'Run', canPause: true, canStop: true, canStart: false }));
     (f.listeners.offline || []).forEach((fn) => fn());
     f.tick();
-    assert.equal(f.el('job-pause').disabled, false, hostname + ': Pause still usable after an offline event');
-    f.el('job-pause').click(); await f.flush();
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-pause').disabled, false, hostname + ': Pause still usable after an offline event');
+    require('./command-state-fixture.cjs')(f.window,'job-pause').click(); await f.flush();
     assert.ok(f.posts().some((r) => r.body && r.body.action === 'pause'), hostname + ': Pause sent');
-    f.el('job-stop').click(); await f.flush();
+    require('./command-state-fixture.cjs')(f.window,'job-stop').click(); await f.flush();
     assert.ok(f.posts().some((r) => r.body && r.body.action === 'stop'), hostname + ': Arrêter sent');
     const answerAll = async () => { f.posts().filter((r) => !r.answered).forEach((r) => { r.answered = true; r.status = 200; r.responseText = '{}'; r.onload(); }); await f.flush(); };
     await answerAll();

@@ -34,7 +34,7 @@ addEventListener: (n, f) => {
     if(source==='snapshot'){assert.equal(f.posts().length,0,'snapshot overrun never requests a normal ticket');f.controls().dispose();continue;}
     f.answer(f.posts().at(-1), { nonce: 'n', expiresIn: 15, programCheck: outside }); await f.flush();
     assert.equal(f.el('job-dialog').hidden,true,'a late outside ticket never opens the ordinary start dialog');
-    assert.equal(f.el('job-feedback').getAttribute('data-state'),'failed','the late outside ticket gives a visible refusal');
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').getAttribute('data-state'),'failed','the late outside ticket gives a visible refusal');
     f.advance(600);f.el('job-check').checked = true; f.el('job-check').fire('change');
     assert.equal(f.el('job-confirm').disabled, true, source + ': no ordinary confirmation over a proven overrun');
     f.el('job-confirm').fire('click'); await f.flush();
@@ -62,7 +62,7 @@ addEventListener: (n, f) => {
     const m = f.machine({ canStart: false, startReason: refusal.message, refusals: { start: refusal }, programCheck: outside });
     await f.connect(m);
     assert.equal(f.el('job-start').disabled, true);
-    for (const id of ['job-reason', 'file']) {
+    for (const id of ['job-state-reason', 'file']) {
  for (const text of expected) {
  assert(f.el(id).textContent.includes(text), id + ': ' + text);
 }
@@ -77,7 +77,7 @@ addEventListener: (n, f) => {
     // The 409 remains useful when a later snapshot no longer carries its reasons.
     f.push([f.machine()]); f.controls().start(); f.answer(f.posts().at(-1), refusal, 409); await f.flush();
     for (const text of expected) {
- assert(f.el('job-feedback').textContent.includes(text), '409: ' + text);
+ assert(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent.includes(text), '409: ' + text);
 }
     assert.equal(f.el('job-dialog').hidden, true);
     f.controls().dispose();

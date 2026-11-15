@@ -28,7 +28,7 @@ const cases = [
       // A deliberately stale free-text fallback proves that code + params are used.
       const m = f.machine({ canStart: false, startReason: fallback, refusals: { start: r } });
       f.push([m]);
-      for (const id of ['file', 'job-reason']) assert(f.el(id).textContent.includes(expected), id + ' ' + language + ' ' + r.code);
+      for (const id of ['file', 'job-state-reason']) assert(f.el(id).textContent.includes(expected), id + ' ' + language + ' ' + r.code);
       listeners['cnc-job-status']({ detail: { machine: m, simulation: false } });
       assert(dom.node('home-job-ready').textContent.includes(expected), 'Follow ' + language + ' ' + r.code);
       const loadingRefused = { ...m, canLoad: false, loadReason: fallback, refusals: { start: r, load: r } };

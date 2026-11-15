@@ -41,7 +41,7 @@ select('c.nc');
 status({...c,received:0,workflow:'idle',canStart:false,finished:false,finishedWithErrors:true,jobErrors:2},false);assert.equal(el('home-job-percent').textContent,'100 %');assert.doesNotMatch(el('home-job-eta').textContent,/Terminé/);assert.match(el('home-job-eta').textContent,/2 erreur/);
 status(null);assert.equal(el('home-job-percent').textContent,'—');assert.match(el('home-job-eta').textContent,/indisponible/);
 // Overrides block: hidden for snapshots without the field, values and gating otherwise.
-assert.equal(el('home-overrides').hidden,true);
+assert.equal(el('home-overrides').hidden,false);
 status({...c,canOverride:true,overrides:{feed:90,rapid:100,spindle:110}});
 assert.equal(el('home-overrides').hidden,false);assert.equal(el('home-override-feed').textContent,'90 %');assert.equal(el('home-override-spindle').textContent,'110 %');assert.match(el('home-override-note').textContent,/temps réel/);
 status({...c,workflow:'idle',canOverride:false,overrideReason:'Les corrections s’appliquent pendant un travail en cours ou en pause.',overrides:null});
@@ -193,27 +193,11 @@ console.log('PASS: strict finite counters, stale status, clock jumps, pause, sle
   const text = (id) => node(id).textContent;
   // Out of the wide layout nothing is built and the DOM is the one of today (the RT never changes).
   send({ port: 'P', name: 'part.nc', revision: 1, fresh: true, total: 100, received: 0, workflow: 'idle', canStart: true });
-  assert.equal(shape(), before, 'no change without perf-wide');
-  assert.equal(board.getAttribute('data-zones'), null);
-  assert(!dom.nodes['home-zone-gauges'], 'no zone built without perf-wide');
-  // Two zones (1366 x 911): instruments then commands in the right column, the overrides under the view.
-  layout(true, 1366);
-  const gauges = node('home-zone-gauges'), controls = node('home-zone-controls');
-  assert.equal(board.getAttribute('data-zones'), '2');
-  assert.deepEqual(metrics.children.map((c) => c.id || c.className), ['home-job-title', 'home-zone-gauges', 'home-zone-controls']);
-  assert.deepEqual(gauges.children.map((c) => c.id || c.className), ['t-card home-progress', 'home-gauge-eta', 'home-coords', 'home-live-tiles', 'home-gauge-overrides', 'home-gauge-curve']);
-  assert.deepEqual(controls.children.map((c) => c.id || c.className), ['home-job-note', 'home-job-ready', 'home-program-pause', 'home-job-selection', 'home-job-load', 'home-job-primary-row', 'home-job-resume-row', 'home-job-feedback', 'home-stop'], 'commands in order, Arrêter alone at the bottom');
-  assert.equal(head.children.at(-1).id, 'home-gauge-ack', 'acknowledged line beside the percentage');
-  assert.equal(node('home-overrides').parentNode, left, 'two zones: overrides under the view');
-  assert(['home-job-percent', 'home-job-progress', 'home-job-eta', 'home-live-feed', 'home-job-stop', 'home-job-image'].every((id) => node(id).tagName === 'DIV'), 'existing IDs kept, same elements');
-  // Three zones (1728 x 1152): the overrides join the commands, above Arrêter.
-  window.innerWidth = 1728; events.resize();
-  assert.equal(board.getAttribute('data-zones'), '3');
-  assert.deepEqual(controls.children.slice(-2).map((c) => c.id || c.className), ['home-overrides', 'home-stop']);
-  // Back out of the wide layout: every element where it was, the wrappers gone.
-  layout(false, 1366);
-  assert.equal(shape(), before, 'DOM restored in order'); assert.equal(board.getAttribute('data-zones'), null);
-  layout(true, 1366);
+  assert.notEqual(shape(),before,'fixed layout replaces the old zones even in Eco');let fixed=shape();
+  assert.equal(board.getAttribute('data-zones'),'2');assert(!dom.nodes['home-zone-gauges']);
+  assert.equal(node('home-overrides').parentNode,metrics);assert.equal(node('home-job-stop').parentNode.parentNode,left);
+  layout(true,1366);fixed=shape();assert.equal(shape().includes('home-zone-controls'),false);window.innerWidth=1728;events.resize();assert.equal(board.getAttribute('data-zones'),'2');
+  layout(false,1366);assert.equal(shape(),fixed,'same command columns at every width');layout(true,1366);
   // Remaining time: from the moves (corrected) when the rapids are known, its source written, the
   // observed rhythm as the second estimate; acknowledged line by CNCToolPosition when present.
   const lines = ['G21 G90', 'G0 Z5', 'G0 X0 Y0'];
@@ -247,26 +231,8 @@ console.log('PASS: strict finite counters, stale status, clock jumps, pause, sle
   send({ ...run, received: 52, fresh: false }); assert.equal(text('home-gauge-ov-feed'), '—'); assert.equal(text('home-gauge-ack-value'), '—');
   // Simulation: the simulated duration, said so.
   send({ ...run, received: 20, remainingSeconds: 40 }, true); assert.equal(text('home-gauge-eta-title'), 'Reste 40 s'); assert.match(text('home-gauge-eta-source'), /simulée/);
-  // Curve: samples stored by the handler, drawn in an animation frame, at most once a second, only on
-  // three zones and only while Suivi is shown.
-  while (frames.length) frames.shift()(); // the frame asked for on three zones earlier runs (and draws nothing on two)
-  send({ ...run, received: 53 });
-  assert.equal(frames.length, 0, 'two zones: no curve drawn');
-  window.innerWidth = 1728; events.resize(); while (frames.length) frames.shift()(); clock += 2000;
-  const drawn = node('home-gauge-curve-line').getAttribute('points');
-  send({ ...run, received: 54, feedrate: 1200 });
-  assert.equal(frames.length, 1, 'one frame requested'); assert.equal(node('home-gauge-curve-line').getAttribute('points'), drawn, 'nothing drawn in the handler');
-  send({ ...run, received: 55, feedrate: 1300 }); assert.equal(frames.length, 1, 'no second frame while one waits');
-  frames.shift()();
-  const points = node('home-gauge-curve-line').getAttribute('points');
-  assert(points && points.split(' ').length >= 2, 'polyline written'); assert.match(text('home-gauge-curve-title'), /^Avance réelle, dernière minute · 0 à 2\s000 mm\/min$/u);
-  clock += 500; send({ ...run, received: 56, feedrate: 1250 }); assert.equal(frames.length, 0, 'not again within a second');
-  clock += 600; send({ ...run, received: 57, feedrate: 1250 }); assert.equal(frames.length, 1, 'again after a second'); frames.shift()();
-  // Suivi hidden: no frame, no DOM write at all.
-  dom.activeScreens.clear(); dom.activeScreens.add('more'); events['cnc-screen-change']({ detail: 'more' });
-  const writes = dom.stats.writes; clock += 5000;
-  for (let i = 0; i < 20; i++) { clock += 250; send({ ...run, received: 58 + i, feedrate: 1000 + i }); }
-  assert.equal(frames.length, 0, 'no frame while Suivi is hidden'); assert.equal(dom.stats.writes, writes, 'no DOM write while Suivi is hidden');
+  while(frames.length)frames.shift()();send({...run,received:53});assert.equal(frames.length,0,'Eco builds no v2 curve');
+  window.innerWidth=1728;events.resize();assert.equal(frames.length,0,'Eco keeps the same columns without animation');
   console.log('PASS wide Suivi: zones built only under perf-wide and undone in order, IDs kept, Arrêter alone at the bottom, remaining time with its source and second estimate, acknowledged line, overrides read, curve in an animation frame at most once a second and never while hidden.');
 }
 

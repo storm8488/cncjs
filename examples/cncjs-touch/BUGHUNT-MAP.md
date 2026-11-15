@@ -338,3 +338,22 @@ The prepare mount and lifecycle scope now target screen-check. job-preparation.j
 The older `test-bughunt-c-1.cjs` remains durable and now uses `place` for geometry.
 The deleted preparation-sheet tests are recorded in the L4 audit section; no
 other lot's temporary bughunt proof was removed.
+
+### L5 — Machining, resume and removed command relays
+
+- `test-usinage-ecran.cjs`: full machining-state matrix; permanent resume access;
+  spindle stop follows `canSpindleStop`; refused resume and another-pilot remedy.
+- `test-reprise-volet.cjs`: stopped file before loaded file; automatic plan on
+  open/input; only the latest response arms load; revision invalidation; two
+  refusal remedies; load snapshot before promise; navigation to Control.
+- `test-controller-state.cjs`: C4, zero coordinate writes/timers for hidden Home.
+- `test-dashboard-pause-guard.cjs`: shared primary slot protects Resume from a
+  double tap; Stop remains immediate. Confirmation transport assertions remain
+  in the dialog/stream tests, now observing the read-only command state.
+- `test-parcours-server.cjs`: real Touch service/LUNYEE recovery through planning,
+  reloading and restarting, with no serial device.
+
+A2-2 was already removed by L3b (the original proof contained the plate case).
+No other lot's bughunt proof was renamed or removed. The permanent resume case
+is now in the two new screen/sheet tests. Detailed assertion migrations are
+listed in `design/refonte/audit/ECARTS-PLAN.md`, L5.

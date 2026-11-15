@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const {spawnSync} = require('child_process');
 const root = __dirname;
 const tests = [
- 'check-screen','check-drawing','files-verdict','derogation','arcs','dashboard','real-interface','home-actions','job-dialog','start-override','work-offset','probe-defaults','page-benches','job-display',
+ 'usinage-ecran','reprise-volet','check-screen','check-drawing','files-verdict','derogation','arcs','dashboard','real-interface','home-actions','job-dialog','start-override','work-offset','probe-defaults','page-benches','job-display',
  'library-transitions','library-file-state','machine-limits',
  'preview-dimensions','preview-viewer','preview','probe-diagram',
  'probe-lock','probe-model','probe-preparation','probe-profiles','probe-transfer','probe-real','probe-real-ui','block-probe-dialog',

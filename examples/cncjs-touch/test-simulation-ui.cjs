@@ -15,9 +15,9 @@ async function check(withSimulator) {
   context.window.cncJobControls.start();await new Promise(setImmediate);
   now+=600;el('job-check').checked=true;el('job-confirm').handlers.click();await new Promise(setImmediate);
   assert.match(el('job-state').textContent,/Run/);
-  el('job-pause').handlers.click();await new Promise(setImmediate);assert.match(el('job-state').textContent,/Hold/);
-  el('job-resume').handlers.click();await new Promise(setImmediate);now+=600;el('job-check').checked=true;el('job-confirm').handlers.click();await new Promise(setImmediate);assert.match(el('job-state').textContent,/Run/);
-  el('job-stop').handlers.click();await new Promise(setImmediate);assert.match(el('job-state').textContent,/Idle/);
+  context.window.cncJobControls.pause();await new Promise(setImmediate);assert.match(el('job-state').textContent,/Hold/);
+  context.window.cncJobControls.resume();await new Promise(setImmediate);now+=600;el('job-check').checked=true;el('job-confirm').handlers.click();await new Promise(setImmediate);assert.match(el('job-state').textContent,/Run/);
+  context.window.cncJobControls.stop();await new Promise(setImmediate);assert.match(el('job-state').textContent,/Idle/);
  }else {assert.equal(el('job-start').disabled,true);assert.match(el('job-state').textContent,/Simulateur indisponible/);}
  assert.equal(requests,0);
 }

@@ -75,7 +75,7 @@ function load(options = {}) {
   const posts = () => requests.filter((r) => r.method === 'POST');
   const lastStatus = () => events.filter((e) => e.type === 'cnc-job-status').at(-1).detail;
   const key = (k, extra = {}) => { let prevented = false; (listeners['doc:keydown'] || []).slice().forEach((f) => f(Object.assign({ key: k, preventDefault() { prevented = true; }, stopImmediatePropagation() {} }, extra))); return prevented; };
-  return { window, document: doc, el, nodes, requests, storage, events, listeners, flush, answer, machine, push, connect, posts, lastStatus, key, isStream,
+  return { window, document: doc, el:id=>/^job-(pause|resume|stop|feedback)$/.test(id)?require('./command-state-fixture.cjs')(window,id):el(id), nodes, requests, storage, events, listeners, flush, answer, machine, push, connect, posts, lastStatus, key, isStream,
     controls: () => window.cncJobControls, reloads, advance(ms) { now += ms; },
     // One second of the page: the 1 s loops (a 12 h timer of app.js is not run).
     tick() { Array.from(intervals.keys()).filter((id) => !(periods.get(id) > 1000)).forEach((id) => intervals.get(id)()); } };

@@ -33,7 +33,7 @@ async function fixture(){
 const findings=[];
 function expect(cond,label){if(!cond)findings.push(label);console.log((cond?'ok    ':'DEFECT')+' '+label);}
 (async()=>{
- const f=await fixture(),fb=f.node('job-feedback');
+ const f=await fixture(),fb=require('./command-state-fixture.cjs')(f.win,'job-feedback');
  const state=()=>fb.getAttribute('data-state');
  // 1. Start: prepare answered, dialog open, state "confirmed"; then the stream drops while the ticket
  //    is open: the text says the confirmation was cancelled, the dot must not stay "confirmed".
@@ -73,7 +73,7 @@ function expect(cond,label){if(!cond)findings.push(label);console.log((cond?'ok 
  // 5. Stop goes out while a prepare is pending (busy): never delayed, never refused by busy.
  f.win.cncJobControls.start();await f.flush();const prep=f.answer();
  assert.equal(f.node('job-start').disabled,true,'Start disabled while busy');
- f.node('job-stop').click();await f.flush();
+ require('./command-state-fixture.cjs')(f.win,'job-stop').click();await f.flush();
  expect(f.calls.at(-1).action==='stop','Stop sent while a prepare is pending');
  f.answer().resolve({message:'Arrêt demandé.'});await f.flush();prep.reject(new Error('Refusé.'));await f.flush();
  expect(fb.textContent==='Arrêt demandé.'&&state()==='confirmed','the older prepare refusal does not overwrite the newer Stop answer');

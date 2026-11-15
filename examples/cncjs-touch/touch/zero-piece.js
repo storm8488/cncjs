@@ -248,8 +248,8 @@
     else button(diagnosticActions,'probe-test-next',diagnosticStage==='touch'||diagnosticStage.charAt(0)==='B'?'Rien ne se passe':'Ça touche toujours',function(){renderTest(true);});
   }
   // Tool-change pause and completion use the same plate owner and display refusals on the spot.
-  var pauseParent=document.getElementById('home-program-pause')||document.getElementById('home-job-ready'),homePause=el('div','home-pause-plate','',pauseParent),finishParent=document.getElementById('home-job-ready'),homeFinish=el('div','home-finish-plate','',finishParent&&finishParent.parentNode);
-  if(finishParent&&finishParent.parentNode)finishParent.parentNode.insertBefore(homeFinish,finishParent.nextSibling);
+  var pauseParent=document.getElementById('home-notice-actions')||document.getElementById('home-job-ready'),homePause=el('div','home-pause-plate','',pauseParent),finishParent=document.getElementById('home-notice-actions')||document.getElementById('home-job-ready'),homeFinish=el('div','home-finish-plate','',finishParent);
+
   var homeButtons=[homePause,homeFinish].map(function(n,i){return button(n,i?'home-finish-plate-start':'home-pause-plate-start','Zéro Z à la plaque…',function(){launchPlate(false);});});
   var homeReasons=[homePause,homeFinish].map(function(n){return el('div','','',n);});
   homeReasons.forEach(function(n){n.setAttribute('role','status');});

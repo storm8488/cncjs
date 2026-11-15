@@ -47,7 +47,7 @@ f.byId('t-pause').click();f.byId('t-stop').click();assert.equal(f.clicks.pause,1
  under.byId('t-pause').click();under.byId('t-stop').click();assert.deepEqual(under.clicks,{pause:1,stop:1},'direct actions under a dialog');
 }
 // A disabled job button is never relayed.
-f.node('job-stop').disabled=true;f.byId('t-stop').click();assert.equal(f.clicks.stop,1);f.node('job-stop').disabled=false;
+f.byId('t-stop').disabled=true;f.byId('t-stop').click();assert.equal(f.clicks.stop,1);f.byId('t-stop').disabled=false;
 f.send({machine:m({activeState:'Hold:0',workflow:'paused',canPause:false,canStop:true,canResume:true}),transportConnected:true});
 assert.equal(f.byId('t-state-text').textContent,'Pause');assert.equal(f.byId('t-state').getAttribute('data-tone'),'warn');assert(f.byId('t-pause').disabled);
 // In a pause the strip offers Resume (relayed to the job button, so its confirmation opens).

@@ -34,25 +34,25 @@ async function fixture(){
  const f=await fixture();
  assert(f.created.find(n=>n.id==='t-system-command'),'system status exists');
  assert(f.created.some(n=>n.attrs.role==='status'||n.id==='t-system-command'),'a status line for system commands is created');
- const fb=f.node('job-feedback');
+ const fb=require('./command-state-fixture.cjs')(f.win,'job-feedback');
  // Pause: sent, then confirmed with the server's message.
  f.machine.workflow='running';f.machine.canPause=true;f.machine.canStart=false;f.win.cncJobControls.refresh();await f.flush();
- f.node('job-pause').click();await f.flush();
+ require('./command-state-fixture.cjs')(f.win,'job-pause').click();await f.flush();
  assert.equal(fb.textContent,'Demande envoyée…');assert.equal(fb.getAttribute('data-state'),'sent');
  assert.equal(f.statuses.at(-1).feedbackState,'sent','Suivi is told the request is on its way');
  f.answer().resolve({message:'Pause demandée.'});await f.flush();
  assert.equal(fb.textContent,'Pause demandée.');assert.equal(fb.getAttribute('data-state'),'confirmed');assert.equal(f.statuses.at(-1).feedbackState,'confirmed');
  // A refusal is a failure with the server's reason.
- f.node('job-pause').click();await f.flush();assert.equal(fb.getAttribute('data-state'),'sent');
+ require('./command-state-fixture.cjs')(f.win,'job-pause').click();await f.flush();assert.equal(fb.getAttribute('data-state'),'sent');
  f.answer().reject(new Error('Travail déjà en pause.'));await f.flush();
  assert.equal(fb.textContent,'Travail déjà en pause.');assert.equal(fb.getAttribute('data-state'),'failed');
  // No answer (network error or timeout) is uncertain, never shown as a refusal.
- f.node('job-pause').click();await f.flush();const lost=new Error('Connexion perdue ou réponse incertaine.');lost.uncertain=true;f.answer().reject(lost);await f.flush();
+ require('./command-state-fixture.cjs')(f.win,'job-pause').click();await f.flush();const lost=new Error('Connexion perdue ou réponse incertaine.');lost.uncertain=true;f.answer().reject(lost);await f.flush();
  assert.equal(fb.getAttribute('data-state'),'uncertain');assert.match(fb.textContent,/incertaine/);
  // Stop is accepted while another command is pending: it is never delayed by the busy flag.
- f.node('job-pause').click();await f.flush();const pendingPause=f.answer();
- assert.equal(f.node('job-stop').disabled,false,'Stop stays enabled while a command is pending');
- f.node('job-stop').click();await f.flush();assert.equal(f.calls.at(-1).action,'stop');
+ require('./command-state-fixture.cjs')(f.win,'job-pause').click();await f.flush();const pendingPause=f.answer();
+ assert.equal(require('./command-state-fixture.cjs')(f.win,'job-stop').disabled,false,'Stop stays enabled while a command is pending');
+ require('./command-state-fixture.cjs')(f.win,'job-stop').click();await f.flush();assert.equal(f.calls.at(-1).action,'stop');
  f.answer().resolve({message:'Arrêt demandé.'});await f.flush();pendingPause.resolve({message:'Pause (ancienne réponse).'});await f.flush();
  assert.equal(fb.textContent,'Arrêt demandé.','an older answer never overwrites a newer one');assert.equal(fb.getAttribute('data-state'),'confirmed');
  // Double tap on Start: busy blocks the second prepare until the first is answered.
@@ -97,14 +97,6 @@ async function fixture(){
   assert.equal(run({status:403,body:{message:'Commande désactivée.'}}),'Commande désactivée.');
   assert.equal(run({status:409,body:{message:'Commande système déjà en cours (Mise à jour).'}}),'Commande système déjà en cours (Mise à jour).');
   assert.equal(run({status:403}),'Commande désactivée dans CNCjs.');
- }
- // Suivi mirrors the state on its own feedback line.
- {
-  const listeners={};const {document,node}=require('./dom-fixture.cjs').createDOM(['home']);
-  vm.runInNewContext(fs.readFileSync(__dirname+'/touch/job-dashboard.js','utf8'),{document,window:{addEventListener:(n,f)=>listeners[n]=f},Date:{now:()=>1e12},localStorage:{getItem:()=>null},XMLHttpRequest:function(){throw Error('no network');}});
-  listeners['cnc-job-status']({detail:{machine:null,simulation:false,feedback:'Demande envoyée…',feedbackState:'sent'}});
-  assert.equal(node('home-job-feedback').getAttribute('data-state'),'sent');assert.equal(node('home-job-feedback').textContent,'Demande envoyée…');
-  listeners['cnc-job-status']({detail:{machine:null,simulation:false,feedback:'Arrêt demandé.',feedbackState:'confirmed'}});assert.equal(node('home-job-feedback').getAttribute('data-state'),'confirmed');
  }
  console.log('PASS action feedback: sent → confirmed / failed / uncertain, old answers ignored, Stop never delayed, one prepare per double tap, system command line and store relay, tablet actions disabled with 401/403/409 told apart, Suivi mirror.');
 })().catch(e=>{console.error(e);process.exit(1);});

@@ -94,6 +94,6 @@ async function fixture(monotonic=false){
  // UI-6 (rehearsal): closed by a server refusal (probe already in contact), the reason is shown.
  {const g=await fixture();g.machine.canZeroZ=true;g.win.cncJobControls.prepareCommand('zeroZ',{thickness:10,search:15});await g.flush();await g.resolve();
   g.machine.canZeroZ=false;g.machine.zeroZReason='Sonde déjà en contact : vérifiez la pince et la plaque.';g.win.cncJobControls.refresh();await g.flush();
-  assert(g.node('job-dialog').hidden);assert.equal(g.node('job-feedback').textContent,'Confirmation annulée : Sonde déjà en contact : vérifiez la pince et la plaque.');}
+  assert(g.node('job-dialog').hidden);assert.equal(require('./command-state-fixture.cjs')(g.win,'job-feedback').textContent,'Confirmation annulée : Sonde déjà en contact : vérifiez la pince et la plaque.');}
  console.log('PASS: focus, inert restoration, keyboard trap, delayed prepare, modal exclusion, stale click, alarm/revision invalidation, visibility/disposal and single confirmation; no network.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

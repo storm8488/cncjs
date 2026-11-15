@@ -37,7 +37,7 @@ async function fixture(machinePatch) {
   const win = { cncJobSimulation: sim, addEventListener: on, removeEventListener: doc.removeEventListener, dispatchEvent() {} };
   vm.runInNewContext(fs.readFileSync(process.env.CNC_JOB_CONTROLS || __dirname + '/touch/job-controls.js', 'utf8'), { window: win, document: doc, Date: { now: () => now }, Promise, CustomEvent: function () {}, setInterval: () => 1, clearInterval() {}, XMLHttpRequest() { throw Error('No hardware/network permitted'); } });
   const flush = () => new Promise(setImmediate); await flush();
-  async function open(trigger, extra) { node(trigger).focus(); if (trigger === 'macro') win.cncJobControls.prepareMacro('m1'); else if(trigger==='job-start')win.cncJobControls.start();else node(trigger).click(); await flush(); const f = pending; pending = null; f(Object.assign({ nonce: 'ticket', name: 'leaf.nc', expiresIn: 15 }, extra)); await flush(); assert.equal(dialog.hidden, false, 'dialog opened by ' + trigger); }
+  async function open(trigger, extra) { node(trigger).focus(); if (trigger === 'macro') win.cncJobControls.prepareMacro('m1'); else if(trigger==='job-start')win.cncJobControls.start();else if(trigger==='job-resume')win.cncJobControls.resume();else node(trigger).click(); await flush(); const f = pending; pending = null; f(Object.assign({ nonce: 'ticket', name: 'leaf.nc', expiresIn: 15 }, extra)); await flush(); assert.equal(dialog.hidden, false, 'dialog opened by ' + trigger); }
   function key(k, shiftKey = false) { let prevented = false; emit('keydown', { key: k, shiftKey, preventDefault() { prevented = true; }, stopImmediatePropagation() {} }); return prevented; }
   const inertPath = (n) => { for (let x = n; x; x = x.parentNode) if (x.inert) return x.id; return null; };
   return { node, doc, win, machine, calls, emit, flush, open, key, inertPath, dialog, banner, advance(ms) { now += ms; } };
@@ -59,7 +59,7 @@ async function fixture(machinePatch) {
   f.emit('focusin', { target: f.node('main') }); assert.equal(f.doc.activeElement.id, 'job-dismiss', 'focus elsewhere goes back into the dialog');
   // ArrÃªter (relayed to #job-stop by status-strip.js): immediate, closes the dialog, voids the ticket.
   f.advance(600);f.advance(600);f.node('job-check').checked = true; f.node('job-check').handlers.change.call(f.node('job-check'));
-  f.node('job-stop').click(); await f.flush();
+  require('./command-state-fixture.cjs')(f.win,'job-stop').click(); await f.flush();
   assert(f.dialog.hidden, 'ArrÃªter closes the confirmation');
   assert.equal(f.calls.filter((c) => c.action === 'stop').length, 1, 'stop sent at once');
   f.node('job-confirm').disabled = false; f.node('job-confirm').handlers.click(); await f.flush();
@@ -76,7 +76,7 @@ async function fixture(machinePatch) {
   assert(f.key('Tab')); assert.equal(f.doc.activeElement.id, 'job-confirm', 'Tab from Annuler reaches Confirmer once enabled');
   assert(f.key('Tab')); assert.equal(f.doc.activeElement.id, 't-stop', 'then the strip');
   assert(f.key('Tab')); assert.equal(f.doc.activeElement.id, 'job-check', 'then back into the dialog');
-  f.node('job-stop').click(); await f.flush();
+  require('./command-state-fixture.cjs')(f.win,'job-stop').click(); await f.flush();
   assert(f.dialog.hidden); assert.equal(f.calls.filter((c) => c.action === 'stop').length, 1);
   f.node('job-confirm').disabled = false; f.node('job-confirm').handlers.click(); await f.flush();
   assert(!f.calls.some((c) => c.action === 'start'), 'no start after ArrÃªter during the start confirmation');
@@ -87,7 +87,7 @@ async function fixture(machinePatch) {
   assert.equal(f.inertPath(f.node('t-pause')), null); assert.equal(f.inertPath(f.node('t-stop')), null);
   f.node('job-dismiss').focus(); assert(f.key('Tab')); assert.equal(f.doc.activeElement.id, 't-pause', 'Tab from the last control reaches Pause');
   assert(f.key('Tab')); assert.equal(f.doc.activeElement.id, 't-stop');
-  f.node('job-pause').click(); await f.flush();
+  require('./command-state-fixture.cjs')(f.win,'job-pause').click(); await f.flush();
   assert(f.dialog.hidden, 'Pause closes the confirmation'); assert.equal(f.calls.filter((c) => c.action === 'pause').length, 1, 'pause sent at once');
   assert(!f.calls.some((c) => c.action === 'macro'));
   // A hidden or disabled strip command is not in the cycle; Escape still closes.

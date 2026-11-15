@@ -84,7 +84,7 @@
     }
   });
   var stop=$('preview-job-stop');stop.disabled=true;
-  stop.addEventListener('click',function(){var command=$('job-stop');if(!stop.disabled&&command&&!command.disabled&&window.cncJobControls)window.cncJobControls.stop();});
+  stop.addEventListener('click',function(){if(!stop.disabled&&window.cncJobControls)window.cncJobControls.stop();});
   window.addEventListener('cnc-job-status',function(e){
     jobState=e.detail;renderStatus();
   });

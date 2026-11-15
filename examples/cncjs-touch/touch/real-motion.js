@@ -518,7 +518,7 @@
   document.addEventListener('pointerdown',function(e){var n=e&&e.target;if(hold&&n!==hold.button&&!(hold.button.contains&&n&&hold.button.contains(n)))stopHold(t('autre appui'));},true);
   // Arrêter (strip, Suivi or preview viewer) during a hold also ends the keepalives here, in the
   // same tap (capture, before the stop is relayed): the jog never waits for the server's answer.
-  document.addEventListener('click',function(e){var n=e&&e.target;if(hold&&n&&typeof n.closest==='function'&&n.closest('#t-stop,#job-stop,#home-job-stop,#preview-job-stop'))stopHold(t('arrêt demandé'));},true);
+  document.addEventListener('click',function(e){var n=e&&e.target;if(hold&&n&&typeof n.closest==='function'&&n.closest('#t-stop,#home-job-stop,#preview-job-stop'))stopHold(t('arrêt demandé'));},true);
   document.addEventListener('visibilitychange',function(){if(document.hidden){stopHold(t('page masquée'));stopStep(t('page masquée'));closePanel(false);}viewClock();render();});
   window.addEventListener('cnc-screen-change',function(){stopHold(t('écran changé'));stopStep(t('écran changé'));closePanel(false);viewClock();render();});
   // Locking the screen closes the origin dialog (V3): a held jog stops at once.

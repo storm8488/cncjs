@@ -57,9 +57,9 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
 
   // 4. Pause and Stop stay usable while another device pilots; nothing on the client blocks them.
   f.push([f.machine({ workflow: 'running', activeState: 'Run', canStart: false, canLoad: false, canPause: true, canStop: true, control: { owner: other, lastChange: null } })]);
-  assert.equal(f.el('job-pause').disabled, false); assert.equal(f.el('job-stop').disabled, false);
-  f.el('job-pause').click(); assert.equal(f.posts().at(-1).body.action, 'pause'); f.answer(f.posts().at(-1), { message: 'Pause' }); await f.flush();
-  f.el('job-stop').click(); assert.equal(f.posts().at(-1).body.action, 'stop'); f.answer(f.posts().at(-1), { message: 'Arrêt' }); await f.flush();
+  assert.equal(require('./command-state-fixture.cjs')(f.window,'job-pause').disabled, false); assert.equal(require('./command-state-fixture.cjs')(f.window,'job-stop').disabled, false);
+  require('./command-state-fixture.cjs')(f.window,'job-pause').click(); assert.equal(f.posts().at(-1).body.action, 'pause'); f.answer(f.posts().at(-1), { message: 'Pause' }); await f.flush();
+  require('./command-state-fixture.cjs')(f.window,'job-stop').click(); assert.equal(f.posts().at(-1).body.action, 'stop'); f.answer(f.posts().at(-1), { message: 'Arrêt' }); await f.flush();
 
   // 5. ECONTROL refusal: the owner's name and the next step, no takeover sent.
   f.push([f.machine({ control: { owner: other, lastChange: null } })]);
@@ -68,16 +68,16 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
   f.push([f.machine({control:{owner:null,lastChange:null}})]);f.controls().load(); const refused = f.posts().at(-1);
   f.push([f.machine({control:{owner:other,lastChange:null}})]);
   f.answer(refused, { message: 'Pilotage de COM3 attribué à « Tablette B » (tablette, ana) : …', code: 'ECONTROL', owner: other }, 409); await f.flush();
-  assert.match(f.el('job-feedback').textContent, /^Refusé : pilotage attribué à « Tablette B »/);
-  assert.match(f.el('job-feedback').textContent, /touchez Pilote dans le bandeau et prenez le pilotage avec un motif/);
-  assert.equal(f.el('job-feedback').getAttribute('data-state'), 'failed');
+  assert.match(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, /^Refusé : pilotage attribué à « Tablette B »/);
+  assert.match(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, /touchez Pilote dans le bandeau et prenez le pilotage avec un motif/);
+  assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').getAttribute('data-state'), 'failed');
   assert(!f.posts().some((r) => r.body.action === 'control'), 'a refusal never takes over by itself');
-  f.push([f.machine({control:{owner:other,lastChange:null}})]);assert.match(f.el('job-feedback').textContent,/pilotage attribué/,'same state keeps refusal');
-  f.push([f.machine({control:{owner:null,lastChange:null}})]);assert.equal(f.el('job-feedback').textContent,'','C-30c: stale refusal cleared');assert.equal(f.el('job-feedback').getAttribute('data-state'),'');
+  f.push([f.machine({control:{owner:other,lastChange:null}})]);assert.match(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent,/pilotage attribué/,'same state keeps refusal');
+  f.push([f.machine({control:{owner:null,lastChange:null}})]);assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent,'','C-30c: stale refusal cleared');assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').getAttribute('data-state'),'');
   // Any other 409 keeps the server message as it is.
   f.controls().load(); f.answer(f.posts().at(-1), { message: 'Machine occupée.' }, 409); await f.flush();
-  assert.equal(f.el('job-feedback').textContent, 'Machine occupée.');
-  f.push([f.machine({control:{owner:other,lastChange:null}})]);assert.equal(f.el('job-feedback').textContent,'Machine occupée.','other failures survive a pilot change');
+  assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Machine occupée.');
+  f.push([f.machine({control:{owner:other,lastChange:null}})]);assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent,'Machine occupée.','other failures survive a pilot change');
 
   // 6. Takeover dialog: opened by a tap (from the strip chip), focus on the reason, background inert.
   const chip = f.el('t-pilot'); chip.focus();
@@ -111,7 +111,7 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
   assert.equal(f.el('pilot-dialog').hidden, false); assert.equal(f.el('pilot-feedback').textContent, 'Prise de pilotage refusée : indiquez un motif (3 caractères au moins).');
   f.el('pilot-reason-b').textContent='Prendre la main — l’autre appareil est hors service';f.el('pilot-reason-b').click(); const accepted = f.posts().filter((r) => r.body.action === 'control').at(-1);
   f.answer(accepted, { owner: { kind: 'touch', id }, previous: other, role: 'operator' }); await f.flush();
-  assert.equal(f.el('pilot-dialog').hidden, true); assert.equal(f.el('job-feedback').textContent, 'Pilotage pris par cet appareil.'); assert.equal(f.document.activeElement, chip);
+  assert.equal(f.el('pilot-dialog').hidden, true); assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Pilotage pris par cet appareil.'); assert.equal(f.document.activeElement, chip);
   // When this device owns or the port is free, the dialog informs only (no takeover form).
   f.push([f.machine({ control: { owner: { kind: 'touch', id, label: 'x', present: true }, lastChange: null } })]);
   f.controls().openPilot(); assert.equal(f.el('pilot-form').hidden, true); assert.equal(f.el('pilot-takeover').hidden, true); assert.equal(f.document.activeElement.id, 'pilot-dismiss');
@@ -120,9 +120,9 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
   f.key('Escape');
   // The previous owner is told who took over and why (once).
   f.push([f.machine({ control: { owner: other, lastChange: { type: 'takeover', at: 42, previous: { kind: 'touch', id }, owner: other, reason: 'Changement d’équipe' } } })]);
-  assert.equal(f.el('job-feedback').textContent, 'Pilotage repris par « Tablette B » — motif : Changement d’équipe');
-  f.el('job-feedback').textContent = 'autre'; f.push([f.machine({ control: { owner: other, lastChange: { type: 'takeover', at: 42, previous: { kind: 'touch', id }, owner: other, reason: 'Changement d’équipe' } } })]);
-  assert.equal(f.el('job-feedback').textContent, 'autre', 'shown once per takeover');
+  assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Pilotage repris par « Tablette B » — motif : Changement d’équipe');
+  const beforeRepeat=f.events.length; f.push([f.machine({ control: { owner: other, lastChange: { type: 'takeover', at: 42, previous: { kind: 'touch', id }, owner: other, reason: 'Changement d’équipe' } } })]);
+  assert.equal(f.events.length,beforeRepeat,'shown once per takeover');
   // The dialog never stacks on another dialog, and closes with a screen change or a hidden page.
   f.el('job-dialog').hidden = false; assert.equal(f.controls().openPilot(), false); f.el('job-dialog').hidden = true;
   f.controls().openPilot(); f.window.dispatchEvent({ type: 'cnc-screen-change', detail: 'files' }); assert.equal(f.el('pilot-dialog').hidden, true);
@@ -159,7 +159,7 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
 (async()=>{
  const f=load();await f.connect();const waiting=f.controls().prepareCommand('home');const req=f.posts().at(-1),count=f.posts().length;
  const second=await f.controls().prepareCommand('home');assert.equal(second.opened,false);assert.equal(second.error.message,'Opération en cours…');
- assert.equal(f.el('job-feedback').textContent,second.error.message,'C-31: busy preparation is visible');assert.equal(f.posts().length,count);
+ assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent,second.error.message,'C-31: busy preparation is visible');assert.equal(f.posts().length,count);
  f.answer(req,{message:'Home refused'},409);await waiting;f.controls().dispose();
 })().catch(e=>{console.error(e);process.exitCode=1;});
 
@@ -175,7 +175,7 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
 
 (async()=>{
  const f=load();await f.connect(f.machine({workflow:'running',activeState:'Run',canPause:true,canStop:true,canLoad:false,canStart:false}));
- f.el('main').inert=true;f.el('job-pause').inert=true;f.el('job-stop').inert=true;f.el('job-dialog').hidden=false;
+ f.el('main').inert=true;require('./command-state-fixture.cjs')(f.window,'job-pause').inert=true;require('./command-state-fixture.cjs')(f.window,'job-stop').inert=true;f.el('job-dialog').hidden=false;
  const pausing=f.controls().pause();assert(f.el('job-dialog').hidden,'direct Pause closes a confirmation');
  let req=f.posts().at(-1);assert.equal(req.body.action,'pause');f.answer(req,{message:'Pause'});await pausing;
  f.push([]);assert(f.lastStatus().halt,'busy target retained when the state disappears');

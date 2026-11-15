@@ -1923,3 +1923,44 @@ window.CNCTouchMessages.push([' · Sélection différente : ',' · Different sel
 (window.CNCTouchMessages = window.CNCTouchMessages || []).push(
 ['Un port est déjà ouvert. Choisissez la machine dans Détails de la machine.','A port is already open. Select the machine in Machine details.','Ya hay un puerto abierto. Seleccione la máquina en Detalles de la máquina.']
 );
+
+window.CNCTouchMessages.push(
+["Rien en cours.","Nothing running.","Nada en curso."],
+["Suite : Contrôle →","Next: Check →","Siguiente: Control →"],
+["Suite : Fichier →","Next: File →","Siguiente: Archivo →"],
+["Usinage en cours.","Machining in progress.","Mecanizado en curso."],
+["La machine attend. Si rien ne bouge, arrêtez l’usinage.","The machine is waiting. If nothing moves, stop machining.","La máquina espera. Si nada se mueve, detenga el mecanizado."],
+["Pause du fichier","Program pause","Pausa del archivo"],
+["Pause demandée par le fichier.","The program requested a pause.","El archivo ha solicitado una pausa."],
+["Pause. La broche tourne toujours.","Paused. The spindle is still turning.","Pausa. El husillo sigue girando."],
+["Le fichier demande un changement de fraise.","The program requests a tool change.","El archivo solicita cambiar la fresa."],
+["Reprise indisponible.","Resume unavailable.","Reanudación no disponible."],
+["La porte de la machine est ouverte. Fermez-la.","The machine door is open. Close it.","La puerta de la máquina está abierta. Ciérrela."],
+["Arrêté à la ligne {n} sur {total}.","Stopped at line {n} of {total}.","Detenido en la línea {n} de {total}."],
+["Usinage arrêté avant la fin.","Machining stopped before completion.","Mecanizado detenido antes del final."],
+["Terminé.","Finished.","Terminado."],
+["Terminé en {temps}.","Finished in {temps}.","Terminado en {temps}."],
+["Terminé avec {n} lignes refusées par la machine.","Finished with {n} lines rejected by the machine.","Terminado con {n} líneas rechazadas por la máquina."],
+["Le laser est encore allumé : éteignez-le.","The laser is still on: turn it off.","El láser sigue encendido: apáguelo."],
+["La broche tourne encore : arrêtez-la.","The spindle is still turning: stop it.","El husillo sigue girando: deténgalo."],
+["Arrêtez l’usinage.","Stop machining.","Detenga el mecanizado."],
+["Zéro Z à la plaque en cours… Arrêter l’interrompt.","Setting Z zero with the plate… Stop interrupts it.","Poniendo cero Z con la placa… Detener lo interrumpe."],
+["Zéro Z posé à la plaque.","Z zero set with the plate.","Cero Z puesto con la placa."],
+["Attendez une information à jour.","Wait for fresh information.","Espere información actualizada."],
+["Arrêter la broche","Stop spindle","Detener el husillo"],
+["Arrêt de la broche indisponible.","Spindle stop unavailable.","Parada del husillo no disponible."],
+["Éteindre le laser","Turn laser off","Apagar el láser"],
+["Reprendre à une ligne","Resume from a line","Reanudar desde una línea"],
+["Reprendre à un début de passe","Resume from a pass start","Reanudar desde un inicio de pasada"],
+["Reprendre à la ligne","Resume at line","Reanudar en la línea"],
+["Arrêté à la ligne {n}.","Stopped at line {n}.","Detenido en la línea {n}."],
+["proposée : quinze mouvements avant l’arrêt","suggested: fifteen moves before the stop","propuesta: quince movimientos antes de la parada"],
+["La fraise remonte, va au-dessus du point, redescend, puis l’usinage reprend.","The tool rises, moves above the point, descends, then machining resumes.","La fresa sube, se sitúa sobre el punto, baja y se reanuda el mecanizado."],
+["Vérification de la ligne…","Checking line…","Verificando línea…"],
+["Ligne vérifiée.","Line checked.","Línea verificada."],
+["Puissance","Power","Potencia"],
+["Les corrections servent pendant un usinage.","Overrides are used during machining.","Las correcciones se usan durante el mecanizado."],
+["Remise en route →","Recovery →","Recuperación →"]
+);
+
+window.CNCTouchMessages.push(['ligne {n}','line {n}','línea {n}']);

@@ -142,8 +142,8 @@ async function suiviPage(options = {}) {
     const atRest = s.shape();
     assert.equal(s.board.getAttribute('data-v2'), 'suivi', 'Suivi v2 grid built at rest');
     // Calibration of M2: the snapshot sees the v2 nodes (a frame changes them) and catches a write.
-    const seen = v2Nodes(s.board); s.running({ received: 10 }); p.frame();
-    assert.notEqual(v2Nodes(s.board), seen, 'calibration: a frame after a report changes the v2 nodes');
+    const seen = s.roots().map(v2Nodes).join(); p.advance(1);s.running({ received: 10,statusObservedAt:5001,operator:{wcs:'G55',reportUnits:'mm'} }); p.frame();
+    assert.notEqual(s.roots().map(v2Nodes).join(), seen, 'calibration: a frame after a report changes the v2 nodes');
     assert.throws(() => noRenderIn('calibration', s.roots, () => { s.node('home-v2-age').textContent = 'écrit dans un gestionnaire'; }), /M2 calibration/);
     s.send(); p.frame();
     // A job: bursts of reports, reported corrections, pause, resume, alarm.
@@ -201,7 +201,7 @@ async function suiviPage(options = {}) {
     (function walk(n) { if (!n) return; if (n.tagName === 'BUTTON' && n.handlers && n.handlers.click) clicks.push(n); (n.children || []).forEach(walk); })(s.board);
     s.sheets.forEach((c) => (function walk(n) { if (!n) return; if (n.tagName === 'BUTTON') clicks.push(n); (n.children || []).forEach(walk); })(c));
     const v2Buttons = clicks.filter((b) => /^home-v2/.test(b.id));
-    assert(v2Buttons.length >= 2, 'the two v2 sheet buttons exist (' + v2Buttons.map((b) => b.id) + ')');
+    assert(v2Buttons.length >= 1, 'the time detail button exists (' + v2Buttons.map((b) => b.id) + ')');
     v2Buttons.forEach((b) => b.handlers.click({ target: b }));
     if (s.node('home-gauge-curve').handlers.click) s.node('home-gauge-curve').handlers.click({ clientX: 10, clientY: 10, target: s.node('home-gauge-curve') });
     p.frame();

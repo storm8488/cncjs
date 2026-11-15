@@ -4,8 +4,8 @@
  * Stop while a job runs, Stop during homing or a jog, Resume in a pause, Unlock
  * in an alarm (both through their usual confirmation). It only
  * projects the `cnc-job-status` detail already published by job-controls.js
- * (no timer, no request); Pause and Stop relay to the existing #job-pause and
- * #job-stop buttons, so every guard and confirmation stays where it is. */
+ * (no timer, no request); Pause and Stop call the command owner directly,
+ * which retains every permission and confirmation guard. */
 (function () {
   'use strict';
   var uiLocale=window.cncI18n||{t:function(s){return s;},html:function(s){return s;},locale:'fr-FR'};
@@ -105,16 +105,14 @@
   var messageObserver=typeof window.MutationObserver==='function'?new window.MutationObserver(syncMessages):null;
   if(messageObserver)messageObserver.observe(messages,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['hidden']});
   syncMessages();
-  function relay(id){var source=$(id),c=window.cncJobControls,action=id==='job-pause'?'pause':id==='job-stop'?'stop':null;
-    if(!source||source.disabled)return;
-    if(action&&c&&typeof c[action]==='function')c[action]();}
+  function relay(action){var c=window.cncJobControls;if(c&&typeof c[action]==='function')c[action]();}
   // A tap on Pause, Resume or Unlock freezes those three for 600 ms: a double tap
   // cannot reach the button that replaces the first one (Pause becoming Resume).
   // Stop is never delayed.
   var coolUntil=0;
   function guarded(fn){return function(){var now=Date.now();if(now<coolUntil)return;coolUntil=now+600;fn();};}
-  pause.addEventListener('click',guarded(function(){relay('job-pause');}));
-  stop.addEventListener('click',function(){relay('job-stop');});
+  pause.addEventListener('click',guarded(function(){if(!pause.disabled)relay('pause');}));
+  stop.addEventListener('click',function(){if(!stop.disabled)relay('stop');});
   resume.addEventListener('click',guarded(function(){var c=window.cncJobControls;if(c&&c.resume)c.resume();}));
   recover.addEventListener('click',guarded(function(){if(window.cncShell)window.cncShell.go('machine');}));
   var screenLocked=false;

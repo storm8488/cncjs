@@ -16,23 +16,23 @@ vm.runInNewContext(fs.readFileSync(__dirname+'/touch/job-controls.js','utf8'),{d
  assert(start>0&&end>start,'wide section of job-dashboard.js found');
  const wide=dash.slice(start,end);
  for(const word of ['cncJobControls','.click(','XMLHttpRequest','fetch(','api/','sendBeacon','.override('])assert(!wide.includes(word),'wide Suivi code is display only: '+word);
- assert(/\['pause','resume','stop'\]\.forEach\(function\(action\)\{\s*\$\('home-job-'\+action\)\.addEventListener\('click'/.test(dash),'Suivi buttons relay to the job controls');
- for(const action of ['load','start','pause','resume','stop'])assert(new RegExp('job-'+action+'\\b').test(controls),'job-controls.js owns job-'+action);
+ assert(dash.includes('window.cncJobControls.stop()'),'Suivi stops through the owner');
+ for(const action of ['load','start','pause','resume','stop'])assert(controls.includes('function '+action+'('),'job-controls.js owns '+action);
 }
 (async()=>{
  pending.shift()();await new Promise(setImmediate);
  assert.match(el('job-selected').textContent,/Feuille.nc/); // Selection arrived before this script was loaded.
- assert.match(el('job-reason').textContent,/ALARM/);assert.match(el('file').textContent,/Feuille.nc/);assert.match(el('file').textContent,/Aucun fichier chargé dans CNCjs/);assert.equal(el('job-start').disabled,true);
+ assert.match(el('job-state-reason').textContent,/ALARM/);assert.match(el('file').textContent,/Feuille.nc/);assert.match(el('file').textContent,/Aucun fichier chargé dans CNCjs/);assert.equal(el('job-start').disabled,true);
  response.controllers[0]={...response.controllers[0],activeState:'Idle',name:'leaf.nc',originalName:'Feuille.nc',canLoad:true,canStart:true};
  now+=10000;timers[0]();pending.shift()();await new Promise(setImmediate);
  assert.match(el('file').textContent,/Chargé dans CNCjs : Feuille.nc/);assert.equal(el('job-start').disabled,false);
  // Lot Fichiers: Fichiers has no Démarrer, its reason line sends to Suivi; Suivi (#file) keeps « Touchez Démarrer ».
- assert.equal(el('job-reason').textContent,'Fichier chargé : ouvrez le Suivi pour démarrer.');assert.match(el('file').textContent,/Touchez Démarrer pour confirmer/);
+ assert.equal(el('job-state-reason').textContent,'Fichier chargé : ouvrez le Suivi pour démarrer.');assert.match(el('file').textContent,/Touchez Démarrer pour confirmer/);
  // A stale report (fresh false) no longer says « Chargé dans CNCjs : … » under « état de charge indisponible ».
  response.controllers[0]={...response.controllers[0],fresh:false,canLoad:false,canStart:false};
  now+=10000;timers[0]();pending.shift()();await new Promise(setImmediate);
  assert.equal(el('job-loaded').textContent,'Fichier chargé : état indisponible.');assert.equal(el('job-load').disabled,true);assert.equal(el('job-start').disabled,true);
- assert.match(el('job-reason').textContent,/En attente d’un état récent/);
+ assert.match(el('job-state-reason').textContent,/En attente d’un état récent/);
  response.controllers[0]={...response.controllers[0],fresh:true,canLoad:true,canStart:true};
  now+=10000;timers[0]();pending.shift()();await new Promise(setImmediate);
  assert.match(el('job-loaded').textContent,/Chargé dans CNCjs : Feuille.nc/);

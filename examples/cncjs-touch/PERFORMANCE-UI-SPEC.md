@@ -715,3 +715,18 @@ Control's SVG drawings and words use the server's `programCheck`.
 `job-preparation.js`, its manual ticks and its loading relay are retired.
 `CNCTravelCheck.check/show` are removed; `place`, `travelBox` and `placementData`
 remain geometry APIs. There is no new polling, timer or build dependency.
+
+### L5 — Fixed machining command positions
+
+The command layout is shared by both renderers in `responsive.css`: preview and
+Stop on the left, progress, work position, all three override rows and one notice
+on the right. Renderer changes only add read-only sequence/curve/time content.
+The spindle/rapid override sheet and the scrolling message slot are retired.
+Technical report confidence and detailed timing live in the time sheet.
+The compact layout stacks progress before the preview without scaling controls.
+
+Home coordinates in `app.js` are painted only while Home is visible and the
+page is awake. Returning paints the latest state immediately; stale state clears
+it. No polling or periodic timer was added. See the L5 audit for static source
+inventory and the blocked browser measurements; timings on the tablet are not
+claimed.

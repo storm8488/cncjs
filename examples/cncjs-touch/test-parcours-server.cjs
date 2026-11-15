@@ -21,8 +21,14 @@ const assert=require('assert').strict,{createBench}=require('./parcours-server.c
  await post('/parcours/sim',{input:'job',clientId:'local-page',transportId:'recovery-test'});assert.equal(b.service.list()[0].workflow,'running');
  await post('/parcours/sim',{input:'limit',axis:'x',on:true});await post('/parcours/sim',{input:'limit',axis:'x',on:false});
  const incident=await until(m=>m.lastAlarm&&m.lastAlarm.code===1);assert.equal(incident.homed,false);assert(incident.referenceLost);
- await post('/api/touch-job',{action:'stop',port:'SIM',clientId:'local-page',transportId:'recovery-test'});await until(m=>m.jobStopped&&m.workflow==='idle');assert.equal(b.service.list()[0].stoppedFile,'recovery.nc');assert.equal(b.service.list()[0].stoppedAtLine,2);
- ready=await home();assert.equal(ready.lastAlarm,null);assert.equal(ready.workOffset.state,'proven');await post('/api/touch-job',{action:'control',operation:'release',port:'SIM',clientId:'local-page'});b.service.closeTransport('recovery-test');
+ await post('/api/touch-job',{action:'stop',port:'SIM',clientId:'local-page',transportId:'recovery-test'});await until(m=>m.jobStopped&&m.workflow==='idle');assert.equal(b.service.list()[0].stoppedFile,'recovery.nc');assert.equal(b.service.list()[0].stoppedAtLine,20);
+ ready=await home();assert.equal(ready.lastAlarm,null);assert.equal(ready.workOffset.state,'proven');
+ const baseResume={port:'SIM',generation:ready.generation,transportId:'recovery-test',clientId:'local-page'};
+ const plan=await post('/api/touch-job',{...baseResume,action:'resumePlan',file:ready.stoppedFile,line:5});assert.equal(plan.from,5);assert(plan.programCheck);
+ await post('/api/touch-job',{...baseResume,action:'load',file:ready.stoppedFile,fromLine:5});ready=await until(m=>m.canStart);assert.equal(ready.resume.from,5);
+ const start=await post('/api/touch-job',{...baseResume,revision:ready.revision,action:'prepare',operation:'start'});await post('/api/touch-job',{...baseResume,revision:ready.revision,action:'start',nonce:start.nonce});assert.equal(b.service.list()[0].workflow,'running');
+ await post('/api/touch-job',{...baseResume,action:'pause'});assert.equal(b.service.list()[0].workflow,'paused');
+ await post('/api/touch-job',{...baseResume,action:'stop'});await until(m=>m.workflow==='idle');await post('/api/touch-job',{action:'control',operation:'release',port:'SIM',clientId:'local-page'});b.service.closeTransport('recovery-test');
  await post('/parcours/sim',{input:'probe',state:'permanent'});assert(b.sim.probeStuck);await post('/parcours/sim',{input:'probe',state:'free'});assert(!b.sim.probeStuck);
  await post('/parcours/sim',{input:'pilot'});const snapshot=await (await fetch(base+'/api/touch-job')).json();assert.equal(snapshot.controllers[0].control.owner.label,'PC atelier');
  const result=await post('/api/touch-job',{action:'control',port:'SIM',operation:'takeover',reason:'Operator at machine',clientId:'local-page',clientLabel:'Tablet'});assert.equal(result.snapshot.controllers[0].control.owner.id,'local-page');

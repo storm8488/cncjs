@@ -12,12 +12,7 @@
   panel.innerHTML = uiLocale.html('<h2>Exécution sur la machine</h2>') +
     uiLocale.html('<label for="job-port">Contrôleur CNCjs</label><select id="job-port"><option value="">Aucune machine connectée</option></select>') +
     uiLocale.html('<p id="job-state" role="status">Lecture de l’état…</p>') +
-    uiLocale.html('<p id="job-selected"></p><p id="job-loaded">Aucun fichier chargé.</p><p id="job-reason" role="status"></p><progress id="job-progress" max="100" value="0"></progress>') +
-    uiLocale.html('<div class="job-buttons">') +
-    uiLocale.html('<button id="job-pause" disabled>Pause</button>') +
-    uiLocale.html('<button id="job-resume" disabled>Reprendre…</button><button id="job-stop" class="job-stop" disabled>Arrêter le travail</button></div>') +
-    uiLocale.html('<p id="job-feedback" role="status">Le chargement ne démarre pas le travail.</p>') +
-    uiLocale.html('<p class="mute">L’arrêt logiciel ne remplace pas l’arrêt physique de la machine.</p>') +
+    uiLocale.html('<p id="job-selected"></p><p id="job-state-reason"></p><p id="job-loaded">Aucun fichier chargé.</p><progress id="job-progress" max="100" value="0"></progress>') +
     uiLocale.html('<div id="job-dialog" class="job-dialog" role="dialog" aria-modal="true" aria-labelledby="job-dialog-title" hidden>') +
     uiLocale.html('<div class="job-dialog-card"><h2 id="job-dialog-title">Confirmer le démarrage</h2><p id="job-dialog-file"></p><p id="job-note" class="job-note" hidden></p>') +
     uiLocale.html('<p id="job-warning">')+(simulation?uiLocale.t('Test des boutons uniquement. Aucun mouvement ni activation du laser.'):uiLocale.t('Cette action met la machine en mouvement et peut activer l’outil. Vérifiez la machine, l’origine et la zone de travail.'))+uiLocale.html('</p><button type="button" id="job-dialog-modify" hidden>Modifier…</button>') +
@@ -77,7 +72,7 @@
   // state of the cycle reaches this page, so Pause and Arrêter target it at once (also when the state is lost).
   var probeRun=null;
   // Action feedback state (ui-2027.css .t-sent): sent → confirmed | failed | uncertain (no answer).
-  function setFeedbackState(state){controlFeedback=null;feedbackState=state;if(state!=='confirmed'){feedbackExpect=null;feedbackReached=false;}var node=$('job-feedback');if(node&&typeof node.setAttribute==='function'&&typeof node.getAttribute==='function'&&node.getAttribute('data-state')!==state)node.setAttribute('data-state',state);}
+  function setFeedbackState(state){controlFeedback=null;feedbackState=state;if(state!=='confirmed'){feedbackExpect=null;feedbackReached=false;}}
   // A planned stream renewal (every minute) is not a disconnection: for up to 3 s
   // the transport still counts as connected and no notice is shown, while the
   // confirmations bound to the old stream are void as before.
@@ -85,7 +80,8 @@
   // Time since the last report on the monotone clock (a civil clock set back renews nothing).
   function sinceSeen(){return lastSeen?elapsedClock()-seenAt:Infinity;}
   function bind(target,name,fn){target.addEventListener(name,fn);bindings.push(function(){if(target.removeEventListener)target.removeEventListener(name,fn);});}
-  function text(id,value){if(window.cncI18n&&(id==='job-feedback'||id==='job-reason'||id==='job-state'))value=window.cncI18n.message(value);var node=$(id);if(node&&node.textContent!==String(value))node.textContent=String(value);}
+  var actionFeedback='',publishedState={};
+  function text(id,value){if(id==='job-feedback'){actionFeedback=window.cncI18n?window.cncI18n.message(value):value;return;}if(window.cncI18n&&(id==='job-feedback'||id==='job-reason'||id==='job-state'))value=window.cncI18n.message(value);var node=$(id);if(node&&node.textContent!==String(value))node.textContent=String(value);}
   function prop(id,name,value){var node=$(id);if(node&&node[name]!==value)node[name]=value;}
   function token(){try{return JSON.parse(localStorage.getItem('cnc')).state.session.token||'';}catch(_){return '';}}
   function elapsedClock(){return window.performance&&typeof window.performance.now==='function'?window.performance.now():Date.now();}
@@ -346,7 +342,8 @@
     renderPilotDialog();previewIdentity(online?current:null);
     if(online&&current.fresh!==false)halt=haltOf(current);
     var lost=!online&&halt&&!simulation?halt:null;
-    var detail={machine:online?current:null,observedAt:lastSeen,transportConnected:transportConnected,simulation:!!simulation,busy:busy,feedback:$('job-feedback').textContent,feedbackState:feedbackState,systemCommand:command,pilot:pilot,halt:lost,probeRun:probeRun};
+    var detail={machine:online?current:null,observedAt:lastSeen,transportConnected:transportConnected,simulation:!!simulation,busy:busy,feedback:actionFeedback,feedbackState:feedbackState,systemCommand:command,pilot:pilot,halt:lost,probeRun:probeRun};
+    publishedState=detail;
     if(store)store.set({machine:detail.machine,controllerId:detail.machine?detail.machine.port:null,transportConnected:transportConnected,transportReason:grace?'':(streamReason||(browserOffline?uiLocale.t('Le navigateur signale le réseau coupé : le suivi continue tant que CNCjs répond.'):'')),systemCommand:command});
     var line=command?uiLocale.t('Commande système en cours : ')+command.title:'';
     if(systemLine.textContent!==line)systemLine.textContent=line;if(systemLine.hidden!==!line)systemLine.hidden=!line;
@@ -372,17 +369,14 @@
     else {reason=current.canStart?uiLocale.t('Fichier chargé. Touchez Démarrer pour confirmer.'):(window.CNCProgramCheckView?window.CNCProgramCheckView.refusal(current,'start'):uiLocale.t(current.startReason));if(current.canStart)filesReason=uiLocale.t('Fichier chargé : ouvrez le Suivi pour démarrer.');}
     text('job-selected',selectedText);
     text('job-loaded',loadedText);
-    text('job-reason',filesReason||reason);
+    text('job-state-reason',filesReason||reason);
     var homeFile=$('file');
     if(simulation) {loadedText=loadedText.replace(uiLocale.t('dans CNCjs'),uiLocale.t('dans le simulateur'));text('job-loaded',loadedText);}
     if(homeFile) text('file',(simulation?uiLocale.t('SIMULATION — '):'')+selectedText+' — '+loadedText+' '+reason);
     prop('job-port','disabled',busy);
     prop('job-load','disabled',busy || !online || pilot.state==='other' || !selection || !current.canLoad);
     prop('job-start','disabled',busy || !online || pilot.state==='other' || !current.canStart);
-    prop('job-resume','disabled',busy || !online || pilot.state==='other' || !current.canResume);
     // Pause and stop stay available while another request is pending.
-    prop('job-pause','disabled',online?!current.canPause:!(lost&&lost.canPause));
-    prop('job-stop','disabled',online?!(current.canStop||jogging(current)):!(lost&&lost.canStop));
     if(!online){text('job-state',uiLocale.t('Machine non connectée ou état indisponible.'));prop('job-progress','value',0);if(ticket)dismiss();return;}
     text('job-state',current.port+' · '+current.activeState+' · '+({idle:uiLocale.t('au repos'),running:uiLocale.t('travail en cours'),paused:uiLocale.t('en pause')}[current.workflow]||current.workflow));
     prop('job-progress','value',current.total?Math.min(100,Math.round(current.received/current.total*100)):0);
@@ -630,12 +624,9 @@
   }
   function start(){if(busy)return prepare('start');if(sessionRefuses()||!current.canStart||outside(current.programCheck)||!simulation&&(!current.workOffset||current.workOffset.state!=='proven'))return Promise.resolve({opened:false,error:null});return prepare('start');}
   function startOverride(){if(sessionRefuses()||busy||!current.homed||current.referenceLost||!current.workOffset||current.workOffset.state!=='proven'||!outside(current.programCheck)||!current.programCheck.overridable)return Promise.resolve({opened:false,error:null});return prepare('start',{override:'travel'});}
-  function resume(){if(sessionRefuses()||$('job-resume').disabled||busy||!current||!current.canResume)return Promise.resolve({opened:false,error:null});return prepare('resume');}
-  bind($('job-resume'),'click',resume);
-  function pause(){if($('job-pause').disabled)return;dismiss();return command('pause').catch(function(){/* Refusal is shown by command. */});}
-  function stop(){if($('job-stop').disabled)return;dismiss();return command('stop').catch(function(){/* Refusal is shown by command. */});}
-  bind($('job-pause'),'click',pause);
-  bind($('job-stop'),'click',stop);
+  function resume(){if(sessionRefuses()||sinceSeen()>=3000||busy||!current||!current.canResume)return Promise.resolve({opened:false,error:null});return prepare('resume');}
+  function pause(){if(!(current&&sinceSeen()<3000?current.canPause:halt&&halt.canPause))return;dismiss();return command('pause').catch(function(){/* Refusal is shown by command. */});}
+  function stop(){if(!(current&&sinceSeen()<3000?current.canStop||jogging(current):halt&&halt.canStop))return;dismiss();return command('stop').catch(function(){/* Refusal is shown by command. */});}
   bind($('job-dismiss'),'click',dismiss);
   bind($('job-dialog-modify'),'click',function(){if(!ticket||ticket.operation!=='zeroZ')return;dismiss();if(window.cncSeance)window.cncSeance.lancer('plaque');else if(window.cncZeroPiece)window.cncZeroPiece.plate(true);});
   bind($('job-check'),'change',function(){$('job-confirm').disabled=!this.checked||!confirmable();});
@@ -733,7 +724,7 @@
   function dispose(){if(disposed)return;dismiss(false);closePilot(false);disposed=true;if(typeof clearInterval==='function')clearInterval(interval);if(stream)stream.dispose();bindings.forEach(function(fn){fn();});requests.forEach(function(xhr){xhr.onload=xhr.onerror=xhr.ontimeout=null;xhr.abort();});requests=[];}
   bind(window,'pagehide',function(event){if(event&&event.persisted){observationSuspended=true;dismiss();if(stream)stream.reconnect();else unavailable(uiLocale.t('Retour à la page : attendre un nouvel état.'));}else dispose();});
   bind(window,'pageshow',function(event){if(event&&event.persisted)resumeObservation();});
-  window.cncJobControls={load:load,start:start,startOverride:startOverride,checkFile:function(file){return run('check',{file:file});},resume:resume,pause:pause,stop:stop,
+  window.cncJobControls={state:function(){return Object.assign({},publishedState,{feedback:actionFeedback,feedbackState:feedbackState});},load:load,start:start,startOverride:startOverride,checkFile:function(file){return run('check',{file:file});},resume:resume,pause:pause,stop:stop,
     verifyOffset:function(){if(busy||!current||!current.workOffset||!current.workOffset.canVerify)return Promise.resolve();return command('verifyOffset');},refresh:function(){poll(true);},dispose:dispose,
     // Realtime override step (kind: feed | spindle | rapid; value as accepted by the server).
     override:function(kind,value){if(busy||!current)return Promise.reject(new Error(uiLocale.t('Opération en cours…')));return command('override',{kind:kind,value:value});},

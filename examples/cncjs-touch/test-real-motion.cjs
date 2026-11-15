@@ -78,7 +78,7 @@ function load(options = {}) {
   // job-controls reads these by id from its own markup (innerHTML is not parsed here).
   ['job-dialog-modify','job-dialog-details','job-warning','job-check-text','pilot-other','job-port', 'job-feedback', 'job-load', 'job-start', 'job-pause', 'job-resume', 'job-stop', 'job-progress', 'job-check', 'job-confirm', 'job-dismiss',
     'pilot-reason', 'pilot-dismiss', 'pilot-reason-a', 'pilot-reason-b', 'pilot-feedback', 'pilot-dialog-text', 'job-dialog-title', 'job-dialog-file', 'job-countdown', 'job-countdown-bar',
-    'job-state', 'job-selected', 'job-loaded', 'job-reason'].forEach(el);
+    'job-state', 'job-selected', 'job-loaded', 'job-state-reason'].forEach(el);
   function XHR() { this.responseText = ''; this.status = 0; this.headers = {}; this.open = (method, url) => { this.method = method; this.url = url; }; this.setRequestHeader = (k, v) => { this.headers[k] = v; }; this.send = (b) => { this.body = b && JSON.parse(b); requests.push(this); }; this.abort = () => { this.aborted = true; }; }
   const window = { cncSeance:{motionFeedback(v){el('motion-status').textContent=v.status;el('motion-feedback').textContent=v.feedback;el('motion-feedback').setAttribute('data-state',v.state);},refuser(e){events.push({type:'refusal',detail:e});}}, location: { pathname: '/cnc/touch/' }, navigator: { onLine: true, maxTouchPoints: 5 }, XMLHttpRequest: XHR,
     setInterval(fn, ms) { intervals.set(++timerId, { fn, ms }); return timerId; }, clearInterval(id) { intervals.delete(id); },
@@ -650,13 +650,13 @@ if (require.main === module) (async () => {
   }
   // 14. Arrêter (strip, Suivi or preview viewer) during a hold ends the keepalives in the same tap,
   //     before the stop is relayed; the job's stop still leaves at once (Audit 31, R-M1).
-  for (const target of ['#t-stop', '#job-stop', '#home-job-stop', '#preview-job-stop']) {
+  for (const target of ['#t-stop', '#home-job-stop', '#preview-job-stop']) {
     const f = await ready();
     await started(f, 'j-stop');
     f.push([withMotion({ jog: { axis: 'Y', direction: 1, feed: 250, distanceMm: 49 } }, { canStop: true, activeState: 'Jog' })]); await f.flush();
     const n = f.posts().length;
     f.fireDoc('click', { target: { closest: (sel) => (sel.split(',').indexOf(target) >= 0 ? {} : null) } });
-    f.el('job-stop').click();
+    f.window.cncJobControls.stop();
     const sent = f.posts().slice(n).map((r) => r.body.action + (r.body.operation ? ':' + r.body.operation : ''));
     assert.deepEqual(sent, ['motion:jog-stop', 'stop'], target + ': jog-stop and stop in the same tap (' + sent.join(', ') + ')');
     assert.equal(f.window.cncRealMotion.holding(), false, target + ': no longer holding');
@@ -705,13 +705,13 @@ if (require.main === module) (async () => {
     await f.connect(machine({ control: { owner: null, lastChange: { type: 'idle', port: 'COM3', owner: null, at: 5, previous: { kind: 'touch', id, label: 'Tablette ab12' }, idleMs: 300000 } } }));
     const p = f.lastStatus().pilot;
     assert.equal(p.state, 'free'); assert.match(p.sentence, /^Libéré après 5 min d’inactivité \(« Tablette ab12 »\)\. Libre/);
-    assert.match(f.el('job-feedback').textContent, /Pilotage de cet appareil libéré après 5 min d’inactivité\./);
+    assert.match(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, /Pilotage de cet appareil libéré après 5 min d’inactivité\./);
     assert.equal(f.arrows['X+'].disabled, false, 'a free pilot does not block');
   }
   {
     const f = load(); const id = f.controls().clientId();
     await f.connect(machine({ control: { owner: null, lastChange: { type: 'expired', port: 'COM3', owner: null, at: 7, previous: { kind: 'touch', id, label: 'Tablette ab12' } } } }));
-    assert.match(f.el('job-feedback').textContent, /^Pilotage de cet appareil libéré : appareil absent trop longtemps\./);
+    assert.match(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, /^Pilotage de cet appareil libéré : appareil absent trop longtemps\./);
   }
   // 16. One owner of the arrows: real-motion.js only, never the preview endpoint; no « EXPÉRIMENTAL ».
   {

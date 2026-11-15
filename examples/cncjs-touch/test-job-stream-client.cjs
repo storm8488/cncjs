@@ -22,7 +22,7 @@ function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port
   answer(health,{loaded:true,protocol:1});const stream=requests.find(r=>isStream(r.url));
   assert.match(stream.url,/\/cnc\/api\/touch-events\?clientId=t-[a-z0-9]+-[a-z0-9]+$/,'the stream names this device');
   push(stream,packet(9,[]));assert.equal(window.cncState.get().transportConnected,true,'a recent empty stream is a connected server');assert.equal(window.cncState.get().machine,null);
-  for(const action of ['load','start','resume','pause','stop'])assert.equal(el('job-'+action).disabled,true,'no controller must keep '+action+' disabled');
+  for(const action of ['load','start','resume','pause','stop'])assert.equal((['pause','stop','resume'].includes(action)?require('./command-state-fixture.cjs')(window,'job-'+action):el('job-'+action)).disabled,true,'no controller must keep '+action+' disabled');
   push(stream,packet(10,[machine()]));assert.equal(el('job-start').disabled,false);
   let lateSnapshot;
   window.addEventListener('cnc-job-status',e=>{lateSnapshot=e.detail;});
@@ -41,7 +41,7 @@ function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port
   // selection (its Stop must not vanish); once idle, the choice is asked again.
   const busyA=machine('A');busyA.workflow='running';busyA.activeState='Run';busyA.canStop=true;busyA.canPause=true;
   push(stream,packet(31,[busyA]));push(stream,packet(32,[busyA,machine('B')]));
-  assert.equal(el('job-port').value,'A');assert.equal(el('job-stop').disabled,false,'Stop of the running controller stays usable');
+  assert.equal(el('job-port').value,'A');assert.equal(require('./command-state-fixture.cjs')(window,'job-stop').disabled,false,'Stop of the running controller stays usable');
   push(stream,packet(33,[machine('A')]));
   // The plate probe is answered at the end of its sequence: its request waits longer than 30 s.
   const plate=machine('A');plate.canZeroZ=true;push(stream,packet(34,[plate]));
@@ -59,9 +59,9 @@ function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port
   const stale=machine('B');stale.statusAgeMs=2600;stale.fresh=false;stale.canStart=false;stale.canLoad=false;
   push(stream,packet(41,[stale]));assert.equal(el('job-start').disabled,true);assert.equal(window.cncState.get().machine.fresh,false);
   const active=machine('B');active.workflow='running';active.activeState='Run';active.canStart=false;active.canPause=true;active.canStop=true;
-  push(stream,packet(42,[active]));el('job-pause').click();const pause=requests.at(-1);el('job-stop').click();const stop=requests.at(-1);
+  push(stream,packet(42,[active]));require('./command-state-fixture.cjs')(window,'job-pause').click();const pause=requests.at(-1);require('./command-state-fixture.cjs')(window,'job-stop').click();const stop=requests.at(-1);
   answer(stop,{message:'STOP newer',snapshot:packet(44,[machine('B')])});await flush();assert.equal(el('job-port').disabled,true,'pause still pending');
-  answer(pause,{message:'Pause older',snapshot:packet(43,[active])});await flush();assert.equal(el('job-feedback').textContent,'STOP newer');assert.equal(window.cncState.get().machine.workflow,'idle');assert.equal(el('job-port').disabled,false);
+  answer(pause,{message:'Pause older',snapshot:packet(43,[active])});await flush();assert.equal(require('./command-state-fixture.cjs')(window,'job-feedback').textContent,'STOP newer');assert.equal(window.cncState.get().machine.workflow,'idle');assert.equal(el('job-port').disabled,false);
   // No data for 3 s: abort proxy-buffered response; retry bounded to 30 s.
   now+=3001;Array.from(intervals.values()).forEach(fn=>fn());await flush();assert(stream.aborted);assert.equal(el('job-start').disabled,true);
   const streamsBefore=requests.filter(r=>isStream(r.url)).length;
@@ -69,7 +69,7 @@ function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port
   assert.equal(requests.filter(r=>isStream(r.url)).length,streamsBefore);
   const pendingGet=requests.filter(r=>r.url.endsWith('/touch-job')&&r.method==='GET'&&!r.aborted).at(-1);
   if(pendingGet&&pendingGet!==initial){answer(pendingGet,packet(45,[machine('B')]));await flush();}
-  assert.equal(el('job-start').disabled,true,'fallback GET must not restore start without a live stream');assert.equal(el('job-resume').disabled,true);assert.equal(window.cncState.get().transportConnected,false);
+  assert.equal(el('job-start').disabled,true,'fallback GET must not restore start without a live stream');assert.equal(require('./command-state-fixture.cjs')(window,'job-resume').disabled,true);assert.equal(window.cncState.get().transportConnected,false);
   // A job running while the stream is down: the state is read every 2 s, so Stop and
   // Pause (which need a state younger than 3 s) stay usable between two reads.
   const running=machine('B');running.workflow='running';running.activeState='Run';running.canStart=false;running.canPause=true;running.canStop=true;
@@ -80,7 +80,7 @@ function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port
     const get=requests.filter(r=>r.url.endsWith('/touch-job')&&r.method==='GET'&&!r.status).at(-1);
     if(get){running.statusObservedAt=now;answer(get,packet(47+i,[running]));}
     await flush();Array.from(intervals.values()).forEach(fn=>fn());
-    if(!el('job-stop').disabled)stopUsable++;
+    if(!require('./command-state-fixture.cjs')(window,'job-stop').disabled)stopUsable++;
   }
   assert.equal(stopUsable,20,'Stop stays usable during a job read by HTTP');
   window.cncJobControls.dispose();assert.equal(intervals.size,0);assert(requests.filter(r=>isStream(r.url)).every(r=>r.aborted));

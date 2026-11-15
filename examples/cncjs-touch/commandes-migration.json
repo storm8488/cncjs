@@ -911,9 +911,9 @@
     {
       "id": "EX-06",
       "sort": "inchangé",
-      "ecran": "Suivi › avis de pause programme",
+      "ecran": "Usinage",
       "selecteur": "#home-pause-m5",
-      "etat": "Visible en pause programme ou broche qui tourne sans travail, si canSpindleStop et vitesse > 0.",
+      "etat": "Present in every pause; canSpindleStop and its server reason.",
       "requete": {
         "canal": "http",
         "methode": "POST",
@@ -923,8 +923,8 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Action libre pour tous (SAFE_ACTIONS), même port piloté par un autre ; generation / transportId vérifiés seulement s’ils sont fournis ; tolérés périmés pour pause, stop, spindleStop, jog-stop ; spindleStopReady : contrôleur prêt (sans exigence de fraîcheur), repos ou pause programme M0/M1/M6 en Idle",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L5",
+      "fait": true
     },
     {
       "id": "EX-07",
@@ -955,9 +955,9 @@
     {
       "id": "CO-01",
       "sort": "inchangé",
-      "ecran": "Suivi › Corrections › Avance",
-      "selecteur": "#home-overrides button[data-kind=feed][data-value=-10|0|10|-1|1]",
-      "etat": "Carte #home-overrides (masquée si le serveur ne publie pas canOverride). Actif si état frais, pas occupé et canOverride (travail en cours ou en pause). v1 et v2 : sous l’aperçu.",
+      "ecran": "Usinage › Corrections",
+      "selecteur": "#home-overrides button[data-kind=feed]",
+      "etat": "Always visible in both renderers. Enabled by fresh canOverride, no busy operation and no other pilot; disabled with a visible reason otherwise.",
       "requete": {
         "canal": "http",
         "methode": "POST",
@@ -969,15 +969,15 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; overridable : available ; workflow running ou paused ; Valeur admise",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L5",
+      "fait": true
     },
     {
       "id": "CO-02",
       "sort": "inchangé",
-      "ecran": "Suivi › Corrections › Broche (Consigne S en laser)",
-      "selecteur": "button[data-kind=spindle][data-value=-10|0|10|-1|1]",
-      "etat": "Carte #home-overrides (masquée si le serveur ne publie pas canOverride). Actif si état frais, pas occupé et canOverride (travail en cours ou en pause). v2 : rangée déplacée dans la feuille « Broche et rapides » (#home-v2-more-overrides « Broche / rapides… »).",
+      "ecran": "Usinage › Corrections",
+      "selecteur": "#home-overrides button[data-kind=spindle]",
+      "etat": "Always visible in both renderers. Enabled by fresh canOverride, no busy operation and no other pilot; disabled with a visible reason otherwise.",
       "requete": {
         "canal": "http",
         "methode": "POST",
@@ -989,8 +989,8 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation et transportId obligatoires et valides ; overridable : available ; workflow running ou paused ; Valeur admise",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L5",
+      "fait": true
     },
     {
       "id": "CO-03",
@@ -1015,20 +1015,20 @@
     {
       "id": "RL-01",
       "sort": "inchangé",
-      "ecran": "Suivi",
+      "ecran": "Usinage",
       "selecteur": "#home-resume-line",
-      "etat": "Visible seulement : état frais, workflow idle, canLoad et une sélection (sinon masqué sans raison) ; désactivé si la reprise laser n’est pas prise en charge. Ouvre le panneau, rien n’est envoyé.",
+      "etat": "Resume sheet uses stoppedFile, otherwise the loaded name. Latest accepted plan only; visible refusals and two remedies.",
       "requete": null,
       "refus": "Action indisponible dans cet état.",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L5",
+      "fait": true
     },
     {
       "id": "RL-02",
-      "sort": "inchangé",
-      "ecran": "Suivi › panneau de reprise",
-      "selecteur": "#home-resume-check (+ #home-resume-input)",
-      "etat": "Ligne entière ≥ 2 (pavé numérique). Montre le préambule exact du serveur.",
+      "sort": "déplacé",
+      "ecran": "Usinage",
+      "selecteur": "#home-resume-input",
+      "etat": "Resume sheet uses stoppedFile, otherwise the loaded name. Latest accepted plan only; visible refusals and two remedies.",
       "requete": {
         "canal": "http",
         "methode": "POST",
@@ -1040,15 +1040,15 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Action libre pour tous (SAFE_ACTIONS), même port piloté par un autre ; generation / transportId vérifiés seulement s’ils sont fournis ; tolérés périmés pour pause, stop, spindleStop, jog-stop ; Mode de reprise du profil (CNC, laser : $32)",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L5",
+      "fait": true
     },
     {
       "id": "RL-03",
       "sort": "inchangé",
-      "ecran": "Suivi › panneau de reprise",
+      "ecran": "Usinage",
       "selecteur": "#home-resume-load",
-      "etat": "Actif après une vérification réussie de la même ligne et du même fichier.",
+      "etat": "Resume sheet uses stoppedFile, otherwise the loaded name. Latest accepted plan only; visible refusals and two remedies.",
       "requete": {
         "canal": "http",
         "methode": "POST",
@@ -1060,8 +1060,8 @@
         }
       },
       "refus": "Session CNCjs (req.user) et service tactile démarré ; Contrôleur Grbl ouvert sur le port nommé ; Bail de pilotage : refus si un autre appareil pilote le port (action gardée) ; generation / transportId vérifiés seulement s’ils sont fournis ; tolérés périmés pour pause, stop, spindleStop, jog-stop ; idle : available, pas de palpage, pas de jog, workflow idle, état Idle, file vide ; Chargement unique, fichier de la bibliothèque ; Fichier inchangé depuis Vérifier",
-      "lot": "L2-L6",
-      "fait": false
+      "lot": "L5",
+      "fait": true
     },
     {
       "id": "RM-01",

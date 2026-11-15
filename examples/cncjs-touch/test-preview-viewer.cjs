@@ -15,7 +15,7 @@ assert.match(node('preview-viewer-image').style.transform,/translate\(1500px,-70
 node('preview-zoom-fit').click();flush();assert.match(node('preview-viewer-image').style.transform,/translate\(0px,0px\) scale\(1\)/);
 node('preview-job-stop').click();assert.equal(stopCalls,0);
 events['cnc-job-status']({detail:{simulation:true,machine:{activeState:'Run',canStop:true}}});node('preview-job-stop').click();assert.equal(stopCalls,1);
-node('job-stop').disabled=true;node('preview-job-stop').click();assert.equal(stopCalls,1);
+events['cnc-job-status']({detail:{simulation:true,machine:{activeState:'Idle',canStop:false}}});node('preview-job-stop').click();assert.equal(stopCalls,1);
 events['cnc-job-status']({detail:{machine:null}});assert(node('preview-job-stop').disabled);
 node('preview-viewer-close').click();assert(node('preview-viewer').hidden);assert(!background[0].inert);assert(background[1].inert);assert(!node('preview-viewer-image').src);
 node('library-image').hidden=true;node('library-image').handlers.click();assert(node('preview-viewer').hidden);

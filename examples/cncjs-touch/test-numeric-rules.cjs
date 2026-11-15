@@ -59,18 +59,19 @@ function resumeFixture(withPad){
  const ready=dom.node('home-job-ready'),parent=dom.element('div','home-actions');parent.appendChild(ready);d.body.getAttribute=()=>null;
  const ls={},calls=[];const win={cncLibrarySelection:{file:'a.nc',name:'a.nc'},addEventListener:(n,f)=>(ls[n]=ls[n]||[]).push(f),cncI18n:{t:s=>s},
   cncJobControls:{resumePlan:(f,l)=>{calls.push(['plan',f,l]);return Promise.resolve({from:l,total:9,line:'G1',safeZ:5,position:{X:0,Y:0,Z:-1}});},loadFrom:()=>Promise.resolve({}),spindleStop:()=>Promise.resolve({}),prepareCommand:(op,extra)=>{calls.push(['prepare',op,extra]);}}};
+ win.cncShell={sheet(){return {content:parent,open(){}};},closeSheet(){}};
  const ctx={window:win,document:d,localStorage:{getItem:()=>null,setItem(){}},Event:function(type){this.type=type;}};
  if(withPad)vm.runInNewContext(fs.readFileSync(__dirname+'/touch/numeric-pad.js','utf8'),ctx);
  vm.runInNewContext(fs.readFileSync(__dirname+'/touch/job-resume.js','utf8'),ctx);
  const byId=id=>parent.querySelectorAll('*').find(c=>c.id===id);
  ls['cnc-job-status'].forEach(f=>f({detail:{machine:{fresh:true,workflow:'idle',canLoad:true,canZeroZ:true,stoppedAtLine:200,stoppedFile:'a.nc',programPause:null},simulation:false}}));
- return {byId,calls,win};
+ byId('home-resume-line').click();return {byId,calls,win};
 }
 for(const withPad of [true,false]){
  const r=resumeFixture(withPad),input=r.byId('home-resume-input'),plan=r.byId('home-resume-plan');
  r.byId('home-resume-line').click();assert.equal(input.value,'185');
  assert.equal(input.getAttribute('type'),'text');assert.equal(input.getAttribute('inputmode'),withPad?'none':'numeric');
- const tryLine=v=>{input.value=v;input.handlers.input();r.byId('home-resume-check').click();return plan.textContent;};
+ const tryLine=v=>{input.value=v;input.handlers.input();return plan.textContent;};
  const n0=r.calls.length;
  assert.match(tryLine('0'),/^Indiquez une ligne \(2 ou plus\)\./);assert.match(tryLine(''),/^Indiquez une ligne/);assert.match(tryLine('abc'),/^Indiquez une ligne/);assert.match(tryLine('2.5'),/^Indiquez une ligne/);assert.match(tryLine('-3'),/^Indiquez une ligne/);
  assert.equal(r.calls.length,n0,'no plan asked for an unusable line');

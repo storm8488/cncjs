@@ -428,3 +428,45 @@ body.ks-ui #check-side svg{font-size:24px}
 .ks-ui .ks-stepbar p[data-tone="warn"]{color:var(--warn-text)}
 #job-start-drawing{height:240px;min-height:0}
 #job-start-drawing svg{max-height:240px;font-size:32px}
+
+/* L5: fixed machining layout; renderers enrich only read-only content. */
+body.ks-ui #screen-home .job-dashboard,body.ks-ui.perf-wide.perf-v2 #screen-home .job-dashboard[data-zones][data-v2="suivi"]{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,1fr);gap:12px;min-height:0;height:100%}
+body.ks-ui #screen-home .home-left,body.ks-ui #screen-home .job-metrics{display:flex;flex-direction:column;gap:12px;min-width:0;min-height:0;overflow:visible}
+body.ks-ui #screen-home .home-left>.job-art,body.ks-ui.perf-wide.perf-v2 #screen-home .home-left>.job-art{flex:1 1 0;min-height:100px}
+body.ks-ui #screen-home .home-stop,body.ks-ui.perf-wide.perf-v2 #screen-home .home-stop{flex:0 0 98px;height:98px;padding:0;margin:0;display:flex;flex-direction:column;gap:12px}
+body.ks-ui #home-job-stop{min-height:64px;width:100%;margin:0}body.ks-ui .home-stop .t-help{font-size:16px;text-align:center}
+body.ks-ui #screen-home .home-overrides{display:flex;flex-direction:column;gap:12px;padding:0;border:0;background:transparent;margin:0;flex:none}
+body.ks-ui #screen-home .t-override{display:grid;grid-template-columns:90px minmax(0,1fr);align-items:center;gap:12px;margin:0;min-height:64px}
+body.ks-ui #screen-home .t-ov-row{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+body.ks-ui #screen-home .t-override--rapid .t-ov-row{grid-template-columns:repeat(3,minmax(0,1fr))}
+body.ks-ui #screen-home .t-ov-row .t-btn,body.ks-ui.perf-wide.perf-v2 #screen-home .t-ov-row .t-btn.t-fine{min-height:64px;padding:0 4px;font-size:16px}
+body.ks-ui #screen-home .t-ov-name{font-size:16px}body.ks-ui #screen-home .t-ov-name b{display:block;font-size:16px}
+body.ks-ui #screen-home .home-overrides-head,body.ks-ui #home-rapid-note,body.ks-ui #home-job-ready,body.ks-ui #home-job-selection,body.ks-ui #home-machine-card,body.ks-ui #home-spindle-warning,body.ks-ui #home-job-motion,body.ks-ui #screen-home .home-live-tiles{display:none}
+body.ks-ui #home-override-note,body.ks-ui #home-rapid-reason{margin:0;font-size:16px}body.ks-ui #home-override-note:empty,body.ks-ui #home-rapid-reason:empty{display:none}
+body.ks-ui #home-notice{min-height:100px;flex:0 0 auto;padding:8px;margin:0;overflow:visible;font-size:16px}
+body.ks-ui #home-notice p{margin:0 0 8px;font-size:16px}body.ks-ui #home-notice-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+body.ks-ui #home-notice-actions .t-btn{min-height:48px;font-size:16px;padding:0 8px}
+body.ks-ui #home-pause-m5,body.ks-ui #home-pause-plate-start,body.ks-ui #home-finish-plate-start{min-height:64px}
+body.ks-ui #home-notice span:empty{display:none}body.ks-ui #home-notice span{font-size:16px}
+body.ks-ui #home-coords .t-coords-card{margin:0;padding:4px 8px}body.ks-ui #home-coords h2{font-size:16px;margin:0}body.ks-ui #home-coords .t-val{font-size:20px}
+body.ks-ui #screen-home .home-progress{padding:12px;min-height:84px;flex:none}body.ks-ui #home-job-eta{font-size:16px;margin:0}
+body.ks-ui #screen-home .home-gauge-curve{height:80px;flex:0 0 80px;margin:0;overflow:hidden}body.ks-ui #screen-home .home-gauge-curve svg{height:42px}
+body.ks-ui #screen-home .home-v2-sequence{height:48px;flex:0 0 48px}body.ks-ui #screen-home .home-v2-seq-detail,body.ks-ui #screen-home .home-v2-eyebrow{display:none}
+body.ks-ui #screen-home .tool-position-note{font-size:16px;margin:0;flex:none}body.ks-ui #screen-home .home-progress-text{min-width:0}
+body.ks-ui #ks-resume-sheet .ks-sheet-content{display:flex;flex-wrap:wrap;align-items:center;gap:12px;font-size:18px}
+body.ks-ui #ks-resume-sheet input{width:160px;height:64px;font-size:24px}body.ks-ui #home-resume-hint,body.ks-ui #home-resume-route,body.ks-ui #home-resume-plan{flex-basis:100%;margin:0}
+body.ks-ui #home-resume-remedies{display:flex;gap:12px}body.ks-ui #home-resume-load{min-height:64px;margin-left:auto}
+body.ks-ui #screen-home button:disabled{background-image:repeating-linear-gradient(135deg,transparent,transparent 8px,rgba(128,128,128,.12) 8px,rgba(128,128,128,.12) 10px)}
+@media(max-width:1100px){body.ks-ui #screen-home .job-dashboard,body.ks-ui.perf-wide.perf-v2 #screen-home .job-dashboard[data-zones][data-v2="suivi"]{display:flex;flex-direction:column;height:auto}body.ks-ui #screen-home .job-metrics{order:-1}body.ks-ui #screen-home .home-left>.job-art{min-height:240px}}
+
+body.ks-ui #screen-home .home-progress-title{font-size:18px;line-height:24px;margin:0 0 8px}body.ks-ui #home-job-percent{font-size:32px;line-height:1.1}body.ks-ui #screen-home .home-overrides[data-on="true"] #home-override-note{display:none}
+
+body.ks-ui #home-current-line{font-size:16px;margin:0}
+
+/* Renderer-independent instrument dimensions keep all command centres fixed. */
+body.ks-ui #screen-home .home-progress{height:112px;min-height:112px;box-sizing:border-box}
+body.ks-ui #screen-home .home-coords{height:48px;min-height:48px;flex:0 0 48px;display:flex;align-items:center}
+body.ks-ui #screen-home .home-coords .t-coords-card{display:flex;align-items:center;gap:12px;width:100%;box-sizing:border-box}
+body.ks-ui #screen-home .home-coords .t-coords{display:grid;grid-template-columns:20px minmax(40px,1fr) 20px 20px minmax(40px,1fr) 20px 20px minmax(40px,1fr) 20px;gap:4px;align-items:center}
+body.ks-ui #screen-home .home-coords .t-coords-card h2{font-size:16px;flex:0 0 auto}
+body.ks-ui #screen-home .home-coords .t-coords-card .t-unit{display:block;font-size:16px}

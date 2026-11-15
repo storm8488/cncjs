@@ -126,7 +126,7 @@
     }
   });
   var info=sheet('ks-file-info',uiLocale.t('Détails du fichier et de l’aperçu'));
-  ['library-status','library-preview-note','library-regenerate','library-regenerate-status','job-state','job-selected'].forEach(function(id){info.content.appendChild(document.getElementById(id));});
+  ['library-status','library-preview-note','library-regenerate','library-regenerate-status','job-state','job-state-reason','job-selected'].forEach(function(id){info.content.appendChild(document.getElementById(id));});
   var machineDetails=sheet('ks-machine-details',uiLocale.t('Détails de la machine'));
   var machineContent=document.getElementById('machine-details-content');if(machineContent){machineContent.hidden=false;machineDetails.content.appendChild(machineContent);}
   var portLabel=document.querySelector('label[for="job-port"]');machineDetails.content.appendChild(portLabel);machineDetails.content.appendChild(document.getElementById('job-port'));

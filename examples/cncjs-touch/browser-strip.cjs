@@ -21,8 +21,7 @@ const path = require('path');
 const RELAY = `(function(){
   if(window.__strip)return true;
   window.__strip={relay:[],posts:[],block:true};
-  ['job-pause','job-stop'].forEach(function(id){var b=document.getElementById(id);if(!b)return;
-    b.addEventListener('click',function(e){if(!window.__strip.block)return;window.__strip.relay.push({id:id,t:performance.now()});e.stopImmediatePropagation();},true);});
+  ['pause','stop'].forEach(function(action){var owner=window.cncJobControls,original=owner[action];owner[action]=function(){if(window.__strip.block){window.__strip.relay.push({id:'job-'+action,t:performance.now()});return Promise.resolve();}return original.apply(owner,arguments);};});
   var F=window.XMLHttpRequest;window.XMLHttpRequest=function(){var x=new F();var o=x.open,s=x.send;x.open=function(m,u){x.__m=m;x.__u=u;return o.apply(x,arguments);};x.send=function(b){if(x.__m==='POST'&&/touch-job/.test(x.__u||''))window.__strip.posts.push(b);return s.apply(x,arguments);};return x;};
   return true;})()`;
 

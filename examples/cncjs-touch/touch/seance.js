@@ -183,7 +183,7 @@
     var commissioning=window.cncCommissioning&&window.cncCommissioning.status(),connection=window.cncConnectCnc&&window.cncConnectCnc.state();
     var resume=window.CNCJobResume,machine=last.machine,resumeLine=resume&&typeof resume.suggestedLine==='function'&&machine?resume.suggestedLine(machine,machine.name):null;
     var input=Object.assign({},last,{selection:selection,commissioning:commissioning&&commissioning.state,connectionBusy:connection&&connection.busy,resumeLine:resumeLine});
-    result=evaluate(input);if(window.cncCheckScreen)result=window.cncCheckScreen.project(input,result);
+    result=evaluate(input);if(window.cncCheckScreen)result=window.cncCheckScreen.project(input,result);if(window.CNCJobResume&&window.CNCJobResume.project)result=window.CNCJobResume.project(input,result);
     if(document.hidden)return;
     paintMachineDetails();
     if(pendingRefusal&&pendingRefusal.key!==inputKey(last))pendingRefusal=null;
@@ -203,7 +203,7 @@
     }
     var prefix='step-'+active+'-',by=function(id){return document.getElementById(prefix+id);};
     if(active==='home')setText(by('title'),'5 · '+t(laser?'Gravure':'Usinage'));
-    setText(by('state'),result.etapes[active].mot);setText(by('context'),result.etapes[active].contexte);setText(by('cause'),r?'! '+r.phrase:(active==='machine'||['pret','controle','fichier-charge','choisi'].indexOf(b.cause.id)>=0?'':t('Il manque : '))+b.cause.texte);
+    setText(by('state'),result.etapes[active].mot);setText(by('context'),result.etapes[active].contexte);setText(by('cause'),r?'! '+r.phrase:(active==='machine'||active==='home'||['pret','controle','fichier-charge','choisi'].indexOf(b.cause.id)>=0?'':t('Il manque : '))+b.cause.texte);
     if(movement&&!r&&!result.globale&&movement.feedback&&movement.state!=='failed'&&(movement.state!=='confirmed'||last.machine&&last.machine.workOffset&&last.machine.workOffset.state==='proven'))setText(by('cause'),movement.feedback);
     attr(by('cause'),'data-tone',b.cause.ton||'neutre');
     var ids=r?r.remedes.map(function(id){return {id:id,actif:true};}):b.remedes;
@@ -232,7 +232,7 @@
   handlers.vitesse=function(){var b=document.getElementById('ks-jog-settings');if(b&&!b.disabled)b.click();};
   handlers['type-machine']=function(){window.cncShell.go('settings');};
   handlers.plaque=function(){if(window.cncZeroPiece)window.cncZeroPiece.plate(true);};
-  handlers['changer-ligne']=function(){window.cncShell.go('home');var b=document.getElementById('home-resume-line');if(b&&!b.disabled)b.click();};
+  handlers['changer-ligne']=function(){window.cncShell.go('home');if(window.CNCJobResume&&window.CNCJobResume.open)window.CNCJobResume.open();};
   handlers['reprendre-debut']=handlers['recharger-fichier'];handlers['reessayer-controle']=function(){window.cncShell.go('check');};
   handlers.recommencer=function(){if(lastAction&&lastAction!=='recommencer')return lancer(lastAction);return lancer('details');};
   window.cncSeance={enregistrer:function(id,fn){handlers[id]=fn;},lancer:lancer,libelle:function(id){return t(remedies[id]||labels[id]||id);},refuser:refuse,render:paint,state:function(){return result;},motionFeedback:function(value){if(JSON.stringify(value)===JSON.stringify(motionFeedback))return;motionFeedback=value;paint();}};

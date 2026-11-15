@@ -46,23 +46,23 @@ async function dropAndReconnect(f, epoch) {
   // ---- D-S1: the stream drops during a job.
   {
     const f = await connected(RUNNING);
-    assert.equal(f.el('job-stop').disabled, false);
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-stop').disabled, false);
     const before = gets(f).length;
     stream(f).onerror(); await f.flush();
     const st = f.lastStatus();
     assert.equal(st.machine, null, 'no machine state any more');
     assert(st.halt && st.halt.port === 'COM3' && st.halt.canStop && st.halt.canPause && st.halt.workflow === 'running', 'the last busy controller stays the target: ' + JSON.stringify(st.halt));
-    assert.equal(f.el('job-stop').disabled, false, 'Arrêter stays enabled during the loss (no 1-2 s gap)');
-    assert.equal(f.el('job-pause').disabled, false, 'Pause stays enabled during the loss');
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-stop').disabled, false, 'Arrêter stays enabled during the loss (no 1-2 s gap)');
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-pause').disabled, false, 'Pause stays enabled during the loss');
     assert(gets(f).length > before, 'the state is read by HTTP at once, not at the next tick');
-    assert.match(f.el('job-reason').textContent, /Pause et Arrêter restent disponibles/, 'the rest is explained: ' + f.el('job-reason').textContent);
+    assert.match(f.el('job-state-reason').textContent, /Pause et Arrêter restent disponibles/, 'the rest is explained: ' + f.el('job-state-reason').textContent);
     assert.equal(f.el('job-start').disabled, true); assert.equal(f.el('job-load').disabled, true);
     const n = f.posts().length;
-    f.el('job-stop').click(); await f.flush();
+    require('./command-state-fixture.cjs')(f.window,'job-stop').click(); await f.flush();
     const sent = f.posts().slice(n);
     assert.equal(sent.length, 1); assert.equal(sent[0].body.action, 'stop'); assert.equal(sent[0].body.port, 'COM3');
     f.answer(sent[0], { message: 'Arrêt demandé.' }); await f.flush();
-    f.el('job-pause').click(); await f.flush();
+    require('./command-state-fixture.cjs')(f.window,'job-pause').click(); await f.flush();
     assert.equal(f.posts().at(-1).body.action, 'pause', 'Pause sent during the loss too');
     // Nothing else can be sent without a recent state.
     const m = f.posts().length; f.controls().override('feed', 110).catch(() => {}); await f.flush();
@@ -73,16 +73,16 @@ async function dropAndReconnect(f, epoch) {
   {
     const f = await connected({ workflow: 'paused', activeState: 'Hold', canPause: false, canStop: true, canResume: true, canStart: false, canLoad: false });
     stream(f).onerror(); await f.flush();
-    assert.equal(f.el('job-pause').disabled, true); assert.equal(f.el('job-stop').disabled, false);
-    assert.match(f.el('job-reason').textContent, /Arrêter reste disponible ; les autres commandes attendent un état récent\./, f.el('job-reason').textContent);
-    assert.doesNotMatch(f.el('job-reason').textContent, /Pause et Arrêter|Pause reste/);
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-pause').disabled, true); assert.equal(require('./command-state-fixture.cjs')(f.window,'job-stop').disabled, false);
+    assert.match(f.el('job-state-reason').textContent, /Arrêter reste disponible ; les autres commandes attendent un état récent\./, f.el('job-state-reason').textContent);
+    assert.doesNotMatch(f.el('job-state-reason').textContent, /Pause et Arrêter|Pause reste/);
   }
   // A controller at rest (nothing to stop) gives no target; a fresh idle state clears it.
   {
     const f = await connected();
     stream(f).onerror(); await f.flush();
     assert.equal(f.lastStatus().halt, null, 'idle controller: no Pause / Arrêter during a loss');
-    assert.equal(f.el('job-stop').disabled, true);
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-stop').disabled, true);
   }
   {
     const f = await connected(RUNNING);
@@ -95,18 +95,18 @@ async function dropAndReconnect(f, epoch) {
     const f = await connected({ activeState: 'Jog', motion: { jog: { axis: 'X' }, cancelling: false } });
     stream(f).onerror(); await f.flush();
     assert(f.lastStatus().halt && f.lastStatus().halt.canStop, 'a jog stays stoppable');
-    assert.equal(f.el('job-stop').disabled, false);
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-stop').disabled, false);
   }
   // ---- R-S2: the browser's offline flag during a job.
   {
     const f = await connected(RUNNING);
     (f.listeners.offline || []).forEach((fn) => fn({})); await f.flush();
     assert(f.lastStatus().machine || f.lastStatus().halt, 'offline: the target is kept (B-4: the flag alone keeps the state)');
-    assert.equal(f.el('job-stop').disabled, false, 'offline: Arrêter stays enabled');
-    const n = f.posts().length; f.el('job-stop').click(); await f.flush();
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-stop').disabled, false, 'offline: Arrêter stays enabled');
+    const n = f.posts().length; require('./command-state-fixture.cjs')(f.window,'job-stop').click(); await f.flush();
     assert.equal(f.posts().length, n + 1, 'offline: Arrêter is still attempted');
     assert.equal(f.posts().at(-1).body.action, 'stop');
-    f.el('job-pause').click(); await f.flush();
+    require('./command-state-fixture.cjs')(f.window,'job-pause').click(); await f.flush();
     assert.equal(f.posts().at(-1).body.action, 'pause', 'offline: Pause is still attempted');
     const m = f.posts().length; f.controls().override('feed', 110).catch(() => {}); await f.flush();
     assert.equal(f.posts().length, m, 'offline: anything else is not sent');
@@ -140,13 +140,13 @@ async function dropAndReconnect(f, epoch) {
     f.advance(600);f.el('job-check').checked = true; f.el('job-check').fire('change'); f.el('job-confirm').click(); await f.flush();
     const start = f.posts().at(-1); assert.equal(start.body.action, 'start');
     const n = f.posts().length; start.onerror(); await f.flush();
-    assert.equal(f.el('job-feedback').getAttribute('data-state'), 'uncertain');
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').getAttribute('data-state'), 'uncertain');
     await dropAndReconnect(f); for (let i = 0; i < 5; i++) { f.advance(2000); f.tick(); await f.flush(); }
     assert.equal(moves(f, n).length, 0, 'answer lost, reconnection and 10 s: no start / resume replayed');
   }
   {
     const f = await connected(RUNNING);
-    f.el('job-pause').click(); await f.flush(); f.el('job-stop').click(); await f.flush();
+    require('./command-state-fixture.cjs')(f.window,'job-pause').click(); await f.flush(); require('./command-state-fixture.cjs')(f.window,'job-stop').click(); await f.flush();
     const halts = () => f.posts().filter((r) => r.body.action === 'pause' || r.body.action === 'stop');
     const sent = halts().length; halts().forEach((r) => r.onerror());
     await dropAndReconnect(f); for (let i = 0; i < 5; i++) { f.advance(2000); f.tick(); await f.flush(); }
@@ -181,46 +181,46 @@ async function dropAndReconnect(f, epoch) {
     const f = await connected(); await ticketOpen(f, 'start');
     f.advance(600);f.el('job-check').checked = true; f.el('job-check').fire('change'); f.el('job-confirm').click(); await f.flush();
     f.answer(f.posts().at(-1), { message: 'Démarrage demandé.' }); await f.flush();
-    assert.equal(f.el('job-feedback').textContent, 'Démarrage demandé.');
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Démarrage demandé.');
     f.push([f.machine(RUNNING)]); await f.flush();
-    assert.equal(f.el('job-feedback').textContent, 'Démarrage demandé.', 'kept while the job runs');
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Démarrage demandé.', 'kept while the job runs');
     // Another device pauses the job.
     f.push([f.machine({ workflow: 'paused', activeState: 'Hold:0', canResume: true, canStop: true })]); await f.flush();
-    assert.equal(f.el('job-feedback').textContent, '', 'cleared once another device paused');
-    assert.equal(f.el('job-feedback').getAttribute('data-state'), '');
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, '', 'cleared once another device paused');
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').getAttribute('data-state'), '');
     assert.equal(f.lastStatus().feedback, '', 'the strip / Suivi line is cleared too');
   }
   {
     const f = await connected(RUNNING);
-    f.el('job-pause').click(); await f.flush();
+    require('./command-state-fixture.cjs')(f.window,'job-pause').click(); await f.flush();
     f.answer(f.posts().at(-1), { message: 'Pause demandée.' }); await f.flush();
     f.push([f.machine({ workflow: 'paused', activeState: 'Hold:0', canResume: true, canStop: true })]); await f.flush();
-    assert.equal(f.el('job-feedback').textContent, 'Pause demandée.');
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Pause demandée.');
     f.push([f.machine({ workflow: 'idle', activeState: 'Idle' })]); await f.flush();
-    assert.equal(f.el('job-feedback').textContent, '', 'cleared once another device stopped the paused job');
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, '', 'cleared once another device stopped the paused job');
   }
   {
     // Surface Pro 2026-11-09: the server's « Attendre l'état Hold » stayed beside a reported Hold.
     const f = await connected(RUNNING);
-    f.el('job-pause').click(); await f.flush();
+    require('./command-state-fixture.cjs')(f.window,'job-pause').click(); await f.flush();
     f.answer(f.posts().at(-1), { message: 'Pause demandée. Attendre l’état Hold.' }); await f.flush();
-    assert.equal(f.el('job-feedback').textContent, 'Pause demandée. Attendre l’état Hold.');
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Pause demandée. Attendre l’état Hold.');
     // An old Hold kept by the server (reports lost) does not confirm this pause.
     f.push([f.machine({ workflow: 'paused', activeState: 'Hold:0', fresh: false, statusAgeMs: 5000, canResume: false, canStop: true })]); await f.flush();
-    assert.equal(f.el('job-feedback').textContent, 'Pause demandée. Attendre l’état Hold.', 'an old Hold is no confirmation');
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Pause demandée. Attendre l’état Hold.', 'an old Hold is no confirmation');
     f.push([f.machine({ workflow: 'paused', activeState: 'Hold:1', canResume: false, canStop: true })]); await f.flush();
-    assert.equal(f.el('job-feedback').textContent, 'Pause confirmée : la machine est en Hold.', 'the wait is over once Hold is reported');
-    assert.equal(f.el('job-feedback').getAttribute('data-state'), 'confirmed');
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Pause confirmée : la machine est en Hold.', 'the wait is over once Hold is reported');
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').getAttribute('data-state'), 'confirmed');
     assert.equal(f.lastStatus().feedback, 'Pause confirmée : la machine est en Hold.', 'Suivi shows the same line');
     f.push([f.machine({ workflow: 'idle', activeState: 'Idle' })]); await f.flush();
-    assert.equal(f.el('job-feedback').textContent, '', 'still cleared once the paused job is stopped elsewhere');
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, '', 'still cleared once the paused job is stopped elsewhere');
   }
   {
     // A failed or uncertain action keeps its line (it says what happened here).
     const f = await connected(RUNNING);
-    f.el('job-stop').click(); await f.flush(); f.posts().at(-1).onerror(); await f.flush();
+    require('./command-state-fixture.cjs')(f.window,'job-stop').click(); await f.flush(); f.posts().at(-1).onerror(); await f.flush();
     f.push([f.machine({ workflow: 'paused', activeState: 'Hold:0', canStop: true })]); await f.flush();
-    assert.equal(f.el('job-feedback').getAttribute('data-state'), 'uncertain', 'an uncertain line is not cleared by the workflow');
+    assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').getAttribute('data-state'), 'uncertain', 'an uncertain line is not cleared by the workflow');
   }
 
   // ---- D6: the alarm code after the restart banner.

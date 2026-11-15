@@ -13,7 +13,7 @@ function createBench(){
   // The shared bridge does not stream sender jobs. Match CNCjs's stop transition here;
   // every controller byte still uses the bridge and the simulator's Grbl parser.
   const command=controller.command;controller.command=(name,...args)=>{if(name==='gcode:stop'||name==='gcode:pause'){controller.workflow.state=name==='gcode:stop'?'idle':'paused';controller.workflow.emit(name==='gcode:stop'?'stop':'pause');return;}return command(name,...args);};
-  const program='G21 G90 G54\nG0 X10 Y10\nG1 X20 F100\nM30\n';
+  const program=['G21 G90 G54','G0 Z0','G0 X10 Y10','M3 S800 F100'].concat(Array.from({length:36},(_,i)=>'G1 X'+(20+i)+' Y10 Z-1 F100'),['M30','']).join('\n');
   const fingerprint=require('../../src/server/services/touch/program-identity.js').fingerprint(program);
   const file={text:program,fingerprint,size:Buffer.byteLength(program),mtimeMs:1};
   const service=createService({get:()=>controllers},{get:key=>key==='touch.motion.enabled'?true:[]},undefined,{files:{readProgram:async()=>file,fingerprintOf:async()=>({fingerprint,size:file.size,mtimeMs:1})}});
@@ -48,7 +48,7 @@ function createBench(){
           await service.action({...base,action:'load',file:'recovery.nc'},who);
           const deadline=Date.now()+10000;while(!service.list()[0].canStart){if(Date.now()>deadline)throw Error('Recovery job is not ready');await new Promise(r=>setTimeout(r,25));}
           base.revision=service.list()[0].revision;const ticket=await service.action({...base,action:'prepare',operation:'start'},who);await service.action({...base,action:'start',nonce:ticket.nonce},who);
-          controller.sender.state.received=2;
+          controller.sender.state.received=20;
         }
         else throw new Error('Unknown simulated input');
         json(res,packet(null));return;

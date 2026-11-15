@@ -747,3 +747,29 @@ on File, start is on Control, and placement is opened explicitly in its dialog.
 The three added visual states are `outside`, `unknown` and `offset-failed`.
 P2 expects three touches; P7 through start expects four. These are harness
 expectations until a successful browser run, not hardware validation.
+
+## L5 — Machining and resume sheet (2026-11-15)
+
+The three override rows share their DOM and CSS in Eco and Performance. Stop stays
+under the preview; `step-home-main` is the only Pause/Resume primary slot.
+`home-notice` replaces the scrolling feedback and the separate completion card.
+The plate buttons retain the shared `cncZeroPiece` owner and confirmation.
+
+`test-usinage-ecran.cjs` covers the screen state matrix, permanent controls,
+spindle-stop permission, refused resume and the pilot remedy. `test-reprise-volet.cjs`
+uses the real shell, proves the stopped-file target, automatic planning, late-answer
+rejection and load completion when its snapshot arrives before its promise.
+`test-controller-state.cjs` proves no hidden coordinate writes or timer (C4).
+Both new page tests are registered in `verify-project.cjs`.
+
+The removed command nodes have no replacement DOM proxies in production.
+`cncJobControls.state()` is read-only; the test adapter observes its published
+feedback and permissions. The command functions retain their server permissions,
+last busy controller for lost-state stopping, checkbox, nonce and expiry rules.
+
+Use `browser-run.cjs --strict --only screens,e2e,strip,v2,parcours` with Edge.
+The v2 step now compares the centres of all thirteen override buttons, Stop and
+the primary slot at 1366 x 911 within one pixel. P7 expects nine touches from
+Control, and P8 ten from the incident to the resumed start. The loopback LUNYEE
+bench covers the recovery service path; browser counts and layout remain
+unverified until a successful CDP connection. No hardware validation is implied.

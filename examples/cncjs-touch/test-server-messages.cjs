@@ -172,7 +172,7 @@ const refusal = (fn) => { try { fn(); } catch (err) { return err; } throw new Er
       f.answer(f.posts().at(-1), { code: err.code, params: err.params, message: err.message }, 409);
       const result = await prepared;
       assert.equal(result.opened, false); assert.equal(result.error.code, err.code);
-      assert.equal(f.el('job-feedback').textContent, expected, 'HTTP block probe refusal in ' + language);
+      assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, expected, 'HTTP block probe refusal in ' + language);
     }
     f.controls().dispose();
   }
@@ -193,12 +193,12 @@ const refusal = (fn) => { try { fn(); } catch (err) { return err; } throw new Er
   f.window.dispatchEvent({ type: 'cnc-library-select', detail: { file: 'part.nc', name: 'part.nc' } });
   f.controls().load();
   f.answer(f.posts().at(-1), { message: 'Avance inconnue avant la ligne 40 : choisissez une ligne plus loin.', code: 'ETOUCH_RESUME_FEED', params: { from: 40 } }, 409); await f.flush();
-  assert.equal(f.el('job-feedback').textContent, 'Feed rate unknown before line 40: choose a later line.');
-  assert.equal(f.el('job-feedback').getAttribute('data-state'), 'failed');
+  assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Feed rate unknown before line 40: choose a later line.');
+  assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').getAttribute('data-state'), 'failed');
   f.controls().load(); f.answer(f.posts().at(-1), { message: 'Machine occupée, cas propre au serveur.' }, 409); await f.flush();
-  assert.equal(f.el('job-feedback').textContent, 'Machine occupée, cas propre au serveur.');
+  assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Machine occupée, cas propre au serveur.');
   f.controls().load(); f.answer(f.posts().at(-1), {}, 500); await f.flush();
-  assert.equal(f.el('job-feedback').textContent, 'Controls unavailable (HTTP 500).');
+  assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Controls unavailable (HTTP 500).');
   // The error keeps its code and values for callers (resume dialog, real moves).
   const c = f.controls();
   const plan = c.resumePlan('part.nc', 40); f.answer(f.posts().at(-1), { message: 'Vitesse de broche inconnue avant la ligne 40 : reprise impossible.', code: 'ETOUCH_RESUME_SPINDLE_SPEED', params: { from: 40 } }, 409);

@@ -8,7 +8,7 @@
   function relabel(){
     var a=$('home-override-spindle-label'),b=$('home-live-spindle-label');
     // Performance v2: Grbl reports the spindle set point, not a tachometer reading (REFLEXION.md, proposition 1).
-    var override=laser()?uiLocale.t('Consigne S'):uiLocale.t('Broche'),live=laser()?uiLocale.t('Consigne S rapportée'):zones&&zones.v2?say('S rapporté'):uiLocale.t('Broche réelle');
+    var override=laser()?uiLocale.t('Puissance'):uiLocale.t('Broche'),live=laser()?uiLocale.t('Consigne S rapportée'):zones&&zones.v2?say('S rapporté'):uiLocale.t('Broche réelle');
     if(a&&a.textContent!==override)a.textContent=override;
     if(b&&b.textContent!==live)b.textContent=live;
   }
@@ -18,9 +18,9 @@
   // values and the actions on the right. Démarrer or Reprendre is the one
   // primary action; Arrêter stands alone at the bottom, never next to Pause.
   var simulationPage=document.body.getAttribute('data-simulation')==='true';
-  home.parentNode.insertAdjacentHTML('beforeend',uiLocale.html('<div class="job-dashboard"><div id="home-left" class="home-left"><div class="job-art"><img id="home-job-image" alt="Aperçu du fichier" hidden><p id="home-image-status">Sélectionnez un fichier pour afficher son aperçu.</p></div></div><div class="job-metrics"><h2 id="home-job-title" class="ks-sr-only">Suivi du travail</h2><div class="t-card home-progress"><div class="home-progress-head"><strong id="home-job-percent">—</strong><div class="home-progress-text"><p id="home-job-eta">Temps restant : —</p><p id="home-job-motion" class="home-job-motion" hidden></p><p id="home-job-name" class="ks-sr-only"></p></div></div><progress id="home-job-progress" max="100" value="0" aria-label="Avancement du travail"></progress></div><div id="home-coords" class="home-coords"></div><div class="home-live-tiles"><div class="t-card"><small>Avance réelle</small><b id="home-live-feed">—</b></div><div class="t-card"><small id="home-live-spindle-label">Broche réelle</small><b id="home-live-spindle">—</b></div></div><p id="home-job-note" class="ks-sr-only"></p></div></div>'));
+  home.parentNode.insertAdjacentHTML('beforeend',uiLocale.html('<div class="job-dashboard"><div id="home-left" class="home-left"><div class="job-art"><img id="home-job-image" alt="Aperçu du fichier" hidden><p id="home-image-status">Sélectionnez un fichier pour afficher son aperçu.</p></div></div><div class="job-metrics"><h2 id="home-job-title" class="ks-sr-only">Suivi du travail</h2><div class="t-card home-progress"><h2 class="home-progress-title">Avancement</h2><div class="home-progress-head"><strong id="home-job-percent">—</strong><div class="home-progress-text"><p id="home-job-eta">Temps restant : —</p><p id="home-current-line"></p><p id="home-job-motion" class="home-job-motion" hidden></p><p id="home-job-name" class="ks-sr-only"></p></div></div><progress id="home-job-progress" max="100" value="0" aria-label="Avancement du travail"></progress></div><div id="home-coords" class="home-coords"></div><div class="home-live-tiles"><div class="t-card"><small>Avance réelle</small><b id="home-live-feed">—</b></div><div class="t-card"><small id="home-live-spindle-label">Broche réelle</small><b id="home-live-spindle">—</b></div></div><p id="home-job-note" class="ks-sr-only"></p></div></div>'));
   var execution=document.querySelector('.library-execution');
-  $('home-job-note').insertAdjacentHTML('afterend',uiLocale.html('<p id="home-job-ready" class="t-notice" role="status"></p><p id="home-job-selection" class="t-help"></p><div id="home-job-primary-row" class="home-job-actions home-job-primary"><button id="home-job-pause" class="t-btn t-btn--warn t-btn--lg" disabled>Pause</button></div><div id="home-job-resume-row" class="home-job-actions home-job-resume" hidden><button id="home-job-resume" class="t-btn t-btn--primary" disabled>Reprendre…</button></div><p id="home-job-feedback" class="t-sent" role="status"></p><div class="home-stop"><button id="home-job-stop" class="t-btn t-btn--danger" disabled>Arrêter le travail</button><span class="t-help">Arrêt logiciel · pas un arrêt d’urgence</span></div>'));
+  $('home-job-note').insertAdjacentHTML('afterend',uiLocale.html('<p id="home-job-ready" class="t-notice" role="status"></p><p id="home-job-selection" class="t-help"></p><div class="home-stop"><button id="home-job-stop" class="t-btn t-btn--danger" disabled>Arrêter l’usinage</button><span class="t-help">Arrêt logiciel · pas un arrêt d’urgence</span></div>'));
   // The real page keeps its coordinate cards (#wx…, #mx…, written by app.js): they move under the progress.
   var coordsBox=$('home-coords');
   ['home-work-card','home-machine-card'].forEach(function(id){var card=$(id);if(card&&coordsBox&&typeof coordsBox.appendChild==='function')coordsBox.appendChild(card);});
@@ -28,36 +28,28 @@
   // A tap on Pause or Reprendre freezes both for 600 ms (as on the status strip): Pause becomes
   // Reprendre… in place, and a double tap must not reach it. Arrêter is never delayed. A clock set
   // back after a tap does not keep them frozen.
-  var coolUntil=0;
-  ['pause','resume','stop'].forEach(function(action){
-    $('home-job-'+action).addEventListener('click',function(){
-      var source=$('job-'+action),controls=window.cncJobControls;
-      if(this.disabled||!source||source.disabled)return;
-      if(action==='pause'||action==='resume'){var now=Date.now();if(now>=coolUntil-600&&now<coolUntil)return;coolUntil=now+600;}
-      if(controls&&typeof controls[action]==='function')controls[action]();
-    });
-  });
+  $('home-job-stop').addEventListener('click',function(){if(!this.disabled&&window.cncJobControls)window.cncJobControls.stop();});
   function rapidMarkup(prefix,label){return '<div class="t-override t-override--rapid" data-kind="rapid"><div class="t-ov-name">'+label+'<b id="'+prefix+'-override-rapid">—</b></div><div class="t-ov-row">'+[25,50,100].map(function(n){return '<button type="button" class="t-btn t-btn--ghost" data-kind="rapid" data-value="'+n+'" aria-pressed="false" disabled>'+n+' %</button>';}).join('')+'</div></div>';}
   var rapidHosts=[];
   function rapidState(host,prefix,d){var m=d&&d.machine,allowed=!!(m&&m.fresh&&!d.busy&&(!d.pilot||d.pilot.state!=='other')&&('canRapidOverride' in m?m.canRapidOverride:m.canOverride)),v=m&&m.overrides&&m.overrides.rapid;
     var read=$(prefix+'-override-rapid');if(read&&read.textContent!==(typeof v==='number'?v+' %':'—'))read.textContent=typeof v==='number'?v+' %':'—';
     Array.prototype.forEach.call(host.querySelectorAll('button[data-kind="rapid"]'),function(b){if(b.disabled===allowed)b.disabled=!allowed;var pressed=String(typeof v==='number'&&Number(b.getAttribute('data-value'))===v);if(b.getAttribute('aria-pressed')!==pressed)b.setAttribute('aria-pressed',pressed);});
-    var note=$(prefix+'-rapid-reason'),reason=allowed?'':m&&m.rapidOverrideReason?(uiLocale.message||uiLocale.t)(m.rapidOverrideReason):uiLocale.t('Impossible pour l’instant.');if(note&&note.textContent!==reason)note.textContent=reason;
+    var note=$(prefix+'-rapid-reason'),reason=allowed?'':d&&d.pilot&&d.pilot.state==='other'?uiLocale.t('La main est sur un autre appareil.'):m&&m.rapidOverrideReason?(uiLocale.message||uiLocale.t)(m.rapidOverrideReason):uiLocale.t('Impossible pour l’instant.');if(note&&note.textContent!==reason)note.textContent=reason;
   }
   function rapidRow(host,prefix){host.innerHTML=rapidMarkup(prefix,uiLocale.t('Rapides au départ'))+'<p id="'+prefix+'-rapid-reason"></p>';host.addEventListener('click',overrideClick);rapidHosts.push({host:host,prefix:prefix});if(rapidDetail)rapidState(host,prefix,rapidDetail);}
   var rapidDetail=null;
   window.addEventListener('cnc-job-status',function(e){rapidDetail=e.detail||{};rapidHosts.forEach(function(r){rapidState(r.host,r.prefix,rapidDetail);});});
   // Realtime overrides (feed and spindle), active only while a program runs or is held.
   // Overrides under the preview: ±10 % and 100 % as large steps, ±1 % as a second level.
-  $('home-left').insertAdjacentHTML('beforeend',uiLocale.html('<div id="home-overrides" class="home-overrides t-card" hidden><div class="home-overrides-head"><p class="home-overrides-title">Corrections</p><p id="home-live" class="home-live ks-sr-only"></p></div><p id="home-spindle-warning" class="t-notice" data-tone="warn" role="alert" hidden></p>')+
+  $('home-left').insertAdjacentHTML('beforeend',uiLocale.html('<div id="home-overrides" class="home-overrides t-card"><div class="home-overrides-head"><p class="home-overrides-title">Corrections</p><p id="home-live" class="home-live ks-sr-only"></p></div><p id="home-spindle-warning" class="t-notice" data-tone="warn" role="alert" hidden></p>')+
     ['feed','spindle'].map(function(kind){
-      var label=kind==='feed'?uiLocale.t('Avance'):laser()?uiLocale.t('Consigne S'):uiLocale.t('Broche');
+      var label=kind==='feed'?uiLocale.t('Vitesse'):laser()?uiLocale.t('Consigne S'):uiLocale.t('Broche');
       return '<div class="t-override" data-kind="'+kind+'"><div class="t-ov-name"><span id="home-override-'+kind+'-label">'+label+'</span><b id="home-override-'+kind+'">—</b></div><div class="t-ov-row">'+
-        [[-10,'−10 %',''],[0,'100 %',' t-btn--ghost'],[10,'+10 %',''],[-1,'−1 %',' t-btn--ghost t-fine'],[1,'+1 %',' t-btn--ghost t-fine']].map(function(step){return '<button type="button" class="t-btn'+step[2]+'" data-kind="'+kind+'" data-value="'+step[0]+'" disabled>'+step[1]+'</button>';}).join('')+'</div></div>';
+        [[-10,'−10',''],[-1,'−1',' t-btn--ghost'],[0,'100 %',' t-btn--ghost'],[1,'+1',' t-btn--ghost'],[10,'+10','']].map(function(step){return '<button type="button" class="t-btn'+step[2]+'" data-kind="'+kind+'" data-value="'+step[0]+'" disabled>'+step[1]+'</button>';}).join('')+'</div></div>';
     }).join('')+
     // Rapids (G0 only): 25 / 50 / 100 %, also at rest so a first run can start slowed.
     rapidMarkup('home',uiLocale.t('Rapides'))+
-    uiLocale.html('<p id="home-rapid-reason"></p><p id="home-override-note" class="t-help"></p><p id="home-rapid-note" class="t-help"></p></div>'));
+    uiLocale.html('<p id="home-rapid-reason"></p><p id="home-override-note" class="t-help"></p><p id="home-rapid-note" class="t-help"></p><button id="home-override-remedy" class="t-btn t-btn--ghost" data-action="prendre-la-main" hidden>Prendre la main</button></div>'));
   relabel();
   var overridesBox=$('home-overrides');
   // The same relay serves the rows Performance v2 shows in their sheet (« Broche / rapides… »).
@@ -78,7 +70,7 @@
     return Array.prototype.slice.call(list).concat(Array.prototype.slice.call(host.querySelectorAll('button'))).filter(function(b){return !!b.getAttribute('data-kind');});
   }
   execution.insertAdjacentHTML('beforeend',uiLocale.html('<p id="job-progress-summary" role="status"></p>'));
-  var selection=window.cncLibrarySelection||null,machine=null,simulation=false,imageKey='',request=0,track=null,busy=false,feedback='';
+  var selection=window.cncLibrarySelection||null,machine=null,simulation=false,imageKey='',request=0,track=null,busy=false;
   var previewRequest=null,imageLoading=false,previewFailed=false,mounted=false,imageRevision;
   function finiteNumber(value){return typeof value==='number'&&isFinite(value);}
   function elapsedClock(){return window.performance&&typeof window.performance.now==='function'?window.performance.now():Date.now();}
@@ -224,15 +216,13 @@
     set('home-job-start','disabled',busy||!c||pilotElsewhere||!c.fresh||!c.canStart);
     // These states also guard the enlarged preview's command relay while Home is hidden.
     // During a loss of the state, Pause and Arrêter follow the last busy controller (detail.halt).
-    set('home-job-pause','disabled',c?!c.canPause:!(halt&&halt.canPause));
-    set('home-job-resume','disabled',busy||!c||pilotElsewhere||!c.canResume);
     set('home-job-stop','disabled',c?!(c.canStop||jogging(c)):!(halt&&halt.canStop));
-    var overrides=c&&c.overrides&&typeof c.overrides==='object'?c.overrides:null,overrideOn=!!(c&&c.fresh&&c.canOverride&&!busy);
-    set('home-overrides','hidden',!c||!('canOverride' in c));
+    var overrides=c&&c.overrides&&typeof c.overrides==='object'?c.overrides:null,overrideOn=!!(c&&c.fresh&&c.canOverride&&!busy&&!pilotElsewhere);
+    set('home-overrides','hidden',false);
     set('home-override-feed','textContent',overrides&&finiteNumber(overrides.feed)?overrides.feed+' %':'—');
     set('home-override-spindle','textContent',overrides&&finiteNumber(overrides.spindle)?overrides.spindle+' %':'—');
     // The rapid override has its own guard (also allowed at rest); an older server only sends canOverride.
-    var rapidOn=!!(c&&c.fresh&&!busy&&('canRapidOverride' in c?c.canRapidOverride:c.canOverride)),rapid=overrides&&finiteNumber(overrides.rapid)?overrides.rapid:null;
+    var rapidOn=!!(c&&c.fresh&&!busy&&!pilotElsewhere&&('canRapidOverride' in c?c.canRapidOverride:c.canOverride)),rapid=overrides&&finiteNumber(overrides.rapid)?overrides.rapid:null;
     set('home-override-rapid','textContent',rapid===null?'—':rapid+' %');
     Array.prototype.forEach.call(overrideButtons(),function(button){
       var isRapid=button.getAttribute('data-kind')==='rapid',on=isRapid?rapidOn:overrideOn;
@@ -279,7 +269,8 @@
       /^(Hold|Idle)/.test(String(c.activeState||''))?uiLocale.t('Pause : les axes sont arrêtés mais la broche tourne toujours (Grbl ne l’arrête pas en pause). Ne mettez pas les mains près de l’outil.'):
       // CNCjs pauses its sender on a Grbl error without a feed hold: the planned moves go on (Astra 60, rehearsal).
       uiLocale.t('Envoi suspendu : Grbl peut encore exécuter les mouvements déjà reçus et la broche tourne. Ne mettez pas les mains près de l’outil.')):'');
-    set('home-override-note','textContent',overrideOn?uiLocale.t('Pas de ±1 % / ±10 % envoyés au contrôleur en temps réel ; 100 % rétablit la valeur programmée.'):(c&&c.overrideReason?uiLocale.message?uiLocale.message(c.overrideReason):uiLocale.t(c.overrideReason):''));
+    set('home-override-remedy','hidden',!pilotElsewhere);
+    set('home-override-note','textContent',pilotElsewhere?uiLocale.t('La main est sur un autre appareil.'):overrideOn?uiLocale.t('Pas de ±1 % / ±10 % envoyés au contrôleur en temps réel ; 100 % rétablit la valeur programmée.'):(c&&c.overrideReason?uiLocale.message?uiLocale.message(c.overrideReason):uiLocale.t(c.overrideReason):''));
     var valid=c&&c.fresh&&c.name&&finiteNumber(c.total)&&c.total>0&&finiteNumber(c.received)&&c.received>=0&&c.received<=c.total,p=valid?c.received/c.total*100:0;
     // CNCjs rewinds the line counters when a program ends: the server says whether it finished.
     // A program that reached its end with lines refused by Grbl (error:N) is not "finished".
@@ -341,11 +332,11 @@
       preview(file);
       set('home-job-title','textContent',simulation?uiLocale.t('Suivi — SIMULATION'):uiLocale.t('Suivi du travail'));
       set('home-job-name','textContent',c&&c.name?(c.originalName||c.name):selection?uiLocale.t('Sélectionné : ')+selection.name:uiLocale.t('Aucun fichier chargé'));
-      set('home-job-percent','textContent',percent);set('home-job-progress','value',p);
+      set('home-job-percent','textContent',percent);set('home-job-progress','value',p);set('home-current-line','textContent',valid?uiLocale.t('ligne {n}').replace('{n}',number(c.jobStopped&&typeof c.stoppedAtLine==='number'?c.stoppedAtLine:acknowledgedLine(c,linesTotal(c)))):'—');
       // The static help sentence of the job controls is not a command result: only results show here.
       set('home-job-eta','textContent',eta);
       // In an alarm no remaining time sits under « estimation suspendue » (motionText still refreshes motionLeft).
-      var motion=motionText(c,file,now);if(alarmNow)motion='';set('home-job-motion','textContent',motion);set('home-job-motion','hidden',!motion);set('home-job-feedback','textContent',feedback===uiLocale.t('Le chargement ne démarre pas le travail.')?'':feedback);
+      var motion=motionText(c,file,now);if(alarmNow)motion='';set('home-job-motion','textContent',motion);set('home-job-motion','hidden',!motion);
       if(zones.on)gauges(c,valid,p,eta,remaining);
       set('home-job-note','textContent',simulation?uiLocale.t('Progression fictive sur 60 secondes, hors pauses. Aucun G-code exécuté.'):uiLocale.t('Progression des lignes acquittées. Estimation indicative selon le rythme observé, pas selon la durée des mouvements.'));
     }
@@ -354,9 +345,8 @@
   window.addEventListener('cnc-library-select',function(e){selection=e.detail;render();});
   window.addEventListener('cnc-job-status',function(e){var next=e.detail.machine;pilotElsewhere=!!(e.detail.pilot&&e.detail.pilot.state==='other');
     if(next&&next.workflow==='running'&&(!machine||machine.workflow!=='running'||programOf(next)!==programOf(machine))){runTrack=null;}
-    machine=next;halt=!machine&&e.detail.halt&&typeof e.detail.halt==='object'?e.detail.halt:null;simulation=e.detail.simulation;busy=!!e.detail.busy;feedback=e.detail.feedback||'';
+    machine=next;halt=!machine&&e.detail.halt&&typeof e.detail.halt==='object'?e.detail.halt:null;simulation=e.detail.simulation;busy=!!e.detail.busy;
     // Sent / confirmed / failed / uncertain, mirrored from job-controls.js (ui-2027.css .t-sent).
-    var fb=$('home-job-feedback'),state=e.detail.feedbackState||'';if(fb&&typeof fb.setAttribute==='function'&&(!fb.getAttribute||fb.getAttribute('data-state')!==state))fb.setAttribute('data-state',state);
     loadedStatus();
     if(zones.on){sample(machine);requestCurve();}
     render();
@@ -378,7 +368,7 @@
   // overrides under the view as today; three columns where the view keeps at least today's width. The
   // wrappers and instruments are built the first time the layout is wide; out of it every element goes
   // back where it was, in the same order (on the RT they are never built). Display only: no command here.
-  var THREE_ZONES_MIN_WIDTH=1600,CURVE_N=600,CURVE_MS=60000;
+  var CURVE_N=600,CURVE_MS=60000;
   var zones={on:false,three:false,v2:false,built:false,gauges:null,controls:null,eta:null,ack:null,read:null,curve:null,svg:null};
   var curve={t:[],v:[],i:0,n:0,frame:null,drawn:-Infinity,max:0,points:''};
   function el(tag,id,cls,text){var e=document.createElement(tag);if(id)e.id=id;if(cls)e.className=cls;if(text)e.textContent=text;return e;}
@@ -410,38 +400,22 @@
     }
   }
   function arrange(){
-    // Performance v2 (body.perf-v2, only ever with the wide layout): one monitoring column, whatever the width.
-    var wide=!!(window.cncLayout&&typeof window.cncLayout.wide==='function'&&window.cncLayout.wide()),v2on=wide&&v2Body(),three=wide&&!v2on&&window.innerWidth>=THREE_ZONES_MIN_WIDTH;
-    if(wide===zones.on&&three===zones.three&&v2on===zones.v2)return;
-    // L0 contract: no grid change in Run/Hold/Alarm or with an unknown report; cnc-v2-change arranges again at rest.
+    var wide=!!(window.cncLayout&&window.cncLayout.wide()),on=wide&&v2Body();
     if(zones.on&&v2Held())return;
-    var title=$('home-job-title'),metrics=title&&title.parentNode,left=$('home-left'),board=left&&left.parentNode;
+    var metrics=$('home-job-title').parentNode,left=$('home-left'),board=left.parentNode;
     if(!metrics||!left||!board||typeof metrics.insertBefore!=='function')return;
-    var progress=$('home-job-progress').parentNode,head=$('home-job-percent').parentNode,coords=$('home-coords'),tiles=$('home-live-feed').parentNode.parentNode,overrides=$('home-overrides'),stop=$('home-job-stop').parentNode,n,next;
-    if(zones.v2&&!v2on)applyV2(false,board,left,tiles,overrides);
-    if(wide&&!zones.built)buildZones();
-    if(wide&&!zones.on){
-      metrics.insertBefore(zones.gauges,progress);
-      [progress,zones.eta,coords,tiles,zones.read,zones.curve].forEach(function(node){zones.gauges.appendChild(node);});
-      head.appendChild(zones.ack);
-      // Everything after the instruments (ready line, Charger, Démarrer / Pause, Reprendre, feedback,
-      // what job-resume.js added, Arrêter alone at the bottom) goes into Commandes, in order.
-      metrics.appendChild(zones.controls);
-      for(n=zones.gauges.nextSibling;n&&n!==zones.controls;n=next){next=n.nextSibling;zones.controls.appendChild(n);}
-    }else if(!wide&&zones.on){
-      left.appendChild(overrides);
-      while(zones.controls.firstChild)metrics.insertBefore(zones.controls.firstChild,zones.controls);
-      metrics.removeChild(zones.controls);
-      [progress,coords,tiles].forEach(function(node){metrics.insertBefore(node,zones.gauges);});
-      metrics.removeChild(zones.gauges);head.removeChild(zones.ack);
-      board.removeAttribute('data-zones');
+    if(!zones.built&&wide)buildZones();
+    // Fixed DOM in both renderers: only optional, read-only instruments change.
+    if(!metrics||!left||!board||typeof metrics.insertBefore!=='function')return;
+    metrics.appendChild($('home-overrides'));
+    if($('home-notice'))metrics.appendChild($('home-notice'));
+    left.appendChild($('home-job-stop').parentNode);
+    if(zones.built){
+      if(!zones.curve.parentNode)left.insertBefore(zones.curve,$('home-job-stop').parentNode);
+      zones.curve.hidden=!on;
     }
-    if(wide){
-      if(three)zones.controls.insertBefore(overrides,stop);else left.appendChild(overrides);
-      board.setAttribute('data-zones',three?'3':'2');
-    }
-    if(v2on&&!zones.v2)applyV2(true,board,left,tiles,overrides);
-    zones.on=wide;zones.three=three;
+    if(on!==zones.v2){applyV2(on,board,left);}
+    zones.on=wide;zones.three=false;board.setAttribute('data-zones','2');
     if(wide){render();requestCurve();requestV2();}
   }
   window.addEventListener('cnc-layout-change',arrange);
@@ -626,58 +600,26 @@
     // « Broche / rapides… » and « Détail du temps »: sheets of the shell, under the strip (Pause / Arrêter kept).
     var shell=window.cncShell;
     if(!shell||typeof shell.sheet!=='function')return;
-    var rowsSheet=shell.sheet('perf-v2-overrides-sheet',say('Broche et rapides')),timeSheet=shell.sheet('perf-v2-time-sheet',say('Ce que le temps indique'));
-    v2.rowHost=rowsSheet.content;v2.timeHost=timeSheet.content;v2.rowHost.addEventListener('click',overrideClick);
-    v2.timeHost.appendChild(el('p','home-v2-time-note','t-help home-v2-time-note',say('Estimation sans accélérations. Pauses manuelles, interventions et durées inconnues ne sont pas comptées.')));
-    v2.more=el('div','home-v2-more','home-v2-more');
-    [['home-v2-more-overrides','Broche / rapides…',rowsSheet],['home-v2-time-detail','Détail du temps',timeSheet]].forEach(function(d){
-      var b=el('button',d[0],'t-btn t-btn--ghost',say(d[1]));b.type='button';b.addEventListener('click',d[2].open);v2.more.appendChild(b);
-    });
-    var find=typeof overrides.querySelector==='function'?function(s){return overrides.querySelector(s);}:function(){return null;};
-    v2.rows=[find('.t-override[data-kind="spindle"]'),find('.t-override[data-kind="rapid"]'),$('home-rapid-note')].filter(Boolean);
+    var timeSheet=shell.sheet('perf-v2-time-sheet',say('Ce que le temps indique'));v2.timeHost=timeSheet.content;
+    v2.timeHost.appendChild(el('p','home-v2-time-note','t-help',say('Estimation sans accélérations. Pauses manuelles, interventions et durées inconnues ne sont pas comptées.')));
+    v2.more=el('button','home-v2-time-detail','t-btn t-btn--ghost',say('Détail du temps'));v2.more.type='button';v2.more.addEventListener('click',timeSheet.open);
   }
-  // Moves the existing elements in (on) or back exactly where the v1 wide layout had them (off): the children
-  // of the boxes it rearranges are recorded first and given back in that order.
-  function kidsOf(node){return Array.prototype.slice.call(node.children);}
-  function applyV2(on,board,left,tiles,overrides){
-    var art=$('home-job-image').parentNode,second=$('home-gauge-eta-second'),unknown=$('home-gauge-eta-unknown');
-    var controls=zones.controls,stop=$('home-job-stop').parentNode,actions=[$('home-job-primary-row'),$('home-job-resume-row')];
-    if(art.parentNode!==left)art=left.firstChild;
+  function applyV2(on,board,left){
     if(on){
-      if(!v2.built)buildV2(overrides);
-      v2.saved={controls:kidsOf(controls),overrides:kidsOf(overrides),eta:kidsOf(zones.eta)};
-      // Messages (spindle warning, override reason, ready line, resume help, feedback…) in their slot, in order.
-      v2.info.appendChild($('home-spindle-warning'));
-      v2.saved.controls.forEach(function(n){if(n!==stop&&actions.indexOf(n)<0)v2.info.appendChild(n);});
-      v2.info.appendChild($('home-override-note'));
-      actions.forEach(function(n){v2.actions.appendChild(n);});
-      controls.insertBefore(v2.info,stop);controls.insertBefore(v2.actions,stop);
-      left.insertBefore(v2.band,art.nextSibling);left.appendChild(v2.sequence);
-      // The reported feed and S head the curve card, as in the mockup.
-      $('home-coords').appendChild(v2.position);zones.curve.insertBefore(tiles,zones.svg);zones.gauges.appendChild(overrides);
-      zones.curve.appendChild(v2.axis);
+      if(!v2.built)buildV2($('home-overrides'));
+      left.insertBefore(v2.sequence,zones.curve);zones.curve.appendChild(v2.axis);
       ['gaps','line','marks'].forEach(function(k){if(v2.paths[k])zones.svg.appendChild(v2.paths[k]);});
-      if(v2.more){
-        overrides.appendChild(v2.more);v2.rows.forEach(function(r){v2.rowHost.appendChild(r);});
-        v2.timeHost.appendChild(second);v2.timeHost.appendChild(unknown);
-      }
-      overrides.appendChild(zones.read);
+      $('home-job-percent').parentNode.appendChild(v2.more);
+      if(v2.timeHost){v2.timeHost.appendChild(v2.band);v2.timeHost.appendChild(v2.position);v2.timeHost.appendChild(zones.eta);v2.timeHost.appendChild(zones.ack);}
       board.setAttribute('data-v2','suivi');
     }else{
       if(v2.timer!==null&&typeof window.clearTimeout==='function')window.clearTimeout(v2.timer);v2.timer=null;v2.due=null;
-      [v2.band,v2.sequence,v2.position,v2.axis,v2.more,v2.paths.gaps,v2.paths.line,v2.paths.marks].forEach(function(n){if(n&&n.parentNode)n.parentNode.removeChild(n);});
-      zones.gauges.insertBefore(tiles,zones.curve);zones.gauges.insertBefore(zones.read,zones.curve);
-      var saved=v2.saved;
-      saved.overrides.forEach(function(n){overrides.appendChild(n);});saved.eta.forEach(function(n){zones.eta.appendChild(n);});
-      saved.controls.forEach(function(n){controls.appendChild(n);});
-      // Anything another module added to the slots meanwhile stays among the commands, above Arrêter.
-      [v2.info,v2.actions].forEach(function(box){kidsOf(box).forEach(function(n){controls.insertBefore(n,stop);});if(box.parentNode)box.parentNode.removeChild(box);});
-      board.removeAttribute('data-v2');board.removeAttribute('data-v2-report');
-      // The v1 curve writes its own title again.
-      v2.chart=null;curve.max=0;curve.points='';set('home-gauge-curve-title','textContent',uiLocale.t('Avance réelle, dernière minute'));
+      [v2.sequence,v2.axis,v2.more,v2.paths.gaps,v2.paths.line,v2.paths.marks].forEach(function(n){if(n&&n.parentNode)n.parentNode.removeChild(n);});
+      board.removeAttribute('data-v2');board.removeAttribute('data-v2-report');v2.chart=null;curve.max=0;curve.points='';
     }
     zones.v2=on;relabel();
   }
+
   // Normalized facts for the L3 model (performance-observation.js): its loaded identity, the arrival stamp,
   // the report as given (age, frame, units, feed in mm/min), the acknowledged ORIGINAL line, the estimate
   // shown with its source, and reported override / pause transitions as markers. Unknown stays null.
@@ -880,6 +822,7 @@
   window.addEventListener('cnc-screen-lock',function(e){if(e&&e.detail)forgetLoaded('');});
   // cancelLoadedPreview(): for the consumer (origin-preview.js on unmount, screen change, lock, hidden).
   window.cncDashboardView={mount:mount,unmount:unmount,rapidRow:rapidRow,loadedPreview:loadedPreview,cancelLoadedPreview:function(){forgetLoaded('');}};
+  arrange();
   mount();
   render();
 })();

@@ -10,8 +10,8 @@
   var simulation=document.body.getAttribute('data-simulation')==='true';
   var KEY='cncjs-touch-job-follow-v1';
   var prefs={open:true,lock:false};
-  try{var saved=JSON.parse(localStorage.getItem(KEY)||'null');if(saved&&typeof saved==='object'){if(typeof saved.open==='boolean')prefs.open=saved.open;if(typeof saved.lock==='boolean')prefs.lock=saved.lock;}}catch(_){}
-  function save(){try{localStorage.setItem(KEY,JSON.stringify(prefs));}catch(_){}}
+  try{var saved=JSON.parse(localStorage.getItem(KEY)||'null');if(saved&&typeof saved==='object'){if(typeof saved.open==='boolean')prefs.open=saved.open;if(typeof saved.lock==='boolean')prefs.lock=saved.lock;}}catch(_){/* Storage is optional. */}
+  function save(){try{localStorage.setItem(KEY,JSON.stringify(prefs));}catch(_){/* Storage is optional. */}}
   function el(tag,cls,id){var n=document.createElement(tag);if(cls)n.className=cls;if(id)n.id=id;return n;}
   function text(node,value){if(node&&node.textContent!==value)node.textContent=value;}
 
@@ -42,19 +42,7 @@
   paintSettings();
 
   // ---- End-of-job summary in Suivi ----
-  var summary=el('div','t-notice home-job-summary','home-job-summary');summary.hidden=true;summary.setAttribute('role','status');
-  // Presentation only (performance-v2.css data-v2-summary): the v2 messages slot knows when the summary is shown.
-  function showSummary(on){
-    summary.hidden=!on;
-    var left=document.getElementById('home-left'),board=left&&left.parentNode,v=on?'1':'0';
-    if(board&&typeof board.setAttribute==='function'&&(!board.getAttribute||board.getAttribute('data-v2-summary')!==v))board.setAttribute('data-v2-summary',v);
-  }
-  var summaryText=el('p','home-job-summary-text','home-job-summary-text');summary.appendChild(summaryText);
-  var close=el('button','t-btn t-btn--ghost','home-job-summary-close');close.type='button';close.textContent=t('OK');summary.appendChild(close);
-  close.addEventListener('click',function(){showSummary(false);});
-  var feedback=document.getElementById('home-job-feedback');
-  if(feedback&&feedback.parentNode)feedback.parentNode.insertBefore(summary,feedback.nextSibling);
-
+  function showSummary(on){if(!on&&window.CNCJobResume&&window.CNCJobResume.summary)window.CNCJobResume.summary(null);}
   function duration(ms){
     var s=Math.round(ms/1000),h=Math.floor(s/3600),m=Math.floor(s%3600/60),r=s%60;
     return h?h+' h '+(m<10?'0':'')+m+' min':m?m+' min '+(r<10?'0':'')+r+' s':r+' s';
@@ -90,7 +78,7 @@
     var total=job.lines||job.total,received=job.lines?job.line:job.received;
     if(job.total)parts.push(result==='done'?number(total)+t(' lignes'):number(received)+' / '+number(total)+t(' lignes'));
     if(errors)parts.push(errors+t(' erreur(s) Grbl')+(m.jobLastError?' ('+m.jobLastError+')':''));
-    return {tone:result==='done'?'ok':result==='errors'?'danger':'warn',text:parts.join(' · ')};
+    return {tone:result==='done'?'ok':result==='errors'?'danger':'warn',text:parts.join(' · '),short:result==='done'&&job.started?t('Terminé en {temps}.').replace('{temps}',duration(Date.now()-job.started-job.pausedMs)):result==='done'?t('Terminé.') :result==='errors'?t('Terminé avec {n} lignes refusées par la machine.').replace('{n}',errors):t('Usinage arrêté avant la fin.')};
   }
 
   // ---- Job transitions ----
@@ -132,8 +120,7 @@
       var known=m.finished===true||m.finishedWithErrors===true||m.jobStopped===true;
       if(known||Date.now()>=pending.until){
         var r=describe(pending.job,m);pending=null;
-        text(summaryText,r.text);if(summary.getAttribute('data-tone')!==r.tone)summary.setAttribute('data-tone',r.tone);
-        showSummary(true);
+        if(window.CNCJobResume&&window.CNCJobResume.summary)window.CNCJobResume.summary(r);
       }
     }
     last=m;
