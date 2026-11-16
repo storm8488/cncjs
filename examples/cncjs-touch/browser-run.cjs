@@ -2153,6 +2153,36 @@ function jogControlsChecks(jog) {
   else jog.zeros.forEach(t => { if (!t.reachable) out.push('Zéro pièce, ' + t.id + ' not reachable'); });
   return out;
 }
+// Use trusted touches, not HTMLElement.click(): an inert or covered sheet must
+// fail this path. The visual fixture answers preparation only, never execution.
+async function machineOriginSheet(cdp, fx) {
+  const before=fx.commands.length;
+  async function tap(id){
+    const point=await cdp.evaluate('(function(){var b=document.getElementById('+JSON.stringify(id)+');if(!b||b.disabled||b.closest("[hidden],[inert]"))return null;b.scrollIntoView({block:"nearest"});var r=b.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2,h=document.elementFromPoint(x,y);return r.width&&r.height&&(h===b||b.contains(h))?{x:x,y:y}:null;})()');
+    if(!point)throw Error(id+' is hidden, disabled, inert or covered');
+    await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[point]});
+    await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  }
+  const ready=await cdp.evaluate('(function(){var m=window.cncState.get().machine;return !!(m&&m.activeState==="Idle"&&m.homed===true&&!m.referenceLost&&m.workOffset&&m.workOffset.state==="proven");})()');
+  if(!ready)throw Error('machine-origin sheet requires Idle, homed and proven offset');
+  await cdp.evaluate('window.__brRealMoves=true;true');
+  try{
+    await tap('zero-more-open');
+    await cdp.waitFor('!document.getElementById("ks-zero-more").hidden',5000,'Other zeros sheet');
+    await tap('zero-at-machine-y');
+    try{await cdp.waitFor('(function(){var d=document.getElementById("real-motion-ticket");return !!d&&!d.hidden;})()',10000,'machine-origin Y confirmation');}
+    catch(e){throw Error(e.message+'; sheet cause: '+await cdp.evaluate('document.getElementById("zero-more-cause").textContent'));}
+    const calls=fx.commands.slice(before).map(c=>JSON.parse(c.body));
+    const prepare=calls.filter(c=>c.action==='prepare'&&c.operation==='set-origin'&&c.at==='machine');
+    if(prepare.length!==1||JSON.stringify(prepare[0].axes)!=='["Y"]'||calls.some(c=>c.action==='set-origin'))throw Error('Y sheet must prepare once and never execute: '+JSON.stringify(calls));
+    const title=await cdp.evaluate('document.getElementById("real-motion-ticket-title").textContent===window.cncI18n.t("Zéro {axes} à l’origine machine").replace("{axes}","Y")');
+    if(!title)throw Error('wrong machine-origin Y confirmation title');
+    await tap('real-motion-origin-cancel');
+    return {axis:'Y',at:'machine',prepared:1,executed:0,trustedTouch:true};
+  }finally{
+    await cdp.evaluate('window.__brRealMoves=false;if(window.cncShell)window.cncShell.closeSheet();true');
+  }
+}
 async function screensReal(cdp, fx, v, summary) {
   const tag = 'screens ' + v.id + ' reel', results = [], at = (s) => 'screens-jog-' + v.id + '-' + s;
   fx.real = true;
@@ -2206,6 +2236,8 @@ async function screensReal(cdp, fx, v, summary) {
     await cdp.evaluate('(function(){var b=document.getElementById("real-motion-origin-cancel");if(b)b.click();return true;})()');
     await sleep(300);
     if ((await cdp.evaluate(SCREENS_REAL_STATE)).ticket) failures.push(tag + ': origin confirmation not closed by Annuler');
+    const originSheet=await machineOriginSheet(cdp,fx);
+    (summary.originSheets||(summary.originSheets=[])).push(Object.assign({variant:tag},originSheet));
     fx.staleSince = Date.now(); fx.staleIdle = true; await sleep(4500);
     state = await cdp.evaluate(SCREENS_REAL_STATE);
     staleStatusChecks(state).forEach(f => failures.push(tag + ': ' + f));
@@ -3224,5 +3256,5 @@ async function main() {
 // The measurement scripts (measure-*.cjs) reuse the DevTools client, the browser
 // launcher and the fixture starter; run the harness only as a program.
 if (require.main === module) main().catch((e) => { console.error('browser-run: ' + (e.stack || e.message)); process.exit(1); });
-module.exports = { commandShape, SUIVI_SHAPE, SCREENS_REAL_STATE, staleStatusChecks, jogReadings, jogControlsChecks, checkJobConsent, clearJobConsent };
+module.exports = { commandShape, SUIVI_SHAPE, SCREENS_REAL_STATE, staleStatusChecks, jogReadings, jogControlsChecks, checkJobConsent, clearJobConsent, machineOriginSheet };
 Object.assign(module.exports, { writeSummary, startV2Fixture, confirmJob, clickSessionAction, V2_OVERLAP, RAIL, railChecks, JOG_CHOICES, jogChoiceChecks, FILE_COLUMN, GUIDE_MODE, guideChecks, strictCheck, loadExceptions, infoClipOf, stoppedChecks, stoppedLayoutChecks, settingsOffTabRequests, GOALS, RESPONSIVE, MEASURE, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors });

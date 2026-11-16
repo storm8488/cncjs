@@ -291,23 +291,43 @@
 
   // ---- Work origin, two steps (server ticket, then confirmation here) ----
   function dropTicket(text){if(!ticket)return;ticket=null;closePanel(true);if(text)tell(text,'failed');else render();}
+  function pageOriginError(text,error){var r=presented(error||{message:text});return {famille:r.famille||'origin-page',phrase:text,remedes:r.remedes,details:r.details};}
+  function originFailure(at,text,error){
+    // The sheet covers the stage status line. Keep every refusal at its source,
+    // including local guards and responses discarded after a change of context.
+    if(at==='machine'){
+      moreFailure={error:error&&error.code?error:pageOriginError(text,error),key:originKey()};
+      // A hidden/changed source screen must not suppress feedback in its sheet.
+      paintMore(moreFailure.error);
+    }
+    tell(text,error&&error.uncertain?'uncertain':'failed');
+  }
   function askOrigin(b){
     var at=b.getAttribute('data-origin-at')==='machine'?'machine':'here';
-    if(ticket||originBusy||!usable(b)||at==='machine'&&(!sheetShown()||inert(b)))return;
+    if(ticket||originBusy){originFailure(at,ours());return;}
+    if(!shown()){originFailure(at,t('Rouvrez Zéro pièce pour demander ce zéro.'));return;}
+    if(locked()){originFailure(at,t('Écran verrouillé : Pause et Arrêter restent actifs. Touchez deux fois le cadenas pour déverrouiller.'));return;}
+    if(at==='machine'&&!sheetShown()){originFailure(at,t('Rouvrez Autres zéros pour choisir un axe.'));return;}
+    if(at==='machine'&&inert(b)){originFailure(at,t('Ce bouton est recouvert : fermez le dialogue au-dessus.'));return;}
     var axes=String(b.getAttribute('data-axis')||'').toUpperCase().split('').filter(function(a){return AXES.indexOf(a)>=0;});
-    if(!axes.length)return;
-    var why=originReason(at,axes[0]);if(why){tell(why,'failed');return;}
-    var c=controls();if(!c||typeof c.origin!=='function'){tell(t('Commandes indisponibles : rechargez la page.'),'failed');return;}
+    if(!axes.length){originFailure(at,t('Axe inconnu : rechargez la page au repos.'));return;}
+    var why=originReason(at,axes[0]);if(why){originFailure(at,why,originError(at,axes[0]));return;}
+    if(!usable(b)){originFailure(at,b.getAttribute('title')||t('Ce bouton est indisponible : rouvrez Zéro pièce.'));return;}
+    var c=controls();if(!c||typeof c.origin!=='function'){originFailure(at,t('Commandes indisponibles : rechargez la page.'));return;}
+    moreFailure=null;
     originBusy=true;var port=machine.port,generation=machine.generation,label=t('Origine ')+axes.join(' ')+' : ';
     tell(label+t('demande de confirmation…'),'sent');
-    c.origin(Object.assign({axes:axes},at==='machine'?{at:'machine'}:{})).then(function(d){
+    function failed(e){originBusy=false;if(at==='machine'&&e&&e.code==='ETOUCH_ORIGIN_OFFSETS')machineRefusals[axes[0]]={error:e,key:originKey()};originFailure(at,label+refusal(e),e);}
+    var request;
+    try{request=c.origin(Object.assign({axes:axes},at==='machine'?{at:'machine'}:{}));}catch(e){failed(e);return;}
+    Promise.resolve(request).then(function(d){
       originBusy=false;
       // Préparer left, another controller or board start meanwhile: nothing is offered.
-      if(!d||!d.nonce||!machine||machine.port!==port||machine.generation!==generation||!shown()||locked()||at==='machine'&&!sheetShown()){render();return;}
+      if(!d||!d.nonce||!machine||machine.port!==port||machine.generation!==generation||!shown()||locked()||at==='machine'&&!sheetShown()){originFailure(at,t('Confirmation expirée ou état changé : demandez-la à nouveau.'));return;}
       ticket={nonce:d.nonce,name:String(d.name||''),axes:axes,port:port,generation:d.generation||generation,until:now()+Math.min(15,Number(d.expiresIn)||0)*1000,
         at:at,wcs:wcs(),units:units(),wpos:machine.coordinates&&machine.coordinates.wpos||{},mpos:machine.coordinates&&machine.coordinates.mpos||{}};
       last=null;if(at==='machine'&&window.cncShell)window.cncShell.closeSheet();openPanel();
-    },function(e){originBusy=false;if(at==='machine'){moreFailure={error:e,key:originKey()};if(e&&e.code==='ETOUCH_ORIGIN_OFFSETS')machineRefusals[axes[0]]=moreFailure;}tell(label+refusal(e),e&&e.uncertain?'uncertain':'failed');});
+    },failed);
   }
   function ticketValid(k){return !!k&&now()<k.until&&!!machine&&machine.port===k.port&&machine.generation===k.generation&&connected;}
   function confirmOrigin(){
@@ -386,21 +406,28 @@
     more=window.cncShell.sheet('ks-zero-more',t('Autres zéros'));
     more.content.appendChild(make('p','',null,t('Le zéro de cet axe est placé à l’origine de la machine. Aucun axe ne bouge.')));
     AXES.forEach(function(axis){var button=make('button','ks-zero-machine','zero-at-machine-'+axis.toLowerCase(),t('{axe} à l’origine machine').replace('{axe}',axis));button.setAttribute('data-origin-at','machine');button.setAttribute('data-axis',axis);if(axis==='Z')button.setAttribute('data-laser-z','');more.content.appendChild(button);moreButtons.push(button);button.addEventListener('click',function(){askOrigin(button);});});
-    more.cause=make('div','','zero-more-cause');more.content.appendChild(more.cause);
+    more.cause=make('div','','zero-more-cause');more.cause.setAttribute('role','status');more.content.appendChild(more.cause);
     if($('zero-more-open'))$('zero-more-open').addEventListener('click',function(){more.open();render();});
   }
   if($('zero-machine-open'))$('zero-machine-open').addEventListener('click',function(){if(!window.cncShell)return;var co=machine&&machine.coordinates&&machine.coordinates.mpos;window.cncShell.details({titre:t('Position machine'),lignes:AXES.map(function(axis){return {libelle:axis,valeur:fmt(co&&co[axis.toLowerCase()])+' '+(units()||'—')};}),brut:co||null});});
   var moreSignature='';
+  function paintMore(error){
+    if(!more)return;
+    var key=JSON.stringify(error);if(key===moreSignature&&(!error||more.cause.firstChild))return;
+    moreSignature=key;
+    if(window.cncRefus){window.cncRefus.effacer(more.cause);if(error)window.cncRefus.montrer(more.cause,error,null,{live:true});}
+    else setText(more.cause,error?error.phrase||error.message||t('Action refusée.'):'');
+  }
   function renderMore(){
     if(!sheetShown()||!more)return;
     Object.keys(machineRefusals).forEach(function(axis){if(machineRefusals[axis].key!==originKey())delete machineRefusals[axis];});
     if(moreFailure&&moreFailure.key!==originKey())moreFailure=null;
     var error=null;
-    moreButtons.forEach(function(button){var axis=button.getAttribute('data-axis'),why=originReason('machine',axis);prop(button,'disabled',!!why);attr(button,'title',why||null);if(why&&!error)error=originError('machine',axis);});
+    moreButtons.forEach(function(button){var axis=button.getAttribute('data-axis'),why=originReason('machine',axis);prop(button,'disabled',!!why);attr(button,'title',why||null);if(why&&!error){error=originError('machine',axis);if(!error.code)error=pageOriginError(why,error);}});
     if(!error&&moreFailure)error=moreFailure.error;
     // Coordinates can change at every report. Replacing an unchanged refusal
     // would remove its focused remedy and break the sheet's Tab cycle.
-    var key=JSON.stringify(error);if(key!==moreSignature||error&&!more.cause.firstChild){moreSignature=key;if(window.cncRefus){window.cncRefus.effacer(more.cause);if(error)window.cncRefus.montrer(more.cause,error,null,{live:true});}}
+    paintMore(error);
   }
   var stepButtons=list(stepBox,'button');
   stepButtons.forEach(function(b){b.addEventListener('click',function(){

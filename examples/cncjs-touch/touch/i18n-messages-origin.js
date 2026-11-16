@@ -150,3 +150,10 @@ window.CNCTouchMessages.push(
 
 window.CNCTouchMessages.push(["Notes de reprise","Resume notes","Notas de reanudación"],["Message du fichier","File message","Mensaje del archivo"]);
 window.CNCTouchMessages.push(['Guide','Guide','Guía']);
+window.CNCTouchMessages.push(
+['Rouvrez Zéro pièce pour demander ce zéro.','Reopen Work zero to request this zero.','Vuelva a abrir Cero pieza para solicitar este cero.'],
+['Rouvrez Autres zéros pour choisir un axe.','Reopen Other zeros to choose an axis.','Vuelva a abrir Otros ceros para elegir un eje.'],
+['Ce bouton est recouvert : fermez le dialogue au-dessus.','This button is covered: close the dialog above it.','Este botón está cubierto: cierre el diálogo que hay encima.'],
+['Axe inconnu : rechargez la page au repos.','Unknown axis: reload the page when idle.','Eje desconocido: recargue la página en reposo.'],
+['Ce bouton est indisponible : rouvrez Zéro pièce.','This button is unavailable: reopen Work zero.','Este botón no está disponible: vuelva a abrir Cero pieza.']
+);
