@@ -860,3 +860,20 @@ Their session screen has a definite height that overrides legacy per-screen
 `height:auto!important`; its content scrolls between the header and footer.
 `test-vert-layout.cjs` proves these cascade contracts, not one-pixel renderer
 parity. That comparison and the strict browser reception remain pending.
+
+### VERT2 — Definite machining frame and intrinsic compact cards
+
+The desktop machining screen and the dashboard's containing block now have a
+definite height. Previously, percentage sizing against an indefinite parent
+let content change the Stop anchor. The five override columns also clear the
+legacy fourth-button placement that forced the fifth button onto another row.
+During an alert the v2 curve becomes invisible within its reserved slot, so the
+preview cannot grow into that space. Large text consistently omits that curve
+in every state. Commands, guards and the VERT Stop anchor are unchanged.
+
+Compact Machine rows contribute their full intrinsic height to the scrolling
+session body. Simulation coordinate cards use the same containment principle.
+The bottom rail's 72 px budget includes 64 px targets, 6 px padding and its
+1 px border; English Machine retains an intentional soft hyphen at large size.
+`test-vert2-layout.cjs` checks the cascade with the deferred v2 sheet. Actual
+renderer parity and target coverage still require the strict browser run.

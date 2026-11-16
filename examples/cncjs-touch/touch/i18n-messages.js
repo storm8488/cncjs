@@ -1793,7 +1793,7 @@ window.CNCTouchMessages.push([' · Sélection différente : ',' · Different sel
 (function(){window.CNCTouchMessages=window.CNCTouchMessages.concat([
   [
     "Ma­chine",
-    "Machine",
+    "Ma­chine",
     "Má­quina"
   ],
   [

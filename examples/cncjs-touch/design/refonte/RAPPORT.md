@@ -232,6 +232,62 @@ après, ainsi que la parité d'Arrêter et le cycle Tab. Le nouveau résumé doi
 permettre de conserver la liste exacte des violations restantes. Aucun accès
 tablette, RT, CNC, SSH, réseau externe, déploiement ou validation matérielle.
 
+### 5.3 Harnais — reprise VERT2 (gpt-6.1-sol)
+
+Base **`d33168e0`**, après VERT **`52a25d56`**, branche `feat/refonte-ui`.
+Le relevé fourni `R/codex/harnais4.log` finit à **104 violations et 0 exception**.
+Ce chiffre est celui du pilote avant VERT2 ; **aucun résultat complet vert n'est
+revendiqué**. Aucun harnais complet lancé dans ce lot.
+
+| Famille de harnais4 | Diagnostic et correction | Test durable |
+|---|---|---|
+| `responsive sim … job-confirm: disabled` | Mesure après 300 ms, avant le délai de protection de 600 ms. Consentement frais par le chemin commun, puis activation mesurée ; après le sondage, décocher publie `change` avant de demander une nouvelle case. Aucun départ exécuté par le sondage. | `test-vert2-harness` : délai réel, case préalable refusée, dialogue fermé refusé, événement de remise à zéro et absence d'exécution. |
+| `Suivi not restored` | Comparaison structurelle d'avant L5 : les instruments de lecture se créent au premier passage. Comparer les quinze commandes permanentes, leur ordre et leur chaîne de propriétaires ; commande absente ou sortie de son écran = échec. Le contrôle des centres à 1 px reste. | `test-vert2-harness` : instrument facultatif accepté, déplacement d'Arrêter et disparition refusés. |
+| `Cotes not reachable` | Cible v2 supprimée par L3a. Contrôler les quatre zéros actuels, Autres zéros et la croix sur l'écran réel. | `test-vert2-harness` : chaque cible absente/couverte échoue. |
+| `stale report not said` | La phrase attendue omettait le préfixe traduit « Il manque : » ; deux captures pouvaient aussi lire deux âges différents. Capture atomique de l'état et du texte, égalité exacte avec le préfixe traduit ou le refus explicite. | `test-vert2-harness` en FR/EN/ES, cause non périmée, phrase vide/fausse, flèche ou zéro actif refusés. |
+| Rail portrait et anglais agrandi | Padding de 8 px hérité autour d'une cible de 64 px dans une barre de 72 px ; Ma­chine anglais sans césure. Padding horizontal/vertical de 3 px sur le rail bas et césure intentionnelle EN. | `test-vert2-layout` : cascade des tailles/importance, budget bordure comprise, vrais libellés des trois langues. |
+| Détails Machine couverts | Le conteneur compact se comprimait tandis que les cartes peignaient au-delà de leur rangée, sur l'encart d'alarme. Conteneur non réductible, rangées à la hauteur de contenu. | `test-vert2-layout` : quatre fenêtres compactes. |
+| Coordonnées de simulation couvertes | La carte pouvait peindre sous le pied de séance. Rangées intrinsèques dans le corps défilant de la simulation. | `test-vert2-layout` : 1366 × 768 et 1024 × 600 ; simulation toujours exclue de la page réelle. |
+| Arrêter v1/v2 et aperçu repos/arrêt | La quatrième correction était encore forcée en colonne 5 : `+10` revenait à la ligne. Le tableau à hauteur en pourcentage n'avait pas de parent de hauteur définie. Placement automatique des cinq corrections, cadre bureau et parent définis. La courbe masquée en alarme garde son emplacement sous l'aperçu. | `test-vert2-layout` : vraie cascade avec feuille v2 différée, trois rendus/tailles de texte, repos/alarme, deux tailles bureau. La mesure à 1 px reste à rejouer. |
+
+**Assertions adaptées explicitement :** forme complète du DOM à la sortie du
+GPU → propriétaires/ordre des commandes ; ancien `pv2-cotes-toggle` → cinq
+cibles de zéro actuelles et croix ; comparaison de phrase périmée → capture
+atomique avec son préfixe traduit. La confirmation ajoute l'attente gardée et
+l'événement de décochage. Aucun contrôle de garde, arrêt, case, taille, texte,
+défilement, géométrie à 1 px ou exception de disposition supprimé. Le résolveur
+CSS de `test-vert-layout` est partagé et renforcé pour les longhands du padding.
+Les deux nouveaux tests sont inscrits dans `verify-project.cjs` ; aucun test de
+preuve `bughunt-*` modifié. **Quatorze retraits isolés en mémoire donnent chacun
+une AssertionError/code 1**, preuves dans `output/codex-VERT2/proofs.json`.
+
+**Réception navigateur :** `--strict --only rail`, puis
+`--strict --only responsive,sim,v2,screens,rail`, avec l'Edge imposé et les
+sorties ignorées `output/codex-VERT2`, échouent **code 1, WebSocket error avant
+scénario**. Le journal est `browser.log`. Les 104 violations ne sont donc pas
+annoncées toutes résolues. Aucun nouveau nombre de violations après correction
+n'est disponible. Les tests de cascade ne sont pas des rectangles observés.
+La dernière relance du même groupe, après le dernier changement de code, donne
+**code 1, timeout Page.enable**, avant scénario (`browser-final.log`).
+Restent au pilote : rejouer les étapes ciblées, examiner les captures de Machine
+et de la simulation, la parité des quinze centres v1/v2 et les rectangles
+repos/arrêt ; laisser le complet à l'orchestrateur. Aucun accès tablette, RT,
+CNC, réseau externe ou déploiement.
+
+**Livraison :** aucun `git add`/commit tenté (`.git` en lecture seule).
+Suites finales après le dernier changement de code : `verify-project`, **code 0,
+219/219 contrôles** ; Jest des quatre chemins avec l'exclusion demandée, via
+`npx.cmd --no-install`, **code 0, 51/51 suites, 1 515/1 515 tests, 0 snapshot**,
+26,017 s. ESLint des six JS/CJS touchés et `git diff --check` : **code 0**.
+Expressions injectées et catalogue modifié analysés comme ES2017. Journaux :
+`verify-final.log` et `jest-final.log`, ignorés. L'inventaire CIM est refusé :
+absence d'Edge résiduel non certifiée ; les trois ports des fixtures, dernière
+relance comprise, sont fermés (`ECONNREFUSED`). Aucun navigateur étranger arrêté.
+Le pilote doit relancer les deux suites après son commit. Titre proposé :
+`touch: repair strict session checks and remaining layout overflows`.
+Le corps doit nommer les trois migrations d'assertions ci-dessus et finir par
+`Written-by: OpenAI Codex (gpt-6.1-sol)`.
+
 ## 6. Mesures avant et après
 
 ### 6.1 Relance et conditions

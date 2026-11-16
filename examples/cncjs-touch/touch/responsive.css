@@ -450,7 +450,7 @@ body.ks-ui #screen-home .home-overrides{display:flex;flex-direction:column;gap:1
 body.ks-ui #screen-home .t-override{display:grid;grid-template-columns:90px minmax(0,1fr);align-items:center;gap:12px;margin:0;min-height:64px}
 body.ks-ui #screen-home .t-ov-row{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
 body.ks-ui #screen-home .t-override--rapid .t-ov-row{grid-template-columns:repeat(3,minmax(0,1fr))}
-body.ks-ui #screen-home .t-ov-row .t-btn,body.ks-ui.perf-wide.perf-v2 #screen-home .t-ov-row .t-btn.t-fine{min-height:64px;padding:0 4px;font-size:16px}
+body.ks-ui #screen-home .t-ov-row .t-btn,body.ks-ui.perf-wide.perf-v2 #screen-home .t-ov-row .t-btn.t-fine{min-height:64px;padding:0 4px;font-size:16px;grid-column:auto}
 body.ks-ui #screen-home .t-ov-name{font-size:16px}body.ks-ui #screen-home .t-ov-name b{display:block;font-size:16px}
 body.ks-ui #screen-home .home-overrides-head,body.ks-ui #home-rapid-note,body.ks-ui #home-job-ready,body.ks-ui #home-job-selection,body.ks-ui #home-machine-card,body.ks-ui #home-spindle-warning,body.ks-ui #home-job-motion,body.ks-ui #screen-home .home-live-tiles{display:none}
 body.ks-ui #home-override-note,body.ks-ui #home-rapid-reason{margin:0;font-size:16px}body.ks-ui #home-override-note:empty,body.ks-ui #home-rapid-reason:empty{display:none}
@@ -518,7 +518,7 @@ body.ks-ui #screen-settings .ks-settings-tabs{gap:12px}
  body.ks-ui main>.ks-step-screen>.ks-step-body>.card{flex:none}
  body.ks-ui main>.ks-step-screen>.ks-stepbar{position:static;flex:none;flex-wrap:wrap;padding-top:12px}
  body.ks-ui .ks-stepbar button[id$="-main"]{flex:1 1 260px;min-width:0}
- body.ks-ui #machine-layout{height:auto;min-height:0}
+ body.ks-ui #machine-layout{height:auto;min-height:0;flex:none;grid-auto-rows:max-content;align-content:start}
  body.ks-ui #machine-ready{flex:none;overflow:visible}
  body.ks-ui .ks-machine-column{flex:none}
  body.ks-real.ks-ui #screen-jog .ks-step-body{display:grid!important;grid-template-columns:minmax(0,1fr);grid-template-rows:repeat(3,max-content);grid-template-areas:none!important;align-content:start}
@@ -531,10 +531,18 @@ body.ks-ui #screen-settings .ks-settings-tabs{gap:12px}
 }
 /* Optional preview instruments never displace the session Stop command. */
 @media(min-width:1101px) and (min-height:650px){
+ /* Resolve the dashboard's percentage against the session content box, even
+    when a previous intrinsic measurement set data-fit-overflow. */
+ body.ks-ui main>#screen-home.ks-step-screen.active,body.ks-ui main>#screen-home.ks-step-screen.kept{height:calc(var(--view-height) - 32px)!important}
+ body.ks-ui main>#screen-home.ks-step-screen .ks-step-body>.card.wide{height:100%;min-height:0}
+ body.ks-ui main>#screen-home.ks-step-screen .job-dashboard{height:100%!important;min-height:0}
+ body.ks-ui main>#screen-home.ks-step-screen .home-left>.job-art{min-height:100px}
  body.ks-ui #screen-home .home-left{position:relative;padding-bottom:110px;box-sizing:border-box}
  body.ks-ui #screen-home .home-stop{position:absolute;left:0;right:0;bottom:0;height:98px;margin:0;padding:0}
 }
 @media (orientation:portrait) and (max-width:1099px),(max-width:759px) and (min-height:600px){
+ /* 64px targets + 6px padding + 1px border fit in the 72px rail. */
+ body.ks-ui #tabbar{padding:3px!important}
  body.ks-ui #tabbar .ks-nav,body.ks-ui #tabbar .ks-nav[data-ks-screen="more"]{flex:1 1 0;width:auto;height:64px;min-height:64px;margin-top:0;gap:2px;padding:2px}
  body.ks-ui #tabbar .ks-step-number{height:24px;width:24px}
  body.ks-ui #tabbar .ks-nav-name{font-size:16px;line-height:16px}
@@ -543,7 +551,7 @@ body.ks-ui #screen-settings .ks-settings-tabs{gap:12px}
    zoomed viewport. Put the rail below the content instead of clipping Plus. */
 @media(max-height:499px){
  :root{--rail-h:72px}
- body.ks-ui #tabbar{top:auto!important;left:0!important;right:0!important;bottom:0!important;width:auto!important;height:72px!important;flex-direction:row!important;padding:4px!important;gap:12px!important}
+ body.ks-ui #tabbar{top:auto!important;left:0!important;right:0!important;bottom:0!important;width:auto!important;height:72px!important;flex-direction:row!important;padding:3px!important;gap:12px!important}
  body.ks-ui #tabbar .ks-nav,body.ks-ui #tabbar .ks-nav[data-ks-screen="more"]{flex:1 1 0;width:auto;height:64px;min-height:48px;margin-top:0}
  body.ks-ui main{left:0!important;width:100%!important;bottom:72px!important}
 }
@@ -557,3 +565,8 @@ body.ks-ui #screen-settings .ks-settings-tabs{gap:12px}
  body.ks-ui #screen-home .home-coords .t-coords-card{flex-direction:column;align-items:stretch;height:auto;gap:4px}
  body.ks-ui #screen-home .home-coords .t-coords-card h2{flex:none}
 }
+/* Simulation retains its coordinate editor inside a scrolling content box.
+   Intrinsic card rows cannot overflow across the persistent session footer. */
+body.ks-ui[data-simulation="true"] #screen-jog .ks-step-body{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:max-content max-content;gap:12px;height:100%;overflow:auto;align-content:start}
+body.ks-ui[data-simulation="true"] #screen-jog .ks-step-body>.card{min-height:min-content;grid-area:auto}
+body.ks-ui[data-simulation="true"] #screen-jog .ks-panel-intro{grid-column:1/-1}

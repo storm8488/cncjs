@@ -507,3 +507,22 @@ listed in `design/refonte/audit/ECARTS-PLAN.md`, L5.
 No bughunt proof from another lot was converted or removed. No existing
 assertion was removed or weakened. Browser validation remains pending because
 the sandbox cannot complete the DevTools connection; see RAPPORT section 5.2.
+
+### VERT2 — harnais4 regressions
+
+- `test-vert2-harness.cjs`: guarded consent/reset event, atomic localized stale
+  text and disabled arrows/zeros, current zero targets, permanent command order
+  and ownership across optional read-only mounts.
+- `test-vert2-layout.cjs`: bottom rail padding/border budget, English rail break,
+  intrinsic Machine/simulation cards, definite machining frame, automatic five
+  override columns and the alarm curve's reserved slot.
+- `test-vert-layout.cjs`: existing assertions retained; its cascade resolver is
+  shared and understands padding shorthands.
+
+Both new tests are in `verify-project.cjs`. Fourteen isolated in-memory
+regression mutations fail. No bughunt file is renamed, removed or converted.
+The old full-DOM, Cotes and stale-text harness assertions are explicitly
+migrated in ECARTS-PLAN's VERT2 entry. Size goals, strict exceptions, stop guards
+and one-pixel geometry comparisons are unchanged. Browser reception remains
+pending (`WebSocket error`, then `timeout Page.enable` before scenarios); see
+RAPPORT section 5.3.

@@ -36,14 +36,24 @@ function media(query, w, h) {
 }
 function value(node, property, w, h) {
   let winner = null, order = 0;
+  function expanded(d) {
+    if (d.prop === property) return d.value;
+    const side = /^padding-(top|right|bottom|left)$/.exec(property);
+    if (d.prop === 'padding' && side) {
+      const parts = d.value.split(/\s+/), index = ['top','right','bottom','left'].indexOf(side[1]);
+      return [parts[0],parts[1] || parts[0],parts[2] || parts[0],parts[3] || parts[1] || parts[0]][index];
+    }
+    return null;
+  }
   sheets.forEach(sheet => sheet.walkRules(rule => {
-    if (!rule.nodes.some(n => n.type === 'decl' && n.prop === property)) return;
+    if (!rule.nodes.some(n => n.type === 'decl' && expanded(n) !== null)) return;
     for (let p = rule.parent; p; p = p.parent) if (p.type === 'atrule' && p.name === 'media' && !media(p.params, w, h)) return;
     rule.selectors.forEach(selector => {
       if (/::|:(before|after)\b/.test(selector) || !select.is(node, selector, { pseudos: { 'focus-visible': () => false, 'focus-within': () => false } })) return;
-      rule.walkDecls(property, declaration => {
+      rule.walkDecls(declaration => {
+        const result = expanded(declaration);if (result === null) return;
         const rank = [+!!declaration.important].concat(specificity(selector), [++order]);
-        if (!winner || compare(rank, winner.rank) >= 0) winner = { rank, value: declaration.value };
+        if (!winner || compare(rank, winner.rank) >= 0) winner = { rank, value: result };
       });
     });
   }));return winner && winner.value;
@@ -67,3 +77,4 @@ for (const classes of ['ks-ui','ks-ui perf-wide perf-v2','ks-ui perf-wide perf-v
   assert.notEqual(value(stop, 'position', 1024, 600), 'absolute', 'compact controls remain in their scrolling content flow');
 }
 console.log('PASS VERT cascade: definite compact session height and reserved Stop slot in both renderers.');
+module.exports = { value, parseDOM, select };

@@ -291,12 +291,18 @@ async function clickSessionAction(cdp, id, action) {
   if (!await cdp.evaluate(ready)) throw new Error(id + ' changed before the tap');
   await cdp.evaluate('document.getElementById(' + JSON.stringify(id) + ').click();true');
 }
-async function confirmJob(cdp) {
+async function checkJobConsent(cdp) {
   await cdp.waitFor('!document.getElementById("job-dialog").hidden', 15000, 'confirmation dialog');
   await sleep(650);
   if (!await cdp.evaluate('document.getElementById("job-confirm").disabled')) throw new Error('Confirm enabled before checking');
   await cdp.evaluate('(function(){var c=document.getElementById("job-check");c.checked=true;c.dispatchEvent(new Event("change",{bubbles:true}));return true;})()');
   await cdp.waitFor('!document.getElementById("job-confirm").disabled', 3000, 'confirmation enabled after checking');
+}
+async function clearJobConsent(cdp) {
+  await cdp.evaluate('(function(){var c=document.getElementById("job-check");c.checked=false;c.dispatchEvent(new Event("change",{bubbles:true}));return true;})()');
+}
+async function confirmJob(cdp) {
+  await checkJobConsent(cdp);
   await cdp.evaluate('document.getElementById("job-confirm").click();true');
   await cdp.waitFor('document.getElementById("job-dialog").hidden', 10000, 'confirmation closed');
 }
@@ -940,9 +946,22 @@ async function closeOverlays(cdp) {
 }
 // The GPU gate of lot V (body.perf-gpu) forced from outside the page, after its own probe (Q12): the
 // shipped code has no hook for it. touch-shell.js then decides perf-wide by its own rule.
-// Suivi's structure (parent > children), compared before the wide layout and after leaving it.
-const SUIVI_SHAPE = '(function(){var d=document.querySelector("#screen-home .job-dashboard");if(!d)return "";function k(n){return n.id||n.tagName+"."+(typeof n.className==="string"?n.className:"");}' +
-  'return JSON.stringify([d,d.querySelector("#home-left"),d.querySelector(".job-metrics"),d.querySelector(".home-progress-head")].map(function(n){return n?k(n)+">"+Array.prototype.map.call(n.children,k).join(","):"";}))+"|"+d.hasAttribute("data-zones");})()';
+// L5 keeps command owners and order in both renderers. Optional read-only
+// instruments mount lazily and must not be mistaken for a command relocation.
+function commandShape() {
+  var nodes = document.querySelectorAll('#home-job-stop,#step-home-main,#home-overrides button[data-kind]');
+  if (nodes.length !== 15) throw new Error('Expected Stop, primary action and thirteen override commands');
+  return JSON.stringify(Array.prototype.map.call(nodes, function (n) {
+    var key = n.id || n.getAttribute('data-kind') + ':' + n.getAttribute('data-value'), owners = [], parent = n.parentNode;
+    while (parent && parent.id !== 'screen-home') {
+      owners.push(parent.id || parent.tagName + '.' + (typeof parent.className === 'string' ? parent.className : ''));
+      parent = parent.parentNode;
+    }
+    if (!parent) throw new Error('Machining command outside its screen: ' + key);
+    return [key, owners];
+  }));
+}
+const SUIVI_SHAPE = '(' + commandShape.toString() + ')()';
 const FORCE_GPU = '(async function(){window.__brShape=' + SUIVI_SHAPE + ';try{if(window.cncGpu&&typeof window.cncGpu.ready==="function")await window.cncGpu.ready();}catch(e){}' +
   'document.body.classList.add("perf-gpu");var s={checked:true,hardware:true,lost:false,renderer:"browser-run",reason:""};try{if(window.cncGpu)s=Object.assign(window.cncGpu.state(),{hardware:true,reason:""});}catch(e){}' +
   'window.dispatchEvent(new CustomEvent("cnc-gpu-change",{detail:s}));await new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(r);});});' +
@@ -1010,9 +1029,9 @@ async function responsiveMeasure(cdp, realUrl, simUrl, summary) {
       await sleep(300);
       // The confirmation's own commands, in its card (which scrolls instead of shrinking).
       await hitCheck(cdp, ctx, 'confirmation', ['job-check', 'job-dismiss'], { scroll: true, required: true }, report);
-      await cdp.evaluate('(function(){var c=document.getElementById("job-check");c.checked=true;c.dispatchEvent(new Event("change",{bubbles:true}));return true;})()');
+      await checkJobConsent(cdp);
       await hitCheck(cdp, ctx, 'confirmation', ['job-confirm'], { scroll: true, required: true }, report);
-      await cdp.evaluate('document.getElementById("job-check").checked=false;true');
+      await clearJobConsent(cdp);
       await confirmJob(cdp);
       await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 15000, 'running');
       await sleep(800);
@@ -1976,9 +1995,8 @@ async function screensCapture(cdp, dirName, name, label, tag, page, results, opt
     (await cdp.evaluate(NO_SIMULATION)).forEach((x) => failures.push(tag + ' ' + label + ': simulation trace on the real page: ' + x));
     if (o.panel) await cdp.evaluate(SCREENS_INERT + '(false)');
     const journal = name === 'history' ? await cdp.evaluate(SCREENS_JOURNAL) : null;
-    // Préparer (lot jog): top of the first visible cross button, « Cotes » reachable, soft-hyphen breaks.
-    const jogTarget = data.targets.find((t) => t.kind === 'jog'), cotes = data.targets.find((t) => t.id === 'pv2-cotes-toggle');
-    const jog = name === 'jog' ? { top: jogTarget ? jogTarget.y : null, cotes: cotes ? cotes.reachable : null } : null;
+    // L3a keeps the cross and the actual zero commands on the main screen.
+    const jog = name === 'jog' ? jogReadings(data) : null;
     const shy = await cdp.evaluate(SCREENS_SHY), cardClip = /^probe/.test(name) ? await cdp.evaluate(SCREENS_CLIP) : null, menu = name === 'more' ? await cdp.evaluate(SCREENS_MENU) : null;
     fs.writeFileSync(path.join(dir, name + '.json'), JSON.stringify(Object.assign(data, { screen: name, label, variant: tag, page, overlapsText: overlaps, journal, jog, softHyphenBreaks: shy, cardClip, menu }), null, 1));
     await screenshot(cdp, path.join(dir, name + '.png'));
@@ -2112,8 +2130,29 @@ function jogChoiceChecks(data) {
   return errors;
 }
 const SCREENS_REAL_STATE = '(function(){var $=function(id){return document.getElementById(id);},a=[].slice.call(document.querySelectorAll("#screen-jog .jog")),z=[].slice.call(document.querySelectorAll("#screen-jog [data-origin]"));' +
+  'var b=window.cncSeance.state().barres.jog.cause,stale={id:b.id,cause:b.texte,prefix:window.cncI18n.t("Il manque : "),refusal:window.cncRefus.lire({code:"ETOUCH_MACHINE_STALE"}).phrase};' +
   'return {msg:($("step-jog-cause")||{}).textContent||"",arrows:a.filter(function(b){return !b.disabled;}).length,zeros:z.filter(function(b){return !b.disabled;}).length,mid:(document.querySelector("#screen-jog .pad-mid")||{}).textContent||"",' +
-  'hold:!!(document.querySelector("#steps [data-step=hold]")&&!document.querySelector("#steps [data-step=hold]").hidden),ticket:!!($("real-motion-ticket")&&!$("real-motion-ticket").hidden)};})()';
+  'stale:stale,hold:!!(document.querySelector("#steps [data-step=hold]")&&!document.querySelector("#steps [data-step=hold]").hidden),ticket:!!($("real-motion-ticket")&&!$("real-motion-ticket").hidden)};})()';
+function staleStatusChecks(state) {
+  const out = [], s = state && state.stale;
+  if (!state || state.arrows || state.zeros) out.push('stale report, arrows or zeros still enabled: ' + JSON.stringify(state));
+  if (!s || s.id !== 'information-ancienne' || !s.cause || !s.refusal ||
+    ![s.cause, s.prefix + s.cause, s.refusal, '! ' + s.refusal].some(word => state.msg.trim() === word.trim())) out.push('stale report not said on the status line: ' + (state && state.msg));
+  return out;
+}
+function jogReadings(data) {
+  const target = data.targets.find(t => t.kind === 'jog');
+  return { top: target ? target.y : null, zeros: ['jog-zero-x','jog-zero-y','jog-zero-z','jog-zero-xyz','zero-more-open'].map(id => {
+    const t = data.targets.find(n => n.id === id);return { id, reachable: !!(t && t.reachable) };
+  }) };
+}
+function jogControlsChecks(jog) {
+  const out = [];
+  if (!jog || typeof jog.top !== 'number') out.push('Zéro pièce, no cross button measured');
+  if (!jog || !jog.zeros || jog.zeros.length !== 5) out.push('Zéro pièce, zero commands missing');
+  else jog.zeros.forEach(t => { if (!t.reachable) out.push('Zéro pièce, ' + t.id + ' not reachable'); });
+  return out;
+}
 async function screensReal(cdp, fx, v, summary) {
   const tag = 'screens ' + v.id + ' reel', results = [], at = (s) => 'screens-jog-' + v.id + '-' + s;
   fx.real = true;
@@ -2169,9 +2208,7 @@ async function screensReal(cdp, fx, v, summary) {
     if ((await cdp.evaluate(SCREENS_REAL_STATE)).ticket) failures.push(tag + ': origin confirmation not closed by Annuler');
     fx.staleSince = Date.now(); fx.staleIdle = true; await sleep(4500);
     state = await cdp.evaluate(SCREENS_REAL_STATE);
-    if (state.arrows || state.zeros) failures.push(tag + ': stale report, arrows or zeros still enabled: ' + JSON.stringify(state));
-    const words = await cdp.evaluate('[window.cncSeance.state().barres.jog.cause.texte,window.cncRefus.lire({code:"ETOUCH_MACHINE_STALE"}).phrase]');
-    if (!words.some(word=>state.msg.replace(/^! /,'').trim() === word.trim())) failures.push(tag + ': stale report not said on the status line: ' + state.msg);
+    staleStatusChecks(state).forEach(f => failures.push(tag + ': ' + f));
     page = await cdp.evaluate(SCREENS_PAGE);
     await screensCapture(cdp, at('reel-perime'), 'jog', 'Préparer · rapport ancien', tag, page, results, { stay: true });
     log(tag + ': ' + results.length + ' captures, status line « ' + state.msg + ' »');
@@ -2345,11 +2382,11 @@ async function screensVariant(cdp, fx, v, summary, out) {
         // Lot Menu: the first-start fixture really measures the Menu without its resume bar.
         const menuResult = results.find((r) => r.screen === 'more' && r.menu);
         if (v.firstStart && phase === 'idle' && (!menuResult || menuResult.menu.resume !== false)) failures.push(tag + ': Menu, first start measured with a resume bar (' + (menuResult ? menuResult.menu.resume : 'no measure') + ')');
-        // Lot jog: the cross stays in place between states (O3), « Cotes » of the v2 bar is reachable (O1).
+        // The cross stays in place between states; the current v2 zero commands are reachable.
         const jogResult = results.find((r) => r.screen === 'jog' && r.jog);
         if (jogResult) {
           jogTops[stateId] = jogResult.jog.top;
-          if (v.v2 && phase === 'idle' && jogResult.jog.cotes !== true) failures.push(tag + ': Préparer, « Cotes » not reachable (' + jogResult.jog.cotes + ')');
+          if (v.v2 && phase === 'idle') jogControlsChecks(jogResult.jog).forEach(f => failures.push(tag + ': ' + f));
           if (!v.v2 && ['repos', 'travail', 'pause', 'alarme'].indexOf(stateId) >= 0 && typeof jogResult.jog.top !== 'number') failures.push(tag + ': Préparer, no cross button measured (' + jogResult.jog.top + ')');
           if (!v.v2 && ['running', 'paused', 'alarm'].indexOf(phase) >= 0 && typeof jogTops.repos === 'number' && Math.abs(jogResult.jog.top - jogTops.repos) > 0.5) failures.push(tag + ': Préparer, the cross moved from ' + jogTops.repos + ' at rest to ' + jogResult.jog.top);
         }
@@ -3159,4 +3196,5 @@ async function main() {
 // The measurement scripts (measure-*.cjs) reuse the DevTools client, the browser
 // launcher and the fixture starter; run the harness only as a program.
 if (require.main === module) main().catch((e) => { console.error('browser-run: ' + (e.stack || e.message)); process.exit(1); });
-module.exports = { writeSummary, startV2Fixture, confirmJob, clickSessionAction, V2_OVERLAP, RAIL, railChecks, JOG_CHOICES, jogChoiceChecks, FILE_COLUMN, GUIDE_MODE, guideChecks, strictCheck, loadExceptions, infoClipOf, stoppedChecks, stoppedLayoutChecks, settingsOffTabRequests, GOALS, RESPONSIVE, MEASURE, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors };
+module.exports = { commandShape, SUIVI_SHAPE, SCREENS_REAL_STATE, staleStatusChecks, jogReadings, jogControlsChecks, checkJobConsent, clearJobConsent };
+Object.assign(module.exports, { writeSummary, startV2Fixture, confirmJob, clickSessionAction, V2_OVERLAP, RAIL, railChecks, JOG_CHOICES, jogChoiceChecks, FILE_COLUMN, GUIDE_MODE, guideChecks, strictCheck, loadExceptions, infoClipOf, stoppedChecks, stoppedLayoutChecks, settingsOffTabRequests, GOALS, RESPONSIVE, MEASURE, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors });

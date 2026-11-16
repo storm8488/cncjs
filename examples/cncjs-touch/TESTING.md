@@ -1012,3 +1012,26 @@ Run targeted steps with `--strict --only responsive,sim,settings,strip,v2,screen
 The full run remains reserved for the orchestrator. VERT's sandbox attempts fail
 before scenarios (`timeout Page.enable`, then `WebSocket error`); the supplied
 319 violations are not replaced by an inferred zero. See RAPPORT section 5.2.
+
+### VERT2 — Current session targets and intrinsic card heights
+
+`test-vert2-harness.cjs` exercises the injected expressions on the actual
+FR/EN/ES session DOM. Stale text, its localized prefix and its cause are read
+atomically; active arrows or zeros still fail. The retired Cotes target is
+replaced by the current four zeros, Other zeros and the cross. The wide-layout
+exit compares all fifteen permanent command identities, order and owners;
+optional read-only instruments may remain mounted. One-pixel geometry checks
+remain unchanged. Responsive confirmation geometry waits for fresh consent and
+the 600 ms guard, then unchecks through `change` before the final confirmation.
+
+`test-vert2-layout.cjs` uses the shared cascade resolver, including padding
+shorthands, for the bottom rail border budget, natural compact Machine and
+simulation cards, definite desktop machining frame, five override columns and
+reserved alarm curve slot. Both tests are in `verify-project.cjs`. Fourteen
+isolated in-memory reversions fail; these are not rendered pixel measurements.
+
+Run `--strict --only responsive,sim,v2,screens,rail` with Edge. VERT2's attempt
+fails before scenarios (`WebSocket error`, then `timeout Page.enable` on the
+final rerun), so the supplied harnais4 count of
+104 violations remains a pre-correction measurement. See RAPPORT section 5.3
+and ECARTS-PLAN's VERT2 entry for assertion migrations and browser handoff.
