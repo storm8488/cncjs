@@ -38,19 +38,18 @@ const PROBE = `(function(){
     return {id:id,shown:!b.hidden&&r.width>0,disabled:b.disabled,cx:cx,cy:cy,hit:d(hit),hitOk:!!hit&&(hit===b||b.contains(hit)),inert:d(b.closest('[inert]'))};})};})()`;
 
 const OVERLAYS = [
-  ['sheet: origin help', 'jog', 'document.getElementById("ks-origin-info")'],
-  ['sheet: macros', 'jog', 'document.querySelector(".ks-macros-open")'],
-  ['sheet: preview details', 'files', 'Array.prototype.filter.call(document.querySelectorAll(".ks-file-tools button"),function(b){return b.textContent===window.cncI18n.t("Détails de l’aperçu");})[0]'],
-  ['sheet: dimensions', 'files', 'Array.prototype.filter.call(document.querySelectorAll(".ks-file-tools button"),function(b){return b.textContent===window.cncI18n.t("Dimensions XY");})[0]'],
+  ['sheet: macros', 'more', 'document.getElementById("ks-macros-open")'],
+  ['sheet: file details', 'files', 'Array.prototype.filter.call(document.querySelectorAll(".ks-file-tools button"),function(b){return b.textContent===window.cncI18n.t("Détails du fichier");})[0]'],
+  ['sheet: control details', 'check', 'document.getElementById("check-details-open")'],
   ['project sheet', 'files', 'document.getElementById("project-open")'],
   ['numeric pad', 'home', '(function(){var i=document.getElementById("strip-run-input");if(!i){i=document.createElement("input");i.id="strip-run-input";document.getElementById("screen-home").appendChild(i);}return {disabled:false,click:function(){window.CNCNumeric.open(i,{label:"Test",unit:"mm",min:0,max:50});}};})()'],
   ['preview viewer', 'home', 'document.querySelector("#screen-home .preview-open")'],
 ];
 // The coordinate editor stays on simulation.html only (the real page has no local coordinate preparation).
-const SIMULATION_ONLY = [['coordinate editor', 'jog', 'document.getElementById("coordinate-open")']];
+const SIMULATION_ONLY = [['sheet: origin help', 'jog', 'document.getElementById("ks-origin-info")'], ['coordinate editor', 'jog', 'document.getElementById("coordinate-open")']];
 // The origin confirmation of Préparer (real-motion.js, Zéro X): opened by ORIGIN_OPEN; the padlock stays in its
 // Tab cycle with Pause / Arrêter (locking closes it, V3).
-const REAL_ONLY = [['sheet: job preparation', 'files', 'document.getElementById("ks-preparation-open")'], ['pilot dialog', 'home', 'document.getElementById("t-pilot")'],
+const REAL_ONLY = [['sheet: other zeros', 'jog', 'document.getElementById("zero-more-open")'], ['sheet: machine details', 'machine', 'document.getElementById("machine-details-open")'], ['pilot dialog', 'home', 'document.getElementById("t-pilot")'],
   ['origin confirmation', 'jog', 'ORIGIN_OPEN', { wait: 1800, keep: ['t-lock'] }]];
 // Zéro X is offered at rest only, and the strip offers Pause / Arrêter during a job: the reports are shown at rest
 // (window.__stripIdle, CAPABILITIES) just long enough to tap Zéro X, whose ticket the harness answers itself
@@ -130,13 +129,13 @@ async function startJob(cdp, H, page) {
   if (page === 'simulation') {
     await H.goScreen(cdp, 'files');
     await cdp.evaluate('document.querySelector(".library-file").click();true');
-    await cdp.waitFor('(function(){var b=document.getElementById("job-load");return !!b&&!b.disabled;})()', 15000, 'load enabled');
-    await cdp.evaluate('document.getElementById("job-load").click();true');
+    await cdp.waitFor('(function(){var b=document.getElementById("step-files-main");return !!b&&!b.disabled;})()', 15000, 'load enabled');
+    await H.clickSessionAction(cdp, 'step-files-main', 'charger');
     await cdp.waitFor('(function(){var m=window.cncState.get().machine;return !!(m&&m.name);})()', 15000, 'loaded');
-    await H.goScreen(cdp, 'home');
-    await cdp.evaluate('document.getElementById("home-job-start").click();true');
+    await H.goScreen(cdp, 'check');
+    await H.clickSessionAction(cdp, 'step-check-main', 'demarrer');
     await cdp.waitFor('!document.getElementById("job-dialog").hidden', 15000, 'dialog');
-    await cdp.evaluate('(function(){var c=document.getElementById("job-check");c.checked=true;c.dispatchEvent(new Event("change",{bubbles:true}));document.getElementById("job-confirm").click();return true;})()');
+    await H.confirmJob(cdp);
     await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 15000, 'running');
   } else {
     if (page === 'index') await cdp.evaluate(CAPABILITIES);
@@ -326,7 +325,11 @@ async function stackAndLock(cdp, H, base, w, h, lang, large, fail, log) {
   await clickSel(cdp, '#t-pilot'); await H.sleep(300);
   if (!(await cdp.evaluate('!document.getElementById("pilot-dialog").hidden'))) fail(ctx + ': pilot dialog not opened');
   else {
-    await cdp.evaluate('(function(){document.getElementById("pilot-form").hidden=false;return true;})()');
+    // Another owner is a fixture fact, never a takeover sent by this test.
+    await cdp.evaluate('(function(){var dispatch=window.dispatchEvent.bind(window);window.__stripOther=true;if(!window.__stripPilot){window.__stripPilot=true;window.dispatchEvent=function(e){if(window.__stripOther&&e.type==="cnc-job-status"&&e.detail&&e.detail.machine){var m=Object.assign({},e.detail.machine,{control:{owner:{kind:"touch",id:"strip-other",label:"Other tablet",present:true}}});e=new CustomEvent(e.type,{detail:Object.assign({},e.detail,{machine:m})});}return dispatch(e);};}return true;})()');
+    await cdp.waitFor('window.cncJobControls.pilot().state==="other"', 10000, 'another tablet pilots');
+    await cdp.evaluate('document.getElementById("pilot-other").click();true');
+    await cdp.waitFor('!document.getElementById("pilot-custom").hidden', 3000, 'custom takeover reason');
     await clickSel(cdp, '#pilot-reason'); await H.sleep(300);
     const over = await cdp.evaluate('(function(){var p=document.getElementById("t-textpad");if(!p||p.hidden)return {open:false};' +
       'var probe=[p.querySelector(".ks-wifi-key"),Array.prototype.filter.call(p.querySelectorAll(".t-textpad-actions button"),function(b){return b.textContent===window.cncI18n.t("Valider");})[0]];' +
@@ -339,8 +342,9 @@ async function stackAndLock(cdp, H, base, w, h, lang, large, fail, log) {
     if (st.pad || !st.dialog) fail(ctx + ': one Escape must close the text keyboard over the pilot dialog only: keyboard ' + st.pad + ', dialog ' + st.dialog);
     await key(cdp, 'Escape'); await H.sleep(300);
     st = await cdp.evaluate('({dialog:!document.getElementById("pilot-dialog").hidden,live:' + LIVE + '})');
+    await cdp.evaluate('window.__stripOther=false;true');
     if (st.dialog || st.live.main || st.live.tabbar) fail(ctx + ': after the text keyboard and the pilot dialog the page stays inert: ' + JSON.stringify(st));
-    log(ctx + ' · text keyboard over pilot dialog: painted above (z ' + over.z.join(' > ') + '), hits ' + JSON.stringify(over.hits) + ' ; Escape closes it, then the dialog');
+    log(ctx + ' · text keyboard over pilot dialog: painted above (z ' + (over.z || []).join(' > ') + '), hits ' + JSON.stringify(over.hits) + ' ; Escape closes it, then the dialog');
   }
   // V2: Enter (and Space) on the strip's Pause / Arrêter under the pad.
   await H.goScreen(cdp, 'home');
@@ -403,8 +407,8 @@ async function saverLock(cdp, H, simBase, w, h, lang, large, fail, log) {
   await H.navigate(cdp, simBase + 'simulation.html?saver=' + Date.now()); await H.waitReady(cdp);
   await H.goScreen(cdp, 'files');
   await cdp.evaluate('document.querySelector(".library-file").click();true');
-  await cdp.waitFor('(function(){var b=document.getElementById("job-load");return !!b&&!b.disabled;})()', 15000, 'load enabled');
-  await cdp.evaluate('document.getElementById("job-load").click();true');
+  await cdp.waitFor('(function(){var b=document.getElementById("step-files-main");return !!b&&!b.disabled;})()', 15000, 'load enabled');
+  await H.clickSessionAction(cdp, 'step-files-main', 'charger');
   await cdp.waitFor('(function(){var m=window.cncState.get().machine;return !!(m&&m.name);})()', 15000, 'loaded');
   await H.goScreen(cdp, 'home'); await H.sleep(500);
   if (!(await cdp.evaluate('window.cncScreenSaver.preview()'))) { fail(ctx + ': the screen saver did not start'); return; }
@@ -453,7 +457,7 @@ async function run(cdp, H, options) {
   if (options.out) { fs.mkdirSync(options.out, { recursive: true }); fs.writeFileSync(path.join(options.out, 'strip.json'), JSON.stringify({ rows, failures }, null, 1)); }
   return failures;
 }
-module.exports = { run };
+module.exports = { run, OVERLAYS, REAL_ONLY, SIMULATION_ONLY };
 
 if (require.main === module) {
   (async () => {

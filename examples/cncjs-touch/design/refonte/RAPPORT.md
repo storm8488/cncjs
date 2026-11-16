@@ -16,7 +16,7 @@
 
 # Rapport de la refonte CNCjs Touch
 
-Établi le **16 novembre 2026**, par OpenAI Codex **gpt-6.1-sol**, sur `feat/refonte-ui`, HEAD **`3c3d0ecc`**. Périmètre de ce lot : ce rapport et sa section dans [ECARTS-PLAN.md](audit/ECARTS-PLAN.md). Aucun code, commande machine, garde, test ou seuil de harnais modifié.
+Établi le **16 novembre 2026**, par OpenAI Codex **gpt-6.1-sol**, sur `feat/refonte-ui`. Les sections 1–10 décrivent le lot RAPPORT à **`3c3d0ecc`** (documents seulement). La section **5.1 Harnais** est la reprise HARN depuis **`4b04b8e0`** : code de page et de harnais modifié, aucun ordre ni garde machine changé. Ses résultats restent distincts du relevé historique.
 
 **État de livraison : corrections et nouvelle organisation présentes, suites locales vertes, réception visuelle et matérielle non acquise.** Le dernier harnais fourni reste rouge. [PROTOCOLE-ESSAI.md](PROTOCOLE-ESSAI.md) sépare les vérifications d’installation des essais progressifs restant à mener.
 
@@ -122,11 +122,57 @@ Décomposition du dernier résultat : **778 centres couverts ou coupés**, **52 
 - Les trois cas Journal concernent l’espagnol agrandi, v1/768, en travail/alarme/serveur : six lignes occupent **376 px pour 372 px disponibles**.
 - Les cinq débordements concernent Ma sonde (v1 CNC clair), Tester la sonde (trois variantes v2), et Préparer/rapport ancien (v2 FR clair agrandi).
 - Les centres couverts touchent Machine, Fichier, Zéro pièce, Contrôle et Usinage, notamment en compact et sous les volets. Les 48 chevauchements de Zéro pièce et les quatre de Contrôle restent à trier avec les captures et les couches réellement actives. Ils ne sont pas tous déclarés faux positifs.
-- Les scénarios cherchent encore des éléments retirés : ancien `ORIGIN_CARD`, Cotes, `home-job-stop`, `job-load`, `home-job-start`, `home-job-summary` et anciens volets. La comparaison des places v1/v2 s’arrête sur `home-job-stop` ; **cette parité n’est pas validée**.
+- Les scénarios cherchent encore des éléments retirés : Cotes, `job-load`, `home-job-start`, `home-job-summary` et anciens volets. La vue de placement exige désormais Contrôle et une CNC prête avec v2. `home-job-stop` existe toujours : l’échec de comparaison de sa place est un vrai défaut de page ; **cette parité n’est pas validée**.
 - Des confirmations de simulation sont tentées avant la protection de **600 ms**, ou un champ de motif est saisi sans ouvrir Autre. La protection ne doit pas être retirée pour faire passer le banc.
 - La fixture visuelle refuse le POST `/api/touch-job` utilisé pour contrôler la sélection ; des attentes de texte périmé visent l’ancienne phrase. Il faut adapter les scénarios à la nouvelle organisation et au contrat réel, sans supprimer le contrôle ni affaiblir les seuils.
 
 Les trois scénarios E2E FR/EN/ES portent `ok:true` dans les deux après. Les tests Éco fermés n’y demandent pas de ressources v2. En revanche, `v2.passes` est vide et `v2.hits` vaut zéro dans les après ; **ces succès partiels ne prouvent ni toute la v2 ni les dix parcours**. Les résultats de `parcours` sont absents des deux synthèses.
+
+### 5.1 Harnais — reprise HARN (gpt-6.1-sol)
+
+Base **`4b04b8e0`**, `feat/refonte-ui`. Aucun `git add` ni commit tenté : `.git` en lecture seule, commit réservé au pilote. Aucun harnais complet lancé. Le relevé de **838 violations / 0 exception** reste le dernier résultat navigateur fourni ; ce nombre n’est pas remplacé par une estimation après correction.
+
+| Famille → preuve fournie | Verdict | Correction / vérification ciblée |
+|---|---|---|
+| « Préparer not found », placement 3D | Harnais périmé : §4.4, §5.11 de la spec, placement dans Contrôle, sous la porte v2 | Vraie fixture CNC au repos avec porte GPU v2, ouverture de `ks-check-placement`, contrôle du montage dans ce volet et du retour hors poste large conservés. `responsive`. |
+| « origin help », « preview details », « dimensions », « job preparation » absents | Harnais périmé : §5.8–5.11, §10.2 | Aide aux repères réservée à la simulation ; page réelle : Autres zéros et Détails machine. Aperçu et dimensions vérifiés dans Détails du fichier ; contrôle dans Détails du contrôle. Pointages Pause/Arrêter et cycle Tab conservés sur les remplaçants. `strip`. |
+| Simulation : « load enabled », y compris veille | Harnais périmé : chargement sur Fichier | `step-files-main`, action `charger`, après stabilisation du libellé. Le travail doit toujours devenir chargé puis actif. `strip`, `e2e`. |
+| Simulation : « running » | Harnais trop rapide pour la protection existante | Confirmation seulement après 600 ms, case initialement non cochée, bouton refusé avant consentement, actif après consentement, fermeture du dialogue puis `running` exigés. Aucune protection de page retirée. `sim`, `responsive`, `settings`, `strip`. |
+| Réglages : « Démarrer enabled » | Harnais périmé : bouton attendu sur un écran encore caché | Aller sur Contrôle avant d’attendre/démarrer ; refus Wi-Fi/mises à jour/Tablette pendant le travail toujours vérifiés. `settings`. |
+| Clavier au-dessus du dialogue Pilote, puis `over.z.join` | Harnais périmé : §5.3, champ sous Autre motif | Injecter l’autre propriétaire dans les faits du banc, attendre `pilot.state === other`, ouvrir `pilot-other`. Vérifications de peinture, pointages, Escape et retour actif conservées ; journal robuste si le clavier manque. Aucun transfert de bail envoyé. `strip`. |
+| « end-of-job summary » / ancienne carte à acquitter | Harnais périmé : §4.5, `home-notice` remplace la carte | Exiger l’encart et ouvrir Détails pour le bilan complet. Conserver le numérateur calculé depuis le compteur gelé du banc, l’échelle du fichier original, le ton d’arrêt et les comparaisons de rectangles. L’état avec bilan n’est plus écarté du strict avant acquittement. `sim`, `screens`. |
+| Bilan réellement écrasé après arrêt sur alarme | Page fausse : §4.5 et P8 | L’alarme d’un travail déjà arrêté n’écrase plus sa ligne d’arrêt ni la perte de position ; action de remise en route conservée. Détails du bilan devient visible quand `job-follow` fournit le bilan. Les permissions machine restent celles du serveur. `screens`, `sim`. |
+| ALARM:3 déduite affichée comme reçue dans les nouveaux textes | Page fausse : garder l’attribution de la preuve | Marque déduite FR/EN/ES dans les en-têtes de séance, l’encart et l’incident ; aide détaillée reçoit aussi `alarmCodeInferred`. Le scan de provenance reste strict. `sim`. |
+| « Machine command moved … home-job-stop » | Page fausse : même bouton requis aux mêmes coordonnées, §3.2/§4.5 | Ordre CSS explicite : aperçu, courbe, séquence, Arrêter. Les instruments occupent l’espace de l’aperçu ; le contrôle de parité à 1 px et les 15 commandes comparées sont conservés. `v2`. |
+| Centres couverts sous volets / textes de fond superposés (partie des 778/52) | Harnais périmé : fond volontairement inerte, §5.1 | Mesurer la surface modale active et Pause/Arrêter. Les tailles, textes et conflits entre éléments de cette surface restent contrôlés. Les débordements sont ceux de cette surface, pas de l’écran derrière. Sans volet, aucune cible couverte ne sort de la mesure. `screens`, `strip`. |
+| Centres coupés dans les listes ou corps compacts (partie des 778) | Harnais périmé quand le défilement permet réellement l’accès ; sinon défaut maintenu | Défilement réel de la cible, pointage au centre, puis restauration des positions. `scrolls:true` seul ne dispense plus d’erreur : exigence renforcée. Les cibles toujours couvertes/coupées restent rouges. `measure`, `responsive`, `screens`. |
+| Boutons désactivés pointés à travers leur boîte (partie des 778) | Harnais périmé : `pointer-events:none` prévu | Mesurer la peinture avec `pointer-events:auto` temporaire sans activer le bouton, puis restaurer exactement style et priorité. Une couverture réelle reste un échec. `measure`, `screens`. |
+| Boîte d’un écran garé interceptant un pointage, notamment Plus | Page fausse | Écrans `kept` inactifs : aucune surface de pointage ; leur disposition en cache reste. `responsive`. |
+| Étiquettes « haut de la course » / « zéro Z » (4 chevauchements Contrôle) | Page fausse | Zéro Z écrit à gauche de la ligne, course à droite ; aucune valeur ni projection recalculée. `screens`. |
+| Titre Fichier / Actualiser sur Recherche (intervalles signalés) | Page fausse | Rangée de titre au moins 56 px, à la hauteur du bouton, intervalle 12 px. `measure`, `responsive`. |
+| Journal espagnol agrandi : 376 > 372 px (3 violations) | Page fausse | Cinq événements en agrandi, quatre en compact ; pagination et tous les événements restent. La page standard garde six événements. `screens`. |
+| Première passe : texte du rail 14 px, cible Recherche 42,1 px, débordements horizontaux Usinage | Défauts de page déjà corrigés par HFIX/RAIL, absents des violations strictes du second journal | Conserver les contrats de `test-session-geometry`, `test-rail-fixed`, `test-jog-choices` et les seuils du harnais. Aucun seuil abaissé. `measure`, `responsive`, `screens`. |
+
+**Portée des cinq débordements verticaux.** Quatre sont relevés avec Ma sonde / Tester la sonde ouvert : l’ancienne mesure lisait la hauteur de l’écran de fond, désormais remplacée par celle de la surface active. Celui de Zéro pièce / rapport ancien reste soumis à la géométrie du vrai écran et à la preuve d’accès par défilement. Un débordement non défilable reste un défaut : aucune exception ne l’absorbe.
+
+**Tests durables.** `test-harn-page.cjs` (état après arrêt sur alarme, détails, provenance, ordre des instruments, titre Fichier, écran garé, dessin Z et pagination), `test-harn-surface.cjs` (volet/fond, arrêts conservés, bouton désactivé, vrai défilement, couverture après défilement), `test-harn-flows.cjs` (confirmation réelle à 600 ms, pas de consentement réutilisé, accès migrés). Les trois sont dans `verify-project.cjs`. Dix-huit retraits isolés en mémoire produisent chacun code 1 / AssertionError ; fichiers de production non remis en arrière, preuves ignorées sous `output/codex-HARN`. Aucun `bughunt-*` d’un autre lot touché ; aucun test de preuve propre à HARN préexistant à convertir.
+
+**Assertions adaptées.** `test-layout-exceptions.cjs` : la cible Réglages autorisée sous le pli porte désormais `scroller:true`, preuve d’accès par défilement ; l’assertion existante est conservée et un nouveau témoin exige l’échec sans cette preuve. Dans le navigateur : les anciennes cibles de volets et de bilan sont remplacées comme dans la table ; le bilan complet garde toutes les assertions de ligne, ton, compteur indépendant et position. Aucune assertion de sûreté, seuil de taille/texte, regex `V2_NODE`, classe réservée ni `layout-exceptions.json` modifiée. Les intervalles signalés restent disponibles dans les mesures ; aucune exemption ajoutée.
+
+**État des relances.** Huit commandes séparées `--strict --only measure`, `responsive`, `sim`, `settings`, `strip`, `v2`, `screens`, `e2e`, avec Edge et `--out examples/cncjs-touch/output/codex-HARN` : **code 1, WebSocket error avant scénario** dans chaque cas. L’essai E2E avec le paquet `ws` existant (`node --no-experimental-websocket`) échoue aussi : **ECONNRESET**. Aucun résultat géométrique nouveau, aucune capture de réception. Le nettoyage des nouveaux lancements ferme leur socket et leur propre arbre de processus en cas d’échec et arrête le serveur local ; l’inventaire CIM est refusé, donc l’absence de navigateur résiduel n’est pas certifiée.
+
+**Passation.** Commit réservé au pilote, puis relance des deux suites et des huit étapes ciblées avant le complet par l’orchestrateur. Examiner notamment la surface des volets de sonde, les corps compacts, la position d’Arrêter v1/v2 et le Journal ES agrandi. Les contrôles hors navigateur ne prouvent ni mise en page réelle, ni Chromium 106, ni machine/tablettes. Aucun réseau externe, SSH, déploiement ou mouvement matériel.
+
+**Dernières validations HARN sur les fichiers livrés, avant le commit du pilote :**
+
+| Commande | Résultat exact |
+|---|---|
+| `node examples/cncjs-touch/verify-project.cjs` | **Code 0 — 215/215 contrôles réussis. Aucun essai matériel.** |
+| `npx.cmd jest src/server/services/touch src/server/services/cncengine src/server/api grbl-simulator --coverage=false --testPathIgnorePatterns="bughunt-[AV][0-9]"` | **Code 0 — 51/51 suites, 1 515/1 515 tests, 0 snapshot** (26,23 s). |
+| ESLint des 14 fichiers JS/CJS modifiés ou ajoutés | **Code 0, aucune erreur ni avertissement.** |
+| `git diff --check` | **Code 0.** |
+
+Les fichiers `verify-final.log`, `jest-final.log`, `browser-attempts.json` et `proofs.json` restent dans `output/codex-HARN`, ignoré. Aucun hash de commit HARN : ni ajout à l’index ni commit tenté. Ces résultats ne sont donc pas annoncés « après commit HARN ».
 
 ## 6. Mesures avant et après
 

@@ -488,6 +488,15 @@ body.ks-ui #screen-home #home-machine-card{display:none}
 body.ks-ui #screen-home .home-coords .t-unit:not(:last-child){display:none}
 body.ks-ui #screen-home .home-coords .t-val{font-size:20px;white-space:nowrap}
 body.ks-ui #screen-home .job-metrics{overflow:auto}
+/* Optional instruments consume preview space, never the Stop command's slot. */
+body.ks-ui #screen-home .home-stop{order:3}
+body.ks-ui #screen-home .home-gauge-curve{order:1}
+body.ks-ui #screen-home .home-v2-sequence{order:2}
+/* The refresh button is 56px tall: a 32px title row let it cover Search. */
+body.ks-ui #screen-files .library-list-panel,body.ks-ui:not(.t-compact) #screen-files .library-list-panel{grid-template-rows:minmax(56px,auto) 48px minmax(0,1fr) 48px}
+body.ks-ui #screen-files .library-list-title{gap:12px;justify-content:space-between}
+/* Parked screen boxes have no touch surface, including transparent areas. */
+body.ks-ui main>.screen.kept:not(.active){pointer-events:none}
 
 /* Separate touch targets even when they share a segmented-control outline. */
 body.ks-ui .t-seg{gap:12px;flex-wrap:wrap}

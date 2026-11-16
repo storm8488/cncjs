@@ -1,5 +1,24 @@
 # Carte de l'interface CNCjs Touch pour la chasse aux bugs
 
+## HARN — harnais adapté au fil de séance (2026-11-16)
+
+`browser-run.cjs` et `browser-strip.cjs` suivent Fichier, Contrôle et Usinage,
+les volets actuels et le motif personnalisé de La main. Le délai de protection
+et les confirmations restent. `browser-surface.cjs` mesure la surcouche active
+avec Pause/Arrêter, vérifie les boutons désactivés sans les activer et prouve
+chaque accès par défilement. Les seuils et les exceptions ne changent pas.
+
+Défauts de page traités : bilan écrasé après arrêt sur alarme, détails du bilan
+inaccessibles, alarme déduite présentée comme reçue dans les nouveaux textes,
+ordre des instruments avant Arrêter, ligne de titre Fichier trop courte,
+boîte d'écran garé interceptant les pointages, Journal agrandi à six lignes,
+étiquettes du zéro Z et du haut de course superposées. Preuves durables :
+`test-harn-page.cjs`, `test-harn-surface.cjs`, `test-harn-flows.cjs`.
+
+Les huit tentatives navigateur ciblées échouent avant scénario dans le bac
+à sable. Leurs résultats ne sont pas une réception visuelle. Voir la table
+« Harnais » de `design/refonte/RAPPORT.md` et `TESTING.md`.
+
 ## GLITCH — fit responsive stable sur contenu vivant (2026-11-16)
 
 `touch/viewport-fit.js` utilise la largeur extérieure de main pour sa clé,

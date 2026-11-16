@@ -21,7 +21,7 @@ const summary = { measurements: [
   { variant: '1024x600 texte agrandi', strict: true, results: [
     screen({ scale: 0.99, below: [target()] }),
     screen({ screen: 'files', label: 'Fichiers', unreachable: [target({ label: '2D', kind: 'secondary', reachable: false, hit: 'Fiche projet' }), target({ label: 'Parcours_3', reachable: false, offscreen: true, hit: 'Page 1 / 2' })] }),
-    screen({ screen: 'settings', label: 'Réglages', scrolls: true, scale: 1, unreachable: [target({ label: 'Verrouiller l’écran', reachable: false, offscreen: true, hit: 'nothing' })] }),
+    screen({ screen: 'settings', label: 'Réglages', scrolls: true, scale: 1, unreachable: [target({ label: 'Verrouiller l’écran', reachable: false, offscreen: true, scroller: true, hit: 'nothing' })] }),
     screen({ screen: 'jog', label: 'Préparer', small: [{ text: 'Pas', fontPx: 14.9 }] }),
     { screen: 'machine', label: 'Machine', error: 'timeout' }
   ] },

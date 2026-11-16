@@ -90,9 +90,10 @@
     }
     if(!running&&!paused&&(m.finished||m.finishedWithErrors)){out.word=t('Terminé');out.text=m.finishedWithErrors?t('Terminé avec {n} lignes refusées par la machine.').replace('{n}',m.jobErrors||0):d.summary&&d.summary.short||t('Terminé.');out.action='suite:files';out.label=t('Suite : Fichier →');out.plate=!laserOf(m);out.tone=m.finishedWithErrors?'danger':'neutre';out.details=!!m.finishedWithErrors;}
     if(!running&&!paused&&!m.jobStopped&&!m.finished&&!m.finishedWithErrors&&m.spindleSpeed>0){out.text=t(laserOf(m)?'Le laser est encore allumé : éteignez-le.':'La broche tourne encore : arrêtez-la.');out.pause=true;out.tone='warn';}
-    if(alarm){var code=m.lastAlarm&&m.lastAlarm.code||m.alarmCode;out.word=t('Alarme')+(code?' '+code:'');var help=root.CNCGrblHelp&&root.CNCGrblHelp.alarm(code);out.text=out.word+(help?' : '+message(help.title):'')+'. '+t('Arrêtez l’usinage.');out.tone='danger';out.action='arreter-usinage';out.label=t('Arrêter l’usinage');out.allowed=!!m.canStop;out.plate=false;}
+    if(alarm&&(!m.jobStopped||running||paused)){var code=m.lastAlarm&&m.lastAlarm.code||m.alarmCode;out.word=t('Alarme')+(code?' '+code:'')+(m.alarmCodeInferred?' · '+t('déduite'):'');var help=root.CNCGrblHelp&&root.CNCGrblHelp.alarm(code,m.alarmCodeInferred);out.text=out.word+(help?' : '+message(help.title):'')+'. '+t('Arrêtez l’usinage.');out.tone='danger';out.action='arreter-usinage';out.label=t('Arrêter l’usinage');out.allowed=!!m.canStop;out.plate=false;}
     if(m.probing&&out.plate)out.text=t('Zéro Z à la plaque en cours… Arrêter l’interrompt.');
     else if(m.zeroZ&&(paused||m.finished)&&out.plate)out.text=m.zeroZ.failed?message(m.resumeReason||m.zeroZ.failed):paused&&!m.canResume?out.text:t('Zéro Z posé à la plaque.');
+    if(d.summary)out.details=true;
     if(!m.fresh){out.text=t('Attendez une information à jour.');if(out.action!=='arreter-usinage'&&out.action!=='pause'&&out.action.indexOf('suite:')!==0)out.allowed=false;}
     return out;
   }

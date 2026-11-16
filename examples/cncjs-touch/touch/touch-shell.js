@@ -48,7 +48,7 @@
   function fitLibrary(){
     var compact=window.innerHeight<650||window.innerWidth<1100;
     if(document.body.classList.contains('t-compact')!==compact)document.body.classList.toggle('t-compact',compact);
-    window.dispatchEvent(new CustomEvent('cnc-library-page-size',{detail:compact?3:window.innerHeight<880?4:6}));window.dispatchEvent(new CustomEvent('cnc-history-page-size',{detail:compact?4:6}));}
+    window.dispatchEvent(new CustomEvent('cnc-library-page-size',{detail:compact?3:window.innerHeight<880?4:6}));window.dispatchEvent(new CustomEvent('cnc-history-page-size',{detail:compact?4:document.body.classList.contains('display-large')?5:6}));}
   window.addEventListener('resize',fitLibrary);fitLibrary();
   // Wide workstation (PERFORMANCE-UI-SPEC.md 2.2, body.perf-wide): Performance profile, hardware WebGL
   // (body.perf-gpu, preview-3d.js) and a landscape window of at least 1300 x 880 CSS px. The style

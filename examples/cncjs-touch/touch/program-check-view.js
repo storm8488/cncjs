@@ -141,7 +141,7 @@
       if (z.machineMin < z.usable.low) out += rect(85, Z(Math.min(z.machineMax, z.usable.low)), 50, (Math.min(z.machineMax, z.usable.low) - z.machineMin) * scale, 'pc-over');
       if (z.machineMax > z.usable.high) out += rect(85, Z(z.machineMax), 50, (z.machineMax - Math.max(z.machineMin, z.usable.high)) * scale, 'pc-over');
       out += label(170, Z(z.usable.high) + 5, t('haut de la course')) + label(170, Z(z.usable.low) + 5, t('plus bas possible'));
-      if (zero !== null) out += '<path class="pc-zero" d="M45 ' + Z(zero) + 'H160"/>' + label(170, Z(zero) - 10, t('zéro Z'));
+      if (zero !== null) out += '<path class="pc-zero" d="M45 ' + Z(zero) + 'H160"/>' + label(15, Z(zero) - 10, t('zéro Z'));
       out += label(50, 375, fmt(Math.max(0, -(number(z.min) ? z.min : 0))) + ' mm');
     }
     b.filter(function (r) { return top ? (r.axis || r.params && r.params.axis) !== 'Z' && !/TOO_(LOW|HIGH)$/.test(r.code) : /TOO_(LOW|HIGH)$/.test(r.code); }).slice(0, 2).forEach(function (r, i) { out += label(15, 410 + i * 25, overText(r, false)); });

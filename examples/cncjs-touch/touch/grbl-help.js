@@ -69,7 +69,7 @@
     var lines=[],a=m.lastAlarm,alarmed=/^alarm/i.test(m.activeState||''),code=a&&a.code||m.alarmCode;
     if(a||alarmed){
       if(code===2)lines.push(uiLocale.t('Alarme 2 : la machine a dépassé sa course.'));
-      else lines.push(entry(ALARMS,code,'alarm',false).title+'.');
+      else lines.push(entry(ALARMS,code,'alarm',!!m.alarmCodeInferred).title+'.');
     }else if(m.jobStopped&&typeof m.stoppedAtLine==='number')lines.push(uiLocale.t('Usinage arrêté à la ligne {n}.').replace('{n}',m.stoppedAtLine));
     if(a&&a.restarted||m.referenceLost==='restart')lines.push(uiLocale.t('La machine a redémarré.'));
     if(m.homed!==true||m.referenceLost)lines.push(uiLocale.t('Perdu : la position de la machine.'));

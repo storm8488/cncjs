@@ -53,7 +53,7 @@
     else if(!homed||alarm){action='prise-origine';word=alarm?'Alarme':incident?'Origine à reprendre':'Origine à prendre';reason=cause('origine-a-prendre','Il manque : l’origine machine.',['prise-origine']);}
     else if(resumable&&o&&o.state==='proven'){action='changer-ligne';word=t('Arrêté ligne {n}').replace('{n}',m.stoppedAtLine);reason=cause('arret',t('Usinage arrêté à la ligne {n}').replace('{n}',m.stoppedAtLine),[]);}
     else if(!o||o.state!=='proven'){word='Zéro pièce à vérifier';reason=cause('zero-non-verifie',zero,rows.filter(function(r){return r.id==='zero';})[0].boutons.map(function(b){return b.id;}));}
-    if(alarm&&word==='Alarme'){var code=m.lastAlarm&&m.lastAlarm.code||m.alarmCode;if(code)word=t('Alarme')+' '+code;}
+    if(alarm&&word==='Alarme'){var code=m.lastAlarm&&m.lastAlarm.code||m.alarmCode;if(code)word=t('Alarme')+' '+code+(m.alarmCodeInferred?' · '+t('déduite'):'');}
     var allowed=action.indexOf('suite:')===0||action==='details'||action==='recharger-page'||action==='prendre-la-main'||action==='connecter'&&input.transportConnected;
     if(action==='relire')allowed=commands&&m.canReadSettings===true;
     if(action==='prise-origine')allowed=commands&&m.canHome===true;
@@ -116,7 +116,7 @@
     }
     if(m&&m.workflow==='running')words.home=t('En cours')+' · '+(m.total>0?Math.min(99,Math.floor((m.received||0)/m.total*100)):'—')+' %';
     if(m&&m.jobStopped&&typeof m.stoppedAtLine==='number')words.home=t('Arrêté ligne {n}').replace('{n}',String(m.stoppedAtLine));
-    if(alarm){var alarmCode=m.lastAlarm&&m.lastAlarm.code||m.alarmCode;if(alarmCode)words.home=t('Alarme')+' '+alarmCode;}
+    if(alarm){var alarmCode=m.lastAlarm&&m.lastAlarm.code||m.alarmCode;if(alarmCode)words.home=t('Alarme')+' '+alarmCode+(m.alarmCodeInferred?' · '+t('déduite'):'');}
     var own={machine:global,files:!selection?cause('aucun-choix','Choisissez un fichier dans la liste.',['choisir-fichier']):null,jog:zeroCause||(!zeroDone?cause('zero-ancien','Zéro pièce d’une séance précédente. Refaites-le pour cette pièce.',['refaire-zero']):null),check:!m||!m.name?cause('aucun-fichier','Aucun fichier chargé.',['choisir-fichier']):zeroCause|| (outside?fromRefusal(check.blocking&&check.blocking[0]||{code:'ETOUCH_START_OUTSIDE'}):m.jobStopped?cause('a-recharger','Rechargez le fichier avant de démarrer.',['recharger-fichier']):check&&check.verdict==='unknown'?fromRefusal({code:'ETOUCH_CHECK_UNITS_UNKNOWN'}):null),home:null};
     var actions={machine:{id:global&&global.remedes[0]||'suite:files',allowed:true},files:{id:'charger',allowed:!!(m&&m.canLoad&&selection&&!input.busy)},jog:{id:'suite:check',allowed:true},check:{id:'demarrer',allowed:!!(m&&m.canStart&&!outside&&!input.busy)},home:{id:m&&m.canResume?'reprendre':'pause',allowed:!!(m&&(m.canResume||m.canPause)||h&&h.canPause)}};
     if(global&&(global.id==='alarme'||global.id==='occupee'))actions.machine.id='prise-origine';
@@ -224,7 +224,7 @@
       }
       window.cncShell.details(pendingRefusal?pendingRefusal.refusal.details:{lignes:lignes,brut:last.machine});return;
     }
-    if(id==='incident-details'){var help=last.machine&&window.CNCGrblHelp&&window.CNCGrblHelp.alarm(last.machine.lastAlarm&&last.machine.lastAlarm.code||last.machine.alarmCode);window.cncShell.details({lignes:help?[{libelle:t('Alarme'),valeur:help.title+' '+help.action}]:[],brut:last.machine});return;}
+    if(id==='incident-details'){var help=last.machine&&window.CNCGrblHelp&&window.CNCGrblHelp.alarm(last.machine.lastAlarm&&last.machine.lastAlarm.code||last.machine.alarmCode,last.machine.alarmCodeInferred);window.cncShell.details({lignes:help?[{libelle:t('Alarme'),valeur:help.title+' '+help.action}]:[],brut:last.machine});return;}
     if(id==='deverrouiller'){if(last.machine&&last.machine.canUnlock&&(!last.pilot||last.pilot.state!=='other')&&!last.busy)return owner('prepareCommand','unlock')();return;}
     if(id==='mise-en-service'){if(window.cncCommissioning)window.cncCommissioning.open();return;}
     var nav={'remise-en-route':'machine','choisir-fichier':'files','refaire-zero':'jog','refaire-zero-z':'jog','voir-controle':'check','voir-usinage':'home'};

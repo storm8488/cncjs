@@ -58,10 +58,11 @@
 // Exit code 1 when a harness step fails (and, with --strict, on a layout regression);
 // without --strict the measurements under the project goals are only reported.
 const fs = require('fs');
+/* global inSurface, centreHit, scrollReachable -- injected into serialized browser functions by browser-surface.cjs */
 const path = require('path');
 const os = require('os');
 const http = require('http');
-const { spawn, execSync } = require('child_process');
+const { spawn, spawnSync, execSync } = require('child_process');
 
 const args = process.argv.slice(2);
 function option(name, fallback) { const i = args.indexOf(name); return i >= 0 && args[i + 1] !== undefined ? args[i + 1] : fallback; }
@@ -202,6 +203,8 @@ async function launchBrowser(width, height, extraFlags) {
   const child = spawn(exe, flags, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
   let stderr = '';
   child.stderr.on('data', (d) => { stderr += d; if (stderr.length > 20000) stderr = stderr.slice(-10000); });
+  let cdp;
+  try {
   const portFile = path.join(profile, 'DevToolsActivePort');
   const until = Date.now() + 30000;
   while (!fs.existsSync(portFile) || !fs.readFileSync(portFile, 'utf8').trim()) {
@@ -217,12 +220,20 @@ async function launchBrowser(width, height, extraFlags) {
   for (let i = 0; i < 50 && !targets.some((t) => t.type === 'page'); i++) { targets = await getJson('http://127.0.0.1:' + port + '/json/list'); if (!targets.some((t) => t.type === 'page')) await sleep(100); }
   const page = targets.find((t) => t.type === 'page');
   if (!page) throw new Error('no page target');
-  const cdp = new CDP(page.webSocketDebuggerUrl);
+  cdp = new CDP(page.webSocketDebuggerUrl);
   await cdp.connect();
   await cdp.send('Page.enable'); await cdp.send('Runtime.enable'); await cdp.send('Network.enable'); await cdp.send('Performance.enable');
   await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: '(function(){function tick(){var h=document.documentElement,b=document.body;if(h&&b&&b.classList.contains("ks-ui")&&!h.classList.contains("cnc-loading")){window.__cncReadyAt=performance.now();return;}requestAnimationFrame(tick);}tick();})();' });
   cdp.on('Runtime.exceptionThrown', (p) => { const d = p.exceptionDetails; pageErrors.push((d.exception && d.exception.description) || d.text); });
   return { exe, child, profile, port, cdp, version: version.Browser, userAgent: version['User-Agent'] };
+  } catch (e) {
+    if (cdp) cdp.close();
+    // Only the process tree launched with this task's unique temporary profile.
+    if (process.platform === 'win32' && child.exitCode === null) spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+    try { child.kill(); } catch (_) { /* already exited */ }
+    try { fs.rmSync(profile, { recursive: true, force: true }); } catch (_) { /* Edge may still hold its own profile */ }
+    throw e;
+  }
 }
 const pageErrors = [];
 
@@ -271,6 +282,24 @@ async function goScreen(cdp, name) {
   await sleep(700);
   await cdp.evaluate('new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(r);});})');
 }
+// The session footer and confirmation deliberately reject a tap for 600 ms
+// after opening/changing label. Exercise the same guarded path as an operator.
+async function clickSessionAction(cdp, id, action) {
+  const ready = '(function(){var b=document.getElementById(' + JSON.stringify(id) + ');return !!b&&!b.disabled&&b.getClientRects().length&&b.getAttribute("data-action")===' + JSON.stringify(action) + ';})()';
+  await cdp.waitFor(ready, 15000, id + ' ' + action);
+  await sleep(650);
+  if (!await cdp.evaluate(ready)) throw new Error(id + ' changed before the tap');
+  await cdp.evaluate('document.getElementById(' + JSON.stringify(id) + ').click();true');
+}
+async function confirmJob(cdp) {
+  await cdp.waitFor('!document.getElementById("job-dialog").hidden', 15000, 'confirmation dialog');
+  await sleep(650);
+  if (!await cdp.evaluate('document.getElementById("job-confirm").disabled')) throw new Error('Confirm enabled before checking');
+  await cdp.evaluate('(function(){var c=document.getElementById("job-check");c.checked=true;c.dispatchEvent(new Event("change",{bubbles:true}));return true;})()');
+  await cdp.waitFor('!document.getElementById("job-confirm").disabled', 3000, 'confirmation enabled after checking');
+  await cdp.evaluate('document.getElementById("job-confirm").click();true');
+  await cdp.waitFor('document.getElementById("job-dialog").hidden', 10000, 'confirmation closed');
+}
 async function screenshot(cdp, file) {
   const r = await cdp.send('Page.captureScreenshot', { format: 'png' }, 60000);
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -279,11 +308,13 @@ async function screenshot(cdp, file) {
 
 // Measures what is really rendered: every visible button/link/field of the
 // active screen plus the header and the rail. Sizes in CSS px of the page.
-const MEASURE = String(function measure(goals) {
+const MEASURE = require('./browser-surface.cjs').inject(String(function measure(goals) {
+  /* BROWSER_SURFACE */
   var vw = window.innerWidth, vh = window.innerHeight, dpr = window.devicePixelRatio || 1;
   var active = document.querySelector('main .screen.active');
   function hiddenAncestor(el) { for (var n = el; n; n = n.parentElement) { if (n.hidden || n.getAttribute('aria-hidden') === 'true') return true; } return false; }
   function visible(el) {
+    if (!inSurface(el)) return false;
     if (hiddenAncestor(el)) return false;
     for (var n = el; n && n !== document.body; n = n.parentElement) { var cs = getComputedStyle(n); if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0 || cs.contentVisibility === 'hidden') return false; }
     var r = el.getBoundingClientRect();
@@ -347,7 +378,7 @@ const MEASURE = String(function measure(goals) {
   }
   var targets = nodes.map(function (el, i) {
     var r = rects[i], k = kind(el), goal = goals[k];
-    var cx = r.left + r.width / 2, cy = r.top + r.height / 2, hit = document.elementFromPoint(cx, cy);
+    var cx = r.left + r.width / 2, cy = r.top + r.height / 2, hit = centreHit(el);
     // A disabled control has pointer-events:none (ui-2027.css): the tap reaches
     // its container, which explains why the control is disabled. That is by design.
     var disabled = !!(el.disabled || el.getAttribute('aria-disabled') === 'true');
@@ -359,11 +390,9 @@ const MEASURE = String(function measure(goals) {
       var ov = getComputedStyle(n); if (ov.overflowX === 'visible' && ov.overflowY === 'visible') continue;
       var cr = n.getBoundingClientRect(); if (cx < cr.left || cx > cr.right || cy < cr.top || cy > cr.bottom) {
         offscreen = true;
-        // Clipped by the v2 Journal list, which scrolls by design (kept at its newest end): a row is reached by
-        // scrolling that list, like a row of a scrolling screen. Limited to that list so no other finding is hidden.
-        scroller = n.id === 'v2k-list' && (ov.overflowY === 'auto' || ov.overflowY === 'scroll') && n.scrollHeight > n.clientHeight + 1 && cx >= cr.left && cx <= cr.right;
       }
     }
+    if (offscreen) scroller = scrollReachable(el, centreHit);
     var gap = Infinity, neighbour = null, overlaps = [];
     rects.forEach(function (o, j) {
       if (j === i || nodes[j].contains(el) || el.contains(nodes[j])) return;
@@ -422,13 +451,14 @@ const MEASURE = String(function measure(goals) {
   // A screen scrolls when it is marked so (Réglages) or when the responsive layout let it grow
   // past the window (data-fit-overflow, viewport-fit.js): main then scrolls under the strip.
   var mainScrolls = !!main && getComputedStyle(main).overflowY === 'auto' && main.scrollHeight > main.clientHeight + 1;
+  var measuredRoot = inSurface.root || active;
   return { viewport: { width: vw, height: vh, dpr: dpr }, activeScreen: active ? active.id : null, screenScale: screenScale, scrolls: !!active && (active.getAttribute('data-fit') === 'scroll' || (active.getAttribute('data-fit-overflow') === 'true' && mainScrolls)),
     railScroll: rail ? { clientWidth: rail.clientWidth, scrollWidth: rail.scrollWidth, clientHeight: rail.clientHeight, scrollHeight: rail.scrollHeight,
       overflowX: getComputedStyle(rail).overflowX, overflowY: getComputedStyle(rail).overflowY, scrollLeft: rail.scrollLeft, scrollTop: rail.scrollTop } : null,
-    horizontalOverflow: { document: de.scrollWidth > de.clientWidth + 1, documentScrollWidth: de.scrollWidth, clientWidth: de.clientWidth, main: !!main && main.scrollWidth > main.clientWidth + 1, active: !!active && active.scrollWidth > active.clientWidth + 1 },
-    verticalOverflow: { document: de.scrollHeight > de.clientHeight + 1, active: !!active && active.scrollHeight > active.clientHeight + 1 && active.getAttribute('data-fit') !== 'scroll' },
+    horizontalOverflow: { document: de.scrollWidth > de.clientWidth + 1, documentScrollWidth: de.scrollWidth, clientWidth: de.clientWidth, main: !!main && main.scrollWidth > main.clientWidth + 1, active: !!measuredRoot && measuredRoot.scrollWidth > measuredRoot.clientWidth + 1 },
+    verticalOverflow: { document: de.scrollHeight > de.clientHeight + 1, active: !!measuredRoot && measuredRoot.scrollHeight > measuredRoot.clientHeight + 1 && measuredRoot.getAttribute('data-fit') !== 'scroll' },
     targets: targets, smallText: small, truncated: truncated, infoSlot: infoSlot, bodyClass: document.body.className, theme: de.getAttribute('data-theme') || 'dark' };
-});
+}));
 
 // Shared by every strict measurement and the dedicated rail matrix. Overflow is
 // a defect even at one CSS pixel: hiding a bar must not conceal clipped entries.
@@ -646,7 +676,7 @@ async function e2e(cdp, simUrl, lang, summary) {
       const file = await cdp.evaluate('(function(){var b=document.querySelector(".library-file");b.click();return b.getAttribute("data-file");})()');
       await cdp.waitFor('(function(){var b=document.getElementById("step-files-main");return !!b&&!b.disabled;})()', 15000, 'load button enabled');
       await screenshot(cdp, path.join(dir, '02-file-selected.png'));
-      await cdp.evaluate('document.getElementById("step-files-main").click();true');
+      await clickSessionAction(cdp, 'step-files-main', 'charger');
       await cdp.waitFor('(function(){var m=window.cncState.get().machine;return !!(m&&m.name);})()', 15000, 'file loaded in the simulated controller');
       if(await cdp.evaluate('window.cncShell.screen()')!=='files')throw Error('loading must stay on File');
       await goScreen(cdp, 'check');
@@ -656,7 +686,7 @@ async function e2e(cdp, simUrl, lang, summary) {
       return { file, stateWord: s.stateWord, ready: s.ready };
     });
     await step('start with confirmation', async () => {
-      await sleep(650);await goScreen(cdp,'check');await sleep(650);await cdp.evaluate('document.getElementById("step-check-main").click();true');
+      await sleep(650);await goScreen(cdp, 'check');await clickSessionAction(cdp, 'step-check-main', 'demarrer');
       const dialog = await confirmDialog('04-start-dialog');await goScreen(cdp, 'home');
       await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 15000, 'running');
       await cdp.waitFor('(function(){var p=document.getElementById("home-job-percent").textContent;return p&&p!=="—"&&!/^0\\s*%/.test(p);})()', 20000, 'progress moving');
@@ -731,18 +761,18 @@ async function simMeasure(cdp, simUrl, summary) {
         await goScreen(cdp, 'files');
         await cdp.evaluate('document.querySelector(".library-file").click();true');
         await cdp.waitFor('(function(){var b=document.getElementById("step-files-main");return !!b&&!b.disabled;})()', 15000, 'load enabled');
-        await cdp.evaluate('document.getElementById("step-files-main").click();true');
+        await clickSessionAction(cdp, 'step-files-main', 'charger');
         await cdp.waitFor('(function(){var m=window.cncState.get().machine;return !!(m&&m.name);})()', 15000, 'loaded');
         await goScreen(cdp, 'home');
         await capture('home', 'Suivi', 'loaded');
-        await goScreen(cdp,'check');await sleep(650);await cdp.evaluate('document.getElementById("step-check-main").click();true');
+        await goScreen(cdp, 'check');await clickSessionAction(cdp, 'step-check-main', 'demarrer');
         await cdp.waitFor('!document.getElementById("job-dialog").hidden', 15000, 'dialog');
         await sleep(300);
         const dialog = await cdp.evaluate('(' + MEASURE + ')(' + JSON.stringify(GOALS) + ')');
         const dialogTargets = dialog.targets.filter((t) => /^(job-check|job-confirm|job-dismiss)$/.test(t.id || '') || t.tag === 'label');
         results.push({ screen: 'dialog', label: 'Confirmation · dialog', targets: dialogTargets.length, below: dialogTargets.filter((t) => t.belowGoal), small: dialog.smallText, textTargets: dialogTargets.filter((t) => t.textBelowGoal), gaps: dialogTargets.filter((t) => t.gapBelowGoal), unreachable: dialogTargets.filter((t) => !t.reachable), truncated: dialog.truncated, overflow: dialog.horizontalOverflow, vertical: dialog.verticalOverflow, scale: 1, scrolls: false, fontStats: { min: null, median: null, max: null } });
         await screenshot(cdp, path.join(dir, 'dialog.png'));
-        await cdp.evaluate('(function(){var c=document.getElementById("job-check");c.checked=true;c.dispatchEvent(new Event("change",{bubbles:true}));document.getElementById("job-confirm").click();return true;})()');
+        await confirmJob(cdp);
         await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 15000, 'running');
         await sleep(1500);
         await capture('home', 'Suivi', 'running');
@@ -768,13 +798,8 @@ async function simMeasure(cdp, simUrl, summary) {
         if (await cdp.evaluate('(function(){var b=document.getElementById("sim-trigger-alarm");if(!b||b.disabled)return false;b.click();return true;})()')) {
           await cdp.waitFor('/^alarm/i.test(((window.cncState.get().machine||{}).activeState)||"")', 10000, 'alarm at rest');
           await sleep(1200);
-          // The end-of-job summary still shown beside the alarm: reported only (Suivi is scaled
-          // to fit, see the fix report); then acknowledged (OK), the state the check enforces.
-          const strictResults = results.splice(0, results.length);
-          await capture('home', 'Suivi', 'alarm-idle-summary');
-          reportOnly.push(...results.splice(0, results.length)); results.push(...strictResults);
-          await cdp.evaluate('(function(){var b=document.getElementById("home-job-summary-close");if(b&&!b.hidden)b.click();return true;})()');
-          await sleep(600);
+          // The persistent notice replaces the dismissible summary. Its entire
+          // stopped state is now strict, including before any acknowledgement.
           await capture('home', 'Suivi', 'alarm-idle');
           await cdp.evaluate('(function(){var b=document.getElementById("sim-clear-alarm");if(b&&!b.disabled)b.click();return true;})()');
         } else failures.push(tag + ': alarm button unavailable at rest');
@@ -816,7 +841,7 @@ async function alarmVariant(cdp, summary, arg, kind) {
             await cdp.evaluate('localStorage.setItem("cncjs-touch-language-v1",' + JSON.stringify(lang) + ');localStorage.setItem("cncjs-touch-display-v1",' + JSON.stringify(JSON.stringify({ size })) + ');true');
             await navigate(cdp, fixture.base + 'index.html?alarm=' + lang + size); await waitReady(cdp);
             await cdp.waitFor('(function(){var b=document.getElementById("t-recover");return !!b&&!b.hidden;})()', 20000, 'Déverrouiller offered');
-            if (arg !== '--replay-alarm') await cdp.waitFor('(function(){var m=window.cncState.get().machine,s=document.getElementById("home-job-summary");return !!(m&&m.alarmCodeInferred&&s&&!s.hidden);})()', 20000, 'ALARM:3 deduced and end summary');
+            if (arg !== '--replay-alarm') await cdp.waitFor('(function(){var m=window.cncState.get().machine,s=document.getElementById("home-notice-text");return !!(m&&m.alarmCodeInferred&&m.jobStopped&&s&&s.textContent);})()', 20000, 'ALARM:3 deduced and stopped notice');
             for (const [name, label] of [['home', 'Suivi'], ['more', 'Menu'], ['machine', 'Machine']]) {
               await goScreen(cdp, name);
               const data = await cdp.evaluate('(' + MEASURE + ')(' + JSON.stringify(GOALS) + ')');
@@ -930,8 +955,7 @@ async function responsiveVariant(cdp, url, w, h, dpr, opts) {
     if (!(await cdp.evaluate(FORCE_GPU))) throw new Error('perf-wide not applied at ' + w + 'x' + h);
   }
 }
-// Préparer with the origin preview of lot O (#op-card, body.perf-origin): measured with O's card when
-// the page mounted it, else with a placeholder card of the same id, to check D's grid around it.
+// Control's actual placement dialog needs an idle CNC and the v2 GPU gate.
 const ORIGIN_CARD='(function(){window.cncShell.go("check");var b=document.getElementById("check-placement-open");if(!b||b.hidden)return false;b.click();return true;})()';
 async function responsiveMeasure(cdp, realUrl, simUrl, summary) {
   const report = [];
@@ -941,7 +965,14 @@ async function responsiveMeasure(cdp, realUrl, simUrl, summary) {
       await responsiveVariant(cdp, realUrl, w, h, dpr, opts); await waitSettled(cdp);
       await measureScreens(cdp, realUrl, label, dirName, dpr, summary, true);
       if (opts && opts.wide) {
-        if (!(await cdp.evaluate(ORIGIN_CARD))) throw new Error('Préparer not found');
+        const placementFixture = await startV2Fixture();
+        const trap = await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: V2_GPU_TRAP });
+        try {
+        placementFixture.setPhase('idle');
+        await v2Storage(cdp, placementFixture.base, {});
+        await v2Open(cdp, placementFixture.base + 'index.html?responsive-placement', true);
+        await cdp.evaluate('window.__brShape=' + SUIVI_SHAPE + ';true');
+        if (!(await cdp.evaluate(ORIGIN_CARD))) throw new Error('Control placement unavailable');
         await cdp.waitFor('!!document.querySelector("#ks-check-placement #op-card")',15000,'placement dialog');
         const placementResults=[];await v2Capture(cdp,label,null,'Contrôle','placement-dialog',placementResults);
         summary.measurements.push({variant:'responsive '+label+' placement',dir:dirName+'-placement',dpr,results:placementResults,strict:true});
@@ -954,6 +985,7 @@ async function responsiveMeasure(cdp, realUrl, simUrl, summary) {
           'return {wide:document.body.classList.contains("perf-wide"),same:window.__brShape===' + SUIVI_SHAPE + ',zones:!!document.getElementById("home-zone-gauges")&&document.contains(document.getElementById("home-zone-gauges"))};})()');
         if (back.wide || !back.same || back.zones) failures.push('responsive ' + label + ': Suivi not restored after leaving the wide layout (' + JSON.stringify(back) + ')');
         else log(label + ': Suivi restored as before after leaving the wide layout');
+        } finally { await cdp.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: trap.identifier }); placementFixture.close(); }
       }
     } catch (e) { failures.push('responsive ' + label + ': ' + e.message); log('FAIL responsive ' + label + ': ' + e.message); }
   }
@@ -965,19 +997,20 @@ async function responsiveMeasure(cdp, realUrl, simUrl, summary) {
       await goScreen(cdp, 'files');
       await cdp.evaluate('document.querySelector(".library-file").click();true');
       await cdp.waitFor('(function(){var b=document.getElementById("step-files-main");return !!b&&!b.disabled;})()', 15000, 'load enabled');
-      await cdp.evaluate('document.getElementById("step-files-main").click();true');
+      await clickSessionAction(cdp, 'step-files-main', 'charger');
       await cdp.waitFor('(function(){var m=window.cncState.get().machine;return !!(m&&m.name);})()', 15000, 'loaded');
       await goScreen(cdp, 'check');
       await cdp.waitFor('(function(){var b=document.getElementById("step-check-main");return !!b&&!b.disabled;})()', 15000, 'Démarrer enabled');
       await hitCheck(cdp, ctx, 'Suivi loaded', ['step-check-main'], { scroll: true, required: true }, report);
-      await goScreen(cdp,'check');await sleep(650);await cdp.evaluate('document.getElementById("step-check-main").click();true');
+      await goScreen(cdp, 'check');await clickSessionAction(cdp, 'step-check-main', 'demarrer');
       await cdp.waitFor('!document.getElementById("job-dialog").hidden', 15000, 'dialog');
       await sleep(300);
       // The confirmation's own commands, in its card (which scrolls instead of shrinking).
       await hitCheck(cdp, ctx, 'confirmation', ['job-check', 'job-dismiss'], { scroll: true, required: true }, report);
       await cdp.evaluate('(function(){var c=document.getElementById("job-check");c.checked=true;c.dispatchEvent(new Event("change",{bubbles:true}));return true;})()');
       await hitCheck(cdp, ctx, 'confirmation', ['job-confirm'], { scroll: true, required: true }, report);
-      await cdp.evaluate('document.getElementById("job-confirm").click();true');
+      await cdp.evaluate('document.getElementById("job-check").checked=false;true');
+      await confirmJob(cdp);
       await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 15000, 'running');
       await sleep(800);
       for (const [name] of SCREENS) { await goScreen(cdp, name); await hitCheck(cdp, ctx, 'running ' + name, ['t-pause', 't-stop'], { required: true }, report); }
@@ -1275,9 +1308,11 @@ function startV2Fixture() {
 
 // Text drawn over other text (two text nodes of unrelated elements whose drawn boxes intersect), on the
 // active screen, the strip, the rail and any open sheet; clipped by their ancestors like textFit above.
-const V2_OVERLAP = String(function overlap() {
+const V2_OVERLAP = require('./browser-surface.cjs').inject(String(function overlap() {
+  /* BROWSER_SURFACE */
   var vw = window.innerWidth, vh = window.innerHeight, active = document.querySelector('main .screen.active'), items = [];
   function visible(el) {
+    if (!inSurface(el)) return false;
     for (var n = el; n && n !== document.body; n = n.parentElement) { if (n.hidden || n.getAttribute('aria-hidden') === 'true') return false; var cs = getComputedStyle(n); if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0) return false; }
     return true;
   }
@@ -1305,7 +1340,7 @@ const V2_OVERLAP = String(function overlap() {
     if (w > 2 && h > 2) { var key = A.text + '|' + B.text; if (!seen[key]) { seen[key] = 1; out.push({ a: A.text, b: B.text, w: Math.round(w), h: Math.round(h) }); } }
   }
   return out.slice(0, 40);
-});
+}));
 // Pause / Reprendre / Arrêter of the strip: shown, inside the window, not inert, and the element under the
 // centre and under four points 3 px inside the middle of each edge is the button itself. A disabled button
 // takes no pointer events by design (ui-2027.css; the strip also blocks them while the state is lost): its
@@ -1638,14 +1673,14 @@ async function v2SimPass(cdp, fx, w, h, summary, report) {
     await cdp.evaluate('document.querySelector(".library-file").click();true');
     await cdp.waitFor('(function(){var b=document.getElementById("step-files-main");return !!b&&!b.disabled;})()', 15000, 'load enabled');
     await v2Capture(cdp, ctx, null, 'Fichiers', 'selected', results);
-    await cdp.evaluate('document.getElementById("step-files-main").click();true');
+    await clickSessionAction(cdp, 'step-files-main', 'charger');
     await cdp.waitFor('(function(){var m=window.cncState.get().machine;return !!(m&&m.name);})()', 15000, 'loaded');
     await v2Capture(cdp, ctx, 'home', 'Suivi', 'loaded', results);
     await v2Capture(cdp, ctx, 'jog', 'Préparer', 'loaded', results);
     await goScreen(cdp, 'home');
-    await goScreen(cdp,'check');await sleep(650);await cdp.evaluate('document.getElementById("step-check-main").click();true');
+    await goScreen(cdp, 'check');await clickSessionAction(cdp, 'step-check-main', 'demarrer');
     await cdp.waitFor('!document.getElementById("job-dialog").hidden', 15000, 'dialog');
-    await cdp.evaluate('(function(){var c=document.getElementById("job-check");c.checked=true;c.dispatchEvent(new Event("change",{bubbles:true}));document.getElementById("job-confirm").click();return true;})()');
+    await confirmJob(cdp);
     await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 15000, 'running');
     await sleep(1500);
     await v2Capture(cdp, ctx, 'home', 'Suivi', 'running', results);
@@ -2200,8 +2235,18 @@ async function screensGuideSim(cdp, fx, summary) {
 // then the operator's stop during an alarm (idle + Alarm + jobStopped, the job's lines kept): Suivi shows the end-of-job
 // summary; it counts the file's lines like the gauge (« 6 / 7 » on the Surface Pro, not CNCjs's count), the scale is the
 // preview's line count, and Suivi's commands kept their place since rest (v2). Captured and measured like the states.
-const SCREENS_STOPPED = '(function(){var t=function(id){var n=document.getElementById(id);return n?n.textContent.replace(/\\s+/g," ").trim():null;},s=document.getElementById("home-job-summary"),i=document.getElementById("home-job-image"),p=i&&i.cncPreview,m=window.cncState.get().machine||{};' +
-  'return {shown:!!(s&&!s.hidden&&s.getClientRects().length),tone:s?s.getAttribute("data-tone"):null,summary:t("home-job-summary-text"),gauge:t("home-gauge-ack-value"),lines:p&&p.file===m.name?p.lines:null,total:m.total};})()';
+const SCREENS_STOPPED = '(function(){var t=function(id){var n=document.getElementById(id);return n?n.textContent.replace(/\\s+/g," ").trim():null;},s=document.getElementById("home-notice"),i=document.getElementById("home-job-image"),p=i&&i.cncPreview,m=window.cncState.get().machine||{};' +
+  'return {shown:!!(s&&!s.hidden&&s.getClientRects().length),tone:s?s.getAttribute("data-tone"):null,notice:t("home-notice-text"),gauge:t("home-gauge-ack-value"),lines:p&&p.file===m.name?p.lines:null,total:m.total};})()';
+async function stoppedSnapshot(cdp) {
+  const result = await cdp.evaluate(SCREENS_STOPPED);
+  if (!result.notice) throw new Error('stopped notice not shown');
+  await cdp.waitFor('(function(){var b=document.getElementById("home-notice-details");return b&&!b.hidden&&!b.disabled;})()', 10000, 'end summary details');
+  await cdp.evaluate('document.getElementById("home-notice-details").click();true');
+  await cdp.waitFor('!document.getElementById("ks-details").hidden', 5000, 'summary details open');
+  result.summary = await cdp.evaluate('document.querySelector("#ks-details .ks-sheet-content p").textContent');
+  await cdp.evaluate('window.cncShell.closeSheet();true');
+  return result;
+}
 // b.received: the fixture's frozen counter (set by the harness, not read from the page), so the expected line is
 // known independently of the texts shown: floor(received / CNCjs total × file lines), as acknowledgedLine() counts.
 function stoppedChecks(b) {
@@ -2253,9 +2298,9 @@ async function screensStopped(cdp, fx, v, summary) {
     const rest = await cdp.evaluate(SUIVI_LAYOUT);
     fx.setPhase('running'); await ready('running'); await sleep(1500);
     fx.setPhase('stopped'); await ready('stopped');
-    await cdp.waitFor('(function(){var s=document.getElementById("home-job-summary");return !!(s&&!s.hidden&&s.getClientRects().length);})()', 10000, 'end-of-job summary');
+    await cdp.waitFor('(function(){var s=document.getElementById("home-notice");return !!(s&&!s.hidden&&s.getClientRects().length);})()', 10000, 'end-of-job notice');
     await sleep(800);
-    const lay = await cdp.evaluate(SUIVI_LAYOUT), bilan = await cdp.evaluate(SCREENS_STOPPED);
+    const lay = await cdp.evaluate(SUIVI_LAYOUT), bilan = await stoppedSnapshot(cdp);
     if (bilan) bilan.received = fx.frozen ? fx.frozen.received : null;
     stoppedChecks(bilan).forEach((f) => failures.push(tag + ': ' + f));
     if (v.v2) stoppedLayoutChecks(rest, lay).forEach((f) => failures.push(tag + ': ' + f));
@@ -2671,13 +2716,13 @@ async function settingsDuringJob(cdp, lang, simUrl, summary, out) {
     await goScreen(cdp, 'files');
     await cdp.evaluate('document.querySelector(".library-file").click();true');
     await cdp.waitFor('(function(){var b=document.getElementById("step-files-main");return !!b&&!b.disabled;})()', 15000, 'load enabled');
-    await cdp.evaluate('document.getElementById("step-files-main").click();true');
+    await clickSessionAction(cdp, 'step-files-main', 'charger');
     await cdp.waitFor('(function(){var m=window.cncState.get().machine;return !!(m&&m.name);})()', 15000, 'loaded');
-    await goScreen(cdp, 'home');
+    await goScreen(cdp, 'check');
     await cdp.waitFor('(function(){var b=document.getElementById("step-check-main");return !!b&&!b.disabled;})()', 15000, 'Démarrer enabled');
-    await goScreen(cdp,'check');await sleep(650);await cdp.evaluate('document.getElementById("step-check-main").click();true');
+    await goScreen(cdp, 'check');await clickSessionAction(cdp, 'step-check-main', 'demarrer');
     await cdp.waitFor('!document.getElementById("job-dialog").hidden', 15000, 'dialog');
-    await cdp.evaluate('(function(){var c=document.getElementById("job-check");c.checked=true;c.dispatchEvent(new Event("change",{bubbles:true}));document.getElementById("job-confirm").click();return true;})()');
+    await confirmJob(cdp);
     await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 15000, 'running');
     await goScreen(cdp, 'settings');
     await settingsTab(cdp, 'system');
@@ -2779,7 +2824,7 @@ function strictCheck(summary, exceptionList) {
       if (r.error) continue;
       const base = { variant: m.variant, screen: r.screen, screenLabel: r.label };
       if (!r.scrolls && typeof r.scale === 'number' && r.scale < 0.999) add(Object.assign({ check: 'scale', label: r.label, detail: 'scale ' + r.scale + ' on a screen that does not scroll' }, base));
-      for (const t of r.unreachable || []) if (!((r.scrolls || t.scroller) && t.offscreen)) add(Object.assign({ check: 'covered', label: t.label, detail: 'centre ' + (t.offscreen ? 'clipped' : 'covered') + ' by ' + t.hit }, base));
+      for (const t of r.unreachable || []) if (!(t.scroller && t.offscreen)) add(Object.assign({ check: 'covered', label: t.label, detail: 'centre ' + (t.offscreen ? 'clipped' : 'covered') + ' by ' + t.hit }, base));
       for (const t of r.below || []) add(Object.assign({ check: 'size', label: t.label, detail: t.kind + ' ' + t.w + ' x ' + t.h + ' px, goal ' + t.goal }, base));
       for (const t of r.textFit || []) {
         if (t.out > 1) add(Object.assign({ check: 'text-overflow', label: t.label, detail: 'text ' + t.out + ' px outside its control' }, base));
@@ -3041,7 +3086,9 @@ async function main() {
   if (!base.endsWith('/')) base += '/';
   const realUrl = URL_BASE ? base : base + 'index.html', simUrl = base + 'simulation.html';
   summary.realUrl = realUrl; summary.simUrl = simUrl;
-  const browser = await launchBrowser(1366, 768, ONLY.includes('rail') ? V2_FLAGS : undefined);
+  let browser;
+  try { browser = await launchBrowser(1366, 768, ONLY.some(s => ['rail', 'responsive'].includes(s)) ? V2_FLAGS : undefined); }
+  catch (e) { if (fixture) fixture.child.kill(); throw e; }
   summary.browser = browser.version; summary.userAgent = browser.userAgent;
   log('browser ' + browser.version + ' (' + browser.exe + ')');
   const cdp = browser.cdp;
@@ -3101,4 +3148,4 @@ async function main() {
 // The measurement scripts (measure-*.cjs) reuse the DevTools client, the browser
 // launcher and the fixture starter; run the harness only as a program.
 if (require.main === module) main().catch((e) => { console.error('browser-run: ' + (e.stack || e.message)); process.exit(1); });
-module.exports = { RAIL, railChecks, JOG_CHOICES, jogChoiceChecks, FILE_COLUMN, GUIDE_MODE, guideChecks, strictCheck, loadExceptions, infoClipOf, stoppedChecks, stoppedLayoutChecks, settingsOffTabRequests, GOALS, RESPONSIVE, MEASURE, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors };
+module.exports = { confirmJob, clickSessionAction, V2_OVERLAP, RAIL, railChecks, JOG_CHOICES, jogChoiceChecks, FILE_COLUMN, GUIDE_MODE, guideChecks, strictCheck, loadExceptions, infoClipOf, stoppedChecks, stoppedLayoutChecks, settingsOffTabRequests, GOALS, RESPONSIVE, MEASURE, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors };

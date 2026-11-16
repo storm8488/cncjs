@@ -1,5 +1,35 @@
 # Validation scope
 
+## Refit strict harness (HARN, 2026-11-16)
+
+The harness follows File → Control → Machining, including simulation. Footer
+actions and confirmations wait for the existing 600ms protection; the checkbox,
+countdown, start/resume workflow and stop checks remain. Strip tests visit file
+details, control details, other zeros and machine details. Origin help remains
+simulation-only. The pilot keyboard test receives another owner and opens
+Other reason through its actual button; it never sends a takeover.
+
+`browser-surface.cjs` scopes geometry and text overlaps to the foreground modal
+and the strip stops. Without a modal, covered controls still fail. Disabled
+controls are paint-probed without enabling them, restoring their exact inline
+pointer policy. A clipped target is accepted only after scrolling its actual
+ancestor, hit-testing its centre and restoring all scroll positions; the screen
+being scrollable alone no longer excuses it. Size/text/position thresholds and
+`layout-exceptions.json` are unchanged.
+
+The persistent `home-notice` replaces the old dismissible summary. The stopped
+check requires its notice and opens Details for the detailed summary; the
+independent frozen counter, original-file line scale and renderer command
+positions remain checked. The stopped notice is now strict before acknowledgement.
+An idle stopped alarm keeps its line/lost-position notice and recovery link.
+
+`test-harn-page.cjs`, `test-harn-surface.cjs`, `test-harn-flows.cjs` cover these
+contracts and are registered in verify-project. CSS/DOM tests do not render CSS.
+Targeted attempts for measure, responsive, sim, settings, strip, v2, screens and
+e2e all fail before scenarios with WebSocket error in this sandbox; the ws
+fallback also fails with ECONNRESET. No full harness was run. Browser geometry
+and the disappearance of the recorded 838 violations remain unverified.
+
 ## Live viewport stability (GLITCH, 2026-11-16)
 
 `test-viewport-stability.cjs`, registered in `verify-project.cjs`, models a

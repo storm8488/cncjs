@@ -838,3 +838,14 @@ of its row. The machine card stays in its existing DOM for its existing owners;
 the generic coordinate-card display rule must not reveal it. These CSS contracts
 are covered by `test-session-geometry.cjs`; rendered geometry and renderer
 transition parity still require a successful targeted browser run.
+
+### HARN — Foreground measurements and stable Stop slot
+
+Optional curve and sequence instruments precede the Stop slot in flex order;
+they consume preview space rather than moving Stop below the view. Parked
+screens retain their cached layout and have no pointer surface. Large-text
+Journal pages use five rows (four in compact) to reserve the subheader.
+The strict harness measures the active overlay and strip stops, and requires
+an actual scroll-and-hit proof for clipped targets. These source contracts
+are tested, but renderer parity and browser geometry remain unverified because
+the targeted Edge runs cannot connect to DevTools in this sandbox.
