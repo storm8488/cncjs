@@ -111,6 +111,8 @@ export const analyzeProgram = (gcode) => {
   const a = {
     lines: lines.length,
     moves: 0,
+    // Display-only timing model. Never participates in a travel verdict or a command guard.
+    timing: { supported: true, dwell: 0, moves: [] },
     units: null,
     unitsChanges: [],
     rawUnits: false,
@@ -151,6 +153,9 @@ export const analyzeProgram = (gcode) => {
     arcMode: 'G91.1',
     moved: false
   };
+  let timingFeed = null;
+  let timingMode = null;
+  let timingEnded = false;
   const unknown = (axis, r) => {
     if (!a.unknownAxes[axis]) {
       a.unknownAxes[axis] = r.message;
@@ -170,9 +175,11 @@ export const analyzeProgram = (gcode) => {
     if (!code || code === '%') {
       continue;
     }
+    const timed = !timingEnded;
     // CNCjs directives and expressions execute on the server, G-code words
     // depend on variables: nothing can be followed after them.
     if (/^%/.test(code) || /[[\]#]/.test(code)) {
+      a.timing.supported = false;
       a.unsafeOverride = true;
       st.machineUnitsKnown = false;
       listed(lineNo, raw.trim().slice(0, 40), true);
@@ -182,6 +189,7 @@ export const analyzeProgram = (gcode) => {
     // A line the board reads otherwise (C-57), or a system command ($20=0, $H…, C-61): what
     // follows cannot be judged from what was read here.
     if (/^\$/.test(code) || !sameWithoutSpaces(code)) {
+      a.timing.supported = false;
       a.unsafeOverride = a.unsafeOverride || /^\$/.test(code);
       st.machineUnitsKnown = false;
       listed(lineNo, raw.trim().slice(0, 40), true);
@@ -195,6 +203,33 @@ export const analyzeProgram = (gcode) => {
       const found = w.find(([l]) => l === letter);
       return found ? found[1] : null;
     };
+    if (timed) {
+      // Only fully understood lines contribute a duration. Pauses, probing, frame changes,
+      // machine-coordinate moves and opaque syntax deliberately yield no numeric progress.
+      const rest = code.replace(/([A-Z])\s*([-+]?(?:\d+\.?\d*|\.\d+))/g, '').trim();
+      if (rest || w.some(([l]) => !'NGMXYZIJKRPFST'.includes(l)) ||
+          g.some((v) => ![0, 1, 2, 3, 4, 17, 20, 21, 40, 49, 54, 61, 80, 90, 91, 91.1, 93, 94].includes(v)) ||
+          m.some((v) => ![2, 3, 4, 5, 7, 8, 9, 30].includes(v))) {
+        a.timing.supported = false;
+      }
+      if (g.includes(93)) {
+        timingMode = 'G93';
+      }
+      if (g.includes(94)) {
+        timingMode = 'G94';
+      }
+      if (g.includes(4)) {
+        const seconds = at('P');
+        if (seconds === null || seconds < 0 || ['X', 'Y', 'Z'].some((axis) => at(axis) !== null)) {
+          a.timing.supported = false;
+        } else {
+          a.timing.dwell += seconds;
+        }
+      }
+      if (m.includes(2) || m.includes(30)) {
+        timingEnded = true;
+      }
+    }
     g.forEach((v) => {
       if (!KNOWN_G.includes(v)) {
         listed(lineNo, 'G' + v, true);
@@ -272,11 +307,15 @@ export const analyzeProgram = (gcode) => {
       }
     });
     if (a.wcsChanges.length) {
+      a.timing.supported = false;
       AXES.forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_WCS_CHANGE', { line: a.wcsChanges[0] }, 'Le programme change de repère (ligne ' + a.wcsChanges[0] + ') : une seule origine de travail peut être vérifiée.')));
     }
     if (a.offsetChanges.length) {
       const first = a.offsetChanges[0];
       AXES.forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_ORIGIN_CHANGE', { code: first.code, line: first.line }, 'Le programme modifie l’origine (' + first.code + ' ligne ' + first.line + ') : position de travail non prévisible.')));
+    }
+    if (at('F') !== null) {
+      timingFeed = at('F') * (timingMode === 'G93' ? 1 : st.scale);
     }
 
     const axes = AXES.filter((axis) => at(axis) !== null);
@@ -328,6 +367,9 @@ export const analyzeProgram = (gcode) => {
       continue;
     }
     if (!axes.length) {
+      if ((st.motion === 'G2' || st.motion === 'G3') && ['I', 'J', 'K', 'R'].some((axis) => at(axis) !== null)) {
+        a.timing.supported = false;
+      }
       continue;
     }
     if (!(st.motion || g.some((v) => [0, 1, 2, 3].includes(v)))) {
@@ -367,6 +409,7 @@ export const analyzeProgram = (gcode) => {
       }
     });
     const arc = st.motion === 'G2' || st.motion === 'G3';
+    let arcLength = null;
     if (arc) {
       if (st.plane !== 'G17' || st.arcMode !== 'G91.1') {
         listed(lineNo, st.motion + ' ' + (st.plane !== 'G17' ? st.plane : st.arcMode), true);
@@ -415,6 +458,7 @@ export const analyzeProgram = (gcode) => {
           const cw = st.motion === 'G2';
           const closed = Math.abs(pos.X - start.X) < TOLERANCE_MM && Math.abs(pos.Y - start.Y) < TOLERANCE_MM;
           const sweep = closed ? TWO_PI : turn(cw ? a0 - a1 : a1 - a0);
+          arcLength = radius * sweep;
           [0, 0.5, 1, 1.5].forEach((k) => {
             const angle = k * Math.PI;
             if (turn(cw ? a0 - angle : angle - a0) <= sweep + 1e-9) {
@@ -423,6 +467,14 @@ export const analyzeProgram = (gcode) => {
             }
           });
         }
+      }
+    }
+    if (timed && a.timing.supported) {
+      if (a.timing.moves.length >= 20000 || (arc && arcLength === null)) {
+        a.timing.supported = false;
+        a.timing.moves = [];
+      } else {
+        a.timing.moves.push({ start, end: { ...pos }, rapid: st.motion === 'G0', feed: timingFeed, mode: timingMode, arcLength });
       }
     }
     AXES.forEach((axis) => {

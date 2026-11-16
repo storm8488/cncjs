@@ -68,7 +68,7 @@ status({...c,fresh:false,canOverride:true,workflow:'paused',spindleSpeed:12000})
 status({...c,canOverride:true});assert.equal(el('home-live').textContent,'','simulation snapshots without the fields show nothing');
 let real={...c,port:'REAL',remainingSeconds:undefined,received:10};status(real,false);
 for(let i=0;i<11;i++){now+=1000;real={...real,received:real.received+1};status(real,false);}
-assert.match(el('home-job-eta').textContent,/estimé/);assert.match(el('home-job-note').textContent,/indicative/);
+assert.match(el('home-job-eta').textContent,/Progression indisponible/);assert.match(el('home-job-note').textContent,/durée des mouvements/);
 const navigate=name=>{activeScreens.clear();activeScreens.add(name);listeners['cnc-screen-change']({detail:name});};
 navigate('more');const count=requests.length,writes=stats.writes;
 for(let i=0;i<50;i++)status(real,false);
@@ -100,7 +100,7 @@ function estimateFixture(monotonic=false){
     progress:()=>dom.node('home-job-progress').value
   };
 }
-function learn(f){f.send({received:10});for(let i=1;i<=10;i++){f.advance(1000);f.send({received:10+i});}assert.match(f.eta(),/1 min 20 s/);}
+function learn(f){f.send({received:10});for(let i=1;i<=10;i++){f.advance(1000);f.send({received:10+i});}assert.match(f.eta(),/Progression indisponible/);}
 for(const changes of [
   {total:Infinity},{total:NaN},{total:'100'},{total:0},{total:-1},
   {received:Infinity},{received:NaN},{received:null},{received:'25'},
@@ -109,25 +109,27 @@ for(const changes of [
   const f=estimateFixture();learn(f);f.send(changes);
   assert.equal(f.percent(),'—',JSON.stringify(changes));assert.equal(f.progress(),0);
   assert.match(f.eta(),/état indisponible/);assert.doesNotMatch(f.eta(),/chargez|NaN|Infinity/);
-  f.send({fresh:true,total:100,received:21});assert.match(f.eta(),/calcul en cours/);
+  f.send({fresh:true,total:100,received:21});assert.match(f.eta(),/Progression indisponible/);
 }
 for(const gap of [-1000,4000,3600000]){
   const f=estimateFixture();learn(f);f.advance(gap);f.send({received:21});
-  assert.match(f.eta(),/calcul en cours/,'Discard an estimate across a discontinuity');
+  assert.match(f.eta(),/Progression indisponible/,'No estimate from acknowledgements across a discontinuity');
   for(let i=1;i<=10;i++){f.advance(1000);f.send({received:21+i});}
-  assert.match(f.eta(),/1 min 9 s/);
+  assert.match(f.eta(),/Progression indisponible/);
 }
 {
-  const f=estimateFixture(true);learn(f);f.jumpWall(-3600000);f.advance(1000);f.send({received:21});
-  assert.match(f.eta(),/1 min 19 s/,'Elapsed clock must ignore wall-clock changes');
+  const f=estimateFixture(true);learn(f);
+  const jp={durationSeconds:100,percent:20,remainingSeconds:80,elapsedSeconds:20};
+  f.send({jobProgress:jp});f.jumpWall(-3600000);f.advance(1000);f.send({received:21});
+  assert.match(f.eta(),/1 min 20 s/,'Server elapsed time must ignore page wall-clock changes');
   f.send({workflow:'paused'});
   for(let i=0;i<20;i++){f.advance(1000);f.send();}
-  assert.match(f.eta(),/En pause.*1 min 19 s/);
+  assert.match(f.eta(),/En pause.*1 min 20 s/);
   f.send({workflow:'running'});f.advance(1000);f.send({received:22});
-  assert.match(f.eta(),/1 min 18 s/,'Paused time must not increase the estimate');
+  assert.match(f.eta(),/1 min 20 s/,'Paused time must not increase the estimate without new server facts');
   for(let i=0;i<20;i++)f.send();
-  assert.match(f.eta(),/1 min 18 s/,'Repeated paints must not change the estimate');
-  f.send({received:100});assert.match(f.eta(),/attendre la fin des mouvements/);
+  assert.match(f.eta(),/1 min 20 s/,'Repeated paints must not change the estimate');
+  f.send({received:100});assert.match(f.eta(),/1 min 20 s/);
   assert.doesNotMatch(f.eta(),/Terminé/);
 }
 for(const remainingSeconds of [null,undefined,NaN,Infinity,-1,'60']){
@@ -137,7 +139,7 @@ for(const remainingSeconds of [null,undefined,NaN,Infinity,-1,'60']){
   f.send({workflow:'paused'},true);assert.match(f.eta(),/estimation suspendue/);
 }
 for(const changes of [{revision:2},{total:200},{received:5},{name:'other.nc'}]){
-  const f=estimateFixture();learn(f);f.send(changes);assert.match(f.eta(),/calcul en cours/);
+  const f=estimateFixture();learn(f);f.send(changes);assert.match(f.eta(),/Progression indisponible/);
 }
 {
   const f=estimateFixture();f.send({name:'',total:0,received:0});assert.match(f.eta(),/chargez un fichier/);
@@ -147,10 +149,10 @@ for(const changes of [{revision:2},{total:200},{received:5},{name:'other.nc'}]){
 // Above 2 minutes the remaining time is shown to the (next) minute: the text does not change
 // at every report (each change lays Suivi out on the tablet); seconds come back under 2 min.
 {
-  const f=estimateFixture();f.send({total:1000,received:10});for(let i=1;i<=10;i++){f.advance(1000);f.send({received:10+i});}
+  const f=estimateFixture();f.send({total:1000,received:10,jobProgress:{durationSeconds:1100,percent:10,remainingSeconds:1010}});for(let i=1;i<=10;i++){f.advance(1000);f.send({received:10+i});}
   const shown=f.eta();assert.match(shown,/Temps restant estimé : 17 min$/,shown);
   for(let i=1;i<=4;i++){f.advance(250);f.send({received:20+i/4});}assert.equal(f.eta(),shown,'unchanged over a second of reports at the same pace');
-  const g=estimateFixture();g.send({total:100,received:10});for(let i=1;i<=10;i++){g.advance(1000);g.send({received:10+i});}assert.match(g.eta(),/1 min 20 s/);
+  const g=estimateFixture();g.send({total:100,received:10,jobProgress:{durationSeconds:100,percent:20,remainingSeconds:80}});for(let i=1;i<=10;i++){g.advance(1000);g.send({received:10+i});}assert.match(g.eta(),/1 min 20 s/);
 }
 console.log('PASS: strict finite counters, stale status, clock jumps, pause, sleep/relearning, job identity, malformed simulation duration and acknowledged-lines completion.');
 
@@ -208,10 +210,10 @@ console.log('PASS: strict finite counters, stale status, clock jumps, pause, sle
   const rates = { $110: '6000', $111: '6000', $112: '1000' };
   const run = { port: 'P', name: 'part.nc', revision: 1, fresh: true, total: est.lines, received: 20, workflow: 'running', canStart: false, activeState: 'Run', settings: rates, overrides: { feed: 110, spindle: 100, rapid: 25 }, feedrate: 1800 };
   send(run);
-  assert.match(text('home-gauge-eta-title'), /^Reste /); assert.match(text('home-gauge-eta-source'), /^mouvements \(sans accélérations\), pas encore corrigé$/);
+  assert.match(text('home-gauge-eta-title'), /^Temps restant estimé/); assert.equal(text('home-gauge-eta-source'), 'Durée calculée depuis le programme chargé');
   for (let r = 21; r <= 50; r++) { clock += 1000; send({ ...run, received: r }); }
-  assert.match(text('home-gauge-eta-title'), /^Reste \d/); assert.match(text('home-gauge-eta-source'), /^mouvements, corrigé ×0,5 d’après les lignes acquittées$/);
-  assert.match(text('home-gauge-eta-second'), /^Selon le rythme observé : /); assert.equal(node('home-gauge-eta-second').hidden, false);
+  assert.match(text('home-gauge-eta-title'), /^Temps restant estimé : \d/); assert.equal(text('home-gauge-eta-source'), 'Durée calculée depuis le programme chargé');
+  assert.equal(text('home-gauge-eta-second'), ''); assert.equal(node('home-gauge-eta-second').hidden, true);
   assert.match(text('home-gauge-eta-unknown'), /^Durées inconnues à venir : pause M0 \(l\. 51\), changement d’outil M6/);
   assert.equal(text('home-gauge-ack-value'), '50 / ' + est.lines, 'fallback rule: the received lines');
   window.CNCToolPosition = { acknowledged: () => 8412.7 };
@@ -225,9 +227,14 @@ console.log('PASS: strict finite counters, stale status, clock jumps, pause, sle
   // Rapids unknown: the observed rhythm is the title, the moves the second estimate.
   delete window.CNCToolPosition;
   send({ ...run, settings: null, received: 51 }); clock += 1000; send({ ...run, settings: null, received: 52 });
-  assert.match(text('home-gauge-eta-source'), /^rythme observé des lignes acquittées$/); assert.match(text('home-gauge-eta-second'), /^Selon les mouvements : .*\(rapides non comptés\)$/);
+  assert.equal(text('home-gauge-eta-source'), ''); assert.equal(text('home-gauge-eta-second'), '');
   // Paused: the existing wording, nothing invented; stale: no override value.
   send({ ...run, received: 52, workflow: 'paused' }); assert.match(text('home-gauge-eta-title'), /^En pause — /);
+  send({ ...run, jobProgress: { durationSeconds: null, percent: null, remainingSeconds: null, elapsedSeconds: 150 } });
+  assert.equal(text('home-gauge-eta-title'), 'Progression indisponible');
+  assert.equal(text('home-gauge-eta-second'), 'Temps écoulé : 2 min 30 s');
+  assert.equal(node('home-gauge-eta-second').hidden, false, 'elapsed time remains visible outside the single-line v2 title');
+  assert.equal(text('home-gauge-eta-source'), '');
   send({ ...run, received: 52, fresh: false }); assert.equal(text('home-gauge-ov-feed'), '—'); assert.equal(text('home-gauge-ack-value'), '—');
   // Simulation: the simulated duration, said so.
   send({ ...run, received: 20, remainingSeconds: 40 }, true); assert.equal(text('home-gauge-eta-title'), 'Reste 40 s'); assert.match(text('home-gauge-eta-source'), /simulée/);
@@ -262,6 +269,6 @@ function progressFixture() {
  f.advance(1000);f.send({received:12});assert.equal(f.percent(),'1 %','each entry in running resets the clock');
  const g=progressFixture();g.send({fingerprint:'sha256:bb'});g.preview({file:'part.nc',fingerprint:'sha256:aa',estimate:{version:1,feedSeconds:10}});
  for(let i=1;i<=5;i++){g.advance(1000);g.send({received:5+7*i});}
- assert.equal(g.percent(),'80 %','C-53: previous version estimate ignored');
- g.send({received:50});assert.equal(g.percent(),'99 %','no matching estimate: capped at 99');
+ assert.equal(g.percent(),'—','C-53: previous version estimate ignored, without a buffer fallback');
+ g.send({received:50});assert.equal(g.percent(),'—','no matching estimate: unavailable even with all lines buffered');
 }

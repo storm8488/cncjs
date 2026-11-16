@@ -1,5 +1,10 @@
 // Source phrase, English, Spanish. UI only: never translate controller commands or user data.
 window.CNCTouchMessages = [
+['Progression indisponible','Progress unavailable','Progreso no disponible'],
+['Temps écoulé : ','Elapsed time: ','Tiempo transcurrido: '],
+['Temps restant estimé','Estimated time remaining','Tiempo restante estimado'],
+['Durée calculée depuis le programme chargé','Duration calculated from the loaded program','Duración calculada a partir del programa cargado'],
+['Progression estimée selon la durée des mouvements, sans les accélérations.','Progress estimated from motion duration, excluding acceleration.','Progreso estimado según la duración de los movimientos, sin aceleraciones.'],
 ['Données manquantes.','Missing data.','Faltan datos.'],
 ['Relisez les réglages.','Reread the settings.','Vuelva a leer los ajustes.'],
 ['Tient dans la machine.','Fits in the machine.','Cabe en la máquina.'],

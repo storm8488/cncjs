@@ -126,6 +126,44 @@ const setup = (options = {}) => {
   return ctx;
 };
 
+describe('program progress without a preview sidecar', () => {
+  test('the snapshot follows this run, even when the whole short program is acknowledged immediately', async () => {
+    const ctx = setup();
+    ctx.c.settings.settings = { ...ctx.c.settings.settings, $13: 0 };
+    ctx.c.state.status = { activeState: 'Idle', wpos: { x: 0, y: 0, z: 0 }, mpos: { x: 0, y: 0, z: 0 }, ov: [100, 100, 100] };
+    ctx.c.state.parserstate = { modal: { wcs: 'G54', feedrate: 'G94' } };
+    ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
+    const report = () => ctx.c.runner.emit('status', { wpos: ctx.c.state.status.wpos });
+    report();
+    await ctx.req('load', { file: 'test.nc' });
+    expect(ctx.state().jobProgress).toBeNull();
+    const ticket = await ctx.req('prepare', { operation: 'start', revision: ctx.state().revision });
+    await ctx.req('start', { nonce: ticket.nonce });
+    ctx.c.state.status.activeState = 'Run';
+    ctx.c.sender.state.received = ctx.c.sender.state.total;
+    report();
+    expect(ctx.state().jobProgress).toMatchObject({ durationSeconds: 0.6, percent: 0, elapsedSeconds: 0 });
+    ctx.now += 100; report();
+    expect(ctx.state().jobProgress.percent).toBeCloseTo(100 / 6);
+    ctx.c.workflow.state = 'paused'; ctx.c.state.status.activeState = 'Hold'; ctx.c.workflow.emit('pause');
+    ctx.now += 100; report();
+    expect(ctx.state().jobProgress.activeSeconds).toBeCloseTo(0.1);
+    ctx.c.workflow.state = 'running'; ctx.c.state.status.activeState = 'Run'; ctx.c.workflow.emit('resume');
+    ctx.now += 100; report();
+    expect(ctx.state().jobProgress).toMatchObject({ elapsedSeconds: 0.3, activeSeconds: 0.2 });
+    expect(ctx.state().jobProgress.percent).toBeCloseTo(100 / 3);
+    ctx.now += 500; report();
+    expect(ctx.state().jobProgress).toMatchObject({ percent: null, remainingSeconds: null });
+    expect(ctx.state().finished).toBe(false);
+    ctx.c.sender.emit('end'); ctx.c.workflow.state = 'idle'; report();
+    expect(ctx.state().finished).toBe(true);
+    ctx.c.command('gcode:start'); ctx.c.sender.state.received = 0; report();
+    expect(ctx.state().jobProgress).toMatchObject({ elapsedSeconds: 0, activeSeconds: 0, percent: 0 });
+    ctx.now += 3000; report();
+    expect(ctx.state().jobProgress).toMatchObject({ elapsedSeconds: 3, percent: null, durationSeconds: null });
+  });
+});
+
 describe('last alarm across a board restart', () => {
   test('our confirmed homing clears the incident only after its completed cycle', async () => {
     const ctx = setup();
@@ -212,6 +250,8 @@ describe('spindle stop in alarm', () => {
   });
 });
 
+// Existing comprehensive service scenarios share the same test lifecycle.
+// eslint-disable-next-line max-lines-per-function
 describe('job service', () => {
   test('a controller destroyed by CNCjs (runner and sender set to null) is forgotten, not fatal', () => {
     const ctx = setup();

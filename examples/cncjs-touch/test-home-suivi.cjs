@@ -138,9 +138,9 @@ for (const lang of [null, 'es']) {
   for (let i = 1; i <= 12; i++) { p.advance(1000); p.send({...run, received: 40 + i, activeState: 'Alarm', alarmCode: 1, canPause: false}); }
   assert.equal(p.node('home-job-eta').textContent, 'Alarme — estimation suspendue', 'still suspended');
   p.advance(1000); p.send({...run, received: 53});
-  assert.equal(p.node('home-job-eta').textContent, 'Temps restant : calcul en cours…', 'no rhythm learned during the alarm');
+  assert.equal(p.node('home-job-eta').textContent, 'Progression indisponible', 'no rhythm learned during the alarm');
   for (let i = 1; i <= 11; i++) { p.advance(1000); p.send({...run, received: 53 + i}); }
-  assert.match(p.node('home-job-eta').textContent, /^Temps restant estimé : /, 'learned again once running');
+  assert.equal(p.node('home-job-eta').textContent, 'Progression indisponible', 'acknowledgements never become a motion estimate');
   // Revue : the alarm title also wins over « toutes les lignes acquittées » and « travail arrêté » (both expect a normal end).
   p.send({...run, received: 100, activeState: 'Alarm', alarmCode: 1, canPause: false});
   assert.equal(p.node('home-job-eta').textContent, 'Alarme — estimation suspendue', 'alarm with every line acknowledged');

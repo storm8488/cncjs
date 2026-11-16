@@ -276,17 +276,28 @@
     // A program that reached its end with lines refused by Grbl (error:N) is not "finished".
     var failed=!simulation&&c&&c.finishedWithErrors===true&&finiteNumber(c.jobErrors)&&c.jobErrors>0;
     if(valid&&(c.finished===true||failed)&&c.workflow==='idle')p=100;
-    // Real job without resume: the bar follows the running time against the motion estimate of the
-    // preview (CNCMotionEstimate.executedPercent), never ahead of the acknowledged lines.
-    if(valid&&!simulation&&p<100&&!c.resume){
+    var progressKnown=valid,programProgress=null,elapsed=null;
+    // Acknowledgements only describe the sender's buffer. Prefer the server's model of this run;
+    // an older server may use a matching preview, but never the buffer percentage as a fallback.
+    if(valid&&!simulation&&!(c.workflow==='idle'&&(c.finished===true||failed))){
       var runKey=c.port+':'+c.name+':'+c.revision+':'+c.total,pvRun=$('home-job-image')&&$('home-job-image').cncPreview,MEr=window.CNCMotionEstimate;
       if(!runTrack||runTrack.key!==runKey||c.workflow==='idle')runTrack={key:runKey,active:0,last:now};
       var runDt=(now-runTrack.last)/1000;if(runDt>0&&runDt<=3&&c.workflow==='running'&&!/^alarm/i.test(String(c.activeState||'')))runTrack.active+=runDt;runTrack.last=now;
-      var runP=MEr&&typeof MEr.executedPercent==='function'&&samePreview(pvRun,c)&&pvRun.estimate?MEr.executedPercent(pvRun.estimate,MEr.ratesFrom(c.settings),runTrack.active,p):null;
-      if(runP!==null)p=runP;
+      var runP=null,jp=c.jobProgress;
+      if(jp&&finiteNumber(jp.elapsedSeconds)&&jp.elapsedSeconds>=0)elapsed=jp.elapsedSeconds;
+      if('jobProgress' in c){
+        if(jp&&finiteNumber(jp.percent)&&jp.percent>=0&&jp.percent<=99&&finiteNumber(jp.durationSeconds)&&jp.durationSeconds>0&&finiteNumber(jp.remainingSeconds)&&jp.remainingSeconds>=0){runP=jp.percent;programProgress=jp;}
+      }else if(!c.resume&&MEr&&typeof MEr.executedPercent==='function'&&samePreview(pvRun,c)&&pvRun.estimate){
+        runP=MEr.executedPercent(pvRun.estimate,MEr.ratesFrom(c.settings),runTrack.active,100);
+        var totalRun=MEr.total(pvRun.estimate,MEr.ratesFrom(c.settings));
+        if(totalRun&&runTrack.active>=totalRun.high)runP=null;
+        if(runP!==null&&totalRun)programProgress={remainingSeconds:Math.max(0,totalRun.high-runTrack.active)};
+      }
+      progressKnown=runP!==null;
+      if(progressKnown)p=runP;
     }
     if(valid&&c.workflow==='running')p=Math.min(99,p);
-    var percent=valid?Math.floor(p)+' %':'—',remaining=null,eta=uiLocale.t('Temps restant : —');
+    var percent=progressKnown?Math.floor(p)+' %':'—',remaining=null,eta=uiLocale.t('Temps restant : —');
     var key=c?simulation+':'+c.port+':'+c.name+':'+c.revision+':'+c.total:'',alarmNow=!!(c&&/^alarm/i.test(String(c.activeState||'')));
     if(!valid){track=null;eta=c&&c.fresh&&!c.name?uiLocale.t('Temps restant : chargez un fichier'):uiLocale.t('Temps restant : état indisponible');}
     else {
@@ -308,6 +319,20 @@
       else if(c.canStart)eta=simulation?(remaining!==null?uiLocale.t('Durée simulée : ')+duration(remaining):uiLocale.t('Temps restant : état indisponible')):uiLocale.t('Temps restant : après démarrage');
       else if(c.workflow==='paused')eta=uiLocale.t('En pause — ')+(remaining!==null?remainingText(remaining)+uiLocale.t(' restantes'):uiLocale.t('estimation suspendue'));
       else eta=remaining!==null?uiLocale.t('Temps restant ')+(simulation?uiLocale.t('simulé'):uiLocale.t('estimé'))+' : '+remainingText(remaining):uiLocale.t('Temps restant : calcul en cours…');
+    }
+    var elapsedText='';
+    if(valid&&!simulation){
+      if(programProgress&&(c.workflow==='running'||c.workflow==='paused')){
+        remaining=programProgress.remainingSeconds;
+        eta=uiLocale.t('Temps restant estimé')+' : '+remainingText(remaining);
+        if(c.workflow==='paused')eta=uiLocale.t('En pause — ')+remainingText(remaining)+uiLocale.t(' restantes');
+      }else if(!progressKnown&&(c.workflow==='running'||c.workflow==='paused')){
+        remaining=null;
+        eta=uiLocale.t('Progression indisponible');
+        if(c.workflow==='paused')eta=uiLocale.t('En pause — ')+eta;
+      }
+      if(alarmNow)eta=uiLocale.t('Alarme — estimation suspendue');
+      if(elapsed!==null)elapsedText=uiLocale.t('Temps écoulé : ')+duration(Math.floor(elapsed));
     }
     if(visible('home')){
       var same=!!(c&&selection&&c.name===selection.file),different=!!(c&&c.name&&selection&&!same);
@@ -332,15 +357,15 @@
       preview(file);
       set('home-job-title','textContent',simulation?uiLocale.t('Suivi — SIMULATION'):uiLocale.t('Suivi du travail'));
       set('home-job-name','textContent',c&&c.name?(c.originalName||c.name):selection?uiLocale.t('Sélectionné : ')+selection.name:uiLocale.t('Aucun fichier chargé'));
-      set('home-job-percent','textContent',percent);set('home-job-progress','value',p);set('home-current-line','textContent',valid?uiLocale.t('ligne {n}').replace('{n}',number(c.jobStopped&&typeof c.stoppedAtLine==='number'?c.stoppedAtLine:acknowledgedLine(c,linesTotal(c)))):'—');
+      set('home-job-percent','textContent',percent);set('home-job-progress','value',progressKnown?p:0);set('home-job-progress','hidden',!progressKnown);set('home-current-line','textContent',valid?uiLocale.t('ligne {n}').replace('{n}',number(c.jobStopped&&typeof c.stoppedAtLine==='number'?c.stoppedAtLine:acknowledgedLine(c,linesTotal(c)))):'—');
       // The static help sentence of the job controls is not a command result: only results show here.
-      set('home-job-eta','textContent',eta);
+      set('home-job-eta','textContent',eta+(elapsedText?' · '+elapsedText:''));
       // In an alarm no remaining time sits under « estimation suspendue » (motionText still refreshes motionLeft).
-      var motion=motionText(c,file,now);if(alarmNow)motion='';set('home-job-motion','textContent',motion);set('home-job-motion','hidden',!motion);
-      if(zones.on)gauges(c,valid,p,eta,remaining);
-      set('home-job-note','textContent',simulation?uiLocale.t('Progression fictive sur 60 secondes, hors pauses. Aucun G-code exécuté.'):uiLocale.t('Progression des lignes acquittées. Estimation indicative selon le rythme observé, pas selon la durée des mouvements.'));
+      var motion='';motionLeft=null;if(simulation||!c||!('jobProgress' in c))motion=motionText(c,file,now);if(alarmNow)motion='';set('home-job-motion','textContent',motion);set('home-job-motion','hidden',!motion);
+      if(zones.on)gauges(c,valid,progressKnown?p:0,eta,remaining,programProgress,elapsedText);
+      set('home-job-note','textContent',simulation?uiLocale.t('Progression fictive sur 60 secondes, hors pauses. Aucun G-code exécuté.'):uiLocale.t('Progression estimée selon la durée des mouvements, sans les accélérations.'));
     }
-    if(visible('files'))set('job-progress-summary','textContent',percent+' · '+eta);
+    if(visible('files'))set('job-progress-summary','textContent',percent+' · '+eta+(elapsedText?' · '+elapsedText:''));
   }
   window.addEventListener('cnc-library-select',function(e){selection=e.detail;render();});
   window.addEventListener('cnc-job-status',function(e){var next=e.detail.machine;pilotElsewhere=!!(e.detail.pilot&&e.detail.pilot.state==='other');
@@ -444,14 +469,17 @@
     var pv=$('home-job-image').cncPreview,r=c.resume;
     return pv&&pv.file===c.name&&finiteNumber(pv.lines)&&pv.lines>0?pv.lines:r&&finiteNumber(r.from)&&finiteNumber(r.total)&&r.total>0?r.total:c.total;
   }
-  function gauges(c,valid,p,eta,remaining){
+  function gauges(c,valid,p,eta,remaining,programProgress,elapsedText){
     var left=motionLeft,running=!!(valid&&c.workflow==='running'&&p<100&&!/^alarm/i.test(String(c.activeState||'')));
     var title=eta,source='',second='',unknown='';
     var factor=left?(Math.round(left.factor*10)/10).toLocaleString(uiLocale.locale||'fr-FR'):'';
     // The estimate as given to the v2 observation model: the value shown, and where it comes from.
     v2.estimate={seconds:null,source:null,unknowns:[]};
     if(running&&simulation&&remaining!==null){title=uiLocale.t('Reste ')+remainingText(remaining);source=uiLocale.t('durée simulée, aucun G-code exécuté');v2.estimate={seconds:remaining,source:'simulation',unknowns:[]};}
-    else if(running&&left&&left.rapidKnown){
+    else if(running&&programProgress){
+      source=uiLocale.t('Durée calculée depuis le programme chargé');
+      v2.estimate={seconds:remaining,source:'program',unknowns:[]};
+    }else if(running&&left&&left.rapidKnown&&remaining!==null){
       title=uiLocale.t('Reste ')+remainingText(left.seconds);
       source=left.corrected?uiLocale.t('mouvements, corrigé ×')+factor+uiLocale.t(' d’après les lignes acquittées'):uiLocale.t('mouvements (sans accélérations), pas encore corrigé');
       if(remaining!==null)second=uiLocale.t('Selon le rythme observé : ')+remainingText(remaining);
@@ -465,6 +493,8 @@
       var ahead=unknownsText(left.unknownsAhead);if(ahead)unknown=uiLocale.t('Durées inconnues à venir : ')+ahead;
       (left.unknownsAhead||[]).forEach(function(u){if(u&&u.kind!=='rapid'&&v2.estimate.unknowns.indexOf(u.kind)<0)v2.estimate.unknowns.push(u.kind);});
     }
+    // The v2 title is a single line: elapsed time has its own wrapping line, never an ellipsis.
+    if(elapsedText)second=elapsedText;
     // Performance v2: the shorter titles of the 432 px column (the v1 ones were cut).
     if(zones.v2&&title===eta)V2_TITLES.forEach(function(d){if(eta===uiLocale.t(d[0]))title=say(d[1]);});
     set('home-gauge-eta-title','textContent',title);

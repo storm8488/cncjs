@@ -14,6 +14,8 @@ import { createProbeInput } from './probe-input.js';
 // eslint-disable-next-line import/extensions
 import { checkProgram } from './program-check.js';
 // eslint-disable-next-line import/extensions
+import { durationOf, createRunTime } from './program-time.js';
+// eslint-disable-next-line import/extensions
 import { createControl, SAFE_ACTIONS } from './control.js';
 // eslint-disable-next-line import/extensions
 import { createMotion, maxFeedOf, machinePositionKnown, MAX_JOG_MS, MIN_FEED } from './motion.js';
@@ -205,6 +207,8 @@ const GUARDED_ACTIONS = ['load', 'prepare', 'start', 'resume', 'macro', 'overrid
 // actions above, except `jog-stop`, which is free for everyone like Stop.
 const guarded = (body) => GUARDED_ACTIONS.includes(body.action) || (body.action === 'motion' && body.operation !== 'jog-stop');
 
+// The existing service factory owns the controller lifecycle and its shared guard closures.
+// eslint-disable-next-line max-lines-per-function
 export const createService = (store, config, clock = monotonic, options = {}) => {
   const records = new Map();
   const listeners = new Set();
@@ -247,6 +251,25 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
   };
 
   const controllers = () => store.get('controllers') || {};
+
+  const jobProgress = (c, r) => {
+    const j = r.job;
+    if (!j || !j.runTime) {
+      return null;
+    }
+    const now = clock();
+    const state = controllerStatus(c);
+    const fresh = Number.isFinite(r.seen) && now >= r.seen && now - r.seen <= MAX_REPORT_AGE_MS;
+    return j.runTime(now, {
+      fresh,
+      workflow: c.workflow.state,
+      activeState: state.activeState || '',
+      overrides: overridesOf(state),
+      ended: j.finishedAt !== null && j.finishedAt !== undefined,
+      stopped: j.stopped,
+      invalid: !!(!fresh || j.boardRestarted || j.errors || j.probeFailed || /^Alarm/.test(state.activeState || ''))
+    });
+  };
 
   // Deferred step of a stop, a probe or a spin-up, kept on the controller's
   // record so that forgetting the controller or disposing the service cancels
@@ -329,6 +352,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         wcoAt: null,
         // Status reports received, so a step can wait for a newer one.
         reports: 0,
+        xyzAt: null,
         generation: crypto.randomBytes(12).toString('hex')
       };
       // D2: whether the work offset the board applies is proven equal to `$#` (work-offset.js).
@@ -357,6 +381,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       };
       r.status = (payload) => {
         r.seen = clock();
+        if (explicitXyz(payload)) {
+          r.xyzAt = r.seen;
+        }
         // A work offset reported since the board started: what CNCjs needs to
         // turn a WPos report ($10 bit 0 clear) into a machine position (F1).
         const wco = payload && payload.wco;
@@ -366,6 +393,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
           r.wcoAt = clock();
         }
         r.reports += 1;
+        jobProgress(c, r);
         // The last explicit WCO: and the report that carried it (the block probe's check, C-03).
         if (explicitWco) {
           r.wco = { report: r.reports, x: Number(wco.x), y: Number(wco.y), z: Number(wco.z) };
@@ -478,6 +506,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         r.settingsAttempts = 0;
         r.settingsRetryAt = 0;
         r.seen = null;
+        r.xyzAt = null;
         r.modalSeen = null;
         r.wcs = null;
         r.ticket = null;
@@ -565,6 +594,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         r.offset.invalidate('end');
         if (r.job && r.job.started && !r.job.stopped) {
           r.job.finishedAt = clock();
+          jobProgress(c, r);
           log({
             event: 'finish',
             ...jobInfo(r.job),
@@ -630,6 +660,19 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
           r.job.probeFailed = false;
           r.job.errors = 0;
           r.job.lastError = null;
+          const state = controllerStatus(c);
+          const parser = modalFresh(r) ? ((c.runner.state || {}).parserstate || {}).modal || {} : {};
+          const context = {
+            ...machineForCheck(c, r),
+            overrides: overridesOf(state),
+            feedMode: parser.feedrate,
+            wcs: parser.wcs,
+            tlo: c.settings && c.settings.parameters && c.settings.parameters.TLO
+          };
+          if (r.xyzAt === null || clock() - r.xyzAt > MAX_REPORT_AGE_MS) {
+            context.wpos = {};
+          }
+          r.job.runTime = createRunTime(durationOf(r.job.analysis, context), clock(), context.overrides);
           // Our own start names its actor; a start made from the classic interface does not.
           const actor = r.job.startActor || { kind: 'socket', id: 'cncjs', label: 'interface CNCjs' };
           r.job.startActor = null;
@@ -640,6 +683,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
           changed();
         }
       };
+      r.progress = () => jobProgress(c, r);
       // A stop made outside the service (CNCjs's Stop or Reset on the PC, a macro):
       // the job is marked stopped with its line like one of ours (E6 / N10). Run
       // before CNCjs's own listener, which rewinds the sender.
@@ -650,12 +694,15 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
           const line = stopLine(c, r);
           r.lastStop = { file: j.name, line };
           j.stopped = true;
+          jobProgress(c, r);
           log({ event: 'stop', ...jobInfo(j), controller: controllerInfo(c, r), result: 'stopped', line, probing: !!r.probing, actor: SYSTEM });
           changed();
         }
       };
       if (c.workflow && typeof c.workflow.on === 'function') {
         c.workflow.on('start', r.run);
+        c.workflow.on('pause', r.progress);
+        c.workflow.on('resume', r.progress);
         if (typeof c.workflow.prependListener === 'function') {
           c.workflow.prependListener('stop', r.stopped);
         }
@@ -723,6 +770,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
     if (c.workflow && typeof c.workflow.removeListener === 'function') {
       c.workflow.removeListener('start', r.run);
+      c.workflow.removeListener('pause', r.progress);
+      c.workflow.removeListener('resume', r.progress);
       c.workflow.removeListener('stop', r.stopped);
     }
     if (c.sender) {
@@ -1633,6 +1682,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       originalName: r.job && r.job.originalName,
       // SHA-256 of the loaded file (A5): the client compares it with its preview's.
       fingerprint: (r.job && r.job.fingerprint) || null,
+      // Bound to this loaded revision and this execution, independently of any preview sidecar.
+      jobProgress: jobProgress(c, r),
       // Travel pre-check of the loaded program against this machine now (F2).
       programCheck: r.job && r.job.analysis ? checkProgram(r.job.analysis, machineForCheck(c, r)) : null,
       homed: r.homed === true,

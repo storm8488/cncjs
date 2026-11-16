@@ -1,5 +1,34 @@
 # Validation scope
 
+## Program progress without a preview (PROG, 2026-11-16)
+
+`test-program-progress.cjs` is registered in verify-project. A synthetic 56-line
+program has 52, then all 56 lines acknowledged immediately and no sidecar. It
+must show the server execution estimate, advancing independently of the buffer,
+then elapsed time with unavailable progress if the estimate is exhausted. It
+also checks reload, new execution, pause/resume, rebuilt resume, stale preview,
+malformed percentages and FR/EN/ES. No controller command or network request.
+
+`program-time.test.js` checks the shared travel walk's timing model (initial
+approach, linear/XY arc/helical length, units, feeds, dwells, axis limits,
+overrides), unsupported inputs and bounded memory. Its execution clock tests
+holds, discontinuities, override changes, stopping and exhausted estimates.
+The added `job-service.test.js` case loads a real temporary program through the
+service and checks snapshots across start/pause/resume/end/new start and a gap.
+
+`test-dashboard` migrates the old buffer-rhythm ETA/relearning expectations to
+unavailable progress or explicit server time. It keeps strict counter/staleness,
+clock, pause, simulation, rounding, identity and completion assertions. Its
+gauge source/secondary estimate expectations now reject the buffer fallback.
+C-53 expects unavailable instead of 80%/99% from a foreign preview's counters.
+`test-home-suivi` expects unavailable after an alarm instead of relearning time
+from acknowledgements. No existing assertion is removed; no command guard is
+weakened. P3's historical “rhythm remains covered” below is superseded here.
+
+Browser acceptance: `browser-run --strict --only screens`, explicit Edge and
+ignored `output/codex-PROG`. Local tests do not establish timing accuracy or
+rendering on the CNC tablet, RT or physical machine.
+
 ## Control labels and rail words (CTRL, 2026-11-16)
 
 `test-control-labels.cjs` is registered in verify-project. It checks FR/EN/ES

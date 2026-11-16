@@ -1,5 +1,22 @@
 # Carte de l'interface CNCjs Touch pour la chasse aux bugs
 
+## PROG — progression sans fiche d’aperçu (2026-11-16)
+
+`program-check.js` collecte un modèle de durée pendant sa lecture du programme,
+sans modifier ses verdicts. `program-time.js` le résout au départ avec les
+positions, avances et rapides connus. `job-service.js` publie `jobProgress`
+dans l’instantané : durée, temps écoulé, temps actif, pourcentage et reste
+estimés (ou `null`). Ce champ appartient à l’exécution de la révision chargée.
+La page ne confond plus les lignes acquittées avec l’usinage, y compris quand
+le tampon reçoit les 56 lignes au départ. Sans modèle fiable : temps écoulé,
+« Progression indisponible » et barre masquée ; 100 % reste lié à la fin serveur.
+
+Preuves durables : `test-program-progress.cjs`, `program-time.test.js` et le cas
+sans aperçu de `job-service.test.js`. Les assertions de rythme de `test-dashboard`
+et `test-home-suivi` sont migrées, sans retrait. Le clock serveur conserve le temps
+actif en pause/reprise et après rechargement ; il repart à zéro au prochain start.
+La précision réelle des durées (sans accélérations) reste à vérifier en atelier.
+
 ## HARN — harnais adapté au fil de séance (2026-11-16)
 
 `browser-run.cjs` et `browser-strip.cjs` suivent Fichier, Contrôle et Usinage,
