@@ -21,7 +21,11 @@ const whitelist = [
   // IPv6 reserved space
   '::1/128', // loopback address to the local host
   'fc00::/7', // Unique local address
-  'fe80::/10' // Link-local address
+  'fe80::/10', // Link-local address
+
+  // Tailscale (CGNAT range of the tailnet): the owner's own devices only, the firewall of the
+  // tablet opens port 8000 on tailscale0 and the local network only
+  '100.64.0.0/10', '::ffff:100.64.0.0/10'
 ];
 
 export const authorizeIPAddress = (ipaddr) => new Promise((resolve, reject) => {
