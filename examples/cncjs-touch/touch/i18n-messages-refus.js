@@ -4,6 +4,13 @@
   window.CNCTouchRefus={
   "familles": [
     [
+      "flux-interrompu",
+      "Suivi interrompu : reconnexion en cours…",
+      "State stream lost: reconnecting…",
+      "Seguimiento interrumpido: reconectando…",
+      "details"
+    ],
+    [
       "non-connectee",
       "La machine n’est pas connectée.",
       "The machine is not connected.",

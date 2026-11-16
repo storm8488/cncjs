@@ -9,6 +9,7 @@ function load(options = {}) {
   let now = options.now || 1700000000000, created = 0;
   const nodes = {}, requests = [], listeners = {}, events = [], intervals = new Map(), periods = new Map(), reloads = [];
   let timerId = 0;
+  const timeouts = new Map();
   const storage = options.storage || new Map([['cnc', JSON.stringify({ state: { session: { token: 'offline-fixture' } } })]]);
   const doc = { hidden: false, activeElement: null };
   function element(id, tag) {
@@ -38,6 +39,7 @@ function load(options = {}) {
     removeEventListener(n, f) { listeners['doc:' + n] = (listeners['doc:' + n] || []).filter((x) => x !== f); } });
   function XHR() { this.responseText = ''; this.status = 0; this.headers = {}; this.open = (method, url) => { this.method = method; this.url = url; }; this.setRequestHeader = (k, v) => { this.headers[k] = v; }; this.send = (b) => { this.body = b && JSON.parse(b); requests.push(this); }; this.abort = () => { this.aborted = true; }; }
   const window = { location: { pathname: '/cnc/touch/', hostname: options.hostname || '' }, performance: options.performance, navigator: { onLine: options.onLine !== false, maxTouchPoints: options.touchPoints === undefined ? 5 : options.touchPoints }, XMLHttpRequest: XHR,
+    setTimeout(fn, ms) { const id = ++timerId; timeouts.set(id, { fn, at: now + ms }); return id; }, clearTimeout(id) { timeouts.delete(id); },
     setInterval(fn, ms) { const id = ++timerId; intervals.set(id, fn); periods.set(id, ms); return id; }, clearInterval(id) { intervals.delete(id); periods.delete(id); },
     addEventListener(n, f) { (listeners[n] || (listeners[n] = [])).push(f); }, removeEventListener(n, f) { listeners[n] = (listeners[n] || []).filter((x) => x !== f); },
     dispatchEvent(e) { events.push(e); (listeners[e.type] || []).slice().forEach((f) => f(e)); } };
@@ -47,7 +49,7 @@ function load(options = {}) {
   const context = { window, document: doc, XMLHttpRequest: XHR, localStorage,
     sessionStorage: { getItem: (k) => (session.has(k) ? session.get(k) : null), setItem: (k, v) => session.set(k, String(v)) },
     location: { origin: 'http://192.168.1.29:8000', reload: () => reloads.push(now) }, CustomEvent: function (type, o) { this.type = type; this.detail = o.detail; },
-    Date: class extends Date { static now() { return now; } }, Math, Promise, JSON, setInterval: window.setInterval, clearInterval: window.clearInterval };
+    Date: class extends Date { static now() { return now; } }, Math, Promise, JSON, setInterval: window.setInterval, clearInterval: window.clearInterval, setTimeout: window.setTimeout, clearTimeout: window.clearTimeout };
   vm.createContext(context);
   // options.language ('en' / 'es'): the page's catalog and cncI18n are loaded first, as in index.html
   // (options.catalogs: the per-lot i18n-messages-*.js loaded between them).
@@ -78,6 +80,6 @@ function load(options = {}) {
   return { window, document: doc, el:id=>/^job-(pause|resume|stop|feedback)$/.test(id)?require('./command-state-fixture.cjs')(window,id):el(id), nodes, requests, storage, events, listeners, flush, answer, machine, push, connect, posts, lastStatus, key, isStream,
     controls: () => window.cncJobControls, reloads, advance(ms) { now += ms; },
     // One second of the page: the 1 s loops (a 12 h timer of app.js is not run).
-    tick() { Array.from(intervals.keys()).filter((id) => !(periods.get(id) > 1000)).forEach((id) => intervals.get(id)()); } };
+    tick() { Array.from(timeouts).forEach(([id, t]) => { if (t.at <= now) { timeouts.delete(id); t.fn(); } }); Array.from(intervals.keys()).filter((id) => !(periods.get(id) > 1000)).forEach((id) => intervals.get(id)()); } };
 }
 module.exports = { load };

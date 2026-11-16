@@ -1,3 +1,4 @@
+/* global globalThis */
 (function (root) {
   'use strict';
   function finiteNonnegative(value){return typeof value==='number'&&isFinite(value)&&value>=0;}
@@ -35,12 +36,13 @@
     var token = options.token, clock = options.clock || monotonic, wall = options.clock || Date.now, timer = options.timer || root;
     // Last session refusal of the health check: while recent, the page's own refusals do not
     // bring the check forward (one check a minute while the session is refused).
-    var refusedAt = null;
+    var refusedAt = null, failures = 0;
+    function backoff(){var delay=Math.min(30000,1000*Math.pow(2,Math.min(failures,5)));failures++;return delay;}
     function recentlyRefused(){return refusedAt!==null&&clock()-refusedAt>=0&&clock()-refusedAt<60000;}
     function close(reason, delay, rotating) {
       generation++; var old = xhr; xhr = null; lastMessage = 0;
-      if (old) { old.onload = old.onerror = old.ontimeout = old.onprogress = null; old.abort(); }
-      retryAt = clock() + (delay === undefined ? 30000 : delay);
+      if (old) { old.onload = old.onerror = old.ontimeout = old.onabort = old.onprogress = null; old.abort(); }
+      retryAt = clock() + (delay === undefined ? backoff() : delay);
       options.onDisconnect(locale.t(reason), !!rotating);
     }
     function open() {
@@ -53,7 +55,7 @@
       request.onprogress = function () {
         if (id !== generation || request.status !== 200) return;
         var data = request.responseText || '', end;
-        if (data.length > 1200000) { close('Flux trop volumineux.'); return; } // > server grace limit (1 MiB)
+        if (data.length > 1200000) { close('Flux trop volumineux.',30000); return; } // > server grace limit (1 MiB)
         while ((end = data.indexOf('\n', cursor)) >= 0) {
           var line = data.slice(cursor, end); cursor = end + 1;
           if (!line) continue;
@@ -71,21 +73,21 @@
             var sinceOpen = Math.max(0, clock() - openedAt);
             if (clockOffset === null) clockOffset = wall() - sinceOpen - packet.sentAt;
             packet.transitMs = Math.max(0, Math.min(sinceOpen, wall() - packet.sentAt - clockOffset));
-            lastMessage = clock(); options.onSnapshot(packet);
-          } catch (_) { close('Réponse de suivi invalide.'); return; }
+            lastMessage = clock(); failures=0; options.onSnapshot(packet);
+          } catch (_) { close('Réponse de suivi invalide.',30000); return; }
         }
       };
       request.onload = function () {
         if (id !== generation) return;
         // Session refused (CNCjs answers 403 « Forbidden Access » in plain text, or 401): the health
         // check runs again at once; its refusal asks app.js for a renewal (onRefused).
-        if (request.status === 401 || request.status === 403) { available = false; if (!recentlyRefused()) healthAt = 0; close('Session CNCjs expirée.'); return; }
+        if (request.status === 401 || request.status === 403) { available = false; if (!recentlyRefused()) healthAt = 0; close('Session CNCjs expirée.'); health(); return; }
         request.onprogress();
         if (id !== generation) return;
-        close(rotate ? 'Renouvellement du suivi…' : 'Flux interrompu. Secours toutes les 10 s.', rotate ? 0 : 30000, rotate);
+        close(rotate ? 'Renouvellement du suivi…' : 'Suivi interrompu : reconnexion en cours…', rotate ? 0 : undefined, rotate);
         if (rotate) open();
       };
-      request.onerror = request.ontimeout = function () { if (id === generation) close('Flux indisponible. Secours toutes les 10 s.'); };
+      request.onerror = request.ontimeout = request.onabort = function () { if (id === generation) close('Suivi interrompu : reconnexion en cours…'); };
       request.send();
     }
     var healthRequest = null;
@@ -93,12 +95,12 @@
     function health() {
       if (disposed || healthRequest || clock() < healthAt) return;
       healthAt = clock() + 60000;
-      // No session yet (first start, expired token): nothing to send, app.js renews it and reloads.
+      // No session yet: app.js renews it in place and signals the new credential.
       if (!token()) { available = false; options.onStatus(locale.t('Session CNCjs requise.')); return; }
       var request = healthRequest = new XHR();
       request.open('GET',base+'/custom/health',true); request.timeout=5000;
       request.setRequestHeader('Authorization','Bearer '+token());
-      function fail(message) { healthRequest=null; available=false; options.onStatus(locale.t(message)); }
+      function fail(message, delay) { healthRequest=null; available=false; healthAt=clock()+(delay===undefined?backoff():delay); options.onStatus(locale.t(message)); }
       request.onload=function(){
         if(disposed||healthRequest!==request)return;
         healthRequest=null;
@@ -108,7 +110,7 @@
           available=true; refusedAt=null; options.onStatus(''); open();
         } catch (_) {
           var refused=request.status===401||request.status===403;
-          fail(refused?'Session CNCjs expirée.': 'Module de suivi absent ou incompatible. Secours toutes les 10 s ; actions bloquées si état ancien.');
+          fail(refused?'Session CNCjs expirée.': 'Module de suivi absent ou incompatible. Secours toutes les 10 s ; actions bloquées si état ancien.',60000);
           if(refused){refusedAt=clock();if(options.onRefused)options.onRefused();}
         }
       };
@@ -129,11 +131,11 @@
     return {alive:function(){return !!lastMessage && clock()-lastMessage>=0&&clock()-lastMessage<3000;},
       setOnline:setOnline,
       // A request of the page was refused for its session: the health check runs again at once.
-      refused:function(){if(disposed)return;available=false;if(!recentlyRefused())healthAt=0;},
+      refused:function(){if(disposed)return;available=false;if(!recentlyRefused())healthAt=0;close('Session CNCjs expirée.');},
       reconnect:function(reason, immediate){
         if(disposed)return;
         close(reason||'Connexion interrompue. Nouvelle confirmation requise.',immediate?0:30000);
-        if(immediate){if(available)open();else{healthAt=0;health();}}
+        if(immediate){cancelHealth();refusedAt=null;if(available)open();else{healthAt=0;health();}}
       },
       dispose:function(){if(disposed)return;disposed=true;timer.clearInterval(interval);close('Suivi fermé.');cancelHealth();}
     };

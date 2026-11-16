@@ -31,14 +31,15 @@ function run({ stored, socketError } = {}) {
   return { storage, requests, timers, advance(ms) { clock.mono += ms; clock.wall += ms; }, get reloads() { return reloads; }, get socket() { return socket; }, token: () => JSON.parse(storage.cnc).state.session.token };
 }
 
-// No session yet (fresh kiosk): asks for one, stores it, reloads once to connect with it.
+// No session yet (fresh kiosk): asks for one, stores it and starts in place.
 let r = run();
 assert.equal(r.requests.length, 1);
 assert.equal(r.requests[0].url, '/api' + '/signin');
 assert.deepEqual(r.requests[0].body, {});
 r.requests[0].answer(200, { enabled: false, token: 'fresh', name: '' });
 assert.equal(r.token(), 'fresh');
-assert.equal(r.reloads, 1);
+assert.equal(r.reloads, 0);
+assert(r.socket, 'fresh session starts the page without reloading');
 
 // CNCjs with users: no token is given without a password, nothing is stored, no reload.
 r = run();
@@ -62,7 +63,7 @@ r.advance(12 * 3600 * 1000); every.fn();
 r.requests[1].answer(200, { enabled: true, token: 'new', name: 'ana' });
 assert.equal(r.storage.cnc, before);
 
-// The socket refuses an expired token: renewed, then one reload (not a loop). One renewal
+// The socket refuses an expired token: renewed in place. One renewal
 // attempt a minute at most for the whole page (the load counts).
 assert(r.socket, 'socket opened with the stored token');
 {
@@ -72,17 +73,17 @@ assert(r.socket, 'socket opened with the stored token');
   r.advance(60000);
   r.socket.handlers.error({ message: 'jwt expired', code: 'invalid_token', type: 'UnauthorizedError' });
   r.requests[r.requests.length - 1].answer(200, { enabled: false, token: 'newer', name: '' });
-  assert.equal(r.reloads, 1);
+  assert.equal(r.reloads, 0);
   // Renewals (hence reloads) are a minute apart at least: none 30 s later, one after the minute.
   r.advance(30000);
   const asked = r.requests.length;
   r.socket.handlers.error({ message: 'jwt expired' });
   assert.equal(r.requests.length, asked, 'no renewal 30 s later');
-  assert.equal(r.reloads, 1, 'at most one reload a minute');
+  assert.equal(r.reloads, 0, 'no reload during renewal');
   r.advance(30000);
   r.socket.handlers.error({ message: 'jwt expired' });
   r.requests[r.requests.length - 1].answer(200, { enabled: false, token: 'newest', name: '' });
-  assert.equal(r.reloads, 2, 'a minute later, renewed and reloaded again');
+  assert.equal(r.reloads, 0, 'a minute later, renewed in place again');
   // Other connection errors do not touch the session.
   const n = r.requests.length;
   r.advance(60000);
@@ -90,4 +91,4 @@ assert(r.socket, 'socket opened with the stored token');
   assert.equal(r.requests.length, n);
 }
 
-console.log('PASS: session token asked for when missing (one reload), renewed in place and every 12 h, untouched with CNCjs users, renewed on a refused socket token without reload loops.');
+console.log('PASS: session token asked for when missing, renewed in place and every 12 h, untouched with CNCjs users, renewed on a refused socket token without reload.');

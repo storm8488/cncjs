@@ -78,8 +78,18 @@ assert.equal(f.byId('t-state-text').textContent,'Alarme 1');assert.equal(f.byId(
 f.send({machine:m({activeState:'Door:1'}),transportConnected:true});assert.equal(f.byId('t-state-text').textContent,'Porte ouverte');
 f.send({machine:m({statusAgeMs:4000,fresh:false}),transportConnected:true});
 assert.equal(f.byId('t-state-text').textContent,'Rapport ancien');assert.equal(f.byId('t-fresh').getAttribute('data-stale'),'true');assert.equal(f.byId('t-fresh-text').textContent,'ancienne · 4 s');assert.equal(f.byId('t-spindle').textContent,'—');
-// N3: a recent state read by HTTP while the stream is down is shown at once (not « Hors ligne »).
-f.send({machine:m(),transportConnected:false});assert.equal(f.byId('t-state-text').textContent,'Repos');assert.equal(f.byId('t-state').getAttribute('data-tone'),'ok');
+// FIGE supersedes N3's green fallback: a fresh HTTP read cannot attest the event stream.
+f.send({machine:m(),transportConnected:false});assert.equal(f.byId('t-state-text').textContent,'Reconnexion…');assert.equal(f.byId('t-state').getAttribute('data-tone'),'warn');
+assert.equal(f.byId('t-fresh-text').textContent,'suivi perdu');assert.equal(f.byId('t-fresh').getAttribute('data-stale'),'true');
+for(const activeState of ['Idle','Run','Hold:0','Alarm']){
+  f.send({machine:m({activeState}),transportConnected:false});
+  assert.equal(f.byId('t-state-text').textContent,'Reconnexion…');assert.notEqual(f.byId('t-fresh-text').textContent,'à jour');
+}
+// Planned rotation may retain journal continuity, but no packet means no green freshness.
+f.send({machine:m(),transportConnected:true,streamConnected:false});
+assert.equal(f.byId('t-state').getAttribute('data-tone'),'warn');assert.equal(f.byId('t-fresh').getAttribute('data-stale'),'true');
+f.send({machine:m({fresh:false,statusAgeMs:0}),transportConnected:true});
+assert.equal(f.byId('t-fresh-text').textContent,'Rapport ancien','a numeric age alone is never a freshness proof');
 f.send({machine:null,transportConnected:false});assert.equal(f.byId('t-state-text').textContent,'Hors ligne');
 // V6: a deduced code is never shown as received: « Alarme 3 » with the note « déduite ».
 f.send({machine:m({activeState:'Alarm',alarmCode:3,alarmCodeKept:true,alarmCodeInferred:true}),transportConnected:true});

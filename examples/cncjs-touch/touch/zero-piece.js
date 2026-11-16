@@ -82,9 +82,11 @@
   function inputsKey(){return JSON.stringify([machine&&machine.port,machine&&machine.generation,machine&&machine.coordinates,machine&&machine.operator,machine&&machine.workOffset,machine&&machine.refusals,machine&&machine.canBlockProbe,machine&&machine.canZeroZ,status.pilot,operation,profile(),diameter]);}
   function cycle(){return real.cycle(machine)||!!status.probeRun||!machine&&wasProbing&&!!(status.halt&&status.halt.canStop);}
   function live(){return machine&&machine.probeInput?model.liveInput(machine.probeInput,Date.now()-received).state:'unknown';}
-  function permitted(name){return !!(machine&&machine.fresh===true&&Date.now()-received<2500&&status.transportConnected===true&&!status.busy&&!status.systemCommand&&!(status.pilot&&status.pilot.state==='other')&&machine[name]===true&&!pending&&!cycle());}
+  function flowConnected(){return (status.streamConnected===undefined?status.transportConnected:status.streamConnected)===true;}
+  function permitted(name){return !!(machine&&machine.fresh===true&&Date.now()-received<2500&&flowConnected()&&!status.busy&&!status.systemCommand&&!(status.pilot&&status.pilot.state==='other')&&machine[name]===true&&!pending&&!cycle());}
   function missing(p,d){return model.validate(p,operation,d).length>0;}
   function errorFor(op){
+    if(!flowConnected())return {code:'CNC_TOUCH_STREAM_LOST'};
     if(!machine||!machine.port)return {message:'Machine non connectée.'};
     if(machine.fresh!==true||Date.now()-received>=2500||status.transportConnected!==true)return {code:'ETOUCH_MACHINE_STALE'};
     if(status.pilot&&status.pilot.state==='other')return {code:'ECONTROL',params:{appareil:status.pilot.name||status.pilot.value}};

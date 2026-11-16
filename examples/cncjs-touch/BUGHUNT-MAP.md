@@ -535,3 +535,17 @@ in `browser-control-labels.cjs`. The `screens` step runs the full FR/EN/ES
 standard/large v1/v2 matrix. No existing bughunt proof was changed or removed.
 The Edge attempt fails before scenarios (WebSocket error); rendered separation
 remains unverified here. Source rollback proofs are kept in ignored output.
+## FIGE — flux tactile et session après redémarrage (2026-11-16)
+
+Le bandeau assimilait une lecture HTTP de secours récente à un flux tactile à
+jour. Le renouvellement de session reposait sur reload et certains refus locaux
+restaient muets. La reprise réseau est désormais croissante et bornée ; le jeton
+est adopté sur place, la confirmation ancienne annulée et aucune action rejouée.
+Le secours et la grâce de rotation ne réactivent plus flèches, zéros et départ.
+Pause et Arrêter gardent leurs chemins de secours.
+
+Preuves durables : `test-flow-recovery.cjs`, `test-status-strip.cjs`,
+`test-seance.cjs` et les tests de session existants adaptés. Huit substitutions
+HEAD en mémoire échouent. La durée exacte du gel réel n'est pas reproduite.
+Le harnais ciblé `e2e,strip` échoue avant scénario sur `timeout Page.enable` ;
+le pilote doit le rejouer avant réception navigateur.

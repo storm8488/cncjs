@@ -527,11 +527,12 @@
     var d=e&&e.detail;if(!d||d.simulation)return;
     var next=d.machine||null;
     // Another controller, another board start, or the stream gone: the held jog stops now.
-    var lost=!next||!d.transportConnected||(machine&&(next.port!==machine.port||next.generation!==machine.generation));
+    var flowConnected=d.streamConnected===undefined?d.transportConnected:d.streamConnected;
+    var lost=!next||!flowConnected||(machine&&(next.port!==machine.port||next.generation!==machine.generation));
     if(hold&&(lost||next.port!==hold.port))stopHold(t('suivi interrompu'));
     var other=!!(d.pilot&&d.pilot.state==='other');
     if(stepping&&(lost||other||!next.fresh))stopStep(other?t('pilotage pris par un autre appareil'):lost?t('suivi interrompu'):t('rapport machine trop ancien'));
-    machine=next;connected=!!d.transportConnected;pilot=d.pilot||null;received=now();observedAt=typeof d.observedAt==='number'?d.observedAt:null;
+    machine=next;connected=!!flowConnected;pilot=d.pilot||null;received=now();observedAt=typeof d.observedAt==='number'?d.observedAt:null;
     // The function switched off on the server: the held jog stops now (the server cancels it too).
     if(hold&&caps()&&!on('jogContinuous'))stopHold(t('fonction désactivée'));
     // A jog the server ended by itself (bound, alarm, keepalive): said once, in its own words.

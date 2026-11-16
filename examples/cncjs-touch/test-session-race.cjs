@@ -91,12 +91,13 @@ r.requests[0].answer(200, { enabled: false, token: 'fresh', name: '' });
 assert.equal(r.subscriptions, 1, 'D-8: store subscription installed');
 assert.equal(renewed, 1, 'the stream is told to check the new token at once');
 assert.equal(r.node('st-server').textContent, 'Serveur : suivi indisponible');
-// Outside the guard, the page still reloads once (unchanged).
+// Outside the former reload guard, the page also starts in place.
 r = run();
 r.requests[0].answer(200, { enabled: false, token: 'fresh', name: '' });
-assert.equal(r.reloads, 1);
+assert.equal(r.reloads, 0);
+assert.equal(r.sockets, 1);
 
-// B-3: a request refused for its session, CNCjs without users: renewed, one reload.
+// B-3 / FIGE: a refused session is replaced in place.
 r = run({ stored: { state: { session: { enabled: false, token: 'old', name: '' } } }, compact: true });
 r.requests[0].answer(200, { enabled: false, token: 'new', name: '' });
 assert.equal(r.reloads, 0, 'renewed in place at load');
@@ -109,7 +110,7 @@ assert.equal(r.requests.length, 2, 'one renewal at a time');
 assert.deepEqual(r.last().body, { token: 'new' });
 r.last().answer(200, { enabled: false, token: 'newer', name: '' });
 assert.equal(r.token(), 'newer');
-assert.equal(r.reloads, 1, 'B-3: reload with the renewed session');
+assert.equal(r.reloads, 0, 'FIGE: renewed session without reload');
 // With CNCjs users: no token is given back; the notice asks to sign in again and stays.
 r = run({ stored: { state: { session: { enabled: true, token: 'expired', name: 'ana' } } }, compact: true });
 r.requests[0].answer(500, { msg: 'Internal server error' });
@@ -158,13 +159,13 @@ for (const end of ['ontimeout', 'onerror', 'onabort']) {
   assert.equal(r.requests.length, 2, end + ': the next refusal a minute later renews again');
 }
 
-// The once-a-minute limit survives the reload it triggers (two pages of one tab sharing storage).
+// The once-a-minute limit also survives a manual reload (two pages sharing storage).
 r = run({ stored: { state: { session: { enabled: false, token: 'old', name: '' } } }, compact: true });
 r.requests[0].answer(200, { enabled: false, token: 'new', name: '' });      // t = 0
 r.advance(60000);
 r.window.dispatchEvent({ type: 'cnc-session-refused' });
 r.last().answer(200, { enabled: false, token: 'newer', name: '' });
-assert.equal(r.reloads, 1, 'renewed at t = 60 s, the page reloads');
+assert.equal(r.reloads, 0, 'renewed at t = 60 s without reload');
 r.advance(1);
 let next = run({ compact: true, shared: r.tab });
 assert.equal(next.requests.length, 0, 'the reloaded page (with a token) does not ask again 1 ms later');

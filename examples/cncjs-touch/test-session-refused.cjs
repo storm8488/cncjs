@@ -64,10 +64,15 @@ assert.ok(refusals <= 6, 'at most one renewal request a minute');
   f.tick();
   assert.equal(f.requests.filter((r) => /custom\/health$/.test(r.url)).length, before + 1, 'health checked again');
   // A 403 with a JSON body stays the server's refusal (its message).
-  const again = f.controls().override('feed', 10).catch((e) => e);
-  const p2 = f.posts().at(-1);
+  // Use a connected session: FIGE now revokes the first stream immediately on its plain 403.
+  const f2 = load(); let refusedAgain = 0;
+  f2.window.addEventListener('cnc-session-refused', () => refusedAgain++);
+  await f2.connect();
+  const again = f2.controls().override('feed', 10).catch((e) => e);
+  const p2 = f2.posts().at(-1);
   p2.status = 403; p2.responseText = JSON.stringify({ message: 'Refusé : broche.' }); p2.onload();
   assert.equal((await again).message, 'Refusé : broche.');
   assert.equal(refused, 1);
+  assert.equal(refusedAgain, 0, 'a JSON command refusal does not revoke the session');
   console.log('PASS');
 })().catch((e) => { console.error(e); process.exit(1); });

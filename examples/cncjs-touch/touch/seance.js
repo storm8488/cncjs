@@ -25,7 +25,7 @@
     var rows=[],action='suite:files',word='Prête',reason=cause('pret','La machine est prête.',[],'neutre');
     function line(id,text,state,buttons){rows.push({id:id,texte:t(text),etat:state,boutons:buttons||[]});}
     function button(id,label,allowed){return {id:id,libelle:t(label),actif:!!allowed};}
-    var commands=!!(m&&m.fresh===true&&input.transportConnected&&p.state!=='other'&&!input.systemCommand&&!input.busy&&!running);
+    var commands=!!(m&&m.fresh===true&&(input.streamConnected===undefined?input.transportConnected:input.streamConnected)&&p.state!=='other'&&!input.systemCommand&&!input.busy&&!running);
     line('connexion',m?'Machine connectée':'Machine non connectée',m?'fait':'suite');
     line('main',p.state==='other'?t('C’est « {appareil} » qui a la main').replace('{appareil}',function(){return p.name||p.value||t('autre appareil');}):p.state==='mine'?'La main : cet appareil':'La main : libre',p.state==='other'?'alerte':'fait');
     line('reglages',reading?'Lecture des réglages…':settings?'Réglages lus':'Réglages pas encore lus',settings?'fait':'attente',[button('relire','Relire',commands&&m.canReadSettings===true)]);
@@ -45,7 +45,7 @@
     if(resumable)line('reprise',resumeLine===null?'Reprendre à une ligne…':t('Reprendre l’usinage à la ligne {n}').replace('{n}',resumeLine),'attente');
     if(!incident&&input.commissioning==='none')line('service','Mise en service jamais faite pour cette machine','attente',[button('mise-en-service','Mise en service…',!!m)]);
     if(!m){action='connecter';word=input.transportConnected?'Non connectée':'Hors ligne';reason=global;}
-    else if(rank>0&&rank<=6){action=global.remedes[0]||'details';word=rank===4?'Main ailleurs':rank===5?'Information ancienne':rank===6?'En attente':'Hors ligne';reason=global;}
+    else if(rank>0&&rank<=6){action=global.remedes[0]||'details';word=global.id==='flux-interrompu'?'Reconnexion…':rank===4?'Main ailleurs':rank===5?'Information ancienne':rank===6?'En attente':'Hors ligne';reason=global;}
     else if(alarm&&running){action='arreter-usinage';word='Alarme';reason=global;}
     else if(!settings||reading){action='relire';word='Réglages à lire';reason=cause('reglages-non-lus',reading?'Lecture des réglages en cours.':'La machine n’a pas encore donné ses réglages.',['relire']);}
     else if(m.homing){action='prise-origine';word='Prise d’origine…';reason=cause('occupee','Prise d’origine en cours.',[]);}
@@ -72,11 +72,12 @@
   }
   function evaluate(input){
     input=input||{};
-    var m=input.machine,kind=input.kind||m&&m.machineProfile&&m.machineProfile.kind,p=input.pilot||{},h=input.halt,online=!!input.transportConnected,selection=input.selection;
+    var m=input.machine,kind=input.kind||m&&m.machineProfile&&m.machineProfile.kind,p=input.pilot||{},h=input.halt,online=!!(input.streamConnected===undefined?input.transportConnected:input.streamConnected),selection=input.selection;
     var alarm=!!(m&&/^alarm/i.test(m.activeState||'')),running=!!(m&&(m.workflow==='running'||m.workflow==='paused'));
     var offset=m&&m.workOffset,proven=!!(offset&&offset.state==='proven'),global=null,rank=0;
     function pick(n,id,phrase,remedies){if(!global){rank=n;global=cause(id,phrase,remedies);}}
     if(!m&&!online)pick(1,'hors-ligne','La tablette ne joint plus le serveur. Elle réessaie seule.',['recharger-page']);
+    if(m&&!online)pick(1,'flux-interrompu','Suivi interrompu : reconnexion en cours…',[]);
     // Lost activity takes precedence over the offline idle message.
     if(h){global=null;pick(2,'etat-perdu','L’état de la machine est perdu. Arrêter reste possible.',[]);}
     if(!m&&online)pick(3,'non-connectee','La machine n’est pas connectée.',['connecter']);

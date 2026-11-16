@@ -194,3 +194,15 @@ Les compléments L1/L2/L4 précédents sont historiques et restent utiles pour l
 **Revue FINAL.** Les sept points bloquants/à corriger d'Astra sont retenus, aucun rejeté. Le huitième point documentaire est consolidé ici. Deux attentes structurelles de tests de page sont remplacées nominativement : `test-v2-preparer.cjs` exige les deux éléments de chargement cachés plutôt qu'un volet vide ; `test-performance-v2-safety.cjs` autorise seulement Réessayer, caché après succès, et garde zéro relais machine. Aucune assertion d'arrêt, de commande, de référence ou D2 n'est retirée.
 
 **Limites de livraison.** Tests hors navigateur et simulateur ne prouvent pas le déplacement réellement exécuté, les capteurs, la broche ou la cadence du firmware. Les hypothèses du pont LUNYEE au § 8 restent. La tentative Edge FINAL `--strict --only screens,e2e,parcours` échoue avec `WebSocket error` avant tout scénario. Pas de harnais complet, de validation tactile/Chromium 106, d'accès matériel ni de déploiement. La revue complémentaire du pilote/Fable et les essais de `PROTOCOLE-ESSAI.md` restent à conduire ; aucune approbation de sûreté n'est présumée. Voir `IDEES.md` pour les gardes/fonctions délibérément non livrés.
+## FIGE — garde de page en l'absence de flux (2026-11-16)
+
+Les commandes serveur et leurs gardes restent inchangées. La page interdit aussi
+ses appels directs d'activation sans flux et raye les permissions d'activation
+qu'elle présente, même si un état HTTP récent existe. La grâce de rotation du
+journal n'autorise aucun zéro ni déplacement avant le nouveau paquet. Pause,
+Arrêter, jog-stop et arrêt broche gardent leurs voies et gardes existants.
+Une nouvelle session/epoch/connexion n'exécute ni action ancienne ni nonce ancien.
+Preuves : `test-flow-recovery.cjs` (coupure/retour, délais, session, DOM réel,
+absence de POST machine et de rejeu), tests de bandeau/séance et suites serveur.
+Il s'agit d'un renforcement conservateur de page autorisé par FIGE, documenté
+dans `audit/ECARTS-PLAN.md`, pas d'une validation physique de la machine.

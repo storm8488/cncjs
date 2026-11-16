@@ -26,4 +26,13 @@ assert.notEqual(evaluate({...base,machine:machine({workOffset:null})}).etapes.ch
 assert.match(evaluate({...base,machine:machine({jobStopped:true,stoppedAtLine:123})}).etapes.home.mot,/123/,'stopped state names its line');
 assert.equal(evaluate({...base,machine:machine({activeState:'Alarm',homed:false})}).barres.machine.action.id,'prise-origine','recovery on Machine opens the home confirmation, not the same screen');
 for(const lang of ['fr','en','es']){const q=pure(lang).evaluate({...base,machine:null});assert(q.barres.machine.cause.texte.length>10);}
+for(const lang of ['fr','en','es']){
+ const fixture=pure(lang),q=fixture.evaluate({...base,streamConnected:false});
+ for(const bar of Object.values(q.barres))assert.equal(bar.cause.id,'flux-interrompu','stream refusal on every stage');
+ assert.equal(q.barres.check.action.style,'raye');assert.equal(q.barres.files.action.style,'raye');
+ for(const row of q.lignes)for(const button of row.boutons)if(['relire','prise-origine','verifier-zero'].includes(button.id))assert.equal(button.actif,false,'Machine row waits for the stream');
+ const r=fixture.window.cncRefus.lire({code:'CNC_TOUCH_STREAM_LOST'});
+ assert.equal(r.phrase,q.globale.texte);assert.equal(r.famille,'flux-interrompu');assert.deepEqual(Array.from(r.remedes),['details']);
+ if(lang!=='fr')assert(!/Suivi|reconnexion/.test(r.phrase),'translated stream refusal');
+}
 console.log('PASS session: all thirteen global causes, D2 states, stage states and actions, conservative missing fields and server permissions.');

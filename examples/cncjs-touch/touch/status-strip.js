@@ -146,23 +146,23 @@
   var shape='';
   function render(detail){
     lastDetail=detail;
-    var m=detail.machine,connected=simulation?!!m:!!detail.transportConnected&&!!m;
+    var m=detail.machine,connected=simulation?!!m:!!(detail.streamConnected===undefined?detail.transportConnected:detail.streamConnected)&&!!m;
     // State lost (stream muted, HTTP read failing): the last busy controller stays the target
     // of Pause and Arrêter (job-controls.js, detail.halt); the word says the state is lost.
     var h=!m&&!simulation&&detail.halt&&typeof detail.halt==='object'?detail.halt:null;
-    // A machine state is only published while recent (job-controls.js): read by HTTP while the
-    // stream is down, it is shown at once rather than « Hors ligne » until the stream returns
-    // (N3); only Resume and Unlock still wait for the stream (usable, below).
-    var d=h?{word:uiLocale.t('État perdu'),tone:'warn'}:describe(m,!!m);
+    // HTTP fallback can retain a stop target, but never certifies the tactile stream.
+    // This also applies to the journal's continuity grace during a planned rotation.
+    var lostFlow=!simulation&&!connected&&(!!m||!!h);
+    var d=lostFlow?{word:uiLocale.t(h?'État perdu':'Reconnexion…'),tone:'warn'}:describe(m,!!m);
     text(stateText,d.word);text(stateNote,d.note||'');prop(stateNote,'hidden',!d.note);
     if(d.tone!==tone){tone=d.tone;attr(state,'data-tone',tone);}
     if((d.icon||d.tone)!==shape){shape=d.icon||d.tone;state.querySelector('path').setAttribute('d',icons[shape]);}
     var age=m&&m.statusAgeMs,known=finite(age)&&age>=0;
     // Whole seconds only: a text that changed at every report (4 per second) would repaint the
     // strip continuously, which costs measurable CPU on the tablet at rest.
-    text(freshText,simulation&&m?uiLocale.t('simulé'):!known?'—':age<=2500?uiLocale.t('à jour'):uiLocale.t('ancienne · ')+Math.ceil(age/1000)+' s');
-    attr(fresh,'data-stale',String(!m||(!simulation&&(!known||age>2500||!m.fresh))));
-    var live=!!(m&&m.fresh);
+    text(freshText,simulation&&m?uiLocale.t('simulé'):lostFlow?uiLocale.t('suivi perdu'):!known?'—':age<=2500?uiLocale.t(m.fresh?'à jour':'Rapport ancien'):uiLocale.t('ancienne · ')+Math.ceil(age/1000)+' s');
+    attr(fresh,'data-stale',String(!m||(!simulation&&(!connected||!known||age>2500||!m.fresh))));
+    var live=!!(m&&m.fresh&&(simulation||connected));
     // Laser: the S value is a set point (« consigne S »), never a measured power.
     var p=m&&m.machineProfile&&typeof m.machineProfile==='object'?m.machineProfile:null,laser=!!(p&&p.kind==='laser');
     text(spindleLabel,laser?uiLocale.t('Consigne S'):uiLocale.t('Broche'));

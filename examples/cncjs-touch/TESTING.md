@@ -1056,3 +1056,20 @@ fails before scenarios (`WebSocket error`, then `timeout Page.enable` on the
 final rerun), so the supplied harnais4 count of
 104 violations remains a pre-correction measurement. See RAPPORT section 5.3
 and ECARTS-PLAN's VERT2 entry for assertion migrations and browser handoff.
+## FIGE: stream and session recovery (2026-11-16)
+
+`test-flow-recovery.cjs` runs the real stream, session and command owners with
+controllable XHR and clocks. It cuts the stream, rejects the old credential when
+the server returns, adopts a new session without reload, then accepts sequence 1
+from a new epoch and the new machine coordinates. It checks exact increasing
+retry deadlines, source-sheet refusal without machine POST, discarded callbacks,
+revoked confirmation and no action replay. Separate cases cover a missing initial
+session, the legacy Socket.IO handshake and real DOM arrows/zeros in FR/EN/ES.
+`test-status-strip` and `test-seance` require warning/reconnection while the event
+stream is missing, even with a fresh HTTP fallback or planned-rotation grace.
+The existing session race, refusal and throttling tests remain required.
+
+The requested `browser-run.cjs --strict --only e2e,strip` with Edge failed before
+scenarios on `timeout Page.enable` in this sandbox. This is not browser reception.
+No machine, tablet or Chromium 106 result is claimed. Logs and eight negative
+HEAD-substitution proofs are under ignored `output/codex-FIGE`.

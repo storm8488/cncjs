@@ -320,7 +320,10 @@
     var elapsed=Math.max(0,sinceSeen()), next={};
     Object.keys(latestMachine).forEach(function(key){next[key]=latestMachine[key];});
     if(compact&&!simulation&&!protocolReady){next.fresh=false;next.canLoad=next.canStart=next.canResume=next.canPreviewMotion=false;next.loadReason=next.startReason=next.resumeReason=uiLocale.t('Module de suivi absent ou incompatible. Installez la version attendue avant de charger ou démarrer.');}
-    else if(compact&&!simulation&&(!transportId||!stream||!stream.alive())){next.canLoad=next.canStart=next.canResume=next.canPreviewMotion=false;next.loadReason=next.startReason=next.resumeReason=uiLocale.t('Suivi continu interrompu. Lecture de secours ; attendez le rétablissement avant de charger ou confirmer.');}
+    else if(flowLost()){
+      Object.keys(next).forEach(function(key){if(/^can[A-Z]/.test(key)&&['canPause','canStop','canSpindleStop'].indexOf(key)<0)next[key]=false;});
+      next.loadReason=next.startReason=next.resumeReason=next.homeReason=next.unlockReason=next.zeroZReason=next.blockProbeReason=next.readSettingsReason=next.macroReason=next.overrideReason=next.rapidOverrideReason=streamError().message;
+    }
     if(typeof next.statusAgeMs==='number'){
       next.statusAgeMs+=elapsed+lastTransit;
       if(next.statusAgeMs>2500){next.fresh=false;next.canLoad=next.canStart=next.canResume=next.canPreviewMotion=false;next.loadReason=next.startReason=next.resumeReason=uiLocale.t('État machine trop ancien : attendre un rapport récent.');}
@@ -329,6 +332,9 @@
     if(next.probeInput){var p={};Object.keys(next.probeInput).forEach(function(key){p[key]=next.probeInput[key];});if(typeof p.ageMs==='number')p.ageMs+=elapsed+lastTransit;if(p.ageMs===null||p.ageMs>2500){p.fresh=false;p.state='unknown';}next.probeInput=p;}
     return next;
   }
+  function flowLost(){return compact&&!simulation&&(!transportId||!stream||!stream.alive());}
+  function streamError(){var e=new Error(uiLocale.t('Suivi interrompu : reconnexion en cours…'));e.code='CNC_TOUCH_STREAM_LOST';return e;}
+  function refuseLostFlow(){if(!flowLost())return null;var e=streamError();text('job-feedback',e.message);setFeedbackState('failed');showRefusal(e,refusalHost());render();return e;}
   function render() {
     current=projected();
     var online=current && sinceSeen()<3000;
@@ -342,7 +348,7 @@
     renderPilotDialog();previewIdentity(online?current:null);
     if(online&&current.fresh!==false)halt=haltOf(current);
     var lost=!online&&halt&&!simulation?halt:null;
-    var detail={machine:online?current:null,observedAt:lastSeen,transportConnected:transportConnected,simulation:!!simulation,busy:busy,feedback:actionFeedback,feedbackState:feedbackState,systemCommand:command,pilot:pilot,halt:lost,probeRun:probeRun};
+    var detail={machine:online?current:null,observedAt:lastSeen,transportConnected:transportConnected,streamConnected:transportConnected&&!flowLost(),simulation:!!simulation,busy:busy,feedback:actionFeedback,feedbackState:feedbackState,systemCommand:command,pilot:pilot,halt:lost,probeRun:probeRun};
     publishedState=detail;
     if(store)store.set({machine:detail.machine,controllerId:detail.machine?detail.machine.port:null,transportConnected:transportConnected,transportReason:grace?'':(streamReason||(browserOffline?uiLocale.t('Le navigateur signale le réseau coupé : le suivi continue tant que CNCjs répond.'):'')),systemCommand:command});
     var line=command?uiLocale.t('Commande système en cours : ')+command.title:'';
@@ -358,7 +364,8 @@
     var filesReason='';
     // The server's load / start / resume reasons are French catalogue phrases: shown in the interface language
     // (« Palpage en cours. » stayed French in Spanish, lot Transverses M5). Text only, the guards below are unchanged.
-    if(!online) reason=(streamReason||uiLocale.t('Connectez le contrôleur dans CNCjs et attendez un état récent.'))+(still?' '+still:'');
+    if(flowLost())reason=streamError().message+(still?' '+still:'');
+    else if(!online) reason=(streamReason||uiLocale.t('Connectez le contrôleur dans CNCjs et attendez un état récent.'))+(still?' '+still:'');
     else if(/^alarm/i.test(current.activeState)) reason=simulation?uiLocale.t('Alarme fictive : ouvrez Machine pour terminer le test d’alarme. La reprise devra être confirmée.'):(window.CNCGrblHelp?window.CNCGrblHelp.text(window.CNCGrblHelp.alarm(current.alarmCode,current.alarmCodeInferred))+' ':'')+uiLocale.t('Chargement et démarrage bloqués : le contrôleur est en ALARM. Consultez le message d’alarme dans CNCjs et résolvez sa cause. Quand la machine sera prête (Idle), chargez le fichier puis touchez Démarrer.');
     else if(!current.fresh) reason=uiLocale.t('En attente d’un état récent du contrôleur.');
     else if(!current.name) reason=current.canLoad?(selection?uiLocale.t('Étape suivante : Charger le fichier sélectionné, puis Démarrer.'):uiLocale.t('Sélectionnez un fichier dans la bibliothèque.')):((window.CNCProgramCheckView?window.CNCProgramCheckView.refusal(current,'load'):uiLocale.t(current.loadReason))||uiLocale.t('Chargement indisponible.'));
@@ -505,7 +512,8 @@
       var target={action:action,port:halt.port};if(halt.generation)target.generation=halt.generation;
       return api('POST',target);
     }
-    if(!current || sinceSeen()>=3000)return Promise.reject(new Error('État indisponible.'));
+    if(flowLost()&&['pause','stop','spindleStop','check','settings','resumePlan'].indexOf(action)<0&&!(action==='motion'&&extra&&extra.operation==='jog-stop'))return Promise.reject(streamError());
+    if(!current || sinceSeen()>=3000)return Promise.reject(new Error(uiLocale.t('État indisponible.')));
     if(!simulation&&(['prepare','start','resume','macro','override','unlock','home','spindle','readSettings','set-origin','machine','blockProbe'].indexOf(action)>=0||(action==='motion'&&!(extra&&extra.operation==='jog-stop')))&&(!current.generation||!transportId||!stream||!stream.alive()))return Promise.reject(new Error(uiLocale.t('Suivi continu interrompu. Nouvelle confirmation requise.')));
     var body={action:action,port:current.port};
     if(current.generation)body.generation=current.generation;
@@ -537,6 +545,7 @@
   // The promise never rejects: {opened: true} once the dialog is shown, else {opened: false, error}
   // (error null when the confirmation was dropped silently: another dialog, a new stream, a hidden page).
   function prepare(operation,extra) {
+    var lostFlow=refuseLostFlow();if(lostFlow)return Promise.resolve({opened:false,error:lostFlow});
     if(busy||!current){var reason=busy?uiLocale.t('Opération en cours…'):uiLocale.t('État indisponible.');text('job-feedback',reason);setFeedbackState('failed');showRefusal(new Error(reason),refusalHost());render();return Promise.resolve({opened:false,error:new Error(reason)});}
     var port=current.port,revision=current.revision, ownGeneration=generation, ownConfirmation=++confirmation, started=elapsedClock(),origin=document.activeElement;
     var sourceSheet=origin&&typeof origin.closest==='function'?origin.closest('.ks-sheet'):null;
@@ -630,13 +639,14 @@
   bind($('job-port'),'change',function(){generation++;explicitPort=!!$('job-port').value;halt=null;dismiss();latestMachine=machines.filter(function(m){return m.port===$('job-port').value;})[0]||null;render();});
   function sessionRefuses(){return !current||!current.fresh||pilot.state==='other'||!!systemCommand;}
   function load(file){
+    if(refuseLostFlow())return;
     file=typeof file==='string'?file:selection&&selection.file;
     if(sessionRefuses()||!file||busy||!current||!current.canLoad)return;
     dismiss();return command('load',{file:file}).catch(function(){/* Refusal is shown by command. */});
   }
-  function start(){if(busy)return prepare('start');if(sessionRefuses()||!current.canStart||outside(current.programCheck)||!simulation&&(!current.workOffset||current.workOffset.state!=='proven'))return Promise.resolve({opened:false,error:null});return prepare('start');}
-  function startOverride(){if(sessionRefuses()||busy||!current.homed||current.referenceLost||!current.workOffset||current.workOffset.state!=='proven'||!outside(current.programCheck)||!current.programCheck.overridable)return Promise.resolve({opened:false,error:null});return prepare('start',{override:'travel'});}
-  function resume(){if(sessionRefuses()||sinceSeen()>=3000||busy||!current||!current.canResume)return Promise.resolve({opened:false,error:null});return prepare('resume');}
+  function start(){if(flowLost()||busy)return prepare('start');if(sessionRefuses()||!current.canStart||outside(current.programCheck)||!simulation&&(!current.workOffset||current.workOffset.state!=='proven'))return Promise.resolve({opened:false,error:null});return prepare('start');}
+  function startOverride(){if(flowLost())return prepare('start',{override:'travel'});if(sessionRefuses()||busy||!current.homed||current.referenceLost||!current.workOffset||current.workOffset.state!=='proven'||!outside(current.programCheck)||!current.programCheck.overridable)return Promise.resolve({opened:false,error:null});return prepare('start',{override:'travel'});}
+  function resume(){if(flowLost())return prepare('resume');if(sessionRefuses()||sinceSeen()>=3000||busy||!current||!current.canResume)return Promise.resolve({opened:false,error:null});return prepare('resume');}
   function pause(){if(!(current&&sinceSeen()<3000?current.canPause:halt&&halt.canPause))return;dismiss();return command('pause').catch(function(){/* Refusal is shown by command. */});}
   function stop(){if(!(current&&sinceSeen()<3000?current.canStop||jogging(current):halt&&halt.canStop))return;dismiss();return command('stop').catch(function(){/* Refusal is shown by command. */});}
   bind($('job-dismiss'),'click',dismiss);

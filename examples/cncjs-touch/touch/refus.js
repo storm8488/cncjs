@@ -5,7 +5,7 @@
   var families={};data.familles.forEach(function(r){families[r[0]]=r;});
   function lire(error){
     error=error||{};
-    var family=data.codes[error.code],message=String(error.message||error.reason||'');
+    var family=error.code==='CNC_TOUCH_STREAM_LOST'?'flux-interrompu':data.codes[error.code],message=String(error.message||error.reason||'');
     if(!family){
       var patterns=[[/non connecté|Connexion machine/,'non-connectee'],[/Test du contact/,'test-contact'],[/Machine non référencée/,'origine-a-prendre'],[/Version Grbl inconnue|Réglage .* inconnu|maximale.*inconnue/,'reglages-non-lus'],[/Rechargez le fichier|Aucun fichier chargé/,'a-recharger'],[/pendant un travail|Pendant un travail/,'usinage-en-cours'],[/broche tourne|broche est commandée/,'broche-tourne'],[/Palpage en cours|Prise d’origine en cours|Déplacement en cours|doit être au repos/,'occupee']];
       patterns.some(function(p){if(p[0].test(message)){family=p[1];return true;}return false;});

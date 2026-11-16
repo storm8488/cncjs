@@ -891,3 +891,14 @@ The bottom rail's 72 px budget includes 64 px targets, 6 px padding and its
 1 px border; English Machine retains an intentional soft hyphen at large size.
 `test-vert2-layout.cjs` checks the cascade with the deferred v2 sheet. Actual
 renderer parity and target coverage still require the strict browser run.
+## FIGE: freshness requires the event stream (2026-11-16)
+
+In both renderers, a fresh fallback HTTP read no longer makes the strip green.
+Until a valid event packet returns, it says reconnecting/state lost and the
+activation commands wait. Pause, Stop, jog-stop and spindle stop retain their
+existing safe paths. The internal page event's `streamConnected` distinguishes
+real event reception from the journal's planned-rotation grace; it is not a new
+server packet field. The stream reuses its existing watchdog with increasing
+network retry delays (1/2/4/8/16/30 s). A session renewal is adopted in place,
+without page reload or action replay, and stays limited to one attempt per minute.
+There is no renderer-specific request, resource, animation or polling loop.

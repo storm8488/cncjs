@@ -62,11 +62,13 @@ function machine(port='A'){return {port,controllerId:port,generation:'gen-'+port
   push(stream,packet(42,[active]));require('./command-state-fixture.cjs')(window,'job-pause').click();const pause=requests.at(-1);require('./command-state-fixture.cjs')(window,'job-stop').click();const stop=requests.at(-1);
   answer(stop,{message:'STOP newer',snapshot:packet(44,[machine('B')])});await flush();assert.equal(el('job-port').disabled,true,'pause still pending');
   answer(pause,{message:'Pause older',snapshot:packet(43,[active])});await flush();assert.equal(require('./command-state-fixture.cjs')(window,'job-feedback').textContent,'STOP newer');assert.equal(window.cncState.get().machine.workflow,'idle');assert.equal(el('job-port').disabled,false);
-  // No data for 3 s: abort proxy-buffered response; retry bounded to 30 s.
+  // No data for 3 s: abort proxy-buffered response; the first network retry waits 1 s.
   now+=3001;Array.from(intervals.values()).forEach(fn=>fn());await flush();assert(stream.aborted);assert.equal(el('job-start').disabled,true);
   const streamsBefore=requests.filter(r=>isStream(r.url)).length;
-  for(let i=0;i<20;i++){now+=1000;Array.from(intervals.values()).forEach(fn=>fn());await flush();}
+  now+=999;Array.from(intervals.values()).forEach(fn=>fn());await flush();
   assert.equal(requests.filter(r=>isStream(r.url)).length,streamsBefore);
+  now+=1;Array.from(intervals.values()).forEach(fn=>fn());await flush();
+  assert.equal(requests.filter(r=>isStream(r.url)).length,streamsBefore+1);
   const pendingGet=requests.filter(r=>r.url.endsWith('/touch-job')&&r.method==='GET'&&!r.aborted).at(-1);
   if(pendingGet&&pendingGet!==initial){answer(pendingGet,packet(45,[machine('B')]));await flush();}
   assert.equal(el('job-start').disabled,true,'fallback GET must not restore start without a live stream');assert.equal(require('./command-state-fixture.cjs')(window,'job-resume').disabled,true);assert.equal(window.cncState.get().transportConnected,false);

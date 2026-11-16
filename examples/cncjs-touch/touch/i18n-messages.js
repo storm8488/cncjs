@@ -1924,3 +1924,8 @@ window.CNCTouchMessages.push(
 );
 
 window.CNCTouchMessages.push(['ligne {n}','line {n}','línea {n}']);
+window.CNCTouchMessages.push(
+  ['Suivi interrompu : reconnexion en cours…','State stream lost: reconnecting…','Seguimiento interrumpido: reconectando…'],
+  ['Reconnexion…','Reconnecting…','Reconectando…'],
+  ['suivi perdu','stream lost','seguimiento perdido']
+);
