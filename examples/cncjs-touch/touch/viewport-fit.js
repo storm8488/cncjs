@@ -15,7 +15,11 @@
     var railBottom=shell&&responsive&&navRect&&navRect.width>=vw-2&&navRect.top>top?navRect.height:0,bottom=shell?railBottom:navRect?navRect.height:0;
     var viewHeight=Math.max(100,vh-top-bottom-16)+'px';
     var screen=main.querySelector('.screen.active');
-    var w=Math.max(1,main.clientWidth-(shell?32:16)),h=Math.max(1,vh-Math.ceil(top)-Math.ceil(bottom)-(shell?32:16));
+    // Responsive cache identity must not depend on main's scrollbar. Its border
+    // box stays the same when scrolling takes space from clientWidth.
+    var layoutWidth=responsive?(main.offsetWidth||main.clientWidth):main.clientWidth;
+    var w=Math.max(1,layoutWidth-(shell?32:16)),h=Math.max(1,vh-Math.ceil(top)-Math.ceil(bottom)-(shell?32:16));
+    var availableWidth=Math.max(1,main.clientWidth-(shell?32:16));
     var key=[vw,vh,w,h,document.body.classList.contains('display-large')].join(':'),cached=screen&&layouts.get(screen);
     // A screen marked data-fit="scroll" (Réglages) keeps its full size and
     // scrolls vertically instead of being shrunk to fit.
@@ -61,8 +65,8 @@
       // A scrolling screen never needs re-measuring when its content changes.
       if(screen&&!scroll)screenObserver.observe(screen,{childList:true,subtree:true,characterData:true});
     }
-    style(main,'overflowY',scroll?'auto':'');
     if(scroll){
+      style(main,'overflowY','auto');
       layouts.delete(screen);
       style(screen,'transform','none');style(screen,'width','');
       reveal(screen);ready();
@@ -77,20 +81,24 @@
     if(responsive&&screen){
       style(screen,'transform','none');style(screen,'width','');reveal(screen);
       var entry=layouts.get(screen),renew=activated||!entry||entry.key!==key||!entry.responsive;
-      var over=screen.getAttribute('data-fit-overflow')==='true';
-      if(renew&&over){
-        // Measured again at the window's own layout, in the next frame (reads before writes).
-        screen.removeAttribute('data-fit-overflow');style(main,'overflowY','');
-        layouts.set(screen,{key:key,responsive:true});if(activated){main.scrollTop=0;activation=true;}
-        pending=true;frame=requestAnimationFrame(fit);return;
+      var over=screen.getAttribute('data-fit-overflow')==='true',next=over;
+      // Read the current layout without clearing overflow for a measurement.
+      // Live updates keep a scrolling screen in place; a new viewport or opening
+      // may stop scrolling only when the content already fits. Never remove and
+      // restore an attribute/style just to rediscover the same result.
+      if(renew||!over)next=sh>h+1||sw>availableWidth+1;
+      if(next!==over){
+        if(next){screen.setAttribute('data-fit-overflow','true');stats.measurements++;}
+        else screen.removeAttribute('data-fit-overflow');
+        over=next;
       }
       layouts.set(screen,{key:key,responsive:true});
-      if(!over&&(sh>h+1||sw>w+1)){screen.setAttribute('data-fit-overflow','true');over=true;stats.measurements++;}
       style(main,'overflowY',over?'auto':'');
       if(activated)main.scrollTop=0;
       main.scrollLeft=0;ready();
       return;
     }
+    style(main,'overflowY','');
     if(measuring&&measuring.screen===screen&&measuring.key===key&&!activated){
       // A measurement is already running for this screen and viewport: content
       // that changed meanwhile (coordinates 4x/s) is read by its next pass.
@@ -108,7 +116,7 @@
       stats.measurements++;
       if(!incremental){stats.hidden++;style(screen,'visibility','hidden');screen._fitHidden=true;style(screen,'transform','none');}
       style(screen,'width',(w/scale)+'px');
-      function measure(){
+      var measure=function(){
         if(disposed||version!==revision||main.querySelector('.screen.active')!==screen){if(version===revision)measuring=null;return;}
         var naturalW=screen.scrollWidth,naturalH=screen.scrollHeight;
         var next=Math.min(scale,h/Math.max(1,naturalH),w/Math.max(1,naturalW));
@@ -121,7 +129,7 @@
         var entry={key:key,width:naturalW,height:naturalH,scale:scale};
         layouts.set(screen,entry);remember(screen,entry);
         ready();
-      }
+      };
       frame=requestAnimationFrame(measure);
     }else{
       // A screen left hidden by an interrupted measurement is shown again here.
@@ -151,7 +159,7 @@
   function remember(screen,entry){
     if(!screen.id)return;
     persisted[screen.id]={key:entry.key,width:entry.width,height:entry.height,scale:entry.scale};
-    try{if(typeof localStorage!=='undefined')localStorage.setItem(storeKey,JSON.stringify(persisted));}catch(_){}
+    try{if(typeof localStorage!=='undefined')localStorage.setItem(storeKey,JSON.stringify(persisted));}catch(_){/* Storage is optional. */}
   }
   var readyCallbacks=[],warmQueue=null,warmTimer=null;
   function ready(){

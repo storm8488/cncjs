@@ -13,7 +13,7 @@ const tests = [
  'probe-lock','probe-model','probe-preparation','probe-profiles','probe-transfer','probe-real','probe-real-ui','block-probe-dialog',
  'real-history','screen-saver','simulation-alarm','simulation-history',
  'simulation-motion','simulation-report','simulation-ui','simulation',
- 'transition-performance','viewport-fit','startup','display-settings','download-file',
+ 'transition-performance','viewport-fit','viewport-stability','layout-stability-probe','startup','display-settings','download-file',
  'viewport-phases','hidden-views','preview-worker','library-payload',
  'library-lifecycle','library-upload-payload','library-regeneration-cancel','history-view',
  'job-stream-client','stream-protocol','library-identity','api-prefix','controller-state','connection-status','operator-tools','i18n','journal-languages','profile-storage','perf-harness','viewport-recall','viewport-warmup','macros','system-monitor','tablet-actions','header-clock','backlight','viewport-scroll','commissioning','kept-screens','viewport-mutation','dom-fixture','interface-guide','grbl-help','travel-check','job-resume','status-strip','screen-lock','job-follow','viewport-throttle','tool-position','preview-depth','preview-3d',

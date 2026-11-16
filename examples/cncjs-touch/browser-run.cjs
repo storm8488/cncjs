@@ -30,6 +30,8 @@
 //                    its own browser: 1366 x 911 and 1728 x 1152, real page through a harness fixture
 //                    (idle, running, paused, alarm, stale, lost), simulation page (job, pause, alarm),
 //                    Préparer comparison and jog panel, Fichiers, Journal opened from the curve,
+//                    live layout stability (10 s at rest/work on every main screen,
+//                    1665 x 764 / 1366 x 911 / 1366 x 768),
 //                    Réglages, the way out of v2, and no v2 request in Éco / RT 1366 x 768 / laser /
 //                    software GPU; see v2Measure); settings = the three Réglages tabs walked top to
 //                    bottom (FR/ES, standard/large text, dark/light, 1366 x 768 Éco laser, real page,
@@ -1749,6 +1751,7 @@ async function v2Measure(summary) {
       log('v2 software GPU 1366x911 sim: ' + (soft.perfV2 ? 'V2 OPEN' : 'closed') + ', eligible ' + v2.software.eligible);
     } catch (e) { failures.push('v2 software GPU: ' + e.message); }
     await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: V2_GPU_TRAP });
+    v2.layoutStability = await layoutStabilityMeasure(cdp, fx);
     v2.closed = await v2Closed(cdp, fx, summary);
     v2.machiningPlaces=await machiningPlaces(cdp,fx);
     for (const [w, h] of V2_SIZES) {
@@ -1783,6 +1786,44 @@ async function v2Measure(summary) {
   fs.mkdirSync(OUT, { recursive: true });
   fs.writeFileSync(path.join(OUT, 'v2.json'), JSON.stringify(v2, null, 1));
   summary.v2 = { passes: v2.passes.map((p) => ({ ctx: p.ctx, commands: (p.commands || []).length, pageErrors: (p.pageErrors || []).length })), closed: v2.closed, software: v2.software, hits: report.length };
+}
+
+// GLITCH: the real responsive page with live local replay. Observe 10 s at rest
+// and at work on every main screen (including Control and Machining).
+// This catches sub-frame removals that screenshots cannot reveal. No commands.
+async function layoutStabilityMeasure(cdp, fx) {
+  const probe = require('./browser-stability.cjs'), samples = [];
+  fs.mkdirSync(OUT, { recursive: true });
+  for (const [width, height] of [[1665, 764], [1366, 911], [1366, 768]]) for (const v2 of [false, true]) {
+    fx.profile = V2_PROFILE; fx.setPhase('idle');
+    await setViewport(cdp, width, height, 1);
+    await v2Storage(cdp, fx.base, { profile: v2 ? 'performance' : 'eco', v2: { version: 1, enabled: v2 } });
+    await settingsStorage(cdp, { lang: 'fr', size: 'standard', theme: 'dark' });
+    // The existing wide gate cannot open v2 below 880 px. Keep that guard;
+    // record the Performance profile's actual v1 rendering at those sizes.
+    const expectV2 = v2 && height >= 880 && width >= 1300;
+    const rendered = await v2Open(cdp, fx.base + 'index.html?layout-stability', expectV2);
+    if (rendered.perfV2 !== expectV2) throw Error('unexpected rendering for layout stability ' + width + 'x' + height);
+    for (const phase of ['idle', 'running']) {
+      fx.setPhase(phase);
+      await cdp.waitFor('(window.cncState.get().machine||{}).workflow===' + JSON.stringify(phase), 15000, 'stability ' + phase);
+      const names = ['machine', 'files', 'jog', 'check', 'home', 'more', 'history'];
+      for (const name of names) {
+        await goScreen(cdp, name);
+        // Let the initial fit and preview settle before observing steady updates.
+        await sleep(1200);
+        const duration = 10000;
+        const sample = await probe.measure(cdp, duration);
+        const tag = width + 'x' + height + ' ' + (v2 ? 'performance' : 'eco') + ' v' + (expectV2 ? 2 : 1) + ' ' + phase + ' ' + name;
+        samples.push(Object.assign({ variant: tag, perfV2: rendered.perfV2, requestedPerformance: v2 }, sample));
+        fs.writeFileSync(path.join(OUT, 'layout-stability.json'), JSON.stringify(samples, null, 1));
+        probe.checks(sample, phase, duration).forEach(f => failures.push('layout stability ' + tag + ': ' + f));
+        log('layout stability ' + tag + ': ' + sample.protectedChanges.length + ' overflow/transform change(s), ' + sample.periodicResets.length + ' periodic reset(s)');
+      }
+    }
+  }
+  fx.setPhase('idle');
+  return samples.map(s => ({ variant: s.variant, durationMs: s.durationMs, packets: s.packets, protectedChanges: s.protectedChanges.length, periodicResets: s.periodicResets.length }));
 }
 
 // --- Every screen but Réglages in every machine state (design/PROMPT-ECRANS-MULTIAGENT.md, phase 0): the real page

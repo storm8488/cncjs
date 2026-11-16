@@ -1,5 +1,24 @@
 # Carte de l'interface CNCjs Touch pour la chasse aux bugs
 
+## GLITCH — fit responsive stable sur contenu vivant (2026-11-16)
+
+`touch/viewport-fit.js` utilise la largeur extérieure de main pour sa clé,
+lit séparément la largeur intérieure et conserve le défilement tant que le
+contenu déborde. Aucun retrait temporaire de `data-fit-overflow` ni remise
+à vide de `overflowY` avant sa restauration. La même boucle était présente
+dans le fichier de `3049a0e4`, identique à HEAD avant ce lot.
+
+Preuves durables : `test-viewport-stability.cjs` (42 cas synthétiques, dix
+mises à jour, 40 → 0 écritures) et `test-layout-stability-probe.cjs` (oldValue
+successifs, retraits-remises entre deux livraisons, styles et cycle de vie).
+Tous deux entrent dans verify-project ; aucune assertion existante ni aucun
+bughunt d'autrui changé. L'étape `v2` ajoute 84 observations de dix secondes
+au repos/en travail sur les sept écrans et les trois fenêtres. Les portes
+de rendu restent appliquées : v1 en dessous de 880 px de haut. Les tentatives
+Edge échouent avant les scénarios (`WebSocket error`, `timeout Page.enable`) ;
+les mutations réellement peintes et la disparition du symptôme sur tablette
+restent à vérifier. Détail : `TESTING.md` et section GLITCH d'ECARTS-PLAN.
+
 ## RAIL — rail fixe sans barre de défilement (2026-11-16)
 
 `touch/app.css` interdit le débordement sur les deux axes de `#tabbar`.

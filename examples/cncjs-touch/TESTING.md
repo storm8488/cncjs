@@ -1,5 +1,38 @@
 # Validation scope
 
+## Live viewport stability (GLITCH, 2026-11-16)
+
+`test-viewport-stability.cjs`, registered in `verify-project.cjs`, models a
+17px classic scrollbar on seven responsive screens, v1/v2 classes and windows
+1665 x 764, 1366 x 911 and 1366 x 768. Ten text mutations one second apart must
+produce zero fit attribute/style writes and keep the initial layout key. It
+also checks reopening, resizing, growing content and leaving scrolling.
+The pre-fix source and `3049a0e4` fail this test; those two viewport-fit files
+are identical. In the same synthetic 10s window, the original makes 40 writes
+(10 overflow removals, 10 restorations, 20 overflowY writes); the fix makes 0.
+This is a layout model, not a claim about browser painting or hardware.
+
+`test-layout-stability-probe.cjs` tests the read-only MutationObserver probe in
+`browser-stability.cjs`. Chained oldValue records expose sub-frame resets even
+when an attribute has already been restored at delivery. Style properties are
+compared separately. Legitimate live child transforms and hidden screens are
+covered, as are repeated visible resets, final queued records and teardown.
+
+The `v2` harness step records `layout-stability.json`: 10s idle and 10s running
+on each of the seven screens at all three sizes, with Eco and Performance
+requested. The existing wide gate stays intact: Performance below 880px high
+renders v1; actual v2 is checked at 1366 x 911. Every sample requires ongoing
+machine packets and an unchanged workflow/screen, rejects any active-screen
+data-fit-overflow or transform change, and rejects visible attribute/style
+removal/restoration repeated at least twice. It exceeds the required 5s running
+window. About 14 minutes of observation are added to this focused step.
+
+Run `browser-run.cjs --strict --only v2 --browser <Edge path> --out
+examples/cncjs-touch/output/codex-GLITCH`. Sandbox attempts fail with
+`WebSocket error`, then `timeout Page.enable`, before any scenario. Browser mutations, real CSS geometry,
+Chromium 106 and the operator's doubled-frame symptom remain unverified here.
+No machine command, permission, layout exception or visible text changes.
+
 ## Fixed rail (RAIL, 2026-11-16)
 
 `test-rail-fixed.cjs`, registered in `verify-project.cjs`, checks the border-box

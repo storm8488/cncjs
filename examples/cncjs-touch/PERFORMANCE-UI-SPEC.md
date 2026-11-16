@@ -1,5 +1,21 @@
 # Spécification : interface du mode Performance (Surface Pro 3)
 
+## Stabilité du cadre pendant un travail (GLITCH, 2026-11-16)
+
+En responsive, le fit partagé par Éco et Performance ne doit pas modifier
+son écran si le résultat reste identique : clé indépendante de la barre de
+défilement de main, aucun retrait-remise de `data-fit-overflow`, de transform
+ou de `overflowY` pour mesurer. Une taille ou une activation nouvelle ne
+retire le débordement que lorsque la mesure courante tient déjà. La position
+de lecture reste conservée pendant les mises à jour ordinaires.
+
+`test-viewport-stability.cjs` vérifie cette règle sur un modèle de barre
+classique ; `browser-stability.cjs`, appelé par l'étape ciblée `v2`, observe
+les vrais attributs/styles dix secondes au repos et en travail sur chaque
+écran. Le garde de hauteur de la v2 reste intact : les fenêtres de 764/768 px
+utilisent leur rendu réel v1. Aucune réussite de rendu n'est annoncée dans
+le bac à sable (échecs CDP avant les scénarios). Voir `TESTING.md`.
+
 ## Rail fixe — RAIL (2026-11-16)
 
 Les six entrées du fil restent fixes, sans défilement sur aucun axe. Le rail
