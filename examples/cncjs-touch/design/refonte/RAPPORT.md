@@ -10,7 +10,7 @@
 10. Le diagnostic aide à chercher un contact permanent, notamment du côté de la broche.
 11. Usinage rassemble l’avancement, les corrections et les accès à la reprise ou à la plaque.
 12. Les cases de confirmation restent ; Pause et Arrêter gardent leurs commandes directes.
-13. Les tests logiciels passent, mais le dernier contrôle visuel compte encore 838 violations.
+13. Les tests logiciels passent, mais le dernier contrôle visuel fourni compte encore 319 violations.
 14. Les nombres de touchers annoncés sont calculés ; les parcours complets restent à rejouer.
 15. Aucune vraie machine ni tablette n’a été essayée : suivre le protocole d’essai après les vérifications restantes.
 
@@ -173,6 +173,64 @@ Base **`4b04b8e0`**, `feat/refonte-ui`. Aucun `git add` ni commit tenté : `.git
 | `git diff --check` | **Code 0.** |
 
 Les fichiers `verify-final.log`, `jest-final.log`, `browser-attempts.json` et `proofs.json` restent dans `output/codex-HARN`, ignoré. Aucun hash de commit HARN : ni ajout à l’index ni commit tenté. Ces résultats ne sont donc pas annoncés « après commit HARN ».
+
+### 5.2 Harnais — reprise VERT (gpt-6.1-sol)
+
+Base **`517f0a26 — touch: refonte lot HARN`**, branche `feat/refonte-ui`.
+Le journal du pilote `R/codex/harnais3.log` donne **35 étapes en échec,
+319 violations et 0 exception appliquée**. Il finit aussi par une exception
+de `writeSummary`, avant l'écriture de sa synthèse et le nettoyage normal.
+Ce relevé fourni reste la référence : **la réception complète verte n'est pas
+acquise par VERT**. Aucun harnais complet lancé dans ce lot.
+
+| Famille | Verdict et correction | Preuve durable |
+|---|---|---|
+| `screens … reel`, confirmation du zéro | **Fixture périmée.** La page envoie toujours `prepare`, `set-origin`, `axes: ['X']`. La réécriture du proxy cherchait l'ancienne condition GET ; depuis HARN, elle contient aussi le POST de contrôle du fichier. La demande tombait dans le faux XHR qui ne sait pas y répondre. Réécriture corrigée, activation réelle du banc toujours explicite. | `test-vert-harness` utilise le payload du vrai pilote de page, le script XHR effectivement servi et le serveur HTTP local. Le dialogue s'ouvre en FR/EN/ES ; aucune exécution avant confirmation ; le banc refuse ensuite `set-origin` avec HTTP 403. Aucun défaut de dialogue réel démontré dans ce cas. |
+| `responsive sim`, `null.click()` | **Harnais périmé.** `zero-more-open` est propre à la page réelle. Le scénario de simulation ouvre `ks-origin-info`, son volet existant, puis garde les pointages de Pause/Arrêter et le pavé superposé. | `test-vert-harness` confronte le sélecteur du scénario au HTML de simulation. |
+| `layers`, attente d'un autre pilote | **Harnais périmé.** Modifier l'événement `cnc-job-status` après sa publication ne modifie pas l'état interne déjà calculé par `job-controls`. Un second replay local fournit maintenant `control.owner` dans ses instantanés, réservé aux scénarios de couches. | `test-vert-harness` lit cet instantané HTTP et vérifie `pilot().state === 'other'` dans le vrai module de page ; le replay ordinaire garde son propriétaire libre. |
+| Tab quitte « Autres zéros » pour `body` | **Page fausse.** Le présentateur effaçait le refus à chaque changement de coordonnées, puis `renderMore` le reconstruisait. Son bouton focalisé disparaissait. Ce seul refus recalculé à chaque état est déclaré vivant ; les refus de requête gardent leur expiration. L'identité du refus, et la présence de son contenu, commandent sa peinture. | `test-zero-machine`, FR/EN/ES : mêmes objet bouton et élément focalisé après nouvelles coordonnées ; gardes et refus existants conservés. |
+| Corps compacts réduits, cibles sous le bandeau de séance | **Page fausse.** Les anciennes règles par ID `height:auto!important` gagnent contre le conteneur flex commun. La zone centrale peut se réduire à zéro, comme dans les captures fournies. Une hauteur définie de même portée gagne maintenant la cascade. | `test-vert-layout` résout importance, spécificité et conditions média pour cinq étapes, actif/garé, cinq fenêtres compactes. Aucun `display:none` ajouté aux commandes. |
+| `home-job-stop`, différence v1/v2 | **Page : emplacement indépendant des instruments.** À partir de 1101 × 650, un espace de 110 px réserve le bloc Arrêter de 98 px et son écart ; le bloc est ancré au bas de la colonne commune. Le format compact garde son flux défilant. | `test-vert-layout`, trois combinaisons de rendu/texte et deux tailles. La comparaison navigateur à 1 px reste inchangée et **non rejouée avec succès**. |
+| Réglages, commandes derrière les onglets collants | **Harnais incomplet.** Une cible couverte peut être dans les bornes du conteneur : la preuve de défilement n'était tentée que pour une cible déjà classée coupée. Elle est maintenant tentée aussi pour une cible couverte ; seul un vrai pointage réussi après défilement la rend accessible. | `test-harn-surface` garde le refus d'une couverture persistante et ajoute l'accès prouvé derrière des onglets. Aucun seuil ni exception changé. |
+| Fin de synthèse, `.length` sur `undefined` | **Harnais faux.** Les rangées propres au rail n'ont pas les tableaux de cibles des autres mesures. Elles ont maintenant leur table dédiée ; le verdict strict et ses violations restent dans JSON et Markdown. | `test-vert-harness` écrit les deux synthèses avec un rail volontairement fautif et vérifie la conservation des violations. |
+
+**Tests et assertions.** Deux nouveaux tests, `test-vert-harness.cjs` et
+`test-vert-layout.cjs`, enregistrés dans `verify-project.cjs`. Renforcement de
+`test-zero-machine.cjs` et `test-harn-surface.cjs`. **Aucune assertion existante
+retirée ou affaiblie**, aucune conversion ou suppression de `bughunt-*` d'autrui.
+Huit retraits isolés en mémoire font échouer leurs tests correspondants
+(codes 1 ; assertions ou exception de transport/synthèse attendue).
+Ni commande/permission serveur, ni case, nonce, expiration, délai de 600 ms,
+classe réservée, `V2_NODE` ou `layout-exceptions.json` modifié.
+
+**Relances navigateur.** La commande ciblée `--strict --only sim` avec le chemin
+Edge imposé échoue avant scénario par **`timeout Page.enable`**. Une seconde
+commande `--strict --only responsive,strip,v2,screens` échoue avant scénario par
+**`WebSocket error`**. Le journal est dans `output/codex-VERT/browser-targeted.log`.
+La relance finale `--strict --only responsive,sim,settings,strip,v2,screens,rail`
+échoue de même, **code 1**, avant scénario (`browser-final.log`).
+Les autres corrections sont vérifiées par les bancs durables ; elles ne valent
+pas un résultat géométrique. Les 319 violations ne sont ni toutes déclarées
+résolues, ni reclassées automatiquement comme faux positifs. L'inventaire CIM
+des Edge avec profil `cnc-browser-run-*` est refusé (`Accès refusé`) : absence de
+processus résiduel non certifiée.
+
+**Suites sur les sources livrées.** `verify-project` : **217/217 contrôles**.
+Jest demandé (quatre chemins, exclusion `bughunt-[AV][0-9]`) : **51/51 suites,
+1 515/1 515 tests, 0 snapshot**. Les validations finales et les preuves de retrait
+isolé figurent dans `output/codex-VERT/`. **ESLint : code 0, aucun problème sur
+les onze JS/CJS touchés ; `git diff --check` : code 0.** Ces résultats sont
+antérieurs au commit du pilote.
+
+**Commit et suite.** Aucun `git add`/commit tenté, `.git` en lecture seule.
+Titre proposé : `touch: repair strict harness fixtures, compact content and zero-sheet focus`,
+avec `Written-by: OpenAI Codex (gpt-6.1-sol)` en dernière ligne.
+Le pilote doit commiter puis relancer les deux suites, et les étapes ciblées
+`responsive,sim,settings,strip,v2,screens,rail` ; seul l'orchestrateur lance le
+complet. Examiner encore les centres, chevauchements et cartes dans les captures
+après, ainsi que la parité d'Arrêter et le cycle Tab. Le nouveau résumé doit
+permettre de conserver la liste exacte des violations restantes. Aucun accès
+tablette, RT, CNC, SSH, réseau externe, déploiement ou validation matérielle.
 
 ## 6. Mesures avant et après
 

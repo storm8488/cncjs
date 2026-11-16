@@ -849,3 +849,14 @@ The strict harness measures the active overlay and strip stops, and requires
 an actual scroll-and-hit proof for clipped targets. These source contracts
 are tested, but renderer parity and browser geometry remain unverified because
 the targeted Edge runs cannot connect to DevTools in this sandbox.
+
+### VERT — Command slot and compact cascade
+
+At desktop sizes (width at least 1101 px, height at least 650 px), the left
+machining column reserves 110 px for its 98 px Stop slot plus the 12 px gap.
+The slot is anchored to the same column bottom in both renderers, independent
+of optional instruments. Compact screens keep the normal scrolling flow.
+Their session screen has a definite height that overrides legacy per-screen
+`height:auto!important`; its content scrolls between the header and footer.
+`test-vert-layout.cjs` proves these cascade contracts, not one-pixel renderer
+parity. That comparison and the strict browser reception remain pending.

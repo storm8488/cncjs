@@ -392,7 +392,10 @@ const MEASURE = require('./browser-surface.cjs').inject(String(function measure(
         offscreen = true;
       }
     }
-    if (offscreen) scroller = scrollReachable(el, centreHit);
+    // A sticky header can cover a target still inside the clipping rectangle.
+    // Prove reachability by scrolling and hit-testing, just as for clipped targets.
+    if (!reachable || offscreen) scroller = scrollReachable(el, centreHit);
+    reachable = reachable || scroller;
     var gap = Infinity, neighbour = null, overlaps = [];
     rects.forEach(function (o, j) {
       if (j === i || nodes[j].contains(el) || el.contains(nodes[j])) return;
@@ -1025,7 +1028,7 @@ async function responsiveMeasure(cdp, realUrl, simUrl, summary) {
       }
       // One sheet, then the numeric pad stacked on it.
       await goScreen(cdp, 'jog');
-      await cdp.evaluate('document.getElementById("zero-more-open").click();true'); await sleep(400);
+      await cdp.evaluate('document.getElementById("ks-origin-info").click();true'); await sleep(400);
       await hitCheck(cdp, ctx, 'sheet', ['t-pause', 't-stop'], { required: true }, report);
       await cdp.evaluate('(function(){var i=document.getElementById("responsive-run-input");if(!i){i=document.createElement("input");i.id="responsive-run-input";document.getElementById("screen-jog").appendChild(i);}window.CNCNumeric.open(i,{label:"Test",unit:"mm",min:0,max:50});return true;})()'); await sleep(400);
       if (!(await cdp.evaluate('!!document.getElementById("t-numpad")&&!document.getElementById("t-numpad").hidden'))) failures.push('responsive ' + ctx + ': numeric pad not opened over the sheet');
@@ -1286,7 +1289,7 @@ function startV2Fixture() {
           r.on('end', () => { res.setHeader('Content-Type', 'text/javascript'); res.end(text.replace("if(xhr.url==='/api/touch-motion/preview'", "if(/^i18n-messages-v2\\.js/.test(xhr.url)||xhr.url==='/api/touch-motion/preview'")
             // Real moves of Préparer (screensReal only, window.__brRealMoves): its POST touch-job reaches this harness
             // fixture, which answers « prepare set-origin » with a ticket and nothing else; no machine is behind it.
-            .replace("(xhr.url==='/api/touch-job'&&xhr.method==='GET')", "(xhr.url==='/api/touch-job'&&(xhr.method==='GET'||window.__brRealMoves===true))")); });
+            .replace("xhr.method==='POST'&&JSON.parse(body||'{}').action==='check'", "xhr.method==='POST'&&(JSON.parse(body||'{}').action==='check'||window.__brRealMoves===true)")); });
         }).on('error', (e) => { res.statusCode = 502; res.end(String(e.message)); });
       }
       return pass(req, res);
@@ -2874,7 +2877,7 @@ function strictCheck(summary, exceptionList) {
 
 // --- Synthesis.
 function fmtBytes(b) { return typeof b === 'number' ? (b >= 1048576 ? (b / 1048576).toFixed(2) + ' MB' : b >= 1024 ? Math.round(b / 1024) + ' kB' : b + ' B') : '—'; }
-function writeSummary(summary) {
+function writeSummary(summary, directory = OUT) {
   const L = [];
   L.push('# Touch interface — browser harness report' + (BASELINE ? ' (baseline, « avant »)' : ''));
   L.push('');
@@ -2884,29 +2887,37 @@ function writeSummary(summary) {
   L.push('- Harness steps failed: ' + failures.length + (failures.length ? '\n' + failures.map((f) => '  - ' + f).join('\n') : ''));
   L.push('');
   for (const m of summary.measurements) {
+    const results = m.results.filter(r => !r.railScroll || Array.isArray(r.below));
+    const rails = m.results.filter(r => r.railScroll && !Array.isArray(r.below));
+    if (rails.length) {
+      L.push('## Rail - ' + m.variant, '', '| Screen | Width | Height | Errors |', '| --- | ---: | ---: | --- |');
+      rails.forEach(r => L.push('| ' + r.label + ' | ' + r.railScroll.clientWidth + ' | ' + r.railScroll.clientHeight + ' | ' + railChecks(r.railScroll).join('; ') + ' |'));
+      L.push('');
+    }
+    if (!results.length) continue;
     L.push('## Tap targets — ' + m.variant + ' (`' + m.dir + '/`)');
     L.push('');
     L.push('| Screen | Scale | Targets | Under size goal | Text < 16 px (targets / all) | Target font px, rendered (min–median–max) | Gaps < 12 px | Covered | Truncated | Horizontal overflow |');
     L.push('| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- |');
-    for (const r of m.results) {
+    for (const r of results) {
       if (r.error) { L.push('| ' + r.label + ' | — | error: ' + r.error + ' | | | | | | | |'); continue; }
       L.push('| ' + r.label + ' | ' + r.scale + ' | ' + r.targets + ' | ' + r.below.length + ' | ' + r.textTargets.length + ' / ' + r.small.length + ' | ' + r.fontStats.min + '–' + r.fontStats.median + '–' + r.fontStats.max + ' | ' + r.gaps.length + ' | ' + r.unreachable.length + ' | ' + r.truncated.length + ' | ' + (r.overflow.document ? 'YES (' + r.overflow.documentScrollWidth + ' > ' + r.overflow.clientWidth + ')' : 'no') + ' |');
     }
     L.push('');
     const below = [];
-    for (const r of m.results) if (!r.error) for (const t of r.below) below.push('| ' + r.label + ' | ' + t.label.replace(/\|/g, '\\|') + ' | ' + t.kind + ' | ' + t.w + ' × ' + t.h + (m.dpr !== 1 ? ' (× ' + m.dpr + ')' : '') + ' | ' + t.goal + ' | ' + (t.gap === null ? '—' : t.gap) + ' | ' + (t.disabled ? 'disabled' : '') + ' |');
+    for (const r of results) if (!r.error) for (const t of r.below) below.push('| ' + r.label + ' | ' + t.label.replace(/\|/g, '\\|') + ' | ' + t.kind + ' | ' + t.w + ' × ' + t.h + (m.dpr !== 1 ? ' (× ' + m.dpr + ')' : '') + ' | ' + t.goal + ' | ' + (t.gap === null ? '—' : t.gap) + ' | ' + (t.disabled ? 'disabled' : '') + ' |');
     if (below.length) { L.push('Targets under the size goal (rendered CSS px, width × height):'); L.push(''); L.push('| Screen | Label | Kind | Rendered | Goal | Gap to neighbour | |'); L.push('| --- | --- | --- | --- | ---: | ---: | --- |'); L.push(...below); L.push(''); }
     const small = [];
-    for (const r of m.results) if (!r.error) for (const t of r.small) small.push('| ' + r.label + ' | ' + t.text.replace(/\|/g, '\\|') + ' | ' + t.fontPx + ' |');
+    for (const r of results) if (!r.error) for (const t of r.small) small.push('| ' + r.label + ' | ' + t.text.replace(/\|/g, '\\|') + ' | ' + t.fontPx + ' |');
     if (small.length) { L.push('Visible text under 16 px (rendered size, screen scale applied):'); L.push(''); L.push('| Screen | Text | Font px |'); L.push('| --- | --- | ---: |'); L.push(...small); L.push(''); }
     const gaps = [];
-    for (const r of m.results) if (!r.error) for (const t of r.gaps) gaps.push('| ' + r.label + ' | ' + t.label.replace(/\|/g, '\\|') + ' | ' + t.gap + ' | ' + String(t.neighbour).replace(/\|/g, '\\|') + ' |');
+    for (const r of results) if (!r.error) for (const t of r.gaps) gaps.push('| ' + r.label + ' | ' + t.label.replace(/\|/g, '\\|') + ' | ' + t.gap + ' | ' + String(t.neighbour).replace(/\|/g, '\\|') + ' |');
     if (gaps.length) { L.push('Gaps under 12 px (touching segmented buttons included):'); L.push(''); L.push('| Screen | Label | Gap px | Neighbour |'); L.push('| --- | --- | ---: | --- |'); L.push(...gaps); L.push(''); }
     const unreachable = [];
-    for (const r of m.results) if (!r.error) for (const t of r.unreachable) unreachable.push('| ' + r.label + ' | ' + t.label.replace(/\|/g, '\\|') + ' | ' + String(t.hit).replace(/\|/g, '\\|') + ' |');
+    for (const r of results) if (!r.error) for (const t of r.unreachable) unreachable.push('| ' + r.label + ' | ' + t.label.replace(/\|/g, '\\|') + ' | ' + String(t.hit).replace(/\|/g, '\\|') + ' |');
     if (unreachable.length) { L.push('Targets whose centre is covered by another element:'); L.push(''); L.push('| Screen | Label | Element hit at centre |'); L.push('| --- | --- | --- |'); L.push(...unreachable); L.push(''); }
     const trunc = [];
-    for (const r of m.results) if (!r.error) for (const t of r.truncated) trunc.push('| ' + r.label + ' | ' + t.text.replace(/\|/g, '\\|') + ' | ' + t.scrollWidth + ' > ' + t.clientWidth + ' | ' + t.textOverflow + ' |');
+    for (const r of results) if (!r.error) for (const t of r.truncated) trunc.push('| ' + r.label + ' | ' + t.text.replace(/\|/g, '\\|') + ' | ' + t.scrollWidth + ' > ' + t.clientWidth + ' | ' + t.textOverflow + ' |');
     if (trunc.length) { L.push('Text wider than its box (scrollWidth > clientWidth, overflow not visible):'); L.push(''); L.push('| Screen | Text | Widths | text-overflow |'); L.push('| --- | --- | --- | --- |'); L.push(...trunc); L.push(''); }
   }
   if (summary.jobFile && summary.jobFile.length) {
@@ -2992,8 +3003,8 @@ function writeSummary(summary) {
   L.push('- "Zoom 200 %" is emulated as a 683 × 384 CSS viewport at device scale factor 2 (what Ctrl + does at 1366 × 768); "font 200 %" uses `Page.setFontSizes` (default font size 32 px), which only moves text sized relative to the default.');
   L.push('- Responsive: browser zoom is emulated by CSS viewport and device scale factor (no real Ctrl +); a virtual keyboard by a shorter window (layout viewport). A keyboard that only shrinks `visualViewport` is followed by viewport-fit.js but not emulated here.');
   L.push('- The simulation page has no Réglages screen, so the language is set through its storage key (`cncjs-touch-language-v1`) and a reload, which is what the Réglages control does on the real page.');
-  fs.writeFileSync(path.join(OUT, 'summary.md'), L.join('\n') + '\n');
-  fs.writeFileSync(path.join(OUT, 'summary.json'), JSON.stringify(summary, null, 1));
+  fs.writeFileSync(path.join(directory, 'summary.json'), JSON.stringify(summary, null, 1));
+  fs.writeFileSync(path.join(directory, 'summary.md'), L.join('\n') + '\n');
 }
 
 async function probeParcoursMeasure(cdp,summary){
@@ -3148,4 +3159,4 @@ async function main() {
 // The measurement scripts (measure-*.cjs) reuse the DevTools client, the browser
 // launcher and the fixture starter; run the harness only as a program.
 if (require.main === module) main().catch((e) => { console.error('browser-run: ' + (e.stack || e.message)); process.exit(1); });
-module.exports = { confirmJob, clickSessionAction, V2_OVERLAP, RAIL, railChecks, JOG_CHOICES, jogChoiceChecks, FILE_COLUMN, GUIDE_MODE, guideChecks, strictCheck, loadExceptions, infoClipOf, stoppedChecks, stoppedLayoutChecks, settingsOffTabRequests, GOALS, RESPONSIVE, MEASURE, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors };
+module.exports = { writeSummary, startV2Fixture, confirmJob, clickSessionAction, V2_OVERLAP, RAIL, railChecks, JOG_CHOICES, jogChoiceChecks, FILE_COLUMN, GUIDE_MODE, guideChecks, strictCheck, loadExceptions, infoClipOf, stoppedChecks, stoppedLayoutChecks, settingsOffTabRequests, GOALS, RESPONSIVE, MEASURE, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors };

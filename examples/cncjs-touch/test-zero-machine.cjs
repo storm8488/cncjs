@@ -30,6 +30,11 @@ const state=patch=>machine({firmware:'Grbl',settingsCount:34,machineProfile:{kin
   for(const [patch,code,remedy] of [[{homed:false},'ETOUCH_ORIGIN_NOT_HOMED','prise-origine'],[{workOffset:{state:'failed',code:'ETOUCH_OFFSET_UNCONFIRMED'}},'ETOUCH_OFFSET_UNCONFIRMED','verifier-zero'],[{workOffset:null},'ETOUCH_OFFSET_UNCONFIRMED','verifier-zero']]){
    send(patch);assert(q.node('zero-at-machine-x').disabled);const cause=q.node('zero-more-cause');assert(cause.textContent.includes(q.window.cncRefus.lire({code}).phrase),language+" "+code+" actual: "+cause.textContent);assert(cause.textContent.includes(q.window.cncSeance.libelle(remedy)));
   }
+  send({homed:false});
+  const focusedRemedy=q.node('zero-more-cause').querySelector('button');assert(focusedRemedy);focusedRemedy.focus();
+  send({homed:false,coordinates:{mpos:{x:-99,y:-50,z:-2},wpos:{x:13.5,y:3,z:1}}});
+  assert.equal(q.node('zero-more-cause').querySelector('button'),focusedRemedy,'unchanged refusal retains its remedy across moving reports');
+  assert.equal(q.document.activeElement,focusedRemedy,'a machine report cannot drop sheet focus to body');
   send();reject={code:'ETOUCH_ORIGIN_OFFSETS',params:{},message:'technical G92/TLO'};q.node('zero-at-machine-x').click();await flush();
   assert(q.node('zero-at-machine-x').disabled,'server refusal stripes its own axis');assert(!q.node('zero-at-machine-y').disabled,'other axes retain their own guard');
   assert(q.node('zero-more-cause').textContent.includes(q.window.cncRefus.lire(reject).phrase));assert(q.node('zero-more-cause').textContent.includes(q.window.cncI18n.t('Détails')));

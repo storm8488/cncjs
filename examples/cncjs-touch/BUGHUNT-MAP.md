@@ -492,3 +492,18 @@ A2-2 was already removed by L3b (the original proof contained the plate case).
 No other lot's bughunt proof was renamed or removed. The permanent resume case
 is now in the two new screen/sheet tests. Detailed assertion migrations are
 listed in `design/refonte/audit/ECARTS-PLAN.md`, L5.
+
+### VERT — Durable harness and focus regressions
+
+- `test-vert-harness.cjs`: actual zero prepare payload, served XHR proxy,
+  loopback ticket and FR/EN/ES confirmation; execution remains forbidden;
+  pilot ownership supplied before page state is computed; simulation entry;
+  rail summary retains strict failures.
+- `test-vert-layout.cjs`: compact height cascade and reserved desktop Stop slot.
+- `test-zero-machine.cjs`: unchanged live refusal preserves its focused remedy.
+- `test-harn-surface.cjs`: covered targets pass only after an actual successful
+  scroll and hit; persistent coverage still fails.
+
+No bughunt proof from another lot was converted or removed. No existing
+assertion was removed or weakened. Browser validation remains pending because
+the sandbox cannot complete the DevTools connection; see RAPPORT section 5.2.

@@ -990,3 +990,25 @@ first. The visual fixture must answer POST `touch-job` checks when file
 selection requests a travel verdict. Do not recreate retired controls or remove
 machine guards to satisfy these old scenarios. See the HFIX entry in
 `design/refonte/audit/ECARTS-PLAN.md` for the remaining validation scope.
+
+### VERT — Origin transport and remaining strict harness failures
+
+`test-vert-harness.cjs` passes the actual zero page's prepare payload through
+the served XHR proxy and loopback HTTP fixture, then verifies that the real
+page driver opens its confirmation in FR/EN/ES. The fixture still refuses
+execution. It also checks snapshot-based pilot ownership, the simulation-only
+origin-help entry, and rail-only report rows without losing strict violations.
+`test-vert-layout.cjs` resolves CSS importance, selector specificity and media
+conditions for compact session heights and the desktop Stop slot. Both are
+registered in `verify-project.cjs`; cascade tests do not measure rectangles.
+
+`test-zero-machine.cjs` retains the same focused remedy across coordinate
+updates. Only this continuously recomputed refusal uses the presenter's live
+option; request-only refusals still expire when their inputs change.
+`test-harn-surface.cjs` also proves a real scroll/hit for a target behind sticky
+tabs. A target that remains covered still fails; no size or exception changes.
+
+Run targeted steps with `--strict --only responsive,sim,settings,strip,v2,screens,rail`.
+The full run remains reserved for the orchestrator. VERT's sandbox attempts fail
+before scenarios (`timeout Page.enable`, then `WebSocket error`); the supplied
+319 violations are not replaced by an inferred zero. See RAPPORT section 5.2.

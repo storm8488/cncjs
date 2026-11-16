@@ -507,6 +507,12 @@ body.ks-ui #screen-settings .ks-settings-tabs{gap:12px}
    scrolls: no command may paint underneath the persistent session actions. */
 @media(max-width:1099px),(max-height:649px){
  body.ks-ui main>.ks-step-screen.active,body.ks-ui main>.ks-step-screen.kept{display:flex!important;flex-direction:column;gap:12px!important;height:calc(var(--view-height) - 16px)!important;min-height:0!important;padding-top:0!important;padding-bottom:0!important;overflow:hidden}
+ /* Legacy per-screen height:auto!important must not collapse the flex body. */
+ body.ks-ui main>#screen-machine.ks-step-screen.active,body.ks-ui main>#screen-machine.ks-step-screen.kept,
+ body.ks-ui main>#screen-files.ks-step-screen.active,body.ks-ui main>#screen-files.ks-step-screen.kept,
+ body.ks-ui main>#screen-jog.ks-step-screen.active,body.ks-ui main>#screen-jog.ks-step-screen.kept,
+ body.ks-ui main>#screen-check.ks-step-screen.active,body.ks-ui main>#screen-check.ks-step-screen.kept,
+ body.ks-ui main>#screen-home.ks-step-screen.active,body.ks-ui main>#screen-home.ks-step-screen.kept{height:calc(var(--view-height) - 16px)!important}
  body.ks-ui main>.ks-step-screen>.ks-step-head{position:static;flex:none;height:auto;min-height:40px}
  body.ks-ui main>.ks-step-screen>.ks-step-body{display:flex!important;flex-direction:column;gap:12px;flex:1 1 0;min-height:0;height:auto;overflow:auto!important}
  body.ks-ui main>.ks-step-screen>.ks-step-body>.card{flex:none}
@@ -522,6 +528,11 @@ body.ks-ui #screen-settings .ks-settings-tabs{gap:12px}
  body.ks-ui #screen-home .job-dashboard{height:auto!important}
  body.ks-ui #screen-more .ks-tiles{flex:none;grid-auto-rows:minmax(160px,auto)}
  body.ks-ui #tabbar{gap:12px!important}
+}
+/* Optional preview instruments never displace the session Stop command. */
+@media(min-width:1101px) and (min-height:650px){
+ body.ks-ui #screen-home .home-left{position:relative;padding-bottom:110px;box-sizing:border-box}
+ body.ks-ui #screen-home .home-stop{position:absolute;left:0;right:0;bottom:0;height:98px;margin:0;padding:0}
 }
 @media (orientation:portrait) and (max-width:1099px),(max-width:759px) and (min-height:600px){
  body.ks-ui #tabbar .ks-nav,body.ks-ui #tabbar .ks-nav[data-ks-screen="more"]{flex:1 1 0;width:auto;height:64px;min-height:64px;margin-top:0;gap:2px;padding:2px}

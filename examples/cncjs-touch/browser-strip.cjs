@@ -281,7 +281,7 @@ async function pressKey(cdp, k, code, vk, text) {
   await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: k, code, windowsVirtualKeyCode: vk });
 }
 const LIVE = '(function(){return {main:document.querySelector("main").inert,tabbar:document.getElementById("tabbar").inert,lock:!!document.getElementById("t-lock").closest("[inert]")};})()';
-async function stackAndLock(cdp, H, base, w, h, lang, large, fail, log) {
+async function stackAndLock(cdp, H, base, w, h, lang, large, fail, log, pilotBase) {
   const ctx = 'layers ' + w + 'x' + h + ' ' + lang + (large ? ' large' : '');
   // V1 / V1b: the pad over the project sheet (stock field of the sheet's editor).
   await openReal(cdp, H, base, w, h, lang, large);
@@ -320,13 +320,13 @@ async function stackAndLock(cdp, H, base, w, h, lang, large, fail, log) {
   if (st.sheet || st.live.main || st.live.tabbar || st.live.lock) fail(ctx + ': after closing both layers the page stays inert (V1): ' + JSON.stringify(st));
   log(ctx + ' · pad over project sheet: Tab reaches ' + Array.from(new Set(tabs)).filter((t) => !/^pad:/.test(t)).join(',') + ' and the pad keys' + ' ; Escape closes the pad, then the sheet ; page live again ' + JSON.stringify(st.live));
   // Finitions (revue P1-2): the text keyboard over the pilot dialog (« Motif », shown when another device pilots;
-  // forced visible here): the keyboard lies on top (a key and Valider hit), one Escape closes it only, then the dialog.
+  // supplied by its own replay): the keyboard lies on top, one Escape closes it only, then the dialog.
+  await openReal(cdp, H, pilotBase, w, h, lang, large);
   await H.goScreen(cdp, 'home');
   await clickSel(cdp, '#t-pilot'); await H.sleep(300);
   if (!(await cdp.evaluate('!document.getElementById("pilot-dialog").hidden'))) fail(ctx + ': pilot dialog not opened');
   else {
     // Another owner is a fixture fact, never a takeover sent by this test.
-    await cdp.evaluate('(function(){var dispatch=window.dispatchEvent.bind(window);window.__stripOther=true;if(!window.__stripPilot){window.__stripPilot=true;window.dispatchEvent=function(e){if(window.__stripOther&&e.type==="cnc-job-status"&&e.detail&&e.detail.machine){var m=Object.assign({},e.detail.machine,{control:{owner:{kind:"touch",id:"strip-other",label:"Other tablet",present:true}}});e=new CustomEvent(e.type,{detail:Object.assign({},e.detail,{machine:m})});}return dispatch(e);};}return true;})()');
     await cdp.waitFor('window.cncJobControls.pilot().state==="other"', 10000, 'another tablet pilots');
     await cdp.evaluate('document.getElementById("pilot-other").click();true');
     await cdp.waitFor('!document.getElementById("pilot-custom").hidden', 3000, 'custom takeover reason');
@@ -342,7 +342,6 @@ async function stackAndLock(cdp, H, base, w, h, lang, large, fail, log) {
     if (st.pad || !st.dialog) fail(ctx + ': one Escape must close the text keyboard over the pilot dialog only: keyboard ' + st.pad + ', dialog ' + st.dialog);
     await key(cdp, 'Escape'); await H.sleep(300);
     st = await cdp.evaluate('({dialog:!document.getElementById("pilot-dialog").hidden,live:' + LIVE + '})');
-    await cdp.evaluate('window.__stripOther=false;true');
     if (st.dialog || st.live.main || st.live.tabbar) fail(ctx + ': after the text keyboard and the pilot dialog the page stays inert: ' + JSON.stringify(st));
     log(ctx + ' · text keyboard over pilot dialog: painted above (z ' + (over.z || []).join(' > ') + '), hits ' + JSON.stringify(over.hits) + ' ; Escape closes it, then the dialog');
   }
@@ -448,10 +447,13 @@ async function run(cdp, H, options) {
       try { await degraded(cdp, H, replay.base, w, h, fail, log); } catch (e) { fail('degraded ' + w + 'x' + h + ': ' + e.message); }
       try { await offline(cdp, H, replay.base, w, h, fail, log); } catch (e) { fail('offline ' + w + 'x' + h + ': ' + e.message); }
     }
-    for (const [w, h, lang, large] of options.quick ? [[1024, 600, 'fr', false]] : [[1366, 768, 'fr', false], [1024, 600, 'es', true]]) {
-      try { await stackAndLock(cdp, H, replay.base, w, h, lang, large, fail, log); } catch (e) { fail('layers ' + w + 'x' + h + ': ' + e.message); }
-      try { await saverLock(cdp, H, options.simBase, w, h, lang, large, fail, log); } catch (e) { fail('saver ' + w + 'x' + h + ': ' + e.message); }
-    }
+    const otherPilot = await H.startFixture(['--replay', '--other-pilot']);
+    try {
+      for (const [w, h, lang, large] of options.quick ? [[1024, 600, 'fr', false]] : [[1366, 768, 'fr', false], [1024, 600, 'es', true]]) {
+        try { await stackAndLock(cdp, H, replay.base, w, h, lang, large, fail, log, otherPilot.base); } catch (e) { fail('layers ' + w + 'x' + h + ': ' + e.message); }
+        try { await saverLock(cdp, H, options.simBase, w, h, lang, large, fail, log); } catch (e) { fail('saver ' + w + 'x' + h + ': ' + e.message); }
+      }
+    } finally { otherPilot.child.kill(); }
     await cdp.evaluate('localStorage.removeItem("cncjs-touch-language-v1");localStorage.removeItem("cncjs-touch-display-v1");true').catch(() => {});
   } finally { replay.child.kill(); }
   if (options.out) { fs.mkdirSync(options.out, { recursive: true }); fs.writeFileSync(path.join(options.out, 'strip.json'), JSON.stringify({ rows, failures }, null, 1)); }

@@ -44,7 +44,7 @@ function create(options) {
       statusAgeMs: 40, statusObservedAt: now - 40, coordinates: { wpos, mpos },
       settings: { $20: 1, $21: 1, $22: 1, $23: 0, $110: 5000, $111: 5000, $112: 800, $120: 100, $121: 100, $122: 50, $130: 600, $131: 600, $132: 100 },
       fresh: true, name: file, revision: 1, originalName: file, fingerprint: null, programCheck: null, homed: true,
-      control: { owner: null, lastChange: null }, total: PROGRAM_LINES, sent: s.sent, received: s.received, probeInput: null, loading: false,
+      control: { owner: options && options.otherPilot ? { kind: 'touch', id: 'strip-other', label: 'Other tablet', present: true } : null, lastChange: null }, total: PROGRAM_LINES, sent: s.sent, received: s.received, probeInput: null, loading: false,
       canPreviewMotion: false, motionReason: 'Travail en cours.', canLoad: false, loadReason: 'Travail en cours.', canStart: false, startReason: 'Travail en cours.',
       canResume: false, resumeReason: 'Travail en cours.', finished: false, jobStopped: false, finishedWithErrors: false, jobErrors: 0, jobLastError: null,
       alarmCode: null, stalledMs: null, programPause: null, resume: null, stoppedAtLine: null, stoppedFile: null, canPause: true, canStop: true, homing: false,

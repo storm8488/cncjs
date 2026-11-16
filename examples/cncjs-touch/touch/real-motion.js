@@ -398,7 +398,9 @@
     var error=null;
     moreButtons.forEach(function(button){var axis=button.getAttribute('data-axis'),why=originReason('machine',axis);prop(button,'disabled',!!why);attr(button,'title',why||null);if(why&&!error)error=originError('machine',axis);});
     if(!error&&moreFailure)error=moreFailure.error;
-    var key=JSON.stringify([error,originKey()]);if(key!==moreSignature){moreSignature=key;if(window.cncRefus){window.cncRefus.effacer(more.cause);if(error)window.cncRefus.montrer(more.cause,error);}}
+    // Coordinates can change at every report. Replacing an unchanged refusal
+    // would remove its focused remedy and break the sheet's Tab cycle.
+    var key=JSON.stringify(error);if(key!==moreSignature||error&&!more.cause.firstChild){moreSignature=key;if(window.cncRefus){window.cncRefus.effacer(more.cause);if(error)window.cncRefus.montrer(more.cause,error,null,{live:true});}}
   }
   var stepButtons=list(stepBox,'button');
   stepButtons.forEach(function(b){b.addEventListener('click',function(){

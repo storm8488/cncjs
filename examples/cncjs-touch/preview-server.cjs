@@ -9,7 +9,7 @@ const argValue=(name)=>{const i=process.argv.indexOf(name);return i>=0&&process.
 const root=path.resolve(argValue('--root')||path.join(__dirname,'touch'));
 const gzipEnabled=process.argv.includes('--gzip'),replayEnabled=process.argv.includes('--replay')||process.argv.includes('--replay-alarm')||process.argv.includes('--replay-alarm-stopped');
 const zlib=require('zlib');
-const replay=replayEnabled?require('./measure-replay-fixture.cjs').create({file:'Parcours_de_test_1.gcode',alarm:process.argv.includes('--replay-alarm-stopped')?'stopped':process.argv.includes('--replay-alarm')?1:0}):null;
+const replay=replayEnabled?require('./measure-replay-fixture.cjs').create({file:'Parcours_de_test_1.gcode',otherPilot:process.argv.includes('--other-pilot'),alarm:process.argv.includes('--replay-alarm-stopped')?'stopped':process.argv.includes('--replay-alarm')?1:0}):null;
 // --watch DIR: api/watch/* answered by the real monitor service over that directory (measure-library.cjs).
 const watchDir=argValue('--watch'),library=watchDir?require('./measure-library.cjs'):null;
 const idleFixture=process.argv.includes('--idle-fixture');

@@ -36,7 +36,7 @@
   function effacer(host){
     bands=bands.filter(function(b){if(b.host!==host)return true;if(b.node.parentNode)b.node.parentNode.removeChild(b.node);return false;});
   }
-  function montrer(host,refusal,retry){
+  function montrer(host,refusal,retry,options){
     if(!host)return;
     var r=refusal&&refusal.famille?refusal:lire(refusal);effacer(host);
     var band=document.createElement('div');band.className='ks-refus';band.setAttribute('role','status');
@@ -46,12 +46,14 @@
       if(id==='recommencer')b.disabled=typeof retry!=='function';
       b.addEventListener('click',function(){if(id==='recommencer'){if(retry)retry();}else if(id==='details'&&window.cncShell)window.cncShell.details(r.details);else if(window.cncSeance)window.cncSeance.lancer(id);});band.appendChild(b);
     });
-    host.appendChild(band);bands.push({host:host,node:band,key:requestKey});return r;
+    host.appendChild(band);bands.push({host:host,node:band,key:requestKey,live:!!(options&&options.live)});return r;
   }
   window.cncRefus={lire:lire,montrer:montrer,effacer:effacer};
   if(window.addEventListener){
     window.addEventListener('cnc-screen-change',function(){bands.slice().forEach(function(b){effacer(b.host);});});
-    window.addEventListener('cnc-job-status',function(e){var d=e.detail||{},m=d.machine;requestKey=JSON.stringify([m&&m.port,m&&m.name,m&&m.coordinates,m&&m.workOffset,m&&m.refusals,d.pilot&&d.pilot.state]);bands.slice().forEach(function(b){if(b.key!==requestKey)effacer(b.host);});});
+    // A live owner recomputes its refusal at each report and removes it itself.
+    // Request-only errors still expire as soon as their inputs change.
+    window.addEventListener('cnc-job-status',function(e){var d=e.detail||{},m=d.machine;requestKey=JSON.stringify([m&&m.port,m&&m.name,m&&m.coordinates,m&&m.workOffset,m&&m.refusals,d.pilot&&d.pilot.state]);bands.slice().forEach(function(b){if(!b.live&&b.key!==requestKey)effacer(b.host);});});
     document.addEventListener('input',function(){bands.slice().forEach(function(b){effacer(b.host);});});
   }
 })();

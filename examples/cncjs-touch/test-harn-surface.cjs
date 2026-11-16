@@ -26,6 +26,10 @@ const scroller = element('content'), target = element('button', scroller);scroll
 target.y = 900;target.scrollIntoView = () => { scroller.scrollTop = 150; target.y = 100; };
 assert(run(S.scrollReachable)(target, () => target));assert.equal(scroller.scrollTop, 7);
 assert(!run(S.scrollReachable)(target, () => background), 'scrolling never excuses a covered target');assert.equal(scroller.scrollLeft, 3);
+target.y = 10;
+assert(run(S.scrollReachable)(target, () => target.y > 64 ? target : background), 'a target behind sticky tabs must be reached and hit after scrolling');
+assert(H.MEASURE.includes('if (!reachable || offscreen) scroller = scrollReachable(el, centreHit);'), 'covered targets need the same actual scroll proof as clipped targets');
+assert(H.MEASURE.includes('reachable = reachable || scroller;'), 'a successful scroll hit is reachable');
 scroller.css.overflowY = 'hidden';assert(!run(S.scrollReachable)(target, () => target), 'clipping is not scrolling');
 function strict(t, scrolls) { return H.strictCheck({ measurements: [{ variant: 'harn', strict: true, results: [{ screen: 'jog', label: 'Zero', scrolls, unreachable: [t] }] }] }, []).violations; }
 assert.equal(strict({ label: 'hidden command', offscreen: true }, true).length, 1, 'a scrolling screen needs per-target reachability proof');
