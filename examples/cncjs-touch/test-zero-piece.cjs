@@ -34,6 +34,24 @@ const model=require('./touch/zero-piece.js');
   q.send({machineProfile:{kind:'cnc'}});assert(!$('probe-card').hidden);
  }
  const q=fixture({empty:true});q.node('probe-start').click();assert(!q.node('ks-probe-setup').hidden);assert.equal(q.calls.length,0,'missing measurements are navigation, no server request');
+ for(const operation of ['blockProbe','zeroZ']){
+  const retry=fixture({plate:{thickness:5,search:10}});let starts=0;
+  retry.window.cncJobControls.start=()=>{starts++;return Promise.resolve({opened:true});};
+  retry.window.cncSeance.lancer('demarrer');
+  retry.answer({opened:false,error:{code:'ETOUCH_PROBE_WCS'}});
+  const id=operation==='blockProbe'?'probe-start':'probe-plate-start';retry.node(id).click();await retry.flush();
+  const before=JSON.stringify(retry.calls.at(-1));
+  retry.node('probe-cause').querySelectorAll('button').find(b=>b.textContent===retry.window.cncI18n.t('Recommencer')).click();await retry.flush();
+  assert.equal(starts,1,'retry never replays the previous Start command');
+  assert.equal(JSON.stringify(retry.calls.at(-1)),before,'retry preserves the refused operation and parameters');
+  assert.equal(retry.calls.filter(c=>c.op===operation).length,2,'a retry only prepares a new confirmation');
+  if(operation==='blockProbe'){
+   retry.node('probe-plate-start').click();await retry.flush();
+   const plateRequest=JSON.stringify(retry.calls.at(-1));
+   retry.node('probe-cause').querySelectorAll('button').find(b=>b.textContent===retry.window.cncI18n.t('Recommencer')).click();await retry.flush();
+   assert.equal(JSON.stringify(retry.calls.at(-1)),plateRequest,'identical refusal code is rebound to the latest request');
+  }
+ }
  for(const [b,part,remedy] of [
   [{state:'failed',written:'no',failure:{code:'ETOUCH_PROBE_STOPPED'}},'Palpage arrêté. Le zéro pièce n’a pas changé.','relancer-palpage'],
   [{state:'failed',written:'no',failure:{code:'ETOUCH_PROBE_NO_CONTACT'}},'Le zéro pièce n’a pas changé.',null],

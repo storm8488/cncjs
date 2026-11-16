@@ -85,7 +85,7 @@ afterEach(() => {
 });
 
 // Machine homed, at rest, probe free, the tool at machine position `m`.
-const setup = (m) => {
+const setup = (m, workOffset = provenOffset) => {
   jest.useFakeTimers();
   const ctx = { now: 10000, c: fakeController(), m: { ...m }, offset: { ...G54 }, active: 'Idle' };
   ctx.control = createControl({ now: () => ctx.now, elapsed: () => ctx.now });
@@ -93,7 +93,7 @@ const setup = (m) => {
     { get: () => ({ TEST: ctx.c }) },
     { get: (key) => ({ watchDirectory: root, macros: [], events: [], 'touch.machines': [], 'touch.motion.enabled': true }[key]) },
     () => ctx.now,
-    { control: ctx.control, workOffset: provenOffset }
+    { control: ctx.control, workOffset }
   );
   services.push(ctx.service);
   ctx.state = () => ctx.service.list()[0];
@@ -162,6 +162,27 @@ const setup = (m) => {
   ctx.banner = () => ctx.c.runner.emit('startup', { firmware: 'Grbl', version: '1.1f' });
   return ctx;
 };
+
+test('D2: a plate ticket cannot move after its offset proof was invalidated', async () => {
+  let proven = true;
+  const refusal = Object.assign(new Error('Offset unconfirmed'), { code: 'ETOUCH_OFFSET_UNCONFIRMED' });
+  const ctx = setup({ x: 100, y: 100, z: -110 }, () => ({
+    ...provenOffset(),
+    proven: () => proven,
+    invalidate: () => {
+      proven = false;
+    },
+    refusal: () => (proven ? null : refusal),
+    snapshot: () => ({ state: proven ? 'proven' : 'unknown' })
+  }));
+  proven = true;
+  const ticket = await ctx.req('prepare', { operation: 'zeroZ', thickness: 5, search: 10 });
+  ctx.service.socketCommand('TEST', false);
+  expect(ctx.state()).toMatchObject({ canZeroZ: false, workOffset: { state: 'unknown' } });
+  const attempt = ctx.req('zeroZ', { nonce: ticket.nonce }).catch((err) => err);
+  expect(ctx.c.commands).toEqual([]);
+  expect(await attempt).toMatchObject({ code: 'ETOUCH_OFFSET_UNCONFIRMED' });
+});
 
 test('D4: permanent contact refuses both plate and block before any line is written', async () => {
   const ctx = setup({ x: 100, y: 100, z: -110 });

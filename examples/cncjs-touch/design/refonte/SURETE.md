@@ -1,6 +1,6 @@
-# Sûreté des commandes — corrections S1 à S6
+# Sûreté des commandes — corrections S1 à S6, page P1 à L6 et FINAL
 
-État relu le 15 novembre 2026, branche `feat/refonte-ui`, base `521dc9d4`, serveur commité jusqu'à `7ec0c194`, puis corrections SURETE dans l'arbre de travail. Ce registre décrit les changements **réellement présents dans le code**, à rapprocher de `PLAN-CORRECTIONS.md` (§ 1, 4, 5 et 6), de `CONSTATS.md` et d'`audit/ECARTS-PLAN.md`. Il ne vaut ni autorisation d'installation ni validation sur la machine. `.git` étant en lecture seule, le pilote doit commiter les corrections et ce registre, puis relancer les vérifications.
+État consolidé le 16 novembre 2026, branche `feat/refonte-ui`, base `521dc9d4`, HEAD `e5d43389`. Les corrections SURETE sont dans `2bc52077` ; les lots de page jusqu'à L6 sont commités. Les compléments FINAL décrits au § 9 sont dans l'arbre de travail et attendent leurs commits par le pilote, `.git` étant en lecture seule. Ce registre décrit les changements **réellement présents dans le code**, à rapprocher de `PLAN-CORRECTIONS.md` (§ 1, 4, 5 et 6), de `CONSTATS.md` et d'`audit/ECARTS-PLAN.md`. Il ne vaut ni autorisation d'installation ni validation sur la machine. Relancer les suites après les commits du pilote.
 
 Les chemins `S/` ci-dessous désignent `src/server/services/touch/`, `T/` son sous-dossier `__tests__/`. Les intitulés cités permettent de retrouver les preuves sans dépendre d'un numéro de ligne. Une preuve par faux contrôleur ou simulateur démontre la décision logicielle et les écritures demandées ; elle ne démontre pas l'effet physique sur le firmware réel.
 
@@ -14,9 +14,14 @@ Les chemins `S/` ci-dessous désignent `src/server/services/touch/`, `T/` son so
 | S4 | `060bfb6c`, puis `7ec0c194` | Arrêts des séquences, plaque surveillée, départ asynchrone annulable, garde de prise d'origine, arrêt différé lié à la session. |
 | S5 / D3-D4 | `7ec0c194` | Rétroéclairage serveur, lectures directes, zéro machine, diagnostic passif, bail Socket.IO. |
 | S6 | `7ec0c194` | Enveloppe du bloc, dernier incident, refus de pas, suppression de M5 en alarme, refus traduisibles. |
-| SURETE | Non commité, aucun ajout à l'index tenté | Traitement de D-01 à D-06 et C-01 à C-04 de la revue Astra ; diagnostics D2 en pouces. Détails au § 8. |
+| SURETE | `2bc52077` | Traitement de D-01 à D-06 et C-01 à C-04 de la revue Astra ; diagnostics D2 en pouces. Détails au § 8. |
+| P1 / P2 / P3 | `3251a423`, `fb7a82bb`, `18d77658` (avec P1 partiellement dans `2bc52077`) | Refus D1/D2/D4, réveil local, version, appels directs et retours de commande. |
+| L1 / L2 | `189ec9f9`, `be9135c3` | Fil de séance, confirmations, Machine et remise en route. |
+| L3a / L3b | `57a65795`, `12d0f19b` | Déplacements/zéros et carte bloc/plaque commune. |
+| L4 / L5 / L6 | `1aace235`, `9f981288`, `e5d43389` | Contrôle/dérogation, Usinage/reprise, Plus/langues. |
+| FINAL | À commiter par le pilote | Plaque : D2 à l'exécution ; cadrage : attente annulable ; corrections de page et consolidation documentaire (§ 9). |
 
-Le regroupement S4–S6 dans `7ec0c194` remplace les commits thématiques annoncés dans les comptes rendus temporaires. Ne pas réappliquer leurs patches : ces changements sont déjà présents. Les changements de page P1–P3 et L1–L6 ne sont pas déclarés réalisés par ce registre.
+Le regroupement S4–S6 dans `7ec0c194` remplace les commits thématiques annoncés dans les comptes rendus temporaires. Ne pas réappliquer leurs patches : ces changements sont déjà présents. Les compléments de page ci-dessous et le § 9 donnent leur état livré ; les mentions de branchements futurs des comptes rendus historiques ne décrivent plus l'état courant.
 
 ## 2. Départ, reprise et contrôle des courses
 
@@ -88,9 +93,9 @@ Le regroupement S4–S6 dans `7ec0c194` remplace les commits thématiques annonc
 |---|---|---|
 | Extinction temporaire | Toute page pouvait éteindre le panneau du serveur → seulement socket en boucle locale (127/8, ::1, IPv4 mappée), sans `X-Forwarded-For`, `Forwarded`, `X-Real-IP` ; sinon 409 `ETOUCH_BACKLIGHT_REMOTE`, aucune écriture. `local` est rendu dans GET/POST. | `src/server/api/__tests__/api.touch.test.js` : locales, distantes, relais, absence de socket. |
 | Réveil / démarrage | État de veille perdu après redémarrage → réveil accepté de partout et idempotent ; si temporaire ou panneau sous le minimum, niveau opérateur réappliqué ; `restore()` sans niveau mémorisé et panneau sombre applique 50 %. Curseur explicite non temporaire toujours possible à distance, minimum 5 %. | `T/backlight.test.js` ; tests API de réveil distant et réponse `local`. |
-| Boutons de page et veille | Le serveur applique désormais ces gardes, mais P1/P2/P3 doivent encore brancher `canReadSettings`, refus codés, réveil au chargement/toucher et appels directs Pause/Arrêter. L3a/L5 doivent brancher zéro machine et dérogation. | Suites de page existantes exécutées par `verify-project.cjs` ; les preuves `test-bughunt-A2-*`, A3 et V2/V3 des lots futurs restent en place. Leurs corrections ne sont pas revendiquées ici. |
+| Boutons de page et veille | P1/P2/P3 utilisent `canReadSettings`, les refus codés, le réveil local au chargement/toucher et les appels directs Pause/Arrêter. L3a raccorde le zéro machine ; L4 raccorde la dérogation dans Détails du contrôle. | `test-work-offset.cjs`, `test-backlight.cjs`, `test-screen-saver.cjs`, `test-zero-machine.cjs`, `test-derogation.cjs`, `test-control-attribution.cjs`. Preuves temporaires converties ; voir CONSTATS. |
 
-**Limites D3 (§ 1.3).** Un kiosque ouvert sur l'adresse réseau plutôt que localhost ne peut plus éteindre : vérifier son URL. Un relais local sans en-tête ferait passer un distant pour local. Une seconde page locale peut encore éteindre : sa veille doit être « Inchangée ». Le premier toucher d'un écran noir peut atteindre sa cible ; le volet de réveil bloquant n'est pas réalisé. Le serveur seul ne corrige pas le comportement de veille de la page avant P2. État réel du panneau, permissions système et URL du kiosque non vérifiés.
+**Limites D3 (§ 1.3).** Un kiosque ouvert sur l'adresse réseau plutôt que localhost ne peut plus éteindre : vérifier son URL. Un relais local sans en-tête ferait passer un distant pour local. Une seconde page locale peut encore éteindre : sa veille doit être « Inchangée ». Le premier toucher d'un écran noir peut atteindre sa cible ; le volet de réveil bloquant n'est pas réalisé. P2 a raccordé la page, mais l'état réel du panneau, les permissions système et l'URL du kiosque ne sont pas vérifiés.
 
 ## 7. Informations sans nouvelle commande machine
 
@@ -101,7 +106,7 @@ Le regroupement S4–S6 dans `7ec0c194` remplace les commits thématiques annonc
 
 ## 8. Relecture et essais restant nécessaires
 
-Rapport Astra `scratchpad/refonte/codex/SURETE-REVUE.md` lu en entier. Les six points « danger » et les quatre « à corriger » sont confirmés par le code et les tests ; aucun n'est écarté comme faux. D-05 avait déjà un correctif non commité à l'arrivée, conservé et complété. Les tests SURETE sont durables dans les cinq suites existantes ; aucune preuve d'un autre lot n'est supprimée.
+Rapport Astra `scratchpad/refonte/codex/SURETE-REVUE.md` traité par le lot SURETE, livré dans `2bc52077`. Les six points « danger » et les quatre « à corriger » ont été confirmés par le code et les tests ; aucun n'a été écarté comme faux. D-05 avait déjà un correctif à l'arrivée de cette reprise, conservé et complété dans le même commit. Les tests SURETE sont durables dans les cinq suites existantes ; aucune preuve d'un autre lot n'est supprimée.
 
 | Revue | Avant → après du complément | Preuve |
 |---|---|---|
@@ -166,3 +171,26 @@ rows call the same `override {kind: 'rapid', value}` owner. No production server
 code or G-code changes in L4. Tests: `test-derogation`, `test-check-screen`,
 `test-start-override`, `test-job-dialog`, and the existing server safety suites.
 The corpus test alone migrates its old geometry API from `check` to `place`.
+
+## 9. Synthèse finale L3, L5, L6 et revue FINAL
+
+Les compléments L1/L2/L4 précédents sont historiques et restent utiles pour la migration. **Les relais et boutons cachés provisoires de L1 ont été retirés en L4/L5.** La table `../../commandes-migration.json` garde les 69 correspondances de boutons ; les tests durables vérifient les propriétaires réels, sans faire d'une commande de rendu v2 une commande machine.
+
+| Chemin livré | Ancien → nouveau et gardes conservés | Preuves durables |
+|---|---|---|
+| L3a, flèches et zéros | Préparer → Zéro pièce, mêmes requêtes de `real-motion.js`. Zéro ici conserve `G10 L20`, et zéro à l'origine machine ajoute seulement `at:'machine'` au ticket existant, puis confirme son nonce. Pas, déplacement continu, garde de course et fin de déplacement restent serveur. | `test-zero-machine.cjs`, `test-real-motion.cjs`, `test-commandes-migration.cjs` ; `T/motion.test.js`, `T/reference-guard.test.js`. |
+| L3b, bloc/plaque | Écrans Sonde et formulaire de Suivi → carte commune `cncZeroPiece`, volets de mesures/diagnostic, même propriétaire de préparation. Représentation de la zone depuis le profil et le ticket serveur, jamais calcul d'une autorisation de trajet. Mesures physiques restent nulles jusqu'à saisie. | `test-zero-piece.cjs`, `test-probe-assistant.cjs`, `test-probe-diagnostic.cjs`, `test-block-probe-dialog.cjs`. |
+| L5, actions Usinage | Boutons cachés/volets de corrections → Pause/Reprendre/Arrêter et trois rangées fixes, appels directs `cncJobControls`. Aucun retard ajouté à Arrêter. Reprise à une ligne vise le fichier arrêté et le plan accepté, puis passe par chargement, Contrôle et confirmation normale. | `test-usinage-ecran.cjs`, `test-reprise-volet.cjs`, `test-control-attribution.cjs`, `test-parcours-server.cjs`. |
+| L5, plaque en changement de fraise/fin | Carte séparée → raccourcis de l'encart Usinage, tous vers `cncZeroPiece.plate`. Même `canZeroZ`, génération, flux, nonce, durée et case ; aucune reprise automatique après palpage échoué. | `test-zero-piece.cjs`, `test-usinage-ecran.cjs`, `T/plate-probe.test.js` (M6 et `probeFailed`). |
+| L6, Plus/langues/détails | Textes techniques déplacés dans Détails ; macros/assistant gardent les propriétaires et confirmations. Journal filtre les données numériques du bloc et les retours, sans créer d'ordre machine. Veille distante reste interdite par D3. | `test-more-screen.cjs`, `test-macros.cjs`, `test-job-dialog.cjs`, `test-textes-regles.cjs`, `test-refus-table.cjs`, `test-server-history.cjs`. |
+| FINAL 1, plaque et D2 | La préparation vérifiait D2, l'exécution seulement la capacité/référence/course → `COMMISSIONING.zeroZ.run` rappelle **`plateReady(c)`** avant `zeroZ`. Ticket devenu non prouvé : refus D2 avant toute écriture, sans changer le trajet autorisé. L'affirmation du § 4 ne devient complète qu'avec ce correctif. | `T/plate-probe.test.js`, « a plate ticket cannot move after its offset proof was invalidated » : preuve puis ticket, invalidation Socket.IO, `canZeroZ:false`, refus codé et zéro commande. |
+| FINAL 3, attente du cadrage | Attente d'empreinte sans réservation → `frameStarting` réserve avant l'attente ; `canStop` vrai et rotation différée. Stop/Pause/jog-stop/spindleStop, arrêt Socket.IO, libération/prise du bail, perte du flux ou fermeture du service annulent. Le marqueur ne se réhabilite pas. Après lecture : annulation, flux, autorisation puis plan complet revérifiés avant M5/les jogs existants. | `T/machine-profile.test.js`, neuf annulations ; réservation, maintenance/Socket.IO/actions gardées refusés, puis M5 normal après lecture. |
+| FINAL 2/4, permissions de départ affichées | La page imposait `homed:true` à tous → `$22=0` **explicite** dispense la page de cette condition, avec avertissement de course inconnue. Le serveur n'est pas modifié. Quand `canStart:false`, Contrôle expose son refus, notamment `_START_FEED_MODE` et « Reprendre au début ». | `test-check-screen.cjs`, FR/EN/ES ; ancien témoin sans référence conservé. |
+| FINAL 5, Recommencer | Dernière action globale → relance attachée à la demande refusée et à ses paramètres copiés. Une préparation de palpage relancée délivre une **nouvelle confirmation**, jamais le nonce ancien ni un Start antérieur. Sans rappel de propriétaire, aucune autre commande n'est rejouée. | `test-zero-piece.cjs`, Start puis bloc/plaque ; même code sur deux opérations successives. |
+| FINAL 6/7, confirmations et 3D | Opérations traduites, données techniques dans Détails, noms de fichiers/macros préservés. Chargement 3D avec état/réessai ; résultats tardifs ignorés après fermeture. Ces changements ne commandent pas la machine. | Nouveaux `test-confirmation-labels.cjs`, `test-placement-loading.cjs`, enregistrés dans verify-project ; matrice v2 conservée. |
+
+**Écart conservateur du cadrage au plan § 1.6.** Le plan décrit l'arrêt de toute séquence ; FINAL étend cette réservation à son attente avant la première ligne, danger préexistant à `3049a0e4`. Actions gardées, changement de type, lecture automatique/D2, Socket.IO non sûr et maintenance attendent la fin de lecture, même après annulation. L'arrêt ne provoque aucun mouvement/reset puisqu'aucune ligne du cadrage n'est partie ; `spindleStop` garde son M5 explicite si ses gardes l'autorisent. Aucun nouveau code, champ de requête ou G-code. Si la lecture ne se termine pas, le port reste réservé de façon conservatrice ; pas de faux succès ni de mouvement tardif. Le contrôle du plan et son premier envoi sont synchrones après libération de cette réservation.
+
+**Revue FINAL.** Les sept points bloquants/à corriger d'Astra sont retenus, aucun rejeté. Le huitième point documentaire est consolidé ici. Deux attentes structurelles de tests de page sont remplacées nominativement : `test-v2-preparer.cjs` exige les deux éléments de chargement cachés plutôt qu'un volet vide ; `test-performance-v2-safety.cjs` autorise seulement Réessayer, caché après succès, et garde zéro relais machine. Aucune assertion d'arrêt, de commande, de référence ou D2 n'est retirée.
+
+**Limites de livraison.** Tests hors navigateur et simulateur ne prouvent pas le déplacement réellement exécuté, les capteurs, la broche ou la cadence du firmware. Les hypothèses du pont LUNYEE au § 8 restent. La tentative Edge FINAL `--strict --only screens,e2e,parcours` échoue avec `WebSocket error` avant tout scénario. Pas de harnais complet, de validation tactile/Chromium 106, d'accès matériel ni de déploiement. La revue complémentaire du pilote/Fable et les essais de `PROTOCOLE-ESSAI.md` restent à conduire ; aucune approbation de sûreté n'est présumée. Voir `IDEES.md` pour les gardes/fonctions délibérément non livrés.

@@ -3,7 +3,7 @@
 const {fixture,machine}=require('./check-page-fixture.cjs');
 const tick=()=>new Promise(setImmediate),idle=machine;
 function preparerPage(options={}){
- const p=fixture(),pending=[],calls={mount:[],unmount:0,loads:[],reads:0,updates:[],catalogues:[],sheets:[]};
+ const p=fixture(options.language),pending=[],calls={mount:[],unmount:0,loads:[],reads:0,updates:[],catalogues:[],sheets:[]};
  const v2={gate:true,layout:options.v2!==false,safeIdle:options.safeIdle!==false};
  p.window.cncV2={gate:()=>v2.gate,state:()=>({...v2,holdLayout:v2.layout&&!v2.safeIdle})};
  p.window.cncProfile.performance=()=>options.performance||'performance';

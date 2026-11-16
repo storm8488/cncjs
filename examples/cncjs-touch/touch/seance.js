@@ -5,6 +5,7 @@
   var labels={machine:'Machine',files:'Fichier',jog:'Zéro pièce',check:'Contrôle',home:'Usinage',more:'Plus'};
   var remedies={connecter:'Connecter la CNC','prendre-la-main':'Prendre la main','remise-en-route':'Remise en route','prise-origine':'Prise d’origine machine…',relire:'Relire les réglages','verifier-zero':'Vérifier à nouveau','arreter-broche':'Arrêter la broche','arreter-usinage':'Arrêter l’usinage','voir-usinage':'Voir l’usinage','refaire-zero-z':'Refaire le zéro Z','refaire-zero':'Refaire le zéro pièce','choisir-fichier':'Choisir un fichier','recharger-fichier':'Recharger ce fichier','reessayer-controle':'Vérifier à nouveau','ma-sonde':'Ma sonde…',plaque:'Modifier…','tester-sonde':'Tester la sonde','pourquoi-sonde':'Pourquoi ?','dessin-depart':'Voir le dessin de départ','relancer-palpage':'Relancer le palpage','changer-ligne':'Changer la ligne','reprendre-debut':'Reprendre au début',recommencer:'Recommencer','voir-controle':'Voir le contrôle',vitesse:'Vitesse…','type-machine':'Type de machine…','recharger-page':'Recharger la page',details:'Détails',aucun:''};
   function t(s){return window.cncI18n?window.cncI18n.t(s):s;}
+  function referenceReady(m){return !!(m&&(m.settings&&(m.settings.$22===0||m.settings.$22==='0')||m.homed===true&&!m.referenceLost));}
   function cause(id,texte,remedes,ton){return {id:id,texte:t(texte),remedes:remedes||[],ton:ton||'warn'};}
   function fromRefusal(error){var r=window.cncRefus&&window.cncRefus.lire(error);return r?cause(r.famille,r.phrase,r.remedes):cause('indisponible','Impossible pour l’instant.',['details']);}
   function settingsMissing(m){
@@ -15,7 +16,7 @@
   }
   function machineLines(input,global,rank){
     var m=input.machine,p=input.pilot||{},o=m&&m.workOffset,alarm=!!(m&&/^alarm/i.test(m.activeState||''));
-    var running=!!(m&&(m.workflow==='running'||m.workflow==='paused')),homed=!!(m&&m.homed===true&&!m.referenceLost);
+    var running=!!(m&&(m.workflow==='running'||m.workflow==='paused')),homed=referenceReady(m);
     var stopped=!!(m&&m.jobStopped&&Number.isInteger(m.stoppedAtLine)&&m.stoppedAtLine>=0);
     var incident=!!(m&&(alarm||m.lastAlarm||m.referenceLost||stopped));
     var settings=!!m&&!settingsMissing(m);
@@ -29,7 +30,7 @@
     line('main',p.state==='other'?t('C’est « {appareil} » qui a la main').replace('{appareil}',function(){return p.name||p.value||t('autre appareil');}):p.state==='mine'?'La main : cet appareil':'La main : libre',p.state==='other'?'alerte':'fait');
     line('reglages',reading?'Lecture des réglages…':settings?'Réglages lus':'Réglages pas encore lus',settings?'fait':'attente',[button('relire','Relire',commands&&m.canReadSettings===true)]);
     if(alarm&&running||stopped)line('arret',running?'Un usinage est encore ouvert':t('Usinage arrêté à la ligne {n}').replace('{n}',m.stoppedAtLine),running?'alerte':'fait');
-    line('origine',m&&m.homing?'Prise d’origine en cours…':homed?'Origine machine prise':incident?'Origine machine à reprendre':'Origine machine à prendre',homed?'fait':alarm?'alerte':'attente');
+    line('origine',m&&m.homing?'Prise d’origine en cours…':homed?m.homed?'Origine machine prise':'Prise d’origine non requise':incident?'Origine machine à reprendre':'Origine machine à prendre',homed?'fait':alarm?'alerte':'attente');
     if(incident||!o||o.state!=='proven'){
       var buttons=[];
       if(homed&&!o)buttons.push(button('details','Détails',true));
@@ -86,7 +87,7 @@
     if(alarm)pick(8,'alarme','La machine est en alarme : sa position est perdue.',['remise-en-route']);
     var settings=!!settingsMissing(m);
     if(settings)pick(9,'reglages-non-lus','La machine n’a pas encore donné ses réglages.',['relire']);
-    if(m&&/^idle/i.test(m.activeState||'')&&(m.homed!==true||m.referenceLost))pick(10,'origine-a-prendre','Origine machine pas prise : la machine ne sait pas où elle est.',['prise-origine']);
+    if(m&&/^idle/i.test(m.activeState||'')&&!referenceReady(m))pick(10,'origine-a-prendre','Origine machine pas prise : la machine ne sait pas où elle est.',['prise-origine']);
     var moving=m&&m.motion&&(m.motion.jog||m.motion.cancelling),busyCode=m&&m.refusals&&m.refusals.readSettings;
     if(m&&(m.homing||m.probing||moving||busyCode&&busyCode.code==='ETOUCH_SETTINGS_READING'))pick(11,'occupee',m.homing?'Prise d’origine en cours.':m.probing?'Palpage en cours.':moving?'Déplacement en cours.':'Lecture des réglages en cours.',[]);
     if(running)pick(12,'usinage-en-cours','Un usinage est en cours.',['voir-usinage']);
@@ -100,13 +101,13 @@
       else zeroCause=cause('zero-non-confirme','La machine n’a pas confirmé le zéro pièce.',['verifier-zero']);
     }
     var traces=m?[m.motion&&m.motion.lastOrigin,m.blockProbe&&m.blockProbe.state==='done'&&m.blockProbe.written==='yes'?m.blockProbe:null,m.zeroZ].filter(function(o){return o&&!o.failed;}):[];
-    var zeroDone=proven&&!!(m&&m.homed===true&&!m.referenceLost)&&traces.length>0,check=m&&m.programCheck,outside=!!(check&&(check.verdict==='outside'||['X','Y','Z'].some(function(a){return check.axes&&check.axes[a]&&check.axes[a].verdict==='outside';})));
-    var done={machine:!!(m&&online&&m.fresh&&p.state!=='other'&&!alarm&&!settings&&m.homed===true&&!m.referenceLost&&!m.lastAlarm&&m.firmware&&m.settingsCount>0),files:!!(m&&m.name),jog:zeroDone,check:!!(m&&proven&&check&&check.verdict==='validated'&&m.canStart&&!outside),home:!!(m&&m.finished)};
+    var zeroDone=proven&&referenceReady(m)&&traces.length>0,check=m&&m.programCheck,outside=!!(check&&(check.verdict==='outside'||['X','Y','Z'].some(function(a){return check.axes&&check.axes[a]&&check.axes[a].verdict==='outside';})));
+    var done={machine:!!(m&&online&&m.fresh&&p.state!=='other'&&!alarm&&!settings&&referenceReady(m)&&!m.lastAlarm&&m.firmware&&m.settingsCount>0),files:!!(m&&m.name),jog:zeroDone,check:!!(m&&proven&&check&&check.verdict==='validated'&&m.canStart&&!outside),home:!!(m&&m.finished)};
     var machineView=machineLines(input,global,rank);
     if(machineView.incident)done.machine=false;
     var suite=running?'home':order.filter(function(k){return !done[k];})[0]||'check';
     if(machineView.action==='suite:files')machineView.action='suite:'+(order.slice(1).filter(function(k){return !done[k];})[0]||'check');
-    var words={machine:done.machine?'Prête':global?global.texte:'En attente',files:done.files?'Chargé':selection?'Choisi':'Aucun fichier',jog:m&&m.probing?'Palpage…':!proven||m&&(!m.homed||m.referenceLost)?'À vérifier':zeroDone?'Posé':'Ancien zéro',check:!m||!m.name?'En attente':!proven?'Zéro pièce à vérifier':outside?'Dépasse':check&&check.verdict==='unknown'?'Non vérifié':m.jobStopped?'À recharger':done.check?'Tient':'En attente',home:alarm?'Alarme':m&&m.jobStopped?'Arrêté':m&&m.workflow==='paused'?'Pause':m&&m.workflow==='running'?'En cours':done.home?'Terminé':'Rien en cours'};
+    var words={machine:done.machine?'Prête':global?global.texte:'En attente',files:done.files?'Chargé':selection?'Choisi':'Aucun fichier',jog:m&&m.probing?'Palpage…':!proven||!referenceReady(m)?'À vérifier':zeroDone?'Posé':'Ancien zéro',check:!m||!m.name?'En attente':!proven?'Zéro pièce à vérifier':outside?'Dépasse':check&&check.verdict==='unknown'?'Non vérifié':m.jobStopped?'À recharger':done.check?'Tient':'En attente',home:alarm?'Alarme':m&&m.jobStopped?'Arrêté':m&&m.workflow==='paused'?'Pause':m&&m.workflow==='running'?'En cours':done.home?'Terminé':'Rien en cours'};
     var zeroContext='';
     if(zeroDone&&!(m&&m.probing)){
       var trace=traces.slice().sort(function(a,b){return (b.endedAt||b.at||0)-(a.endedAt||a.at||0);})[0],at=trace.endedAt||trace.at;
@@ -141,7 +142,7 @@
     return {etapes:etapes,suite:suite,barres:barres,lignes:machineView.rows,machine:machineView,globale:global,rang:rank};
   }
   window.CNCSeance={evaluate:evaluate};
-  var lastAction='',handlers={},last={},selection=window.cncLibrarySelection||null,manual=false,arrived=false,result=null,armed={},pendingRefusal=null,motionFeedback=null;
+  var handlers={},last={},selection=window.cncLibrarySelection||null,manual=false,arrived=false,result=null,armed={},pendingRefusal=null,motionFeedback=null;
   function setText(n,v){if(n&&n.textContent!==v)n.textContent=v;}
   function attr(n,k,v){if(n&&n.getAttribute(k)!==v)n.setAttribute(k,v);}
   function prop(n,k,v){if(n&&n[k]!==v)n[k]=v;}
@@ -212,7 +213,7 @@
     var main=by('main');if(main){if(main.textContent!==b.action.libelle){setText(main,b.action.libelle);armed[active]=Date.now()+600;}attr(main,'data-action',b.action.id);attr(main,'data-style',b.action.style);prop(main,'disabled',b.action.style==='raye');attr(main,'title',b.action.style==='raye'?b.cause.texte:'');}
   }
   function lancer(id){
-    if(id!=='recommencer'&&id!=='details')lastAction=id;
+    if(id==='recommencer'){var retry=pendingRefusal&&pendingRefusal.refusal.retry;if(retry)return retry();return lancer('details');}
     if(id.indexOf('suite:')===0){window.cncShell.go(id.slice(6));return;}
     if(id==='details'){window.cncShell.details(pendingRefusal?pendingRefusal.refusal.details:{lignes:[],brut:last.machine});return;}
     if(id==='incident-details'){var help=last.machine&&window.CNCGrblHelp&&window.CNCGrblHelp.alarm(last.machine.lastAlarm&&last.machine.lastAlarm.code||last.machine.alarmCode);window.cncShell.details({lignes:help?[{libelle:t('Alarme'),valeur:help.title+' '+help.action}]:[],brut:last.machine});return;}
@@ -224,8 +225,8 @@
     // An unavailable owner never silently consumes a remedy.
     window.cncShell.details({lignes:[],brut:last.machine});
   }
-  function refuse(error){var origin=document.activeElement,sheet=origin&&origin.closest&&origin.closest('.ks-sheet');if(sheet&&window.cncRefus){window.cncRefus.montrer(sheet.querySelector('.ks-sheet-content')||sheet,error);return;}var strip=origin&&origin.closest&&origin.closest('#real-banner,#simulation-banner'),messages=strip&&document.getElementById('t-messages');if(messages&&window.cncRefus){window.cncRefus.montrer(messages,error);if(window.cncStatusStrip)window.cncStatusStrip.syncMessages();}var r=window.cncRefus&&window.cncRefus.lire(error);if(!r)return;var screen=window.cncShell&&window.cncShell.screen();if(screen&&order.indexOf(screen)<0){window.cncRefus.montrer(document.getElementById('screen-'+screen),r);return;}pendingRefusal={screen:window.cncShell&&window.cncShell.screen(),key:inputKey(last),refusal:r};paint();}
-  function owner(method,arg){return function(){var c=window.cncJobControls;if(!c||typeof c[method]!=='function')return;var out=c[method](arg);if(out&&typeof out.then==='function')out.then(function(result){if(result&&result.error)refuse(result.error);},refuse);return out;};}
+  function refuse(error,retry){var origin=document.activeElement,sheet=origin&&origin.closest&&origin.closest('.ks-sheet');if(sheet&&window.cncRefus){window.cncRefus.montrer(sheet.querySelector('.ks-sheet-content')||sheet,error,retry);return;}var strip=origin&&origin.closest&&origin.closest('#real-banner,#simulation-banner'),messages=strip&&document.getElementById('t-messages');if(messages&&window.cncRefus){window.cncRefus.montrer(messages,error,retry);if(window.cncStatusStrip)window.cncStatusStrip.syncMessages();}var r=window.cncRefus&&window.cncRefus.lire(error);if(!r)return;r.retry=retry;var screen=window.cncShell&&window.cncShell.screen();if(screen&&order.indexOf(screen)<0){window.cncRefus.montrer(document.getElementById('screen-'+screen),r,retry);return;}pendingRefusal={screen:window.cncShell&&window.cncShell.screen(),key:inputKey(last),refusal:r};paint();}
+  function owner(method,arg){var retry=function(){var c=window.cncJobControls;if(!c||typeof c[method]!=='function')return;var out=c[method](arg);if(out&&typeof out.then==='function')out.then(function(result){if(result&&result.error)refuse(result.error,retry);},function(e){refuse(e,retry);});return out;};return retry;}
   handlers.charger=owner('load');handlers.demarrer=owner('start');handlers.reprendre=owner('resume');handlers.pause=owner('pause');handlers['arreter-usinage']=owner('stop');handlers['arreter-broche']=owner('spindleStop');handlers.relire=owner('readSettings');handlers['verifier-zero']=owner('verifyOffset');handlers['prise-origine']=owner('prepareCommand','home');handlers['prendre-la-main']=owner('openPilot');handlers.connecter=function(){if(window.cncConnectCnc)window.cncConnectCnc.search();};
   handlers['recharger-fichier']=function(){var c=window.cncJobControls,m=last.machine;if(c&&m&&m.canLoad&&!last.busy)return c.loadFrom(m.name,1).catch(refuse);};handlers['recharger-page']=function(){var m=last.machine;if(last.halt||last.busy||last.systemCommand||m&&(m.workflow!=='idle'||m.canStop||m.probing||m.homing)){refuse({message:t('Impossible pour l’instant.')});return;}window.location.reload();};
   var legacy={'ma-sonde':'probe-profile','tester-sonde':'probe-contact','pourquoi-sonde':'probe-contact','dessin-depart':'probe','relancer-palpage':'probe'};Object.keys(legacy).forEach(function(id){handlers[id]=function(){window.cncShell.go(legacy[id]);};});
@@ -234,7 +235,6 @@
   handlers.plaque=function(){if(window.cncZeroPiece)window.cncZeroPiece.plate(true);};
   handlers['changer-ligne']=function(){window.cncShell.go('home');if(window.CNCJobResume&&window.CNCJobResume.open)window.CNCJobResume.open();};
   handlers['reprendre-debut']=handlers['recharger-fichier'];handlers['reessayer-controle']=function(){window.cncShell.go('check');};
-  handlers.recommencer=function(){if(lastAction&&lastAction!=='recommencer')return lancer(lastAction);return lancer('details');};
   window.cncSeance={enregistrer:function(id,fn){handlers[id]=fn;},lancer:lancer,libelle:function(id){return t(remedies[id]||labels[id]||id);},refuser:refuse,render:paint,state:function(){return result;},motionFeedback:function(value){if(JSON.stringify(value)===JSON.stringify(motionFeedback))return;motionFeedback=value;paint();}};
   if(!window.addEventListener)return;
   window.addEventListener('cnc-job-status',function(e){if(!e.detail||!!e.detail.simulation!==(document.body.getAttribute('data-simulation')==='true'))return;last=e.detail;paint();if(!arrived&&result&&window.cncShell){arrived=true;if(!manual)window.cncShell.go(result.suite);}});
@@ -245,5 +245,5 @@
   window.addEventListener('cnc-sheet-change',function(){paint();});
   document.addEventListener('pointerdown',function(e){if(e.isTrusted)manual=true;},true);
   document.addEventListener('keydown',function(e){if(e.isTrusted)manual=true;},true);
-  document.addEventListener('click',function(e){var node=e.target&&e.target.closest&&e.target.closest('[data-action]');if(!node||node.disabled)return;var id=node.getAttribute('data-action');if(id!=='arreter-usinage'&&id!=='pause'&&/-main$/.test(node.id)&&Date.now()<(armed[window.cncShell.screen()]||0))return;pendingRefusal=null;lancer(id);});
+  document.addEventListener('click',function(e){var node=e.target&&e.target.closest&&e.target.closest('[data-action]');if(!node||node.disabled)return;var id=node.getAttribute('data-action');if(id!=='arreter-usinage'&&id!=='pause'&&/-main$/.test(node.id)&&Date.now()<(armed[window.cncShell.screen()]||0))return;if(id!=='recommencer')pendingRefusal=null;lancer(id);});
 })();

@@ -1,6 +1,8 @@
 // Source phrase, English, Spanish: rows appended to i18n-messages.js (loaded before i18n.js).
 // Visual origin in Préparer (Performance UI, lot O): origin-preview.js.
 (window.CNCTouchMessages=window.CNCTouchMessages||[]).push(
+['Prise d’origine non requise','Homing not required','No se requiere referenciar'],
+['Chargement…','Loading…','Cargando…'],
 ['Où le programme se placera','Where the program will be placed','Dónde se colocará el programa'],
 ['Affichage seulement : rien n’est envoyé, aucune origine n’est posée.','Display only: nothing is sent, no origin is set.','Solo visualización: no se envía nada, no se fija ningún origen.'],
 ['Gris : origine actuelle (G54)','Grey: current origin (G54)','Gris: origen actual (G54)'],

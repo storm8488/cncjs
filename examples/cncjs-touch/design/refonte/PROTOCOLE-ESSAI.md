@@ -1,0 +1,115 @@
+# Protocole d'essai réel de la refonte
+
+Préparé le 16 novembre 2026, base `e5d43389` et corrections FINAL non commitées au moment de la rédaction. **Aucun essai de ce document n'a été effectué sur la CNC, la Surface ou la RT.** À conduire par l'opérateur, sur place, après les vérifications du pilote. Sources locales : `PLAN-CORRECTIONS.md` § 6, `FIRMWARE.md` § 5, faits de terrain du prompt et `SURETE.md`.
+
+## 1. Préparer la livraison, machine déconnectée
+
+1. Le pilote commite séparément les corrections et les documents, sur `feat/refonte-ui`, puis relance les deux suites imposées. Relever les hashes réellement installés. Ne pas réappliquer les anciens patches de S/P/L : leur historique est déjà dans la branche.
+2. Avant toute copie sur la Surface, sauvegarder l'installation fonctionnelle, les fichiers compilés remplacés, les ressources Touch, `.cncrc`, les profils locaux du navigateur et la configuration du kiosque. Garder les originaux et la procédure de retour à cette version.
+3. Construire un dossier d'installation cohérent : serveur **compilé par Babel**, page entière correspondante et `VERSION.json` régénéré après les commits. Ne pas copier du JavaScript serveur ES modules directement dans l'installation compilée.
+4. Vérifier le chemin que lance réellement le service/PM2 sur la Surface. `package.json` du dépôt désigne `dist/cncjs/server-cli.js`, et `scripts/build-prod.sh` compile `src/server` vers `dist/cncjs/server`. Cela ne prouve pas le chemin de l'installation locale. Adapter uniquement la destination après l'avoir relevée ; aucun chemin `/home/...` n'est supposé ici.
+5. Installer seulement lorsque le port est fermé, la machine immobile et l'énergie de coupe coupée. Le présent lot ne réalise ni connexion, ni installation, ni redémarrage distant.
+
+### Liste exacte du serveur à recompiler
+
+Inventaire obtenu avec `git diff --name-only 3049a0e4..HEAD -- src/server`, HEAD `e5d43389` : **52 chemins, dont 15 fichiers de production et 37 fichiers de tests/support de tests**. Les corrections FINAL modifient `job-service.js` et `system-command.js`, déjà dans ces 15 chemins. Les tests ne sont pas des modules à installer. Après les commits FINAL, refaire cette commande et comparer la liste ; tout nouveau module de production doit être ajouté avant installation.
+
+| Source à compiler | Sortie dans le paquet du dépôt |
+|---|---|
+| `src/server/api/api.touch.js` | `dist/cncjs/server/api/api.touch.js` |
+| `src/server/services/cncengine/CNCEngine.js` | `dist/cncjs/server/services/cncengine/CNCEngine.js` |
+| `src/server/services/touch/backlight.js` | `dist/cncjs/server/services/touch/backlight.js` |
+| `src/server/services/touch/block-probe.js` | `dist/cncjs/server/services/touch/block-probe.js` |
+| `src/server/services/touch/control.js` | `dist/cncjs/server/services/touch/control.js` |
+| `src/server/services/touch/halt.js` | `dist/cncjs/server/services/touch/halt.js` |
+| `src/server/services/touch/index.js` | `dist/cncjs/server/services/touch/index.js` |
+| `src/server/services/touch/job-load.js` | `dist/cncjs/server/services/touch/job-load.js` |
+| `src/server/services/touch/job-service.js` | `dist/cncjs/server/services/touch/job-service.js` |
+| `src/server/services/touch/motion.js` | `dist/cncjs/server/services/touch/motion.js` |
+| `src/server/services/touch/plate-probe.js` | `dist/cncjs/server/services/touch/plate-probe.js` |
+| `src/server/services/touch/probe-input.js` | `dist/cncjs/server/services/touch/probe-input.js` |
+| `src/server/services/touch/program-check.js` | `dist/cncjs/server/services/touch/program-check.js` |
+| `src/server/services/touch/system-command.js` | `dist/cncjs/server/services/touch/system-command.js` |
+| `src/server/services/touch/work-offset.js` | `dist/cncjs/server/services/touch/work-offset.js` |
+
+Depuis la racine, avec les dépendances **déjà installées**, la compilation ciblée du paquet peut se préparer ainsi en Bash, hors machine connectée. Les chemins sont issus du diff ; la commande s'arrête avant compilation si leur nombre diffère de l'inventaire attendu :
+
+```bash
+set -euo pipefail
+mapfile -t touch_server_sources < <(git diff --name-only 3049a0e4..HEAD -- src/server |
+  awk '/\.js$/ && !/\/__tests__\//')
+test "${#touch_server_sources[@]}" -eq 15
+for touch_source in "${touch_server_sources[@]}"; do
+  touch_output="dist/cncjs/server/${touch_source#src/server/}"
+  mkdir -p "$(dirname "$touch_output")"
+  NODE_ENV=production ./node_modules/.bin/babel "$touch_source" \
+    --config-file ./babel.config.js --out-file "$touch_output"
+done
+bash scripts/copy-touch-assets.sh dist/cncjs
+```
+
+Ce sont les options Babel et le répertoire de sortie du build du dépôt ; cette préparation ciblée suppose une base compilée complète compatible, pas un dossier vide. Pour une installation d'une autre base, construire le paquet complet par la procédure du projet. `copy-touch-assets.sh` copie tout le répertoire Touch et écrit les métadonnées ; `tablet-exclude.txt` reste l'autorité pour les fichiers exclus du paquet tablette. Ne jamais réintroduire leurs scripts dans `index.html`. Vérifier l'exclusion lors de la préparation du paquet propre à la tablette. Aucun de ces builds/installations n'a été exécuté par FINAL.
+
+## 2. Feuille de relevé et arrêt de l'essai
+
+Avant chaque phase, noter date, hashes serveur/page, URL, navigateur/version, profil CNC/laser, rendu Éco/Performance, énergie de broche/laser, fichier/empreinte, `$I`, `$$`, `$G`, `$#`, MPos/WPos/WCO et état de référence. Enregistrer les lignes série et leurs heures, `ok`/erreurs, rapports, journal et phrase affichée. Ne pas inclure jeton, mot de passe ni profil privé dans un rapport partagé.
+
+L'opérateur reste devant la machine, avec accès immédiat à l'arrêt physique et table dégagée. Au premier mouvement inattendu, contact de fin de course, perte d'état ou doute : arrêter physiquement si nécessaire, couper l'énergie de coupe, consigner le cas et suspendre la phase. Un bouton Arrêter n'atteste jamais l'immobilité réelle. Après bannière, alarme ou reset, considérer la référence perdue et refaire la prise d'origine avant tout travail ; ne pas enchaîner les essais avec un simple déverrouillage.
+
+## 3. Sans mouvement : interface, installation et lectures
+
+| Étape | Manipulation | Résultat attendu / relevé |
+|---|---|---|
+| A1 — plan 1 | Lire l'URL réellement ouverte par le kiosque (`~/.xinitrc` ou configuration constatée), puis la valeur `touch.backlight.percent` de `.cncrc`. | URL en `localhost`/boucle locale pour D3. Ne pas diffuser le reste du fichier privé. Une URL Wi-Fi n'est pas locale pour D3. |
+| A2 — plan 2 | Broche coupée, CNC déconnectée : ouvrir aussi la page sur le PC ; laisser sa veille se déclencher. Puis veille du kiosque et toucher. Répéter après rechargement du kiosque et redémarrage local de CNCjs avec panneau sombre. | Le PC n'éteint pas la Surface ; le kiosque se rallume au toucher et au chargement. Ne pas créer une seconde page locale qui éteint le panneau. Relever les limites D3 si le premier toucher atteint une cible. |
+| A3 — plan 3 | Au repos, vérifier hash de page chargée et version installée dans Système ; Recharger. Essayer le raccourci de rechargement éveillé puis en veille. Le technicien compare `xdotool` avec/sans `--window` si utilisé par l'installation. | Un seul rechargement affiche la bonne version ; la veille ne consomme pas Ctrl/Alt/Meta/F5. Recharger est refusé dès que le repos du serveur n'est pas prouvé. |
+| A4 — E-0, plan 4 | Enregistrer un démarrage USB/alimentation, sans commande de mouvement ; lire `$I`, puis la liste étendue `$S` ou `$+` seulement si reconnue. | Identifier les messages et réglages réellement présents. Une commande inconnue est consignée ; ne pas tenter d'écrire `$39` ni extrapoler son sens. |
+| A5 — E-H, plan 5 | Depuis le téléphone de l'opérateur, constater seulement si le point d'accès de la carte est ouvert et son interface accessible, sans envoyer de commande. | Relever le canal qui contournerait le bail CNCjs. Pas de changement Wi-Fi implicite. |
+| A6 — plan 6 | Carte immobile : redémarrer CNCjs au repos, puis dans une alarme déjà présente. Observer la relecture ; tester Relire. | Version/réglages reviennent par `$I` et `$$` ; aucune ligne de mouvement, pas besoin de déverrouiller pour lire. Respecter les trois tentatives bornées. |
+| A7 — E-E repos, plan 7 | Enregistrer 60 rapports au repos. | Compter les intervalles WCO/Ov et mesurer leur délai ; un `ok` sans WCO explicite récent ne suffit jamais à prouver D2. |
+| A8 — parcours/langues | Rejouer les écrans, dialogues et refus accessibles sans mouvement en FR/EN/ES, sombre/clair, texte normal/agrandi. Ouvrir puis fermer la 3D ; simuler son indisponibilité sur le banc PC. | Sous-titres d'opérations traduits, noms de fichiers/macros conservés, détails accessibles. Refus de départ visible avant « Tout est prêt ». 3D : message et Réessayer, aucune ouverture tardive après fermeture. |
+
+## 4. Premiers mouvements, énergie de coupe débranchée
+
+1. **B1 — E-C, plans 8/9 :** table dégagée, lancer la prise d'origine depuis Machine, case puis bouton d'effet. Observer l'ordre des axes et les rapports Home ; attendre l'arrêt réel. Lire MPos, `$#` et WCO. Répéter trois fois. Relever la convention, sans supposer que l'absence de Home peut apprendre X/Y.
+2. **B2 — D2 :** lorsque le G54 stocké est non nul, observer la preuve automatique après homing. Si le WCO est incohérent : `$#`, autre repère, retour, `$G`, WCO explicite postérieur puis `proven`. Aucune ligne avec axe ni G10 de rechargement. Vérifier le refus de démarrer/palper/reprendre pendant l'attente ; si la preuve échoue, arrêter ici, ne pas contourner D2.
+3. **B3 — pas/zéros :** depuis une position intérieure, commencer par un petit pas vers l'intérieur, vitesse lente, vérifier sens et distance. Tester zéro X ici et Autres zéros → origine machine X, sans déplacement. Après G10 L2, MPos est inchangée, WCO X vaut 0 et WPos X rejoint MPos X ; relire `$#`. Remettre ensuite un zéro de travail adapté au fichier d'essai et laisser D2 le prouver.
+4. **B4 — D1, plan 15 :** charger le fichier de T2 sans le démarrer. Avec une origine connue, vérifier l'axe, le côté et le dépassement chiffré, et le refus du départ normal. Relever physiquement la pièce uniquement avec un montage convenable, refaire Z et vérifier le nouveau contrôle. **Ne pas tester la dérogation par un vrai dépassement** : la preuve logicielle du double geste et du journal existe, elle ne justifie pas une collision.
+5. **B5 — diagnostic, plan 16 :** à l'arrêt, énergie coupée, tester le contact puis la libération. Si contact permanent, suivre l'assistant : écarter le bloc, débrancher la broche, retirer la pince. Modifier les branchements uniquement hors tension selon le matériel. Le témoin doit suivre les contacts réels ; les hypothèses de l'assistant ne sont pas une mesure électrique.
+6. **B6 — plaque, plan 17 :** mesurer l'épaisseur ; vérifier qu'une recherche volontairement trop longue est refusée **avant toute écriture de palpage**. Choisir ensuite une petite recherche libre et bornée ; lancer les deux touches, observer retrait et zéro. Vérifier X/Y inchangés et D2 à nouveau prouvé. Retirer la plaque après immobilisation.
+7. **B7 — arrêt plaque :** refaire un essai borné avec Arrêter dans la demi-seconde après confirmation, puis Pause lors d'un essai distinct. Vérifier arrêt réel, absence de ligne suivante, zéro annoncé incertain si nécessaire, verrou conservé jusqu'à confirmation de l'arrêt. Après reset/reboot, reprendre B1/B2. Sur le banc uniquement, préparer un ticket puis invalider D2 : l'exécution doit refuser sans G38.2 (régression FINAL), sans fabriquer cet entrelacement sur la vraie CNC.
+8. **B8 — E-F, plan 18, avant XYZ :** valider séparément G38.3 sans contact dans une petite zone dégagée, à faible avance, cible bornée ; relever `[PRB:…:0]`, `ok`, état final et position. Tester ensuite le refus sur contact déjà établi. Une alarme suspend l'essai et impose B1/B2. Ne pas lancer XYZ avant d'avoir confirmé le comportement sans contact des liaisons.
+9. **B9 — bloc :** cotes réellement mesurées, dessin correspondant au coin, fraise au-dessus du bloc dans la zone indiquée, test contact/libération. Commencer par Z seul ; vérifier les deux touches et le zéro. Passer à X puis Y seulement avec dégagement ; XYZ en dernier. Comparer les contacts, l'origine et `written` aux mesures, pas seulement au message de succès. Ne pas oublier de rebrancher la broche hors tension avant la phase de coupe.
+
+Le cadrage reste réservé au laser. Sur un laser réel, conserver les protections propres au laser et une émission matériellement empêchée pour cet essai : vérifier `M5` puis le contour, Arrêter/Pause et aucun redémarrage du contour. Le départ retardé par relecture de fichier, son annulation et la libération/reprise de main sont prouvés sur banc FINAL ; ne pas ralentir artificiellement le stockage d'une installation de production. Une RT à `$22=0` garde le départ autorisé par le serveur avec avertissement de course inconnue ; **ne pas mettre `$22=0` sur la CNC pour cet essai**.
+
+## 5. Qualification du firmware, séparée de la séance normale
+
+Ces essais peuvent perdre la référence ou provoquer une alarme. Le technicien doit pouvoir observer toutes les lignes, disposer d'un accès série exclusif et couper physiquement le mouvement. Arrêter CNCjs **machine immobile** avant un essai série exclusif, pour qu'aucune preuve D2 automatique ne modifie l'expérience. Ne pas affaiblir ou modifier les gardes de production. Si ces conditions ne sont pas réunies, laisser la question ouverte et conserver les refus/marges actuels.
+
+| Essai | Exécution prudente | Critère et suite |
+|---|---|---|
+| E-1, plan 11 | À l'arrêt réel, position connue non nulle et énergie coupée : envoyer 0x18 seul. | Bannière, MPos et marque physique : reset ou redémarrage ? Dans tous les cas refaire B1/B2 avant les mouvements suivants. |
+| E-D, plan 13 | Table entièrement dégagée : observer `$HX`, durée, ordre, Home/Pn. Ne pas en attendre un axe seul. | Confirmer le cycle complet observé le 14 novembre, et les rapports nécessaires à l'apprentissage. `$HY`/`$HZ` uniquement si une question précise le nécessite. |
+| E-B, plan 10 | Après homing, avant tout rechargement D2, lire le repère et son décalage non nul. Définir **deux cibles possibles** (décalage exécuté nul ou stocké), leurs trajets depuis MPos et leurs dégagements. Employer un mouvement linéaire lent en mm, cible choisie sur place et avance bornée, jamais le `G0 X1` générique de la fiche. Relever MPos ; seulement ensuite autre repère/retour puis même comparaison. | Déterminer si seul le rapport WCO ment ou si le décalage exécuté est nul. Si les deux trajets ne sont pas petits et libres, ne rien envoyer : D2 couvre déjà les deux hypothèses. Refaire B1/B2 après l'expérience. |
+| E-A, plan 12 | Après référence prouvée, approcher séparément chaque borne depuis l'intérieur, sans outil coupant. Relever les courses réelles avant de choisir les cibles : **408/396/130 mm observés, pas les exemples 400 mm de FIRMWARE**. Pas au plus 0,05 mm près de la limite, avance lente, une seule demande puis retour intérieur. Le support de `$J=G53 G90` et la nature de son refus sont à vérifier sur ce binaire, pas à supposer. | Relever les six bornes, `error:15` ou `ALARM:2`, perte de référence et distance physique aux contacts. Ne pas envoyer un tableau de cibles franchissant le capteur ; à la première alarme, suspendre et reprendre B1/B2. Ne pas réduire la marge de 0,5 mm sur la seule base du simulateur. |
+| E-2, plan 19 | Seulement après qualification des bornes et du refus sans mouvement : une cible très légèrement hors course dans une direction mécaniquement dégagée. L'exemple `G53 G0 Z0.5` reste une expérience du firmware, **pas une commande sûre universelle**. Relever pendant 10 s ; si nécessaire, reset seulement après immobilisation/coupure. | Moment de l'alarme, redémarrage spontané ou après reset, MPos perdue. Puis `$X` ne doit pas suffire à Démarrer sur `$22=1`. Refaire B1/B2. |
+| E-3, plan 20 | Déplacement lent court, entièrement dans une zone dégagée, énergie coupée ; 0x18 au milieu. Choisir distance et avance sur place, sans reprendre aveuglément le X20 de la fiche. | Arrêt réel, ALARM/bannière et position mesurée avant/après. Aucune confiance dans MPos 0 après l'incident. Refaire B1/B2. |
+| E-E en mouvement | Lors d'un déplacement lent déjà validé, recueillir 60 rapports. | Cadence WCO/Ov réelle, délai maximal, comportement de Home et de D2. |
+| E-G, plan 21 | Dernière phase moteur, table libre, montage et zone protégés : comparer les consignes S1000, S18000, S10000 puis correction au minimum, en conservant un moyen d'arrêt physique. | Relever FS, consigne et vitesse observée. Avec `$30=1000`, S18000 est saturé ; FS n'est pas un tachymètre. Toujours arrêter et constater l'arrêt avant de manipuler. Ne pas modifier `$30` dans cet essai. |
+
+## 6. Séance complète puis petit usinage
+
+Après réussite des phases précédentes, rebrancher les éléments hors tension, enlever bloc/plaque/pince, vérifier bridage, martyr, longueur de fraise et courses réelles. La fraise au plus bas du montage ne permet pas de conclure qu'une découpe de 20 mm est possible : contrôler le montage et le verdict du fichier avant toute coupe.
+
+1. Rejouer P1 → P2 → P3/P5/P6 → P7 avec un **petit fichier connu et compatible**, d'abord en l'air, énergie de coupe empêchée. Vérifier les deux dessins, la profondeur et le sens des mouvements.
+2. Vérifier Pause, arrêt stabilisé, Reprendre et Arrêter dans des essais distincts. Une plaque en pause de changement de fraise garde le même propriétaire et les mêmes confirmations. Après Arrêter/alarme : Machine, référence, D2, zéro pièce à vérifier/refaire, puis volet Reprendre à une ligne ; vérifier fichier, ligne et préambule, charger, contrôler et confirmer.
+3. Seulement après cela, petit usinage sur chute, sous présence continue de l'opérateur. Observer broche/rapides, progression limitée à 99 % pendant le travail et fin réelle. Ne pas employer une dérogation de course pour cette validation.
+4. Compter effectivement les touchers P1 à P10, erreurs et retours arrière. Conserver dimensions CSS, langue et taille du texte ; les comptes de conception ne sont pas les comptes mesurés.
+5. RT/Chromium 106, lorsqu'elle sera disponible : tester séparément l'isolation `inert`, Pause/Arrêter sous dialogue, Éco sans ressource v2, et les parcours laser. L'ancien `refonte/A2/inert.html` n'est plus livré dans l'arbre courant : employer les scénarios durables du harnais et une copie de banc revue si nécessaire, **sans réintroduire de script exclu dans la page réelle**. Cela couvre le but du plan 22/Q-09, pas un déploiement RT implicite.
+
+## 7. Décision après essais
+
+Pour chaque étape, remplir : effectué/non effectué, résultat exact, attendu, preuve, anomalie, responsable et date. Un refus conservateur est consigné comme tel, sans dérogation automatique. Une phase non faite reste non vérifiée.
+
+Après E-A/E-B, mettre à jour les hypothèses du profil LUNYEE, la marge et les conclusions de FIRMWARE/SURETE avec les mesures obtenues. La revue de sûreté finale, le harnais complet et la décision d'adopter l'installation appartiennent au pilote/opérateur ; les tests logiciels verts de FINAL ne valent ni essai physique ni approbation de coupe.

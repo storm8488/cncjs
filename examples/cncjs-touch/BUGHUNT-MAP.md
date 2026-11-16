@@ -1,5 +1,25 @@
 # Carte de l'interface CNCjs Touch pour la chasse aux bugs
 
+## FINAL — chemins corrigés après la revue Astra (2026-11-16)
+
+| Point de revue | Propriétaire actuel et garde | Régression |
+|---|---|---|
+| 1, plaque après invalidation D2 | `job-service.js::COMMISSIONING.zeroZ.run` rappelle `plateReady` avant `plate-probe.js::zeroZ`. Aucun G38.2 sans preuve actuelle. | `plate-probe.test.js`, ticket puis `socketCommand` |
+| 2, laser sans référencement | `seance.js::referenceReady` accepte seulement `$22=0` explicite ou une référence valide ; la permission réelle reste `canStart`. Contrôle garde l'avertissement inconnu. | `test-check-screen.cjs`, FR/EN/ES, Éco laser |
+| 3, cadrage en attente de lecture | `job-service.js::machineAction` réserve `frameStarting` avant l'empreinte ; tous les arrêts, perte de flux/bail et fermeture du service annulent avant la première écriture. `canStop`, `ticketPending`, `socketRefusal`, `available`, D2 et maintenance connaissent cette réservation. | `machine-profile.test.js`, neuf annulations et réservation normale |
+| 4, faux « Tout est prêt » | `check-screen.js::checkProjection` présente `refusals.start` (ou `startReason`) quand le serveur refuse, après les priorités machine/D2/course. | `test-check-screen.cjs`, `ETOUCH_START_FEED_MODE` |
+| 5, Recommencer ancien | `refus.js::montrer` reçoit le rappel de la demande ; `zero-piece.js::prepare` capture opération et paramètres. `seance.js::owner/refuser` garde la relance du refus, sans action globale ancienne. Un refus sans propriétaire ne peut pas déclencher une autre commande. | `test-zero-piece.cjs`, Start→bloc/plaque et même code sur deux opérations |
+| 6, nom serveur français | `job-controls.js::prepare` choisit le sous-titre par opération traduite ; le nom serveur va dans Détails, fichiers/macros restent des données. | `test-confirmation-labels.cjs` |
+| 7, échec 3D vide | `check-screen.js::syncPlacement` possède état et Réessayer, une requête en vol, génération d'ouverture et annulation à fermeture. | `test-placement-loading.cjs`, `test-performance-v2-safety.cjs` |
+
+Pas de nouvelle route ni de nouvel octet de mouvement. La plaque et le cadrage
+ont des gardes renforcés ; le refus de homing artificiel de la page laser est
+aligné sur le contrat serveur, sans modifier `$22` ni les protections CNC.
+Les détails et limites de preuve sont dans `design/refonte/SURETE.md`.
+`CONSTATS.md` porte désormais les hashes réels des lots, ou un statut laissé/
+hors dépôt explicite ; C-66 n'est pas annoncé corrigé. Voir `IDEES.md` et
+`PROTOCOLE-ESSAI.md` pour le non réalisé et les validations physiques restantes.
+
 ## L6 — Plus et textes (2026-11-16)
 
 La carte historique ci-dessous conserve les anciens noms ; la navigation actuelle

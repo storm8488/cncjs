@@ -134,6 +134,7 @@ const setup = ({ machines = [], enabled = true, homed = true, settings = SETTING
     fingerprintOf: (name) => Promise.resolve({ fingerprint: sha256(Buffer.from(ctx.programs[name])), size: 1, mtimeMs: 1 })
   };
   const history = { record: (event) => ctx.history.push(event) };
+  ctx.files = files;
   ctx.service = createService({ get: () => ctx.controllers }, config, () => ctx.now, { workOffset, control: ctx.control, history, files });
   services.push(ctx.service);
   ctx.generation = ctx.service.list()[0].generation;
@@ -606,6 +607,61 @@ describe('program check for a laser (§4)', () => {
 });
 
 describe('laser framing (§4)', () => {
+  test.each(['stop', 'jog-stop', 'pause', 'spindleStop', 'socket', 'release', 'takeover', 'transport', 'dispose'])(
+    'a frame waiting for its fingerprint is cancellable by %s before any write', async (how) => {
+      const ctx = laserSetup();
+      await ctx.req('load', { file: 'frame.nc' });
+      const ticket = await ctx.machine('frame-prepare');
+      const fingerprintOf = ctx.files.fingerprintOf;
+      let finish;
+      ctx.files.fingerprintOf = (name) => new Promise((resolve) => {
+        finish = () => fingerprintOf(name).then(resolve);
+      });
+      const outcome = ctx.machine('frame', { nonce: ticket.nonce }).catch((err) => err);
+      expect(typeof finish).toBe('function');
+      if (how === 'stop' || how === 'pause' || how === 'spindleStop') {
+        await ctx.req(how, {}, B);
+      } else if (how === 'jog-stop') {
+        await ctx.req('motion', { operation: 'jog-stop' }, B);
+      } else if (how === 'socket') {
+        ctx.service.socketStop('TEST');
+      } else if (how === 'release' || how === 'takeover') {
+        await ctx.req('control', { operation: how, reason: 'At the machine' }, how === 'release' ? A : B);
+      } else if (how === 'transport') {
+        ctx.service.closeTransport('tA');
+      } else {
+        ctx.service.dispose();
+      }
+      const stopped = ctx.c.written.slice();
+      await finish();
+      expect(await outcome).toMatchObject({ message: 'Départ annulé.' });
+      expect(ctx.c.written).toEqual(stopped);
+      expect(ctx.c.written.some((line) => /^\$J=/.test(line))).toBe(false);
+    }
+  );
+
+  test('a pending frame reserves the machine and exposes Stop until the read ends', async () => {
+    const ctx = laserSetup();
+    await ctx.req('load', { file: 'frame.nc' });
+    const ticket = await ctx.machine('frame-prepare');
+    const fingerprintOf = ctx.files.fingerprintOf;
+    let finish;
+    ctx.files.fingerprintOf = (name) => new Promise((resolve) => {
+      finish = () => fingerprintOf(name).then(resolve);
+    });
+    const outcome = ctx.machine('frame', { nonce: ticket.nonce });
+    expect(ctx.state().canStop).toBe(true);
+    expect(ctx.service.ticketPending('tA')).toBe(true);
+    expect(ctx.service.socketRefusal('TEST')).toBeTruthy();
+    expect(() => ctx.service.reserveSystemCommand({ title: 'Maintenance' })).toThrow(/commande système refusée/);
+    await expect(ctx.machine('set-kind', { kind: 'cnc' })).rejects.toBeTruthy();
+    await expect(ctx.req('prepare', { operation: 'home' })).rejects.toBeTruthy();
+    expect(ctx.c.written).toEqual([]);
+    await finish();
+    expect((await outcome).frameId).toBeTruthy();
+    expect(ctx.c.written).toEqual(['M5\n']);
+  });
+
   const LINES = ['M5', '$J=G90 G21 X10 Y20 F1000', '$J=G90 G21 X60 Y20 F1000', '$J=G90 G21 X60 Y50 F1000', '$J=G90 G21 X10 Y50 F1000', '$J=G90 G21 X10 Y20 F1000'];
   const laserSetup = (options = {}) => setup({ machines: [record('laser')], settings: { ...SETTINGS, $32: '1' }, ...options });
 

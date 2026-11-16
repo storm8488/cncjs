@@ -1,5 +1,42 @@
 # Spécification : interface du mode Performance (Surface Pro 3)
 
+## État FINAL de la refonte (2026-11-16)
+
+`design/refonte/SPEC-REFONTE.md` définit l'organisation actuelle : Machine,
+Fichier, Zéro pièce, Contrôle, Usinage/Gravure, puis Plus. Les anciens chapitres
+Préparer/Suivi décrivent l'historique ; les compléments L1–L6 et celui-ci les
+remplacent sur les points modifiés. Même organisation en Éco et Performance.
+
+La page suit les permissions du serveur. Avec `$22=0` explicitement rapporté,
+elle n'impose plus un homing que la carte ne demande pas ; la course inconnue
+reste un avertissement. `$22` absent/inconnu ne devient pas cette exemption.
+La CNC à `$22=1` garde son exigence de référence. Contrôle présente le refus de
+départ du serveur avant tout message de réussite, notamment la reprise dont le
+mode d'avance impose « Reprendre au début ».
+
+Les confirmations affichent une opération traduite en FR/EN/ES. Les vrais noms
+de fichiers et macros restent inchangés ; le nom technique reçu du serveur,
+la machine et le pilote restent dans Détails. Aucun changement de case, ticket,
+expiration, génération ou commande confirmée. Recommencer est lié à la demande
+refusée et à ses paramètres ; il ne rejoue plus la dernière action globale.
+
+Le placement 3D reste explicite dans Contrôle, au repos sûr et en v2. Son
+chargement affiche un état traduit ; un échec offre Réessayer, une demande à
+la fois. Fermeture, sortie, veille ou perte de porte invalident les réponses
+tardives. Aucun chargement avancé, minuterie ou requête périodique en Éco.
+Les deux éléments statiques de chargement restent cachés hors de ce volet.
+
+La réservation serveur du cadrage commence pendant la relecture de l'empreinte
+du fichier : Arrêter peut donc l'annuler avant la première écriture. La plaque
+revérifie D2 à l'exécution du ticket. Voir `design/refonte/SURETE.md` pour ces
+gardes, leurs preuves et leurs limites. Les cibles, seuils du harnais, classes
+`v2m-`/`v2n-` et `V2_NODE` restent inchangés.
+
+Le harnais FINAL ciblé `screens,e2e,parcours` a échoué avant les scénarios sur
+`WebSocket error`. Aucun résultat tactile, Chromium 106 réel, Surface, RT ou
+CNC n'est déduit des tests hors navigateur. Les optimisations C8/C9/C10 non
+livrées et les autres fonctions proposées sont recensées dans `design/refonte/IDEES.md`.
+
 Current organization after refonte L6 (2026-11-16): the session rail is Machine,
 File, Work zero, Check, Machining (Engraving for a laser), More in both renderers.
 The historical screen names below describe the original performance design;

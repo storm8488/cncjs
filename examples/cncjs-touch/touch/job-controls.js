@@ -580,8 +580,9 @@
       if(operation==='macro'){$('job-warning').textContent=uiLocale.t('Une macro peut déplacer la machine et faire tourner la broche.');$('job-check-text').textContent=uiLocale.t('Je suis devant la machine et je connais cette macro.');}
       if(operation==='start'&&!simulation&&ticket.programCheck&&ticket.programCheck.verdict==='unknown')$('job-check-text').textContent=uiLocale.t('Je suis devant la machine et j’ai vérifié que le fichier tient dans la machine.');
       // The target machine (label and kind, from the server's profile) and the piloting device.
-      $('job-dialog-file').textContent=(operation==='blockProbe'&&data.name?(uiLocale.message||uiLocale.t)(data.name):data.name||current.originalName||current.name||'')+' · '+port+(simulation?'':' · '+targetText(current)+' · '+uiLocale.t('Pilote : ')+(pilot.value||'—'));
-      var identity=$('job-dialog-file').textContent;$('job-dialog-file').setAttribute('data-details',identity);$('job-dialog-file').textContent=data.name||current.originalName||current.name||'';
+      var identity=(data.name||current.originalName||current.name||'')+' · '+port+(simulation?'':' · '+targetText(current)+' · '+uiLocale.t('Pilote : ')+(pilot.value||'—'));
+      var operationName={home:uiLocale.t('Prise d’origine machine…'),unlock:effect.unlock,spindle:effect.spindle,zeroZ:title.zeroZ,blockProbe:title.blockProbe,frame:title.frame};
+      $('job-dialog-file').setAttribute('data-details',identity);$('job-dialog-file').textContent=operationName[operation]||data.name||current.originalName||current.name||'';
       if(!$('job-dialog-details')){var detailsButton=document.createElement('button');detailsButton.type='button';detailsButton.id='job-dialog-details';detailsButton.textContent=uiLocale.t('Détails');$('job-dialog-file').parentNode&&$('job-dialog-file').parentNode.insertBefore(detailsButton,$('job-warning'));}
       var resumeDetails=current.resume,pauseDetails=current.programPause;
       if($('job-dialog-details'))$('job-dialog-details').onclick=function(){

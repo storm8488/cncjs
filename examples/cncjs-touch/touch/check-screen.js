@@ -10,11 +10,12 @@
   details.content.innerHTML=locale.html('<div id="check-details-values"></div><p>Ni les brides ni la pièce ne sont vues.</p><p id="check-override-warning"></p><div id="check-override-host"></div><p id="check-override-feedback" role="status"></p>');
   var placement=shell.sheet('ks-check-placement',t('Vue 3D du placement'));
   placement.content.classList.add('active');
+  placement.content.innerHTML=locale.html('<p id="check-placement-state" role="status" hidden></p><button type="button" id="check-placement-retry" hidden>Réessayer</button>');
   var facts=document.createElement('div');facts.className='files-facts';facts.innerHTML=locale.html('<div><span>Emprise</span><strong id="files-extent">—</strong></div><div><span>Profondeur sous le zéro</span><strong id="files-depth">—</strong></div>');
   var image=$('library-image').parentNode;image.parentNode.insertBefore(facts,image.nextSibling);
   var verdict=document.createElement('div');verdict.className='files-verdict';verdict.innerHTML='<p id="files-verdict" role="status"></p><button type="button" id="files-verdict-remedy" hidden></button>';
   facts.parentNode.insertBefore(verdict,facts.nextSibling);var loaded=$('job-loaded');if(loaded)facts.parentNode.insertBefore(loaded,verdict);
-  var last={},selected=window.cncLibrarySelection||null,fileCheck=null,fileError=null,checking=false,awaitingZero=false,serial=0,askedKey='',drawKey='',detailKey='',originRequest=0,originMounted=false,placementOpen=false,locked=false,ended=false;
+  var last={},selected=window.cncLibrarySelection||null,fileCheck=null,fileError=null,checking=false,awaitingZero=false,serial=0,askedKey='',drawKey='',detailKey='',originRequest=0,originMounted=false,originLoading=false,originFailed=false,placementOpen=false,locked=false,ended=false;
   function text(id,value){var n=$(id);if(n&&n.textContent!==String(value))n.textContent=String(value);}
   function prop(id,k,v){var n=$(id);if(n&&n[k]!==v)n[k]=v;}
   function machine(){return last.machine||null;}
@@ -39,6 +40,8 @@
       if(g53){phrase=t('Le fichier demande une position hors de la machine, ligne {n}. Refaire le zéro n’y change rien.').replace('{n}',g53.params&&g53.params.line||'—');remedies=['choisir-fichier'];}
       else if(b){phrase=window.cncRefus.lire(b).phrase;remedies=window.cncRefus.lire(b).remedes;if(b.code==='ETOUCH_TRAVEL_TOO_LOW'||b.code==='ETOUCH_TRAVEL_TOO_HIGH')word='Dépasse en Z';}
       else {phrase='Le fichier dépasse la course de la machine.';remedies=['refaire-zero','choisir-fichier'];}
+    }else if(m.canStart===false){
+      var refused=window.cncRefus.lire(m.refusals&&m.refusals.start||{message:m.startReason});word='En attente';phrase=refused.phrase;remedies=refused.remedes;
     }else if(!c||c.verdict!=='validated'){
       word='Non vérifié';var r0=codes(c).filter(function(r){return /HOMING|NOT_HOMED|TRAVEL_UNKNOWN|REPORT_UNITS/.test(r.code);})[0];
       if(r0){var why=window.cncRefus.lire(r0);phrase=why.phrase;remedies=why.remedes;}
@@ -110,17 +113,29 @@
     prop('check-placement-open','hidden',!advanced());paintDetails();
   }
   function advanced(){try{return !!(window.cncV2&&window.cncV2.state().layout&&window.cncV2.gate()&&window.cncProfile&&window.cncProfile.performance()==='performance'&&!isLaser(machine()));}catch(_){return false;}}
-  function unmount(){originRequest++;if(originMounted&&window.CNCOriginPreview)window.CNCOriginPreview.unmount();originMounted=false;}
+  function unmount(){originRequest++;if(originMounted&&window.CNCOriginPreview)window.CNCOriginPreview.unmount();originMounted=false;originLoading=false;originFailed=false;text('check-placement-state','');prop('check-placement-state','hidden',true);prop('check-placement-retry','hidden',true);}
   function syncPlacement(){
     var v=window.cncV2,state=v&&v.state();
     if(!placementOpen||!isActive('check')||document.hidden||locked||ended||!advanced()){
-      if(placementOpen&&state&&state.layout&&state.holdLayout&&!document.hidden&&!locked&&isActive('check'))return;
+      if(originMounted&&placementOpen&&state&&state.layout&&state.holdLayout&&!document.hidden&&!locked&&isActive('check'))return;
       unmount();return;
     }
-    if(originMounted||!state.safeIdle)return;
+    if(!state.safeIdle){if(!originMounted){originRequest++;originLoading=false;}return;}
+    if(originMounted||originLoading||originFailed)return;
     var own=++originRequest;
-    window.cncProfile.loadAdvanced(['preview-gl.js','origin-preview.js']).then(function(){if(own!==originRequest||!placementOpen||!advanced()||!isActive('check')||document.hidden||locked||!window.cncV2.state().safeIdle)return;originMounted=true;window.CNCOriginPreview.mount(placement.content);},function(){text('check-placement-state',t('Aperçu indisponible.'));});
+    originLoading=true;text('check-placement-state',t('Chargement…'));prop('check-placement-state','hidden',false);prop('check-placement-retry','hidden',true);
+    var current=function(){return own===originRequest&&placementOpen&&advanced()&&isActive('check')&&!document.hidden&&!locked&&!ended&&window.cncV2.state().safeIdle;};
+    window.cncProfile.loadAdvanced(['preview-gl.js','origin-preview.js']).then(function(){
+      if(own!==originRequest)return;originLoading=false;
+      if(!current()){unmount();return;}
+      originMounted=true;prop('check-placement-state','hidden',true);window.CNCOriginPreview.mount(placement.content);
+    },function(){
+      if(own!==originRequest)return;originLoading=false;
+      if(!current()){unmount();return;}
+      originFailed=true;text('check-placement-state',t('Aperçu indisponible.'));prop('check-placement-retry','hidden',false);
+    });
   }
+  $('check-placement-retry').addEventListener('click',function(){if(originLoading||!placementOpen)return;originFailed=false;syncPlacement();});
   $('check-details-open').addEventListener('click',function(){paintDetails();details.open();});
   $('check-placement-open').addEventListener('click',function(){if(!advanced())return;placement.open();});
   $('check-frame-start').addEventListener('click',function(){if(!this.disabled)window.cncJobControls.prepareFrame();});

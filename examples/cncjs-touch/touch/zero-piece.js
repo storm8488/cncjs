@@ -57,7 +57,7 @@
   var row=el('div','','',card);row.className='zero-probe-row';
   var signal=el('span','probe-signal','? Inconnu',row),test=button(row,'probe-test','Tester',function(){openTest();});
   var ops=el('div','probe-operations','',card);ops.className='zero-probe-ops';
-  var operation='XYZ',machine=null,status={},received=0,pending=false,refusal=null,refusalKey='',lastOutcome='',dismissed='',active='',sheetId='',diagnosticStage='',history=[],answerOutcome=null,wasProbing=false;
+  var operation='XYZ',machine=null,status={},received=0,pending=false,refusal=null,refusalRetry=null,refusalVersion=0,refusalKey='',lastOutcome='',dismissed='',active='',sheetId='',diagnosticStage='',history=[],answerOutcome=null,wasProbing=false;
   var choices=['XYZ','Z','X','Y'].map(function(a){var b=button(ops,'','',function(){if(cycle())return;operation=a;clearCause();render();});b.textContent=a;b.setAttribute('data-probe-operation',a);return b;});
   var zone=el('div','probe-zone','',card),diagramHost=el('div','probe-diagram-host','',zone),cause=el('div','probe-cause','',zone),result=el('div','probe-outcome','',zone),progress=el('progress','probe-progress','',zone),phase=el('p','probe-phase','',zone);
   progress.max=100;cause.setAttribute('role','status');result.setAttribute('role','status');
@@ -78,7 +78,7 @@
     if(!store)throw Error(storageError||t('Stockage des profils indisponible ou illisible. Les données enregistrées ne sont pas remplacées.'));
     store.write({version:1,profiles:next.profiles,selected:next.selected,removed:next.removed,diameter:d});collection=next;diameter=d;storageError='';diameterInput.value=d===null?'':String(d);
   }
-  function clearCause(){refusal=null;refusalKey='';dismissed=lastOutcome;}
+  function clearCause(){refusal=null;refusalRetry=null;refusalKey='';dismissed=lastOutcome;}
   function inputsKey(){return JSON.stringify([machine&&machine.port,machine&&machine.generation,machine&&machine.coordinates,machine&&machine.operator,machine&&machine.workOffset,machine&&machine.refusals,machine&&machine.canBlockProbe,machine&&machine.canZeroZ,status.pilot,operation,profile(),diameter]);}
   function cycle(){return real.cycle(machine)||!!status.probeRun||!machine&&wasProbing&&!!(status.halt&&status.halt.canStop);}
   function live(){return machine&&machine.probeInput?model.liveInput(machine.probeInput,Date.now()-received).state:'unknown';}
@@ -90,7 +90,7 @@
     if(status.pilot&&status.pilot.state==='other')return {code:'ECONTROL',params:{appareil:status.pilot.name||status.pilot.value}};
     return machine.refusals&&machine.refusals[op]||{message:machine[op==='zeroZ'?'zeroZReason':'blockProbeReason']||t('Impossible pour l’instant.')};
   }
-  function renderRefusal(node,error){var signature=JSON.stringify([error&&error.code,error&&error.params,error&&error.message,error&&error.reasons]);if(node.getAttribute('data-refusal')===signature&&node.querySelector('.ks-refus'))return;var names={};Object.keys(NAMES||{}).forEach(function(k){names[k]=t(NAMES[k]);});names.faceX=t('Paroi côté X');names.faceY=t('Paroi côté Y');var r=root.cncRefus.lire(real.cause(error,names));r.details.brut=error;root.cncRefus.montrer(node,r);node.setAttribute('data-refusal',signature);}
+  function renderRefusal(node,error){var signature=JSON.stringify([error&&error.code,error&&error.params,error&&error.message,error&&error.reasons,error===refusal?refusalVersion:0]);if(node.getAttribute('data-refusal')===signature&&node.querySelector('.ks-refus'))return;var names={};Object.keys(NAMES||{}).forEach(function(k){names[k]=t(NAMES[k]);});names.faceX=t('Paroi côté X');names.faceY=t('Paroi côté Y');var r=root.cncRefus.lire(real.cause(error,names));r.details.brut=error;root.cncRefus.montrer(node,r,error===refusal?refusalRetry:null);node.setAttribute('data-refusal',signature);}
   function showRefusal(error){renderRefusal(cause,error);}
   function contactChecks(parent,id){var p=el('p',id,'',parent);p.className='zero-contact-checks';return p;}
   function checks(p){var v=machine&&machine.probeInput,ts=v&&v.fresh&&v.test||{};text(p,(ts.stage==='contact'||ts.done?'☑ ':'☐ ')+t('contact vu')+' · '+(ts.done&&ts.stage==='free'?'☑ ':'☐ ')+t('libéré'));}
@@ -129,8 +129,8 @@
   }
   function showDetails(){shell.details({titre:t('Sonde'),lignes:[{libelle:t('Repère de travail'),valeur:machine&&machine.operator&&machine.operator.wcs||'—'}].concat(real.resultLines(machine&&machine.blockProbe).map(function(s){return {libelle:'',valeur:s};})),brut:machine&&machine.blockProbe});}
   function prepare(op,body){
-    var c=controls();if(!c||!c.prepareCommand||pending)return;pending=true;refusal=null;render();
-    return Promise.resolve(c.prepareCommand(op,body)).then(function(r){pending=false;if(r&&r.opened===false&&r.error){refusal=r.error;refusalKey=inputsKey();}render();return r;},function(e){pending=false;refusal=e;refusalKey=inputsKey();render();return {opened:false,error:e};});
+    var c=controls();if(!c||!c.prepareCommand||pending)return;var request=JSON.parse(JSON.stringify(body));pending=true;refusal=null;refusalVersion++;refusalRetry=function(){return prepare(op,request);};render();
+    return Promise.resolve(c.prepareCommand(op,request)).then(function(r){pending=false;if(r&&r.opened===false&&r.error){refusal=r.error;refusalKey=inputsKey();}render();return r;},function(e){pending=false;refusal=e;refusalKey=inputsKey();render();return {opened:false,error:e};});
   }
   function launch(){
     if(pending||cycle())return;

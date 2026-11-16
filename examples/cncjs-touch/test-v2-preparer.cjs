@@ -6,7 +6,7 @@ const {preparerPage,idle}=require('./test-v2-preparer-fixture.cjs');
  for(const v2 of [false,true])for(const performance of ['eco','performance']){
   const q=preparerPage({v2,performance,screen:'jog'});q.show('jog');q.status(idle());await q.flush();q.resolveLoads();await q.flush();
   assert.equal(q.calls.loads.length,0,'initial Zero piece performs no advanced load');const requests=q.calls.loads.length;q.show('jog');for(let i=0;i<10;i++)q.status(idle());await q.flush();
-  assert.equal(q.calls.loads.length,requests,'no advanced load on Zero piece');assert.equal(q.calls.mount.length,0);assert.equal(q.calls.reads,0);assert.equal(q.calls.updates.length,0);assert.equal(q.calls.catalogues.length,0);assert.equal(q.content.children.length,0);
+  assert.equal(q.calls.loads.length,requests,'no advanced load on Zero piece');assert.equal(q.calls.mount.length,0);assert.equal(q.calls.reads,0);assert.equal(q.calls.updates.length,0);assert.equal(q.calls.catalogues.length,0);assert.equal(q.content.children.length,2);assert(q.find('check-placement-state').hidden);assert(q.find('check-placement-retry').hidden);
  }
  const manual=preparerPage({manual:true});manual.status(idle());await manual.flush();assert.equal(manual.calls.loads.length,0,'no placement resource before explicit opening');manual.open();assert.equal(manual.calls.loads.length,1);manual.resolveLoads();await manual.flush();assert.equal(manual.calls.mount.length,1);
  const source=fs.readFileSync(__dirname+'/touch/check-screen.js','utf8');

@@ -1,5 +1,52 @@
 # Validation scope
 
+## FINAL review regressions (2026-11-16)
+
+- `plate-probe.test.js` prepares a plate ticket with a proven offset, invalidates
+  D2 through `socketCommand`, then requires an offset refusal and no command at
+  execution. The fixture deliberately makes no automatic D2 proof.
+- `machine-profile.test.js` suspends the frame fingerprint read and exercises
+  Stop, jog-stop, Pause, spindle stop, socket stop, release, takeover, transport
+  loss and disposal. Nothing from the frame may leave after cancellation.
+  A second case checks `canStop`, stream rotation reservation, guarded/socket/
+  maintenance/type-change exclusion and the normal first M5 after the read.
+- `test-check-screen.cjs` covers an Eco laser with explicit `$22=0`, unknown
+  travel, proven D2 and server `canStart`; no unavailable homing remedy blocks
+  it. The existing no-reference refusal remains. A validated check with
+  `ETOUCH_START_FEED_MODE` must show the refusal and Restart from the beginning.
+- `test-zero-piece.cjs` issues Start, then a refused block/plate preparation.
+  Retry must prepare the exact refused operation and parameters, including two
+  different operations returning the same code; it must not execute old Start.
+- New registered `test-confirmation-labels.cjs` uses actual server operation
+  names in FR/EN/ES, requires localized subtitles, exact technical Details,
+  unchanged user filenames/macros and a required checkbox.
+- New registered `test-placement-loading.cjs` checks translated failure/retry,
+  one pending load and late success/failure ignored after closing. Its fixture
+  now accepts a language, without changing existing scenarios.
+
+All seven review findings were reproduced; none was rejected. The previous
+zero-child assertion in `test-v2-preparer.cjs` now requires exactly the two
+hidden loading elements. `test-performance-v2-safety.cjs` permits only that
+hidden retry button and still requires zero machine relays. These are the only
+existing assertions replaced by FINAL; none of the motion/stop assertions is
+removed. No other lot's `bughunt-*` proof is changed or deleted.
+
+Run the two required suites from the repository root (on Windows, `npx.cmd`
+is the local executable equivalent, avoiding the PowerShell script policy):
+
+```text
+node examples/cncjs-touch/verify-project.cjs
+npx.cmd jest src/server/services/touch src/server/services/cncengine src/server/api grbl-simulator --coverage=false --testPathIgnorePatterns="bughunt-[AV][0-9]"
+```
+
+FINAL runs only `browser-run.cjs --strict --only screens,e2e,parcours` with Edge.
+Its local fixture started on 127.0.0.1 but the DevTools WebSocket failed before
+any scenario. The full browser harness, layout/touch counts, physical stop and
+installation are separate checks. `design/refonte/PROTOCOLE-ESSAI.md` gives the
+ordered real-machine protocol and the exact 15 production Babel sources from
+the `3049a0e4..HEAD` server diff. Exact final suite results belong to the FINAL
+report/audit, with a fresh rerun required after the driver's commits.
+
 ## L6 More, languages and final cleanup (2026-11-16)
 
 - `test-textes-regles.cjs`, registered in `verify-project.cjs`, checks operator

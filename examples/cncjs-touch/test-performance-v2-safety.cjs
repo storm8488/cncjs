@@ -219,8 +219,10 @@ async function suiviPage(options = {}) {
     await P.flush();
     const roots = () => [P.content];
     // Every v2 button of the presenter, twice.
-    const buttons = all(P.content).filter((n) => n.tagName === 'BUTTON');
-    assert.equal(buttons.length,0,'the removed comparison presenter creates no relays; permanent controls are covered by test-zero-machine');
+      const retry = P.find('check-placement-retry');
+      assert(retry.hidden, 'placement retry stays hidden after a successful load');
+      const buttons = all(P.content).filter((n) => n.tagName === 'BUTTON' && n !== retry);
+      assert.equal(buttons.length,0,'the removed comparison presenter creates no machine relays; only its loading retry is allowed');
     for (let k = 0; k < 2; k++) for (const b of buttons) { if (b.handlers.click) b.handlers.click({ target: b }); await P.flush(); }
     const readsAtRest = P.calls.reads;
     // A job, a pause, an alarm, a stale report: no rendering in the handler, no read, the card stays.
