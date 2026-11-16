@@ -49,8 +49,7 @@ function load(options = {}) {
   const el = (id) => nodes[id] || element(id);
   ['job-dialog', 'pilot-dialog', 'pilot-form', 'pilot-takeover', 'job-travel', 'job-program-check', 'job-note'].forEach((id) => { el(id).hidden = true; });
   const body = element('body', 'BODY'); body.getAttribute = () => null; body.appendChild(el('real-banner')); body.appendChild(el('main'));
-  // #screen-jog as in index.html: intro (status line, actions), coordinates card (Zéro X / Y / Z,
-  // steps, Zéro XYZ, speed, controller and answer lines), the cross; the speed sheet elsewhere.
+  // #screen-jog: coordinates and zeros, then the cross and its direct step/feed choices.
   const screen = element('screen-jog', 'SECTION'); el('main').appendChild(screen); screen.classList.add('active');
   const intro = screen.appendChild(element('intro')), actions = intro.appendChild(element('prep-actions'));
   intro.appendChild(element('motion-status', 'P')).textContent = 'Machine non prête.';
@@ -59,12 +58,12 @@ function load(options = {}) {
   const zeros = ['x', 'y', 'z', 'xyz'].map((a) => { const b = coords.appendChild(element('jog-zero-' + a, 'BUTTON')); b.textContent = 'Zéro ' + a.toUpperCase(); b.setAttribute('data-origin', ''); b.setAttribute('data-axis', a); b.disabled = true; return b; });
   const stepBox = coords.appendChild(element('steps'));
   const steps = ['0.1', '1', '10', 'hold'].map((v) => { const b = stepBox.appendChild(element('step-' + v, 'BUTTON')); b.setAttribute('data-step', v); b.className = 'step' + (v === '1' ? ' active' : ''); if (v === 'hold') b.hidden = true; b.textContent = v === 'hold' ? 'Continu' : v; return b; });
-  coords.appendChild(element('ks-jog-settings', 'BUTTON')).textContent = 'Vitesse…';
+  coords.appendChild(element('jog-hold-reason', 'P')).hidden = true;
   coords.appendChild(element('jog-controller', 'P')); coords.appendChild(element('motion-feedback', 'P'));
   const cross = screen.appendChild(element('cross')), mid = cross.appendChild(element('pad-mid'));
   const arrows = {};
   [['X', 1], ['X', -1], ['Y', 1], ['Y', -1], ['Z', 1], ['Z', -1]].forEach(([a, d]) => { const b = cross.appendChild(element('arrow-' + a + (d > 0 ? '+' : '-'), 'BUTTON')); b.className = 'jog'; b.setAttribute('data-axis', a); b.setAttribute('data-dir', String(d)); b.disabled = true; arrows[a + (d > 0 ? '+' : '-')] = b; });
-  const sheet = body.appendChild(element('ks-jog-sheet')); sheet.appendChild(element('feeds')); sheet.appendChild(element('jog-feed-limits', 'P'));
+  cross.appendChild(stepBox); cross.appendChild(el('jog-hold-reason')); cross.appendChild(element('feeds'));
   screen.selectors = { '.jog': () => Object.values(arrows), '[data-origin]': () => zeros, '.pad-mid': () => [mid], '.ks-motion-coordinates h2': () => [heading],
     '.ks-preparation-actions': () => [actions], '.ks-panel-intro': () => [intro] };
   stepBox.selectors = { button: () => steps };
@@ -159,6 +158,16 @@ const noPreview = (f) => assert(!f.requests.some((r) => /touch-motion\/preview/.
 module.exports = { fixture: load, machine };
 
 if (require.main === module) (async () => {
+  // Direct speed choices select exactly the same payload without sending a move themselves.
+  for (const feed of [100, 250, 500]) {
+    const f = await ready();
+    f.el('feeds').children.find(b => Number(b.getAttribute('data-feed')) === feed).click();
+    assert.equal(f.motion().length, 0, 'a speed choice never moves the machine');
+    f.arrows['X+'].click(); await f.flush();
+    const body = f.motion('jog').at(-1).body;
+    assert.deepEqual([body.axis, body.direction, body.step, body.feed], ['X', 1, 1, feed]);
+    f.controls().dispose(); f.fireWindow('pagehide');
+  }
   // 1. The capability disabled, an old server, an unknown version: the controls stay in place, greyed
   //    out, with one sentence saying what to do; nothing is sent, even by a programmatic click.
   {
@@ -182,9 +191,9 @@ if (require.main === module) (async () => {
     const f = await ready();
     assert.equal(f.el('motion-status').textContent, 'Les flèches déplacent la machine · pas 1 mm · 250 mm/min');
     assert.equal(f.nodes['coordinate-frame-label'], undefined, 'frame is only in Details');
-    assert.equal(f.el('pad-mid').textContent, '1 mm'); assert.equal(f.el('ks-jog-settings').textContent, 'Vitesse · 250 mm/min…');
+    assert.equal(f.el('pad-mid').textContent, '1 mm'); assert.equal(f.el('feeds').children.find(b => b.getAttribute('aria-pressed') === 'true').getAttribute('data-feed'), '250');
     assert.deepEqual(f.el('feeds').children.map((b) => b.getAttribute('data-feed')), ['100', '250', '500'], 'speeds bounded by the slowest axis ($112 = 500)');
-    assert.match(f.el('jog-feed-limits').textContent, /Avance max X \/ Y \/ Z : 1000 \/ 1000 \/ 500 mm\/min/);
+    assert(f.screen.contains(f.el('feeds')), 'feed choices are directly on the work-zero screen');
     assert(f.zeros.every((b) => !b.disabled), 'zeros enabled when the server allows the origin');
     f.arrows['X+'].click(); f.arrows['X+'].click(); await f.flush();
     assert.equal(f.motion().length, 1, 'a double tap sends one step');
@@ -197,6 +206,9 @@ if (require.main === module) (async () => {
     assert.equal(f.el('motion-feedback').getAttribute('data-state'), 'confirmed');
     // In flight until a report shows the machine free again: the other controls wait.
     assert(allArrows(f).every((b) => b.disabled) && f.steps.every((b) => b.disabled) && f.zeros.every((b) => b.disabled), 'everything waits while the step runs');
+    assert(f.el('feeds').children.every(b => b.disabled), 'direct feed choices wait while moving');
+    assert.equal(f.el('jog-hold-reason').textContent, 'Continu : Déplacement en cours : attendez l’arrêt.');
+    assert(!f.el('jog-hold-reason').hidden);
     f.push([withMotion({ canJog: false, jogReason: 'Déplacement précédent non terminé : attendez le retour au repos (Idle).' }, { activeState: 'Jog' })]); await f.flush();
     assert.equal(f.el('motion-status').textContent, 'Déplacement en cours : attendez l’arrêt.');
     f.push([machine({ revision: 'rev-2' })]); await f.flush(); f.advance(400); f.tick(1000);
@@ -209,7 +221,7 @@ if (require.main === module) (async () => {
     assert.equal(f.el('motion-feedback').getAttribute('data-state'), 'failed');
     // 0.1 mm and 500 mm/min reach the request.
     f.advance(400); f.el('step-0.1').click(); f.el('feeds').children.find((b) => b.getAttribute('data-feed') === '500').click(); await f.flush();
-    assert.equal(f.el('pad-mid').textContent, '0.1 mm'); assert.equal(f.el('ks-jog-settings').textContent, 'Vitesse · 500 mm/min…');
+    assert.equal(f.el('pad-mid').textContent, '0.1 mm'); assert.equal(f.el('feeds').children.find(b => b.getAttribute('aria-pressed') === 'true').getAttribute('data-feed'), '500');
     f.arrows['Z-'].click(); await f.flush();
     const small = f.motion('jog').at(-1); assert.deepEqual([small.body.axis, small.body.direction, small.body.step, small.body.feed], ['Z', -1, 0.1, 500]);
     // A refusal of the pilot (ECONTROL): job-controls' actionable sentence, as is.
@@ -339,7 +351,7 @@ if (require.main === module) (async () => {
     ['screen', (f) => { f.screen.classList.remove('active'); f.fireWindow('cnc-screen-change', { detail: 'home' }); }],
     ['lock', (f) => f.fireWindow('cnc-screen-lock', { detail: true })], ['pagehide', (f) => f.fireWindow('pagehide', { persisted: false })],
     // Guard 2: another press anywhere (a second finger may open a sheet that makes the cross inert).
-    ['another press', (f) => f.fireDoc('pointerdown', { target: f.el('ks-jog-settings') })]]) {
+    ['another press', (f) => f.fireDoc('pointerdown', { target: f.el('feeds').children[0] })]]) {
     const f = await ready();
     await started(f, 'j-' + name);
     act(f);

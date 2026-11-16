@@ -1952,6 +1952,31 @@ async function screensProbe(cdp, fx, v, summary) {
 // measure), then a stale report at rest: every control greyed out with its sentence. The fixture goes back to rest
 // without the capability at the end.
 const SCREENS_REAL_READY = '(function(){var b=document.querySelector("#screen-jog .jog");return !!(b&&!b.disabled&&b.getClientRects().length);})()';
+// JOG choices are permanent controls, measured in both renderers and every screen language/size.
+const JOG_CHOICES = `(function(){
+  var root=document.getElementById('screen-jog'),groups=['steps','feeds'];
+  return {sheet:!!document.getElementById('ks-jog-settings-sheet'),groups:groups.map(function(id){
+    var n=document.getElementById(id),s=getComputedStyle(n);
+    return {id:id,inside:root.contains(n)&&!n.closest('.ks-sheet,[hidden]'),gapX:parseFloat(s.columnGap),gapY:parseFloat(s.rowGap),
+      buttons:[].map.call(n.querySelectorAll('button'),function(b){var r=b.getBoundingClientRect(),hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+        return {value:b.getAttribute(id==='steps'?'data-step':'data-feed'),w:r.width,h:r.height,font:parseFloat(getComputedStyle(b).fontSize),
+          active:b.classList.contains('active'),pressed:b.getAttribute('aria-pressed')==='true',hit:!!hit&&(hit===b||b.contains(hit)),
+          cut:b.scrollWidth>b.clientWidth+1||b.scrollHeight>b.clientHeight+1};})};})};})()`;
+function jogChoiceChecks(data) {
+  const errors=[];
+  if(data.sheet)errors.push('obsolete speed sheet');
+  for(const g of data.groups){
+    if(!g.inside||g.gapX<11.5||g.gapY<11.5)errors.push(g.id+': direct group or 12px gaps');
+    if(g.buttons.filter(b=>b.pressed).length!==1)errors.push(g.id+': one active choice required');
+    if(g.buttons.some(b=>b.w<47.5||b.h<47.5||b.font<15.5||b.cut||!b.hit||b.active!==b.pressed))errors.push(g.id+': target, text, hit or active state');
+    const numeric=g.buttons.filter(b=>b.value!=='hold');
+    if(numeric.some(b=>Math.abs(b.w-numeric[0].w)>0.5||Math.abs(b.h-numeric[0].h)>0.5))errors.push(g.id+': unequal numeric choices');
+  }
+  const steps=data.groups.find(g=>g.id==='steps'),feeds=data.groups.find(g=>g.id==='feeds');
+  if(!steps||steps.buttons.map(b=>b.value).join()!=='0.1,1,10,25,50,100,hold')errors.push('step values');
+  if(!feeds||!feeds.buttons.length)errors.push('feed choices missing');
+  return errors;
+}
 const SCREENS_REAL_STATE = '(function(){var $=function(id){return document.getElementById(id);},a=[].slice.call(document.querySelectorAll("#screen-jog .jog")),z=[].slice.call(document.querySelectorAll("#screen-jog [data-origin]"));' +
   'return {msg:($("step-jog-cause")||{}).textContent||"",arrows:a.filter(function(b){return !b.disabled;}).length,zeros:z.filter(function(b){return !b.disabled;}).length,mid:(document.querySelector("#screen-jog .pad-mid")||{}).textContent||"",' +
   'hold:!!(document.querySelector("#steps [data-step=hold]")&&!document.querySelector("#steps [data-step=hold]").hidden),ticket:!!($("real-motion-ticket")&&!$("real-motion-ticket").hidden)};})()';
@@ -1963,6 +1988,10 @@ async function screensReal(cdp, fx, v, summary) {
     await goScreen(cdp, 'jog');
     // v2 Préparer: the cross is in the move area, opened by the operator (« Déplacer la machine… »).
     await cdp.waitFor(SCREENS_REAL_READY, 10000, 'real arrows enabled');
+    jogChoiceChecks(await cdp.evaluate(JOG_CHOICES)).forEach(error=>failures.push(tag+': '+error));
+    const selection=await cdp.evaluate(`(function(){var owner=window.cncJobControls,original=owner.motion,count=0,ok=true,buttons=[].slice.call(document.querySelectorAll('#feeds button')),active=buttons.filter(function(b){return b.getAttribute('aria-pressed')==='true';})[0];
+      owner.motion=function(){count++;return Promise.resolve();};try{buttons.forEach(function(b){b.click();if(b.getAttribute('aria-pressed')!=='true'||!b.classList.contains('active'))ok=false;});if(active)active.click();}finally{owner.motion=original;}return {ok:ok,count:count};})()`);
+    if(!selection.ok||selection.count)failures.push(tag+': one-tap speed choice failed or sent motion '+JSON.stringify(selection));
     const geometry=await cdp.evaluate('(function(){var a=[].slice.call(document.querySelectorAll("#screen-jog .jog")),z=["x","y","z"].map(function(a){return document.getElementById("jog-zero-"+a).getBoundingClientRect();});return {arrows:a.filter(function(b){return b.getClientRects().length;}).map(function(b){var r=b.getBoundingClientRect();return [r.width,r.height];}),gap:[z[1].top-z[0].bottom,z[2].top-z[1].bottom]};})()');
     const laser=String(v.id).indexOf('laser')>=0;
     if(!geometry.arrows.length||geometry.arrows.some(r=>r[0]<95.5||r[1]<95.5))failures.push(tag+': arrows must measure 96 px without opening a panel');
@@ -2941,4 +2970,4 @@ async function main() {
 // The measurement scripts (measure-*.cjs) reuse the DevTools client, the browser
 // launcher and the fixture starter; run the harness only as a program.
 if (require.main === module) main().catch((e) => { console.error('browser-run: ' + (e.stack || e.message)); process.exit(1); });
-module.exports = { FILE_COLUMN, GUIDE_MODE, guideChecks, strictCheck, loadExceptions, infoClipOf, stoppedChecks, stoppedLayoutChecks, settingsOffTabRequests, GOALS, RESPONSIVE, MEASURE, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors };
+module.exports = { JOG_CHOICES, jogChoiceChecks, FILE_COLUMN, GUIDE_MODE, guideChecks, strictCheck, loadExceptions, infoClipOf, stoppedChecks, stoppedLayoutChecks, settingsOffTabRequests, GOALS, RESPONSIVE, MEASURE, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors };

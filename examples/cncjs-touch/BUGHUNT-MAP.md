@@ -1,5 +1,23 @@
 # Carte de l'interface CNCjs Touch pour la chasse aux bugs
 
+## JOG — choix directs du pas et de la vitesse (2026-11-16)
+
+`touch/index.html` porte deux groupes permanents sous la croix : Pas et Vitesse
+mm/min. `real-motion.js` reste leur unique propriétaire : mêmes valeurs, défauts,
+limites par axe, sélection active, gardes et requêtes. Seul l'affichage change ;
+la cause du Continu grisé est aussi écrite et reliée par `aria-describedby`.
+`responsive.css` aligne six pas sur une grille de trois colonnes, Continu sur sa
+propre rangée et les vitesses sur la même grille. Les rendus partagent ces règles.
+
+Le bouton, le contenu et le montage du volet `ks-jog-settings-sheet` sont retirés.
+Le remède `vitesse` de `seance.js` mène aux choix directs et les focalise ; sur
+Zéro pièce, il ne renvoie aucun événement de changement d'écran. Détails conserve
+l'explication des déplacements manuels et les avances maximales X/Y/Z.
+`test-jog-choices`, `test-real-motion` et les contrats de page/style prouvent ces
+chemins. Aucun `bughunt-*` converti ni touché par JOG. Les contrôles navigateur
+sont renforcés dans `screens` et `strip`, mais la connexion Edge/CDP reste bloquée
+dans ce bac à sable. Aucun changement serveur ni validation matérielle.
+
 ## HFIX — strict harness geometry (2026-11-16)
 
 `touch/responsive.css` owns the session frame's final geometry overrides:

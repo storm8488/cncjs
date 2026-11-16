@@ -378,7 +378,7 @@
 
   // ---- The static controls of Préparer ----
   var arrows=list(screen,'.jog'),stepBox=$('steps'),feedBox=$('feeds'),zeros=list(screen,'[data-origin]');
-  var limits=$('jog-feed-limits'),speed=$('ks-jog-settings'),mid=screen.querySelector('.pad-mid');
+  var holdReason=$('jog-hold-reason'),mid=screen.querySelector('.pad-mid');
   var machineRefusals={},moreFailure=null,more=null,moreButtons=[];
   function originKey(){return JSON.stringify([machine&&machine.port,machine&&machine.generation,machine&&machine.coordinates,machine&&machine.workOffset,machine&&machine.homed,machine&&machine.referenceLost,machine&&machine.activeState,machine&&machine.fresh,cap('setOrigin'),pilot&&pilot.state]);}
   function sheetShown(){var n=$('ks-zero-more');return !!(n&&!n.hidden&&!document.hidden&&shown());}
@@ -455,11 +455,9 @@
       attr(b,'title',forbidden?unreferenced?t('Origine machine pas prise : 1 mm au plus, sans continu.'):presented({code:'ETOUCH_MOTION_DISABLED'}).phrase:null);
       var pressed=isHold?mode==='hold':mode==='step'&&Number(v)===step;
       klass(b,'active',pressed);attr(b,'aria-pressed',String(pressed));prop(b,'disabled',busy||forbidden);
+      if(isHold){var why=forbidden?b.getAttribute('title'):busy?t('Déplacement en cours : attendez l’arrêt.'):'';setText(holdReason,why?t('Continu : {raison}').replace('{raison}',why):'');prop(holdReason,'hidden',!why);}
     });
     feedButtons.forEach(function(b){var pressed=Number(b.getAttribute('data-feed'))===feed;klass(b,'active',pressed);attr(b,'aria-pressed',String(pressed));prop(b,'disabled',busy);});
-    var mf=m&&m.maxFeed||{};
-    setText(limits,t('Avance max X / Y / Z : ')+AXES.map(function(a){return mf[a]&&mf[a].max?mf[a].max:'—';}).join(' / ')+' mm/min'+(AXES.some(function(a){return mf[a]&&mf[a].source==='fallback';})?t(' · vitesse maximale inconnue'):''));
-    setText(speed,t('Vitesse · ')+feed+' mm/min…');
     setText(mid,mode==='hold'?t('continu'):step+' mm');
     // The arrows: a held button is never disabled (its release must reach it); the others wait.
     var reasons={},all=true;

@@ -215,7 +215,15 @@
   function lancer(id){
     if(id==='recommencer'){var retry=pendingRefusal&&pendingRefusal.refusal.retry;if(retry)return retry();return lancer('details');}
     if(id.indexOf('suite:')===0){window.cncShell.go(id.slice(6));return;}
-    if(id==='details'){window.cncShell.details(pendingRefusal?pendingRefusal.refusal.details:{lignes:[],brut:last.machine});return;}
+    if(id==='details'){
+      var lignes=[];
+      if(window.cncShell.screen()==='jog'){
+        var mf=last.machine&&last.machine.motion&&last.machine.motion.maxFeed||{},axes=['X','Y','Z'];
+        lignes=[{libelle:t('Vitesse mm/min'),valeur:t('Vitesse des déplacements manuels. Elle ne change pas les vitesses d’un programme.')},
+          {libelle:t('Avance max X / Y / Z : '),valeur:axes.map(function(a){return mf[a]&&mf[a].max?mf[a].max:'—';}).join(' / ')+' mm/min'+(axes.some(function(a){return mf[a]&&mf[a].source==='fallback';})?t(' · vitesse maximale inconnue'):'')}];
+      }
+      window.cncShell.details(pendingRefusal?pendingRefusal.refusal.details:{lignes:lignes,brut:last.machine});return;
+    }
     if(id==='incident-details'){var help=last.machine&&window.CNCGrblHelp&&window.CNCGrblHelp.alarm(last.machine.lastAlarm&&last.machine.lastAlarm.code||last.machine.alarmCode);window.cncShell.details({lignes:help?[{libelle:t('Alarme'),valeur:help.title+' '+help.action}]:[],brut:last.machine});return;}
     if(id==='deverrouiller'){if(last.machine&&last.machine.canUnlock&&(!last.pilot||last.pilot.state!=='other')&&!last.busy)return owner('prepareCommand','unlock')();return;}
     if(id==='mise-en-service'){if(window.cncCommissioning)window.cncCommissioning.open();return;}
@@ -230,7 +238,7 @@
   handlers.charger=owner('load');handlers.demarrer=owner('start');handlers.reprendre=owner('resume');handlers.pause=owner('pause');handlers['arreter-usinage']=owner('stop');handlers['arreter-broche']=owner('spindleStop');handlers.relire=owner('readSettings');handlers['verifier-zero']=owner('verifyOffset');handlers['prise-origine']=owner('prepareCommand','home');handlers['prendre-la-main']=owner('openPilot');handlers.connecter=function(){if(window.cncConnectCnc)window.cncConnectCnc.search();};
   handlers['recharger-fichier']=function(){var c=window.cncJobControls,m=last.machine;if(c&&m&&m.canLoad&&!last.busy)return c.loadFrom(m.name,1).catch(refuse);};handlers['recharger-page']=function(){var m=last.machine;if(last.halt||last.busy||last.systemCommand||m&&(m.workflow!=='idle'||m.canStop||m.probing||m.homing)){refuse({message:t('Impossible pour l’instant.')});return;}window.location.reload();};
   var legacy={'ma-sonde':'probe-profile','tester-sonde':'probe-contact','pourquoi-sonde':'probe-contact','dessin-depart':'probe','relancer-palpage':'probe'};Object.keys(legacy).forEach(function(id){handlers[id]=function(){window.cncShell.go(legacy[id]);};});
-  handlers.vitesse=function(){var b=document.getElementById('ks-jog-settings');if(b&&!b.disabled)b.click();};
+  handlers.vitesse=function(){if(window.cncShell.screen()!=='jog')window.cncShell.go('jog');var b=document.querySelector('#feeds [aria-pressed="true"]')||document.querySelector('#feeds button');if(b)b.focus();};
   handlers['type-machine']=function(){window.cncShell.go('settings');};
   handlers.plaque=function(){if(window.cncZeroPiece)window.cncZeroPiece.plate(true);};
   handlers['changer-ligne']=function(){window.cncShell.go('home');if(window.CNCJobResume&&window.CNCJobResume.open)window.CNCJobResume.open();};

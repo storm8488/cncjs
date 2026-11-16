@@ -178,7 +178,7 @@ async function variant(cdp, H, base, page, w, h, lang, large, fail, rows, log) {
 
 // Finitions (revue P2-4): the row of 7 steps of Préparer (0.1 / 1 / 10 / 25 / 50 / 100 / Continu) on the real page,
 // at every format of VARIANTS (1366 x 768 and the compact 1024 x 600, FR / ES large / EN): the reports shown at rest
-// with the move capabilities (CAPABILITIES, window.__stripIdle), the seven buttons visible, ≥ 44 px, text whole, hit.
+// with the move capabilities (CAPABILITIES, window.__stripIdle), the seven buttons visible, ≥ 48 px, text whole, hit.
 const STEPS_ROW = `(function(){return Array.prototype.map.call(document.querySelectorAll("#steps .step"),function(b){b.scrollIntoView({block:"nearest"});
   var r=b.getBoundingClientRect(),h=r.width?document.elementFromPoint(r.left+r.width/2,r.top+r.height/2):null;
   return {step:b.getAttribute("data-step"),text:b.textContent.trim(),shown:!b.hidden&&r.width>0,w:Math.round(r.width*10)/10,h:Math.round(r.height*10)/10,
@@ -193,8 +193,9 @@ async function stepsRow(cdp, H, ctx, fail, log) {
     const want = ['0.1', '1', '10', '25', '50', '100', 'hold'];
     const shown = row.filter((b) => b.shown).map((b) => b.step);
     if (shown.join() !== want.join()) fail(ctx + ' · steps row: buttons shown ' + shown.join(',') + ', expected ' + want.join(','));
-    const bad = row.filter((b) => b.shown && (b.w < 44 || b.h < 44 || b.cut || !b.inside || !b.hit));
+    const bad = row.filter((b) => b.shown && (b.w < 48 || b.h < 48 || b.cut || !b.inside || !b.hit));
     if (bad.length) fail(ctx + ' · steps row: ' + JSON.stringify(bad));
+    H.jogChoiceChecks(await cdp.evaluate(H.JOG_CHOICES)).forEach(error=>fail(ctx+' · jog choices: '+error));
     log(ctx + ' · steps row: ' + row.filter((b) => b.shown).map((b) => b.text + ' ' + b.w + 'x' + b.h).join(' | '));
   } catch (e) { fail(ctx + ' · steps row: ' + e.message); }
   finally { await cdp.evaluate('window.__stripIdle=false;true').catch(() => {}); }

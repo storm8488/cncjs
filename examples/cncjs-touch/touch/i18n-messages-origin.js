@@ -25,6 +25,9 @@
 
 // Zero piece, manual and machine-origin zeros (L3a).
 (window.CNCTouchMessages=window.CNCTouchMessages||[]).push(
+["Pas","Step","Paso"],
+["Vitesse mm/min","Speed mm/min","Velocidad mm/min"],
+["Continu : {raison}","Continuous: {raison}","Continuo: {raison}"],
 ["Position pièce","Work position","Posición de la pieza"],
 ["Déplacer","Move","Mover"],
 ["Zéro X ici","Zero X here","Cero X aquí"],

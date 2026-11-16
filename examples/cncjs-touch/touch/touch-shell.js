@@ -157,8 +157,6 @@
   if(simulation){
     bindSheet('ks-origin-reset-sheet',uiLocale.t('Réinitialiser la simulation'),'ks-origin-reset-content','ks-origin-reset');
     bindSheet('ks-machine-help-sheet',uiLocale.t('Test d’alarme fictive'),'ks-machine-explanation','ks-machine-info');
-  }else{
-    bindSheet('ks-jog-settings-sheet',uiLocale.t('Vitesse de déplacement'),'ks-jog-settings-content','ks-jog-settings');
   }
   bindSheet('ks-history-export-sheet',uiLocale.t('Exporter le journal'),'ks-history-export-content','ks-history-export');
   var overview=simulation?document.querySelector('.ks-machine-overview'):null,machineWord=null,machineAlarm=null;

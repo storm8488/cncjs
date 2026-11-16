@@ -37,8 +37,9 @@ for (const [css, sel] of [[ui, '.ks-ui #screen-jog .jog'], [ui, '.ks-ui #screen-
 }
 assert.match(rule(ui, '.ks-ui #screen-jog .pad-mid'), /border:1px dashed var\(--faint\)/);
 assert.doesNotMatch(rule(ui, '.ks-ui #screen-jog .jog:disabled'), /--faint/, 'disabled cross: its own rule');
-// L3a replaces comparison/jog modes with the common cross and two step rows.
-const zero=read('responsive.css');assert.match(zero,/.ks-zero-cross \.jog\{width:96px;height:96px;min-width:96px;min-height:96px/);assert.match(zero,/.ks-zero-axis\{[^}]*min-height:64px/);assert.match(zero,/#steps\{[^}]*gap:12px/);
+// L3a replaces comparison/jog modes with the common cross; JOG shares the choice grid.
+const zero=read('responsive.css');assert.match(zero,/.ks-zero-cross \.jog\{width:96px;height:96px;min-width:96px;min-height:96px/);assert.match(zero,/.ks-zero-axis\{[^}]*min-height:64px/);
+for(const id of ['steps','feeds'])assert.match(rule(zero,'body.ks-real.ks-ui #screen-jog #'+id),/gap:12px/);
 // The three step lists of the fixtures are the server's (motion.js STEPS): the screens show the seven buttons.
 const STEPS = /export const STEPS = \[([^\]]+)\]/.exec(fs.readFileSync(__dirname + '/../../src/server/services/touch/motion.js', 'utf8'))[1].replace(/\s/g, '');
 for (const f of ['browser-run.cjs', 'browser-strip.cjs', 'test-real-motion.cjs']) assert(fs.readFileSync(__dirname + '/' + f, 'utf8').replace(/\s/g, '').includes('steps:[' + STEPS + ']'), f + ': steps of the server');

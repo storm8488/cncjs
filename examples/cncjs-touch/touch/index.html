@@ -54,11 +54,12 @@ html.cnc-degraded #cnc-boot{top:var(--statusbar-h,72px)}
  <div class="card ks-motion-arrows" aria-label="Déplacer">
  <div class="ks-zero-cross"><div class="pad"><span></span><button class="jog" disabled data-axis="Y" data-dir="1">Y+</button><span></span><button class="jog" disabled data-axis="X" data-dir="-1">X−</button><span class="pad-mid">1 mm</span><button class="jog" disabled data-axis="X" data-dir="1">X+</button><span></span><button class="jog" disabled data-axis="Y" data-dir="-1">Y−</button><span></span></div>
  <div class="zrow" data-laser-z><button class="jog" disabled data-axis="Z" data-dir="1">Z+</button><button class="jog" disabled data-axis="Z" data-dir="-1">Z−</button></div></div>
- <div class="steps" id="steps"><button class="step" data-step="0.1">0,1</button><button class="step active" data-step="1">1</button><button class="step" data-step="10">10</button><button class="step" data-step="25">25</button><button class="step" data-step="50">50</button><button class="step" data-step="100">100</button><button class="step ks-step-hold" data-step="hold">Continu</button></div>
- <button id="ks-jog-settings" class="ks-secondary">Vitesse…</button>
+ <div class="ks-jog-choices">
+ <div class="ks-jog-choice-group"><h3 id="jog-step-title" class="ks-jog-choice-title">Pas</h3><div class="steps" id="steps" role="group" aria-labelledby="jog-step-title"><button class="step" data-step="0.1">0,1</button><button class="step active" data-step="1">1</button><button class="step" data-step="10">10</button><button class="step" data-step="25">25</button><button class="step" data-step="50">50</button><button class="step" data-step="100">100</button><button class="step ks-step-hold" data-step="hold" aria-describedby="jog-hold-reason">Continu</button></div></div>
+ <div class="ks-jog-choice-group"><h3 id="jog-feed-title" class="ks-jog-choice-title">Vitesse mm/min</h3><div class="steps" id="feeds" role="group" aria-labelledby="jog-feed-title"></div><p id="jog-hold-reason" class="ks-help" hidden></p></div>
+ </div>
  </div>
  <div class="card ks-zero-tools" aria-label="Sonde"><div class="ks-panel-intro"><div class="ks-preparation-actions"></div></div><p id="zero-laser-help" hidden>Amenez le point du laser sur le coin de la pièce, puis touchez Zéro XY ici.</p><p id="zero-laser-note" hidden>Un laser n’a pas de palpage.</p><p id="zero-kind-help" hidden>CNC ou laser ? Déclarez la machine.</p><button id="zero-kind-open" class="ks-secondary" data-action="type-machine" hidden>Type de machine…</button></div>
- <div id="ks-jog-settings-content" hidden><p>Vitesse des déplacements manuels. Elle ne change pas les vitesses d’un programme.</p><h2>Vitesse · mm/min</h2><div class="steps" id="feeds"></div><p id="jog-feed-limits" class="ks-help"></p></div>
 </section>
 <section id="screen-files" class="screen">
     <div class="card wide">

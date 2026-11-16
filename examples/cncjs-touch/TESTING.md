@@ -1,5 +1,30 @@
 # Validation scope
 
+## JOG direct choices (2026-11-16)
+
+`test-jog-choices.cjs`, registered in `verify-project.cjs`, parses the real page
+and loads the actual shell, session and motion owners in FR/EN/ES. It requires
+permanent step/feed groups, exclusive active states, no motion on selection,
+the continuous refusal text and its accessible association, retained faster
+choices/slow-axis fallback, maximum feeds in Details and a working speed remedy.
+Focusing that remedy on the current screen must not dispatch a screen change.
+`test-real-motion.cjs` also checks the exact jog payload at 100/250/500 mm/min,
+busy feed controls and the unchanged second-press stop using a direct feed target.
+
+`test-real-interface.cjs` permits accessible attributes on the same Continu and
+empty feed container. `test-preparer-style.cjs` checks both shared grid selectors.
+`test-v2-preparer-layout.cjs` replaces four columns/two step rows with two equal
+groups, three numeric columns and a full-width Continuous row. Its source-only
+budget keeps the six 96 px arrows, 48 px choices and 12 px control gaps, including
+large text at 768 px. Actual rectangles remain a browser check.
+
+`browser-run --strict --only screens` checks direct feed taps without motion,
+active states, equal numeric targets, 48 px sizes, 16 px text, 12 px gaps and hit
+testing. `browser-strip` reuses those checks and raises its old 44 px step floor
+to 48 px. Negative controls exercise the exported browser assertions offline.
+The local Edge attempt failed with `WebSocket error` before scenarios. No layout
+exception was added, and no hardware, Chromium 106 or touch rendering is certified.
+
 ## FINAL review regressions (2026-11-16)
 
 - `plate-probe.test.js` prepares a plate ticket with a proven offset, invalidates
