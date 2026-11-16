@@ -1,5 +1,19 @@
 # Spécification : interface du mode Performance (Surface Pro 3)
 
+## Lisibilité du contrôle et du rail (CTRL, 2026-11-16)
+
+À partir de 1100 × 650, le rail commun Éco/Performance mesure 128 px plutôt
+que 88 px pour conserver les mots entiers en FR/EN/ES, à 16/18 px. Le cadre
+principal suit le même jeton ; les six cibles gardent leur hauteur et leurs
+écarts. Aucune césure conditionnelle ou automatique n'est admise dans le rail.
+
+Les vues de dessus et de côté gardent leurs tracés SVG. Leurs cotes et légendes
+occupent des paragraphes sur fond de carte, avant/après le tracé, à 16/18 px,
+sans contour SVG. Les légendes longues et tous les dépassements restent en
+flux normal, défilant avec leur carte si nécessaire. Les repères ● / + restent
+géométriques ; l'étendue du dessus inclut aussi leur position. Aucun changement
+des verdicts, permissions, gardes ou commandes machine.
+
 ## Stabilité du cadre pendant un travail (GLITCH, 2026-11-16)
 
 En responsive, le fit partagé par Éco et Performance ne doit pas modifier

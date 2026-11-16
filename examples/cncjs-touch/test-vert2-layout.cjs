@@ -48,7 +48,7 @@ for (const classes of ['ks-ui','ks-ui perf-wide perf-v2','ks-ui perf-wide perf-v
 for (const language of ['fr','en','es']) {
  const p = page(language);p.run('touch-shell.js');
  const label = p.document.querySelector('[data-ks-screen="machine"] .ks-nav-name').textContent;
- assert(label.includes('\u00ad'), language + ': Machine has an intentional line-break point in the 71px rail');
+ assert.equal(label, p.window.cncI18n.t('Machine'), language + ': Machine keeps its whole translated word');
  p.emit('pagehide');
 }
-console.log('PASS VERT2 cascade: portrait rail, natural machine/simulation cards, fixed machining frame, five override columns, v2 Stop/preview stability and localized rail breaks.');
+console.log('PASS VERT2 cascade: portrait rail, natural machine/simulation cards, fixed machining frame, five override columns, v2 Stop/preview stability and whole localized rail words.');

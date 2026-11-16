@@ -526,3 +526,12 @@ migrated in ECARTS-PLAN's VERT2 entry. Size goals, strict exceptions, stop guard
 and one-pixel geometry comparisons are unchanged. Browser reception remains
 pending (`WebSocket error`, then `timeout Page.enable` before scenarios); see
 RAPPORT section 5.3.
+## CTRL — control captions and whole rail words (2026-11-16)
+
+Proofs are durable in `test-control-labels.cjs` (verify-project): no rail soft
+hyphens at mount or live CNC/laser repaint; normal-flow captions outside SVG;
+all six overrun sides retained; rendered rectangle checks and negative controls
+in `browser-control-labels.cjs`. The `screens` step runs the full FR/EN/ES
+standard/large v1/v2 matrix. No existing bughunt proof was changed or removed.
+The Edge attempt fails before scenarios (WebSocket error); rendered separation
+remains unverified here. Source rollback proofs are kept in ignored output.

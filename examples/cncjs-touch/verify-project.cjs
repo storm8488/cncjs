@@ -7,7 +7,7 @@ const {spawnSync} = require('child_process');
 const root = __dirname;
 const tests = [
  'harn-page','harn-surface','harn-flows','vert-harness','vert-layout','vert2-layout','vert2-harness',
- 'textes-regles','confirmation-labels','placement-loading','session-geometry','jog-choices','rail-fixed',
+ 'textes-regles','confirmation-labels','placement-loading','session-geometry','jog-choices','rail-fixed','control-labels',
  'usinage-ecran','reprise-volet','check-screen','check-drawing','files-verdict','derogation','arcs','dashboard','real-interface','home-actions','job-dialog','start-override','work-offset','probe-defaults','page-benches','job-display',
  'library-transitions','library-file-state','machine-limits',
  'preview-dimensions','preview-viewer','preview','probe-diagram',

@@ -2426,6 +2426,7 @@ async function screensMeasure(summary) {
   const out = [];
   try {
     await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: V2_GPU_TRAP });
+    await controlLabelsMeasure(cdp, fx, summary);
     for (const v of SCREENS_VARIANTS) await screensVariant(cdp, fx, v, summary, out);
     await screensGuideSim(cdp, fx, summary);
   } catch (e) { failures.push('screens: ' + (e.stack || e.message)); log('FAIL screens: ' + e.message); }
@@ -2442,6 +2443,33 @@ async function screensMeasure(summary) {
   fs.mkdirSync(OUT, { recursive: true });
   fs.writeFileSync(path.join(OUT, 'screens.json'), JSON.stringify({ states: SCREENS_STATES, variants: SCREENS_VARIANTS, passes: out }, null, 1));
   summary.screens = out.map((p) => ({ variant: p.variant, states: Object.keys(p.states), commands: (p.commands || []).length, pageErrors: (p.pageErrors || []).length }));
+}
+
+// CTRL: real page/CSS/fonts, both plots, all six overrun directions, and
+// whole rail words. Draw only fixture data; no machine action is invoked.
+async function controlLabelsMeasure(cdp, fx, summary) {
+  const labels = require('./browser-control-labels.cjs');
+  const results = [], dir = path.join(OUT, 'control-labels');
+  fs.mkdirSync(dir, { recursive: true });
+  for (const v2 of [false, true]) for (const lang of ['fr', 'en', 'es']) for (const size of ['standard', 'large']) for (const theme of ['dark', 'light']) {
+    const variant = 'CTRL-v' + (v2 ? 2 : 1) + '-' + lang + '-' + size + '-' + theme;
+    fx.setPhase('idle'); fx.profile = v2 ? V2_PROFILE : V2_LASER_PROFILE;
+    await setViewport(cdp, 1366, v2 ? 911 : 768, 1);
+    await v2Storage(cdp, fx.base, { profile:v2 ? 'performance' : 'eco', v2:{version:1,enabled:v2}, kind:null });
+    await settingsStorage(cdp, { lang, size, theme });
+    await v2Open(cdp, fx.base + 'index.html?control-labels=' + variant, v2);
+    await goScreen(cdp, 'check');
+    for (const example of labels.cases()) {
+      const data = await cdp.evaluate('(function(example){["top","side"].forEach(function(plane){document.getElementById("check-"+plane).innerHTML=window.CNCProgramCheckView.drawing(example.check,plane,example.coordinates);});return (' + labels.measure + ')();})(' + JSON.stringify(example) + ')');
+      const errors = labels.checks(data);
+      errors.forEach(error => failures.push(variant + ' ' + example.name + ': ' + error));
+      results.push({ variant, example:example.name, errors, data });
+      if (example.name === 'fits-coincident-zero' || example.name === 'all-six-sides') await screenshot(cdp, path.join(dir, variant + '-' + example.name + '.png'));
+    }
+    log(variant + ': control labels and whole rail words checked');
+  }
+  fs.writeFileSync(path.join(dir, 'geometry.json'), JSON.stringify(results, null, 1));
+  summary.controlLabels = { variants:24, cases:results.length, violations:results.reduce((n,r) => n+r.errors.length,0) };
 }
 
 // A focused matrix independent of the older screen-specific operator flows.

@@ -28,7 +28,7 @@ assert.equal(declaration('body.ks-ui #screen-home .home-v2-sequence', 'order'), 
 assert.match(declaration('body.ks-ui #screen-files .library-list-panel', 'grid-template-rows'), /^minmax\(56px,auto\)/);
 assert.equal(declaration('body.ks-ui main>.screen.kept:not(.active)', 'pointer-events'), 'none');
 const view = require('./touch/program-check-view.js'), check = require('./check-page-fixture.cjs').check();
-assert.match(view.drawing(check, 'side'), /x="15"[^>]*>zéro Z/);
+assert.match(view.drawing(check, 'side'), /<p class="pc-label">zéro Z · 0 mm<\/p>/, 'zero Z has its own flow caption outside the plot');
 const sizes = [];q.window.addEventListener('cnc-history-page-size', e => sizes.push(e.detail));
 q.document.body.classList.add('display-large');q.emit('resize');assert.equal(sizes.pop(), 5, 'large Journal pages reserve the subheader');
 console.log('PASS HARN page: stopped alarm recovery, line and loss notice, detailed summary, inferred alarm.');

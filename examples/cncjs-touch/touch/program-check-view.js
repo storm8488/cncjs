@@ -113,15 +113,22 @@
   function drawing(check, plane, coordinates) {
     var top = plane === 'top', axes = check && check.axes || {}, x = axes.X, y = axes.Y, z = axes.Z;
     function known(a) { return !!(a && a.usable && number(a.usable.low) && number(a.usable.high) && a.usable.high > a.usable.low && number(a.machineMin) && number(a.machineMax) && (a.verdict === 'validated' || a.verdict === 'outside')); }
-    function label(px, py, s) { return '<text x="' + px + '" y="' + py + '">' + escape(s) + '</text>'; }
+    // Keep text in normal document flow, outside the plot. SVG text inherits the
+    // shell's stroke and cannot wrap safely near coincident zero/travel edges.
+    var captions = [], heading = '';
+    function label(s) { return '<p class="pc-label">' + escape(s) + '</p>'; }
     function rect(px, py, w, h, cls) { return '<rect class="' + cls + '" x="' + px + '" y="' + py + '" width="' + Math.max(1, w) + '" height="' + Math.max(1, h) + '"/>'; }
     var ready = top ? known(x) && known(y) : known(z), b = blocks(check), out = '';
     if (!ready) {
-      out = rect(45, 70, 310, 260, 'pc-unknown') + label(50, 110, t(check ? 'non vérifié' : 'Aucun fichier chargé.'));
+      out = rect(45, 70, 310, 260, 'pc-unknown');
+      heading = t(check ? 'non vérifié' : 'Aucun fichier chargé.');
       var a = top ? x : z;
-      if (a && number(a.min) && number(a.max)) out += rect(90, 160, 160, 90, 'pc-program') + label(95, 205, fmt(a.max - a.min) + ' mm');
+      if (a && number(a.min) && number(a.max)) { out += rect(90, 160, 160, 90, 'pc-program'); captions.push(fmt(a.max - a.min) + ' mm'); }
     } else if (top) {
-      var xmin = Math.min(x.usable.low, x.machineMin), xmax = Math.max(x.usable.high, x.machineMax), ymin = Math.min(y.usable.low, y.machineMin), ymax = Math.max(y.usable.high, y.machineMax);
+      var zx = number(x.min) ? x.machineMin - x.min : null, zy = number(y.min) ? y.machineMin - y.min : null;
+      var m = coordinates && coordinates.mpos,mx=m&&(typeof m.x==='string'&&m.x.trim()?Number(m.x):m.x),my=m&&(typeof m.y==='string'&&m.y.trim()?Number(m.y):m.y);
+      var tool = number(mx) && number(my);
+      var xmin = Math.min(x.usable.low, x.machineMin, zx === null ? x.usable.low : zx, tool ? mx : x.usable.low), xmax = Math.max(x.usable.high, x.machineMax, zx === null ? x.usable.high : zx, tool ? mx : x.usable.high), ymin = Math.min(y.usable.low, y.machineMin, zy === null ? y.usable.low : zy, tool ? my : y.usable.low), ymax = Math.max(y.usable.high, y.machineMax, zy === null ? y.usable.high : zy, tool ? my : y.usable.high);
       var sx = 300 / Math.max(1, xmax - xmin), sy = 270 / Math.max(1, ymax - ymin), X = function (n) { return 50 + (n - xmin) * sx; }, Y = function (n) { return 340 - (n - ymin) * sy; };
       out = rect(X(x.usable.low), Y(y.usable.high), (x.usable.high - x.usable.low) * sx, (y.usable.high - y.usable.low) * sy, 'pc-travel');
       out += rect(X(x.machineMin), Y(y.machineMax), (x.machineMax - x.machineMin) * sx, (y.machineMax - y.machineMin) * sy, 'pc-program');
@@ -130,22 +137,22 @@
       if (x.machineMax > x.usable.high) out += rect(X(Math.max(x.machineMin, x.usable.high)), Y(y.machineMax), (x.machineMax - Math.max(x.machineMin, x.usable.high)) * sx, (y.machineMax - y.machineMin) * sy, 'pc-over');
       if (y.machineMin < y.usable.low) out += rect(X(x.machineMin), Y(Math.min(y.machineMax, y.usable.low)), (x.machineMax - x.machineMin) * sx, (Math.min(y.machineMax, y.usable.low) - y.machineMin) * sy, 'pc-over');
       if (y.machineMax > y.usable.high) out += rect(X(x.machineMin), Y(y.machineMax), (x.machineMax - x.machineMin) * sx, (y.machineMax - Math.max(y.machineMin, y.usable.high)) * sy, 'pc-over');
-      out += label(50, 45, fmt(x.usable.high - x.usable.low) + ' × ' + fmt(y.usable.high - y.usable.low) + ' mm');
-      out += label(50, 375, fmt(x.max - x.min) + ' × ' + fmt(y.max - y.min) + ' mm');
-      if (number(x.min) && number(y.min)) out += label(X(x.machineMin - x.min), Y(y.machineMin - y.min), '● ' + t('zéro pièce'));
-      var m = coordinates && coordinates.mpos,mx=m&&(typeof m.x==='string'&&m.x.trim()?Number(m.x):m.x),my=m&&(typeof m.y==='string'&&m.y.trim()?Number(m.y):m.y);
-      if (m && number(mx) && number(my)) out += label(X(mx), Y(my), '+ ' + t('fraise'));
+      heading = t('Course utilisable') + ' · ' + fmt(x.usable.high - x.usable.low) + ' × ' + fmt(y.usable.high - y.usable.low) + ' mm';
+      captions.push(t('Fichier') + ' · ' + fmt(x.max - x.min) + ' × ' + fmt(y.max - y.min) + ' mm');
+      if (zx !== null && zy !== null) { out += '<circle class="pc-origin" cx="' + X(zx) + '" cy="' + Y(zy) + '" r="4"/>'; captions.push('● ' + t('zéro pièce')); }
+      if (tool) { out += '<path class="pc-tool" d="M' + (X(mx) - 7) + ' ' + Y(my) + 'h14M' + X(mx) + ' ' + (Y(my) - 7) + 'v14"/>'; captions.push('+ ' + t('fraise')); }
     } else {
       var zero = number(z.min) ? z.machineMin - z.min : null, low = Math.min(z.usable.low, z.machineMin, zero === null ? z.usable.low : zero), high = Math.max(z.usable.high, z.machineMax, zero === null ? z.usable.high : zero), scale = 270 / Math.max(1, high - low), Z = function (n) { return 340 - (n - low) * scale; };
       out = rect(65, Z(z.usable.high), 90, (z.usable.high - z.usable.low) * scale, 'pc-travel') + rect(85, Z(z.machineMax), 50, (z.machineMax - z.machineMin) * scale, 'pc-program');
       if (z.machineMin < z.usable.low) out += rect(85, Z(Math.min(z.machineMax, z.usable.low)), 50, (Math.min(z.machineMax, z.usable.low) - z.machineMin) * scale, 'pc-over');
       if (z.machineMax > z.usable.high) out += rect(85, Z(z.machineMax), 50, (z.machineMax - Math.max(z.machineMin, z.usable.high)) * scale, 'pc-over');
-      out += label(170, Z(z.usable.high) + 5, t('haut de la course')) + label(170, Z(z.usable.low) + 5, t('plus bas possible'));
-      if (zero !== null) out += '<path class="pc-zero" d="M45 ' + Z(zero) + 'H160"/>' + label(15, Z(zero) - 10, t('zéro Z'));
-      out += label(50, 375, fmt(Math.max(0, -(number(z.min) ? z.min : 0))) + ' mm');
+      heading = t('haut de la course') + ' · ' + fmt(z.usable.high) + ' mm';
+      captions.push(t('plus bas possible') + ' · ' + fmt(z.usable.low) + ' mm');
+      if (zero !== null) { out += '<path class="pc-zero" d="M45 ' + Z(zero) + 'H160"/>'; captions.push(t('zéro Z') + ' · ' + fmt(zero) + ' mm'); }
+      captions.push(t('Profondeur sous le zéro') + ' · ' + fmt(Math.max(0, -(number(z.min) ? z.min : 0))) + ' mm');
     }
-    b.filter(function (r) { return top ? (r.axis || r.params && r.params.axis) !== 'Z' && !/TOO_(LOW|HIGH)$/.test(r.code) : /TOO_(LOW|HIGH)$/.test(r.code); }).slice(0, 2).forEach(function (r, i) { out += label(15, 410 + i * 25, overText(r, false)); });
-    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430 460" role="img" aria-label="' + escape(t(top ? 'Vue de dessus' : 'Vue de côté')) + '"><defs><pattern id="pc-hatch-' + plane + '" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M-2 2L2-2M0 8L8 0M6 10L10 6"/></pattern></defs><g data-plane="' + plane + '" data-verified="' + ready + '">' + out + '</g></svg>';
+    b.filter(function (r) { return top ? (r.axis || r.params && r.params.axis) !== 'Z' && !/TOO_(LOW|HIGH)$/.test(r.code) : /TOO_(LOW|HIGH)$/.test(r.code); }).forEach(function (r) { captions.push(overText(r, false)); });
+    return '<div class="pc-diagram">' + label(heading) + '<svg class="pc-plot" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430 370" role="img" aria-label="' + escape(t(top ? 'Vue de dessus' : 'Vue de côté')) + '"><defs><pattern id="pc-hatch-' + plane + '" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M-2 2L2-2M0 8L8 0M6 10L10 6"/></pattern></defs><g data-plane="' + plane + '" data-verified="' + ready + '">' + out + '</g></svg><div class="pc-labels">' + captions.map(label).join('') + '</div></div>';
   }
   var api = { describe: describe, show: show, refusal: refusal, blocks: blocks, overText: overText, outside: outside, fileVerdict: fileVerdict, axisLines: axisLines, drawing: drawing, fmt: fmt };
   if (typeof module === 'object' && module.exports) module.exports = api; else root.CNCProgramCheckView = api;

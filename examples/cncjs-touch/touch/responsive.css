@@ -261,8 +261,14 @@ body.ks-ui #tabbar{top:72px;gap:12px;padding:8px!important}
 /* The 88px border-box rail has 71px inside its padding and right border. */
 body.ks-ui #tabbar .ks-nav{flex:none;min-height:88px;height:88px;width:100%;padding:4px 2px;gap:6px;font-size:16px}
 body.ks-ui #tabbar .ks-nav[data-ks-screen="more"]{margin-top:auto;height:64px;min-height:64px;border-top:1px solid var(--line-strong);border-radius:0}
-body.ks-ui #tabbar .ks-nav span{font-size:16px;line-height:1.15;white-space:normal;overflow-wrap:normal}
+body.ks-ui #tabbar .ks-nav span{font-size:16px;line-height:1.15;white-space:normal;overflow-wrap:normal;hyphens:none;word-break:normal}
 body.ks-ui.display-large #tabbar .ks-nav-name{font-size:18px}
+/* Whole translated words, including Mecanizado at 18px, need more than 71px.
+   The session frame follows the same token; touch targets keep their height. */
+@media(min-width:1100px) and (min-height:650px){
+ body.ks-ui{--rail-w:128px;--ks-rail:var(--rail-w)}
+ body.ks-ui #tabbar .ks-nav-name{letter-spacing:0}
+}
 .ks-step-number{position:relative;border:1px solid var(--line-strong);border-radius:50%;width:28px;height:28px;display:grid;place-items:center}
 .ks-step-mark{position:absolute;right:-9px;top:-8px;font-size:16px;background:var(--surface);border-radius:50%}
 body.ks-ui #tabbar .ks-nav>b{font-size:16px}

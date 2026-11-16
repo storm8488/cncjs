@@ -1,5 +1,26 @@
 # Validation scope
 
+## Control labels and rail words (CTRL, 2026-11-16)
+
+`test-control-labels.cjs` is registered in verify-project. It checks FR/EN/ES
+rail words at initial mount and after CNC/laser status updates, the shipped
+128px desktop rail cascade (16/18px text, targets at least 64px), plot/caption
+separation, ten drawing cases and twelve negative geometry controls. The
+intentional soft-hyphen assertion in `test-vert2-layout` becomes a whole-word
+assertion; `test-harn-page` checks the separate zero-Z caption instead of x=15.
+`test-fil` expects the whole laser word Gravure after live repaint.
+
+`browser-run --strict --only screens,v2` runs an additional CTRL matrix inside
+`screens`: v1 1366x768 / v2 1366x911, FR/EN/ES, standard/large, dark/light,
+240 drawing cases. Text Range boxes must be disjoint from other captions and
+all plotted geometry, stay inside their frames, and be fully reachable by
+actual scrolling. Rail words cannot span lines internally or leave their
+64px targets. All six overrun directions, coincident tool/work zero, distant
+markers, unknown axes and no file are included. `control-labels/geometry.json`
+and screenshots are written only to the ignored output directory. The sandbox
+attempt fails at the initial Edge WebSocket connection before these scenarios;
+no rendered or hardware validation is claimed.
+
 ## Refit strict harness (HARN, 2026-11-16)
 
 The harness follows File → Control → Machining, including simulation. Footer

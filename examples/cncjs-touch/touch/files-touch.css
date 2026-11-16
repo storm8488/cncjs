@@ -58,6 +58,14 @@
 .check-drawing .pc-program{fill:var(--fg);fill-opacity:.12}
 .check-drawing .pc-unknown{fill:none;stroke:var(--mute);stroke-dasharray:6 6}
 .check-drawing .pc-zero{stroke:var(--fg);stroke-dasharray:4 3}
+.check-drawing .pc-origin{fill:var(--fg);stroke:var(--surface);stroke-width:1}
+.check-drawing .pc-tool{fill:none;stroke:var(--fg);stroke-width:2}
+.check-drawing{align-items:flex-start}
+.pc-diagram{width:100%;min-width:0;display:flex;flex-direction:column;gap:12px}
+.check-drawing .pc-plot{display:block;flex:none;height:270px;max-height:none}
+.pc-labels{display:flex;flex-direction:column;gap:8px}
+.ks-ui #screen-check .pc-label{margin:0;padding:4px 8px;background:var(--surface);font-size:16px;font-weight:400;line-height:1.4;white-space:normal;overflow-wrap:anywhere;hyphens:none}
+.ks-ui.display-large #screen-check .pc-label{font-size:18px}
 .check-drawing pattern path{stroke:var(--danger);stroke-width:2;fill:none}
 #check-top .pc-over{fill:url(#pc-hatch-top);stroke:var(--danger)}
 #check-side .pc-over{fill:url(#pc-hatch-side);stroke:var(--danger)}

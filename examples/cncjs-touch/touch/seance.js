@@ -30,7 +30,7 @@
     line('main',p.state==='other'?t('C’est « {appareil} » qui a la main').replace('{appareil}',function(){return p.name||p.value||t('autre appareil');}):p.state==='mine'?'La main : cet appareil':'La main : libre',p.state==='other'?'alerte':'fait');
     line('reglages',reading?'Lecture des réglages…':settings?'Réglages lus':'Réglages pas encore lus',settings?'fait':'attente',[button('relire','Relire',commands&&m.canReadSettings===true)]);
     if(alarm&&running||stopped)line('arret',running?'Un usinage est encore ouvert':t('Usinage arrêté à la ligne {n}').replace('{n}',m.stoppedAtLine),running?'alerte':'fait');
-    line('origine',m&&m.homing?'Prise d’origine en cours…':homed?m.homed?'Origine machine prise':'Prise d’origine non requise':incident?'Origine machine à reprendre':'Origine machine à prendre',homed?'fait':alarm?'alerte':'attente');
+    line('origine',m&&m.homing?'Prise d’origine en cours…':homed?m.homed?'Origine machine prise':'Prise d’origine non requise':incident?'Origine machine à reprendre':'Origine machine à prendre',homed?'fait':alarm?'alerte':'attente',[button('prise-origine','Prise d’origine machine…',commands&&m.canHome===true)]);
     if(incident||!o||o.state!=='proven'){
       var buttons=[];
       if(homed&&!o)buttons.push(button('details','Détails',true));
@@ -189,7 +189,7 @@
     paintMachineDetails();
     if(pendingRefusal&&pendingRefusal.key!==inputKey(last))pendingRefusal=null;
     order.forEach(function(k,i){var n=document.querySelector('[data-seance-step="'+(i+1)+'"]'),e=result.etapes[k];if(n){attr(n,'data-seance-state',e.etat);attr(n,'aria-label',t('Étape {n}, {etape} : {etat}').replace('{n}',i+1).replace('{etape}',t(labels[k])).replace('{etat}',e.mot));var mark=n.querySelector('.ks-step-mark');setText(mark,{fait:'✓',suite:'○',alerte:'!',inconnu:'?'}[e.etat]||'');}});
-    var laser=!!(last.machine&&last.machine.machineProfile&&last.machine.machineProfile.kind==='laser'),homeNav=document.querySelector('[data-ks-screen="home"] .ks-nav-name');setText(homeNav,t(laser?'Gra­vure':'Usi­nage'));
+    var laser=!!(last.machine&&last.machine.machineProfile&&last.machine.machineProfile.kind==='laser'),homeNav=document.querySelector('[data-ks-screen="home"] .ks-nav-name');setText(homeNav,t(laser?'Gravure':'Usinage'));
     var active=shell.screen(),b=result.barres[active];if(active==='more'){var version=document.getElementById('more-version'),loaded=window.cncTabletActions&&window.cncTabletActions.loadedVersion&&window.cncTabletActions.loadedVersion(),stamp=window.cncProfile&&window.cncProfile.version||'—';if(loaded&&loaded.commit)stamp+=' · '+String(loaded.commit).slice(0,8);setText(version,t('CNCjs Touch · page {version}').replace('{version}',stamp));}if(!b)return;
     if(active==='machine')paintMachine();
     var r=pendingRefusal&&pendingRefusal.screen===active?pendingRefusal.refusal:null;

@@ -1792,26 +1792,6 @@ window.CNCTouchMessages.push([' · Sélection différente : ',' · Different sel
 
 (function(){window.CNCTouchMessages=window.CNCTouchMessages.concat([
   [
-    "Ma­chine",
-    "Ma­chine",
-    "Má­quina"
-  ],
-  [
-    "Con­trôle",
-    "Check",
-    "Control"
-  ],
-  [
-    "Usi­nage",
-    "Machi­ning",
-    "Meca­ni­zado"
-  ],
-  [
-    "Gra­vure",
-    "Engra­ving",
-    "Gra­bado"
-  ],
-  [
     "Mise en service : page réelle uniquement.",
     "Commissioning: real page only.",
     "Puesta en servicio: solo en la página real."
