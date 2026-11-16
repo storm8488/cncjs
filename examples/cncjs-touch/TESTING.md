@@ -854,3 +854,27 @@ the primary slot at 1366 x 911 within one pixel. P7 expects nine touches from
 Control, and P8 ten from the incident to the resumed start. The loopback LUNYEE
 bench covers the recovery service path; browser counts and layout remain
 unverified until a successful CDP connection. No hardware validation is implied.
+
+### HFIX — Session geometry regressions
+
+`test-session-geometry.cjs` is registered in `verify-project.cjs`. It checks the
+CSS source contracts for the rail font, compact content scrolling independently
+of its footer, search-column precedence, coordinate-card visibility and widths,
+segmented target gaps, and the horizontal rail in a short zoomed viewport.
+Running it against the incoming HEAD stylesheet fails twenty-four assertions.
+These source checks do not measure rendered rectangles.
+
+The targeted browser command is `browser-run.cjs --strict --only
+measure,responsive,sim,settings,strip,v2,screens` with the Edge path and output
+directory from the mission. HFIX cannot certify a strict pass: the sandbox
+connection fails with `WebSocket error` before a scenario. A diagnostic using
+the already installed `ws` client also times out at `Page.enable`.
+
+Several incoming failures require harness migration, independently of CSS:
+legacy `job-load` / `home-job-start` controls and sheets are retired; ordinary
+confirmation scenarios must wait for the existing 600 ms guard; the completion
+summary is now `home-notice`; custom takeover reasons require `pilot-other`
+first. The visual fixture must answer POST `touch-job` checks when file
+selection requests a travel verdict. Do not recreate retired controls or remove
+machine guards to satisfy these old scenarios. See the HFIX entry in
+`design/refonte/audit/ECARTS-PLAN.md` for the remaining validation scope.

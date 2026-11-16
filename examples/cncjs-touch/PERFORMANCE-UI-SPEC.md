@@ -791,3 +791,18 @@ page is awake. Returning paints the latest state immediately; stale state clears
 it. No polling or periodic timer was added. See the L5 audit for static source
 inventory and the blocked browser measurements; timings on the tablet are not
 claimed.
+
+### HFIX — Session frame on compact viewports
+
+Below 1100 px width or 650 px height, the session frame reserves a header and
+footer in its own flex column. Its content host scrolls; its cards keep their
+content height instead of drawing over the next card or the footer. No scaling
+or machine-command change is involved. Below 500 px height the rail runs along
+the bottom so all six targets remain available. Reference tablet sizes retain
+the side rail and its original order, with 16 px text and marks.
+
+The machining coordinate row shows the work card only, with one unit at the end
+of its row. The machine card stays in its existing DOM for its existing owners;
+the generic coordinate-card display rule must not reveal it. These CSS contracts
+are covered by `test-session-geometry.cjs`; rendered geometry and renderer
+transition parity still require a successful targeted browser run.

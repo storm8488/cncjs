@@ -1,5 +1,21 @@
 # Carte de l'interface CNCjs Touch pour la chasse aux bugs
 
+## HFIX — strict harness geometry (2026-11-16)
+
+`touch/responsive.css` owns the session frame's final geometry overrides:
+16 px rail text/marks, compact scrolling content with a reserved footer,
+max-content jog rows, the file search grid's precedence over legacy styles,
+separate segmented targets and the shared work-coordinate row. The incoming
+strict report exposed 14 px rail inheritance, zero-height compact tracks,
+joined targets and a hidden machine card revealed by a later display rule.
+`test-session-geometry.cjs` fails twenty-four source-contract assertions against
+the incoming stylesheet. Browser confirmation is blocked by the sandbox CDP
+connection; no layout exception or command permission was changed.
+
+The incoming harness also contains retired controls/sheets, the former summary
+node and confirmation clicks before the existing 600 ms guard. Keep those
+failures distinct from the page geometry; see `TESTING.md` and the HFIX audit.
+
 ## FINAL — chemins corrigés après la revue Astra (2026-11-16)
 
 | Point de revue | Propriétaire actuel et garde | Régression |
