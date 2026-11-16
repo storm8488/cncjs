@@ -1,5 +1,23 @@
 # Carte de l'interface CNCjs Touch pour la chasse aux bugs
 
+## RAIL — rail fixe sans barre de défilement (2026-11-16)
+
+`touch/app.css` interdit le débordement sur les deux axes de `#tabbar`.
+`touch/responsive.css` dimensionne les entrées à la largeur intérieure réelle
+du rail (71 px dans sa boîte de 88 px bordure comprise), avec les mêmes hauteurs
+88/64 px et des libellés agrandis de 18 px. La navigation et les gardes ne
+changent pas ; le retour reste dans l'en-tête du sous-écran.
+
+Nouveau `test-rail-fixed.cjs` : contrats CSS, six entrées FR/EN/ES avec retour,
+budget de hauteur et exécution de la mesure générique du harnais sur un DOM
+minimal. `browser-run.cjs::railChecks` rejette désormais aussi le dépassement
+d'un pixel, le défilement vertical et toute politique autre que hidden/hidden.
+L'étape `rail` ajoute la matrice navigateur complète des deux formats, langues,
+tailles et thèmes, avec centres, textes et positions fixes. La connexion CDP
+échoue ici avant les scénarios ; aucun rendu ni essai matériel annoncé.
+Aucun `bughunt-*` modifié ou à convertir pour ce lot ; aucune assertion existante
+retirée ou affaiblie, aucune exception de disposition ajoutée.
+
 ## JOG — choix directs du pas et de la vitesse (2026-11-16)
 
 `touch/index.html` porte deux groupes permanents sous la croix : Pas et Vitesse

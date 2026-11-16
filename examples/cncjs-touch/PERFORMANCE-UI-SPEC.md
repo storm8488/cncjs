@@ -1,5 +1,21 @@
 # Spécification : interface du mode Performance (Surface Pro 3)
 
+## Rail fixe — RAIL (2026-11-16)
+
+Les six entrées du fil restent fixes, sans défilement sur aucun axe. Le rail
+de 88 px comprend sa bordure droite et ses marges internes de 8 px : ses boutons
+utilisent 100 % des 71 px disponibles, au lieu d'imposer 72 px. `overflow: hidden`
+interdit les barres sur les deux axes. Les étapes gardent 88 px de haut, Plus
+64 px ; les libellés agrandis font 18 px. Le retour des sous-écrans reste dans
+leur en-tête, sans déplacer les six entrées. Même règle en Éco et Performance.
+
+`test-rail-fixed.cjs` couvre les contrats de source et de DOM. L'étape ciblée
+`browser-run --strict --only rail` exige les six cibles entièrement visibles,
+au moins 64 px, sans débordement même d'un pixel, FR/EN/ES, texte standard et
+agrandi, sombre/clair, v1 1366 × 768 et v2 1366 × 911. Sa tentative dans le bac
+à sable échoue avant les scénarios (`WebSocket error`) : rendu réel à vérifier
+par le pilote. Aucun changement de commande, de garde ou de ressource v2.
+
 ## État FINAL de la refonte (2026-11-16)
 
 `design/refonte/SPEC-REFONTE.md` définit l'organisation actuelle : Machine,

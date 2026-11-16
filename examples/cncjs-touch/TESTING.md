@@ -1,5 +1,29 @@
 # Validation scope
 
+## Fixed rail (RAIL, 2026-11-16)
+
+`test-rail-fixed.cjs`, registered in `verify-project.cjs`, checks the border-box
+width, hidden overflow on both axes, 64px minimum targets and the source height
+budget at 768/911px. It loads the actual shell in FR/EN/ES and requires the same
+six entries when History, Settings or Guide shows its own Back button. Large
+rail labels are 18px. These source/DOM assertions do not measure CSS rendering.
+
+The test executes the actual generic `MEASURE` function with an empty DOM and
+rail metrics, including the previously missed one-pixel horizontal overflow.
+Seventeen negative controls cover both axes, scrollbar policy, displaced or
+missing entries, clipping, hit testing, target sizes, text size and spacing.
+`railScroll` in browser JSON now holds dimensions, overflow policy and offsets;
+the strict `rail-scroll` rule rejects any overflow, including one pixel.
+
+Run `browser-run.cjs --strict --only rail --browser <Edge path> --out
+examples/cncjs-touch/output/codex-RAIL`. This focused step covers 24 variants:
+v1 Eco laser 1366 x 768 / v2 CNC 1366 x 911, FR/EN/ES, standard/large, dark/light.
+It checks nine screens per variant (216 measurements), fixed positions with
+subscreen Back, all six targets, text bounds and programmatic scroll attempts.
+Captures/metrics remain in the ignored output directory. No layout exception
+is added. The sandbox attempt failed with `WebSocket error` before scenarios;
+the browser matrix must be rerun by the driver. No hardware result is claimed.
+
 ## JOG direct choices (2026-11-16)
 
 `test-jog-choices.cjs`, registered in `verify-project.cjs`, parses the real page

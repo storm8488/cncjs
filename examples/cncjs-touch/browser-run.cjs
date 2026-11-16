@@ -14,7 +14,9 @@
 //   --url URL        touch base URL of a running server (default: preview-server.cjs)
 //   --browser PATH   Chrome/Edge executable (default: CNC_BROWSER or well-known paths)
 //   --repeat N       start-up repetitions (default 5)
-//   --only LIST      comma list among measure,responsive,sim,settings,startup,e2e,strip,v2,screens (default all;
+//   --only LIST      comma list among measure,responsive,sim,settings,startup,e2e,strip,v2,screens,rail (default all;
+//                    rail = fixed six-entry rail, both axes, v1 1366 x 768 / v2 1366 x 911,
+//                    FR/EN/ES, standard/large, dark/light, main screens and subscreen Back;
 //                    responsive = every screen at the CSS viewports of RESPONSIVE (landscape,
 //                    portrait, intermediate sizes, large text, browser zoom 150 / 200 %, a
 //                    virtual keyboard, the Surface Pro 3 kiosk at 1366 x 911 and the wide
@@ -46,7 +48,7 @@
 //                    jog arrow under 96 px, text under 16 px, a control's text drawn
 //                    outside its box or a word cut across two lines, the loaded file's
 //                    name drawn on less than 120 px in the strip during a job, or a rail that
-//                    scrolls horizontally, except the entries of
+//                    scrolls on either axis or allows scrollbars, except the entries of
 //                    layout-exceptions.json (each with its reason). The responsive variants
 //                    (zoom 150 / 200 % included) are enforced too; the default-font variant
 //                    stays reported only.
@@ -67,7 +69,7 @@ const URL_BASE = option('--url', '');
 // --root DIR: serve another copy of the pages through the fixture (a bundled build, output/touch-bundle).
 const ROOT_DIR = option('--root', '');
 const REPEAT = Math.max(1, Number(option('--repeat', 5)) || 5);
-const ONLY = option('--only', 'measure,responsive,sim,settings,startup,e2e,strip,v2,screens').split(',');
+const ONLY = option('--only', 'measure,responsive,sim,settings,startup,e2e,strip,v2,screens,rail').split(',');
 const KEEP = args.includes('--keep-browser');
 const STRICT = args.includes('--strict');
 const EXCEPTIONS_FILE = path.resolve(option('--exceptions', path.join(__dirname, 'layout-exceptions.json')));
@@ -419,10 +421,63 @@ const MEASURE = String(function measure(goals) {
   // past the window (data-fit-overflow, viewport-fit.js): main then scrolls under the strip.
   var mainScrolls = !!main && getComputedStyle(main).overflowY === 'auto' && main.scrollHeight > main.clientHeight + 1;
   return { viewport: { width: vw, height: vh, dpr: dpr }, activeScreen: active ? active.id : null, screenScale: screenScale, scrolls: !!active && (active.getAttribute('data-fit') === 'scroll' || (active.getAttribute('data-fit-overflow') === 'true' && mainScrolls)),
-    railScroll: !!rail && rail.scrollWidth > rail.clientWidth + 1 ? rail.scrollWidth + ' > ' + rail.clientWidth : null,
+    railScroll: rail ? { clientWidth: rail.clientWidth, scrollWidth: rail.scrollWidth, clientHeight: rail.clientHeight, scrollHeight: rail.scrollHeight,
+      overflowX: getComputedStyle(rail).overflowX, overflowY: getComputedStyle(rail).overflowY, scrollLeft: rail.scrollLeft, scrollTop: rail.scrollTop } : null,
     horizontalOverflow: { document: de.scrollWidth > de.clientWidth + 1, documentScrollWidth: de.scrollWidth, clientWidth: de.clientWidth, main: !!main && main.scrollWidth > main.clientWidth + 1, active: !!active && active.scrollWidth > active.clientWidth + 1 },
     verticalOverflow: { document: de.scrollHeight > de.clientHeight + 1, active: !!active && active.scrollHeight > active.clientHeight + 1 && active.getAttribute('data-fit') !== 'scroll' },
     targets: targets, smallText: small, truncated: truncated, infoSlot: infoSlot, bodyClass: document.body.className, theme: de.getAttribute('data-theme') || 'dark' };
+});
+
+// Shared by every strict measurement and the dedicated rail matrix. Overflow is
+// a defect even at one CSS pixel: hiding a bar must not conceal clipped entries.
+function railChecks(data) {
+  if (!data) return ['rail missing'];
+  const errors = [];
+  if (data.scrollWidth > data.clientWidth) errors.push('horizontal overflow (' + data.scrollWidth + ' > ' + data.clientWidth + ')');
+  if (data.scrollHeight > data.clientHeight) errors.push('vertical overflow (' + data.scrollHeight + ' > ' + data.clientHeight + ')');
+  if (data.overflowX !== 'hidden' || data.overflowY !== 'hidden') errors.push('rail must hide overflow on both axes (' + data.overflowX + ', ' + data.overflowY + ')');
+  if (data.scrollLeft || data.scrollTop) errors.push('rail moved from its fixed position');
+  if (data.buttons) {
+    const expected = ['machine', 'files', 'jog', 'check', 'home', 'more'];
+    if (data.buttons.map(b => b.screen).join(',') !== expected.join(',')) errors.push('rail must keep its six session entries in order');
+    for (const b of data.buttons) {
+      if (!b.shown || !b.inside || !b.hit) errors.push(b.screen + ' is hidden, clipped or covered');
+      if (b.w < 64 || b.h < 64) errors.push(b.screen + ' is smaller than 64px (' + b.w + ' x ' + b.h + ')');
+      if (b.textOut > 0.5) errors.push(b.screen + ' text leaves its button by ' + b.textOut + 'px');
+      if (b.font < (data.large ? 18 : 16)) errors.push(b.screen + ' label is too small (' + b.font + 'px)');
+      if (b.gap !== null && b.gap < 11.5) errors.push(b.screen + ' gap below 12px');
+    }
+  }
+  return errors;
+}
+
+const RAIL = String(function railMeasure() {
+  var rail = document.getElementById('tabbar');
+  if (!rail) return null;
+  var r = rail.getBoundingClientRect(), cs = getComputedStyle(rail), previous = null;
+  // A rail with hidden overflow can still scroll programmatically if content
+  // exceeds it. This also proves that the width was fixed at its source.
+  rail.scrollLeft = 1000; rail.scrollTop = 1000;
+  var moved = { left: rail.scrollLeft, top: rail.scrollTop };
+  rail.scrollLeft = 0; rail.scrollTop = 0;
+  var left = Math.max(0, r.left + parseFloat(cs.borderLeftWidth)), right = Math.min(window.innerWidth, r.right - parseFloat(cs.borderRightWidth));
+  var top = Math.max(0, r.top + parseFloat(cs.borderTopWidth)), bottom = Math.min(window.innerHeight, r.bottom - parseFloat(cs.borderBottomWidth));
+  var buttons = Array.prototype.map.call(rail.querySelectorAll('button'), function (b) {
+    var q = b.getBoundingClientRect(), hit = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2);
+    var name = b.querySelector('.ks-nav-name'), out = 0;
+    if (name) {
+      var range = document.createRange(); range.selectNodeContents(name);
+      Array.prototype.forEach.call(range.getClientRects(), function (t) {
+        if (t.width) out = Math.max(out, q.left - t.left, t.right - q.right, q.top - t.top, t.bottom - q.bottom);
+      });
+    }
+    var gap = previous ? q.top - previous.bottom : null; previous = q;
+    return { screen: b.getAttribute('data-ks-screen'), label: b.textContent, shown: !!b.getClientRects().length && !b.hidden && getComputedStyle(b).visibility !== 'hidden',
+      x: q.left, y: q.top, w: q.width, h: q.height, inside: q.left >= left - 0.5 && q.right <= right + 0.5 && q.top >= top - 0.5 && q.bottom <= bottom + 0.5,
+      hit: !!hit && (hit === b || b.contains(hit)), textOut: out, font: name ? parseFloat(getComputedStyle(name).fontSize) : 0, gap: gap };
+  });
+  return { clientWidth: rail.clientWidth, scrollWidth: rail.scrollWidth, clientHeight: rail.clientHeight, scrollHeight: rail.scrollHeight,
+    overflowX: cs.overflowX, overflowY: cs.overflowY, scrollLeft: moved.left, scrollTop: moved.top, large: document.body.classList.contains('display-large'), buttons: buttons };
 });
 
 // Controls whose text leaves their box (> 1 px) or breaks a word across lines.
@@ -2263,6 +2318,40 @@ async function screensMeasure(summary) {
   summary.screens = out.map((p) => ({ variant: p.variant, states: Object.keys(p.states), commands: (p.commands || []).length, pageErrors: (p.pageErrors || []).length }));
 }
 
+// A focused matrix independent of the older screen-specific operator flows.
+// Back belongs to the subscreen header; all six rail entries stay in place.
+async function railMeasure(cdp, summary) {
+  const fx = await startV2Fixture();
+  try {
+    await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: V2_GPU_TRAP });
+    for (const v2 of [false, true]) for (const lang of ['fr', 'en', 'es']) for (const size of ['standard', 'large']) for (const theme of ['dark', 'light']) {
+      const height = v2 ? 911 : 768, variant = 'rail v' + (v2 ? 2 : 1) + '-' + height + '-' + lang + '-' + size + '-' + theme;
+      const results = [], dir = path.join(OUT, variant.replace(/ /g, '-'));
+      summary.measurements.push({ variant, strict: true, results });
+      fx.setPhase('idle'); fx.profile = v2 ? V2_PROFILE : V2_LASER_PROFILE;
+      await setViewport(cdp, 1366, height, 1);
+      await v2Storage(cdp, fx.base, { profile: v2 ? 'performance' : 'eco', v2: { version: 1, enabled: v2 }, kind: null });
+      await settingsStorage(cdp, { lang, size, theme });
+      await v2Open(cdp, fx.base + 'index.html?rail=' + encodeURIComponent(variant), v2);
+      const page = await cdp.evaluate(SCREENS_PAGE);
+      if (page.lang !== lang || page.large !== (size === 'large') || page.theme !== theme || page.perfV2 !== v2 || page.kind !== (v2 ? 'cnc' : 'laser')) throw new Error(variant + ': wrong rendered variant ' + JSON.stringify(page));
+      let fixed = null;
+      for (const name of ['machine', 'files', 'jog', 'check', 'home', 'more', 'history', 'settings', 'guide']) {
+        await goScreen(cdp, name);
+        const data = await cdp.evaluate('(' + RAIL + ')()');
+        results.push({ screen: name, label: name, railScroll: data });
+        const positions = JSON.stringify(data && data.buttons.map(b => [b.screen, b.x, b.y, b.w, b.h]));
+        if (fixed !== null && positions !== fixed) failures.push(variant + ': rail entries moved on ' + name);
+        fixed = positions;
+        if (['history', 'settings', 'guide'].includes(name) && !await cdp.evaluate('(function(){var b=document.querySelector("main .screen.active .ks-back");return !!b&&b.getClientRects().length>0;})()')) failures.push(variant + ': subscreen Back missing on ' + name);
+        await screenshot(cdp, path.join(dir, name + '.png'));
+        fs.writeFileSync(path.join(dir, name + '.json'), JSON.stringify(data, null, 1));
+      }
+      log(variant + ': ' + results.length + ' rail measurements');
+    }
+  } finally { fx.close(); }
+}
+
 // --- Réglages (design/PROMPT-REGLAGES-MULTIAGENT.md, contract §7-§8). The three tabs walked from top to bottom, one
 // capture per screenful, enforced like the other strict variants plus horizontal overflow and text over text: FR and
 // ES, standard and large text, dark and light, at 1366 x 768 on the simulation page in Éco with a laser (the RT) and
@@ -2673,7 +2762,7 @@ function strictCheck(summary, exceptionList) {
       // Lot C (avant l'essai CNC): no line of the v2 messages slot cut net by its edge (a fade is tolerated).
       for (const c of r.infoClip || []) add(Object.assign({ check: 'info-clip', label: c.id ? '#' + c.id : c.text, detail: '« ' + c.text + ' » cut at the ' + c.edge + ' of #home-v2-info (' + c.out + ' px)' }, base));
       for (const c of r.cardClip || []) add(Object.assign({ check: 'card-clip', label: c.id ? '#' + c.id : c.text || c.tag, detail: c.tag + ' cut by ' + c.by + ' (' + c.out + ' px)' }, base));
-      if (r.railScroll) add(Object.assign({ check: 'rail-scroll', label: 'rail', detail: 'rail scrolls horizontally (' + r.railScroll + ')' }, base));
+      if (r.railScroll !== undefined) for (const error of railChecks(r.railScroll)) add(Object.assign({ check: 'rail-scroll', label: 'rail', detail: error }, base));
       // Journal rows (screensCapture): no row drawn over the next one; the v1 page fits its box.
       if (r.journal) {
         for (const [id, list] of [['#real-history-list', r.journal.v1], ['#v2k-list', r.journal.v2]]) {
@@ -2911,7 +3000,7 @@ async function main() {
   if (!base.endsWith('/')) base += '/';
   const realUrl = URL_BASE ? base : base + 'index.html', simUrl = base + 'simulation.html';
   summary.realUrl = realUrl; summary.simUrl = simUrl;
-  const browser = await launchBrowser(1366, 768);
+  const browser = await launchBrowser(1366, 768, ONLY.includes('rail') ? V2_FLAGS : undefined);
   summary.browser = browser.version; summary.userAgent = browser.userAgent;
   log('browser ' + browser.version + ' (' + browser.exe + ')');
   const cdp = browser.cdp;
@@ -2948,6 +3037,7 @@ async function main() {
     if (ONLY.includes('v2') && !URL_BASE) await v2Measure(summary);
     // Every screen in every machine state, on the same fixture (design/PROMPT-ECRANS-MULTIAGENT.md, phase 0).
     if (ONLY.includes('screens') && !URL_BASE) await screensMeasure(summary);
+    if (ONLY.includes('rail') && !URL_BASE) await railMeasure(cdp, summary);
   } catch (e) { failures.push('harness: ' + (e.stack || e.message)); log('FAIL harness: ' + e.message); }
   let strictResult = null;
   try { strictResult = strictCheck(summary); } catch (e) { failures.push('strict check: ' + e.message); }
@@ -2970,4 +3060,4 @@ async function main() {
 // The measurement scripts (measure-*.cjs) reuse the DevTools client, the browser
 // launcher and the fixture starter; run the harness only as a program.
 if (require.main === module) main().catch((e) => { console.error('browser-run: ' + (e.stack || e.message)); process.exit(1); });
-module.exports = { JOG_CHOICES, jogChoiceChecks, FILE_COLUMN, GUIDE_MODE, guideChecks, strictCheck, loadExceptions, infoClipOf, stoppedChecks, stoppedLayoutChecks, settingsOffTabRequests, GOALS, RESPONSIVE, MEASURE, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors };
+module.exports = { RAIL, railChecks, JOG_CHOICES, jogChoiceChecks, FILE_COLUMN, GUIDE_MODE, guideChecks, strictCheck, loadExceptions, infoClipOf, stoppedChecks, stoppedLayoutChecks, settingsOffTabRequests, GOALS, RESPONSIVE, MEASURE, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors };

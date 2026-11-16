@@ -223,7 +223,7 @@ input {
   font-size: 28px;
 }
 #tabbar {
-  overflow-x: auto;
+  overflow: hidden;
 }
 #tabbar .tab {
   flex-shrink: 0;
