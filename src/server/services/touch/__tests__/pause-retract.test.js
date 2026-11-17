@@ -862,6 +862,21 @@ describe('Pause et dégager: the windows found by the review', () => {
     expect(ctx.lines(mark)).toContain('\x18');
   });
 
+  test('D1b. once two reports at rest proved the cancelled jog over (spindle off), Arrêter writes nothing: the reference is kept', async () => {
+    const ctx = await setup();
+    ctx.gc.spindle = 'M5';
+    ctx.report('Run', { feed: 600 });
+    await cancelledLift(ctx);
+    ctx.m.z = -80;
+    await ctx.idle(3);
+    await ctx.wait(300);
+    const mark = ctx.mark();
+    await ctx.req('stop');
+    await ctx.wait(1000);
+    expect(ctx.lines(mark)).toEqual([]);
+    expect(ctx.state()).toMatchObject({ jobStopped: true, homed: true, pauseRetract: null });
+  });
+
   test('D2. a relative move never leaves from a position other than the one it was computed from', async () => {
     const ctx = await setup();
     await ctx.park();

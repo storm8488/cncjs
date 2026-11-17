@@ -287,7 +287,8 @@ export const createRetract = (deps) => {
         changed();
         return;
       }
-      if (!spindle && state !== 'Jog' && r.reports > mark) {
+      // Without a spindle to stop: until the jog is proven over (or SECURE_MS).
+      if (!spindle && state !== 'Jog' && !s.jogLive && r.reports > mark) {
         return;
       }
       if (clock() - since > SECURE_MS) {
