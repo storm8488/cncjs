@@ -1960,6 +1960,16 @@ window.CNCTouchMessages.push(
 );
 
 window.CNCTouchMessages.push(['ligne {n}','line {n}','línea {n}']);
+// F5: startup reconnection and its tablet-scoped preference.
+window.CNCTouchMessages.push(
+  ['Reconnexion automatique','Automatic reconnection','Reconexión automática'],
+  ['Au chargement du kiosque, reconnecter une fois la dernière machine.','When the kiosk loads, reconnect once to the last machine.','Al abrir el quiosco, reconectar una vez la última máquina.'],
+  ['La connexion redémarre la machine. La prise d’origine reste à faire.','Connecting restarts the machine. Homing is still required.','La conexión reinicia la máquina. Aún debe buscar el origen.'],
+  ['Choix appliqué à la prochaine ouverture de la page.','Choice applies the next time the page opens.','La elección se aplica la próxima vez que se abra la página.'],
+  ['Reconnexion automatique réservée à la tablette de la machine.','Automatic reconnection is only available on the machine tablet.','La reconexión automática solo está disponible en la tableta de la máquina.'],
+  ['Un appareil a la main. Connectez la machine manuellement.','A device has control. Connect the machine manually.','Un dispositivo tiene el control. Conecte la máquina manualmente.'],
+  ['Un port est déjà ouvert ou en cours d’ouverture. Connectez la machine manuellement.','A port is already open or opening. Connect the machine manually.','Ya hay un puerto abierto o abriéndose. Conecte la máquina manualmente.']
+);
 window.CNCTouchMessages.push(
   ['Suivi interrompu : reconnexion en cours…','State stream lost: reconnecting…','Seguimiento interrumpido: reconectando…'],
   ['Reconnexion…','Reconnecting…','Reconectando…'],

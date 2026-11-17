@@ -51,6 +51,7 @@ jest.mock('../../touch', () => ({
   default: {
     attachSocket: jest.fn(),
     detachSocket: jest.fn(),
+    refuseAutoConnect: jest.fn(() => null),
     refuseSocket: jest.fn(() => null)
   }
 }));
@@ -93,17 +94,19 @@ describe('CNCEngine socket hook for the attribution of control', () => {
     touch.detachSocket.mockClear();
     touch.refuseSocket.mockReset();
     touch.refuseSocket.mockReturnValue(null);
+    touch.refuseAutoConnect.mockReset();
+    touch.refuseAutoConnect.mockReturnValue(null);
     engine = new CNCEngine();
     engine.start({}, '');
     controller = fakeController();
-    store.set('controllers', { COM3: controller });
+    store.replace('controllers', { COM3: controller });
     socket = fakeSocket();
     mockIo.handlers.connection(socket);
   });
 
   afterEach(() => {
     engine.stop();
-    store.set('controllers', {});
+    store.replace('controllers', {});
   });
 
   test('a connected socket is attached (presence) and detached on disconnect', () => {
@@ -111,6 +114,85 @@ describe('CNCEngine socket hook for the attribution of control', () => {
     socket.emit('disconnect');
     expect(touch.detachSocket).toHaveBeenCalledWith(socket);
     expect(controller.removeConnection).toHaveBeenCalledWith(socket);
+  });
+
+  test('automatic open rechecks locality/control and never attaches to an already open port', () => {
+    const callback = jest.fn();
+    socket.emit('open', 'COM3', { touchAutoConnect: true }, callback);
+    expect(callback).toHaveBeenCalledWith(expect.objectContaining({ message: expect.any(String) }));
+    expect(JSON.parse(JSON.stringify(callback.mock.calls[0][0])).message).toBeTruthy();
+    expect(controller.addConnection).not.toHaveBeenCalled();
+    expect(socket.join).not.toHaveBeenCalled();
+  });
+
+  test('automatic open cannot reset a closed board while any other board is open', () => {
+    const closed = { ...fakeController(), isOpen: () => false, open: jest.fn() };
+    store.set('controllers', { COM3: controller, COM4: closed });
+    socket.emit('open', 'COM4', { touchAutoConnect: true }, jest.fn());
+    expect(closed.open).not.toHaveBeenCalled();
+  });
+
+  test('automatic open is refused by the live control/locality policy before opening', () => {
+    const closed = { ...fakeController(), isOpen: () => false, open: jest.fn() };
+    store.replace('controllers', { COM4: closed });
+    touch.refuseAutoConnect.mockReturnValue({ message: 'Not local or another owner' });
+    const callback = jest.fn();
+    socket.emit('open', 'COM4', { touchAutoConnect: true }, callback);
+    expect(touch.refuseAutoConnect).toHaveBeenCalledWith(socket);
+    expect(closed.open).not.toHaveBeenCalled();
+    expect(callback).toHaveBeenCalledWith({ message: 'Not local or another owner' });
+  });
+
+  test.each([false, true])('automatic open excludes simultaneous opens (first automatic: %s)', (automatic) => {
+    let finish;
+    const closed = {
+      ...fakeController(),
+      isOpen: () => false,
+      open: jest.fn(cb => {
+        finish = cb;
+      })
+    };
+    store.replace('controllers', { COM4: closed });
+    socket.emit('open', 'COM4', { touchAutoConnect: automatic }, jest.fn());
+    const refused = jest.fn();
+    socket.emit('open', 'COM4', { touchAutoConnect: true }, refused);
+    expect(closed.open).toHaveBeenCalledTimes(1);
+    expect(refused).toHaveBeenCalledWith(expect.objectContaining({ message: expect.any(String) }));
+    if (automatic) {
+      socket.emit('open', 'COM4', {}, jest.fn());
+      expect(closed.open).toHaveBeenCalledTimes(1);
+    }
+    finish(new Error('USB unavailable'));
+    socket.emit('open', 'COM4', { touchAutoConnect: true }, jest.fn());
+    expect(closed.open).toHaveBeenCalledTimes(2);
+  });
+
+  test('successful automatic open keeps the existing open acknowledgement and sends no command', () => {
+    const closed = { ...fakeController(), isOpen: () => false, open: jest.fn(cb => cb(null)) };
+    store.replace('controllers', { COM4: closed });
+    const callback = jest.fn();
+    socket.emit('open', 'COM4', { touchAutoConnect: true }, callback);
+    expect(callback).toHaveBeenCalledWith(null);
+    expect(closed.command).not.toHaveBeenCalled();
+    expect(closed.write).not.toHaveBeenCalled();
+    expect(closed.writeln).not.toHaveBeenCalled();
+    expect(socket.join).toHaveBeenCalledWith('COM4');
+  });
+
+  test('a synchronous open failure releases the automatic opening reservation', () => {
+    const closed = {
+      ...fakeController(),
+      isOpen: () => false,
+      open: jest.fn(() => {
+        throw Error('USB failure');
+      })
+    };
+    store.replace('controllers', { COM4: closed });
+    const callback = jest.fn();
+    socket.emit('open', 'COM4', { touchAutoConnect: true }, callback);
+    socket.emit('open', 'COM4', { touchAutoConnect: true }, callback);
+    expect(closed.open).toHaveBeenCalledTimes(2);
+    expect(callback).toHaveBeenCalledTimes(2);
   });
 
   test('a command, a write and a writeln pass as before when the facade allows them', () => {

@@ -1,4 +1,5 @@
 import logger from '../lib/logger';
+import { localRequest } from '../lib/local-request';
 import touch from '../services/touch';
 import { list as listProjects, read as readProjectSheet, write as writeProjectSheet } from '../services/touch/projects';
 import {
@@ -137,18 +138,7 @@ export const getSystem = authorized((req, res) => {
 
 // Screen backlight of the computer running CNCjs (settings screen).
 // Trust only the TCP peer, never Express's proxy-aware req.ip or a forwarded header.
-export const localRequest = (req) => {
-  const headers = req.headers || {};
-  if (Object.keys(headers).some((key) => ['x-forwarded-for', 'forwarded', 'x-real-ip'].includes(key.toLowerCase()))) {
-    return false;
-  }
-  const address = req.socket && req.socket.remoteAddress;
-  if (address === '::1') {
-    return true;
-  }
-  const match = typeof address === 'string' && /^(?:::ffff:)?(127\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(address);
-  return !!match && match[1].split('.').every((part) => Number(part) <= 255);
-};
+export { localRequest };
 
 export const getBacklight = authorized((req, res) => {
   try {

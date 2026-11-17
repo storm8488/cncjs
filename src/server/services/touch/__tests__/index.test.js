@@ -83,6 +83,24 @@ describe('touch facade (history, control, socket and host-command policies)', ()
     mockService.workOffset = null;
   });
 
+  test('automatic connection uses the D3 TCP peer policy, fails closed and refuses any live lease', async () => {
+    const local = { request: { socket: { remoteAddress: '::ffff:127.0.0.1' }, headers: {} } };
+    expect(touch.refuseAutoConnect(local)).toBeTruthy();
+    touch.start();
+    expect(touch.refuseAutoConnect(local)).toBeNull();
+    for (const request of [undefined, { socket: { remoteAddress: '192.168.1.2' } },
+      { socket: { remoteAddress: '::1' }, headers: { 'x-forwarded-for': '127.0.0.1' } }]) {
+      expect(touch.refuseAutoConnect({ request })).toBeTruthy();
+    }
+    const c = fakeController('COM3');
+    store.set('controllers', { COM3: c }); c.runner.emit('status');
+    const tablet = { kind: 'touch', id: 'other-tablet', user: 'ana' };
+    await touch.action({ port: 'COM3', action: 'control', operation: 'claim' }, tablet);
+    expect(touch.refuseAutoConnect(local)).toBeTruthy();
+    await touch.action({ port: 'COM3', action: 'control', operation: 'release' }, tablet);
+    expect(touch.refuseAutoConnect(local)).toBeNull();
+  });
+
   test('a free port lets every socket command through; an owned port refuses motion from another client and lets stops through', async () => {
     touch.start();
     const c = fakeController('COM3');
