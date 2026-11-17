@@ -164,4 +164,10 @@ Zéro Z posé **40 mm au-dessus** de la pièce ou de la table (le fichier tourne
 22. Refaire 3, « Reprendre… » ; pendant `G4 P3`, depuis le PC, envoyer `M4` (si la broche le permet, sinon noter « non fait »). Attendu : aucune descente, « Reprise arrêtée : la broche n'a pas redémarré… », `M5` au repos.
 23. Relever le délai de la reprise depuis `held` (page fermée pendant l'attente du repos, étape 11 de F2.2) : `~` part au plus quelques secondes après « Reprendre… », une fois un `WCO:` reçu ; au-delà de 5 s, refus « l'origine de la pièce… n'est plus confirmée (WCO) » : noter si la carte rafraîchit `WCO:` trop rarement au repos.
 
+### F2.8 Troisième tour de corrections (fraise en l'air, broche débranchée, comme F2.2)
+
+24. Refaire 3 ; pendant la montée, arrêter depuis le PC (bouton Stop), puis toucher **Arrêter** sur la tablette tant que la carte dit `Jog`. Attendu : « Arrêt demandé… », un `!` d'abord, `0x85` répété, la réinitialisation seulement une fois la carte au repos (ou au délai de 5 s). Pendant la même suite, avant le retour au repos : les flèches de la tablette sont rayées (« la fin du déplacement de la fraise n'est pas prouvée… »), un toucher n'envoie rien.
+25. Relever dans le journal série si la carte envoie `Ov:` dans ses rapports (et à quelle fréquence au repos). Puis refaire 3, « Reprendre… » ; pendant `G4 P3`, depuis la tablette, toucher une correction de broche : refusée (« corrections refusées jusqu'à la reprise… »). Si un client branché sur la carte existe : y changer `S` ou la correction de broche pendant la descente rapide. Attendu : `0x85` aussitôt, aucune descente lente, « Reprise arrêtée : la broche n'a pas redémarré… ».
+26. Refaire 11 de F2.2 (reprise depuis `held`) ; avant « Reprendre… », arrêter la broche depuis un client branché sur la carte puis la relancer (si possible, sinon noter « non fait »). Attendu : reprise sur place refusée (« l'état de la machine a changé pendant la pause (spindle) »), même broche relancée.
+
 Le stationnement du firmware (`0x84`) n'est pas employé par F2 ; il n'est pas à essayer dans cette séance.
