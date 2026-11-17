@@ -2,8 +2,12 @@
 // « Pause et dégager » (F2) end to end on the LUNYEE profile of the simulator (F2-CONCEPTION.md
 // § 12.2): the real GrblController streams a file of arcs to the simulator, the tablet asks for
 // « Pause et dégager » in the middle, the bit rises, the spindle stops, the resume lowers it and the
-// file goes to its end. Its end point and every line it sent are those of a witness run without
-// pause. Fake timers: the simulator's planner and CNCjs's own poll run on them.
+// file goes to its end. Its end point, every line it sent and every block the board planned (start,
+// end and centre of each line and arc) are those of a witness run without pause. The simulator keeps
+// the interpreter's position apart from the machine position, as upstream Grbl does (option
+// interpreterPosition): a jog is planned from it and sets it, so a desync is not hidden by a planner
+// that would restart from the machine position (F2-CORRECTIONS.md D10). Fake timers: the
+// simulator's planner and CNCjs's own poll run on them.
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -132,19 +136,46 @@ const resume = async (run) => {
 };
 
 const near = (a, b) => ['x', 'y', 'z'].forEach((axis) => expect([axis, Math.abs(a[axis] - b[axis]) < 0.001]).toEqual([axis, true]));
+const close = (a, b) => (a === null && b === null) || (!!a && !!b && ['x', 'y', 'z'].every((axis) => Math.abs(a[axis] - b[axis]) < 0.001));
+// The blocks of the file the board planned (jogs left out): kind, start, end and centre.
+const fileBlocks = (run) => run.sim.blocks.filter((b) => b.kind !== 'jog');
+const sameBlock = (a, b) => !!a && !!b && a.kind === b.kind && close(a.start, b.start) && close(a.end, b.end) && close(a.center, b.center);
+const sameBlocks = (a, b) => a.length === b.length && a.every((block, i) => sameBlock(block, b[i]));
+// Where the machine and the interpreter are when CNCjs writes `~` (the resume of the file).
+const watchResume = (run) => {
+  const write = run.controller.connection.write;
+  run.controller.connection.write = (data) => {
+    if (data === '~' && run.atResume === undefined) {
+      run.atResume = {
+        machine: { ...run.sim.machinePosition },
+        interpreter: run.sim.interpreterPosition && { ...run.sim.interpreterPosition },
+        blocks: fileBlocks(run).length,
+        spindle: run.sim.parserState.spindle,
+        speed: run.sim.spindleSpeed
+      };
+      if (run.onResume) {
+        run.onResume();
+      }
+    }
+    write(data);
+  };
+};
+const TRACKED = { interpreterPosition: true, recordBlocks: true };
 
 describe.each([['zero'], ['stored']])('LUNYEE, offset after homing %s (E-B)', (executedAfterHoming) => {
   test('25-26, 29-30. the full path: rest, lift to 5 mm under the top, M5, resume on an arc, same end and same lines as without pause', async () => {
-    const witness = await start({ executedAfterHoming });
+    const witness = await start({ executedAfterHoming, ...TRACKED });
     const end = await finish(witness);
     const lines = fileLines(witness);
+    const blocks = fileBlocks(witness);
     expect(witness.errors).toEqual([]);
     runs.splice(0).forEach((run) => {
       run.service.dispose();
       run.close();
     });
 
-    const run = await start({ executedAfterHoming });
+    const run = await start({ executedAfterHoming, ...TRACKED });
+    watchResume(run);
     const rest = await pauseAndRetract(run);
     // The simulator stopped at the end of the last line received; then only Z moved.
     expect(run.sim.machinePosition.x).toBeCloseTo(rest.x, 3);
@@ -155,7 +186,11 @@ describe.each([['zero'], ['stored']])('LUNYEE, offset after homing %s (E-B)', (e
     const lift = run.state().pauseRetract.lift;
     expect(Number(lift.to)).toBeCloseTo(-5, 3);
     await resume(run);
-    // Back where the file stopped, spindle running, before the first arc after the resume.
+    // The resume point: when `~` leaves, the machine and the interpreter are both where the file
+    // stopped, and the first block planned after it starts there (the witness's next block).
+    near(run.atResume.machine, rest);
+    near(run.atResume.interpreter, rest);
+    expect([run.atResume.spindle, run.atResume.speed]).toEqual(['M3', 1000]);
     const d = Number(lift.distance);
     expect(ours(run)).toEqual(['$J=G91 G21 Z' + d + ' F600\n', 'M5\n', 'M3 S1000\n', 'G4 P3\n']
       .concat(d > 5 ? ['$J=G91 G21 Z-' + Math.round((d - 5) * 1000) / 1000 + ' F600\n'] : [])
@@ -164,7 +199,74 @@ describe.each([['zero'], ['stored']])('LUNYEE, offset after homing %s (E-B)', (e
     near(last, end);
     expect(run.errors).toEqual([]);
     expect(fileLines(run)).toEqual(lines);
+    near(fileBlocks(run)[run.atResume.blocks].start, rest);
+    // Every block of the file, before and after the pause: same start, end and centre.
+    expect(fileBlocks(run).length).toBe(blocks.length);
+    fileBlocks(run).forEach((block, i) => expect([i, sameBlock(block, blocks[i])]).toEqual([i, true]));
     expect(run.state().finished).toBe(true);
+  }, 120000);
+});
+
+describe('LUNYEE, the witness detects a desync of the interpreter (D10)', () => {
+  test('an interpreter 1 mm off while the bit is up: the descent does not end where expected, F2 stops, no `~`', async () => {
+    const run = await start(TRACKED);
+    watchResume(run);
+    await pauseAndRetract(run);
+    const p = run.sim.interpreterPosition || run.sim.machinePosition;
+    run.sim.interpreterPosition = { ...p, z: p.z + 1 };
+    await run.wait(1000);
+    const t = await run.req('prepare', { operation: 'resume', revision: run.state().revision });
+    await run.req('resume', { nonce: t.nonce });
+    await run.until(() => (run.state().pauseRetract || {}).phase === 'failed', 60000, 'failed');
+    expect(run.state().pauseRetract.failure.code).toBe('ETOUCH_RETRACT_POSITION');
+    expect(run.atResume).toBe(undefined);
+    expect(run.written.slice(run.retractMark)).not.toContain('~');
+  }, 120000);
+
+  test('a descent 0.005 mm short (inside the 0.01 mm tolerance of F2): the resume point and the blocks after it show it', async () => {
+    const witness = await start(TRACKED);
+    await finish(witness);
+    const blocks = fileBlocks(witness);
+    runs.splice(0).forEach((run) => {
+      run.service.dispose();
+      run.close();
+    });
+    const run = await start(TRACKED);
+    watchResume(run);
+    // The last millimetres of the descent altered on the line to the board: F2 cannot see it.
+    const write = run.controller.connection.write;
+    const plunge = /^\$J=G91 G21 Z-\d+(\.\d+)? F100\n$/;
+    run.controller.connection.write = (data) => write(plunge.test(data) ? data.replace(/Z-(\d+(\.\d+)?)/, (all, v) => 'Z-' + (Number(v) - 0.005).toFixed(3)) : data);
+    const rest = await pauseAndRetract(run);
+    await resume(run);
+    await run.wait(3000);
+    expect(Math.abs(run.atResume.interpreter.z - rest.z - 0.005)).toBeLessThan(0.0005);
+    const k = run.atResume.blocks;
+    expect(sameBlocks(fileBlocks(run).slice(0, k), blocks.slice(0, k))).toBe(true);
+    expect(sameBlock(fileBlocks(run)[k], blocks[k])).toBe(false);
+  }, 120000);
+
+  test('an interpreter shifted when `~` leaves (invisible to the reports): the blocks after it differ from the witness', async () => {
+    const witness = await start(TRACKED);
+    await finish(witness);
+    const blocks = fileBlocks(witness);
+    runs.splice(0).forEach((run) => {
+      run.service.dispose();
+      run.close();
+    });
+    const run = await start(TRACKED);
+    watchResume(run);
+    run.onResume = () => {
+      const p = run.sim.interpreterPosition || run.sim.machinePosition;
+      run.sim.interpreterPosition = { ...p, x: p.x + 0.5 };
+    };
+    await pauseAndRetract(run);
+    await resume(run);
+    await run.wait(3000);
+    const k = run.atResume.blocks;
+    expect(sameBlocks(fileBlocks(run).slice(0, k), blocks.slice(0, k))).toBe(true);
+    expect(fileBlocks(run).length).toBeGreaterThan(k);
+    expect(sameBlock(fileBlocks(run)[k], blocks[k])).toBe(false);
   }, 120000);
 });
 

@@ -307,6 +307,15 @@ class GrblSimulator {
         // Permanent probe contact (the spindle grounds the tool): Pn:P in every report,
         // G38.2 / G38.3 raise ALARM:4 before moving, G38.4 / G38.5 never lose the contact.
         this.probeStuck = options.probeStuck === true;
+        // F2 review (option interpreterPosition): the position of the g-code interpreter, distinct
+        // from the machine position as in upstream Grbl (gc_state.position): every motion line and
+        // every jog is planned from it and sets it to its target; a jog cancel, a reset, an alarm,
+        // a probe or a homing sync it with the machine (null: synced, the machine position is used).
+        // Off by default: the simulator then plans from the machine position once its planner is empty.
+        this.trackInterpreter = options.interpreterPosition === true;
+        this.interpreterPosition = null;
+        // F2 review (option recordBlocks): every block queued, in order: { kind, start, end, center }.
+        this.blocks = options.recordBlocks === true ? [] : null;
         // Hard limit hit (Grbl 1.1 critical event): only Ctrl-X is heard until a reset.
         this.criticalAlarm = false;
 
@@ -505,6 +514,7 @@ class GrblSimulator {
                     this.setMotionState({ active: false });
                     this.#plannerBuffer.queue = []; // Clear remaining commands
                     this.#plannerBuffer.executing = null;
+                    this.interpreterPosition = null;
                     // Note: In real scenario, server should send ALARM:2 message
                     return;
                 }
@@ -899,6 +909,7 @@ class GrblSimulator {
      */
     cancelJog() {
         this.resetMotionState();
+        this.interpreterPosition = null;
         this.machineState = 'Idle';
         // In real Grbl, this would flush the planner buffer
     }
@@ -1342,6 +1353,8 @@ class GrblSimulator {
         const probeFeedRate = this.feedRate * (this.feedOverride / 100);
         const probeTime = (distance / probeFeedRate) * 60 * 1000;
 
+        // Upstream syncs the interpreter with the machine after a probe.
+        this.interpreterPosition = null;
         this.#plannerBuffer.queue.push({
             endPosition: probeContactPosition,
             execute: () => {
@@ -1511,7 +1524,8 @@ class GrblSimulator {
         this.feedRate = parsed.words.F;
 
         // Get the expected start position and end position (LUNYEE: $J=G53 in machine coordinates)
-        const startPosition = { ...this.machinePosition };
+        // Upstream Jog.cpp plans from the interpreter's position (option interpreterPosition).
+        const startPosition = this.trackInterpreter && this.interpreterPosition ? { ...this.interpreterPosition } : { ...this.machinePosition };
         const machine = this.profile !== null && parsed.commands.includes('G53');
         const endPosition = this.calculateMachinePosition(parsed.coords, startPosition, machine);
 
@@ -1555,6 +1569,7 @@ class GrblSimulator {
                 });
             }
         });
+        this.trackBlock('jog', startPosition, endPosition);
 
         // Jog also waits for completion
         return { error: null, waitForCompletion: true, duration: motionTime, response: 'ok\r\n' };
@@ -1627,9 +1642,22 @@ class GrblSimulator {
                 });
             }
         });
+        this.trackBlock('line', startPosition, endPosition);
 
         // Return info for async handling (ok should wait if buffer was full)
         return { error: null, waitForCompletion: true, duration: motionTime };
+    }
+
+    /**
+     * A block queued (options interpreterPosition and recordBlocks): the interpreter takes its target.
+     */
+    trackBlock(kind, startPosition, endPosition, center = null) {
+        if (this.trackInterpreter) {
+            this.interpreterPosition = { ...endPosition };
+        }
+        if (this.blocks) {
+            this.blocks.push({ kind, start: { ...startPosition }, end: { ...endPosition }, center: center ? { ...center } : null });
+        }
     }
 
     /**
@@ -1637,6 +1665,11 @@ class GrblSimulator {
      * @returns {object} Expected position after all queued commands
      */
     getPlannedEndPosition() {
+        // The interpreter's own position (option interpreterPosition), when not synced.
+        if (this.trackInterpreter && this.interpreterPosition) {
+            return { ...this.interpreterPosition };
+        }
+
         // If there are queued commands, return the target position of the last one
         if (this.#plannerBuffer.queue.length > 0) {
             return { ...this.#plannerBuffer.queue[this.#plannerBuffer.queue.length - 1].endPosition };
@@ -1818,6 +1851,7 @@ class GrblSimulator {
                 });
             }
         });
+        this.trackBlock('arc', startPosition, endPosition, center);
 
         return { error: null, waitForCompletion: true, duration: motionTime };
     }
@@ -2357,6 +2391,7 @@ class GrblSimulator {
         this.#plannerBuffer.executing = null;
         this.#waitingQueue = [];
         this.#epoch++;
+        this.interpreterPosition = null;
 
         // Stop current motion
         this.resetMotionState();
@@ -2410,6 +2445,7 @@ class GrblSimulator {
         // Stop all motion
         this.resetMotionState();
         this.#plannerBuffer.queue = [];
+        this.interpreterPosition = null;
         return `ALARM:${alarmCode}\r\n`;
     }
 
@@ -2510,6 +2546,7 @@ class GrblSimulator {
         this.#epoch++;
         this.criticalAlarm = false;
         this.resetMotionState();
+        this.interpreterPosition = null;
         this.machinePosition = { x: 0, y: 0, z: 0 };
         this.feedRate = 0;
         this.spindleSpeed = 0;
@@ -2544,6 +2581,7 @@ class GrblSimulator {
         this.#waitingQueue = [];
         this.#epoch++;
         this.resetMotionState();
+        this.interpreterPosition = null;
         this.feedRate = 0;
         this.spindleSpeed = 0;
         this.parserState = defaultParserState();
@@ -2585,6 +2623,7 @@ class GrblSimulator {
                 });
             },
             onComplete: () => {
+                this.interpreterPosition = null;
                 this.homed = true;
                 this.alarmCode = 0;
                 this.offsetVoid = { executed: this.profile.executedAfterHoming === 'zero', reported: true };
