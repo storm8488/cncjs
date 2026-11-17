@@ -2113,6 +2113,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       feed: f,
       zFeed: fz,
       safeZ: { machine: safeZ, rise: rise >= CNC_FRAME_MIN_RISE_MM ? rise : 0 },
+      // The work offset in X/Y the targets are written in: compared at every step of the sequence.
+      offset: { x: offX, y: offY },
       start,
       seconds: Math.ceil(moveMs / 1000),
       job: j,

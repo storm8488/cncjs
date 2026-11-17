@@ -410,14 +410,15 @@ export const createMotion = (deps) => {
     }
   };
 
-  // Common to every real move from rest.
-  const atRest = (c, r) => {
+  // Common to every real move from rest. `own`: the framing that checks itself again before each of
+  // its lines (lot F1, second review): only another one is busy.
+  const atRest = (c, r, own = null) => {
     available(c);
     if (homingActive(r)) {
       throw refusal(HOMING_MESSAGE, 'ETOUCH_MOTION_HOMING', {});
     }
     const s = stateOf(r);
-    if (s.frame) {
+    if (s.frame && s.frame !== own) {
       throw conflict(FRAME_BUSY);
     }
     if (r.probing) {
@@ -450,9 +451,9 @@ export const createMotion = (deps) => {
     }
   };
 
-  const jogReady = (c, r) => {
+  const jogReady = (c, r, own = null) => {
     gate(c, r, 'jog');
-    atRest(c, r);
+    atRest(c, r, own);
     // Positions and travel are compared in millimetres: $13=1 reports inches.
     if (number(allSettings(c).$13) !== 0) {
       throw conflict('Rapports en pouces ($13=1) ou réglage $13 inconnu : le déplacement réel exige $13=0.');
@@ -539,20 +540,20 @@ export const createMotion = (deps) => {
         return;
       }
       if (!motionEnabled(config)) {
-        cancel(c, r, 'disabled');
+        cancel(c, r, 'disabled', pending.startups);
         return;
       }
       if (!transports.has(transportId)) {
-        cancel(c, r, 'transport');
+        cancel(c, r, 'transport', pending.startups);
         return;
       }
       const owner = control.inspect(c.options.port).owner;
       if (owner && actor && keyOf(owner) !== keyOf(actor)) {
-        cancel(c, r, 'control');
+        cancel(c, r, 'control', pending.startups);
         return;
       }
       if (!fresh(r)) {
-        cancel(c, r, 'stale');
+        cancel(c, r, 'stale', pending.startups);
         return;
       }
       later(c, r, check, STEP_WATCH_MS);
@@ -583,24 +584,37 @@ export const createMotion = (deps) => {
     }
   };
 
+  // The one passage of every jog cancel (0x85) this module writes (lot F1, second review): only to
+  // the board session (`startups`) of what it cancels. A step, a continuous jog, a framing or a
+  // cancel of a session that a banner ended gets nothing: the restarted board dropped them, and
+  // nothing automatic reaches it (D-06). A stop asked by a person after the banner (stop(), with
+  // the current session) acts on the restarted board like on any other. True when written.
+  const writeJogCancel = (c, r, startups) => {
+    if (startups !== r.startups || !connected(c)) {
+      return false;
+    }
+    c.command('jogCancel');
+    return true;
+  };
+
   // Ends a continuous jog (if any) and cancels whatever jog Grbl runs: 0x85,
   // sent again when the `$J` is acknowledged after it (a 0x85 that reached
   // Grbl before the `$J` was parsed is ignored outside the Jog state) and
   // while a report newer than the last 0x85 still shows Jog. Not confirmed
   // after CANCEL_LIMIT_MS: the operator is told and it is recorded, and the
   // 0x85 keeps being repeated while Jog is reported, for at most the planned
-  // duration of the `$J` (CANCEL_MAX_MS at most).
-  const cancel = (c, r, why) => {
+  // duration of the `$J` (CANCEL_MAX_MS at most). `startups`: the board session of what is
+  // cancelled (a supervisor passes the one of its move); the current one by default (a stop asked).
+  const cancel = (c, r, why, startups = r.startups) => {
     const s = stateOf(r);
     endSession(c, r, s.session, 'cancelled', why, STOP_REASONS[why] || why);
     if (s.frame) {
       endFrame(c, r, s.frame, 'cancelled', why);
     }
-    if (!connected(c)) {
+    if (!writeJogCancel(c, r, startups)) {
       changed();
       return;
     }
-    c.command('jogCancel');
     const p0 = s.pending;
     const planned = p0 && p0.kind === 'jog' ? p0.sentAt + p0.limitMs - clock() : 0;
     const job = {
@@ -611,7 +625,7 @@ export const createMotion = (deps) => {
       until: clock() + Math.min(CANCEL_MAX_MS, Math.max(CANCEL_LIMIT_MS, planned)),
       unconfirmed: false,
       reason: why,
-      startups: r.startups
+      startups
     };
     s.cancel = job;
     changed();
@@ -634,11 +648,11 @@ export const createMotion = (deps) => {
       const p = s.pending;
       if (p && p.kind === 'jog' && p.t.oks > job.oks) {
         job.oks = p.t.oks;
-        c.command('jogCancel');
+        writeJogCancel(c, r, job.startups);
         job.sentAt = clock();
         job.mark = r.reports;
       } else if (state === 'Jog' && r.reports > job.mark && clock() - job.sentAt >= CANCEL_RESEND_MS) {
-        c.command('jogCancel');
+        writeJogCancel(c, r, job.startups);
         job.sentAt = clock();
         job.mark = r.reports;
       }
@@ -710,7 +724,7 @@ export const createMotion = (deps) => {
       }
       const why = stopReason(c, r, session);
       if (why) {
-        cancel(c, r, why);
+        cancel(c, r, why, session.startups);
         return;
       }
       // Over by itself: end of its bounded distance, or refused by Grbl.
@@ -778,6 +792,8 @@ export const createMotion = (deps) => {
       distanceMm: room,
       command: line,
       since: Date.now(),
+      // The board session it runs in: a banner ends it without a byte (writeJogCancel).
+      startups: r.startups,
       deadline: clock() + KEEPALIVE_TIMEOUT_MS,
       until: clock() + Math.min(MAX_JOG_MS, 60000 * room / p.feed) + SESSION_MARGIN_MS
     };
@@ -808,7 +824,7 @@ export const createMotion = (deps) => {
     // Past the deadline the watchdog cancels at its next tick: a late
     // keepalive never extends the jog.
     if (clock() > session.deadline) {
-      cancel(c, r, 'late');
+      cancel(c, r, 'late', session.startups);
       throw conflict('Maintien reçu trop tard : déplacement annulé (0x85).');
     }
     session.deadline = clock() + KEEPALIVE_TIMEOUT_MS;
@@ -851,7 +867,7 @@ export const createMotion = (deps) => {
       gate(c, r, name);
     } catch (err) {
       if (body.operation === 'jog-keepalive' && stateOf(r).session) {
-        cancel(c, r, 'disabled');
+        cancel(c, r, 'disabled', stateOf(r).session.startups);
       }
       throw err;
     }
@@ -984,6 +1000,16 @@ export const createMotion = (deps) => {
       cause = 'job';
     } else if (feeder.queue || feeder.pending) {
       cause = 'queue';
+    } else if (hasAutomations(config)) {
+      // Checked at the start (jogReady), configured meanwhile (second review, family 3).
+      cause = 'automations';
+    } else if (JSON.stringify(allSettings(c)) !== session.settings) {
+      // The travel, the feeds, $13, $20 the plan was made with (second review, family 3).
+      cause = 'settings';
+    } else if (r.wcs !== session.wcs || offsetOff(c, session)) {
+      // The work coordinate system and the work offset the X/Y targets are written in, compared
+      // directly, whatever the D2 proof says (second review, family 3).
+      cause = 'offset';
     } else if (spindleOn(c)) {
       // The whole guard of the start (review C2): a speed reported above 0, or without a speed
       // a $G naming M3/M4, or no $G recent enough to tell.
@@ -993,6 +1019,13 @@ export const createMotion = (deps) => {
     }
     return cause ? ['state', 'ETOUCH_FRAME_STATE', { state: cause }] : null;
   };
+
+  // The work offset in X and Y (MPos − WPos as CNCjs has them) differs from the one of the plan.
+  const offsetOff = (c, session) => ['X', 'Y'].some((axis) => {
+    const m = positionOf(c, 'mpos', axis);
+    const w = positionOf(c, 'wpos', axis);
+    return m === null || w === null || Math.abs(m - w - session.offset[axis.toLowerCase()]) > FRAME_ARRIVAL_MM;
+  });
 
   // A framing whose board restarted ends here, without a byte: not even a jog cancel goes to the
   // new session (D-06). True when it did.
@@ -1018,7 +1051,7 @@ export const createMotion = (deps) => {
     session.code = code;
     session.params = params;
     endFrame(c, r, session, result, why);
-    cancel(c, r, why);
+    cancel(c, r, why, session.startups);
   };
 
   // Why the next line of a CNC framing may not leave now, checked right before each line and at
@@ -1033,6 +1066,13 @@ export const createMotion = (deps) => {
     const state = activeOf(c);
     if (state !== 'Idle') {
       return ['state', 'ETOUCH_FRAME_STATE', { state: state || 'inconnu' }];
+    }
+    // The whole guard of the start, run again as it is, other than the framing itself (second
+    // review, family 3): whatever it checks, now or later, is true right before each line.
+    try {
+      jogReady(c, r, session);
+    } catch (_) {
+      return ['state', 'ETOUCH_FRAME_STATE', { state: 'busy' }];
     }
     const off = arrivalOff(c, session, session.index - 1);
     if (off) {
@@ -1090,7 +1130,8 @@ export const createMotion = (deps) => {
     const cnc = !!plan && plan.kind === 'cnc';
     const shaped = (list) => Array.isArray(list) && list.length === plan.lines.length;
     if (!plan || !Array.isArray(plan.lines) || !plan.lines.length || plan.lines[0] !== 'M5' || !shaped(plan.limits) ||
-        (cnc ? !cncFrameLinesValid(plan.lines) || !shaped(plan.expect) || !shaped(plan.phases) : plan.lines.some((line) => !FRAME_LINE.test(line)))) {
+        (cnc ? !cncFrameLinesValid(plan.lines) || !shaped(plan.expect) || !shaped(plan.phases) || !plan.offset ||
+          !Number.isFinite(plan.offset.x) || !Number.isFinite(plan.offset.y) : plan.lines.some((line) => !FRAME_LINE.test(line)))) {
       throw conflict('Cadrage invalide.');
     }
     const s = stateOf(r);
@@ -1123,6 +1164,11 @@ export const createMotion = (deps) => {
         deviceKey: keyOf(transportActors.get(transportId)),
         ownerKey: owner || (actor && actor.kind === 'touch' ? keyOf(actor) : ''),
         proof: r.offset.proof(),
+        // What the plan was made with, compared at every step (second review, family 3): the
+        // board settings CNCjs has, the work coordinate system of the last $G, the work offset in X/Y.
+        settings: JSON.stringify(allSettings(c)),
+        wcs: r.wcs,
+        offset: { x: plan.offset.x, y: plan.offset.y },
         lastAlarm: r.lastAlarm,
         lostSince: null,
         verified: 0,
@@ -1234,7 +1280,7 @@ export const createMotion = (deps) => {
       }
       const why = frameStopReason(c, r, session);
       if (why) {
-        cancel(c, r, why);
+        cancel(c, r, why, session.startups);
         return;
       }
       const p = s.pending;
@@ -1249,7 +1295,7 @@ export const createMotion = (deps) => {
           return;
         }
         if (activeOf(c) !== 'Idle') {
-          cancel(c, r, 'state');
+          cancel(c, r, 'state', session.startups);
           return;
         }
         sendNext();
@@ -1519,8 +1565,10 @@ export const createMotion = (deps) => {
     if (cncFrame && !rotated && !deviceStreamOpen(cncFrame) && connected(c)) {
       abortFrame(c, r, cncFrame, 'cancelled', 'transport', 'ETOUCH_FRAME_STREAM', {});
     }
-    if ((s.session && s.session.transportId === id) || (s.frame && !cncFrame && s.frame.transportId === id)) {
-      cancel(c, r, 'transport');
+    if (s.session && s.session.transportId === id) {
+      cancel(c, r, 'transport', s.session.startups);
+    } else if (s.frame && !cncFrame && s.frame.transportId === id) {
+      cancel(c, r, 'transport', s.frame.startups);
     }
   };
 
@@ -1533,15 +1581,17 @@ export const createMotion = (deps) => {
   const framing = (r) => !!(r.motion && r.motion.frame);
 
   // The controller record is dropped (port closed, or the service disposed):
-  // its answer listeners go with it. A jog of ours on a controller still
-  // open gets one 0x85 (no timer is left behind to repeat it).
+  // its answer listeners go with it. A jog of ours of the current board session on a controller
+  // still open gets one 0x85 (no timer is left behind to repeat it); one of a session a banner
+  // ended gets nothing (second review, C1).
   const forget = (c, r) => {
     const s = r.motion;
     if (!s) {
       return;
     }
-    if ((s.session || s.frame || s.cancel || (s.pending && s.pending.kind === 'jog')) && connected(c)) {
-      c.command('jogCancel');
+    const live = [s.session, s.frame, s.cancel, s.pending && s.pending.kind === 'jog' ? s.pending : null].filter(Boolean);
+    if (live.some((move) => move.startups === r.startups)) {
+      writeJogCancel(c, r, r.startups);
     }
     if (s.session) {
       endSession(c, r, s.session, 'cancelled', 'dispose', STOP_REASONS.dispose);

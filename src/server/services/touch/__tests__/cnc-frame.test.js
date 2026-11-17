@@ -8,7 +8,7 @@ import { EventEmitter } from 'events';
 import os from 'os';
 import path from 'path';
 import { createService } from '../job-service';
-import { createControl } from '../control';
+import { createControl, SAFE_COMMANDS, SAFE_WRITES } from '../control';
 import touch from '../index';
 import settings from '../../../config/settings';
 import { fingerprint as sha256 } from '../program-identity';
@@ -133,12 +133,12 @@ const laserRecord = (settings) => ({ id: 'm-0123456789ab', label: 'Atelier', kin
 // The machine homed, then placed at (−100, −100, −60) machine, i.e. work (5, 5, −48).
 const setup = ({ settings = SETTINGS, enabled = true, homed = true, machines = [], at = [-100, -100, -60], offset = null } = {}) => {
   jest.useFakeTimers();
-  const ctx = { now: 10000, enabled, machines, history: [], c: fakeController(settings), programs: { ...PROGRAMS }, proof: 1, invalidated: [] };
+  const ctx = { now: 10000, enabled, machines, history: [], c: fakeController(settings), programs: { ...PROGRAMS }, proof: 1, invalidated: [], events: [] };
   ctx.c.at(...at);
   ctx.controllers = { TEST: ctx.c };
   ctx.control = createControl({ now: () => ctx.now, elapsed: () => ctx.now });
   const config = {
-    get: (key) => (key === 'touch.machines' ? ctx.machines : { 'touch.motion.enabled': ctx.enabled, events: [], macros: [] }[key])
+    get: (key) => (key === 'touch.machines' ? ctx.machines : { 'touch.motion.enabled': ctx.enabled, events: ctx.events, macros: [] }[key])
   };
   const files = {
     readProgram: (name) => {
@@ -1090,6 +1090,90 @@ describe('CNC framing: the windows of the safety review', () => {
       ctx.service.socketStop('TEST');
       expect(touch.refuseUpload('TEST')).toBeNull();
     });
+
+    // Second review, family 1: every command and raw write that index.js lets pass while a framing
+    // runs, read from control.js (SAFE_COMMANDS, SAFE_WRITES), not from the review. A query leaves
+    // the framing alone; anything else ends it before it passes. autolevel:stop resets the board
+    // (GrblController), 0x84 opens the safety door: neither did (D4 of the second review).
+    const QUERIES = [['command', 'statusreport'], ['command', 'autolevel:getProbeState'], ['write', '?'], ['writeln', '?'], ['write', '??']];
+    const PASSING = [
+      ...SAFE_COMMANDS.map((cmd) => ['command', cmd]),
+      ...SAFE_WRITES.flatMap((ch) => [['write', ch], ['writeln', ch], ['write', '?' + ch]])
+    ];
+    const isQuery = ([kind, data]) => QUERIES.some(([k, d]) => k === kind && d === data);
+
+    test('second review, family 1: every safe command or write of a CNCjs client other than a query ends the framing before it passes; no line after, even before its reset or door is reported', async () => {
+      expect(PASSING.filter((p) => !isQuery(p)).map(([, d]) => d)).toEqual(expect.arrayContaining(['autolevel:stop', 'reset', '\x18', '\x84', '\x85']));
+      for (const [kind, data] of PASSING.filter((p) => !isQuery(p))) {
+        for (const where of ['between two lines', 'during a side']) {
+          const label = [kind, data, where];
+          // Astra's case: Z machine −5 (no Z line), M5 answered and two reports at rest, no tick yet.
+          const ctx = setup({ at: [-100, -100, -5] });
+          facade(ctx);
+          await ctx.start();
+          if (where === 'during a side') {
+            runTo(ctx, 3);
+            ctx.c.state.status.activeState = 'Jog';
+            ctx.report();
+          } else {
+            answeredAtRest(ctx);
+          }
+          const count = ctx.lines().length;
+          expect([label, touch.refuseSocket(socket, 'TEST', kind, data)]).toEqual([label, null]);
+          expect([label, ctx.state().motion.frame]).toEqual([label, null]);
+          expect([label, ctx.state().motion.lastFrame]).toEqual([label, expect.objectContaining({ result: 'cancelled', reason: 'socket' })]);
+          // No report and no banner for 2 s: the reset (autolevel:stop, 0x18) or the door is not seen yet.
+          for (let t = 0; t < 2000; t += 50) {
+            ctx.now += 50;
+            jest.advanceTimersByTime(50);
+          }
+          expect([label, ctx.lines()]).toEqual([label, ctx.lines().slice(0, count)]);
+          // Then the banner, and a minute at rest: not a byte.
+          const before = ctx.c.written.length;
+          ctx.c.runner.emit('startup', { firmware: 'Grbl', version: '1.1h' });
+          ctx.c.state.status.activeState = 'Idle';
+          ctx.ok();
+          ctx.tick(61000);
+          expect([label, ctx.c.written.slice(before), ctx.lines().length]).toEqual([label, [], count]);
+          touch.stop();
+        }
+      }
+    });
+
+    test('second review, family 1: a query from a CNCjs client leaves the framing alone; it goes on to its end', async () => {
+      for (const [kind, data] of PASSING.filter(isQuery)) {
+        const ctx = setup({ at: [-100, -100, -5] });
+        facade(ctx);
+        await ctx.start();
+        answeredAtRest(ctx);
+        expect([kind, data, touch.refuseSocket(socket, 'TEST', kind, data)]).toEqual([kind, data, null]);
+        expect([kind, data, ctx.state().motion.frame]).not.toEqual([kind, data, null]);
+        ctx.tick(50);
+        runTo(ctx, 7);
+        ctx.run();
+        expect([kind, data, ctx.state().motion.lastFrame]).toEqual([kind, data, expect.objectContaining({ result: 'ended' })]);
+        expect(ctx.c.written).not.toContain('\x85');
+        touch.stop();
+      }
+    });
+
+    test('second review, family 1: every other command or write of a CNCjs client is refused while the framing runs, which goes on', async () => {
+      const ctx = setup({ at: [-100, -100, -5] });
+      facade(ctx);
+      await ctx.start();
+      answeredAtRest(ctx);
+      const before = ctx.c.written.length;
+      for (const [kind, data] of [
+        ['command', 'gcode'], ['command', 'gcode:start'], ['command', 'gcode:resume'], ['command', 'cyclestart'], ['command', 'homing'],
+        ['command', 'unlock'], ['command', 'sleep'], ['command', 'feeder:start'], ['command', 'feeder:feed'], ['command', 'macro:run'],
+        ['command', 'lasertest:on'], ['command', 'feedOverride'], ['command', 'autolevel:start'], ['command', 'gcode:load'], ['command', 'close'],
+        ['writeln', '$X'], ['writeln', 'G0 X0'], ['write', '~'], ['write', '\x9e'], ['write', '\x85~'], ['write', '! G0']
+      ]) {
+        expect([kind, data, touch.refuseSocket(socket, 'TEST', kind, data)]).toEqual([kind, data, expect.objectContaining({ message: expect.stringMatching(BUSY) })]);
+      }
+      expect(ctx.state().motion.frame).not.toBeNull();
+      expect(ctx.c.written).toHaveLength(before);
+    });
   });
 
   test('C3. a program replaced anyway (the sender loads or unloads a file) ends the framing at once: 0x85, nothing after', async () => {
@@ -1198,5 +1282,163 @@ describe('CNC framing: the windows of the safety review', () => {
       expect([name, ctx.state().motion.lastFrame]).toEqual([name, expect.objectContaining({ code: 'ETOUCH_FRAME_STATE', params: { state: 'spindle' } })]);
       expect([name, ctx.c.written.at(-1)]).toEqual([name, '\x85']);
     }
+  });
+});
+
+// The second safety review (Astra, F1): each family closed by one passage, listed from the code
+// (F1-CORRECTIONS.md, « Second tour »). Each case failed before its correction, unless said otherwise.
+describe('CNC framing: the families of the second review', () => {
+  const banner = (ctx) => ctx.c.runner.emit('startup', { firmware: 'Grbl', version: '1.1h' });
+  const STEP = { operation: 'jog', axis: 'X', direction: 1, step: 1, feed: 300 };
+  const CONTINUOUS = { operation: 'jog-start', axis: 'X', direction: 1, feed: 300 };
+  // A framing in a side, a step or a continuous jog in progress (Jog reported).
+  const startMove = async (ctx, what) => {
+    if (what === 'framing') {
+      await ctx.start();
+      runTo(ctx, 4);
+    } else {
+      await ctx.req('motion', what === 'step' ? STEP : CONTINUOUS);
+    }
+    ctx.c.state.status.activeState = 'Jog';
+    ctx.report();
+  };
+
+  // Family 2: a write after a banner. Every jog cancel of motion.js goes to the board session of what
+  // it cancels: nothing automatic reaches a restarted board.
+  test('family 2: the service disposed after a banner (port closed, CNCjs stopping) writes nothing for a framing, a step or a continuous jog of the old session; before it, one 0x85', async () => {
+    for (const what of ['framing', 'step', 'continuous']) {
+      for (const restarted of [true, false]) {
+        const ctx = setup();
+        await startMove(ctx, what);
+        if (restarted) {
+          banner(ctx);
+        }
+        const before = ctx.c.written.length;
+        services.splice(services.indexOf(ctx.service), 1);
+        ctx.service.dispose();
+        expect([what, restarted, ctx.c.written.slice(before)]).toEqual([what, restarted, restarted ? [] : ['\x85']]);
+      }
+    }
+  });
+
+  test('family 2: after a banner, the supervision of a step or a continuous jog of the old session writes nothing (stale report, stream closed, lease taken)', async () => {
+    const causes = [
+      ['stale report', () => {}],
+      ['stream closed', (ctx) => ctx.service.closeTransport('tA')],
+      ['lease taken', (ctx) => ctx.req('control', { operation: 'takeover', reason: 'At the machine' }, B)]
+    ];
+    for (const what of ['step', 'continuous']) {
+      for (const [cause, act] of causes) {
+        const ctx = setup();
+        await startMove(ctx, what);
+        banner(ctx);
+        const before = ctx.c.written.length;
+        await act(ctx);
+        jest.advanceTimersByTime(100);
+        ctx.c.state.status.activeState = 'Idle';
+        ctx.tick(3000);
+        expect([what, cause, ctx.c.written.slice(before)]).toEqual([what, cause, []]);
+      }
+    }
+  });
+
+  // Not a failure before the correction: the policy kept and now tested (C1 of the second review). A
+  // stop asked by a person after the banner acts on the restarted board like on any other.
+  test('family 2: Arrêter asked after the banner: 0x85 repeated only while a newer report says Jog, 200 ms apart at least; never a line; nothing once at rest', async () => {
+    const ctx = setup();
+    await startMove(ctx, 'framing');
+    banner(ctx);
+    expect(ctx.state().motion.lastFrame).toMatchObject({ code: 'ETOUCH_FRAME_RESTART' });
+    const before = ctx.c.written.length;
+    await ctx.req('stop', {}, B);
+    // The restarted board reports Jog for a second (a $J of ours received after its restart).
+    ctx.c.state.status.activeState = 'Jog';
+    ctx.tick(1000);
+    const sent = ctx.c.written.slice(before);
+    expect(sent.every((b) => b === '\x85')).toBe(true);
+    expect(sent.length).toBeGreaterThan(1);
+    expect(sent.length).toBeLessThanOrEqual(1 + 1000 / 200);
+    const atRest = ctx.c.written.length;
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.tick(61000);
+    expect(ctx.c.written).toHaveLength(atRest);
+    expect(ctx.lines()).toHaveLength(4);
+  });
+
+  // Family 3: a check made once at the start, then relied upon. Each start condition is checked again
+  // at every step of the supervisor, or right before each line.
+  const finishSide = (ctx, act) => {
+    const line = ctx.lines()[ctx.lines().length - 1];
+    const abs = /X(-?[\d.]+) Y(-?[\d.]+)/.exec(line);
+    act(ctx);
+    ctx.tick(50);
+    ctx.c.at(Number(abs[1]) + OFFSET.x, Number(abs[2]) + OFFSET.y, ctx.c.machine()[2]);
+    if (act.keep) {
+      act.keep(ctx);
+    }
+    ctx.ok();
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.tick(150);
+  };
+  const shiftWpos = (ctx) => {
+    ctx.c.state.status.wpos = { ...ctx.c.state.status.wpos, x: f3(Number(ctx.c.state.status.wpos.x) + 1) };
+  };
+  shiftWpos.keep = shiftWpos;
+  const modal = (wcs) => (ctx) => {
+    ctx.c.state.parserstate = { modal: { wcs, spindle: 'M5' } };
+    ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
+  };
+  test.each([
+    ['CNCjs automations configured meanwhile', (ctx) => ctx.events.push({ event: 'gcode:stop', trigger: 'gcode', commands: 'G0 Z0', enabled: true }), 'automations'],
+    ['reports in inches ($13=1)', (ctx) => {
+      ctx.c.settings.settings.$13 = '1';
+    }, 'settings'],
+    ['a travel setting changed ($130)', (ctx) => {
+      ctx.c.settings.settings.$130 = '300';
+    }, 'settings'],
+    ['another work coordinate system ($G G55), the D2 proof unchanged', modal('G55'), 'offset'],
+    ['the work offset changed (WCO 1 mm in X), the D2 proof unchanged', shiftWpos, 'offset'],
+    ['the start guard itself (CNCjs controller not ready)', (ctx) => {
+      ctx.c.ready = false;
+    }, 'busy']
+  ])('family 3: %s while a side runs → stopped, no next side', async (name, act, cause) => {
+    const ctx = setup();
+    modal('G54')(ctx);
+    await ctx.start();
+    runTo(ctx, 4);
+    ctx.c.state.status.activeState = 'Jog';
+    ctx.report();
+    finishSide(ctx, act);
+    expect(ctx.lines()).toHaveLength(4);
+    expect(ctx.state().motion.lastFrame).toMatchObject({ result: 'cancelled', code: 'ETOUCH_FRAME_STATE', params: { state: cause } });
+    expect(ctx.c.written).toContain('\x85');
+    expectNothingAfter(ctx, 4);
+  });
+
+  test('family 3, witness: the same framing with nothing changed goes to its end', async () => {
+    const ctx = setup();
+    modal('G54')(ctx);
+    await ctx.start();
+    runTo(ctx, 4);
+    ctx.c.state.status.activeState = 'Jog';
+    ctx.report();
+    finishSide(ctx, () => {});
+    runTo(ctx, 8);
+    ctx.run();
+    expect(ctx.state().motion.lastFrame).toMatchObject({ result: 'ended' });
+  });
+
+  // A remark of the second review (not a failure before): the safe height alone, independent of the arrival.
+  test('remark: the safe height alone (−5.005 at the start, no rise; −5.054 at rest, within 0.05 mm of the arrival but under the safe height) → no X/Y', async () => {
+    const ctx = setup({ at: [-100, -100, -5.005] });
+    const { res } = await ctx.start();
+    expect(res.lines.some((l) => /Z/.test(l))).toBe(false);
+    ctx.c.at(-100, -100, -5.054);
+    ctx.ok();
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.tick(150);
+    expect(ctx.lines()).toEqual(['M5']);
+    expect(ctx.state().motion.lastFrame).toMatchObject({ code: 'ETOUCH_FRAME_POSITION', params: { axis: 'Z', expected: '-5', reported: '-5.054' } });
+    expectNothingAfter(ctx, 1);
   });
 });
