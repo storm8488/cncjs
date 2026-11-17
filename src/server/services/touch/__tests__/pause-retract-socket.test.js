@@ -377,3 +377,79 @@ describe('Pause et dégager through the Socket.IO entry (index.js refuseSocket)'
     refused('held');
   });
 });
+
+// Third review (F2-CORRECTIONS.md, third round): the tail of a retract stopped from the PC, seen
+// from the tablet. The tail is the move of ours not proven over (and its spindle stop): Arrêter is
+// the stop of F2 there too, and nothing else that moves may start meanwhile, from any client.
+describe('Pause et dégager: the tail of a retract stopped from the PC, from the tablet (third review)', () => {
+  const TAIL = /fin du déplacement de la fraise n’est pas prouvée/;
+  // « Pause et dégager », rest, the lift written and answered; the reports still say Idle.
+  const liftAnswered = async () => {
+    const t = await ctx.req('prepare', { operation: 'retract', revision: ctx.state().revision });
+    await ctx.req('retract', { nonce: t.nonce });
+    const s = ctx.controller.sender.state;
+    for (let i = s.received; i < s.sent; i++) {
+      ctx.parse('ok');
+    }
+    await ctx.idle(2);
+    ctx.modal();
+    await ctx.wait(100);
+    expect(ctx.lines(ctx.mark() - 1)).toEqual(['$J=G91 G21 Z113.4 F600\n']);
+    ctx.parse('ok');
+  };
+
+  test('3-D1. a stop from the PC during the lift, then Arrêter on the tablet while Jog lasts: feed hold first, cancels repeated, the reset only at rest', async () => {
+    await setup();
+    await liftAnswered();
+    ctx.report('Jog');
+    expect(ctx.socket('command', 'gcode:stop')).toBe(null);
+    expect(ctx.controller.workflow.state).toBe('idle');
+    const mark = ctx.mark();
+    const out = await ctx.req('stop');
+    expect(out.message).toMatch(/Arrêt demandé/);
+    expect(ctx.lines(mark)[0]).toBe('!');
+    // Two seconds more of Jog: cancels repeated, never a reset.
+    await ctx.jogging(8);
+    expect(ctx.lines(mark).filter((d) => d === '\x85').length).toBeGreaterThanOrEqual(2);
+    expect(ctx.lines(mark)).not.toContain('\x18');
+    ctx.m.z = -60;
+    await ctx.idle(2);
+    await ctx.wait(100);
+    expect(ctx.lines(mark)).toContain('\x18');
+  });
+
+  test('3-D2. a stop from the PC during the lift: no tablet move starts while the jog of ours is not proven over (before its first Jog, before the second Idle)', async () => {
+    await setup();
+    await liftAnswered();
+    expect(ctx.socket('command', 'gcode:stop')).toBe(null);
+    const STEP = { axis: 'X', direction: 1, step: 0.1, feed: 100 };
+    const refusedNow = async () => {
+      expect(ctx.state().motion.canJog).toBe(false);
+      expect(ctx.state().motion.jogReason).toMatch(TAIL);
+      const mark = ctx.mark();
+      await expect(ctx.req('motion', { operation: 'jog', ...STEP })).rejects.toThrow(TAIL);
+      for (const operation of ['start', 'set-origin', 'zeroZ', 'home', 'unlock', 'spindle']) {
+        // eslint-disable-next-line no-await-in-loop
+        await expect(ctx.req('prepare', { operation, revision: ctx.state().revision })).rejects.toThrow();
+      }
+      await expect(ctx.req('prepare', { operation: 'start', revision: ctx.state().revision })).rejects.toThrow(TAIL);
+      await expect(ctx.req('override', { kind: 'spindle', value: 10 })).rejects.toThrow(TAIL);
+      await expect(ctx.req('verifyOffset')).rejects.toThrow(TAIL);
+      expect(ctx.lines(mark).filter((d) => d !== '\x85')).toEqual([]);
+    };
+    // The last report still says Idle: the jog may start any moment.
+    await refusedNow();
+    ctx.report('Jog');
+    await ctx.wait(100);
+    await refusedNow();
+    // One report at rest only.
+    ctx.m.z = -60;
+    ctx.report('Idle');
+    await ctx.wait(100);
+    await refusedNow();
+    // The second one proves the jog over: M5 at rest, then the tablet may move again.
+    await ctx.idle(2);
+    await ctx.wait(200);
+    expect(ctx.state().motion.canJog).toBe(true);
+  });
+});

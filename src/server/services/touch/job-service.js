@@ -36,7 +36,7 @@ import { createSystemCommands } from './system-command.js';
 // eslint-disable-next-line import/extensions
 import { createWorkOffset } from './work-offset.js';
 // eslint-disable-next-line import/extensions
-import { createRetract, SOCKET_RETRACT_BUSY } from './pause-retract.js';
+import { createRetract, SOCKET_RETRACT_BUSY, RETRACT_TAIL_BUSY } from './pause-retract.js';
 
 // Kept exported from here for the existing callers and tests.
 // eslint-disable-next-line import/extensions
@@ -830,6 +830,12 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       throw conflict('Connexion machine indisponible.');
     }
     const r = record(c);
+    // F2 (third review): a move of a dropped retract not proven over, or its spindle stop still due:
+    // nothing else that moves or writes starts, from the tablet either (Arrêter, Pause and M5 do
+    // not come through here).
+    if (r.retractTail) {
+      throw conflict(RETRACT_TAIL_BUSY);
+    }
     if (r.settingsRead) {
       throw settingsReading();
     }
@@ -959,7 +965,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
     const feeder = c.feeder.toJSON();
     if (feeder.queue || feeder.pending || systemCommands.current() || r.settingsRead || r.originChecking || r.frameStarting || r.loading ||
-        r.probing || homingActive(r) || moves.moving(c, r) ||
+        r.probing || homingActive(r) || moves.moving(c, r) || r.retract || r.retractTail ||
         (r.ticket && clock() <= r.ticket.expires) || spindleOn(c) || !modalWcs(r)) {
       return null;
     }
@@ -987,7 +993,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     controllers,
     record,
     homingActive,
-    moving: (c, r) => moves.moving(c, r),
+    // F2: the move of a dropped retract not proven over counts as a move of the service.
+    moving: (c, r) => moves.moving(c, r) || !!r.retractTail,
     spindleOn,
     changed,
     MAX_REPORT_AGE_MS
@@ -2476,12 +2483,17 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         r.ticket = null;
         return blockProbe.stop(c, r, 'stop');
       }
+      // F2: a retract and its tail are forgotten here, before any shortcut below (third review D1:
+      // after a stop from the PC, Jog reported, the jog cancel alone bypassed it). A line of it not
+      // answered yet (a jog above all) is held first; a spindle stop still due leaves the reset to
+      // haltPlan (spindle turning).
+      const retractOut = retract.halt(c, r);
       // A jog of ours, even one Grbl has not reported yet (report still Idle).
-      if (c.workflow.state === 'idle' && moves.moving(c, r)) {
+      if (c.workflow.state === 'idle' && moves.moving(c, r) && !retractOut) {
         r.ticket = null;
         return moves.stop(c, r, 'stop');
       }
-      if (c.workflow.state === 'idle' && activeState === 'Jog') {
+      if (c.workflow.state === 'idle' && activeState === 'Jog' && !retractOut) {
         r.ticket = null;
         c.command('jogCancel');
         return { message: 'Déplacement annulé.' };
@@ -2530,9 +2542,6 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         plateStop(c, r);
         return { message: 'Palpage interrompu. Vérifiez l’immobilisation ; le zéro Z n’est pas réglé.' };
       }
-      // F2: a retract is forgotten, its tail too; a line of it not answered yet (a jog above all) is
-      // held first; a spindle stop still due leaves the reset to haltPlan (spindle turning).
-      const retractOut = retract.halt(c, r);
       const feeder = c.feeder.toJSON();
       if (c.workflow.state === 'idle' && !['Run', 'Hold'].includes(activeState) && !feeder.queue && !feeder.pending && !retractOut) {
         if (starting) {

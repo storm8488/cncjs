@@ -63,6 +63,9 @@ export const RETRACT_MESSAGES = {
 
 // index.js refuseSocket: shown by CNCjs's own interface, without a code (like SOCKET_PROBE_BUSY).
 export const SOCKET_RETRACT_BUSY = 'Fraise dégagée par la tablette : commande refusée jusqu’à la reprise (Arrêter reste possible).';
+// job-service.js available(): what moves or writes, from the tablet, while the tail of a dropped
+// retract lasts (third review D2).
+export const RETRACT_TAIL_BUSY = 'Dégagement arrêté : la fin du déplacement de la fraise n’est pas prouvée. Attendez le repos, ou touchez Arrêter.';
 
 // The only lines the sequence ever writes (§ 4.3).
 const LINE = /^(M5|M[34] S\d+(\.\d+)?|G4 P3|\$J=G91 G21 Z-?\d+(\.\d+)? F\d+(\.\d+)?)$/;
