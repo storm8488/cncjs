@@ -1271,6 +1271,24 @@ describe('Pause et dégager: the windows of the second review', () => {
     expect(ctx.state().pauseRetract.failure.code).toBe('ETOUCH_RETRACT_SPINDLE');
   });
 
+  test('2-D3e. turning, then a $G with the other mode before any $G with the expected one, then M3 again: the loss is kept', async () => {
+    const ctx = await setup();
+    await ctx.park();
+    const mark = ctx.mark();
+    await ctx.resume();
+    await ctx.wait(100);
+    ctx.gc.spindle = 'M3';
+    await ctx.okIdle(2, { speed: 1000 });
+    ctx.gc.spindle = 'M4';
+    ctx.modal();
+    ctx.gc.spindle = 'M3';
+    ctx.modal();
+    await ctx.okIdle(2, { speed: 1000 });
+    await ctx.wait(200);
+    expect(descents(ctx, mark)).toEqual([]);
+    expect(ctx.state().pauseRetract.failure.code).toBe('ETOUCH_RETRACT_SPINDLE');
+  });
+
   test('2-D3d. FS:0 after the plunge, then a $G that still says M3 S1000: no `~`', async () => {
     const ctx = await setup({ z: -8 });
     await ctx.retract();

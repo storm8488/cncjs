@@ -579,10 +579,11 @@ export const createRetract = (deps) => {
 
   // The spindle we restarted (second review D3), one rule for every check. Proven turning once,
   // after the `ok` of our M3/M4, a report said a speed above 0 (spindleSpun) and a $G said the
-  // expected mode (spindleModal); from then on it is lost for good as soon as a report says a speed
-  // of 0 or a $G says another mode (report(), modal(): a later report without FS:, or turning again,
-  // never brings it back). Before that proof nothing goes down: a 0 or another mode then only means
-  // « not proven yet » (an `ok` taken for ours too early must not fail a sound resume).
+  // expected mode (spindleModal). Once a speed above 0 was seen, it is lost for good as soon as a
+  // report says a speed of 0 or a $G says another mode (report(), modal(): a later report without
+  // FS:, or turning again, never brings it back). Before any speed above 0 nothing goes down: a 0
+  // then only means « not proven yet » (an `ok` taken for ours too early must not fail a sound
+  // resume; the dwell ends failed if the speed is still 0 once it is over).
   const spindleLost = (c, r, s) => {
     if (s.spindleLost) {
       return true;
@@ -1386,7 +1387,7 @@ export const createRetract = (deps) => {
       // Received after the `ok` of the M3/M4 we wrote: the mode of the spindle we restarted.
       if (s.spindleT && s.spindleT.oks >= 1 && s.spindle) {
         const mode = parserOf(c).modal && parserOf(c).modal.spindle;
-        if (mode !== s.spindle.mode && s.spindleSpun && s.spindleModal) {
+        if (mode !== s.spindle.mode && s.spindleSpun) {
           spindleGone(c, r, s);
         }
         s.spindleModal = mode === s.spindle.mode;
