@@ -171,8 +171,37 @@
 ['ETOUCH_MOTION_AMBIGUOUS', 'Position de l’axe {axis} inconnue : refaites la prise d’origine depuis la tablette.', 'Axis {axis} position unknown: home the machine again from the tablet.', 'Posición del eje {axis} desconocida: repita la búsqueda de origen desde la tableta.'],
 ['ETOUCH_MOTION_DISABLED', 'Déplacements réels non activés : validation matérielle supervisée requise.', 'Real moves are not enabled: supervised hardware validation required.', 'Desplazamientos reales no activados: se requiere validación supervisada en la máquina.'],
 ['ETOUCH_CHECK_S_ABOVE_MAX', 'Consigne S{s} (ligne {line}) au-dessus du maximum de la carte ({max}) : la broche tournera au maximum.', 'Setpoint S{s} (line {line}) above the board maximum ({max}): the spindle will run at maximum.', 'Consigna S{s} (línea {line}) superior al máximo de la placa ({max}): el husillo girará al máximo.'],
-['ETOUCH_START_FEED_MODE', 'Reprise à une ligne refusée : la machine doit être en avance par minute (G94). Relisez son état ou remettez-la en G94.', 'Resume from a line refused: the machine must use feed per minute (G94). Read its state again or set it to G94.', 'Reanudación desde una línea rechazada: la máquina debe usar avance por minuto (G94). Vuelva a leer su estado o póngala en G94.']
+['ETOUCH_START_FEED_MODE', 'Reprise à une ligne refusée : la machine doit être en avance par minute (G94). Relisez son état ou remettez-la en G94.', 'Resume from a line refused: the machine must use feed per minute (G94). Read its state again or set it to G94.', 'Reanudación desde una línea rechazada: la máquina debe usar avance por minuto (G94). Vuelva a leer su estado o póngala en G94.'],
+// F2: « Pause et dégager » (pause-retract.js).
+['ETOUCH_RETRACT_NOT_RUNNING', 'Dégagement refusé : aucun usinage en cours lancé depuis cette tablette.', 'Retract refused: no machining in progress started from this tablet.', 'Retirada rechazada: ningún mecanizado en curso iniciado desde esta tableta.'],
+['ETOUCH_RETRACT_ENDING', 'Dégagement refusé : toutes les lignes sont déjà envoyées, l’usinage se termine.', 'Retract refused: every line has been sent, machining is ending.', 'Retirada rechazada: todas las líneas están enviadas, el mecanizado termina.'],
+['ETOUCH_RETRACT_LASER', 'Dégagement refusé : fonction réservée à une machine CNC, hors mode laser.', 'Retract refused: only for a CNC machine, laser mode off.', 'Retirada rechazada: solo para una máquina CNC, sin modo láser.'],
+['ETOUCH_RETRACT_TRAVEL_UNKNOWN', 'Dégagement refusé : la course en Z n’est pas vérifiable (prise d’origine non constatée, réglages non lus ou rapports en pouces).', 'Retract refused: the Z travel cannot be checked (homing not seen, settings not read or reports in inches).', 'Retirada rechazada: el recorrido en Z no se puede comprobar (origen no visto, ajustes no leídos o informes en pulgadas).'],
+['ETOUCH_RETRACT_TRAVEL', 'Dégagement annulé : Z machine {z} hors de la course utilisable ({low} à {high}).', 'Retract cancelled: machine Z {z} outside the usable travel ({low} to {high}).', 'Retirada cancelada: Z máquina {z} fuera del recorrido útil ({low} a {high}).'],
+['ETOUCH_RETRACT_STREAM', 'Dégagement arrêté : la tablette qui l’a demandé ne suit plus la machine.', 'Retract stopped: the tablet that asked for it no longer follows the machine.', 'Retirada detenida: la tableta que la pidió ya no sigue la máquina.'],
+['ETOUCH_RETRACT_CONTROL', 'Dégagement arrêté : le pilotage a changé de main.', 'Retract stopped: control changed hands.', 'Retirada detenida: el control cambió de manos.'],
+['ETOUCH_RETRACT_STALE', 'Dégagement arrêté : rapports de la machine interrompus plus de 2,5 s.', 'Retract stopped: machine reports interrupted for more than 2.5 s.', 'Retirada detenida: informes de la máquina interrumpidos más de 2,5 s.'],
+['ETOUCH_RETRACT_STALLED', 'Dégagement arrêté : la machine est au repos mais des lignes restent sans réponse.', 'Retract stopped: the machine is at rest but some lines were never answered.', 'Retirada detenida: la máquina está en reposo pero quedan líneas sin respuesta.'],
+['ETOUCH_RETRACT_MODAL', 'Dégagement arrêté : état de la machine ($G) non reçu après l’arrêt.', 'Retract stopped: machine state ($G) not received after the stop.', 'Retirada detenida: estado de la máquina ($G) no recibido tras la parada.'],
+['ETOUCH_RETRACT_FOREIGN', 'Dégagement arrêté : un arrêt est venu d’une autre interface.', 'Retract stopped: a stop came from another interface.', 'Retirada detenida: llegó una parada desde otra interfaz.'],
+['ETOUCH_RETRACT_ERROR', 'Grbl a refusé une ligne du dégagement (error:{error}).', 'Grbl refused a line of the retract (error:{error}).', 'Grbl rechazó una línea de la retirada (error:{error}).'],
+['ETOUCH_RETRACT_TIMEOUT', 'Dégagement arrêté : une ligne n’a pas fini à temps.', 'Retract stopped: a line did not finish in time.', 'Retirada detenida: una línea no terminó a tiempo.'],
+['ETOUCH_RETRACT_POSITION', 'Dégagement arrêté : position {axis} inattendue après un mouvement.', 'Retract stopped: unexpected {axis} position after a move.', 'Retirada detenida: posición {axis} inesperada tras un movimiento.'],
+['ETOUCH_RETRACT_UNEXPECTED', 'Dégagement arrêté : état {state} inattendu de la machine.', 'Retract stopped: unexpected machine state {state}.', 'Retirada detenida: estado {state} inesperado de la máquina.'],
+['ETOUCH_RETRACT_SPINDLE', 'Reprise arrêtée : la broche n’a pas redémarré, la fraise n’est pas redescendue.', 'Resume stopped: the spindle did not restart, the bit was not lowered.', 'Reanudación detenida: el husillo no arrancó, la fresa no bajó.'],
+['ETOUCH_RETRACT_PAUSED', 'Dégagement interrompu par Pause.', 'Retract interrupted by Pause.', 'Retirada interrumpida por Pausa.'],
+['ETOUCH_RETRACT_STATE', 'Reprise refusée : la machine n’est pas au repos (état {state}).', 'Resume refused: the machine is not at rest (state {state}).', 'Reanudación rechazada: la máquina no está en reposo (estado {state}).'],
+['ETOUCH_RETRACT_MOVED', 'Reprise sur place annulée : la machine a bougé pendant la pause ({axis}).', 'In-place resume cancelled: the machine moved during the pause ({axis}).', 'Reanudación en el sitio cancelada: la máquina se movió durante la pausa ({axis}).'],
+['ETOUCH_RETRACT_ZERO_CHANGED', 'Reprise sur place annulée : l’origine de la pièce a changé ou n’est plus confirmée ({axis}).', 'In-place resume cancelled: the work origin changed or is no longer confirmed ({axis}).', 'Reanudación en el sitio cancelada: el origen de la pieza cambió o ya no está confirmado ({axis}).'],
+['ETOUCH_RETRACT_STATE_CHANGED', 'Reprise sur place annulée : l’état de la machine a changé pendant la pause ({field}).', 'In-place resume cancelled: the machine state changed during the pause ({field}).', 'Reanudación en el sitio cancelada: el estado de la máquina cambió durante la pausa ({field}).'],
+['ETOUCH_RETRACT_ALARM', 'Alarme[ {alarm}] pendant le dégagement.', 'Alarm[ {alarm}] during the retract.', 'Alarma[ {alarm}] durante la retirada.'],
+['ETOUCH_RETRACT_RESTART', 'La carte a redémarré pendant le dégagement.', 'The board restarted during the retract.', 'La placa se reinició durante la retirada.']
 );
 (window.CNCTouchMessages = window.CNCTouchMessages || []).push(
-['Départ annulé.', 'Start cancelled.', 'Inicio cancelado.']
+['Départ annulé.', 'Start cancelled.', 'Inicio cancelado.'],
+// F2: server replies of « Pause et dégager ».
+['Dégagement demandé.', 'Retract requested.', 'Retirada pedida.'],
+['Reprise demandée : la broche redémarre, puis la fraise redescend.', 'Resume requested: the spindle restarts, then the bit goes back down.', 'Reanudación pedida: el husillo arranca y luego la fresa baja.'],
+['Dégagement en cours : attendez qu’il soit terminé.', 'Retract in progress: wait until it is over.', 'Retirada en curso: espere a que termine.'],
+['Pause et dégager', 'Pause and retract', 'Pausa y retirar']
 );

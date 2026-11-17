@@ -411,3 +411,38 @@ describe('LUNYEE profile of the TCP server', () => {
         }
     });
 });
+
+// F2 (examples/cncjs-touch/design/fonctions/F2-CONCEPTION.md § 11.4): two jog rules of the upstream
+// firmware (Grbl_Esp32 Jog.cpp, ProcessSettings.cpp) the profile followed wrongly.
+describe('LUNYEE profile: jog rules of the upstream firmware (F2)', () => {
+    let sim;
+    beforeEach(() => {
+        jest.useFakeTimers();
+        sim = new GrblSimulator({ profile: 'lunyee' });
+        send(sim, '$X');
+        send(sim, '$H');
+        jest.advanceTimersByTime(1600);
+    });
+    afterEach(() => {
+        sim.stopPlannerExecutor();
+        jest.useRealTimers();
+    });
+
+    it('a jog does not follow the feed override (Jog.cpp)', () => {
+        // Feed override down to 10 %.
+        for (let i = 0; i < 9; i++) {
+            sim.processRealtimeCommand(String.fromCharCode(0x92));
+        }
+        expect(send(sim, '$J=G91 G21 X10 F600')).toEqual(['ok\r\n']);
+        jest.advanceTimersByTime(1100);
+        expect(mposOf(report(sim))).toEqual([10, 0, 0]);
+        expect(sim.machineState).toBe('Idle');
+    });
+
+    it('a jog received while a move of the program runs is refused with error:8 (ProcessSettings.cpp)', () => {
+        expect(send(sim, 'G1 X50 F600')).toEqual(['ok\r\n']);
+        jest.advanceTimersByTime(100);
+        expect(sim.machineState).toBe('Run');
+        expect(send(sim, '$J=G91 G21 Z-1 F100')).toEqual(['error:8\r\n']);
+    });
+});

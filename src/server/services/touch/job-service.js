@@ -35,6 +35,8 @@ import { createBlockProbe, blockParams } from './block-probe.js';
 import { createSystemCommands } from './system-command.js';
 // eslint-disable-next-line import/extensions
 import { createWorkOffset } from './work-offset.js';
+// eslint-disable-next-line import/extensions
+import { createRetract, SOCKET_RETRACT_BUSY } from './pause-retract.js';
 
 // Kept exported from here for the existing callers and tests.
 // eslint-disable-next-line import/extensions
@@ -201,7 +203,8 @@ const monotonic = () => performance.now();
 // else; a touch client that identifies itself claims a free port with them.
 // `machine`: type of machine and laser framing (PROFILES-CONTRACT §2, §4).
 // `verifyOffset`: the proof of the work offset (D2, work-offset.js) starts again.
-const GUARDED_ACTIONS = ['load', 'prepare', 'start', 'resume', 'macro', 'override', 'unlock', 'home', 'spindle', 'zeroZ', 'blockProbe', 'readSettings', 'set-origin', 'machine', 'verifyOffset'];
+// `retract`: « Pause et dégager » (F2, pause-retract.js).
+const GUARDED_ACTIONS = ['load', 'prepare', 'start', 'resume', 'macro', 'override', 'unlock', 'home', 'spindle', 'zeroZ', 'blockProbe', 'readSettings', 'set-origin', 'machine', 'verifyOffset', 'retract'];
 
 // Real moves (F1, motion.js): every `motion` operation is guarded like the
 // actions above, except `jog-stop`, which is free for everyone like Stop.
@@ -353,6 +356,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         // Status reports received, so a step can wait for a newer one.
         reports: 0,
         xyzAt: null,
+        // « Pause et dégager » in progress or done (F2, pause-retract.js), null otherwise.
+        retract: null,
         generation: crypto.randomBytes(12).toString('hex')
       };
       // D2: whether the work offset the board applies is proven equal to `$#` (work-offset.js).
@@ -474,6 +479,12 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
           r.stall = { since: r.seen, received: s.received };
         }
         observeToolChange(c, r);
+        // F2: Idle streaks, proof of rest and work offset of a retract (pause-retract.js).
+        try {
+          retract.report(c, r);
+        } catch (_) {
+          // Never break CNCjs's reading of the port; the supervision tick decides again.
+        }
         // An exception here would break CNCjs's reading of the port.
         try {
           r.offset.tick(payload);
@@ -497,6 +508,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         r.homeMpos = null;
         r.sawHome = false;
         r.offset.invalidate('alarm');
+        // F2: a retract stops in the event itself, nothing more is written.
+        retract.alarmed(c, r);
         const job = r.job && r.job.started && !r.job.stopped && !r.job.finishedAt ? r.job : null;
         log({ event: 'alarm', ...jobInfo(job), controller: controllerInfo(c, r), code: r.alarm, actor: SYSTEM });
         changed();
@@ -527,6 +540,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         // A Home state seen before the restart says nothing about the new session.
         r.sawHome = false;
         r.startups += 1;
+        // F2: a retract stops in the event itself; no line of it in the new session.
+        retract.restarted(c, r);
         // A banner ends the plate's old session, including boards returning directly to Idle.
         if (r.probing && r.probing.kind === 'plate') {
           r.probing.cancelled = true;
@@ -575,10 +590,12 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         r.modalSeen = clock();
         const value = payload && payload.modal && payload.modal.wcs;
         r.wcs = /^G5[4-9]$/.test(value || '') ? value : null;
+        retract.modal(c, r);
         r.offset.modal();
         changed();
       };
       r.file = () => {
+        retract.forgetJob(r);
         r.job = null;
         r.ticket = null;
         changed();
@@ -648,6 +665,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       // `external`: the PC resumes it, not the tablet (TESTING.md, job follow-up).
       r.run = () => {
         r.foreignHome = null;
+        retract.forgetJob(r);
         if (r.job) {
           r.job.started = true;
           // Started by the service (ownStart, consumed here) or from outside.
@@ -689,6 +707,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       // before CNCjs's own listener, which rewinds the sender.
       r.stopped = () => {
         r.offset.invalidate('stop');
+        retract.forgetJob(r);
         const j = r.job;
         if (j && j.started && !j.stopped && !j.finishedAt && c.sender && c.sender.state && c.sender.state.name === j.name) {
           const line = stopLine(c, r);
@@ -753,6 +772,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     records.delete(c);
     moves.forget(c, r);
     blockProbe.forget(c, r);
+    retract.forget(c, r);
     Array.from(r.timers).forEach((entry) => {
       clearTimeout(entry.handle);
       r.timers.delete(entry);
@@ -973,7 +993,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
   // Stop sequence (feed hold, then soft reset once at rest): see halt.js.
   const { haltPlan, halt } = createHalt({ clock, controllers, record, later, spindleOn });
 
-  const readyFor = (c, action, revision, travel = null) => {
+  // `commit`: a prepare or a run, where a retract's proven change ends its in-place resume (F2).
+  const readyFor = (c, action, revision, travel = null, commit = false) => {
     const j = validJob(c, revision);
     available(c);
     if (record(c).probing) {
@@ -1052,7 +1073,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       if (j.probeFailed) {
         throw conflict('Palpage échoué pendant la pause : l’état modal du programme est perdu. Arrêtez le travail, puis reprenez à une ligne.');
       }
-      if (kind === 'M6') {
+      // F2: after « Pause et dégager », its own guards replace the final refusal (pause-retract.js).
+      if (record(c).retract) {
+        retract.resumeReady(c, record(c), commit);
+      } else if (kind === 'M6') {
         // No tool change on a laser; no spindle restart while $32=1 without a laser profile.
         const profile = profileOf(c, record(c));
         if (profile.kind === 'laser') {
@@ -1070,7 +1094,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         if (feeder.queue || feeder.pending) {
           throw conflict('Des commandes sont en attente : attendez avant de reprendre.');
         }
-      } else if (kind === 'other' || state !== 'Hold') {
+      } else if (!record(c).retract && (kind === 'other' || state !== 'Hold')) {
         throw conflict('La reprise exige une pause simple confirmée par la machine.');
       }
     }
@@ -1482,6 +1506,34 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     offsetReady
   });
 
+  // « Pause et dégager » (F2): pause without a feed hold, Z up, resume in place (pause-retract.js).
+  const retract = createRetract({
+    config,
+    clock,
+    conflict,
+    controllers,
+    record,
+    later,
+    changed,
+    log,
+    controllerInfo,
+    jobInfo,
+    allSettings,
+    settingNumber,
+    answers,
+    control,
+    transports,
+    transportActors,
+    available,
+    validJob,
+    modalFresh,
+    hasAutomations,
+    homingActive,
+    motionEnabled: (c, r) => moves.enabled(c, r),
+    profileOf,
+    stopLine
+  });
+
   const findMacro = (id) => {
     const macro = macrosOf(config).find((m) => m.id === id);
     if (!macro) {
@@ -1549,7 +1601,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       run: blockProbe.run
     },
     // Work origin at the current position (F1, motion.js).
-    'set-origin': moves.originOperation
+    'set-origin': moves.originOperation,
+    // « Pause et dégager » (F2, pause-retract.js).
+    retract: retract.operation
   };
 
   // Runs a guard and returns its failure message, or '' when it passes. With `refusals`
@@ -1616,6 +1670,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     const zeroZReason = reason(() => plateReady(c), refusals, 'zeroZ');
     const blockProbeReason = reason(() => blockProbe.blockReady(c), refusals, 'blockProbe');
     const readSettingsReason = reason(() => readSettingsReady(c), refusals, 'readSettings');
+    const retractReason = reason(() => retract.ready(c), refusals, 'retract');
     reason(() => moves.originOperation.guard(c), refusals, 'setOrigin');
     reason(() => moves.jogReady(c, r), refusals, 'jog');
 
@@ -1723,7 +1778,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       stoppedAtLine: r.lastStop ? r.lastStop.line : null,
       stoppedFile: r.lastStop ? r.lastStop.file : null,
       // A block probe is interrupted by Pause (it cannot be resumed).
-      canPause: c.workflow.state === 'running' || !!(r.probing && r.probing.kind === 'block'),
+      // F2: also while a retract waits for rest, lifts or lowers the bit.
+      canPause: c.workflow.state === 'running' || !!(r.probing && r.probing.kind === 'block') ||
+        !!(r.retract && ['draining', 'lifting', 'returning'].includes(r.retract.phase)),
       // A macro waiting in a dwell (CNCjs queue not empty) can be stopped too.
       canStop: c.workflow.state !== 'idle' || ['Run', 'Hold', 'Home', 'Jog'].includes(state.activeState) || /^Door/.test(state.activeState || '') ||
         !!r.probing || !!r.starting || !!r.frameStarting || homingActive(r) || !!(feederState.queue || feederState.pending) ||
@@ -1760,6 +1817,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       canBlockProbe: !blockProbeReason,
       blockProbeReason,
       blockProbe: r.blockProbe ? { ...r.blockProbe } : null,
+      // « Pause et dégager » (F2, pause-retract.js): ready or why not, and the one in progress.
+      canRetract: !retractReason,
+      retractReason,
+      pauseRetract: retract.snapshot(c, r),
       // D2 (work-offset.js): whether the work offset the board applies is proven equal to `$#`.
       workOffset: r.offset.snapshot(),
       refusals,
@@ -2072,6 +2133,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
           }
           blockProbe.supervise(c, r);
           plateProbe.supervise(c, r);
+          retract.supervise(c, r);
         }
         return out;
       }
@@ -2090,7 +2152,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       return machineAction(c, r, body, actor);
     }
 
-    if (['prepare', 'start', 'resume', 'macro', 'override', 'unlock', 'home', 'spindle', 'zeroZ', 'blockProbe', 'readSettings', 'set-origin', 'verifyOffset'].includes(a) ||
+    if (['prepare', 'start', 'resume', 'macro', 'override', 'unlock', 'home', 'spindle', 'zeroZ', 'blockProbe', 'readSettings', 'set-origin', 'verifyOffset', 'retract'].includes(a) ||
         (guarded(body) && a === 'motion')) {
       if (typeof body.generation !== 'string' || body.generation !== r.generation) {
         throw conflict('Le contrôleur a changé ou son identité manque. Choisissez-le à nouveau.');
@@ -2124,6 +2186,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
 
     if (a === 'motion') {
+      // F2: a jog stop during the lift or the descent of a retract stops it like Pause.
+      if (body.operation === 'jog-stop' && retract.moving(r)) {
+        return retract.pause(c, r);
+      }
       return moves.perform(c, r, body, actor);
     }
 
@@ -2152,7 +2218,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
 
     if (a === 'prepare') {
-      if (!['start', 'resume', 'macro', 'unlock', 'home', 'spindle', 'zeroZ', 'blockProbe', 'set-origin'].includes(body.operation)) {
+      if (!['start', 'resume', 'macro', 'unlock', 'home', 'spindle', 'zeroZ', 'blockProbe', 'set-origin', 'retract'].includes(body.operation)) {
         throw conflict('Action invalide.');
       }
       // D1: the second, deliberate gesture of a start proven outside the travel, for a start only.
@@ -2197,7 +2263,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         return { ...ticketOf(null), ...extra };
       }
       const travel = body.override === 'travel' ? { request: true } : null;
-      const j = readyFor(c, body.operation, body.revision, travel);
+      const j = readyFor(c, body.operation, body.revision, travel, true);
       name = j.originalName;
       if (body.operation === 'resume') {
         r.ticket = { nonce, revision: j.revision, operation: body.operation, expires: clock() + TICKET_LIFETIME_MS, transportId: body.transportId };
@@ -2254,6 +2320,11 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
 
     if (a === 'spindleStop') {
+      // F2: during the lift or the descent of a retract, the same stop as Pause.
+      if (retract.moving(r)) {
+        r.ticket = null;
+        return retract.pause(c, r);
+      }
       // During a block probe: the same stop as Arrêter, without an M5 that
       // would join the queue (its ok would be taken for the cycle's line).
       if (r.probing && r.probing.kind === 'block') {
@@ -2297,11 +2368,15 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       }
       // D1: a ticket that overrides a proven overrun starts only on the very overruns confirmed.
       const travel = a === 'start' && t.override ? { signature: t.override } : null;
-      const j = readyFor(c, a, t.revision, travel);
+      const j = readyFor(c, a, t.revision, travel, true);
       if (a === 'resume') {
         // The program already sits in CNCjs's sender: a resume from a pause
         // stays synchronous (the stop/M6 sequences and their tests rely on it).
         j.started = true;
+        // F2: after « Pause et dégager », the bit goes back down first (pause-retract.js).
+        if (r.retract) {
+          return retract.resume(c, r, actor, body.transportId);
+        }
         const restart = pauseKind(c) === 'M6' && r.toolChange && r.toolChange.restart;
         log({ event: 'resume', ...jobInfo(j), controller: controllerInfo(c, r), pause: pauseKind(c), actor: actor || null });
         if (restart) {
@@ -2368,6 +2443,13 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       if (c.workflow.state === 'idle' && moves.moving(c, r)) {
         r.ticket = null;
         return moves.stop(c, r, 'pause');
+      }
+      // F2: while a retract waits for rest (an ordinary feed hold from then on), lifts or lowers.
+      const retracted = retract.pause(c, r);
+      if (retracted) {
+        r.ticket = null;
+        log({ event: 'pause', ...jobInfo(r.job), controller: controllerInfo(c, r), line: Number(c.sender.state.received) || null, actor: actor || null });
+        return retracted;
       }
       if (c.workflow.state !== 'running') {
         throw conflict('Aucun travail en cours.');
@@ -2444,6 +2526,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         plateStop(c, r);
         return { message: 'Palpage interrompu. Vérifiez l’immobilisation ; le zéro Z n’est pas réglé.' };
       }
+      // F2: a retract is forgotten; a line of it not answered yet (a jog above all) is held first.
+      const retractOut = retract.halt(c, r);
       const feeder = c.feeder.toJSON();
       if (c.workflow.state === 'idle' && !['Run', 'Hold'].includes(activeState) && !feeder.queue && !feeder.pending) {
         if (starting) {
@@ -2452,7 +2536,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         throw conflict('Aucun travail à arrêter.');
       }
       r.ticket = null;
-      const plan = door ? '' : haltPlan(c);
+      let plan = door ? '' : haltPlan(c);
+      if (retractOut === 'jog' || (retractOut && !plan)) {
+        plan = 'hold';
+      }
       if (c.workflow.state === 'idle') {
         // A macro or console commands (CNCjs feeder) move the machine: its
         // queue must be emptied too, or the next 'ok' would send the rest.
@@ -2610,7 +2697,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         feeder.queue, feeder.pending,
         r ? [r.loading, r.seen === null, r.modalSeen === null, r.wcs, r.ticket && r.ticket.nonce, r.firmware, r.startups, r.alarm, r.stall && r.stall.since,
           idOf(r.toolChange), r.lastStop && r.lastStop.line, idOf(r.probing), idOf(r.zeroZ), idOf(r.blockProbe), r.homing && r.homing.since, moves.signature(r),
-          idOf(r.lastAlarm), idOf(r.frameStarting), r.frameStarting && r.frameStarting.cancelled, r.offset.signature()].join(',') : '',
+          idOf(r.lastAlarm), idOf(r.frameStarting), r.frameStarting && r.frameStarting.cancelled, r.offset.signature(), retract.signature(r)].join(',') : '',
         j ? [idOf(j), j.started, j.stopped, j.finishedAt, j.errors].join(',') : ''
       ].join(';');
     }).join('|');
@@ -2639,6 +2726,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     const jogging = moves.holds(id);
     const probing = blockProbe.holds(id);
     const plate = plateProbe.holds(id);
+    const retracting = retract.holds(id);
     for (const r of records.values()) {
       if (r.frameStarting && r.frameStarting.transportId === id) {
         return true;
@@ -2656,6 +2744,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       }
       // A plate probe of this stream's device too (C-17).
       if (plate(r)) {
+        return true;
+      }
+      // A retract of this stream's device (F2).
+      if (retracting(r)) {
         return true;
       }
     }
@@ -2684,6 +2776,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       blockProbe.transportClosed(c, r, actor, rotated === true);
       // Its plate probe as well (C-17).
       plateProbe.transportClosed(c, r, actor, rotated === true);
+      // Its retract as well (F2).
+      retract.transportClosed(c, r, actor, rotated === true);
     });
     changed();
   };
@@ -2730,6 +2824,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     if (r && r.probing) {
       return conflict(SOCKET_PROBE_BUSY);
     }
+    // F2: whatever its phase and whoever owns the port, until the resume or Arrêter.
+    if (r && r.retract) {
+      return conflict(SOCKET_RETRACT_BUSY);
+    }
     return r && (r.offset.checking() || r.offset.restoring()) ? r.offset.refusal() : null;
   };
 
@@ -2755,6 +2853,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     } else if (r.probing) {
       plateStop(c, r);
     }
+    // F2 (pause-retract.js): forgotten while it waits for rest, stopped while it moves.
+    retract.socketStop(c, r);
   };
 
   const dispose = () => {

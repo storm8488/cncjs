@@ -271,6 +271,55 @@
       "Only adjustable on the machine tablet.",
       "Solo ajustable en la tableta de la máquina.",
       "aucun"
+    ],
+    [
+      "degagement-impossible",
+      "Le dégagement n’est pas possible maintenant.",
+      "Retract is not possible right now.",
+      "La retirada no es posible ahora.",
+      "details"
+    ],
+    [
+      "degagement-suivi",
+      "La tablette a perdu la machine un instant pendant le dégagement.",
+      "The tablet lost the machine for a moment during the retract.",
+      "La tableta perdió la máquina un instante durante la retirada.",
+      "details"
+    ],
+    [
+      "degagement-main",
+      "La main a changé d’appareil pendant le dégagement.",
+      "Control moved to another device during the retract.",
+      "El control pasó a otro dispositivo durante la retirada.",
+      "details"
+    ],
+    [
+      "degagement-machine",
+      "La machine n’a pas fait ce qui était demandé pendant le dégagement.",
+      "The machine did not do what was asked during the retract.",
+      "La máquina no hizo lo pedido durante la retirada.",
+      "details"
+    ],
+    [
+      "degagement-broche",
+      "La broche n’a pas redémarré : la fraise est restée en haut.",
+      "The spindle did not restart: the bit stayed up.",
+      "El husillo no arrancó: la fresa se quedó arriba.",
+      "details"
+    ],
+    [
+      "degagement-change",
+      "Quelque chose a changé pendant la pause : reprendre sur place n’est plus sûr.",
+      "Something changed during the pause: resuming in place is no longer safe.",
+      "Algo cambió durante la pausa: reanudar en el sitio ya no es seguro.",
+      "details"
+    ],
+    [
+      "degagement-pause",
+      "Dégagement interrompu par Pause.",
+      "Retract interrupted by Pause.",
+      "Retirada interrumpida por Pausa.",
+      "details"
     ]
   ],
   "codes": {
@@ -485,7 +534,30 @@
     "ETOUCH_RESUME_G49_AXIS": "reprise-impossible",
     "ETOUCH_RESUME_UNSUPPORTED_SYNTAX": "reprise-impossible",
     "ETOUCH_RESUME_PLANE": "reprise-impossible",
-    "ETOUCH_RESUME_DISTANCE": "reprise-impossible"
+    "ETOUCH_RESUME_DISTANCE": "reprise-impossible",
+    "ETOUCH_RETRACT_NOT_RUNNING": "degagement-impossible",
+    "ETOUCH_RETRACT_ENDING": "degagement-impossible",
+    "ETOUCH_RETRACT_TRAVEL_UNKNOWN": "degagement-impossible",
+    "ETOUCH_RETRACT_TRAVEL": "degagement-impossible",
+    "ETOUCH_RETRACT_STREAM": "degagement-suivi",
+    "ETOUCH_RETRACT_STALE": "degagement-suivi",
+    "ETOUCH_RETRACT_CONTROL": "degagement-main",
+    "ETOUCH_RETRACT_STALLED": "degagement-machine",
+    "ETOUCH_RETRACT_MODAL": "degagement-machine",
+    "ETOUCH_RETRACT_ERROR": "degagement-machine",
+    "ETOUCH_RETRACT_TIMEOUT": "degagement-machine",
+    "ETOUCH_RETRACT_POSITION": "degagement-machine",
+    "ETOUCH_RETRACT_UNEXPECTED": "degagement-machine",
+    "ETOUCH_RETRACT_SPINDLE": "degagement-broche",
+    "ETOUCH_RETRACT_STATE": "degagement-change",
+    "ETOUCH_RETRACT_MOVED": "degagement-change",
+    "ETOUCH_RETRACT_ZERO_CHANGED": "degagement-change",
+    "ETOUCH_RETRACT_STATE_CHANGED": "degagement-change",
+    "ETOUCH_RETRACT_FOREIGN": "degagement-change",
+    "ETOUCH_RETRACT_PAUSED": "degagement-pause",
+    "ETOUCH_RETRACT_LASER": "type-machine",
+    "ETOUCH_RETRACT_ALARM": "alarme",
+    "ETOUCH_RETRACT_RESTART": "alarme"
   }
 };
   window.CNCTouchMessages=(window.CNCTouchMessages||[]).concat([
@@ -703,6 +775,41 @@
     "Message",
     "Message",
     "Mensaje"
+  ],
+  [
+    "Le dégagement n’est pas possible maintenant.",
+    "Retract is not possible right now.",
+    "La retirada no es posible ahora."
+  ],
+  [
+    "La tablette a perdu la machine un instant pendant le dégagement.",
+    "The tablet lost the machine for a moment during the retract.",
+    "La tableta perdió la máquina un instante durante la retirada."
+  ],
+  [
+    "La main a changé d’appareil pendant le dégagement.",
+    "Control moved to another device during the retract.",
+    "El control pasó a otro dispositivo durante la retirada."
+  ],
+  [
+    "La machine n’a pas fait ce qui était demandé pendant le dégagement.",
+    "The machine did not do what was asked during the retract.",
+    "La máquina no hizo lo pedido durante la retirada."
+  ],
+  [
+    "La broche n’a pas redémarré : la fraise est restée en haut.",
+    "The spindle did not restart: the bit stayed up.",
+    "El husillo no arrancó: la fresa se quedó arriba."
+  ],
+  [
+    "Quelque chose a changé pendant la pause : reprendre sur place n’est plus sûr.",
+    "Something changed during the pause: resuming in place is no longer safe.",
+    "Algo cambió durante la pausa: reanudar en el sitio ya no es seguro."
+  ],
+  [
+    "Dégagement interrompu par Pause.",
+    "Retract interrupted by Pause.",
+    "Retirada interrumpida por Pausa."
   ]
 ]);
 })();

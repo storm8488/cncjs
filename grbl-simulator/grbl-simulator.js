@@ -1466,7 +1466,8 @@ class GrblSimulator {
     processJogCommand(jogLine) {
         // Only accept jog commands in Idle or Jog state
         if (this.machineState !== 'Idle' && this.machineState !== 'Jog') {
-            return 'error:16\r\n'; // Invalid jog command
+            // LUNYEE (F2): upstream ProcessSettings.cpp answers STATUS_IDLE_ERROR (error:8).
+            return this.profile ? 'error:8\r\n' : 'error:16\r\n'; // Invalid jog command
         }
 
         // Parse the jog line
@@ -1534,8 +1535,8 @@ class GrblSimulator {
             return 'ok\r\n';
         }
 
-        // Apply feed override (10-200%)
-        const jogFeedRate = parsed.words.F * (this.feedOverride / 100);
+        // Apply feed override (10-200%); LUNYEE (F2): upstream Jog.cpp ignores it for a jog.
+        const jogFeedRate = this.profile ? parsed.words.F : parsed.words.F * (this.feedOverride / 100);
         const motionTime = (distance / jogFeedRate) * 60 * 1000;
 
         this.#plannerBuffer.queue.push({
