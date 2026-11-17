@@ -1,5 +1,16 @@
 # Spécification : interface du mode Performance (Surface Pro 3)
 
+## File comparison layout (LIB, 2026-11-17)
+
+The v2 selection/loaded summary is inside the shared File detail card (L4).
+It spans both of that card's columns and grows with its content. Its two
+headings wrap at word boundaries and stack when their preferred widths no
+longer fit, including enlarged text. The empty technical row-label spacer
+does not consume summary width. There is no internal summary scroll; only
+the enclosing detail card scrolls. The technical comparison and fingerprint
+diagnostics remain in File Details. No machine command, permission, v2 gate,
+freshness rule or Eco resource contract changes.
+
 ## Lisibilité du contrôle et du rail (CTRL, 2026-11-16)
 
 À partir de 1100 × 650, le rail commun Éco/Performance mesure 128 px plutôt

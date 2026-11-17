@@ -156,18 +156,18 @@ function libraryPage(options = {}) {
   assert(rules.length > 10);
   for (const r of rules) for (const sel of r.split(',')) assert(/^body(\.[a-z0-9-]+)*\.perf-v2\b/.test(sel.trim()), 'unscoped v2 rule: ' + sel);
   assert(!/perf-v2/.test(css.slice(0, css.indexOf('/* Performance v2'))), 'v1 rules untouched');
-  // D3 (L7, round 2): the band pushed « Charger et ouvrir le Suivi » (1728 × 1152) and « Agrandir »
-  // (simulation, 1366 × 911) below the frame. The band is one compact table (its header row is the
-  // band), the selection state and size/date lines it repeats are hidden, and the detail's preview row
-  // shrinks to 64 px (Agrandir) instead of the perf-wide 420 px.
+  // D3's standalone table fallback is retained by this synthetic DOM. In the real
+  // L4 page its body and match live in Details; LIB lets the header span the card
+  // and stack without reinstating the old standalone-band layout.
   assert.equal(p.content.children.length, 1); const box = p.content.children[0];
   assert.deepEqual(box.children.map(c => c.tagName), ['TABLE', 'P'], 'one table and the match line');
   const table = box.children[0]; assert.deepEqual(table.children.map(c => c.tagName), ['THEAD', 'TBODY']);
   assert.equal(table.children[1].children.length, 4, 'four comparison rows');
   const rule = sel => { const m = css.match(new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\{([^}]*)\\}')); assert(m, 'rule ' + sel); return m[1]; };
-  assert.match(rule('body.ks-ui.perf-wide.perf-v2 #screen-files .library-detail'), /grid-template-rows:auto auto minmax\(64px,1fr\) auto auto auto/);
+  assert.match(rule('body.ks-ui.perf-v2 #screen-files #perf-v2-files'), /grid-column:1\/-1;grid-row:3/, 'the comparison inside the L4 detail spans the card instead of changing its preview rows');
   assert.match(rule('body.ks-ui.perf-v2 #screen-files #library-selection-state,body.ks-ui.perf-v2 #screen-files #library-meta'), /display:none/);
-  // Budget (normal text; estimates from the tokens, measured by the browser harness).
+  // Retain the historical standalone fallback's upper budget (normal text).
+  // Actual nested-card text and geometry are checked by --only screens.
   const tokens = fs.readFileSync(__dirname + '/touch/design-tokens.css', 'utf8'), tk = n => Number(tokens.match(new RegExp('--' + n + ':(\\d+)px'))[1]);
   const lh = (f, k = 1.3) => Math.ceil(f * k);
   const band = 2 * tk('sp-2') + 2 + (lh(tk('fs-16'), 1.2) + lh(tk('fs-18'), 1.2) + 4) + 4 * (lh(tk('fs-16')) + 2 * tk('sp-1')) + tk('sp-2') + 2 * lh(tk('fs-16')) + 2 * tk('sp-1');

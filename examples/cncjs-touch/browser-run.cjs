@@ -2459,6 +2459,15 @@ async function screensMeasure(summary) {
   try {
     await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: V2_GPU_TRAP });
     await controlLabelsMeasure(cdp, fx, summary);
+    const library = await require('./browser-library.cjs').measure(cdp, fx, {
+      setViewport, v2Storage, settingsStorage, v2Open, goScreen, failures,
+      capture: async (client, name) => {
+        const dir = path.join(OUT, name);fs.mkdirSync(dir, { recursive: true });
+        await screenshot(client, path.join(dir, 'files.png'));
+      }
+    });
+    fs.writeFileSync(path.join(OUT, 'library-comparison.json'), JSON.stringify(library, null, 1));
+    summary.libraryComparison = { variants: library.length };
     for (const v of SCREENS_VARIANTS) await screensVariant(cdp, fx, v, summary, out);
     await screensGuideSim(cdp, fx, summary);
   } catch (e) { failures.push('screens: ' + (e.stack || e.message)); log('FAIL screens: ' + e.message); }

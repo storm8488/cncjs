@@ -9,7 +9,7 @@ const tests = [
  'harn-page','harn-surface','harn-flows','vert-harness','vert-layout','vert2-layout','vert2-harness','program-progress',
  'textes-regles','confirmation-labels','placement-loading','session-geometry','jog-choices','rail-fixed','control-labels',
  'usinage-ecran','reprise-volet','check-screen','check-drawing','files-verdict','derogation','arcs','dashboard','real-interface','home-actions','job-dialog','start-override','work-offset','probe-defaults','page-benches','job-display',
- 'library-transitions','library-file-state','machine-limits',
+ 'library-transitions','library-file-state','library-comparison','machine-limits',
  'preview-dimensions','preview-viewer','preview','probe-diagram',
  'probe-lock','probe-model','probe-preparation','probe-profiles','probe-transfer','probe-real','probe-real-ui','block-probe-dialog',
  'real-history','screen-saver','simulation-alarm','simulation-history',

@@ -1085,6 +1085,32 @@ fails before scenarios (`WebSocket error`, then `timeout Page.enable` on the
 final rerun), so the supplied harnais4 count of
 104 violations remains a pre-correction measurement. See RAPPORT section 5.3
 and ECARTS-PLAN's VERT2 entry for assertion migrations and browser handoff.
+## LIB: readable file comparison (2026-11-17)
+
+`test-library-comparison.cjs` runs the actual File owners and the stylesheet
+cascade in HTML order (specificity and media queries included). It requires the
+nested v2 mount to span the detail card, whole-word wrapping, columns that can
+stack, automatic height and no internal scrolling. It covers active/parked
+screens, FR/EN/ES, standard/large text and seven viewport sizes from 540 to
+1920 px. Fresh, unavailable and unfollowed identities retain their existing
+meaning; technical rows and fingerprint diagnostics remain in File Details.
+
+`browser-library.cjs`, called by `browser-run.cjs --strict --only screens`,
+measures text `Range` rectangles, including non-actionable labels: every letter
+sequence must stay on one line. It also rejects clipping, narrow side-column
+placement, column overlap and internal scrollbars. It uses the reported
+`surfacage-400x80-24mm-2passes.nc` label, unavailable state and the real held-layout
+transition to `non suivi`. Small v2 viewports are reached by resizing that held
+layout; initial v1 Eco is separately checked at 1366 × 768. All three languages
+and both text sizes are included. Name injection is a geometry fixture only;
+it never changes a permission or executes a command. Reports are saved in
+`library-comparison.json` with screenshots under the chosen ignored output path.
+
+Negative in-memory CSS substitutions (HEAD, arbitrary word breaks, disabled
+stacking and nested scrolling) must fail the page test. Edge currently fails
+before scenarios on `timeout Page.enable` in this sandbox: these checks do not
+constitute rendered acceptance or Chromium 106/hardware validation.
+
 ## FIGE: stream and session recovery (2026-11-16)
 
 `test-flow-recovery.cjs` runs the real stream, session and command owners with

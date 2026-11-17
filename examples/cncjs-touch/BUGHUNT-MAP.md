@@ -1,5 +1,18 @@
 # Carte de l'interface CNCjs Touch pour la chasse aux bugs
 
+## LIB — file comparison reflow (2026-11-17)
+
+`check-screen.js:paint` moves `#perf-v2-files` into `.library-detail`.
+The obsolete higher-specificity v2 standalone-band rules still placed that
+mount in column 2 / row 1, now the narrow facts column, and
+`.lv2-col` descendants used `overflow-wrap:anywhere`. LIB removes the obsolete
+outer grid overrides, spans the nested mount over the card at row 3, removes
+the empty header spacer from layout, allows whole columns to wrap and forbids
+mid-word breaks/internal summary scrolling. Technical rows remain in Details.
+`test-library-comparison.cjs` checks the actual DOM/cascade and the rendered
+measurement's rejection paths; `browser-library.cjs` is received by `--only
+screens` in FR/EN/ES with standard/large text. No server or machine guard changes.
+
 ## PROG — progression sans fiche d’aperçu (2026-11-16)
 
 `program-check.js` collecte un modèle de durée pendant sa lecture du programme,
