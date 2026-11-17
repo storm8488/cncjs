@@ -292,6 +292,8 @@ describe('Pause et dégager: what is written to the board', () => {
     await ctx.jog(-113.4);
     expect(ctx.lines(mark).pop()).toBe('$J=G91 G21 Z-5 F100\n');
     await ctx.jog(-118.4);
+    // The board reports its work offset after the last line (`~` waits for one, second review D4).
+    await ctx.idle(1, { wco: true });
     // R5: a $G after the last `ok`, equal to the state at rest.
     expect(ctx.lines(mark).some((d) => d === '~')).toBe(false);
     ctx.modal();
@@ -323,6 +325,8 @@ describe('Pause et dégager: what is written to the board', () => {
     await ctx.wait(100);
     expect(ctx.lines(m2)).toEqual(['$J=G91 G21 Z-3 F100\n']);
     await ctx.jog(-8);
+    // The board reports its work offset after the last line (`~` waits for one, second review D4).
+    await ctx.idle(1, { wco: true });
     ctx.modal();
     await ctx.wait(200);
     expect(ctx.lines(m2).slice(0, 2)).toEqual(['$J=G91 G21 Z-3 F100\n', '~']);
@@ -528,6 +532,8 @@ describe('Pause et dégager: supervision', () => {
     const mark = ctx.mark();
     const t = await ctx.req('prepare', { operation: 'resume', revision: ctx.state().revision }, A, 'tA2');
     await ctx.req('resume', { nonce: t.nonce }, A, 'tA2');
+    // From held, `~` waits for a work offset reported after the request (second review D4).
+    await ctx.idle(1, { wco: true });
     await ctx.wait(200);
     expect(ctx.lines(mark).slice(0, 1)).toEqual(['~']);
     expect(ctx.lines(mark).some((d) => /^\$J|^M[345]/.test(d))).toBe(false);
@@ -997,6 +1003,8 @@ describe('Pause et dégager: the windows found by the review', () => {
     ctx.modal();
     await ctx.okIdle(2, { speed: 1000 });
     await ctx.jog(-8);
+    // The board reports its work offset after the last line (`~` waits for one, second review D4).
+    await ctx.idle(1, { wco: true });
     expect(ctx.lines(mark)).toEqual(['M3 S1000\n', 'G4 P3\n', '$J=G91 G21 Z-3 F100\n']);
     ctx.service.closeTransport('tA', true);
     ctx.modal();
@@ -1288,6 +1296,87 @@ describe('Pause et dégager: the windows of the second review', () => {
     await ctx.wait(300);
     expect(ctx.lines(mark)).not.toContain('~');
     expect(ctx.state().pauseRetract.phase).toBe('failed');
+  });
+
+  test.each([
+    ['between the two Idle reports of the rest', 'between'],
+    ['while the machine finishes its lines (Run)', 'run']
+  ])('2-D4. G54 changed %s: the new zero never becomes the reference, the in-place resume is refused', async (name, when) => {
+    const ctx = await setup();
+    await ctx.retract();
+    if (when === 'run') {
+      ctx.wco.z = -105;
+      ctx.now += 250;
+      ctx.report('Run', { feed: 600, wco: true });
+      ctx.finish();
+      await ctx.idle(2);
+    } else {
+      ctx.finish();
+      await ctx.idle(1);
+      ctx.wco.z = -105;
+      await ctx.idle(1, { wco: true });
+    }
+    ctx.modal();
+    await ctx.wait(100);
+    await ctx.jog(-5);
+    ctx.gc.spindle = 'M5';
+    await ctx.okIdle(2, { wco: true });
+    ctx.modal();
+    await ctx.wait(1100);
+    const mark = ctx.mark();
+    await expect(ctx.resume()).rejects.toMatchObject({ code: 'ETOUCH_RETRACT_ZERO_CHANGED' });
+    await ctx.wait(500);
+    expect(ctx.lines(mark)).toEqual([]);
+    expect(ctx.state().pauseRetract).toMatchObject({ phase: 'failed', failure: { code: 'ETOUCH_RETRACT_ZERO_CHANGED' } });
+  });
+
+  test('2-D4b. `~` waits for a work offset reported after the last line: a G54 changed during the descent is seen', async () => {
+    const ctx = await setup({ z: -8 });
+    await ctx.retract();
+    await ctx.rest();
+    await ctx.wait(0);
+    await ctx.jog(-5);
+    ctx.gc.spindle = 'M5';
+    await ctx.okIdle(2, { wco: true });
+    const mark = ctx.mark();
+    await ctx.resume();
+    await ctx.wait(100);
+    ctx.gc.spindle = 'M3';
+    await ctx.okIdle(2, { speed: 1000 });
+    ctx.modal();
+    await ctx.okIdle(2, { speed: 1000 });
+    await ctx.jog(-8);
+    expect(ctx.lines(mark)).toEqual(['M3 S1000\n', 'G4 P3\n', '$J=G91 G21 Z-3 F100\n']);
+    // A client changes G54; the board has not reported the offset since.
+    ctx.wco.z = -105;
+    ctx.modal();
+    await ctx.wait(300);
+    expect(ctx.lines(mark)).not.toContain('~');
+    await ctx.idle(1, { wco: true });
+    await ctx.wait(200);
+    expect(ctx.lines(mark)).not.toContain('~');
+    expect(ctx.state().pauseRetract.failure.code).toBe('ETOUCH_RETRACT_ZERO_CHANGED');
+  });
+
+  test('2-D8. a report without coordinates right before a write (the stream back after the dwell): a new proof is awaited, no refusal for good', async () => {
+    const ctx = await setup();
+    await ctx.park();
+    const mark = ctx.mark();
+    await ctx.resume();
+    await ctx.wait(100);
+    ctx.gc.spindle = 'M3';
+    await ctx.okIdle(2, { speed: 1000 });
+    ctx.modal();
+    ctx.service.closeTransport('tA', true);
+    await ctx.okIdle(2, { speed: 1000 });
+    ctx.now += 250;
+    ctx.parse('<Idle|FS:0,1000>');
+    ctx.service.openTransport('tA8', A);
+    await ctx.wait(200);
+    expect(ctx.state().pauseRetract.phase).toBe('returning');
+    await ctx.idle(1, { speed: 1000 });
+    await ctx.wait(200);
+    expect(ctx.lines(mark).pop()).toBe('$J=G91 G21 Z-108.4 F600\n');
   });
 
   test('2-D1c. Arrêter, a jog still reported after 5 s: cancels repeated, no reset before the time limit, the reset at the limit (stop over position)', async () => {

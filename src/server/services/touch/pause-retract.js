@@ -543,11 +543,31 @@ export const createRetract = (deps) => {
     }
   };
 
+  // The latest report carries coordinates of its own, and is fresh (D8: CNCjs keeps the XYZ of an
+  // older report).
+  const positioned = (r, s) => s.xyzReport === r.reports && fresh(r);
+  // Waits until `also()` holds, then for a report with coordinates, at most STALE_MS from then
+  // (second review D8): a report without XYZ is no move; past that time atPosition() says so.
+  const settled = (c, r, s, also = () => true) => {
+    let since = null;
+    return until(c, r, s, () => {
+      if (!also()) {
+        since = null;
+        return false;
+      }
+      if (since === null) {
+        since = clock();
+      }
+      return positioned(r, s) || clock() - since > STALE_MS;
+    });
+  };
+
   // The position of the machine is `at` within POS_TOL, or throws ETOUCH_RETRACT_POSITION. Only the
-  // coordinates of the latest report, and a fresh one (D8): CNCjs keeps the XYZ of an older report.
+  // coordinates of the latest report, and a fresh one (D8); without them, the reports are stale
+  // (soft: nothing moved as far as F2 knows, second review D8).
   const atPosition = (c, r, s, at, code = 'ETOUCH_RETRACT_POSITION') => {
-    if (s.xyzReport !== r.reports || !fresh(r)) {
-      throw failure(code, { axis: 'XYZ' }, true);
+    if (!positioned(r, s)) {
+      throw failure('ETOUCH_RETRACT_STALE', {}, true);
     }
     const now = mposOf(c);
     const axis = ['x', 'y', 'z'].find((a) => !now || Math.abs(now[a] - at[a]) > POS_TOL);
@@ -617,7 +637,7 @@ export const createRetract = (deps) => {
   // Nothing leaves while the device's stream is away, even within its grace (a rotation); once it is
   // back, everything is checked again at that very moment (ensure, then `before` with `where`).
   // `where.spindle`: the spindle must keep turning until the line is done, or the move is cancelled.
-  const send = (c, r, s, line, limitMs, expect, where) => until(c, r, s, () => streamOpen(s)).then(() => {
+  const send = (c, r, s, line, limitMs, expect, where) => settled(c, r, s, () => streamOpen(s)).then(() => {
     ensure(c, r, s);
     if (!LINE.test(line)) {
       throw failure('ETOUCH_RETRACT_ERROR', { error: -1 });
@@ -678,6 +698,8 @@ export const createRetract = (deps) => {
         endJog(s);
       }
       s.lastModalMark = out.modalMark;
+      // `~` needs a work offset reported after the last line of ours (second review D4).
+      s.wcoFrom = Math.max(s.wcoFrom, out.okMark);
       return out;
     }, (err) => {
       // A line Grbl refused never ran.
@@ -724,9 +746,10 @@ export const createRetract = (deps) => {
       mpos: { ...s.restMpos },
       restReport: s.restReport,
       modal: p,
-      // The work offset in force at the stop (D4): the last explicit WCO received up to the rest.
-      // Every WCO received after the rest must equal it; without one, no in-place resume.
-      wco: s.restWco ? { ...s.restWco } : null
+      // The work offset in force at the stop (D4, second review): the last explicit WCO received
+      // before « Pause et dégager », every WCO received since equal to it (report()); without one,
+      // no in-place resume.
+      wco: s.refWco ? { ...s.refWco } : null
     };
     s.spindle = (spindle === 'M3' || spindle === 'M4') && p.S !== null ? { mode: spindle, speed: p.S } : null;
     s.spindleOn = spindle === 'M3' || spindle === 'M4';
@@ -822,7 +845,6 @@ export const createRetract = (deps) => {
         s.line = stopLine(c, r);
         s.restReport = r.reports;
         s.restMpos = b.mpos;
-        s.restWco = r.wco ? { x: r.wco.x, y: r.wco.y, z: r.wco.z } : null;
         s.modalMark = s.modals;
         s.restClock = clock();
         changed();
@@ -937,7 +959,12 @@ export const createRetract = (deps) => {
       spindleLost: false,
       spindleSpun: false,
       spindleModal: false,
-      restWco: null,
+      // The work offset reference: the last explicit WCO before the request, and from which report
+      // on every WCO is compared with it (second review D4).
+      refWco: r.wco ? { x: r.wco.x, y: r.wco.y, z: r.wco.z } : null,
+      startReport: r.reports,
+      // `~` needs a WCO received after this report (the rest, then the `ok` of our last line).
+      wcoFrom: 0,
       // The in-place resume ruled out without stopping the lift (D4).
       invalid: null,
       spindleOn: false,
@@ -959,7 +986,7 @@ export const createRetract = (deps) => {
 
   // § 5.1 guards 2 to 7 (1 is readyFor's). `final`: R5, the full modal state, spindle included.
   // Throws a failure; a failure not `soft` ends the in-place resume when `commit` is true.
-  const resumeChecks = (c, r, s, { final = false, needWco = false } = {}) => {
+  const resumeChecks = (c, r, s, { final = false, wcoAfter = null } = {}) => {
     if (s.phase !== 'parked' && s.phase !== 'held' && s.phase !== 'returning') {
       const f = s.phase === 'failed' && s.failure ? s.failure : { code: 'ETOUCH_RETRACT_NOT_RUNNING', params: {} };
       throw failure(f.code, f.params, true);
@@ -986,10 +1013,10 @@ export const createRetract = (deps) => {
     const parked = s.phase === 'parked' || (s.phase === 'returning' && !s.fromHeld);
     const z = final || !parked ? m.mpos.z : m.zTop;
     atPosition(c, r, s, { x: m.mpos.x, y: m.mpos.y, z }, 'ETOUCH_RETRACT_MOVED');
-    // D4: the offset in force at the stop is known, and the last WCO, received after the rest when
-    // `needWco`, is equal to it.
+    // D4: the offset in force at the stop is known, and the last WCO, received after report number
+    // `wcoAfter` when given, is equal to it.
     const wco = r.wco;
-    if (!m.wco || (needWco && !(wco && wco.report > m.restReport))) {
+    if (!m.wco || (wcoAfter !== null && !(wco && wco.report > wcoAfter))) {
       throw failure('ETOUCH_RETRACT_ZERO_CHANGED', { axis: 'WCO' });
     }
     const axis = ['x', 'y', 'z'].find((a) => !wco || Math.abs(wco[a] - m.wco[a]) > OFFSET_TOL);
@@ -1077,15 +1104,17 @@ export const createRetract = (deps) => {
     const t0 = clock();
     const aU = RETRACT_APPROACH_MM * 1000;
     const here = (z) => ({ x: m.mpos.x, y: m.mpos.y, z });
-    let chain = until(c, r, s, () => {
-      if (r.wco && r.wco.report > m.restReport) {
+    // A WCO received after the rest; from held, nothing of ours runs before `~`: after the request.
+    s.wcoFrom = s.fromHeld ? r.reports : m.restReport;
+    let chain = settled(c, r, s, () => {
+      if (r.wco && r.wco.report > s.wcoFrom) {
         return true;
       }
       if (clock() - t0 > WCO_WAIT_MS) {
         throw failure('ETOUCH_RETRACT_ZERO_CHANGED', { axis: 'WCO' });
       }
       return false;
-    }).then(() => resumeChecks(c, r, s, { needWco: true }));
+    }).then(() => resumeChecks(c, r, s, { wcoAfter: s.wcoFrom }));
     if (!s.fromHeld) {
       const sp = s.spindle;
       if (sp) {
@@ -1129,33 +1158,40 @@ export const createRetract = (deps) => {
           return send(c, r, s, line, jogLimit(c, d, RETRACT_PLUNGE_FEED), () => atPosition(c, r, s, here(m.mpos.z)), where);
         });
       }
-      // R5: a $G received after the last line's ok, equal to the remembered state, spindle included.
+      // R5: a $G and a WCO received after the last line's ok, equal to the remembered state, spindle
+      // included (second review D4: the offset is not taken from before the descent).
       chain = chain.then(() => {
         s.step = 'verify';
         changed();
         const t1 = clock();
-        return until(c, r, s, () => {
-          if (s.modals > s.lastModalMark && modalFresh(r)) {
-            return resumeChecks(c, r, s, { final: true, needWco: true });
-          }
-          if (clock() - t1 > MODAL_WAIT_MS) {
+        return settled(c, r, s, () => {
+          const modalSeen = s.modals > s.lastModalMark && modalFresh(r);
+          if (!modalSeen && clock() - t1 > MODAL_WAIT_MS) {
             throw failure('ETOUCH_RETRACT_MODAL');
           }
-          return false;
-        });
+          // A change already visible ends it at once, the offset reported after the last line or not.
+          if (modalSeen && positioned(r, s)) {
+            resumeChecks(c, r, s, { final: true });
+          }
+          const wcoSeen = !!r.wco && r.wco.report > s.wcoFrom;
+          if (!wcoSeen && clock() - t1 > WCO_WAIT_MS) {
+            throw failure('ETOUCH_RETRACT_ZERO_CHANGED', { axis: 'WCO' });
+          }
+          return modalSeen && wcoSeen;
+        }).then(() => resumeChecks(c, r, s, { final: true, wcoAfter: s.wcoFrom }));
       });
     }
     chain
       // R6 (D7): never without an open stream of the device, whatever the grace; after that wait
       // every check is made again at that very moment.
-      .then(() => until(c, r, s, () => streamOpen(s)))
+      .then(() => settled(c, r, s, () => streamOpen(s)))
       .then(() => {
         // R6: the very last checks, then CNCjs sends the rest of the program.
         if (!streamOpen(s)) {
           throw failure('ETOUCH_RETRACT_STREAM');
         }
         ensure(c, r, s);
-        resumeChecks(c, r, s, { final: true, needWco: true });
+        resumeChecks(c, r, s, { final: true, wcoAfter: s.wcoFrom });
         logOf(c, r, s, 'resumed', {});
         log({ event: 'resume', ...jobInfo(r.job), controller: controllerInfo(c, r), pause: 'retract', actor: s.resumeActor });
         // Done: the spindle and the bit are the program's again (no spindle stop may follow).
@@ -1323,9 +1359,10 @@ export const createRetract = (deps) => {
       s.rest = [];
       return;
     }
-    // D4: every WCO received after the rest equals the one in force at the stop.
-    if (s.restReport !== null && r.wco && r.wco.report === r.reports && r.wco.report > s.restReport) {
-      const ref = s.restWco;
+    // D4 (second review): every WCO received since the request equals the last one before it, through
+    // the drain and the proof of rest too: a zero changed then never becomes the reference.
+    if (r.wco && r.wco.report === r.reports && r.wco.report > s.startReport) {
+      const ref = s.refWco;
       const axis = ['x', 'y', 'z'].find((a) => !ref || Math.abs(r.wco[a] - ref[a]) > OFFSET_TOL);
       if (axis) {
         invalidate(c, r, s, { code: 'ETOUCH_RETRACT_ZERO_CHANGED', params: { axis: ref ? axis.toUpperCase() : 'WCO' } });
