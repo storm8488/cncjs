@@ -1398,7 +1398,7 @@ export const createRetract = (deps) => {
 
   // Every status report (job-service r.status, after the count): Idle streaks, rest, offset.
   // `seen.xyz`: this report carries coordinates of its own (CNCjs keeps the old ones otherwise, D8);
-  // `seen.speed`: the spindle speed of its FS: field, or undefined.
+  // `seen.speed`: the spindle speed of its FS: field, or undefined; `seen.acc`: its A: field, or undefined.
   // What every report tells a retract, in progress or dropped (its tail): the latest reports with XYZ
   // and with FS (D8, D3), the Idle streak, and the end of a jog of ours that the sequence no longer
   // waits for (cancelled, or the retract gone): its line answered, then two reports at rest with
@@ -1454,6 +1454,18 @@ export const createRetract = (deps) => {
       } else if (s.spindleSpun) {
         spindleGone(c, r, s);
       }
+    }
+    // Fourth review: the direction the board itself reports in this report (A:S clockwise, A:C
+    // counter-clockwise), compared as it comes, like a $G: another direction than our M3/M4 once it
+    // is answered loses our spindle for good; another than the one it must be (spindleWant) ends the
+    // in-place resume. A report without S or C in A: says nothing of the spindle.
+    const dir = typeof seen.acc !== 'string' ? null : (/S/.test(seen.acc) && 'M3') || (/C/.test(seen.acc) && 'M4') || null;
+    if (dir && s.spindle && s.spindleT && s.spindleT.oks >= 1 && r.reports > s.spindleT.reportsAtOk && dir !== s.spindle.mode) {
+      spindleGone(c, r, s);
+    }
+    const want = dir && spindleWant(s);
+    if (want && !s.foreignSpindle && r.reports >= want.since && dir !== want.mode) {
+      s.foreignSpindle = 'spindle';
     }
     // D5: an Alarm state, even in a single report between two ticks, ends the retract now.
     if (/^Alarm/.test(state)) {

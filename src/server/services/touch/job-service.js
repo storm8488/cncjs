@@ -487,7 +487,12 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         // F2: Idle streaks, proof of rest and work offset of a retract (pause-retract.js), with what
         // this very report carried (CNCjs keeps the XYZ and FS: of an older one).
         try {
-          retract.report(c, r, { xyz: explicitXyz(payload), speed: payload && payload.spindle, ov: payload && payload.ov });
+          retract.report(c, r, {
+            xyz: explicitXyz(payload),
+            speed: payload && payload.spindle,
+            ov: payload && payload.ov,
+            acc: payload && payload.accessoryState
+          });
         } catch (_) {
           // Never break CNCjs's reading of the port; the supervision tick decides again.
         }

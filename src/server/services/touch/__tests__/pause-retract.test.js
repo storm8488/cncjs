@@ -1623,6 +1623,121 @@ describe('Pause et dégager: the windows of the third review', () => {
   });
 });
 
+// Fourth review (F2-CORRECTIONS.md, fourth round): the direction of the spindle reported by the board
+// itself (`A:S` clockwise, `A:C` counter-clockwise, Grbl 1.1). Explicit, it is compared like a $G as
+// it comes; its absence means nothing (not read as a spindle stopped).
+describe('Pause et dégager: the spindle direction reported in A: (fourth review)', () => {
+  const toApproach = async (ctx) => {
+    await ctx.park();
+    const mark = ctx.mark();
+    await ctx.resume();
+    await ctx.wait(100);
+    ctx.gc.spindle = 'M3';
+    await ctx.okIdle(2, { speed: 1000 });
+    ctx.modal();
+    await ctx.okIdle(2, { speed: 1000 });
+    expect(ctx.lines(mark)).toEqual(['M3 S1000\n', 'G4 P3\n', '$J=G91 G21 Z-108.4 F600\n']);
+    return mark;
+  };
+  const plunges = (ctx, mark) => ctx.lines(mark).filter((d) => /^\$J=G91 G21 Z-/.test(d) && d !== '$J=G91 G21 Z-108.4 F600\n');
+  // A report with the spindle at `speed`, the override at 100 % and the accessory state `acc`.
+  const acc = async (ctx, state, a, speed = 1000) => {
+    ctx.now += 250;
+    ctx.parse('<' + state + '|MPos:' + f3(ctx.m.x) + ',' + f3(ctx.m.y) + ',' + f3(ctx.m.z) + '|FS:0,' + speed + '|Ov:100,100,100|A:' + a + '>');
+    await jest.advanceTimersByTimeAsync(250);
+  };
+
+  test('4-D2. the approach over, its two reports at rest say A:C (speed 1000, no new $G): no plunge', async () => {
+    const ctx = await setup();
+    const mark = await toApproach(ctx);
+    ctx.parse('ok');
+    ctx.now += 250;
+    ctx.report('Jog', { speed: 1000 });
+    ctx.m.z = -113.4;
+    await acc(ctx, 'Idle', 'C');
+    await acc(ctx, 'Idle', 'C');
+    await ctx.wait(300);
+    expect(plunges(ctx, mark)).toEqual([]);
+    expect(ctx.state().pauseRetract).toMatchObject({ phase: 'failed', failure: { code: 'ETOUCH_RETRACT_SPINDLE' } });
+    // The loss is for good: A:S and the right $G again bring nothing back.
+    await acc(ctx, 'Idle', 'S');
+    ctx.modal();
+    await ctx.idle(2, { speed: 1000 });
+    await ctx.wait(300);
+    expect(plunges(ctx, mark)).toEqual([]);
+    expect(ctx.lines(mark)).not.toContain('~');
+  });
+
+  test('4-D2b. A:C in a report of the approach itself: the approach is cancelled at once', async () => {
+    const ctx = await setup();
+    const mark = await toApproach(ctx);
+    ctx.parse('ok');
+    const m2 = ctx.mark();
+    await acc(ctx, 'Jog', 'C');
+    expect(ctx.lines(m2)[0]).toBe('\x85');
+    expect(ctx.state().pauseRetract).toMatchObject({ phase: 'failed', failure: { code: 'ETOUCH_RETRACT_SPINDLE' } });
+    ctx.m.z = -60;
+    await ctx.idle(3, { speed: 1000 });
+    await ctx.wait(300);
+    expect(plunges(ctx, mark)).toEqual([]);
+  });
+
+  test('4-D2c. A:C during the dwell, right after our M3 is answered: no descent at all', async () => {
+    const ctx = await setup();
+    await ctx.park();
+    const mark = ctx.mark();
+    await ctx.resume();
+    await ctx.wait(100);
+    ctx.gc.spindle = 'M3';
+    ctx.parse('ok');
+    await acc(ctx, 'Idle', 'C');
+    await ctx.idle(2, { speed: 1000 });
+    ctx.modal();
+    await ctx.okIdle(2, { speed: 1000 });
+    await ctx.wait(300);
+    expect(ctx.lines(mark).filter((d) => /^\$J=/.test(d))).toEqual([]);
+    expect(ctx.state().pauseRetract.phase).toBe('failed');
+  });
+
+  test.each([['held', 'C'], ['parked', 'S'], ['parked', 'C']])('4-D2d. %s, a report says A:%s: the in-place resume ends, for good', async (where, a) => {
+    const ctx = await setup();
+    if (where === 'parked') {
+      await ctx.park();
+      await acc(ctx, 'Idle', a, 0);
+    } else {
+      await ctx.retract();
+      ctx.service.closeTransport('tA');
+      ctx.service.openTransport('tA2', A);
+      await ctx.rest();
+      await ctx.wait(500);
+      expect(ctx.state().pauseRetract.phase).toBe('held');
+      await acc(ctx, 'Idle', a);
+    }
+    expect(ctx.state().pauseRetract).toMatchObject({ phase: 'failed', failure: { code: 'ETOUCH_RETRACT_STATE_CHANGED', params: { field: 'spindle' } } });
+  });
+
+  test('4-D2e. A:S, the expected direction, everywhere in the resume: no refusal, `~` follows', async () => {
+    const ctx = await setup();
+    const mark = await toApproach(ctx);
+    ctx.parse('ok');
+    ctx.now += 250;
+    ctx.report('Jog', { speed: 1000 });
+    ctx.m.z = -113.4;
+    await acc(ctx, 'Idle', 'S');
+    await acc(ctx, 'Idle', 'S');
+    await ctx.wait(100);
+    expect(ctx.lines(mark).pop()).toBe('$J=G91 G21 Z-5 F100\n');
+    ctx.parse('ok');
+    ctx.m.z = -118.4;
+    await acc(ctx, 'Idle', 'S');
+    await acc(ctx, 'Idle', 'S');
+    await ctx.idle(1, { wco: true });
+    ctx.modal();
+    await ctx.wait(200);
+    expect(ctx.lines(mark)).toContain('~');
+  });
+});
+
 // Third review: the state table of the whole sequence (F2-CORRECTIONS.md, « Troisième tour »). Each
 // state is reached with the real controller, each event is played in it; the phase right after the
 // event is the one of the table, and then, the board answering every line for 4 s (its `ok`, its
