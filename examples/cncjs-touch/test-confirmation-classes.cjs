@@ -2,7 +2,7 @@
 const assert=require('assert').strict,{load}=require('./job-controls-fixture.cjs');
 (async()=>{
  for(const op of ['home','unlock','zeroZ','blockProbe','spindle','start','resume','macro','frame']){
- const f=load();await f.connect(f.machine({canHome:true,canUnlock:true,canZeroZ:true,canBlockProbe:true,canSpindleTest:true,canMacro:true,canResume:true,machineProfile:{kind:'cnc',capabilities:{laserFrame:{supported:true}}}}));
+ const f=load();await f.connect(f.machine({canHome:true,canUnlock:true,canZeroZ:true,canBlockProbe:true,canSpindleTest:true,canMacro:true,canResume:true,machineProfile:{kind:'cnc',capabilities:{laserFrame:{supported:true},cncFrame:{supported:true}}}}));
  if(op==='start')f.controls().start();else if(op==='resume')f.controls().resume();else if(op==='macro')f.controls().prepareMacro('m1');else if(op==='frame')f.controls().prepareFrame();else f.controls().prepareCommand(op);
  const req=f.posts().at(-1);assert(req);f.answer(req,{nonce:'test',expiresIn:15,revision:'rev-1',name:'part.nc',blockProbe:{axes:'XYZ'}});await f.flush();assert.equal(f.el('job-dialog').hidden,false,op);
  assert(!/Confirmer|^OK$/.test(f.el('job-confirm').textContent),op+' names its effect');

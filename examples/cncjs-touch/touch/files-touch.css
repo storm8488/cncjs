@@ -75,6 +75,8 @@
 #check-rapids .t-ov-row{display:flex;gap:12px}
 #check-rapids button{min-height:64px;flex:1;padding:8px}
 #check-frame-start,#check-override-open{min-height:64px}
+/* Lot F1: the framing state line (it may hold a refusal band) takes no room while empty: a laser shows none. */
+#check-frame-state:empty{display:none}
 #check-details-open,#check-placement-open{min-height:48px}
 #ks-check-placement .ks-sheet-card{width:calc(100vw - 48px);max-width:none}
 #ks-check-placement .op-card{min-height:480px}

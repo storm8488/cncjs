@@ -434,3 +434,24 @@ window.CNCTouchMessages.push(
 ["{value} paquet(s) mis à jour. Redémarrage de la tablette nécessaire.","{value} package(s) updated. Tablet restart required.","{value} paquete(s) actualizado(s). Es necesario reiniciar la tableta."],
 ["Mise à jour impossible : {value}","Update failed: {value}","Error al actualizar: {value}"]
 );
+// Lot F1: framing in the air on a CNC (check-screen.js, job-controls.js).
+(window.CNCTouchMessages=window.CNCTouchMessages||[]).push(
+['Cadrer à vide…','Frame in the air…','Encuadrar en vacío…'],
+['Cadrer à vide','Frame in the air','Encuadrar en vacío'],
+['La fraise monte tout en haut, puis fait le tour du fichier, broche arrêtée. Elle ne redescend pas.','The bit rises to the top, then goes around the file, spindle stopped. It does not come back down.','La fresa sube hasta arriba y recorre el contorno del archivo, con el husillo parado. No vuelve a bajar.'],
+['Je suis devant la machine et rien de haut ne gêne la broche.','I am at the machine and nothing tall is in the spindle’s way.','Estoy delante de la máquina y nada alto estorba al husillo.'],
+['{L} × {l} mm · environ {N} min','{L} × {l} mm · about {N} min','{L} × {l} mm · unos {N} min'],
+['Cadrage à vide : la fraise monte.','Framing: the bit is rising.','Encuadre: la fresa sube.'],
+['Cadrage à vide : vers le premier coin.','Framing: going to the first corner.','Encuadre: hacia la primera esquina.'],
+['Cadrage à vide : côté {n} sur {N}.','Framing: side {n} of {N}.','Encuadre: lado {n} de {N}.'],
+['Cadrage à vide : retour au point de départ.','Framing: back to the starting point.','Encuadre: vuelta al punto de partida.'],
+['Cadrage terminé. La fraise est restée en haut.','Framing done. The bit stayed up.','Encuadre terminado. La fresa se ha quedado arriba.'],
+['Cadrage arrêté.','Framing stopped.','Encuadre detenido.'],
+['Cadrage en cours.','Framing in progress.','Encuadre en curso.'],
+['Lignes du cadrage','Framing lines','Líneas del encuadre'],
+['Hauteur sûre (position machine)','Safe height (machine position)','Altura segura (posición máquina)'],
+['montée','rise','subida'],
+['Rectangle','Rectangle','Rectángulo'],
+['Note','Note','Nota'],
+['Le cadrage suit le centre de la fraise. Il ne vérifie ni les brides ni la profondeur.','Framing follows the centre of the bit. It checks neither clamps nor depth.','El encuadre sigue el centro de la fresa. No comprueba ni las bridas ni la profundidad.']
+);

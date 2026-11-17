@@ -280,12 +280,13 @@
   // Whether the machine state still allows what a ticket was issued for.
   // Commissioning commands confirmed through the same dialog (no loaded program involved).
   var COMMANDS={unlock:'canUnlock',home:'canHome',spindle:'canSpindleTest',zeroZ:'canZeroZ',blockProbe:'canBlockProbe'};
-  // Laser framing: a ticket of the machine action (frame-prepare, then frame with its nonce).
-  function laserFrame(state){var c=state&&state.machineProfile&&state.machineProfile.capabilities;return !!(c&&c.laserFrame&&c.laserFrame.supported===true);}
+  // Framing: a ticket of the machine action (frame-prepare, then frame with its nonce). A laser frames
+  // at its height (laserFrame), a CNC in the air (cncFrame, lot F1); the server chooses by the kind.
+  function laserFrame(state){var p=state&&state.machineProfile,c=p&&p.capabilities;return !!(c&&(p.kind==='laser'?c.laserFrame&&c.laserFrame.supported===true:c.cncFrame&&c.cncFrame.supported===true));}
   function standalone(operation){return operation==='macro'||operation==='frame'||Object.prototype.hasOwnProperty.call(COMMANDS,operation);}
   function ticketAllowed(t,state){
     if(t.operation==='macro')return !!state.canMacro;
-    if(t.operation==='frame')return laserFrame(state)&&state.revision===t.revision;
+    if(t.operation==='frame')return laserFrame(state)&&state.revision===t.revision&&(t.frameKind!=='cnc'||state.canFrame===true);
     if(Object.prototype.hasOwnProperty.call(COMMANDS,t.operation))return !!state[COMMANDS[t.operation]];
     if(state.revision!==t.revision)return false;
     return t.operation==='start'?!!(simulation||state.workOffset&&state.workOffset.state==='proven')&&(t.override?!!(state.homed&&!state.referenceLost&&state.programCheck&&state.programCheck.overridable&&outside(state.programCheck)):!!state.canStart):!!state.canResume;
@@ -558,7 +559,7 @@
       if(ownGeneration!==generation||ownConfirmation!==confirmation||document.hidden||sourceSheet&&sourceSheet.hidden||!current||current.port!==port||(!standalone(operation)&&current.revision!==revision))return {opened:false,error:null};
       until=started+Math.min(15,Number(data.expiresIn)||0)*1000;
       if(elapsedClock()<started||elapsedClock()>=until){var late=uiLocale.t('Confirmation expirée. Préparez une nouvelle confirmation.');text('job-feedback',late);setFeedbackState('failed');render();return {opened:false,error:new Error(late)};}
-      ticket={nonce:data.nonce,operation:operation,port:port,revision:revision,generation:generation,started:started,programCheck:data.programCheck||current.programCheck,override:!!(data.override&&Array.isArray(data.override.blocking)&&data.override.blocking.length)};
+      ticket={nonce:data.nonce,operation:operation,port:port,revision:revision,generation:generation,started:started,programCheck:data.programCheck||current.programCheck,override:!!(data.override&&Array.isArray(data.override.blocking)&&data.override.blocking.length),frameKind:operation==='frame'&&data.frame&&data.frame.kind||null};
       if(operation==='start'&&!ticket.override&&outside(ticket.programCheck)){
         var blocked=serverRefusal({code:'ETOUCH_START_OUTSIDE',params:{},reasons:ticket.programCheck.blocking||[],message:uiLocale.t('Le fichier dépasse la course de la machine.')},409);
         dismiss(false);text('job-feedback',blocked.message);setFeedbackState('failed');showRefusal(blocked,refusalHost());render();return {opened:false,error:blocked};
@@ -586,6 +587,9 @@
       if(operation==='zeroZ')$('job-warning').textContent=uiLocale.t('La fraise descend jusqu’à la plaque de {epaisseur} mm, de {descente} mm au plus.').replace('{epaisseur}',String(request.thickness===undefined?'—':request.thickness)).replace('{descente}',String(request.search===undefined?'—':request.search));
       if(operation==='start'&&!simulation)$('job-warning').textContent=uiLocale.t(current.machineProfile&&current.machineProfile.kind==='laser'?'Le laser s’allume et la tête se déplace.':'La broche démarre et la machine se déplace.');
       if(operation==='frame'){$('job-warning').textContent=uiLocale.t('La tête fait le tour du fichier, laser éteint.');$('job-check-text').textContent=uiLocale.t('Je suis devant la machine et la table est dégagée.');}
+      // Lot F1, framing in the air (CNC): what the server's ticket says it will do.
+      var airFrame=operation==='frame'&&ticket.frameKind==='cnc'?data.frame:null;
+      if(airFrame){title.frame=uiLocale.t('Cadrer à vide');$('job-dialog-title').textContent=title.frame;$('job-warning').textContent=uiLocale.t('La fraise monte tout en haut, puis fait le tour du fichier, broche arrêtée. Elle ne redescend pas.');$('job-check-text').textContent=uiLocale.t('Je suis devant la machine et rien de haut ne gêne la broche.');}
       if(operation==='macro'){$('job-warning').textContent=uiLocale.t('Une macro peut déplacer la machine et faire tourner la broche.');$('job-check-text').textContent=uiLocale.t('Je suis devant la machine et je connais cette macro.');}
       if(operation==='start'&&!simulation&&ticket.programCheck&&ticket.programCheck.verdict==='unknown')$('job-check-text').textContent=uiLocale.t('Je suis devant la machine et j’ai vérifié que le fichier tient dans la machine.');
       // The target machine (label and kind, from the server's profile) and the piloting device.
@@ -603,6 +607,14 @@
           if(Array.isArray(resumeDetails.notes))lines.push({libelle:uiLocale.t('Notes de reprise'),valeur:resumeDetails.notes.filter(function(s){return typeof s==='string';}).map(function(s){return (uiLocale.message||uiLocale.t)(s);}).join('\n')});
         }
         if(operation==='resume'&&pauseDetails&&pauseDetails.message)lines.push({libelle:uiLocale.t('Message du fichier'),valeur:pauseDetails.message});
+        if(airFrame){
+          var b=airFrame.bounds||{},sz=airFrame.safeZ||{};
+          lines.push({libelle:uiLocale.t('Lignes du cadrage'),valeur:(airFrame.lines||[]).join('\n')});
+          lines.push({libelle:uiLocale.t('Vitesse'),valeur:String(airFrame.feed)+' mm/min · Z '+String(airFrame.zFeed)+' mm/min'});
+          lines.push({libelle:uiLocale.t('Hauteur sûre (position machine)'),valeur:'Z '+String(sz.machine)+' mm · '+uiLocale.t('montée')+' '+String(sz.rise)+' mm'});
+          lines.push({libelle:uiLocale.t('Rectangle'),valeur:'X '+b.xMin+' → '+b.xMax+' · Y '+b.yMin+' → '+b.yMax+' mm'});
+          lines.push({libelle:uiLocale.t('Note'),valeur:uiLocale.t('Le cadrage suit le centre de la fraise. Il ne vérifie ni les brides ni la profondeur.')});
+        }
         window.cncShell.details({lignes:lines,brut:operation==='blockProbe'?data.blockProbe:null});
       };
 
@@ -624,7 +636,8 @@
       if(ticket.override&&window.CNCProgramCheckView)startDrawing.innerHTML=window.CNCProgramCheckView.drawing(Object.assign({},ticket.programCheck,{blocking:data.override.blocking}),'side');
       // Tool change resume or a resume from a line: what will happen, in one line.
       // Block probe: the server's numbers of this ticket (search, lateral move, depth, reach).
-      var note=operation==='blockProbe'?(window.CNCProbeReal?window.CNCProbeReal.dialogNote(data.blockProbe):''):window.CNCJobResume&&!simulation?window.CNCJobResume.dialogNote(operation,current,request):'';if($('job-note')){$('job-note').textContent=note;$('job-note').hidden=!note;}
+      var note=operation==='blockProbe'?(window.CNCProbeReal?window.CNCProbeReal.dialogNote(data.blockProbe):''):window.CNCJobResume&&!simulation?window.CNCJobResume.dialogNote(operation,current,request):'';
+      if(airFrame){var fb=airFrame.bounds||{},size=function(n){return String(Math.round(n*10)/10).replace('.',uiLocale.language==='en'?'.':',');};note=uiLocale.t('{L} × {l} mm · environ {N} min').replace('{L}',size(fb.xMax-fb.xMin)).replace('{l}',size(fb.yMax-fb.yMin)).replace('{N}',String(Math.max(1,Math.round((Number(airFrame.seconds)||0)/60))));}if($('job-note')){$('job-note').textContent=note;$('job-note').hidden=!note;}
       var drawing=$('job-probe-diagram');if(!drawing&&$('job-note')){drawing=document.createElement('div');drawing.id='job-probe-diagram';$('job-note').parentNode.insertBefore(drawing,$('job-note'));}
       if(drawing){drawing.hidden=operation!=='blockProbe';if(operation==='blockProbe'&&window.CNCProbeDiagram){var planDrawing=window.CNCProbeDiagram.attach(drawing,{mode:'plan'});planDrawing.update(request.profile,axes,request.diameter,data.blockProbe);$('job-note').hidden=true;}}
       countdown(Math.max(0,Math.ceil((until-elapsedClock())/1000)));
