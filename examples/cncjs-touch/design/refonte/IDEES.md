@@ -28,6 +28,7 @@
 | I-20 | Faire reprendre la machine axe par axe après incident | Veille 9, partie non reprise | Le volet de reprise et son préambule existent. Une validation distincte par axe modifierait les commandes : pas réalisée. |
 | I-21 | Choisir les points de palpage au doigt sur une caméra | Veille hors liste, DATRON non vérifié | Non réalisé, sans cas de terrain justifiant le matériel, la calibration ou les commandes associées. |
 | I-22 | Charger moins de catalogues en français | Spec 12, C9 | Optimisation retirée de L6 : les variantes navigateur EN/ES n'ont pas pu être validées. Conserver le chargement complet jusqu'à cette preuve. |
+| I-23 | Reprendre après une coupure de courant de la machine (tablette restée sur batterie) | Opérateur, 2026-11-17 | Non réalisé, mis de côté à sa demande. Le zéro pièce survit dans la carte ; la position machine est perdue (prise d'origine à refaire, précision des capteurs) ; la carte ne rapporte pas la ligne usinée, seulement les lignes envoyées (environ 15 mouvements d'avance). À concevoir : reconnaître la coupure (redémarrage de la carte en plein usinage), choisir une ligne de reprise sûre quelques lignes avant, enregistrer l'avancement sur disque si la tablette s'éteint aussi, guider vers « Reprendre à une ligne ». Limites à dire : marque possible à la reprise, fraise peut-être cassée, essai réel fraise en l'air d'abord. À faire après F2 (mêmes parties du code). |
 
 ## Éléments écartés du plan, sans nouvelle fonction livrée
 
