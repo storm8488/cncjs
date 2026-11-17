@@ -530,6 +530,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         // A Home state seen before the restart says nothing about the new session.
         r.sawHome = false;
         r.startups += 1;
+        // A framing ends at the banner itself, without a byte to the new session (lot F1, C1).
+        moves.restarted(c, r);
         // A banner ends the plate's old session, including boards returning directly to Idle.
         if (r.probing && r.probing.kind === 'plate') {
           r.probing.cancelled = true;
@@ -584,6 +586,12 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       r.file = () => {
         r.job = null;
         r.ticket = null;
+        // A program replaced during a framing (an upload of CNCjs, lot F1 review C3) ends it now:
+        // a CNC framing with its code, a laser one as a stop.
+        moves.supervise(c, r);
+        if (moves.framing(r)) {
+          moves.stop(c, r, 'program');
+        }
         changed();
       };
       c.runner.on('status', r.status);
@@ -2054,7 +2062,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     const lines = ['M5'];
     const limits = [10000];
     const phases = ['spindle'];
-    const expect = [null];
+    // M5 moves nothing: the machine stays where the plan was made (review D2).
+    const expect = [{ x: mx, y: my, z: mz }];
     let moveMs = 0;
     const rise = Number(fmt3(safeZ - mz));
     if (rise >= CNC_FRAME_MIN_RISE_MM) {
@@ -2960,6 +2969,32 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
   };
 
+  // index.js refuseSocket: a jog cancel from a socket (`jogCancel`, 0x85) ends a framing of the
+  // server, synchronously, before it passes (lot F1, review D4): a framing is a sequence of jogs,
+  // and the operator who cancels one does not want the next. The probes are not jogs: they keep
+  // their own stops (socketStop).
+  const socketJogCancel = (port) => {
+    const c = !disposed && controllers()[port];
+    const r = c && records.get(c);
+    if (!r) {
+      return;
+    }
+    if (r.frameStarting) {
+      r.frameStarting.cancelled = true;
+    }
+    if (moves.framing(r)) {
+      moves.stop(c, r, 'socket');
+    }
+  };
+
+  // api.gcode.js upload (POST /api/gcode, CNCjs's own loading): refused while a framing runs or
+  // waits to start (lot F1, review C3). Null when allowed.
+  const uploadRefusal = (port) => {
+    const c = !disposed && controllers()[port];
+    const r = c && records.get(c);
+    return r && (r.frameStarting || moves.framing(r)) ? conflict(SOCKET_FRAME_BUSY) : null;
+  };
+
   const dispose = () => {
     disposed = true;
     listeners.clear();
@@ -2988,6 +3023,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     socketCommand,
     socketRefusal,
     socketStop,
+    socketJogCancel,
+    uploadRefusal,
     control,
     dispose
   };

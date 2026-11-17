@@ -5,14 +5,28 @@
 // supervisor, the exclusions while it runs, and the laser framing left as it was. Fake controller
 // only: nothing here touches a serial port.
 import { EventEmitter } from 'events';
+import os from 'os';
+import path from 'path';
 import { createService } from '../job-service';
 import { createControl } from '../control';
+import touch from '../index';
+import settings from '../../../config/settings';
 import { fingerprint as sha256 } from '../program-identity';
 import { cncFrameLinesValid, FRAME_MESSAGES } from '../motion';
 import { signatureOf } from '../machine-profile';
 import { expectCatalogMatch } from './touch-codes-catalog';
 import { provenOffset } from './support/proven-offset';
 import { offsetRefusal } from '../work-offset';
+
+// The real touch facade (index.js refuseSocket, refuseUpload) over the service of a test: its
+// createService returns `mockFacade.service` when set, else the real one (every other test).
+const mockFacade = { service: null };
+jest.mock('../job-service', () => {
+  const actual = jest.requireActual('../job-service');
+  return { ...actual, createService: (...args) => mockFacade.service || actual.createService(...args) };
+});
+jest.mock('../system-stats', () => ({ createSystemStats: () => ({ start: jest.fn(), stop: jest.fn(), read: () => ({}) }) }));
+jest.mock('../backlight', () => ({ createBacklight: () => ({ restore: jest.fn(), status: () => ({}), set: jest.fn(), dim: jest.fn(), wake: jest.fn() }) }));
 
 // A small CNC with standard Grbl conventions ($23=0): machine X, Y in [-400, 0], Z in [-80, 0].
 const SETTINGS = {
@@ -854,7 +868,8 @@ describe('CNC framing: exclusions and snapshot', () => {
       ['cnc', 'side', 4, 4],
       ['cnc', 'return', null, 4]
     ]);
-    expect(ctx.state()).toMatchObject({ canFrame: false, frameReason: expect.stringMatching(/Déplacement précédent non terminé/) });
+    // The machine is held by the framing from its first line to its end (review D1).
+    expect(ctx.state()).toMatchObject({ canFrame: false, frameReason: 'Cadrage en cours.' });
   });
 });
 
@@ -892,5 +907,296 @@ describe('laser framing stays as it was (non-regression of lot F1)', () => {
     ctx.tick(61000);
     expect(ctx.c.written).toHaveLength(before);
     expect(ctx.state().motion.lastFrame).toMatchObject({ result: 'cancelled', code: 'ETOUCH_FRAME_RESTART', kind: 'laser' });
+  });
+});
+
+// The safety review of the lot (Astra, F1): each danger (D1-D4) and correction (C1-C3) in its
+// exact window. Each case failed before its correction.
+describe('CNC framing: the windows of the safety review', () => {
+  // The line just written is answered and seen at rest twice, without any supervisor tick.
+  const answeredAtRest = (ctx) => {
+    ctx.ok();
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.report();
+    ctx.report();
+  };
+  const BUSY = /^Cadrage en cours/;
+  // Every request that would move or zero the machine, from the device that runs the framing.
+  const moves = (ctx, transportId = 'tA') => [
+    ['step Z−1', () => ctx.req('motion', { operation: 'jog', axis: 'Z', direction: -1, step: 1, feed: 300 }, A, transportId)],
+    ['continuous X+', () => ctx.req('motion', { operation: 'jog-start', axis: 'X', direction: 1, feed: 300 }, A, transportId)],
+    ['zero X', () => ctx.req('prepare', { operation: 'set-origin', axes: ['X'] }, A, transportId)],
+    ['second framing', () => ctx.req('machine', { operation: 'frame-prepare' }, A, transportId)]
+  ];
+
+  test('D1 / 26b. between two lines (ok and two reports at rest, before the supervisor runs): step, continuous jog, zero and a second framing refused; the box goes on at the safe height', async () => {
+    // Astra's case: started at Z machine −5 (no Z line), M5 answered.
+    const ctx = setup({ at: [-100, -100, -5] });
+    await ctx.start();
+    answeredAtRest(ctx);
+    const before = ctx.c.written.length;
+    for (const [name, attempt] of moves(ctx)) {
+      const err = await refusalOf(attempt());
+      expect([name, err.message]).toEqual([name, expect.stringMatching(BUSY)]);
+    }
+    expect(ctx.c.written).toHaveLength(before);
+    expect(ctx.state().motion).toMatchObject({ canJog: false, jogReason: expect.stringMatching(BUSY), canSetOrigin: false });
+    // The supervisor's next step: the approach, at the height it was.
+    ctx.tick(50);
+    expect(ctx.lines()).toEqual(['M5', '$J=G90 G21 X10 Y20 F600']);
+    expect(ctx.c.machine()[2]).toBe(-5);
+  });
+
+  test('D1 / 26b. the same during a rotation of the stream: the new stream of the device cannot move the machine either', async () => {
+    const ctx = setup();
+    await ctx.start();
+    runTo(ctx, 3);
+    ctx.service.closeTransport('tA', true);
+    ctx.c.state.status.activeState = 'Jog';
+    ctx.report();
+    ctx.c.at(10 + OFFSET.x, 20 + OFFSET.y, -5);
+    answeredAtRest(ctx);
+    ctx.service.openTransport('tA2', A);
+    const before = ctx.c.written.length;
+    for (const [name, attempt] of moves(ctx, 'tA2')) {
+      const err = await refusalOf(attempt());
+      expect([name, err.message]).toEqual([name, expect.stringMatching(BUSY)]);
+    }
+    expect(ctx.c.written).toHaveLength(before);
+  });
+
+  test('D2. no rise planned: the machine moved while M5 waited → stopped before any X/Y (_POSITION), never taken as the new floor', async () => {
+    for (const [name, to, params] of [
+      ['Z down to −60', [-100, -100, -60], { axis: 'Z', expected: '0', reported: '-60' }],
+      ['X moved', [-90, -100, 0], { axis: 'X', expected: '-100', reported: '-90' }]
+    ]) {
+      // Prepared at Z 0, above the safe height (−5): no Z line.
+      const ctx = setup({ at: [-100, -100, 0] });
+      const { res } = await ctx.start();
+      expect(res.lines.some((l) => /Z/.test(l))).toBe(false);
+      ctx.c.at(...to);
+      ctx.report();
+      answeredAtRest(ctx);
+      ctx.tick(150);
+      expect([name, ctx.lines()]).toEqual([name, ['M5']]);
+      expect([name, ctx.state().motion.lastFrame]).toEqual([name, expect.objectContaining({ code: 'ETOUCH_FRAME_POSITION', params })]);
+      expect(ctx.invalidated).toContain('frame');
+      expectNothingAfter(ctx, 1);
+    }
+  });
+
+  test('D2 / D3. the safe height is required right before the first X/Y, even after the rise was validated', async () => {
+    const ctx = setup();
+    await ctx.start();
+    runTo(ctx, 2);
+    // The rise arrives while the stream rotates: validated, the approach waits.
+    ctx.service.closeTransport('tA', true);
+    ctx.run();
+    expect(ctx.lines()).toHaveLength(2);
+    // Then Z goes 0.2 mm down, at rest: the approach must not leave.
+    ctx.c.at(-100, -100, -5.2);
+    ctx.service.openTransport('tA2', A);
+    ctx.tick(150);
+    expect(ctx.lines()).toHaveLength(2);
+    expect(ctx.state().motion.lastFrame).toMatchObject({ code: 'ETOUCH_FRAME_POSITION', params: { axis: 'Z', reported: '-5.2' } });
+    expectNothingAfter(ctx, 2);
+  });
+
+  test('D3. an arrival validated while the stream rotates is no leave to send: a report elsewhere, lower, in Jog or at rest stops it before the next side', async () => {
+    for (const [name, state] of [['Jog', 'Jog'], ['at rest', 'Idle']]) {
+      const ctx = setup();
+      await ctx.start();
+      runTo(ctx, 3);
+      ctx.service.closeTransport('tA', true);
+      ctx.run();
+      expect(ctx.lines()).toHaveLength(3);
+      // Another client moves the machine: 2 mm off in X and Y, Z at −50.
+      ctx.c.at(12 + OFFSET.x, 22 + OFFSET.y, -50);
+      ctx.c.state.status.activeState = state;
+      ctx.report();
+      ctx.service.openTransport('tA2', A);
+      ctx.tick(100);
+      expect([name, ctx.lines().length]).toEqual([name, 3]);
+      expect([name, ctx.state().motion.frame]).toEqual([name, null]);
+      expect([name, ctx.state().motion.lastFrame.code]).toEqual([name, expect.stringMatching(/^ETOUCH_FRAME_(STATE|POSITION)$/)]);
+      expectNothingAfter(ctx, 3);
+    }
+  });
+
+  describe('through the real facade (index.js refuseSocket, refuseUpload)', () => {
+    const socket = { id: 's1', handshake: { address: '10.0.0.5' }, decoded_token: { id: 'u', name: 'pc' } };
+    let rcfile;
+    beforeAll(() => {
+      rcfile = settings.rcfile;
+      settings.rcfile = path.join(os.tmpdir(), 'cnc-touch-f1-facade-' + process.pid, '.cncrc');
+    });
+    afterAll(() => {
+      settings.rcfile = rcfile;
+    });
+    // The facade over this test's service; stopping the facade disposes that service.
+    const facade = (ctx) => {
+      mockFacade.service = ctx.service;
+      touch.start();
+      mockFacade.service = null;
+      services.splice(services.indexOf(ctx.service), 1);
+    };
+    afterEach(() => {
+      if (touch.isStarted()) {
+        touch.stop();
+      }
+      mockFacade.service = null;
+    });
+
+    test.each([
+      ['command', 'jogCancel'],
+      ['write', '\x85'],
+      ['write', '?\x85'],
+      ['writeln', '\x85'],
+      ['command', 'feedhold'],
+      ['write', '!']
+    ])('D4. %s %j from a CNCjs client, during M5 and once a side reached its end: the framing ends before it passes, nothing leaves after it', async (kind, data) => {
+      for (const [where, count] of [['M5', 1], ['side reached', 4]]) {
+        const ctx = setup();
+        facade(ctx);
+        await ctx.start();
+        runTo(ctx, count);
+        if (where === 'side reached') {
+          ctx.c.state.status.activeState = 'Jog';
+          ctx.report();
+          ctx.c.at(60 + OFFSET.x, 20 + OFFSET.y, -5);
+        }
+        answeredAtRest(ctx);
+        expect([where, touch.refuseSocket(socket, 'TEST', kind, data)]).toEqual([where, null]);
+        expect([where, ctx.state().motion.frame]).toEqual([where, null]);
+        expect([where, ctx.state().motion.lastFrame]).toEqual([where, expect.objectContaining({ result: 'cancelled', reason: 'socket' })]);
+        expect(ctx.c.written.at(-1)).toBe('\x85');
+        expectNothingAfter(ctx, count);
+        touch.stop();
+      }
+    });
+
+    test('C3. the classic upload (POST /api/gcode) is refused while a framing runs or waits to start', async () => {
+      const ctx = setup();
+      facade(ctx);
+      await ctx.req('load', { file: 'box.nc' });
+      expect(touch.refuseUpload('TEST')).toBeNull();
+      const ticket = await ctx.machine('frame-prepare');
+      const started = ctx.machine('frame', { nonce: ticket.nonce });
+      // Waiting for the file to be read again (frameStarting).
+      expect(touch.refuseUpload('TEST')).toMatchObject({ message: expect.stringMatching(BUSY) });
+      await started;
+      expect(touch.refuseUpload('TEST')).toMatchObject({ message: expect.stringMatching(BUSY) });
+      await expect(ctx.req('load', { file: 'box.nc' })).rejects.toBeTruthy();
+      ctx.service.socketStop('TEST');
+      expect(touch.refuseUpload('TEST')).toBeNull();
+    });
+  });
+
+  test('C3. a program replaced anyway (the sender loads or unloads a file) ends the framing at once: 0x85, nothing after', async () => {
+    for (const how of ['load', 'unload']) {
+      const ctx = setup();
+      await ctx.start();
+      runTo(ctx, 4);
+      ctx.c.state.status.activeState = 'Jog';
+      ctx.report();
+      if (how === 'load') {
+        ctx.c.command('gcode:load', 'other.nc', 'G0 X0', {}, () => {});
+      } else {
+        ctx.c.sender.emit('unload');
+      }
+      expect([how, ctx.state().motion.frame]).toEqual([how, null]);
+      expect([how, ctx.state().motion.lastFrame]).toEqual([how, expect.objectContaining({ result: 'cancelled', code: 'ETOUCH_FRAME_STATE', params: { state: 'program' } })]);
+      expect(ctx.c.written.at(-1)).toBe('\x85');
+      expectNothingAfter(ctx, 4);
+    }
+  });
+
+  test('C1. after a banner, before the next supervisor tick: a change of the lease or the stream closing write nothing; _RESTART kept', async () => {
+    const acts = [
+      ['release', (ctx) => ctx.req('control', { operation: 'release' }, A)],
+      ['takeover', (ctx) => ctx.req('control', { operation: 'takeover', reason: 'At the machine' }, B)],
+      ['stream closed', (ctx) => ctx.service.closeTransport('tA')],
+      ['stream rotated', (ctx) => ctx.service.closeTransport('tA', true)]
+    ];
+    for (const [name, act] of acts) {
+      const ctx = setup();
+      await ctx.start();
+      runTo(ctx, 4);
+      ctx.c.state.status.activeState = 'Jog';
+      ctx.report();
+      const before = ctx.c.written.length;
+      ctx.c.runner.emit('startup', { firmware: 'Grbl', version: '1.1h' });
+      await act(ctx);
+      ctx.c.state.status.activeState = 'Idle';
+      ctx.tick(61000);
+      expect([name, ctx.c.written.slice(before)]).toEqual([name, []]);
+      expect([name, ctx.state().motion.lastFrame]).toEqual([name, expect.objectContaining({ result: 'cancelled', code: 'ETOUCH_FRAME_RESTART' })]);
+    }
+  });
+
+  // An explicit stop of an operator after the banner is not a callback of the sequence: with a jog
+  // line of ours maybe still in flight (settle), it sends its 0x85, which moves nothing; no line.
+  test('C1. after a banner, Arrêter or a stop of a CNCjs client: no line, a jog cancel at most; _RESTART kept', async () => {
+    for (const [name, act] of [['stop', (ctx) => ctx.req('stop', {}, B)], ['socket stop', (ctx) => ctx.service.socketStop('TEST')]]) {
+      const ctx = setup();
+      await ctx.start();
+      runTo(ctx, 4);
+      ctx.c.state.status.activeState = 'Jog';
+      ctx.report();
+      const before = ctx.c.written.length;
+      ctx.c.runner.emit('startup', { firmware: 'Grbl', version: '1.1h' });
+      expect([name, ctx.state().motion.frame]).toEqual([name, null]);
+      await act(ctx);
+      ctx.c.state.status.activeState = 'Idle';
+      ctx.tick(61000);
+      expect([name, ctx.c.written.slice(before).filter((b) => b !== '\x85')]).toEqual([name, []]);
+      expect([name, ctx.c.written.slice(before).length <= 1]).toEqual([name, true]);
+      expect([name, ctx.state().motion.lastFrame]).toEqual([name, expect.objectContaining({ result: 'cancelled', code: 'ETOUCH_FRAME_RESTART' })]);
+    }
+  });
+
+  test('C1. a jog cancel being repeated stops repeating at a banner', async () => {
+    const ctx = setup();
+    await ctx.start();
+    runTo(ctx, 4);
+    ctx.c.state.status.activeState = 'Jog';
+    ctx.report();
+    await ctx.req('stop', {}, B);
+    expect(ctx.c.written.at(-1)).toBe('\x85');
+    ctx.c.runner.emit('startup', { firmware: 'Grbl', version: '1.1h' });
+    const before = ctx.c.written.length;
+    // Jog still reported (a report parsed late, or another client's jog in the new session).
+    ctx.tick(3000);
+    expect(ctx.c.written.slice(before)).toEqual([]);
+  });
+
+  test('C2. without a reported speed, the whole guard of the start during the framing: a $G with M3 or M4, or a $G too old, stops it', async () => {
+    const cases = [
+      ['M3', (ctx) => ctx.modal('M3')],
+      ['M4', (ctx) => ctx.modal('M4')],
+      ['$G too old', (ctx) => {
+        ctx.now += 2600;
+        ctx.report();
+      }]
+    ];
+    for (const [name, act] of cases) {
+      const ctx = setup();
+      ctx.modal = (spindle) => {
+        ctx.c.state.parserstate = { modal: { wcs: 'G54', spindle } };
+        ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
+      };
+      ctx.c.state.status.spindle = undefined;
+      ctx.modal('M5');
+      ctx.report();
+      await ctx.start();
+      runTo(ctx, 4);
+      ctx.modal('M5');
+      ctx.c.state.status.activeState = 'Jog';
+      ctx.report();
+      act(ctx);
+      ctx.tick(50);
+      expect([name, ctx.state().motion.lastFrame]).toEqual([name, expect.objectContaining({ code: 'ETOUCH_FRAME_STATE', params: { state: 'spindle' } })]);
+      expect([name, ctx.c.written.at(-1)]).toEqual([name, '\x85']);
+    }
   });
 });

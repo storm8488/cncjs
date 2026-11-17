@@ -1,7 +1,9 @@
 import get from 'lodash/get';
 import store from '../store';
+import touch from '../services/touch';
 import {
   ERR_BAD_REQUEST,
+  ERR_CONFLICT,
   ERR_INTERNAL_SERVER_ERROR
 } from '../constants';
 
@@ -25,6 +27,16 @@ export const upload = (req, res) => {
   if (!controller) {
     res.status(ERR_BAD_REQUEST).send({
       msg: 'Controller not found'
+    });
+    return;
+  }
+
+  // The touch service holds the machine for a framing (lot F1, review C3): the program it frames
+  // is not replaced meanwhile.
+  const refused = touch.isStarted() ? touch.refuseUpload(port) : null;
+  if (refused) {
+    res.status(ERR_CONFLICT).send({
+      msg: refused.message
     });
     return;
   }

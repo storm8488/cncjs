@@ -128,6 +128,10 @@ const socketStopping = (kind, cmdOrData) => {
   // The caller has already checked safeWrite: a query or jog cancel mixed with a stop is safe too.
   return line.indexOf('!') >= 0 || line.indexOf('\x18') >= 0;
 };
+// A jog cancel from a socket (`jogCancel`, 0x85 alone or with other safe bytes): it ends a
+// framing of the server before it passes (lot F1, review D4).
+const socketJogCancelling = (kind, cmdOrData) => (kind === 'command' ? cmdOrData === 'jogCancel'
+  : String(cmdOrData === undefined || cmdOrData === null ? '' : cmdOrData).indexOf('\x85') >= 0);
 
 const refuseSocket = (socket, port, kind, cmdOrData) => {
   if (!control) {
@@ -138,6 +142,9 @@ const refuseSocket = (socket, port, kind, cmdOrData) => {
   // check D2), synchronously, then goes its own way (PLAN-CORRECTIONS § 1.6).
   if (safe && socketStopping(kind, cmdOrData)) {
     service.socketStop(port);
+  }
+  if (safe && socketJogCancelling(kind, cmdOrData)) {
+    service.socketJogCancel(port);
   }
   try {
     // Nothing that moves or writes passes, whoever owns the port, while a sequence of the server
@@ -161,6 +168,17 @@ const refuseSocket = (socket, port, kind, cmdOrData) => {
     }
     return { message: err.message, owner: err.owner };
   }
+};
+
+// CNCjs's own upload (api.gcode.js, POST /api/gcode) replaces the program of the sender: refused
+// while a framing of the server runs or waits to start (lot F1, review C3). Null when allowed,
+// else { message }.
+const refuseUpload = (port) => {
+  if (!service) {
+    return null;
+  }
+  const busy = service.uploadRefusal(port);
+  return busy ? { message: busy.message } : null;
 };
 
 const attachSocket = (socket) => {
@@ -278,6 +296,7 @@ export default {
   reserveSystemCommand,
   readHistory,
   refuseSocket,
+  refuseUpload,
   attachSocket,
   detachSocket,
   refuseSystemCommand,

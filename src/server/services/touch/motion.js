@@ -94,8 +94,12 @@ const STOP_REASONS = {
   state: 'machine sortie du repos (Idle) pendant le cadrage',
   dispose: 'service arrêté',
   socket: 'arrêt venu d’un client CNCjs',
-  spindle: 'bouton Arrêter la broche'
+  spindle: 'bouton Arrêter la broche',
+  program: 'programme remplacé pendant le cadrage'
 };
+// A framing (laser or CNC) holds the machine from its first line to its end: no other move,
+// zero or framing starts meanwhile, even between two of its lines (lot F1, review D1).
+export const FRAME_BUSY = 'Cadrage en cours.';
 
 // CNC framing in the air (lot F1): the stops of its supervisor, French message (the server's)
 // with its values. The client catalog (touch/i18n-messages-machine.js) has the same templates.
@@ -307,7 +311,9 @@ const CNC_XY_LINE = /^\$J=G90 G21 X-?\d+(\.\d+)? Y-?\d+(\.\d+)? F\d+(\.\d+)?$/;
 export const cncFrameLinesValid = (lines) => Array.isArray(lines) && lines[0] === 'M5' &&
   lines.slice(1).every((line, i) => (i === 0 && CNC_Z_LINE.test(line)) || CNC_XY_LINE.test(line));
 
-// deps: the job service's helpers (see job-service.js).
+// deps: the job service's helpers (see job-service.js). The motion factory owns the controller's
+// moves and their shared guard closures (the CNC framing of lot F1 among them).
+// eslint-disable-next-line max-lines-per-function
 export const createMotion = (deps) => {
   const {
     config, clock, conflict, controllers, record, later, answers, changed, available,
@@ -411,6 +417,9 @@ export const createMotion = (deps) => {
       throw refusal(HOMING_MESSAGE, 'ETOUCH_MOTION_HOMING', {});
     }
     const s = stateOf(r);
+    if (s.frame) {
+      throw conflict(FRAME_BUSY);
+    }
     if (r.probing) {
       throw conflict('Palpage en cours.');
     }
@@ -601,7 +610,8 @@ export const createMotion = (deps) => {
       oks: p0 ? p0.t.oks : 0,
       until: clock() + Math.min(CANCEL_MAX_MS, Math.max(CANCEL_LIMIT_MS, planned)),
       unconfirmed: false,
-      reason: why
+      reason: why,
+      startups: r.startups
     };
     s.cancel = job;
     changed();
@@ -611,6 +621,13 @@ export const createMotion = (deps) => {
       }
       if (!connected(c)) {
         s.cancel = null;
+        return;
+      }
+      // The board restarted: the jog it cancelled is gone with its session, and nothing more is
+      // written to the new one, not even a jog cancel (D-06, lot F1 review C1).
+      if (r.startups !== job.startups) {
+        s.cancel = null;
+        changed();
         return;
       }
       const state = activeOf(c);
@@ -955,15 +972,21 @@ export const createMotion = (deps) => {
     }
     let cause = '';
     const feeder = c.feeder && typeof c.feeder.toJSON === 'function' ? c.feeder.toJSON() : {};
+    const sender = (c.sender && c.sender.state) || {};
     if (r.homed !== true) {
       cause = 'reference';
     } else if (r.offset.proof() !== session.proof) {
       cause = 'offset';
+    } else if (!r.job || r.job.revision !== session.revision || !sender.context || sender.context.touchJob !== session.revision) {
+      // The program framed is no longer the one loaded (an upload of CNCjs, review C3).
+      cause = 'program';
     } else if (!c.workflow || c.workflow.state !== 'idle') {
       cause = 'job';
     } else if (feeder.queue || feeder.pending) {
       cause = 'queue';
-    } else if (number(controllerStatus(c).spindle) > 0) {
+    } else if (spindleOn(c)) {
+      // The whole guard of the start (review C2): a speed reported above 0, or without a speed
+      // a $G naming M3/M4, or no $G recent enough to tell.
       cause = 'spindle';
     } else if (state !== 'Idle' && state !== 'Jog') {
       cause = state || 'inconnu';
@@ -971,12 +994,59 @@ export const createMotion = (deps) => {
     return cause ? ['state', 'ETOUCH_FRAME_STATE', { state: cause }] : null;
   };
 
+  // A framing whose board restarted ends here, without a byte: not even a jog cancel goes to the
+  // new session (D-06). True when it did.
+  const frameRestarted = (c, r, session) => {
+    if (!session || r.startups === session.startups) {
+      return false;
+    }
+    session.code = 'ETOUCH_FRAME_RESTART';
+    session.params = {};
+    endFrame(c, r, session, 'cancelled', 'restart');
+    return true;
+  };
+
+  // The banner of the board (job-service r.reset): the framing ends in that very step, before any
+  // other path (a lease change, a stream closing, Arrêter) could write to the new session (C1).
+  const restarted = (c, r) => frameRestarted(c, r, r.motion && r.motion.frame);
+
   // Ends a CNC framing in this very step (no line after it), then cancels the jog (0x85).
   const abortFrame = (c, r, session, result, why, code, params) => {
+    if (frameRestarted(c, r, session)) {
+      return;
+    }
     session.code = code;
     session.params = params;
     endFrame(c, r, session, result, why);
     cancel(c, r, why);
+  };
+
+  // Why the next line of a CNC framing may not leave now, checked right before each line and at
+  // every step while one waits (review D2, D3): an earlier arrival is no leave to send. Nothing of
+  // ours or anyone else's pending, the machine Idle, still where the last line put it (M5: where
+  // the plan was made), and before an X/Y line Z at the safe height. [why, code, params, off] or null.
+  const holdReason = (c, r, session) => {
+    const s = stateOf(r);
+    if (s.pending || s.session || s.cancel) {
+      return ['state', 'ETOUCH_FRAME_STATE', { state: 'foreign' }];
+    }
+    const state = activeOf(c);
+    if (state !== 'Idle') {
+      return ['state', 'ETOUCH_FRAME_STATE', { state: state || 'inconnu' }];
+    }
+    const off = arrivalOff(c, session, session.index - 1);
+    if (off) {
+      return ['position', 'ETOUCH_FRAME_POSITION', off, true];
+    }
+    const next = session.lines[session.index];
+    if (next !== undefined && CNC_XY_LINE.test(next)) {
+      const z = positionOf(c, 'mpos', 'Z');
+      const safe = session.safeZ.machine;
+      if (z === null || z < safe - FRAME_ARRIVAL_MM) {
+        return ['position', 'ETOUCH_FRAME_POSITION', { axis: 'Z', expected: fmt(safe), reported: z === null ? 'inconnu' : fmt(z) }, true];
+      }
+    }
+    return null;
   };
 
   // Where the machine stands after a CNC framing line against where it was sent (§ 5.3): null
@@ -1075,6 +1145,11 @@ export const createMotion = (deps) => {
         return;
       }
       const p = session.pending;
+      // The answer it waits for is its own: no other line took its place (review D1).
+      if (s.pending && s.pending !== p) {
+        abortFrame(c, r, session, 'cancelled', 'state', 'ETOUCH_FRAME_STATE', { state: 'foreign' });
+        return;
+      }
       if (session.verified < session.index) {
         if (p.t.error) {
           // error:15 is a target refused by the board's soft limits: the zero it applies is doubtful.
@@ -1114,14 +1189,26 @@ export const createMotion = (deps) => {
           endFrame(c, r, session, 'ended', '');
           return;
         }
-        // The height reached (or kept) before the first X/Y line: Z never goes below it afterwards.
-        if (session.zFloor === null && !CNC_Z_LINE.test(session.lines[session.index])) {
-          session.zFloor = positionOf(c, 'mpos', 'Z');
-        }
         changed();
+      }
+      // The arrival validated above, or at an earlier step, is no leave to send: the conditions
+      // are checked again now, at every step while the next line waits and right before it leaves.
+      const hold = holdReason(c, r, session);
+      if (hold) {
+        if (hold[3]) {
+          // The machine is not where the framing put it: the zero is doubtful (D2).
+          r.offset.invalidate('frame');
+        }
+        abortFrame(c, r, session, 'cancelled', hold[0], hold[1], hold[2]);
+        return;
       }
       // Nothing leaves while the device's stream is away (a rotation, within its grace).
       if (session.lostSince === null) {
+        // The height before the first X/Y line (the safe height or above, just checked): Z never
+        // goes below it afterwards.
+        if (session.zFloor === null && CNC_XY_LINE.test(session.lines[session.index])) {
+          session.zFloor = positionOf(c, 'mpos', 'Z');
+        }
         sendNext();
       }
       later(c, r, check, WATCH_MS);
@@ -1138,10 +1225,7 @@ export const createMotion = (deps) => {
       }
       // The board restarted: it dropped what it had, and nothing more is written to the new
       // session, not even a jog cancel (D-06).
-      if (r.startups !== session.startups) {
-        session.code = 'ETOUCH_FRAME_RESTART';
-        session.params = {};
-        endFrame(c, r, session, 'cancelled', 'restart');
+      if (frameRestarted(c, r, session)) {
         return;
       }
       if (cnc) {
@@ -1429,6 +1513,8 @@ export const createMotion = (deps) => {
     if (!s) {
       return;
     }
+    // A framing of a board session that ended writes nothing (review C1).
+    frameRestarted(c, r, s.frame);
     const cncFrame = s.frame && s.frame.kind === 'cnc' ? s.frame : null;
     if (cncFrame && !rotated && !deviceStreamOpen(cncFrame) && connected(c)) {
       abortFrame(c, r, cncFrame, 'cancelled', 'transport', 'ETOUCH_FRAME_STREAM', {});
@@ -1473,8 +1559,10 @@ export const createMotion = (deps) => {
   // Real moves enabled for this controller (laser framing capability).
   const enabled = (c, r) => capabilities(c, r).jog.enabled;
 
+  // The framing in progress (lot F1): whether one runs, its supervision now, its end at a banner.
+  const framingApi = { framing, supervise, restarted };
   return {
-    perform, precheck, stop, moving, originOperation, snapshot, signature, transportClosed, holds, forget, jogReady, bound, frame, enabled, framing, supervise
+    perform, precheck, stop, moving, originOperation, snapshot, signature, transportClosed, holds, forget, jogReady, bound, frame, enabled, ...framingApi
   };
 };
 

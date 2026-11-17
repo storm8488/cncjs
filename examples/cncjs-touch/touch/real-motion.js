@@ -121,7 +121,8 @@
     if(/^alarm/i.test(a)&&settingsMissing())return rereadInAlarm();
     if(/^alarm/i.test(a))return t('Alarme')+(typeof machine.alarmCode==='number'?' '+machine.alarmCode:'')+t(' : Déverrouiller ($X) ou Prise d’origine ($H) dans Machine.');
     if(machine.homing||/^home/i.test(a))return t('Prise d’origine en cours : attendez sa fin.');
-    if(m.jog||m.cancelling||/^jog/i.test(a))return t('Déplacement en cours : attendez l’arrêt.');
+    // A framing holds the machine from its first line to its end, between two lines too (lot F1).
+    if(m.jog||m.frame||m.cancelling||/^jog/i.test(a))return t('Déplacement en cours : attendez l’arrêt.');
     if(/^hold/i.test(a))return t('Machine en pause : touchez Arrêter (bandeau), puis Prise d’origine.');
     if(/^door/i.test(a))return t('Porte de sécurité ouverte : fermez-la, puis touchez Arrêter (bandeau).');
     if(/^sleep/i.test(a))return t('Carte en veille : réinitialisez-la (bouton de la carte ou remise sous tension).');

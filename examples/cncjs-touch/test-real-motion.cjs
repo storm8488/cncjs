@@ -578,6 +578,8 @@ if (require.main === module) (async () => {
     ['alarm', { activeState: 'Alarm', alarmCode: 1 }, 'Alarme 1 : Déverrouiller ($X) ou Prise d’origine ($H) dans Machine.'],
     ['homing', { homing: true, activeState: 'Idle' }, 'Prise d’origine en cours : attendez sa fin.'],
     ['jog of another', { activeState: 'Jog' }, 'Déplacement en cours : attendez l’arrêt.'],
+    // Lot F1 review D1: a framing between two of its lines (Idle, canJog not yet false in this report) holds the arrows too.
+    ['framing between two lines', { motion: Object.assign(machine().motion, { frame: { kind: 'cnc', phase: 'side', side: 1, sides: 4, index: 4, lines: [] } }) }, 'Déplacement en cours : attendez l’arrêt.'],
     ['hold without a job', { activeState: 'Hold:0' }, 'Machine en pause : touchez Arrêter (bandeau), puis Prise d’origine.'],
     ['door', { activeState: 'Door:1' }, 'Porte de sécurité ouverte : fermez-la, puis touchez Arrêter (bandeau).'],
     ['sleep', { activeState: 'Sleep' }, 'Carte en veille : réinitialisez-la (bouton de la carte ou remise sous tension).'],

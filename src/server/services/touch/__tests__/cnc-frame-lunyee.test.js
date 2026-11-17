@@ -62,11 +62,24 @@ describe('CNC framing on the simulator (LUNYEE profile)', () => {
   let sampler;
 
   // Homed from the tablet, the stored offset loaded again and proven by D2.
-  const ready = async ({ g54 = { x: 10, y: 10, z: -100 }, executedAfterHoming = 'zero', softLimits = 1, prove = true } = {}) => {
+  // `holdOffsetQuery`: the `$#` of the D2 proof is kept from the simulator, which leaves the proof
+  // in its check (ETOUCH_OFFSET_CHECKING) for its 3 s of waiting.
+  const ready = async ({ g54 = { x: 10, y: 10, z: -100 }, executedAfterHoming = 'zero', softLimits = 1, prove = true, holdOffsetQuery = false } = {}) => {
     sim = new GrblSimulator({ profile: 'lunyee', homingMs: 1200, executedAfterHoming });
     sim.workCoordinateOffsets.G54 = { ...g54 };
     sim.settings[20] = softLimits;
     c = bridge(sim);
+    c.held = [];
+    if (holdOffsetQuery) {
+      const command = c.command;
+      c.command = (name, ...args) => {
+        if (name === 'gcode' && [].concat(args[0]).some((l) => /^\$#/.test(l))) {
+          c.held.push(args[0]);
+          return undefined;
+        }
+        return command(name, ...args);
+      };
+    }
     service = createService(
       { get: () => ({ SIM: c }) },
       { get: (key) => ({ watchDirectory: root, 'touch.motion.enabled': true, events: [], macros: [] }[key]) },
@@ -152,16 +165,16 @@ describe('CNC framing on the simulator (LUNYEE profile)', () => {
     expect(samples.every((p) => p.z === 0)).toBe(true);
   }, 30000);
 
-  test('L2. just after $H, before the D2 proof: refused (ETOUCH_OFFSET_CHECKING), nothing written', async () => {
-    await ready({ prove: false });
-    // The proof starts with the next reports; asked at once, it is still being checked.
-    await req('load', { file: 'petit.nc' });
+  test('L2. just after $H, while the D2 proof is being checked: refused (ETOUCH_OFFSET_CHECKING), nothing written', async () => {
+    // The proof's `$#` is held: the check cannot end before the request (review C4).
+    await ready({ prove: false, holdOffsetQuery: true });
+    expect(await until(() => state().workOffset.state === 'checking' && c.held.length > 0)).toBe(true);
     const written = c.written.length;
     const err = await refusalOf(req('machine', { operation: 'frame-prepare' }));
-    if (state().workOffset.state !== 'proven') {
-      expect(err && err.code).toMatch(/^ETOUCH_OFFSET_/);
-      expect(jogLines()).toEqual([]);
-    }
+    expect(state().workOffset.state).toBe('checking');
+    expect(err && err.code).toBe('ETOUCH_OFFSET_CHECKING');
+    expect(state().canFrame).toBe(false);
+    expect(jogLines()).toEqual([]);
     expect(c.written.slice(written).filter((l) => /^\$J=|^M5/.test(l))).toEqual([]);
   }, 30000);
 
@@ -180,22 +193,27 @@ describe('CNC framing on the simulator (LUNYEE profile)', () => {
       }[file];
       expect([file, reason.params]).toEqual([file, want]);
     }
-    for (const file of ['bord-y.nc', 'origine.nc']) {
-      await req('load', { file });
-      expect([file, (await req('machine', { operation: 'frame-prepare', feed: 1500 })).frame.kind]).toEqual([file, 'cnc']);
-    }
-    // Run to the X bound: brought near it by four steps of 100 mm first.
+    // Each accepted bound is run, not only prepared (review C4): the origin end X 0 first, from the
+    // homing position; then X 407.5, brought near it by four steps of 100 mm; then Y 395.5.
+    const run = async (file, line, axis, bound) => {
+      const { before } = await frame(file);
+      expect(await finished()).toBe(true);
+      expect([file, state().motion.lastFrame]).toEqual([file, expect.objectContaining({ result: 'ended', code: null })]);
+      expect([file, c.written.slice(before).map((l) => l.trim())]).toEqual([file, expect.arrayContaining([line])]);
+      const reached = samples.map((p) => p[axis]);
+      expect([file, Math.round((bound === 0 ? Math.min(...reached) : Math.max(...reached)) * 1000) / 1000]).toEqual([file, bound]);
+      expect([file, state().alarmCode, state().lastAlarm]).toEqual([file, null, null]);
+    };
+    await run('origine.nc', '$J=G90 G21 X-300 Y0 F1500', 'x', 0);
     for (let i = 0; i < 4; i++) {
       await step('X', 1, 100);
     }
-    const { before } = await frame('bord.nc');
-    expect(await finished()).toBe(true);
-    expect(state().motion.lastFrame).toMatchObject({ result: 'ended' });
-    expect(c.written.slice(before).map((l) => l.trim())).toContain('$J=G90 G21 X107.5 Y0 F1500');
-    expect(Math.max(...samples.map((p) => p.x))).toBeCloseTo(407.5, 3);
-    expect(state().motion.lastFrame.code).toBeNull();
-    expect(state().alarmCode).toBeNull();
-  }, 60000);
+    await run('bord.nc', '$J=G90 G21 X107.5 Y0 F1500', 'x', 407.5);
+    for (let i = 0; i < 3; i++) {
+      await step('Y', 1, 100);
+    }
+    await run('bord-y.nc', '$J=G90 G21 X0 Y395.5 F1500', 'y', 395.5);
+  }, 90000);
 
   test('L5. Stop during a side: Idle between two corners, no banner, reference and D2 kept, nothing more; a new framing ends', async () => {
     await ready();
@@ -233,19 +251,23 @@ describe('CNC framing on the simulator (LUNYEE profile)', () => {
     expect(state().motion.lastFrame).toMatchObject({ result: 'cancelled', reason: 'socket' });
   }, 30000);
 
-  test('L7/L10. a reset during a side: ALARM, the board restarts, nothing written after the banner; refused until homed again', async () => {
+  test('L7/L10. a reset injected during a side (no stop of the server first): ALARM:3, the board restarts, nothing written after the banner; refused until homed again', async () => {
     await ready();
     await frame('petit.nc', 300);
     expect(await until(() => state().motion.frame && state().motion.frame.phase === 'side' && sim.machineState === 'Jog', 15000)).toBe(true);
     const startups = state().startups;
-    service.socketStop('SIM');
+    const before = c.written.length;
+    // Straight to the board (its reset button, its Wi-Fi client): the server learns it from the board only.
     c.writeln('\x18');
     expect(await until(() => state().startups > startups)).toBe(true);
+    // The reset is the only byte since the side: the server wrote nothing to stop the framing.
+    expect(c.written.slice(before)).toEqual(['\x18']);
+    expect(state().lastAlarm).toMatchObject({ code: 3, restarted: true });
+    expect(state().motion.lastFrame).toMatchObject({ result: 'cancelled', code: 'ETOUCH_FRAME_RESTART' });
     const written = c.written.length;
     await wait(1500);
     // Nothing of the framing after the banner (D2 may read `$#` in the new session: not a move).
     expect(c.written.slice(written).filter((l) => /^\$J=|^M5|\x85/.test(l))).toEqual([]);
-    expect(state().motion.lastFrame).toMatchObject({ result: 'cancelled' });
     expect(state().homed).toBe(false);
     await req('load', { file: 'petit.nc' }).catch(() => null);
     expect(await refusalOf(req('machine', { operation: 'frame-prepare' }))).toBeTruthy();
