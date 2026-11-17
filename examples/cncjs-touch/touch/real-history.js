@@ -137,7 +137,7 @@
   // One server entry → title, detail and tone. Only listed fields are shown, never a raw entry
   // (the server already drops tickets and tokens; nothing here prints an unknown field).
   var EVENTS = { load: 'Fichier chargé', start: 'Travail démarré', pause: 'Pause', resume: 'Reprise', stop: 'Travail arrêté', error: 'Ligne refusée par Grbl', alarm: 'Alarme', aborted: 'Carte redémarrée pendant le travail',
-    origin: 'Définition d’origine', probe: 'Palpage au bloc', jog: 'Déplacement manuel', 'jog-cancel-unconfirmed': 'Arrêt de déplacement non confirmé', frame: 'Cadrage', machine: 'Fiche machine modifiée' };
+    origin: 'Définition d’origine', probe: 'Palpage au bloc', jog: 'Déplacement manuel', 'jog-cancel-unconfirmed': 'Arrêt de déplacement non confirmé', frame: 'Cadrage', machine: 'Fiche machine modifiée', retract: 'Pause et dégager' };
   var CHANGES = { claim: 'Pilotage pris', release: 'Pilotage libéré', takeover: 'Pilotage repris', expired: 'Pilotage libéré (appareil absent)', absent: 'Pilote absent', restored: 'Pilote revenu' };
   function str(v, max) { return typeof v === 'string' ? v.slice(0, max || 120) : typeof v === 'number' && isFinite(v) ? String(v) : ''; }
   // Reasons outside control (src/server/services/touch/motion.js): a failed origin carries the server's French

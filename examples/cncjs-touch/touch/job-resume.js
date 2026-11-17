@@ -72,6 +72,15 @@
     if(Array.isArray(plan.notes))plan.notes.forEach(function(n){if(typeof n==='string'&&n)parts.push(message(n));});
     return file+parts.join(' ');
   }
+  // F2: [header, notice, main action, tone] per phase of « Pause et dégager » (F2-CONCEPTION.md § 10.3).
+  var RETRACT_PHASES={
+    draining:['Pause demandée','La fraise finit les mouvements déjà envoyés, puis elle montera.','pause','warn'],
+    lifting:['Pause','La fraise monte.','pause','warn'],
+    parked:['Pause · fraise dégagée','Fraise en haut, broche arrêtée.','reprendre','neutre'],
+    returning:['Reprise','La broche redémarre, puis la fraise redescend à sa place.','pause','warn'],
+    held:['Pause','La fraise est restée dans la pièce. La broche tourne toujours.','reprendre','warn'],
+    failed:['Pause','Reprendre sur place n’est plus possible. Arrêtez l’usinage, puis reprenez à une ligne.','arreter-usinage','danger']
+  };
   // One presentation for the notice and the session bar; all permissions come from the server.
   function screenState(d){
     var m=d&&d.machine||null,h=d&&d.halt||{},out={word:t('Rien en cours'),text:t('Rien en cours.'),action:m&&m.name?'suite:check':'suite:files',label:t(m&&m.name?'Suite : Contrôle →':'Suite : Fichier →'),allowed:true,tone:'neutre',pause:false,plate:false};
@@ -82,6 +91,13 @@
     if(paused){out.pause=true;out.tone='warn';out.word=t(p?'Pause du fichier':'Pause');out.text=t(p&&p.kind==='M6'?'Le fichier demande un changement de fraise.':p?'Pause demandée par le fichier.':'Pause. La broche tourne toujours.');out.plate=!!(p&&p.kind==='M6'&&!laserOf(m));if(p&&p.kind==='M6'&&laserOf(m))out.text=pauseText(p,m);
       if(!m.canResume){out.text=m.resumeReason?message(m.resumeReason):t('Reprise indisponible.');out.remedy='arreter-usinage';}
     }
+    // F2 « Pause et dégager » (pause-retract.js): its phase decides the header, the notice and the main action.
+    var rp=m.pauseRetract,RP=rp&&typeof rp==='object'?RETRACT_PHASES[rp.phase]:null;
+    if(RP){var cause=rp.failure&&(rp.phase==='held'||rp.phase==='failed')&&root.cncRefus?root.cncRefus.lire(rp.failure).phrase:'';
+      out.word=t(RP[0]);out.text=t(RP[1])+(cause?' '+cause:'');out.tone=RP[3];out.action=RP[2];out.pause=rp.phase==='held';out.plate=false;delete out.remedy;
+      out.label=t(RP[2]==='pause'?'Pause':RP[2]==='reprendre'?'Reprendre…':'Arrêter l’usinage');
+      out.allowed=RP[2]==='pause'?!!m.canPause:RP[2]==='reprendre'?!!(m.canResume&&!d.busy&&(!d.pilot||d.pilot.state!=='other')):!!m.canStop;
+      if(RP[2]==='reprendre'&&!m.canResume&&m.resumeReason)out.text+=' '+message(m.resumeReason);}
     if(door){out.word=t('Porte ouverte');out.text=t('La porte de la machine est ouverte. Fermez-la.');out.tone='warn';}
     if(m.jobStopped&&!running&&!paused){out.tone='warn';var n=typeof m.stoppedAtLine==='number'&&isFinite(m.stoppedAtLine)&&m.stoppedAtLine>0?m.stoppedAtLine:null,s=suggestedLine(m,m.stoppedFile||m.name);
       out.word=typeof n==='number'?t('Arrêté ligne {n}').replace('{n}',n):t('Arrêté');out.text=typeof n==='number'?t('Arrêté à la ligne {n} sur {total}.').replace('{n}',n).replace('{total}',m.resume&&m.resume.total||m.total||'—'):t('Usinage arrêté avant la fin.');
@@ -110,7 +126,14 @@
   var m5=button(actions,'home-pause-m5','Arrêter la broche',function(){if(!m5.disabled&&controls())controls().spindleStop().catch(function(){});});
   var m5Reason=el('span','home-spindle-stop-reason','',notice);
   var open=button(actions,'home-resume-line','Reprendre à une ligne…',openResume),openReason=el('span','home-resume-reason','',notice);
-  var details=button(actions,'home-notice-details','Détails',function(){if(root.cncShell)root.cncShell.details({lignes:[{libelle:t('Bilan'),valeur:summary&&summary.text||''},{libelle:t('Détails'),valeur:ready.textContent}],brut:machine});});
+  var details=button(actions,'home-notice-details','Détails',function(){if(root.cncShell)root.cncShell.details({lignes:[{libelle:t('Bilan'),valeur:summary&&summary.text||''},{libelle:t('Détails'),valeur:ready.textContent}].concat(retractLines()),brut:machine});});
+  // F2: « Pause et dégager… », only while a program of a CNC runs; the server decides (canRetract).
+  // First of its row: « Reprendre à une ligne… » is refused while a job runs, and the notice ends under the fold at 1366 x 768.
+  var retract=button(actions,'home-retract','Pause et dégager…',function(){if(!retract.disabled&&controls()&&controls().retract)controls().retract();}),retractWhy=el('span','home-retract-reason','',notice);
+  actions.insertBefore(retract,open);
+  function retractLines(){var rp=machine&&machine.pauseRetract;if(!rp)return [];var out=[{libelle:t('Ligne'),valeur:String(rp.line)}];
+    if(rp.lift)out.push({libelle:t('Z machine'),valeur:rp.lift.from+' → '+rp.lift.to});if(rp.spindle)out.push({libelle:t('Broche'),valeur:spindleText(rp.spindle)});
+    if(rp.failure)out.push({libelle:t('Code'),valeur:rp.failure.code},{libelle:t('Message'),valeur:rp.failure.message});return out;}
   var machine=null,status={},summary=null,sheet=null,panel=null,input=null,hint=null,plan=null,load=null,checked=null,resumeFile='',sequence=0,isOpen=false,loading=false,openedKey='',planKey='';
   var LINE_RULES={label:t('Ligne de reprise'),unit:t('ligne'),min:2,integer:true,negative:false};
   function controls(){return root.cncJobControls;}
@@ -166,7 +189,13 @@
     set(open,'hidden',false);set(open,'disabled',!permitted());set(open,'textContent',t(laserOf(machine)?'Reprendre à un début de passe…':'Reprendre à une ligne…'));
     var lr=laserOf(machine)?capabilityOf(machine,'laserResume'):null;set(open,'title',lr&&!lr.supported?lr.reason:'');
     set(openReason,'textContent',permitted()?'':lr&&!lr.supported?lr.reason:!targetFile()?t('Aucun fichier chargé.'):machine&&machine.workflow!=='idle'?t('Un usinage est en cours.'):message(machine&&machine.loadReason||t('Impossible pour l’instant.')));
-    set(details,'hidden',!state.details);
+    set(details,'hidden',!state.details&&!(machine&&machine.pauseRetract));
+    // Not in the simulation, nor with a server that does not know it, nor in an alarm (Arrêter only).
+    var showRetract=!!(!simulation&&machine&&typeof machine.canRetract==='boolean'&&machine.workflow==='running'&&!laserOf(machine)&&!machine.pauseRetract&&!/^Alarm/.test(machine.activeState||'')),other=!!(status.pilot&&status.pilot.state==='other');
+    var retractOk=showRetract&&!!machine.canRetract&&!status.busy&&!other,code=machine&&machine.refusals&&machine.refusals.retract;
+    set(retract,'hidden',!showRetract);set(retract,'disabled',!retractOk);
+    set(retractWhy,'textContent',!showRetract||retractOk?'':other&&root.cncRefus?root.cncRefus.lire({code:'ECONTROL',owner:machine.control&&machine.control.owner}).phrase:
+      code&&root.cncRefus?root.cncRefus.lire({code:code.code,params:code.params,message:machine.retractReason}).phrase:message(machine.retractReason||t('Impossible pour l’instant.')));
     if(isOpen&&!loading&&(!machine||resumeFile!==targetFile()||openedKey!==identity()||machine.workflow!=='idle')){close();if(root.cncShell)root.cncShell.closeSheet();}
     if(isOpen)set(load,'disabled',!checked||!permitted()||loading);
   }

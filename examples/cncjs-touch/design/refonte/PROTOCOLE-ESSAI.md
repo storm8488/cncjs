@@ -113,3 +113,42 @@ Après réussite des phases précédentes, rebrancher les éléments hors tensio
 Pour chaque étape, remplir : effectué/non effectué, résultat exact, attendu, preuve, anomalie, responsable et date. Un refus conservateur est consigné comme tel, sans dérogation automatique. Une phase non faite reste non vérifiée.
 
 Après E-A/E-B, mettre à jour les hypothèses du profil LUNYEE, la marge et les conclusions de FIRMWARE/SURETE avec les mesures obtenues. La revue de sûreté finale, le harnais complet et la décision d'adopter l'installation appartiennent au pilote/opérateur ; les tests logiciels verts de FINAL ne valent ni essai physique ni approbation de coupe.
+
+## F2 — Pause et dégager, essai réel pas à pas (2026-11-17)
+
+Source : `design/fonctions/F2-CONCEPTION.md` § 14. À conduire par l'opérateur, devant la machine, arrêt physique à portée de main, **après** les phases 4 et 6 ci-dessus (prise d'origine, D2, petit fichier connu). Enregistrer les lignes série avec leurs heures. À chaque étape : noter MPos avant et après, la phrase affichée, le Journal (« Pause et dégager », étapes `requested`, `lifting`, `parked`, `resume`, `resumed`, `held`, `failed`). Au premier écart : arrêt, on ne passe pas à l'étape suivante.
+
+### F2.1 Sans mouvement
+
+1. Relire les réglages et noter `$20`, `$21`, `$22`, `$1`, `$112`, `$122`. Machine au repos, fichier chargé : « Pause et dégager… » n'apparaît pas hors usinage.
+2. Depuis le PC ou le téléphone (sans la main), pendant l'essai F2.2 : le bouton est rayé, avec la phrase de la main.
+
+### F2.2 Fraise en l'air, broche débranchée, sans fraise
+
+Zéro Z posé **40 mm au-dessus** de la pièce ou de la table (le fichier tourne dans le vide). Petit fichier connu, à lignes courtes.
+
+3. Lancer. Toucher « Pause et dégager… », lire le dialogue, cocher, « Dégager la fraise ». Attendu : la machine finit quelques lignes, s'arrête, monte seule jusqu'à Z machine −5,000, l'écran dit « Fraise en haut, broche arrêtée. ». Relever : lignes exécutées après le toucher, temps avant l'arrêt, temps de montée, X et Y inchangés au millième. Dans la série : aucun `!`, un seul `$J=G91 G21 Z… F600`, puis `M5`, et `[GC:…]` identique avant et après le `$J=` (hormis M5).
+4. Attendre 5 minutes. Relever Z machine et la hauteur du nez de broche sur un repère fixe : elle ne doit pas avoir changé (glissement de Z moteurs relâchés ; noter `$1`).
+5. « Reprendre… », case, « Redescendre et reprendre ». Attendu, dans l'ordre : `M3 S…`, 3 s, descente rapide, 5 derniers millimètres lents, puis le fichier continue. Relever : les deux `$J=`, MPos au millième avant `~` égal à celui de l'arrêt de l'étape 3 (avant la montée), `[GC:…]` identique à celui d'avant la pause. Laisser finir : position finale égale à celle d'une exécution sans pause.
+6. Refaire 3, puis **Arrêter** fraise en haut. Attendu : aucun `0x18` ni `!` dans la série, MPos conservée, machine toujours référencée à l'écran, « Reprendre à la ligne N… » proposé avec la bonne ligne. Charger cette reprise et la laisser passer, toujours en l'air.
+7. Refaire 3 et toucher **Pause** pendant que la machine finit ses lignes. Attendu : arrêt immédiat (retenue ordinaire), pas de montée ; « Reprendre… » reprend comme une pause ordinaire.
+8. Refaire 3 et toucher **Pause** pendant la montée. Attendu : la montée s'arrête (`0x85`), la broche est commandée à l'arrêt, « Reprendre sur place n'est plus possible… », action principale « Arrêter l'usinage ».
+9. Refaire 3 et toucher **Arrêter** pendant la montée. Attendu : `!`, arrêt du mouvement, puis réinitialisation ; **considérer la référence perdue**, refaire prise d'origine et D2 (B1/B2) avant la suite.
+10. Refaire 3 ; fraise en haut, depuis le PC : tenter Reprendre dans l'interface CNCjs. Attendu : refusé (« Fraise dégagée par la tablette… ») ; rien ne bouge. Puis prendre la main depuis le PC avec un motif : la tablette affiche que reprendre sur place n'est plus possible.
+11. Refaire 3 ; pendant que la machine finit ses lignes, fermer la page de l'appareil qui a demandé. Attendu : pas de montée ; à la réouverture, « La fraise est restée dans la pièce… » et « Reprendre… » reprend simplement (`~` seul).
+12. Fichier à longues lignes (allers-retours de 300 mm à vitesse lente) : mesurer le temps entre le toucher et l'arrêt. C'est le pire cas à connaître avant d'usiner.
+
+### F2.3 Les formes de commande sur ce binaire (si une étape de F2.2 a montré un écart)
+
+13. À l'arrêt, hors usinage, par les flèches : un pas de 1 mm en Z+, lire `$G` avant et après (identiques ?). Ne pas chercher à dépasser la course : la frontière reste l'affaire de l'essai E-A.
+
+### F2.4 Broche branchée, sans fraise
+
+14. Refaire 3 puis 5 en écoutant : la broche s'arrête-t-elle en haut ? À la reprise, est-elle à pleine vitesse avant la fin des 3 s ? Sinon noter le temps réel : `RETRACT_SPINUP_S` sera relevée avant tout essai dans la matière.
+
+### F2.5 Dans une chute, passe de 1 mm
+
+15. Fraise montée, pièce bridée, passe de 1 mm dans une chute de MDF. « Pause et dégager » au milieu d'une ligne droite, attendre l'arrêt et la montée, enlever les copeaux, « Reprendre… ». Après : chercher la marque au point d'arrêt (profondeur et décalage latéral ≤ 0,05 mm ; une légère trace de chauffe est attendue).
+16. Seulement ensuite : même essai dans un arc, puis à la profondeur de travail habituelle.
+
+Le stationnement du firmware (`0x84`) n'est pas employé par F2 ; il n'est pas à essayer dans cette séance.

@@ -197,7 +197,10 @@
     zeroZ:[uiLocale.t('Le palpage descend Z jusqu’au contact avec la plaque. Vérifiez la plaque et la pince.'),uiLocale.t('Je suis devant la machine, la plaque et la pince sont en place.')],
     blockProbe:[uiLocale.t('Le palpage déplace l’outil jusqu’au contact avec le bloc. Dégagez la zone autour du bloc.'),uiLocale.t('Je suis devant la machine, le bloc et la pince sont en place.')],
     // Laser framing (PROFILES-CONTRACT.md §4): XY moves around the program, M5 first, never emits.
-    frame:[uiLocale.t('Le cadrage fait le tour du fichier à la hauteur actuelle, laser éteint. Dégagez la zone.'),uiLocale.t('Je suis devant la machine et la zone est dégagée.')]
+    frame:[uiLocale.t('Le cadrage fait le tour du fichier à la hauteur actuelle, laser éteint. Dégagez la zone.'),uiLocale.t('Je suis devant la machine et la zone est dégagée.')],
+    // F2 « Pause et dégager » (pause-retract.js), then its resume once the bit is up.
+    retract:[uiLocale.t('La fraise finit les mouvements déjà envoyés, puis elle monte tout en haut et la broche s’arrête.'),uiLocale.t('Je suis devant la machine et rien ne gêne la montée de la fraise.')],
+    retractResume:[uiLocale.t('La broche redémarre, la fraise redescend à sa place, puis l’usinage continue.'),uiLocale.t('Je suis devant la machine, la pièce n’a pas bougé et rien n’est sous la fraise.')]
   };
   function inStrip(node){return !!(node&&typeof node.closest==='function'&&node.closest('#real-banner,#simulation-banner'));}
   function stripKept(){return STRIP_STOPS.map($).filter(inStrip);}
@@ -286,6 +289,7 @@
   function ticketAllowed(t,state){
     if(t.operation==='macro')return !!state.canMacro;
     if(t.operation==='frame')return laserFrame(state)&&state.revision===t.revision;
+    if(t.operation==='retract')return !!state.canRetract&&state.revision===t.revision;
     if(Object.prototype.hasOwnProperty.call(COMMANDS,t.operation))return !!state[COMMANDS[t.operation]];
     if(state.revision!==t.revision)return false;
     return t.operation==='start'?!!(simulation||state.workOffset&&state.workOffset.state==='proven')&&(t.override?!!(state.homed&&!state.referenceLost&&state.programCheck&&state.programCheck.overridable&&outside(state.programCheck)):!!state.canStart):!!state.canResume;
@@ -514,7 +518,7 @@
     }
     if(flowLost()&&['pause','stop','spindleStop','check','settings','resumePlan'].indexOf(action)<0&&!(action==='motion'&&extra&&extra.operation==='jog-stop'))return Promise.reject(streamError());
     if(!current || sinceSeen()>=3000)return Promise.reject(new Error(uiLocale.t('État indisponible.')));
-    if(!simulation&&(['prepare','start','resume','macro','override','unlock','home','spindle','readSettings','set-origin','machine','blockProbe'].indexOf(action)>=0||(action==='motion'&&!(extra&&extra.operation==='jog-stop')))&&(!current.generation||!transportId||!stream||!stream.alive()))return Promise.reject(new Error(uiLocale.t('Suivi continu interrompu. Nouvelle confirmation requise.')));
+    if(!simulation&&(['prepare','start','resume','macro','override','unlock','home','spindle','readSettings','set-origin','machine','blockProbe','retract'].indexOf(action)>=0||(action==='motion'&&!(extra&&extra.operation==='jog-stop')))&&(!current.generation||!transportId||!stream||!stream.alive()))return Promise.reject(new Error(uiLocale.t('Suivi continu interrompu. Nouvelle confirmation requise.')));
     var body={action:action,port:current.port};
     if(current.generation)body.generation=current.generation;
     if(transportId)body.transportId=transportId;
@@ -574,11 +578,13 @@
       // The card keeps its own scroll within the shorter overlay (its buttons are never clipped).
       if(keep.length&&$('job-dialog').style){$('job-dialog').style.top='var(--statusbar-h,0px)';var card=$('job-dialog').querySelector&&$('job-dialog').querySelector('.job-dialog-card');if(card&&card.style)card.style.maxHeight='calc(100vh - var(--statusbar-h,0px) - 48px)';}
       // What this operation does, and what the operator confirms (N4: an unlock moves nothing).
-      if(!simulation){var words=DIALOG_TEXT[operation]||DIALOG_TEXT.start;if($('job-warning'))$('job-warning').textContent=words[0];if($('job-check-text'))$('job-check-text').textContent=words[1];}
+      var parked=operation==='resume'&&current.pauseRetract&&current.pauseRetract.phase==='parked';
+      if(!simulation){var words=parked?DIALOG_TEXT.retractResume:DIALOG_TEXT[operation]||DIALOG_TEXT.start;if($('job-warning'))$('job-warning').textContent=words[0];if($('job-check-text'))$('job-check-text').textContent=words[1];}
       var axes=String(data.blockProbe&&data.blockProbe.axes||request.axes||'');
       var effect={start:uiLocale.t('Lancer l’usinage'),resume:uiLocale.t('Reprendre l’usinage'),macro:uiLocale.t('Lancer la macro'),unlock:uiLocale.t('Déverrouiller'),home:uiLocale.t('Lancer la prise d’origine'),spindle:uiLocale.t('Démarrer la broche'),zeroZ:uiLocale.t('Lancer le zéro Z'),frame:uiLocale.t('Lancer le cadrage'),blockProbe:uiLocale.t('Lancer le palpage {axes}').replace('{axes}',axes)};
       var title={start:uiLocale.t('Démarrer l’usinage'),resume:uiLocale.t('Reprendre l’usinage'),macro:uiLocale.t('Lancer la macro {nom}').replace('{nom}',data.name||''),unlock:uiLocale.t('Déverrouiller sans prise d’origine'),home:uiLocale.t('Lancer la prise d’origine machine'),spindle:uiLocale.t('Démarrer la broche'),zeroZ:uiLocale.t('Zéro Z à la plaque'),frame:uiLocale.t('Cadrer le fichier'),blockProbe:uiLocale.t('Palper le bloc {axes}').replace('{axes}',axes)};
       if(operation==='start'&&current.machineProfile&&current.machineProfile.kind==='laser'){effect.start=uiLocale.t('Lancer la gravure');title.start=uiLocale.t('Démarrer la gravure');}
+      effect.retract=uiLocale.t('Dégager la fraise');title.retract=uiLocale.t('Pause et dégager');if(parked)effect.resume=uiLocale.t('Redescendre et reprendre');
       $('job-dialog-title').textContent=title[operation];$('job-confirm').textContent=effect[operation];
       if(operation==='home'){$('job-warning').textContent=uiLocale.t('Les trois axes vont jusqu’à leurs capteurs, Z d’abord. Dégagez la table.');$('job-check-text').textContent=uiLocale.t('Je suis devant la machine et la table est dégagée.');}
       if(operation==='unlock')$('job-warning').textContent=uiLocale.t('Rien ne bouge. La position de la machine peut être fausse : faites ensuite la prise d’origine.');
@@ -646,6 +652,8 @@
   }
   function start(){if(flowLost()||busy)return prepare('start');if(sessionRefuses()||!current.canStart||outside(current.programCheck)||!simulation&&(!current.workOffset||current.workOffset.state!=='proven'))return Promise.resolve({opened:false,error:null});return prepare('start');}
   function startOverride(){if(flowLost())return prepare('start',{override:'travel'});if(sessionRefuses()||busy||!current.homed||current.referenceLost||!current.workOffset||current.workOffset.state!=='proven'||!outside(current.programCheck)||!current.programCheck.overridable)return Promise.resolve({opened:false,error:null});return prepare('start',{override:'travel'});}
+  // F2 « Pause et dégager… »: the same three touches as a resume (button, box, effect after 600 ms).
+  function retract(){if(flowLost())return prepare('retract');if(sessionRefuses()||sinceSeen()>=3000||busy||!current||!current.canRetract)return Promise.resolve({opened:false,error:null});return prepare('retract');}
   function resume(){if(flowLost())return prepare('resume');if(sessionRefuses()||sinceSeen()>=3000||busy||!current||!current.canResume)return Promise.resolve({opened:false,error:null});return prepare('resume');}
   function pause(){if(!(current&&sinceSeen()<3000?current.canPause:halt&&halt.canPause))return;dismiss();return command('pause').catch(function(){/* Refusal is shown by command. */});}
   function stop(){if(!(current&&sinceSeen()<3000?current.canStop||jogging(current):halt&&halt.canStop))return;dismiss();return command('stop').catch(function(){/* Refusal is shown by command. */});}
@@ -746,7 +754,7 @@
   function dispose(){if(disposed)return;dismiss(false);closePilot(false);disposed=true;if(typeof clearInterval==='function')clearInterval(interval);if(stream)stream.dispose();bindings.forEach(function(fn){fn();});requests.forEach(function(xhr){xhr.onload=xhr.onerror=xhr.ontimeout=null;xhr.abort();});requests=[];}
   bind(window,'pagehide',function(event){if(event&&event.persisted){observationSuspended=true;dismiss();if(stream)stream.reconnect();else unavailable(uiLocale.t('Retour à la page : attendre un nouvel état.'));}else dispose();});
   bind(window,'pageshow',function(event){if(event&&event.persisted)resumeObservation();});
-  window.cncJobControls={state:function(){return Object.assign({},publishedState,{feedback:actionFeedback,feedbackState:feedbackState});},load:load,start:start,startOverride:startOverride,checkFile:function(file){return run('check',{file:file});},resume:resume,pause:pause,stop:stop,
+  window.cncJobControls={state:function(){return Object.assign({},publishedState,{feedback:actionFeedback,feedbackState:feedbackState});},load:load,start:start,startOverride:startOverride,checkFile:function(file){return run('check',{file:file});},resume:resume,pause:pause,stop:stop,retract:retract,
     verifyOffset:function(){if(busy||!current||!current.workOffset||!current.workOffset.canVerify)return Promise.resolve();return command('verifyOffset');},refresh:function(){poll(true);},dispose:dispose,
     // Realtime override step (kind: feed | spindle | rapid; value as accepted by the server).
     override:function(kind,value){if(busy||!current)return Promise.reject(new Error(uiLocale.t('Opération en cours…')));return command('override',{kind:kind,value:value});},

@@ -203,5 +203,22 @@
 ['Dégagement demandé.', 'Retract requested.', 'Retirada pedida.'],
 ['Reprise demandée : la broche redémarre, puis la fraise redescend.', 'Resume requested: the spindle restarts, then the bit goes back down.', 'Reanudación pedida: el husillo arranca y luego la fresa baja.'],
 ['Dégagement en cours : attendez qu’il soit terminé.', 'Retract in progress: wait until it is over.', 'Retirada en curso: espere a que termine.'],
-['Pause et dégager', 'Pause and retract', 'Pausa y retirar']
+['Pause et dégager', 'Pause and retract', 'Pausa y retirar'],
+// F2: the page's own texts (job-resume.js, job-controls.js).
+['Pause et dégager…', 'Pause and retract…', 'Pausa y retirar…'],
+['La fraise finit les mouvements déjà envoyés, puis elle monte tout en haut et la broche s’arrête.', 'The bit finishes the moves already sent, then rises to the top and the spindle stops.', 'La fresa termina los movimientos ya enviados, luego sube del todo y el husillo se detiene.'],
+['Je suis devant la machine et rien ne gêne la montée de la fraise.', 'I am at the machine and nothing blocks the bit on its way up.', 'Estoy delante de la máquina y nada estorba la subida de la fresa.'],
+['Dégager la fraise', 'Retract the bit', 'Retirar la fresa'],
+['La broche redémarre, la fraise redescend à sa place, puis l’usinage continue.', 'The spindle restarts, the bit goes back down to its place, then machining continues.', 'El husillo arranca, la fresa baja a su sitio y el mecanizado continúa.'],
+['Je suis devant la machine, la pièce n’a pas bougé et rien n’est sous la fraise.', 'I am at the machine, the workpiece has not moved and nothing is under the bit.', 'Estoy delante de la máquina, la pieza no se ha movido y no hay nada bajo la fresa.'],
+['Redescendre et reprendre', 'Lower and resume', 'Bajar y reanudar'],
+['Pause demandée', 'Pause requested', 'Pausa pedida'],
+['La fraise finit les mouvements déjà envoyés, puis elle montera.', 'The bit is finishing the moves already sent, then it will rise.', 'La fresa termina los movimientos ya enviados y luego subirá.'],
+['La fraise monte.', 'The bit is rising.', 'La fresa sube.'],
+['Pause · fraise dégagée', 'Paused · bit retracted', 'Pausa · fresa retirada'],
+['Fraise en haut, broche arrêtée.', 'Bit at the top, spindle stopped.', 'Fresa arriba, husillo parado.'],
+['La broche redémarre, puis la fraise redescend à sa place.', 'The spindle restarts, then the bit goes back down to its place.', 'El husillo arranca y la fresa baja a su sitio.'],
+['La fraise est restée dans la pièce. La broche tourne toujours.', 'The bit stayed in the workpiece. The spindle is still turning.', 'La fresa se quedó en la pieza. El husillo sigue girando.'],
+['Reprendre sur place n’est plus possible. Arrêtez l’usinage, puis reprenez à une ligne.', 'Resuming in place is no longer possible. Stop machining, then resume from a line.', 'Ya no es posible reanudar en el sitio. Detenga el mecanizado y reanude desde una línea.'],
+['Z machine', 'Machine Z', 'Z máquina']
 );

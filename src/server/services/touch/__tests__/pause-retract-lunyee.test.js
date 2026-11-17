@@ -178,6 +178,55 @@ test.each([['keep'], ['restart']])('31. Arrêter while parked writes no reset (r
   expect(run.state()).toMatchObject({ homed: true, jobStopped: true, pauseRetract: null });
 }, 120000);
 
+// Up to the lift: the file paused at line 20, then « Pause et dégager » confirmed, until the jog leaves.
+const untilLift = async (run) => {
+  await run.until(() => run.controller.sender.state.received >= 20, 120000, 'line 20');
+  const t = await run.req('prepare', { operation: 'retract', revision: run.state().revision });
+  run.retractMark = run.written.length;
+  await run.req('retract', { nonce: t.nonce });
+  await run.until(() => run.written.slice(run.retractMark).some((d) => /^\$J=/.test(d)), 60000, 'the lift');
+};
+
+test('27. the board refuses the lift beyond its soft limits (error:15): no alarm, no restart, the bit stays (held)', async () => {
+  const run = await start();
+  // At the lift, the board's Z envelope no longer matches what the server learned: Z homes
+  // towards + now, so the target 5 mm under the top (machine Z -5) lies outside it.
+  const write = run.controller.connection.write;
+  run.controller.connection.write = (data) => {
+    if (/^\$J=/.test(data)) {
+      run.sim.settings[23] = 7;
+    }
+    write(data);
+  };
+  await untilLift(run);
+  await run.until(() => ['held', 'failed'].includes((run.state().pauseRetract || {}).phase), 10000, 'held');
+  await run.wait(1500);
+  expect(run.errors).toEqual(['error:15']);
+  expect(run.state().pauseRetract).toMatchObject({ phase: 'held', failure: { code: 'ETOUCH_RETRACT_ERROR', params: { error: 15 } } });
+  expect(run.sim.machineState).toBe('Idle');
+  expect(run.state()).toMatchObject({ homed: true, activeState: 'Idle' });
+  // One jog, refused; nothing else of ours, no hold, no reset.
+  expect(linesOf(run.written.slice(run.retractMark))).toEqual([expect.stringMatching(/^\$J=G91 G21 Z\d+(\.\d+)? F600\n$/)]);
+  expect(run.written.slice(run.retractMark).filter((d) => d === '!' || d === '\x18')).toEqual([]);
+}, 120000);
+
+test('28. a limit switch during the lift (ALARM:1, the board restarts): nothing of ours in the new session, resume refused', async () => {
+  const run = await start();
+  await untilLift(run);
+  await run.wait(200);
+  expect(run.sim.setLimitPin('z', true)).toBe(true);
+  run.sim.setLimitPin('z', false);
+  const mark = run.written.length;
+  await run.wait(3000);
+  expect(run.sim.machinePosition).toEqual({ x: 0, y: 0, z: 0 });
+  expect(run.state().pauseRetract).toMatchObject({ phase: 'failed' });
+  expect(['ETOUCH_RETRACT_ALARM', 'ETOUCH_RETRACT_RESTART']).toContain(run.state().pauseRetract.failure.code);
+  expect(linesOf(run.written.slice(mark))).toEqual([]);
+  expect(run.written.slice(mark).filter((d) => d === '\x85' || d === '~')).toEqual([]);
+  expect(run.state()).toMatchObject({ canResume: false, homed: false });
+  await expect(run.req('prepare', { operation: 'resume', revision: run.state().revision })).rejects.toThrow();
+}, 120000);
+
 test('32. a feed override of 10 % during the lift: no false time limit (the jog does not follow it)', async () => {
   const run = await start();
   await run.until(() => run.controller.sender.state.received >= 20, 120000, 'line 20');
