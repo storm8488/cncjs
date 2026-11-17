@@ -178,3 +178,25 @@
 (window.CNCTouchMessages = window.CNCTouchMessages || []).push(
 ['Départ annulé.', 'Start cancelled.', 'Inicio cancelado.']
 );
+// CNC framing in the air (lot F1, src/server/services/touch/job-service.js and motion.js): refusals before the move, stops during it.
+(window.CNCTouchCodes = window.CNCTouchCodes || []).push(
+['ETOUCH_CNC_FRAME_LASER', 'Machine déclarée laser : le cadrage à vide est réservé à la CNC.', 'Machine declared as a laser: framing in the air is for a CNC only.', 'Máquina declarada láser: el encuadre en vacío es solo para una CNC.'],
+['ETOUCH_CNC_FRAME_NOT_HOMED', 'Cadrage refusé : machine non référencée. Faites la prise d’origine.', 'Framing refused: machine not homed. Home it first.', 'Encuadre rechazado: máquina sin referenciar. Busque primero el origen.'],
+['ETOUCH_CNC_FRAME_SOFT_LIMITS', 'Cadrage refusé : les limites logicielles de la carte ($20) ne sont pas actives ; rien n’arrêterait un dépassement.', 'Framing refused: the board’s soft limits ($20) are not active; nothing would stop an overrun.', 'Encuadre rechazado: los límites por software de la placa ($20) no están activos; nada detendría un rebasamiento.'],
+['ETOUCH_CNC_FRAME_OUTSIDE', 'Cadrage refusé : le rectangle du programme sort de la course de la machine (dépassements : {count}).', 'Framing refused: the program’s rectangle leaves the machine travel (overruns: {count}).', 'Encuadre rechazado: el rectángulo del programa sale del recorrido de la máquina (rebasamientos: {count}).'],
+['ETOUCH_CNC_FRAME_START', 'Cadrage refusé : la position actuelle {axis} {value} mm machine est hors de la course utilisable ({low} → {high}).', 'Framing refused: the current position {axis} {value} mm (machine) is outside the usable travel ({low} → {high}).', 'Encuadre rechazado: la posición actual {axis} {value} mm máquina está fuera del recorrido utilizable ({low} → {high}).'],
+['ETOUCH_CNC_FRAME_Z', 'Cadrage refusé : hauteur sûre incalculable (course ou position Z inconnue).', 'Framing refused: the safe height cannot be computed (Z travel or position unknown).', 'Encuadre rechazado: no se puede calcular la altura segura (recorrido o posición Z desconocidos).'],
+['ETOUCH_FRAME_STREAM', 'Cadrage arrêté : l’appareil qui l’a lancé ne suit plus la machine (connexion perdue).', 'Framing stopped: the device that started it no longer follows the machine (connection lost).', 'Encuadre detenido: el dispositivo que lo inició ya no sigue la máquina (conexión perdida).'],
+['ETOUCH_FRAME_CONTROL', 'Cadrage arrêté : le pilotage a changé de main.', 'Framing stopped: control changed hands.', 'Encuadre detenido: el control ha cambiado de manos.'],
+['ETOUCH_FRAME_STALE', 'Cadrage arrêté : la machine ne donne plus de nouvelles (rapports trop anciens).', 'Framing stopped: no news from the machine (reports too old).', 'Encuadre detenido: la máquina no da noticias (informes demasiado antiguos).'],
+['ETOUCH_FRAME_TIMEOUT', 'Cadrage arrêté : un déplacement n’a pas fini à temps. Vérifiez la machine.', 'Framing stopped: a move did not finish in time. Check the machine.', 'Encuadre detenido: un desplazamiento no terminó a tiempo. Compruebe la máquina.'],
+['ETOUCH_FRAME_STATE', 'Cadrage arrêté : la machine a changé d’état pendant le cadrage ({state}).', 'Framing stopped: the machine changed state during framing ({state}).', 'Encuadre detenido: la máquina cambió de estado durante el encuadre ({state}).'],
+['ETOUCH_FRAME_REFUSED', 'Grbl a refusé le jog (error:{n})', 'Grbl refused the jog (error:{n})', 'Grbl rechazó el jog (error:{n})'],
+['ETOUCH_FRAME_ALARM', 'Cadrage arrêté : alarme machine[ (ALARM:{alarm})].', 'Framing stopped: machine alarm[ (ALARM:{alarm})].', 'Encuadre detenido: alarma de la máquina[ (ALARM:{alarm})].'],
+['ETOUCH_FRAME_RESTART', 'Cadrage arrêté : la carte a redémarré. Sa position est perdue.', 'Framing stopped: the board restarted. Its position is lost.', 'Encuadre detenido: la placa se ha reiniciado. Ha perdido su posición.'],
+['ETOUCH_FRAME_POSITION', 'Cadrage arrêté : {axis} machine {reported} au lieu de {expected} attendu. La carte n’applique peut-être pas le zéro affiché.', 'Framing stopped: machine {axis} {reported} instead of {expected} expected. The board may not apply the zero shown.', 'Encuadre detenido: {axis} máquina {reported} en lugar de {expected} esperado. Puede que la placa no aplique el cero mostrado.']
+);
+(window.CNCTouchMessages = window.CNCTouchMessages || []).push(
+['Cadrage à vide lancé : M5, montée de Z, puis tour du programme. Arrêt : bouton Arrêter.', 'Framing in the air started: M5, Z rises, then the program outline. Stop: Stop button.', 'Encuadre en vacío iniciado: M5, subida de Z y luego el contorno del programa. Parada: botón Detener.'],
+['La broche tourne peut-être (vitesse non rapportée, état $G trop ancien) : arrêtez-la d’abord (M5).', 'The spindle may be running (speed not reported, $G state too old): stop it first (M5).', 'El husillo puede estar girando (velocidad no informada, estado $G demasiado antiguo): párelo primero (M5).']
+);

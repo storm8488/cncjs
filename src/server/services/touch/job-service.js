@@ -18,7 +18,7 @@ import { durationOf, createRunTime } from './program-time.js';
 // eslint-disable-next-line import/extensions
 import { createControl, SAFE_ACTIONS } from './control.js';
 // eslint-disable-next-line import/extensions
-import { createMotion, maxFeedOf, machinePositionKnown, MAX_JOG_MS, MIN_FEED } from './motion.js';
+import { createMotion, maxFeedOf, machinePositionKnown, MAX_JOG_MS, MIN_FEED, envelopeOf, limitsAt, usableOf } from './motion.js';
 // eslint-disable-next-line import/extensions
 import { createProfiles, describeProfile, machineRefusal, KINDS } from './machine-profile.js';
 // Parts of the service behind explicit contracts (audit 31, E2): the
@@ -194,6 +194,9 @@ const controlJobRefusal = () => {
 // shown by CNCjs's own interface.
 const SOCKET_PROBE_BUSY = 'Palpage en cours sur la tablette : commande refusée jusqu’à sa fin (Arrêter reste possible).';
 const SOCKET_SYSTEM_BUSY = 'Commande système en cours sur la tablette : commande refusée jusqu’à sa fin (Arrêter reste possible).';
+const SOCKET_FRAME_BUSY = 'Cadrage en cours sur la tablette : commande refusée jusqu’à sa fin (Arrêter reste possible).';
+// CNC framing (lot F1): no spindle speed reported and no recent $G to tell it is stopped.
+const CNC_FRAME_SPINDLE_UNKNOWN = 'La broche tourne peut-être (vitesse non rapportée, état $G trop ancien) : arrêtez-la d’abord (M5).';
 // Shared by the start rejection and the response to the stop that cancelled it.
 const START_CANCELLED = 'Départ annulé.';
 
@@ -535,6 +538,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         // A Home state seen before the restart says nothing about the new session.
         r.sawHome = false;
         r.startups += 1;
+        // A framing ends at the banner itself, without a byte to the new session (lot F1, C1).
+        moves.restarted(c, r);
         // A banner ends the plate's old session, including boards returning directly to Idle.
         if (r.probing && r.probing.kind === 'plate') {
           r.probing.cancelled = true;
@@ -589,6 +594,12 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       r.file = () => {
         r.job = null;
         r.ticket = null;
+        // A program replaced during a framing (an upload of CNCjs, lot F1 review C3) ends it now:
+        // a CNC framing with its code, a laser one as a stop.
+        moves.supervise(c, r);
+        if (moves.framing(r)) {
+          moves.stop(c, r, 'program');
+        }
         changed();
       };
       c.runner.on('status', r.status);
@@ -1626,6 +1637,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     const readSettingsReason = reason(() => readSettingsReady(c), refusals, 'readSettings');
     reason(() => moves.originOperation.guard(c), refusals, 'setOrigin');
     reason(() => moves.jogReady(c, r), refusals, 'jog');
+    // Framing (laser or CNC, lot F1): the whole guard of this machine kind now.
+    const frameReason = reason(() => planFor(c, r), refusals, 'frame');
 
     const jobErrors = (r.job && r.job.errors) || 0;
     const ended = Boolean(r.job && r.job.finishedAt && !r.job.stopped && c.workflow.state === 'idle');
@@ -1731,7 +1744,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       stoppedAtLine: r.lastStop ? r.lastStop.line : null,
       stoppedFile: r.lastStop ? r.lastStop.file : null,
       // A block probe is interrupted by Pause (it cannot be resumed).
-      canPause: c.workflow.state === 'running' || !!(r.probing && r.probing.kind === 'block'),
+      canPause: c.workflow.state === 'running' || !!(r.probing && r.probing.kind === 'block') || moves.framing(r),
       // A macro waiting in a dwell (CNCjs queue not empty) can be stopped too.
       canStop: c.workflow.state !== 'idle' || ['Run', 'Hold', 'Home', 'Jog'].includes(state.activeState) || /^Door/.test(state.activeState || '') ||
         !!r.probing || !!r.starting || !!r.frameStarting || homingActive(r) || !!(feederState.queue || feederState.pending) ||
@@ -1762,6 +1775,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       // Z zero with a touch plate (guarded like the commissioning commands).
       canZeroZ: !zeroZReason,
       zeroZReason,
+      canFrame: !frameReason,
+      frameReason,
       probing: !!r.probing,
       zeroZ: r.zeroZ ? { ...r.zeroZ } : null,
       // Block probe (block-probe.js): ready or why not, and the last one.
@@ -1944,6 +1959,179 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     return { lines, limits, bounds, feed: f, job: j };
   };
 
+  // CNC framing in the air (lot F1, examples/cncjs-touch/design/fonctions/F1-CONCEPTION.md): M5,
+  // then Z alone up to CNC_FRAME_CLEARANCE_MM under the top of the Z travel by a relative,
+  // unsigned jog (it can only rise), then the XY box of the program in work coordinates like the
+  // laser framing, then back above the start. Z never comes down. Every line is a bounded `$J=`.
+  const CNC_FRAME_FEED = 600;
+  const CNC_FRAME_MAX_FEED = 1500;
+  const CNC_FRAME_Z_FEED = 300;
+  const CNC_FRAME_CLEARANCE_MM = 5;
+  const CNC_FRAME_MIN_RISE_MM = 0.01;
+  const CNC_FRAME_MIN_SEGMENT_MM = 0.001;
+  const CNC_FRAME_EDGE_MM = 1e-6;
+  const cncFramePlan = (c, r, feedAsked) => {
+    // G3 to G7: the machine kind, at rest, homed, the work offset proven (D2), the spindle still.
+    requireCapability(c, 'cncFrame');
+    moves.jogReady(c, r);
+    if (r.homed !== true) {
+      throw machineRefusal('ETOUCH_CNC_FRAME_NOT_HOMED');
+    }
+    offsetReady(c);
+    spindleStill(c);
+    if (realtimeValue(controllerStatus(c).spindle) === null && !modalFresh(r)) {
+      throw conflict(CNC_FRAME_SPINDLE_UNKNOWN);
+    }
+    // G8 to G11: the loaded program, its travel check in X and Y, its outline, its work offset.
+    const j = r.job;
+    const sender = c.sender.state || {};
+    if (!j || sender.name !== j.name || !sender.context || sender.context.touchJob !== j.revision) {
+      throw machineRefusal('ETOUCH_LASER_FRAME_NO_PROGRAM');
+    }
+    const a = j.analysis;
+    const check = checkProgram(a, machineForCheck(c, r));
+    const xy = ['X', 'Y'];
+    if (xy.some((axis) => check.axes[axis].verdict === 'outside')) {
+      const reasons = (check.blocking || []).filter((b) => b.code === 'ETOUCH_TRAVEL_BEYOND' && xy.includes(b.params && b.params.axis));
+      if (reasons.length) {
+        const err = machineRefusal('ETOUCH_CNC_FRAME_OUTSIDE', { count: reasons.length });
+        err.reasons = reasons;
+        throw err;
+      }
+    }
+    if (xy.some((axis) => check.axes[axis].verdict !== 'validated')) {
+      const reasons = xy.flatMap((axis) => check.axes[axis].codedReasons)
+        .filter((reason, i, all) => all.findIndex((other) => other.message === reason.message) === i);
+      const err = machineRefusal('ETOUCH_LASER_FRAME_CHECK');
+      err.reasons = reasons;
+      throw err;
+    }
+    if (a.rawUnits || !a.extent.X || !a.extent.Y) {
+      throw machineRefusal('ETOUCH_LASER_FRAME_BOUNDS');
+    }
+    const active = modalWcs(r);
+    if (a.wcs && a.wcs !== active) {
+      throw machineRefusal('ETOUCH_LASER_FRAME_WCS', { wcs: a.wcs, active: active || 'inconnu' });
+    }
+    // G12: the board refuses by itself any target beyond its travel ($20=1).
+    const settings = allSettings(c);
+    if (settingNumber(settings, 20) !== 1) {
+      throw machineRefusal('ETOUCH_CNC_FRAME_SOFT_LIMITS');
+    }
+    // G13: where the machine is, in work and machine coordinates.
+    const status = controllerStatus(c);
+    const at = (kind, axis) => {
+      const v = status[kind] && status[kind][axis];
+      const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
+      return typeof n === 'number' && Number.isFinite(n) ? n : null;
+    };
+    const wx = at('wpos', 'x');
+    const wy = at('wpos', 'y');
+    const mx = at('mpos', 'x');
+    const my = at('mpos', 'y');
+    const mz = at('mpos', 'z');
+    if ([wx, wy, mx, my, mz].includes(null)) {
+      throw machineRefusal('ETOUCH_LASER_FRAME_POSITION');
+    }
+    // G14: the safe height, in the one Z travel the machine position fits.
+    const env = envelopeOf(settings, r.homed, { wcoSeen: r.wcoSeen, wposReported: r.wposReported, homeAt: r.homeMpos });
+    const zAt = limitsAt(env.Z, mz, 'Z');
+    if (!zAt.limits || zAt.ambiguous) {
+      throw machineRefusal('ETOUCH_CNC_FRAME_Z');
+    }
+    const zUsable = usableOf(zAt.limits);
+    const safeZ = Number(fmt3(zUsable.high - CNC_FRAME_CLEARANCE_MM));
+    if (safeZ < zUsable.low) {
+      throw machineRefusal('ETOUCH_CNC_FRAME_Z');
+    }
+    // G15: the way back (the start) inside the usable travel too; the corners are the check's (G9).
+    [['X', mx], ['Y', my]].forEach(([axis, m]) => {
+      const lim = limitsAt(env[axis], m, axis);
+      const u = lim.limits && !lim.ambiguous ? usableOf(lim.limits) : null;
+      if (!u || m < u.low - CNC_FRAME_EDGE_MM || m > u.high + CNC_FRAME_EDGE_MM) {
+        throw machineRefusal('ETOUCH_CNC_FRAME_START', { axis, value: fmt3(m), low: u ? fmt3(u.low) : '?', high: u ? fmt3(u.high) : '?' });
+      }
+    });
+    // G16: a slow feed (600 mm/min by default, 1500 at most), no line longer than MAX_JOG_MS.
+    const max = Math.min(CNC_FRAME_MAX_FEED, maxFeedOf(settings, 'X').max, maxFeedOf(settings, 'Y').max);
+    const feed = feedAsked === undefined || feedAsked === null ? Math.min(CNC_FRAME_FEED, max) : feedAsked;
+    if (typeof feed !== 'number' || !Number.isFinite(feed) || feed < MIN_FEED || feed > max) {
+      throw machineRefusal('ETOUCH_LASER_FRAME_FEED', { min: MIN_FEED, max: fmt3(max) });
+    }
+    const f = Number(fmt3(feed));
+    const fz = Number(fmt3(Math.min(CNC_FRAME_Z_FEED, maxFeedOf(settings, 'Z').max)));
+    const slow = (ms) => {
+      if (ms > MAX_JOG_MS) {
+        throw machineRefusal('ETOUCH_LASER_FRAME_SLOW', { seconds: Math.ceil(ms / 1000), max: MAX_JOG_MS / 1000 });
+      }
+      return ms;
+    };
+    // The lines (§ 4.2), each with its time limit, its phase and the machine position it ends at.
+    const lines = ['M5'];
+    const limits = [10000];
+    const phases = ['spindle'];
+    // M5 moves nothing: the machine stays where the plan was made (review D2).
+    const expect = [{ x: mx, y: my, z: mz }];
+    let moveMs = 0;
+    const rise = Number(fmt3(safeZ - mz));
+    if (rise >= CNC_FRAME_MIN_RISE_MM) {
+      const ms = slow(60000 * rise / fz);
+      lines.push('$J=G91 G21 Z' + fmt3(rise) + ' F' + fmt3(fz));
+      limits.push(ms + 10000);
+      phases.push('raise');
+      expect.push({ x: mx, y: my, z: mz + rise });
+      moveMs += ms;
+    }
+    const bounds = {
+      xMin: Number(fmt3(a.extent.X.min)),
+      xMax: Number(fmt3(a.extent.X.max)),
+      yMin: Number(fmt3(a.extent.Y.min)),
+      yMax: Number(fmt3(a.extent.Y.max))
+    };
+    const { xMin, xMax, yMin, yMax } = bounds;
+    const start = { x: Number(fmt3(wx)), y: Number(fmt3(wy)) };
+    // Machine = work + (MPos − WPos), the offset the travel check used (program-check.js).
+    const offX = mx - wx;
+    const offY = my - wy;
+    let from = [start.x, start.y];
+    let sides = 0;
+    [['approach', xMin, yMin], ['side', xMax, yMin], ['side', xMax, yMax], ['side', xMin, yMax], ['side', xMin, yMin], ['return', start.x, start.y]].forEach(([phase, x, y]) => {
+      const length = Math.hypot(x - from[0], y - from[1]);
+      // A segment of no length is not sent (a flat box, a start on the first corner).
+      if (length <= CNC_FRAME_MIN_SEGMENT_MM) {
+        return;
+      }
+      const ms = slow(60000 * length / f);
+      lines.push('$J=G90 G21 X' + fmt3(x) + ' Y' + fmt3(y) + ' F' + fmt3(f));
+      limits.push(ms + 10000);
+      phases.push(phase);
+      expect.push({ x: x + offX, y: y + offY });
+      sides += phase === 'side' ? 1 : 0;
+      moveMs += ms;
+      from = [x, y];
+    });
+    return {
+      kind: 'cnc',
+      lines,
+      limits,
+      phases,
+      sides,
+      expect,
+      bounds,
+      feed: f,
+      zFeed: fz,
+      safeZ: { machine: safeZ, rise: rise >= CNC_FRAME_MIN_RISE_MM ? rise : 0 },
+      // The work offset in X/Y the targets are written in: compared at every step of the sequence.
+      offset: { x: offX, y: offY },
+      start,
+      seconds: Math.ceil(moveMs / 1000),
+      job: j,
+      revision: j.revision
+    };
+  };
+  // The machine kind chooses the plan: a declared laser frames at its height, anything else in the air.
+  const planFor = (c, r, feed) => (profileOf(c, r).kind === 'laser' ? framePlan : cncFramePlan)(c, r, feed);
+
   const MACHINE_OPERATIONS = ['set-kind', 'forget', 'frame-prepare', 'frame'];
 
   // POST {action: 'machine', operation: 'set-kind' | 'forget' | 'frame-prepare' | 'frame'}.
@@ -1984,11 +2172,12 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
     moves.bound(body, actor);
     if (op === 'frame-prepare') {
-      const plan = framePlan(c, r, body.feed);
+      const plan = planFor(c, r, body.feed);
       const nonce = crypto.randomBytes(24).toString('hex');
       r.ticket = {
         nonce,
         operation: 'frame',
+        kind: plan.kind || 'laser',
         revision: plan.job.revision,
         fingerprint: plan.job.fingerprint,
         lines: plan.lines,
@@ -1996,13 +2185,24 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         expires: clock() + TICKET_LIFETIME_MS,
         transportId: body.transportId
       };
+      if (plan.kind === 'cnc') {
+        return {
+          nonce,
+          name: 'Cadrage à vide X ' + fmt3(plan.bounds.xMin) + ' → ' + fmt3(plan.bounds.xMax) + ', Y ' + fmt3(plan.bounds.yMin) + ' → ' + fmt3(plan.bounds.yMax) +
+            ' mm à ' + fmt3(plan.feed) + ' mm/min (M5, Z machine ' + fmt3(plan.safeZ.machine) + ', sans broche)',
+          operation: 'frame',
+          expiresIn: TICKET_LIFETIME_MS / 1000,
+          generation: r.generation,
+          frame: { kind: 'cnc', lines: plan.lines.slice(), bounds: plan.bounds, feed: plan.feed, zFeed: plan.zFeed, safeZ: plan.safeZ, start: plan.start, seconds: plan.seconds }
+        };
+      }
       return {
         nonce,
         name: 'Cadrage laser X ' + fmt3(plan.bounds.xMin) + ' → ' + fmt3(plan.bounds.xMax) + ', Y ' + fmt3(plan.bounds.yMin) + ' → ' + fmt3(plan.bounds.yMax) + ' mm à ' + fmt3(plan.feed) + ' mm/min (M5 d’abord, sans émission)',
         operation: 'frame',
         expiresIn: TICKET_LIFETIME_MS / 1000,
         generation: r.generation,
-        frame: { lines: plan.lines.slice(), bounds: plan.bounds, feed: plan.feed }
+        frame: { kind: 'laser', lines: plan.lines.slice(), bounds: plan.bounds, feed: plan.feed }
       };
     }
     const t = r.ticket;
@@ -2013,8 +2213,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     // The same program (revision and fingerprint), the same lines, re-checked
     // after the file on disk was read again (A5).
     const again = () => {
-      const plan = framePlan(c, r, t.feed);
-      if (plan.job.revision !== t.revision || plan.job.fingerprint !== t.fingerprint || plan.lines.join('\n') !== t.lines.join('\n')) {
+      const plan = planFor(c, r, t.feed);
+      if ((plan.kind || 'laser') !== t.kind || plan.job.revision !== t.revision || plan.job.fingerprint !== t.fingerprint || plan.lines.join('\n') !== t.lines.join('\n')) {
         throw machineRefusal('ETOUCH_LASER_FRAME_CHANGED');
       }
       return plan;
@@ -2085,9 +2285,12 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
           }
           blockProbe.supervise(c, r);
           plateProbe.supervise(c, r);
+          // A CNC framing (lot F1) as well.
+          moves.supervise(c, r);
           // A takeover is seen by the jog's own watch; a release leaves the port free, which that watch
-          // takes for nobody's business: the move of the device that gave the hand back ends here (F4).
-          if (op === 'release') {
+          // takes for nobody's business: the move of the device that gave the hand back ends here (F4),
+          // unless all that is left is a framing ended at a banner (F1, nothing written to the new session).
+          if (op === 'release' && !moves.bannerLeftover(r)) {
             moves.stop(c, r, 'released');
           }
         }
@@ -2277,6 +2480,11 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       if (r.probing && r.probing.kind === 'block') {
         r.ticket = null;
         return blockProbe.stop(c, r, 'spindle');
+      }
+      // During a framing: the same stop as Arrêter, without an M5 that Grbl would refuse in Jog.
+      if (moves.framing(r)) {
+        r.ticket = null;
+        return moves.stop(c, r, 'spindle');
       }
       spindleStopReady(c);
       if (/^Alarm/.test(controllerStatus(c).activeState || '')) {
@@ -2696,8 +2904,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       if (r.ticket && r.ticket.transportId === id) {
         r.ticket = null;
       }
-      // The owner's stream closing stops its continuous jog (0x85).
-      moves.transportClosed(c, r, id);
+      // The owner's stream closing stops its continuous jog (0x85); a CNC framing keeps a rotation's grace.
+      moves.transportClosed(c, r, id, rotated === true);
       // Its block probe stops at once, unless the stream is only renewed.
       blockProbe.transportClosed(c, r, actor, rotated === true);
       // Its plate probe as well (C-17).
@@ -2745,6 +2953,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     if (r && (r.originChecking || r.frameStarting)) {
       return conflict('Des commandes sont en attente.');
     }
+    if (r && moves.framing(r)) {
+      return conflict(SOCKET_FRAME_BUSY);
+    }
     if (r && r.probing) {
       return conflict(SOCKET_PROBE_BUSY);
     }
@@ -2768,11 +2979,41 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     if (r.starting) {
       r.starting.cancelled = true;
     }
+    // A framing in progress ends before the command passes (lot F1, P1): 0x85, nothing after it.
+    if (moves.framing(r)) {
+      moves.stop(c, r, 'socket');
+    }
     if (r.probing && r.probing.kind === 'block') {
       blockProbe.stop(c, r, 'stop');
     } else if (r.probing) {
       plateStop(c, r);
     }
+  };
+
+  // index.js refuseSocket: a jog cancel from a socket (`jogCancel`, 0x85) ends a framing of the
+  // server, synchronously, before it passes (lot F1, review D4): a framing is a sequence of jogs,
+  // and the operator who cancels one does not want the next. The probes are not jogs: they keep
+  // their own stops (socketStop).
+  const socketJogCancel = (port) => {
+    const c = !disposed && controllers()[port];
+    const r = c && records.get(c);
+    if (!r) {
+      return;
+    }
+    if (r.frameStarting) {
+      r.frameStarting.cancelled = true;
+    }
+    if (moves.framing(r)) {
+      moves.stop(c, r, 'socket');
+    }
+  };
+
+  // api.gcode.js upload (POST /api/gcode, CNCjs's own loading): refused while a framing runs or
+  // waits to start (lot F1, review C3). Null when allowed.
+  const uploadRefusal = (port) => {
+    const c = !disposed && controllers()[port];
+    const r = c && records.get(c);
+    return r && (r.frameStarting || moves.framing(r)) ? conflict(SOCKET_FRAME_BUSY) : null;
   };
 
   const dispose = () => {
@@ -2803,6 +3044,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     socketCommand,
     socketRefusal,
     socketStop,
+    socketJogCancel,
+    uploadRefusal,
     control,
     dispose
   };

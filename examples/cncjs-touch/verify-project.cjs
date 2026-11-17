@@ -37,7 +37,8 @@ const tests = [
  'v2-settings','v2-journal','v2-machine','v2-machine-release','v2-machine-frames',
  'performance-v2-safety',
  'auto-connect','auto-reload','auto-reload-recovery',
- 'small-screens'
+ 'small-screens',
+ 'cnc-frame'
 ].map(name=>'test-'+name+'.cjs');
 // The backend (job service, event stream, motion preflight, probe input) lives in
 // src/server/services/touch and is covered by the root Jest suite (`yarn test`).

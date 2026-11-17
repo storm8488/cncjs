@@ -81,7 +81,7 @@ L'opérateur reste devant la machine, avec accès immédiat à l'arrêt physique
 8. **B8 — E-F, plan 18, avant XYZ :** valider séparément G38.3 sans contact dans une petite zone dégagée, à faible avance, cible bornée ; relever `[PRB:…:0]`, `ok`, état final et position. Tester ensuite le refus sur contact déjà établi. Une alarme suspend l'essai et impose B1/B2. Ne pas lancer XYZ avant d'avoir confirmé le comportement sans contact des liaisons.
 9. **B9 — bloc :** cotes réellement mesurées, dessin correspondant au coin, fraise au-dessus du bloc dans la zone indiquée, test contact/libération. Commencer par Z seul ; vérifier les deux touches et le zéro. Passer à X puis Y seulement avec dégagement ; XYZ en dernier. Comparer les contacts, l'origine et `written` aux mesures, pas seulement au message de succès. Ne pas oublier de rebrancher la broche hors tension avant la phase de coupe.
 
-Le cadrage reste réservé au laser. Sur un laser réel, conserver les protections propres au laser et une émission matériellement empêchée pour cet essai : vérifier `M5` puis le contour, Arrêter/Pause et aucun redémarrage du contour. Le départ retardé par relecture de fichier, son annulation et la libération/reprise de main sont prouvés sur banc FINAL ; ne pas ralentir artificiellement le stockage d'une installation de production. Une RT à `$22=0` garde le départ autorisé par le serveur avec avertissement de course inconnue ; **ne pas mettre `$22=0` sur la CNC pour cet essai**.
+Cadrage laser (le cadrage à vide de la CNC a son propre essai au § 8). Sur un laser réel, conserver les protections propres au laser et une émission matériellement empêchée pour cet essai : vérifier `M5` puis le contour, Arrêter/Pause et aucun redémarrage du contour. Le départ retardé par relecture de fichier, son annulation et la libération/reprise de main sont prouvés sur banc FINAL ; ne pas ralentir artificiellement le stockage d'une installation de production. Une RT à `$22=0` garde le départ autorisé par le serveur avec avertissement de course inconnue ; **ne pas mettre `$22=0` sur la CNC pour cet essai**.
 
 ## 5. Qualification du firmware, séparée de la séance normale
 
@@ -156,3 +156,38 @@ tester une mise à jour. Noter versions chargée/installée, URL, heure et résu
    constater qu'aucun rechargement automatique n'enlève les commandes d'arrêt.
    Vérifier également qu'une autre machine occupée sur le même serveur bloque
    la navigation. Toute incertitude interrompt l'essai et reste consignée.
+
+## 8. F1 — Cadrage à vide sur la CNC (ajouté le 17 novembre 2026)
+
+Mouvement nouveau (`SURETE.md` § F1, conception `../fonctions/F1-CONCEPTION.md` § 12). À conduire seulement après les phases B1/B2 réussies (prise d'origine, D2 prouvé). Règles du § 2. **Phases A à C : broche débranchée de son alimentation.** Garder CNCjs classique ouvert sur le PC en observateur pour lire les lignes écrites et les réponses.
+
+**Avant.** Relire `$$` et noter `$20`, `$110-$112`, `$120-$122`, `$130-$132`. Si `$20` ne vaut pas 1, le cadrage est refusé (« Les limites de course de la machine sont coupées ») : c'est voulu. Remettre `$20=1` est une décision de l'opérateur, hors de ce lot.
+
+| Étape | Manipulation | Résultat attendu / relevé |
+|---|---|---|
+| F1-A1 | Carte connectée, sans prise d'origine, un fichier chargé. 4 · Contrôle. | « Cadrer à vide… » rayé, phrase « origine à prendre » et son remède. |
+| F1-A2 | Prise d'origine ; regarder le bouton pendant la vérification du zéro pièce. | Rayé « La machine vérifie le zéro pièce… », puis plein. |
+| F1-A3 | Poser un zéro pièce tel que le fichier dépasse en X. | Rayé, « Le fichier dépasse de N mm en X+… » ; N égal au dessin de Contrôle. Remettre un zéro correct. |
+| F1-A4 | Prendre la main depuis le PC, puis la rendre. | Rayé sur la tablette tant que le PC a la main. |
+| F1-B5 | **Table vide, pince sans fraise.** Petit fichier connu (≈ 100 × 50 mm), zéro pièce vers le milieu de la table, Z machine descendu à la main vers −60. | — |
+| F1-B6 | « Cadrer à vide… » : lire le dialogue (dimensions, durée, Détails : lignes et hauteur sûre), cocher, « Lancer le cadrage ». Main sur l'arrêt physique. | Dialogue « Cadrer à vide », bouton d'engagement armé après la case. |
+| F1-B7 | Observer. | Dans l'ordre : `M5` ; Z monte **seul** et s'arrête à Z machine −5,000 ; puis X/Y vers le premier coin ; quatre côtés ; retour au-dessus du départ ; Z n'a jamais baissé. Relever la position machine à chaque coin = coin + zéro pièce (0,05 mm). Chronométrer un côté : 100 mm ≈ 10 s. |
+| F1-B8 | Après. | Repos, pas d'alarme ni de bannière, prise d'origine et zéro pièce toujours valides, « Cadrage terminé. La fraise est restée en haut. » |
+| F1-B9 | Refaire juste après une prise d'origine (Z déjà en haut). | Aucune montée ; Z ne bouge pas. |
+| F1-C10 | Depuis Z −60, **Arrêter pendant la montée**. | Arrêt net, X/Y immobiles, aucune bannière, référence gardée. Relancer : la montée repart de là. |
+| F1-C11 | **Arrêter au milieu d'un grand côté.** | Temps et distance entre toucher et arrêt (attendu : quelques mm). Position gardée, pas d'alarme, aucun mouvement pendant une minute. |
+| F1-C12 | Même essai avec **Pause**. | Comme C11 ; le cadrage ne reprend pas. |
+| F1-C13 | Lancer depuis la page Touch du PC, puis **fermer l'onglet** pendant un côté ; recommencer en **prenant la main** depuis la tablette pendant un côté. | Arrêt dans les deux cas (« Cadrage arrêté avant la fin… »). |
+| F1-C14 | Pendant un côté, « feed hold » dans CNCjs classique. | La fraise s'arrête et **ne repart pas**. |
+| F1-C14b | Pendant un côté, puis **à l'arrêt entre deux côtés** (pendant la demi-seconde de repos), regarder 3 · Zéro pièce / les flèches sur la tablette, et tenter un pas **depuis la tablette qui a lancé le cadrage** (celle qui a la main : depuis un autre appareil, le refus de pilotage masquerait l'essai). | Flèches grisées « Déplacement en cours : attendez l'arrêt. » ; le pas est refusé « Cadrage en cours. » ; le cadrage continue à la même hauteur. |
+| F1-C14c | Pendant un côté, charger un fichier depuis CNCjs classique (glisser un `.nc`). | Refusé (« Cadrage en cours sur la tablette… ») ; le cadrage continue. |
+| F1-C15 | Facultatif, une seule fois : arrêt physique pendant un côté. | Tout s'arrête ; au retour reconnecter, relire, prise d'origine ; le cadrage ne reprend pas. |
+| F1-D16 | Brider la planche, monter la fraise, zéro pièce habituel, broche **toujours débranchée**. Vérifier que rien sur la table n'est plus haut que la fraise relevée. | — |
+| F1-D17 | Cadrer. | Aux quatre coins, l'axe de la fraise est au-dessus du coin attendu ; aucune bride sous le trajet (sinon la déplacer). |
+| F1-D18 | Rebrancher la broche hors mouvement ; lancer l'usinage par le chemin normal. | Le programme part de la hauteur où le cadrage a laissé la fraise. |
+
+Ne **pas** essayer : une cible hors course « pour voir », `$20=0`, un reset en mouvement, un redémarrage de CNCjs pendant un côté.
+
+Les fenêtres trouvées par la relecture (rotation du flux, bannière, `jogCancel`, `autolevel:stop` ou porte `0x84` d'un client tiers, `$G` sans `FS`, réglages, repère ou décalage changés pendant le cadrage) sont prouvées sur banc et simulateur seulement (`../fonctions/F1-CORRECTIONS.md`) ; elles ne se provoquent pas à l'essai.
+
+**Relevé à rendre** : fait / non fait par étape, lignes écrites, positions aux coins, temps d'un côté, temps et distance d'arrêt, toute surprise. Une étape non faite reste non vérifiée. Après l'essai, mettre à jour C7 et C8 de la conception et la limite F1 de `SURETE.md`.

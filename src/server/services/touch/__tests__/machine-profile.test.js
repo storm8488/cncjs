@@ -214,7 +214,8 @@ describe('machine identity (§2)', () => {
     const p = describeProfile({ settings: SETTINGS, firmware: '1.1h', version: '1.1h', port: '/dev/ttyUSB0', records: [], frameEnabled: true });
     expect(Object.keys(p)).toEqual(['version', 'id', 'label', 'kind', 'match', 'signature', 'portHint', 'laser', 'coherent', 'issues', 'capabilities']);
     expect(p).toMatchObject({ version: 1, id: null, label: '', kind: null, match: 'none', signature, portHint: '/dev/ttyUSB0', laser: { mode: 0, sMax: 1000, sMin: 0 }, coherent: true, issues: [] });
-    expect(Object.keys(p.capabilities)).toEqual(['spindleTest', 'plateProbe', 'toolChange', 'resume', 'laserResume', 'laserFrame', 'focus']);
+    // Lot F1: cncFrame (framing in the air) added after the laser capabilities.
+    expect(Object.keys(p.capabilities)).toEqual(['spindleTest', 'plateProbe', 'toolChange', 'resume', 'laserResume', 'laserFrame', 'focus', 'cncFrame']);
     ['spindleTest', 'plateProbe', 'toolChange', 'resume'].forEach((n) => expect(p.capabilities[n]).toEqual({ supported: true, reason: '', code: '' }));
     ['laserResume', 'laserFrame', 'focus'].forEach((n) => expect(p.capabilities[n]).toMatchObject({ supported: false, code: 'ETOUCH_LASER_NOT_LASER' }));
 
@@ -757,11 +758,13 @@ describe('laser framing (§4)', () => {
       }
       return err.code;
     };
+    // Lot F1: a CNC (declared or not associated) gets the framing in the air, with its own guards:
+    // the board's soft limits ($20, unknown here) refuse it; without a program, the program guard.
     let ctx = setup({ machines: [record('cnc')] });
     await ctx.req('load', { file: 'frame.nc' });
-    expect(await code(ctx.machine('frame-prepare'))).toBe('ETOUCH_LASER_NOT_LASER');
+    expect(await code(ctx.machine('frame-prepare'))).toBe('ETOUCH_CNC_FRAME_SOFT_LIMITS');
     ctx = setup();
-    expect(await code(ctx.machine('frame-prepare'))).toBe('ETOUCH_LASER_NOT_LASER');
+    expect(await code(ctx.machine('frame-prepare'))).toBe('ETOUCH_LASER_FRAME_NO_PROGRAM');
 
     ctx = laserSetup({ enabled: false });
     await ctx.req('load', { file: 'frame.nc' });

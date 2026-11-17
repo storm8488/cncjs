@@ -5032,7 +5032,9 @@ describe('job service: the coded refusal behind each reason (snapshot `refusals`
       start: { code: 'ETOUCH_OFFSET_UNCONFIRMED', params: { detail: 'no-report' } },
       macro: { code: 'ETOUCH_OFFSET_UNCONFIRMED', params: { detail: 'no-report' } },
       jog: { code: 'ETOUCH_MOTION_DISABLED', params: {} },
-      setOrigin: { code: 'ETOUCH_MOTION_DISABLED', params: {} }
+      setOrigin: { code: 'ETOUCH_MOTION_DISABLED', params: {} },
+      // Lot F1: the framing of this CNC, refused while the real moves are disabled.
+      frame: { code: 'ETOUCH_LASER_FRAME_DISABLED', params: {} }
     });
     // Refused too, by a French text without a code: not published in `refusals`.
     expect(now.canResume).toBe(false);
@@ -5042,7 +5044,8 @@ describe('job service: the coded refusal behind each reason (snapshot `refusals`
     refusal = null;
     expect(ctx.state().refusals).toEqual({
       jog: { code: 'ETOUCH_MOTION_DISABLED', params: {} },
-      setOrigin: { code: 'ETOUCH_MOTION_DISABLED', params: {} }
+      setOrigin: { code: 'ETOUCH_MOTION_DISABLED', params: {} },
+      frame: { code: 'ETOUCH_LASER_FRAME_DISABLED', params: {} }
     });
   });
 });

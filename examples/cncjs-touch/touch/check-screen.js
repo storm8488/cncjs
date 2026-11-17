@@ -5,7 +5,7 @@
   if(!shell||!view)return;
   var $=function(id){return document.getElementById(id);},screen=$('screen-check'),body=screen&&screen.querySelector('.ks-step-body');
   if(!body)return;
-  body.innerHTML=locale.html('<div class="check-layout"><section class="t-card check-top-card"><h2>Vue de dessus</h2><div id="check-top" class="check-drawing"></div><button type="button" id="check-placement-open" hidden>Vue 3D du placement</button></section><section class="t-card check-side-card"><h2>Vue de côté</h2><div id="check-side" class="check-drawing"></div></section><section class="t-card check-result-card"><h2>Verdict</h2><div id="check-verdict" role="status"></div><p id="check-spindle"></p><div id="check-rapids"></div><button type="button" id="check-frame-start" hidden>Cadrer…</button><p id="check-frame-reason"></p><button type="button" id="check-details-open">Détails du contrôle</button></section></div>');
+  body.innerHTML=locale.html('<div class="check-layout"><section class="t-card check-top-card"><h2>Vue de dessus</h2><div id="check-top" class="check-drawing"></div><button type="button" id="check-placement-open" hidden>Vue 3D du placement</button></section><section class="t-card check-side-card"><h2>Vue de côté</h2><div id="check-side" class="check-drawing"></div></section><section class="t-card check-result-card"><h2>Verdict</h2><div id="check-verdict" role="status"></div><p id="check-spindle"></p><div id="check-rapids"></div><button type="button" id="check-frame-start" hidden>Cadrer…</button><div id="check-frame-state" role="status"></div><p id="check-frame-reason"></p><button type="button" id="check-details-open">Détails du contrôle</button></section></div>');
   var details=shell.sheet('ks-check-details',t('Détails du contrôle'));
   details.content.innerHTML=locale.html('<div id="check-details-values"></div><p>Ni les brides ni la pièce ne sont vues.</p><p id="check-override-warning"></p><div id="check-override-host"></div><p id="check-override-feedback" role="status"></p>');
   var placement=shell.sheet('ks-check-placement',t('Vue 3D du placement'));
@@ -107,10 +107,54 @@
     if(key!==drawKey){drawKey=key;$('check-top').innerHTML=view.drawing(c,'top',m&&m.coordinates);$('check-side').innerHTML=view.drawing(c,'side');var node=$('check-verdict');node.textContent='';view.axisLines(c).forEach(function(a){var p=document.createElement('p');p.setAttribute('data-verdict',a.verdict);p.textContent=a.text;node.appendChild(p);});}
     var info=(c&&c.info||[]).filter(function(r){return r&&r.code==='ETOUCH_CHECK_S_ABOVE_MAX';})[0];
     text('check-spindle',info?t('Le fichier demande {n} tr/min : la broche tournera à son maximum.').replace('{n}',info.params&&info.params.s):'');
-    prop('check-rapids','hidden',isLaser(m));prop('check-frame-start','hidden',!isLaser(m));
-    var cap=m&&m.machineProfile&&m.machineProfile.capabilities&&m.machineProfile.capabilities.laserFrame,ok=!!(trusted(m)&&cap&&cap.supported);
-    prop('check-frame-start','disabled',!ok);text('check-frame-reason',isLaser(m)&&!ok?(last.pilot&&last.pilot.state==='other'?t('La main est sur un autre appareil.'):cap&&(locale.message||t)(cap.reason)||t('Cadrage indisponible.')):'');
+    prop('check-rapids','hidden',isLaser(m));prop('check-frame-start','hidden',!m);
+    if(isLaser(m)){
+      clearFrame();text('check-frame-start',t('Cadrer…'));
+      var cap=m&&m.machineProfile&&m.machineProfile.capabilities&&m.machineProfile.capabilities.laserFrame,ok=!!(trusted(m)&&cap&&cap.supported);
+      prop('check-frame-start','disabled',!ok);text('check-frame-reason',!ok?(last.pilot&&last.pilot.state==='other'?t('La main est sur un autre appareil.'):cap&&(locale.message||t)(cap.reason)||t('Cadrage indisponible.')):'');
+    }else if(m)paintCncFrame(m);
+    else{clearFrame();text('check-frame-reason','');}
     prop('check-placement-open','hidden',!advanced());paintDetails();
+  }
+  // Lot F1, framing in the air (CNC): the button, the line in progress or the last result for
+  // this file, and why it is refused. Everything comes from the state received (motion.frame,
+  // motion.lastFrame, canFrame, refusals.frame): the page decides nothing and sends no line.
+  var frameStateKey='',frameReasonKey='';
+  function band(id,key,refusal,current){
+    var host=$(id);if(!host)return key;
+    if(key===current&&(!refusal||host.firstChild))return current;
+    if(window.cncRefus)window.cncRefus.effacer(host);host.textContent='';
+    if(refusal&&window.cncRefus)window.cncRefus.montrer(host,refusal,function(){window.cncJobControls.prepareFrame();},{live:true});
+    return key;
+  }
+  function clearFrame(){text('check-frame-state','');frameStateKey=band('check-frame-state','',null,frameStateKey);frameReasonKey=band('check-frame-reason','',null,frameReasonKey);}
+  function phaseText(f){
+    if(f.phase==='raise')return t('Cadrage à vide : la fraise monte.');
+    if(f.phase==='approach')return t('Cadrage à vide : vers le premier coin.');
+    if(f.phase==='side')return t('Cadrage à vide : côté {n} sur {N}.').replace('{n}',String(f.side||'—')).replace('{N}',String(f.sides||'—'));
+    if(f.phase==='return')return t('Cadrage à vide : retour au point de départ.');
+    return t('Cadrage en cours.');
+  }
+  function paintCncFrame(m){
+    var motion=m.motion||{},f=motion.frame,l=motion.lastFrame,running=!!f,mine=!!(l&&l.kind==='cnc'&&l.revision===m.revision&&!running);
+    text('check-frame-start',t('Cadrer à vide…'));prop('check-frame-start','disabled',!(trusted(m)&&m.canFrame===true&&!running));
+    // The line in progress, or the result of the last framing of this file.
+    var stateText='',stopped=null;
+    if(running)stateText=f.kind==='cnc'?phaseText(f):t('Cadrage en cours.');
+    else if(mine&&l.result==='ended')stateText=t('Cadrage terminé. La fraise est restée en haut.');
+    else if(mine&&l.code)stopped={code:l.code,params:l.params||{},message:l.message||''};
+    else if(mine)stateText=t('Cadrage arrêté.');
+    if(stopped){frameStateKey=band('check-frame-state',JSON.stringify(stopped),stopped,frameStateKey);}
+    else{frameStateKey=band('check-frame-state','',null,frameStateKey);text('check-frame-state',stateText);}
+    // Why it cannot start now.
+    var reason=null,plain='';
+    if(running)plain=t('Cadrage en cours.');
+    else if(last.pilot&&last.pilot.state==='other')plain=t('La main est sur un autre appareil.');
+    else if(!trusted(m))plain=t('Cadrage indisponible.');
+    else if(m.canFrame===false)reason=m.refusals&&m.refusals.frame||{message:m.frameReason||t('Cadrage indisponible.')};
+    else if(m.canFrame!==true)plain=t('Cadrage indisponible.');
+    if(reason){frameReasonKey=band('check-frame-reason',JSON.stringify(reason),reason,frameReasonKey);}
+    else{frameReasonKey=band('check-frame-reason','',null,frameReasonKey);text('check-frame-reason',plain);}
   }
   function advanced(){try{return !!(window.cncV2&&window.cncV2.state().layout&&window.cncV2.gate()&&window.cncProfile&&window.cncProfile.performance()==='performance'&&!isLaser(machine()));}catch(_){return false;}}
   function unmount(){originRequest++;if(originMounted&&window.CNCOriginPreview)window.CNCOriginPreview.unmount();originMounted=false;originLoading=false;originFailed=false;text('check-placement-state','');prop('check-placement-state','hidden',true);prop('check-placement-retry','hidden',true);}

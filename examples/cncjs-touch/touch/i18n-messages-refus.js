@@ -707,3 +707,33 @@
   ]
 ]);
 })();
+/* Lot F1 (CNC framing in the air): families and codes of its refusals and stops, appended here. */
+(function(){
+  'use strict';
+  var data=window.CNCTouchRefus;
+  var families=[
+    ["cadrage-arrete","Cadrage arrêté avant la fin. Regardez où est la fraise avant de continuer.","Framing stopped before the end. Check where the bit is before going on.","Encuadre detenido antes del final. Mire dónde está la fresa antes de seguir.","recommencer"],
+    ["cadrage-position","La fraise n’est pas arrivée là où le cadrage l’attendait. Refaites le zéro pièce.","The bit did not arrive where framing expected it. Set the work zero again.","La fresa no llegó adonde el encuadre la esperaba. Rehaga el cero de la pieza.","refaire-zero","recommencer"],
+    ["cadrage-limites","Les limites de course de la machine sont coupées. Le cadrage est refusé.","The machine’s travel limits are switched off. Framing is refused.","Los límites de recorrido de la máquina están desactivados. Encuadre rechazado.","details"]
+  ];
+  Array.prototype.push.apply(data.familles,families);
+  var codes={
+    "ETOUCH_CNC_FRAME_LASER":"type-machine",
+    "ETOUCH_CNC_FRAME_NOT_HOMED":"origine-a-prendre",
+    "ETOUCH_CNC_FRAME_SOFT_LIMITS":"cadrage-limites",
+    "ETOUCH_CNC_FRAME_OUTSIDE":"depasse",
+    "ETOUCH_CNC_FRAME_START":"cadrage",
+    "ETOUCH_CNC_FRAME_Z":"cadrage",
+    "ETOUCH_FRAME_STREAM":"cadrage-arrete",
+    "ETOUCH_FRAME_CONTROL":"cadrage-arrete",
+    "ETOUCH_FRAME_STALE":"cadrage-arrete",
+    "ETOUCH_FRAME_TIMEOUT":"cadrage-arrete",
+    "ETOUCH_FRAME_STATE":"cadrage-arrete",
+    "ETOUCH_FRAME_REFUSED":"cadrage-arrete",
+    "ETOUCH_FRAME_ALARM":"alarme",
+    "ETOUCH_FRAME_RESTART":"origine-a-prendre",
+    "ETOUCH_FRAME_POSITION":"cadrage-position"
+  };
+  Object.keys(codes).forEach(function(code){data.codes[code]=codes[code];});
+  window.CNCTouchMessages=(window.CNCTouchMessages||[]).concat(families.map(function(row){return row.slice(1,4);}));
+})();
