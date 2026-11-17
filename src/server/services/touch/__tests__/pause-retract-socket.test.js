@@ -453,3 +453,111 @@ describe('Pause et dégager: the tail of a retract stopped from the PC, from the
     expect(ctx.state().motion.canJog).toBe(true);
   });
 });
+
+// Fourth review (F2-CORRECTIONS.md, fourth round): Arrêter hands the retract to the stop sequence
+// (halt.js); the stop reserves the machine from its first byte until it is observed over (the banner
+// of its reset, or reports at rest after it). Nothing that moves starts meanwhile, from any client;
+// Arrêter stays offered.
+describe('Pause et dégager: the stop in progress after Arrêter (fourth review)', () => {
+  const STEP = { axis: 'X', direction: 1, step: 0.1, feed: 100 };
+  const HALT = /Arrêt en cours/;
+  // « Pause et dégager », rest, the lift written and answered; the reports still say Idle (T0).
+  const liftAnswered = async () => {
+    const t = await ctx.req('prepare', { operation: 'retract', revision: ctx.state().revision });
+    await ctx.req('retract', { nonce: t.nonce });
+    const s = ctx.controller.sender.state;
+    for (let i = s.received; i < s.sent; i++) {
+      ctx.parse('ok');
+    }
+    await ctx.idle(2);
+    ctx.modal();
+    await ctx.wait(100);
+    expect(ctx.lines(ctx.mark() - 1)).toEqual(['$J=G91 G21 Z113.4 F600\n']);
+    ctx.parse('ok');
+  };
+  // Nothing that moves is accepted, from the tablet or the PC; Arrêter stays offered.
+  const reserved = async () => {
+    const mark = ctx.mark();
+    expect(ctx.state().canStop).toBe(true);
+    expect(ctx.state().motion.canJog).toBe(false);
+    expect(ctx.state().motion.jogReason).toMatch(HALT);
+    await expect(ctx.req('motion', { operation: 'jog', ...STEP })).rejects.toThrow(HALT);
+    await expect(ctx.req('prepare', { operation: 'start', revision: ctx.state().revision })).rejects.toThrow(HALT);
+    expect(ctx.socket('command', 'gcode')).not.toBe(null);
+    expect(ctx.socket('writeln', 'G0 X1')).not.toBe(null);
+    expect(ctx.lines(mark).filter((d) => /^\$J=|^G0/.test(d))).toEqual([]);
+  };
+
+  test('4-D1. a stop from the PC during the lift (report still Idle), then Arrêter on the tablet: no move accepted until the stop is observed over', async () => {
+    await setup();
+    await liftAnswered();
+    expect(ctx.socket('command', 'gcode:stop')).toBe(null);
+    const mark = ctx.mark();
+    expect((await ctx.req('stop')).message).toMatch(/Arrêt demandé/);
+    expect(ctx.lines(mark)[0]).toBe('!');
+    // T0 → stop → act: no new report, no proof of rest.
+    await reserved();
+    // The board reports the jog, then rest once: the reset leaves, its banner is not there yet.
+    ctx.report('Jog');
+    await ctx.wait(300);
+    await reserved();
+    ctx.m.z = -60;
+    ctx.report('Idle');
+    await ctx.wait(100);
+    expect(ctx.lines(mark)).toContain('\x18');
+    await reserved();
+    // A second Arrêter while the stop runs: accepted, nothing new before its banner.
+    const again = ctx.mark();
+    expect((await ctx.req('stop')).message).toMatch(HALT);
+    expect(ctx.lines(again).filter((d) => d !== '\x85')).toEqual([]);
+    // The banner of the reset: the stop is over (the board then asks for a homing, as always).
+    ctx.parse(BANNER);
+    await ctx.wait(100);
+    expect(ctx.state().motion.jogReason || '').not.toMatch(HALT);
+    expect(ctx.service.socketRefusal(PORT)).toBe(null);
+  });
+
+  test('4-D1b. Arrêter during the lift, the report still Idle (no stop from the PC): the same reservation', async () => {
+    await setup();
+    await liftAnswered();
+    const mark = ctx.mark();
+    expect((await ctx.req('stop')).message).toMatch(/Arrêt demandé/);
+    expect(ctx.lines(mark)[0]).toBe('!');
+    await reserved();
+    ctx.report('Jog');
+    await ctx.wait(300);
+    await reserved();
+    ctx.m.z = -60;
+    ctx.report('Idle');
+    await ctx.wait(100);
+    expect(ctx.lines(mark)).toContain('\x18');
+    await reserved();
+    ctx.parse(BANNER);
+    await ctx.wait(100);
+    expect(ctx.service.socketRefusal(PORT)).toBe(null);
+  });
+
+  test('4-D1c. the reset written, its banner never received: released only by reports at rest received after it', async () => {
+    await setup();
+    await liftAnswered();
+    const mark = ctx.mark();
+    await ctx.req('stop');
+    ctx.report('Jog');
+    await ctx.wait(300);
+    ctx.m.z = -60;
+    ctx.report('Idle');
+    await ctx.wait(100);
+    expect(ctx.lines(mark)).toContain('\x18');
+    // Reports in Hold after the reset (it was lost): still reserved, however long.
+    ctx.report('Hold:0');
+    await ctx.wait(1000);
+    ctx.report('Hold:0');
+    await ctx.wait(1000);
+    await reserved();
+    // Two reports at rest received more than 0.5 s after the reset: the board is at rest, over.
+    await ctx.idle(2);
+    await ctx.wait(100);
+    expect(ctx.service.socketRefusal(PORT)).toBe(null);
+    expect(ctx.state().motion.jogReason || '').not.toMatch(HALT);
+  });
+});

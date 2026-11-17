@@ -26,7 +26,7 @@ import { createProfiles, describeProfile, machineRefusal, KINDS } from './machin
 // eslint-disable-next-line import/extensions
 import { createLoader, localFiles } from './job-load.js';
 // eslint-disable-next-line import/extensions
-import { createHalt } from './halt.js';
+import { createHalt, HALT_BUSY, SOCKET_HALT_BUSY } from './halt.js';
 // eslint-disable-next-line import/extensions
 import { createPlateProbe } from './plate-probe.js';
 // eslint-disable-next-line import/extensions
@@ -360,6 +360,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         // dropped while a jog of it may still move or its spindle stop is due (second review D1).
         retract: null,
         retractTail: null,
+        // The stop sequence of Arrêter (halt.js), from its first byte until it is observed over (F2,
+        // fourth review): nothing that moves starts meanwhile.
+        halting: null,
         generation: crypto.randomBytes(12).toString('hex')
       };
       // D2: whether the work offset the board applies is proven equal to `$#` (work-offset.js).
@@ -830,6 +833,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       throw conflict('Connexion machine indisponible.');
     }
     const r = record(c);
+    // F2 (fourth review): a stop in progress (halt.js), until it is observed over.
+    if (r.halting) {
+      throw conflict(HALT_BUSY);
+    }
     // F2 (third review): a move of a dropped retract not proven over, or its spindle stop still due:
     // nothing else that moves or writes starts, from the tablet either (Arrêter, Pause and M5 do
     // not come through here).
@@ -965,7 +972,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
     const feeder = c.feeder.toJSON();
     if (feeder.queue || feeder.pending || systemCommands.current() || r.settingsRead || r.originChecking || r.frameStarting || r.loading ||
-        r.probing || homingActive(r) || moves.moving(c, r) || r.retract || r.retractTail ||
+        r.probing || homingActive(r) || moves.moving(c, r) || r.retract || r.retractTail || r.halting ||
         (r.ticket && clock() <= r.ticket.expires) || spindleOn(c) || !modalWcs(r)) {
       return null;
     }
@@ -994,14 +1001,15 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     record,
     homingActive,
     // F2: the move of a dropped retract not proven over counts as a move of the service.
-    moving: (c, r) => moves.moving(c, r) || !!r.retractTail,
+    // And a stop in progress (fourth review).
+    moving: (c, r) => moves.moving(c, r) || !!r.retractTail || !!r.halting,
     spindleOn,
     changed,
     MAX_REPORT_AGE_MS
   });
 
   // Stop sequence (feed hold, then soft reset once at rest): see halt.js.
-  const { haltPlan, halt } = createHalt({ clock, controllers, record, later, spindleOn });
+  const { haltPlan, halt, haltAgain } = createHalt({ clock, controllers, record, later, spindleOn, changed: () => changed() });
 
   // `commit`: a prepare or a run, where a retract's proven change ends its in-place resume (F2).
   const readyFor = (c, action, revision, travel = null, commit = false) => {
@@ -1806,7 +1814,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         !!r.probing || !!r.starting || !!r.frameStarting || homingActive(r) || !!(feederState.queue || feederState.pending) ||
         // A jog sent by the service may run before Grbl reports Jog (F1); or one of a dropped
         // retract (F2, second review D1).
-        moves.moving(c, r) || !!r.retractTail,
+        moves.moving(c, r) || !!r.retractTail || !!r.halting,
       homing: homingActive(r),
       overrides: overridesOf(state),
       canOverride: !overrideReason,
@@ -2488,6 +2496,11 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         starting.cancelled = true;
         r.ticket = null;
       }
+      // F2 (fourth review): a stop already running goes on (its reset again once sent and not seen).
+      if (haltAgain(c)) {
+        r.ticket = null;
+        return { message: 'Arrêt en cours. Vérifiez l’immobilisation ; ce bouton ne remplace pas l’arrêt physique.' };
+      }
       // A block probe: feed hold then reset (block-probe.js), whatever the state.
       if (r.probing && r.probing.kind === 'block') {
         r.ticket = null;
@@ -2574,7 +2587,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       if (door) {
         c.command('reset');
       } else {
-        halt(c, plan);
+        // F2 (fourth review): a stop that takes over a retract reserves the machine until it is over.
+        halt(c, plan, !!retractOut);
       }
       return { message: 'Arrêt demandé. Vérifiez l’immobilisation ; ce bouton ne remplace pas l’arrêt physique.' };
     }
@@ -2721,7 +2735,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         feeder.queue, feeder.pending,
         r ? [r.loading, r.seen === null, r.modalSeen === null, r.wcs, r.ticket && r.ticket.nonce, r.firmware, r.startups, r.alarm, r.stall && r.stall.since,
           idOf(r.toolChange), r.lastStop && r.lastStop.line, idOf(r.probing), idOf(r.zeroZ), idOf(r.blockProbe), r.homing && r.homing.since, moves.signature(r),
-          idOf(r.lastAlarm), idOf(r.frameStarting), r.frameStarting && r.frameStarting.cancelled, r.offset.signature(), retract.signature(r)].join(',') : '',
+          idOf(r.lastAlarm), idOf(r.frameStarting), r.frameStarting && r.frameStarting.cancelled, r.offset.signature(), retract.signature(r), !!r.halting].join(',') : '',
         j ? [idOf(j), j.started, j.stopped, j.finishedAt, j.errors].join(',') : ''
       ].join(';');
     }).join('|');
@@ -2852,6 +2866,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     // of a dropped retract may still move or its spindle stop is due (second review D1).
     if (r && (r.retract || r.retractTail)) {
       return conflict(SOCKET_RETRACT_BUSY);
+    }
+    // A stop of the tablet in progress (fourth review), until it is observed over.
+    if (r && r.halting) {
+      return conflict(SOCKET_HALT_BUSY);
     }
     return r && (r.offset.checking() || r.offset.restoring()) ? r.offset.refusal() : null;
   };
