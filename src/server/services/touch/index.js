@@ -129,6 +129,11 @@ const socketStopping = (kind, cmdOrData) => {
   return line.indexOf('!') >= 0 || line.indexOf('\x18') >= 0;
 };
 
+// Socket commands and raw writes that cancel a jog (F2, pause-retract.js).
+const socketJogCancelling = (kind, cmdOrData) => (kind === 'command'
+  ? cmdOrData === 'jogCancel'
+  : String(cmdOrData === undefined || cmdOrData === null ? '' : cmdOrData).indexOf('\x85') >= 0);
+
 const refuseSocket = (socket, port, kind, cmdOrData) => {
   if (!control) {
     return null;
@@ -138,6 +143,10 @@ const refuseSocket = (socket, port, kind, cmdOrData) => {
   // check D2), synchronously, then goes its own way (PLAN-CORRECTIONS § 1.6).
   if (safe && socketStopping(kind, cmdOrData)) {
     service.socketStop(port);
+  }
+  // A jog cancel ends a lift or a descent of « Pause et dégager » the same way (F2).
+  if (safe && socketJogCancelling(kind, cmdOrData)) {
+    service.socketJogCancel(port);
   }
   try {
     // Nothing that moves or writes passes, whoever owns the port, while a sequence of the server

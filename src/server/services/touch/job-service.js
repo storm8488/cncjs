@@ -479,9 +479,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
           r.stall = { since: r.seen, received: s.received };
         }
         observeToolChange(c, r);
-        // F2: Idle streaks, proof of rest and work offset of a retract (pause-retract.js).
+        // F2: Idle streaks, proof of rest and work offset of a retract (pause-retract.js), with what
+        // this very report carried (CNCjs keeps the XYZ and FS: of an older one).
         try {
-          retract.report(c, r);
+          retract.report(c, r, { xyz: explicitXyz(payload), speed: payload && payload.spindle });
         } catch (_) {
           // Never break CNCjs's reading of the port; the supervision tick decides again.
         }
@@ -2857,6 +2858,16 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     retract.socketStop(c, r);
   };
 
+  // index.js refuseSocket: a jog cancel from a socket (`jogCancel`, 0x85) first ends, synchronously,
+  // the lift or the descent of a retract (F2, pause-retract.js); the command then goes its own way.
+  const socketJogCancel = (port) => {
+    const c = !disposed && controllers()[port];
+    const r = c && records.get(c);
+    if (r) {
+      retract.socketJogCancel(c, r);
+    }
+  };
+
   const dispose = () => {
     disposed = true;
     listeners.clear();
@@ -2885,6 +2896,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     socketCommand,
     socketRefusal,
     socketStop,
+    socketJogCancel,
     control,
     dispose
   };

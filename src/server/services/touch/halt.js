@@ -94,6 +94,12 @@ export const createHalt = (deps) => {
         heldAt = clock();
         c.command('feedhold');
       }
+      // A jog still reported (F2: a lift or a descent cancelled, still decelerating, or its cancel
+      // lost on the link): the jog cancel again, never the reset before rest (or the time limit).
+      if (state === 'Jog' && clock() - heldAt >= 400) {
+        heldAt = clock();
+        c.command('jogCancel');
+      }
       later(c, r, wait, 50);
     };
     later(c, r, wait, 50);

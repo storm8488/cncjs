@@ -559,8 +559,8 @@ describe('Pause et dégager: supervision', () => {
     await ctx.wait(100);
     // Rest proven, but the device has no stream: no lift until it is back.
     expect(ctx.lines(mark)).toEqual([]);
+    // The device's own stream back within the grace (a stream of another device alone: D9).
     ctx.service.openTransport('tA3', A);
-    // A stream of another device does not count.
     await ctx.idle(1);
     ctx.modal();
     await ctx.wait(100);
@@ -813,5 +813,266 @@ describe('Pause et dégager: supervision', () => {
     ctx.service.dispose();
     expect(ctx.since(mark)).toEqual(['\x85']);
     expect(jest.getTimerCount()).toBe(0);
+  });
+});
+
+// Review of the lot (F2-CORRECTIONS.md): each test plays the exact window of a finding.
+describe('Pause et dégager: the windows found by the review', () => {
+  // The lift cancelled by Pause while the jog still decelerates (phase failed).
+  const cancelledLift = async (ctx) => {
+    await ctx.retract();
+    await ctx.rest();
+    await ctx.wait(0);
+    ctx.parse('ok');
+    ctx.now += 250;
+    ctx.report('Jog');
+    await ctx.req('pause');
+    expect(phase(ctx)).toBe('failed');
+    ctx.now += 250;
+    ctx.report('Jog');
+  };
+  const jogging = async (ctx, n) => {
+    for (let i = 0; i < n; i++) {
+      ctx.now += 250;
+      ctx.report('Jog');
+      // eslint-disable-next-line no-await-in-loop
+      await jest.advanceTimersByTimeAsync(250);
+    }
+  };
+
+  test.each([['spindle on', 'M3'], ['spindle off', 'M5']])('D1. Arrêter after a failure, the jog still moving (%s): hold first, cancel repeated while Jog, reset only at rest', async (name, spindle) => {
+    const ctx = await setup();
+    if (spindle === 'M5') {
+      ctx.gc.spindle = 'M5';
+      ctx.report('Run', { feed: 600 });
+    }
+    await cancelledLift(ctx);
+    const mark = ctx.mark();
+    await ctx.req('stop');
+    // Never a reset while the report says Jog; a stop is sent (the feed hold cancels the jog).
+    expect(ctx.lines(mark)[0]).toBe('!');
+    expect(ctx.lines(mark)).not.toContain('\x18');
+    const m2 = ctx.mark();
+    await jogging(ctx, 4);
+    expect(ctx.lines(m2).filter((d) => d === '\x85').length).toBeGreaterThanOrEqual(1);
+    expect(ctx.lines(mark)).not.toContain('\x18');
+    ctx.m.z = -80;
+    await ctx.idle(1);
+    await ctx.wait(100);
+    expect(ctx.lines(mark)).toContain('\x18');
+  });
+
+  test('D2. a relative move never leaves from a position other than the one it was computed from', async () => {
+    const ctx = await setup();
+    await ctx.park();
+    const mark = ctx.mark();
+    await ctx.resume();
+    await ctx.wait(100);
+    ctx.gc.spindle = 'M3';
+    await ctx.okIdle(2, { speed: 1000 });
+    expect(ctx.lines(mark)).toEqual(['M3 S1000\n', 'G4 P3\n']);
+    // The stream rotates during the dwell: the descent waits for it.
+    ctx.service.closeTransport('tA', true);
+    await ctx.okIdle(2, { speed: 1000 });
+    // Meanwhile Z is somewhere else (a client on the board's Wi-Fi).
+    ctx.m.z = -30;
+    await ctx.idle(2, { speed: 1000 });
+    ctx.service.openTransport('tA4', A);
+    await ctx.idle(2, { speed: 1000 });
+    await ctx.wait(200);
+    expect(ctx.lines(mark).filter((d) => /^\$J=/.test(d))).toEqual([]);
+    expect(ctx.state().pauseRetract).toMatchObject({ phase: 'failed', failure: { code: 'ETOUCH_RETRACT_MOVED', params: { axis: 'Z' } } });
+  });
+
+  test('D3. the spindle reported stopped after the fast descent: the last millimetres do not leave', async () => {
+    const ctx = await setup();
+    await ctx.park();
+    const mark = ctx.mark();
+    await ctx.resume();
+    await ctx.wait(100);
+    ctx.gc.spindle = 'M3';
+    await ctx.okIdle(2, { speed: 1000 });
+    await ctx.okIdle(2, { speed: 1000 });
+    expect(ctx.lines(mark).pop()).toBe('$J=G91 G21 Z-108.4 F600\n');
+    ctx.parse('ok');
+    ctx.m.z = -113.4;
+    // M5 from a client on the board: FS says 0, then $G says M5.
+    ctx.gc.spindle = 'M5';
+    await ctx.idle(2);
+    ctx.modal();
+    await ctx.idle(2);
+    await ctx.wait(200);
+    expect(ctx.lines(mark).filter((d) => d === '$J=G91 G21 Z-5 F100\n')).toEqual([]);
+    expect(ctx.state().pauseRetract).toMatchObject({ phase: 'failed', failure: { code: 'ETOUCH_RETRACT_SPINDLE' } });
+  });
+
+  test('D3b. the spindle reported stopped during the fast descent: the descent is cancelled at once', async () => {
+    const ctx = await setup();
+    await ctx.park();
+    const mark = ctx.mark();
+    await ctx.resume();
+    await ctx.wait(100);
+    ctx.gc.spindle = 'M3';
+    await ctx.okIdle(2, { speed: 1000 });
+    await ctx.okIdle(2, { speed: 1000 });
+    ctx.parse('ok');
+    ctx.now += 250;
+    ctx.report('Jog', { speed: 1000 });
+    const m2 = ctx.mark();
+    ctx.now += 250;
+    ctx.report('Jog', { speed: 0 });
+    await ctx.wait(100);
+    expect(ctx.lines(m2)[0]).toBe('\x85');
+    expect(ctx.lines(mark).filter((d) => d === '$J=G91 G21 Z-5 F100\n')).toEqual([]);
+    expect(ctx.state().pauseRetract.failure.code).toBe('ETOUCH_RETRACT_SPINDLE');
+  });
+
+  test('D4. a work offset changed before the first WCO after the rest never becomes the reference', async () => {
+    const ctx = await setup();
+    await ctx.retract();
+    await ctx.rest();
+    await ctx.wait(0);
+    await ctx.jog(-5);
+    // G54 changed by a client between the rest and the first report carrying WCO.
+    ctx.wco.z = -105;
+    ctx.gc.spindle = 'M5';
+    await ctx.okIdle(2, { wco: true });
+    ctx.modal();
+    await ctx.wait(1100);
+    const mark = ctx.mark();
+    await expect(ctx.resume()).rejects.toMatchObject({ code: 'ETOUCH_RETRACT_ZERO_CHANGED' });
+    await ctx.wait(500);
+    expect(ctx.lines(mark)).toEqual([]);
+    expect(ctx.state().pauseRetract).toMatchObject({ phase: 'failed', failure: { code: 'ETOUCH_RETRACT_ZERO_CHANGED' } });
+  });
+
+  test('D5. an Alarm state seen in one report, Idle again before the next tick: the in-place resume is refused', async () => {
+    const ctx = await setup();
+    await ctx.park();
+    ctx.now += 250;
+    ctx.report('Alarm');
+    ctx.now += 250;
+    ctx.report('Idle', { wco: true });
+    const mark = ctx.mark();
+    await expect(ctx.resume()).rejects.toThrow();
+    await ctx.wait(500);
+    expect(ctx.lines(mark)).toEqual([]);
+    expect(ctx.state().pauseRetract).toMatchObject({ phase: 'failed', failure: { code: 'ETOUCH_RETRACT_ALARM' } });
+  });
+
+  test('D7. the final resume waits for an open stream (from parked)', async () => {
+    const ctx = await setup({ z: -8 });
+    await ctx.retract();
+    await ctx.rest();
+    await ctx.wait(0);
+    await ctx.jog(-5);
+    ctx.gc.spindle = 'M5';
+    await ctx.okIdle(2, { wco: true });
+    const mark = ctx.mark();
+    await ctx.resume();
+    await ctx.wait(100);
+    ctx.gc.spindle = 'M3';
+    await ctx.okIdle(2, { speed: 1000 });
+    await ctx.okIdle(2, { speed: 1000 });
+    await ctx.jog(-8);
+    expect(ctx.lines(mark)).toEqual(['M3 S1000\n', 'G4 P3\n', '$J=G91 G21 Z-3 F100\n']);
+    ctx.service.closeTransport('tA', true);
+    ctx.modal();
+    await ctx.idle(4);
+    expect(ctx.lines(mark)).not.toContain('~');
+    ctx.service.openTransport('tA5', A);
+    await ctx.idle(1);
+    ctx.modal();
+    await ctx.wait(200);
+    expect(ctx.lines(mark)).toContain('~');
+  });
+
+  test('D7b. the final resume waits for an open stream (from held)', async () => {
+    const ctx = await setup({ z: -129.7 });
+    await ctx.retract();
+    await ctx.rest();
+    await ctx.wait(100);
+    expect(phase(ctx)).toBe('held');
+    // No report with the offset yet: the resume waits for one; the stream rotates meanwhile.
+    ctx.modal();
+    const mark = ctx.mark();
+    const t = await ctx.req('prepare', { operation: 'resume', revision: ctx.state().revision });
+    await ctx.req('resume', { nonce: t.nonce });
+    ctx.service.closeTransport('tA', true);
+    ctx.now += 250;
+    ctx.report('Idle', { wco: true });
+    await ctx.idle(2);
+    expect(ctx.lines(mark)).toEqual([]);
+    ctx.service.openTransport('tA6', A);
+    await ctx.idle(1);
+    await ctx.wait(100);
+    expect(ctx.lines(mark)[0]).toBe('~');
+  });
+
+  test('D8. reports without coordinates prove no rest and give no position', async () => {
+    const ctx = await setup();
+    await ctx.retract();
+    const mark = ctx.mark();
+    ctx.finish();
+    for (let i = 0; i < 3; i++) {
+      ctx.now += 250;
+      ctx.parse('<Idle|FS:0,1000>');
+      // eslint-disable-next-line no-await-in-loop
+      await jest.advanceTimersByTimeAsync(250);
+    }
+    ctx.modal();
+    await ctx.wait(200);
+    expect(ctx.lines(mark)).toEqual([]);
+    // Z is elsewhere than the last explicit report: the lift is computed from where it really is.
+    ctx.m.z = -110;
+    await ctx.idle(2);
+    ctx.modal();
+    await ctx.wait(200);
+    expect(ctx.lines(mark)).toEqual(['$J=G91 G21 Z105 F600\n']);
+  });
+
+  test('D8b. after a move, reports without coordinates do not prove where the bit is', async () => {
+    const ctx = await setup();
+    await ctx.retract();
+    await ctx.rest();
+    await ctx.wait(0);
+    const mark = ctx.mark();
+    ctx.parse('ok');
+    ctx.now += 250;
+    ctx.report('Jog');
+    ctx.m.z = -5;
+    for (let i = 0; i < 3; i++) {
+      ctx.now += 250;
+      ctx.parse('<Idle|FS:0,1000>');
+      // eslint-disable-next-line no-await-in-loop
+      await jest.advanceTimersByTimeAsync(250);
+    }
+    await ctx.wait(100);
+    expect(ctx.lines(mark)).toEqual([]);
+    await ctx.idle(2);
+    await ctx.wait(100);
+    expect(ctx.lines(mark)).toEqual(['M5\n']);
+  });
+
+  test('D9. 12c redone: during the grace only streams of another device (B) are open: nothing leaves, then STREAM and held', async () => {
+    const ctx = await setup();
+    await ctx.retract();
+    ctx.finish();
+    ctx.service.closeTransport('tA', true);
+    // B's own stream (tB) stays open, and B opens one more.
+    ctx.service.openTransport('tB2', B);
+    const mark = ctx.mark();
+    await ctx.idle(2);
+    ctx.modal();
+    await ctx.idle(2);
+    expect(ctx.lines(mark)).toEqual([]);
+    for (let i = 0; i < 14; i++) {
+      // eslint-disable-next-line no-await-in-loop
+      await ctx.idle(1);
+    }
+    ctx.modal();
+    await ctx.wait(200);
+    expect(ctx.lines(mark)).toEqual([]);
+    expect(ctx.state().pauseRetract).toMatchObject({ phase: 'held', failure: { code: 'ETOUCH_RETRACT_STREAM' } });
   });
 });

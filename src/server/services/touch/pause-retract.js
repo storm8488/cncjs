@@ -123,9 +123,10 @@ export const createRetract = (deps) => {
     const p = parserOf(c);
     return { modal: { ...(p.modal || {}) }, tool: p.tool === undefined ? null : String(p.tool), F: num(p.feedrate), S: num(p.spindle) };
   };
-  const spindleSpeed = (c) => {
+  // The spindle speed of the latest report only (CNCjs keeps the last FS: of an older one).
+  const spindleSpeed = (c, r, s) => {
     const v = controllerStatus(c).spindle;
-    return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
+    return s.speedReport === r.reports && typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
   };
   const feedOverride = (c) => {
     const ov = controllerStatus(c).ov;
@@ -139,7 +140,10 @@ export const createRetract = (deps) => {
       !feeder.queue && !feeder.pending);
   };
   const owner = (c) => keyOf(control.inspect(c.options.port).owner);
-  // The last two reports, both received after report number `mark`, say Idle.
+  // A jog of ours may still move (D1): written and not proven at rest since, or a report says Jog.
+  const jogMaybe = (c, s) => !!(s.jogLive || (s.out && /^\$J=/.test(s.out.line)) || activeOf(c) === 'Jog');
+  // The last two reports, both received after report number `mark`, say Idle with coordinates of
+  // their own (report() counts an Idle streak only over reports carrying XYZ).
   const idleSince = (r, s, mark) => s.idleFrom !== null && r.reports - Math.max(s.idleFrom, mark + 1) >= 1;
   const alarmParams = (r) => ({ alarm: r.alarm ? 'ALARM:' + r.alarm : null });
 
@@ -220,6 +224,11 @@ export const createRetract = (deps) => {
   };
 
   const toHeld = (c, r, s, f) => {
+    // The in-place resume was already ruled out (work offset changed after the rest): failed instead.
+    if (s.invalid) {
+      toFailed(c, r, s, s.invalid);
+      return;
+    }
     s.phase = 'held';
     s.step = null;
     s.out = null;
@@ -245,7 +254,7 @@ export const createRetract = (deps) => {
     if (!connected(c) || r.startups !== s.startups || /^Alarm/.test(activeOf(c))) {
       return;
     }
-    const jogging = (s.out && /^\$J=/.test(s.out.line)) || activeOf(c) === 'Jog';
+    const jogging = jogMaybe(c, s);
     const spindle = s.spindleOn;
     const mark = r.reports;
     const since = clock();
@@ -267,6 +276,10 @@ export const createRetract = (deps) => {
         c.command('jogCancel');
         sentAt = clock();
         jogMark = r.reports;
+      }
+      // At rest again (two reports with coordinates after the cancel): no jog of ours moves any more.
+      if (state === 'Idle' && idleSince(r, s, mark)) {
+        s.jogLive = false;
       }
       if (spindle && s.spindleOn && state === 'Idle' && idleSince(r, s, mark) && fresh(r) && drained(c)) {
         s.spindleOn = false;
@@ -319,7 +332,8 @@ export const createRetract = (deps) => {
     const quiet = code === 'ETOUCH_RETRACT_ALARM' || code === 'ETOUCH_RETRACT_RESTART';
     // Nothing of ours written yet, or the lifting jog refused by the board: nothing moved, the bit
     // is where it stopped (phase held).
-    if (s.phase === 'lifting' && (!s.written || (code === 'ETOUCH_RETRACT_ERROR' && s.step === 'lift' && s.written === 1))) {
+    if (s.phase === 'lifting' && code !== 'ETOUCH_RETRACT_MOVED' &&
+        (!s.written || (code === 'ETOUCH_RETRACT_ERROR' && s.step === 'lift' && s.written === 1))) {
       toHeld(c, r, s, f);
       return;
     }
@@ -327,6 +341,22 @@ export const createRetract = (deps) => {
       secure(c, r, s);
     }
     toFailed(c, r, s, f);
+  };
+
+  // The in-place resume is ruled out (the work offset changed after the rest, D4) without stopping a
+  // lift: the bit still goes up and the retract ends failed instead of parked or held.
+  const invalidate = (c, r, s, f) => {
+    if (s.invalid || r.retract !== s || s.phase === 'failed') {
+      return;
+    }
+    s.invalid = { code: f.code, params: f.params };
+    if (s.phase === 'parked' || s.phase === 'held') {
+      toFailed(c, r, s, s.invalid);
+    } else if (s.phase === 'returning') {
+      fail(c, r, s, f.code, f.params);
+    } else {
+      changed();
+    }
   };
 
   // ---------------------------------------------------------------- supervision
@@ -416,14 +446,22 @@ export const createRetract = (deps) => {
     if (s.cancelled || r.retract !== s) {
       throw STOPPED;
     }
+    // An Alarm seen since, even in a single report (D5): no line of ours any more.
+    if (r.homed !== true || r.referenceLost) {
+      throw failure('ETOUCH_RETRACT_ALARM', alarmParams(r));
+    }
     const state = activeOf(c);
     if (state !== 'Idle' || !drained(c) || !r.job || r.job.revision !== s.revision || Number(c.sender.state.sent) !== s.sent) {
       throw failure('ETOUCH_RETRACT_UNEXPECTED', { state: state || '?' });
     }
   };
 
-  // The position of the machine is `at` within POS_TOL, or throws ETOUCH_RETRACT_POSITION.
-  const atPosition = (c, at, code = 'ETOUCH_RETRACT_POSITION') => {
+  // The position of the machine is `at` within POS_TOL, or throws ETOUCH_RETRACT_POSITION. Only the
+  // coordinates of the latest report, and a fresh one (D8): CNCjs keeps the XYZ of an older report.
+  const atPosition = (c, r, s, at, code = 'ETOUCH_RETRACT_POSITION') => {
+    if (s.xyzReport !== r.reports || !fresh(r)) {
+      throw failure(code, { axis: 'XYZ' }, true);
+    }
     const now = mposOf(c);
     const axis = ['x', 'y', 'z'].find((a) => !now || Math.abs(now[a] - at[a]) > POS_TOL);
     if (axis) {
@@ -432,14 +470,54 @@ export const createRetract = (deps) => {
     return true;
   };
 
+  // The spindle turns now (D3): the latest report says a speed above 0, or, without FS:, a $G received
+  // after our M3/M4 says M3/M4; and no $G received since then says otherwise.
+  const spindleRunning = (c, r, s) => {
+    const mode = parserOf(c).modal && parserOf(c).modal.spindle;
+    const modalSince = s.modals > s.spindleMark && modalFresh(r);
+    if (modalSince && mode !== 'M3' && mode !== 'M4') {
+      return false;
+    }
+    const speed = spindleSpeed(c, r, s);
+    return speed !== null ? speed > 0 : modalSince;
+  };
+
+  // Right before a line is written (D2, D3): the machine is where the line was computed from, with
+  // the coordinates of the latest report; a jog's target is that start plus the distance written,
+  // inside the usable Z travel known now; a descent needs the spindle turning.
+  const before = (c, r, s, line, { from, to = null, spindle = false }) => {
+    atPosition(c, r, s, from, 'ETOUCH_RETRACT_MOVED');
+    if (to) {
+      const m = /Z(-?\d+(?:\.\d+)?)/.exec(line);
+      if (!m || Math.abs(from.z + Number(m[1]) - to.z) > REST_TOL || Math.abs(from.x - to.x) > REST_TOL || Math.abs(from.y - to.y) > REST_TOL) {
+        throw failure('ETOUCH_RETRACT_POSITION', { axis: 'Z' });
+      }
+      let travel;
+      try {
+        travel = travelOf(c, r);
+      } catch (_) {
+        throw failure('ETOUCH_RETRACT_TRAVEL_UNKNOWN');
+      }
+      if (to.z < travel.usable.low - REST_TOL || to.z > travel.usable.high + REST_TOL) {
+        throw failure('ETOUCH_RETRACT_TRAVEL', { z: fmt(to.z), low: fmt(travel.usable.low), high: fmt(travel.usable.high) });
+      }
+    }
+    if (spindle && !spindleRunning(c, r, s)) {
+      throw failure('ETOUCH_RETRACT_SPINDLE');
+    }
+  };
+
   // One line through CNCjs's feeder, then its `ok` and two fresh Idle reports received after it,
   // then `expect` (true to go on, false to wait, or a throw), within `limitMs`.
-  // Nothing leaves while the device's stream is away, even within its grace (a rotation).
-  const send = (c, r, s, line, limitMs, expect) => until(c, r, s, () => streamOpen(s)).then(() => {
+  // Nothing leaves while the device's stream is away, even within its grace (a rotation); once it is
+  // back, everything is checked again at that very moment (ensure, then `before` with `where`).
+  // `where.spindle`: the spindle must keep turning until the line is done, or the move is cancelled.
+  const send = (c, r, s, line, limitMs, expect, where) => until(c, r, s, () => streamOpen(s)).then(() => {
     ensure(c, r, s);
     if (!LINE.test(line)) {
       throw failure('ETOUCH_RETRACT_ERROR', { error: -1 });
     }
+    before(c, r, s, line, where);
     const t = answers(c, r);
     const out = { line, t, deadline: clock() + limitMs, okMark: null, modalMark: null };
     s.out = out;
@@ -447,11 +525,17 @@ export const createRetract = (deps) => {
     if (/^M[34] /.test(line)) {
       s.spindleOn = true;
     }
+    if (/^\$J=/.test(line)) {
+      s.jogLive = true;
+    }
     c.command('gcode', line);
     changed();
     return until(c, r, s, () => {
       if (t.error) {
         throw failure('ETOUCH_RETRACT_ERROR', { error: t.error });
+      }
+      if (where.spindle && !spindleRunning(c, r, s)) {
+        throw failure('ETOUCH_RETRACT_SPINDLE');
       }
       if (t.oks >= 1) {
         if (out.okMark === null) {
@@ -472,6 +556,8 @@ export const createRetract = (deps) => {
     }).then(() => {
       t.done();
       s.out = null;
+      // Two reports at rest after its `ok`: the jog is over.
+      s.jogLive = false;
       s.lastModalMark = out.modalMark;
       return out;
     }, (err) => {
@@ -479,6 +565,7 @@ export const createRetract = (deps) => {
       // A line Grbl refused never ran.
       if (t.error && s.out === out) {
         s.out = null;
+        s.jogLive = false;
       }
       throw err;
     });
@@ -513,7 +600,9 @@ export const createRetract = (deps) => {
       mpos: { ...s.restMpos },
       restReport: s.restReport,
       modal: p,
-      wco: null
+      // The work offset in force at the stop (D4): the last explicit WCO received up to the rest.
+      // Every WCO received after the rest must equal it; without one, no in-place resume.
+      wco: s.restWco ? { ...s.restWco } : null
     };
     s.spindle = (spindle === 'M3' || spindle === 'M4') && p.S !== null ? { mode: spindle, speed: p.S } : null;
     s.spindleOn = spindle === 'M3' || spindle === 'M4';
@@ -552,7 +641,13 @@ export const createRetract = (deps) => {
     changed();
     const top = { x: m.mpos.x, y: m.mpos.y, z: m.zTop };
     Promise.resolve()
-      .then(() => (m.dU ? send(c, r, s, '$J=G91 G21 Z' + fmt(m.dU / 1000) + ' F' + fmt(m.feed), jogLimit(c, m.dU / 1000, m.feed), () => atPosition(c, top)) : null))
+      .then(() => {
+        if (!m.dU) {
+          return null;
+        }
+        const line = '$J=G91 G21 Z' + fmt(m.dU / 1000) + ' F' + fmt(m.feed);
+        return send(c, r, s, line, jogLimit(c, m.dU / 1000, m.feed), () => atPosition(c, r, s, top), { from: m.mpos, to: top });
+      })
       .then(() => {
         if (m.modal.modal.spindle === 'M5') {
           return null;
@@ -560,16 +655,21 @@ export const createRetract = (deps) => {
         s.step = 'spindle-stop';
         changed();
         return send(c, r, s, 'M5', LINE_MARGIN_MS, (out) => {
-          atPosition(c, top);
-          const speed = spindleSpeed(c);
+          atPosition(c, r, s, top);
+          const speed = spindleSpeed(c, r, s);
           if (speed === 0) {
             return true;
           }
           return speed === null && s.modals > out.modalMark && modalFresh(r) && parserOf(c).modal && parserOf(c).modal.spindle === 'M5';
-        });
+        }, { from: top });
       })
       .then(() => {
         s.spindleOn = false;
+        // The work offset changed after the rest (D4): the bit is up, but no in-place resume.
+        if (s.invalid) {
+          toFailed(c, r, s, s.invalid);
+          return;
+        }
         s.phase = 'parked';
         s.step = null;
         logOf(c, r, s, 'parked', { from: s.lift.from, to: s.lift.to });
@@ -599,6 +699,7 @@ export const createRetract = (deps) => {
         s.line = stopLine(c, r);
         s.restReport = r.reports;
         s.restMpos = b.mpos;
+        s.restWco = r.wco ? { x: r.wco.x, y: r.wco.y, z: r.wco.z } : null;
         s.modalMark = s.modals;
         s.restClock = clock();
         changed();
@@ -697,6 +798,14 @@ export const createRetract = (deps) => {
       mem: null,
       out: null,
       written: 0,
+      // A jog of ours written and not proven over (D1); the latest reports with XYZ and with FS (D8, D3).
+      jogLive: false,
+      xyzReport: null,
+      speedReport: null,
+      spindleMark: 0,
+      restWco: null,
+      // The in-place resume ruled out without stopping the lift (D4).
+      invalid: null,
       spindleOn: false,
       cancelled: false,
       fromHeld: false,
@@ -725,8 +834,13 @@ export const createRetract = (deps) => {
       throw failure('ETOUCH_RETRACT_RESTART');
     }
     const state = activeOf(c);
-    if (/^Alarm/.test(state)) {
+    // An Alarm, even seen in a single report between two ticks (D5), took the reference away.
+    if (/^Alarm/.test(state) || r.homed !== true || r.referenceLost) {
       throw failure('ETOUCH_RETRACT_ALARM', alarmParams(r));
+    }
+    // The in-place resume was ruled out on the way (work offset changed after the rest, D4).
+    if (s.invalid) {
+      throw failure(s.invalid.code, s.invalid.params);
     }
     if (state !== 'Idle') {
       throw failure('ETOUCH_RETRACT_STATE', { state: state || '?' }, true);
@@ -737,15 +851,16 @@ export const createRetract = (deps) => {
     const m = s.mem;
     const parked = s.phase === 'parked' || (s.phase === 'returning' && !s.fromHeld);
     const z = final || !parked ? m.mpos.z : m.zTop;
-    atPosition(c, { x: m.mpos.x, y: m.mpos.y, z }, 'ETOUCH_RETRACT_MOVED');
-    if (m.wco) {
-      const wco = r.wco;
-      const axis = ['x', 'y', 'z'].find((a) => !wco || Math.abs(wco[a] - m.wco[a]) > OFFSET_TOL);
-      if (axis) {
-        throw failure('ETOUCH_RETRACT_ZERO_CHANGED', { axis: axis.toUpperCase() });
-      }
-    } else if (needWco) {
+    atPosition(c, r, s, { x: m.mpos.x, y: m.mpos.y, z }, 'ETOUCH_RETRACT_MOVED');
+    // D4: the offset in force at the stop is known, and the last WCO, received after the rest when
+    // `needWco`, is equal to it.
+    const wco = r.wco;
+    if (!m.wco || (needWco && !(wco && wco.report > m.restReport))) {
       throw failure('ETOUCH_RETRACT_ZERO_CHANGED', { axis: 'WCO' });
+    }
+    const axis = ['x', 'y', 'z'].find((a) => !wco || Math.abs(wco[a] - m.wco[a]) > OFFSET_TOL);
+    if (axis) {
+      throw failure('ETOUCH_RETRACT_ZERO_CHANGED', { axis: axis.toUpperCase() });
     }
     if (!modalFresh(r)) {
       throw failure('ETOUCH_RETRACT_STATE_CHANGED', { field: '$G' }, true);
@@ -821,7 +936,7 @@ export const createRetract = (deps) => {
     const aU = RETRACT_APPROACH_MM * 1000;
     const here = (z) => ({ x: m.mpos.x, y: m.mpos.y, z });
     let chain = until(c, r, s, () => {
-      if (m.wco) {
+      if (r.wco && r.wco.report > m.restReport) {
         return true;
       }
       if (clock() - t0 > WCO_WAIT_MS) {
@@ -836,14 +951,16 @@ export const createRetract = (deps) => {
           .then(() => {
             s.step = 'spindle-start';
             changed();
-            return send(c, r, s, sp.mode + ' S' + fmt(sp.speed), LINE_MARGIN_MS, () => atPosition(c, here(m.zTop)));
+            return send(c, r, s, sp.mode + ' S' + fmt(sp.speed), LINE_MARGIN_MS, () => atPosition(c, r, s, here(m.zTop)), { from: here(m.zTop) });
           })
-          .then(() => {
+          .then((started) => {
+            // A $G received after this `ok` tells the spindle mode from then on (spindleRunning).
+            s.spindleMark = started.modalMark;
             s.step = 'dwell';
             changed();
             return send(c, r, s, 'G4 P' + RETRACT_SPINUP_S, RETRACT_SPINUP_S * 1000 + LINE_MARGIN_MS, (out) => {
-              atPosition(c, here(m.zTop));
-              const speed = spindleSpeed(c);
+              atPosition(c, r, s, here(m.zTop));
+              const speed = spindleSpeed(c, r, s);
               if (speed !== null) {
                 if (speed > 0) {
                   return true;
@@ -858,15 +975,17 @@ export const createRetract = (deps) => {
                 throw failure('ETOUCH_RETRACT_SPINDLE');
               }
               return false;
-            });
+            }, { from: here(m.zTop) });
           });
       }
+      const approach = here(m.mpos.z + aU / 1000);
       if (m.dU > aU) {
         chain = chain.then(() => {
           s.step = 'approach';
           changed();
           const d = (m.dU - aU) / 1000;
-          return send(c, r, s, '$J=G91 G21 Z-' + fmt(d) + ' F' + fmt(m.feed), jogLimit(c, d, m.feed), () => atPosition(c, here(m.mpos.z + aU / 1000)));
+          const line = '$J=G91 G21 Z-' + fmt(d) + ' F' + fmt(m.feed);
+          return send(c, r, s, line, jogLimit(c, d, m.feed), () => atPosition(c, r, s, approach), { from: here(m.zTop), to: approach, spindle: !!sp });
         });
       }
       if (m.dU) {
@@ -874,7 +993,9 @@ export const createRetract = (deps) => {
           s.step = 'plunge';
           changed();
           const d = Math.min(m.dU, aU) / 1000;
-          return send(c, r, s, '$J=G91 G21 Z-' + fmt(d) + ' F' + RETRACT_PLUNGE_FEED, jogLimit(c, d, RETRACT_PLUNGE_FEED), () => atPosition(c, here(m.mpos.z)));
+          const line = '$J=G91 G21 Z-' + fmt(d) + ' F' + RETRACT_PLUNGE_FEED;
+          const where = { from: m.dU > aU ? approach : here(m.zTop), to: here(m.mpos.z), spindle: !!sp };
+          return send(c, r, s, line, jogLimit(c, d, RETRACT_PLUNGE_FEED), () => atPosition(c, r, s, here(m.mpos.z)), where);
         });
       }
       // R5: a $G received after the last line's ok, equal to the remembered state, spindle included.
@@ -894,8 +1015,14 @@ export const createRetract = (deps) => {
       });
     }
     chain
+      // R6 (D7): never without an open stream of the device, whatever the grace; after that wait
+      // every check is made again at that very moment.
+      .then(() => until(c, r, s, () => streamOpen(s)))
       .then(() => {
         // R6: the very last checks, then CNCjs sends the rest of the program.
+        if (!streamOpen(s)) {
+          throw failure('ETOUCH_RETRACT_STREAM');
+        }
         ensure(c, r, s);
         resumeChecks(c, r, s, { final: true, needWco: true });
         logOf(c, r, s, 'resumed', {});
@@ -932,14 +1059,16 @@ export const createRetract = (deps) => {
   };
   const moving = (r) => !!(r.retract && (r.retract.phase === 'lifting' || r.retract.phase === 'returning'));
 
-  // Arrêter (job-service.js 'stop'): the retract is forgotten, synchronously. 'jog': a jog of ours
-  // may run (a feed hold first, which cancels it); 'line': another line of ours is not answered yet.
+  // Arrêter (job-service.js 'stop'): the retract is forgotten, synchronously. 'jog': a jog may still
+  // move, whatever the phase (D1: after a failure too, until two reports at rest proved it over; or a
+  // report says Jog): a feed hold first, which cancels it, and halt.js repeats the jog cancel while a
+  // report says Jog, the reset only at rest. 'line': another line of ours is not answered yet.
   const halt = (c, r) => {
     const s = r.retract;
     if (!s) {
       return '';
     }
-    const jogging = (s.out && /^\$J=/.test(s.out.line)) || ((s.phase === 'lifting' || s.phase === 'returning') && activeOf(c) === 'Jog');
+    const jogging = jogMaybe(c, s);
     const out = s.out ? 'line' : '';
     s.cancelled = true;
     r.retract = null;
@@ -963,6 +1092,27 @@ export const createRetract = (deps) => {
     }
   };
 
+  // A jog cancel sent from a socket (`jogCancel`, 0x85; index.js refuseSocket), before it goes its
+  // own way (D6): a lift or a descent of ours stops here, and no line of ours follows it; while the
+  // machine finishes its lines, the lift is dropped (held at rest).
+  const socketJogCancel = (c, r) => {
+    const s = r.retract;
+    if (!s) {
+      return;
+    }
+    if (s.phase === 'draining') {
+      if (s.wantLift) {
+        s.wantLift = false;
+        s.failure = failureOf('ETOUCH_RETRACT_FOREIGN', {});
+        changed();
+      }
+      return;
+    }
+    if (s.phase === 'lifting' || s.phase === 'returning') {
+      fail(c, r, s, 'ETOUCH_RETRACT_FOREIGN');
+    }
+  };
+
   // The board's own events, in the event itself (§ 7): nothing more is written in the new session.
   const alarmed = (c, r) => {
     if (r.retract) {
@@ -976,25 +1126,47 @@ export const createRetract = (deps) => {
   };
 
   // Every status report (job-service r.status, after the count): Idle streaks, rest, offset.
-  const report = (c, r) => {
+  // `seen.xyz`: this report carries coordinates of its own (CNCjs keeps the old ones otherwise, D8);
+  // `seen.speed`: the spindle speed of its FS: field, or undefined.
+  const report = (c, r, seen = {}) => {
     const s = r.retract;
     if (!s) {
       return;
     }
     const state = activeOf(c);
-    if (state === 'Idle') {
+    const xyz = seen.xyz === true;
+    if (xyz) {
+      s.xyzReport = r.reports;
+    }
+    if (typeof seen.speed === 'number' && Number.isFinite(seen.speed)) {
+      s.speedReport = r.reports;
+    }
+    // D5: an Alarm state, even in a single report between two ticks, ends the retract now.
+    if (/^Alarm/.test(state)) {
+      fail(c, r, s, 'ETOUCH_RETRACT_ALARM', alarmParams(r));
+      s.idleFrom = null;
+      s.rest = [];
+      return;
+    }
+    // An Idle streak counts reports with coordinates only (D8).
+    if (state === 'Idle' && xyz) {
       if (s.idleFrom === null) {
         s.idleFrom = r.reports;
       }
     } else {
       s.idleFrom = null;
     }
-    if (s.mem && !s.mem.wco && r.wco && r.wco.report > s.mem.restReport) {
-      s.mem.wco = { x: r.wco.x, y: r.wco.y, z: r.wco.z };
+    // D4: every WCO received after the rest equals the one in force at the stop.
+    if (s.restReport !== null && r.wco && r.wco.report === r.reports && r.wco.report > s.restReport) {
+      const ref = s.restWco;
+      const axis = ['x', 'y', 'z'].find((a) => !ref || Math.abs(r.wco[a] - ref[a]) > OFFSET_TOL);
+      if (axis) {
+        invalidate(c, r, s, { code: 'ETOUCH_RETRACT_ZERO_CHANGED', params: { axis: ref ? axis.toUpperCase() : 'WCO' } });
+      }
     }
     if (s.phase === 'draining' && s.step === 'drain') {
       const mpos = mposOf(c);
-      if (drained(c) && state === 'Idle' && mpos) {
+      if (drained(c) && state === 'Idle' && mpos && xyz) {
         s.rest = s.rest.concat([{ mpos, at: clock() }]).slice(-2);
       } else {
         s.rest = [];
@@ -1042,7 +1214,7 @@ export const createRetract = (deps) => {
     if (!s) {
       return;
     }
-    if ((s.phase === 'lifting' || s.phase === 'returning') && s.out && /^\$J=/.test(s.out.line) && connected(c)) {
+    if (jogMaybe(c, s) && connected(c)) {
       c.command('jogCancel');
     }
     s.cancelled = true;
@@ -1096,6 +1268,7 @@ pause,
 moving,
 halt,
 socketStop,
+socketJogCancel,
 alarmed,
 restarted,
 report,
