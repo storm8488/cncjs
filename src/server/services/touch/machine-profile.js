@@ -58,7 +58,14 @@ const MESSAGES = {
   'ETOUCH_LASER_FRAME_FEED': (p) => 'Avance de cadrage hors limites : de ' + p.min + ' à ' + p.max + ' mm/min.',
   'ETOUCH_LASER_FRAME_SLOW': (p) => 'Cadrage trop lent : un côté durerait ' + p.seconds + ' s (' + p.max + ' s au plus). Augmentez l’avance.',
   'ETOUCH_LASER_FRAME_CHANGED': () => 'Le programme ou la machine ont changé depuis la confirmation du cadrage : confirmez à nouveau.',
-  'ETOUCH_LASER_FRAME_EXPIRED': () => 'Confirmation du cadrage expirée ou déjà utilisée.'
+  'ETOUCH_LASER_FRAME_EXPIRED': () => 'Confirmation du cadrage expirée ou déjà utilisée.',
+  // CNC framing in the air (lot F1, design/fonctions/F1-CONCEPTION.md § 7.2).
+  'ETOUCH_CNC_FRAME_LASER': () => 'Machine déclarée laser : le cadrage à vide est réservé à la CNC.',
+  'ETOUCH_CNC_FRAME_NOT_HOMED': () => 'Cadrage refusé : machine non référencée. Faites la prise d’origine.',
+  'ETOUCH_CNC_FRAME_SOFT_LIMITS': () => 'Cadrage refusé : les limites logicielles de la carte ($20) ne sont pas actives ; rien n’arrêterait un dépassement.',
+  'ETOUCH_CNC_FRAME_OUTSIDE': (p) => 'Cadrage refusé : le rectangle du programme sort de la course de la machine (dépassements : ' + p.count + ').',
+  'ETOUCH_CNC_FRAME_START': (p) => 'Cadrage refusé : la position actuelle ' + p.axis + ' ' + p.value + ' mm machine est hors de la course utilisable (' + p.low + ' → ' + p.high + ').',
+  'ETOUCH_CNC_FRAME_Z': () => 'Cadrage refusé : hauteur sûre incalculable (course ou position Z inconnue).'
 };
 
 // A 409 refusal with its stable code and the values of its French message.
@@ -155,6 +162,15 @@ export const capabilitiesFor = ({ kind, mode, frameEnabled }) => {
   } else if (!frameEnabled) {
     frame = 'ETOUCH_LASER_FRAME_DISABLED';
   }
+  // CNC framing in the air (lot F1): not on a declared laser, not with $32=1 undeclared.
+  let cncFrame = null;
+  if (laser) {
+    cncFrame = 'ETOUCH_CNC_FRAME_LASER';
+  } else if (cncBlock) {
+    cncFrame = cncBlock;
+  } else if (!frameEnabled) {
+    cncFrame = 'ETOUCH_LASER_FRAME_DISABLED';
+  }
   let laserResume = null;
   if (!laser) {
     laserResume = 'ETOUCH_LASER_NOT_LASER';
@@ -168,7 +184,8 @@ export const capabilitiesFor = ({ kind, mode, frameEnabled }) => {
     resume: flag(laser ? 'ETOUCH_LASER_NO_CNC_RESUME' : cncBlock),
     laserResume: flag(laserResume),
     laserFrame: flag(frame),
-    focus: flag(laser ? null : 'ETOUCH_LASER_NOT_LASER')
+    focus: flag(laser ? null : 'ETOUCH_LASER_NOT_LASER'),
+    cncFrame: flag(cncFrame)
   };
 };
 
