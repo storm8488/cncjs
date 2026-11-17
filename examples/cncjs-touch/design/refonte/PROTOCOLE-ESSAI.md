@@ -153,9 +153,15 @@ Zéro Z posé **40 mm au-dessus** de la pièce ou de la table (le fichier tourne
 
 ### F2.6 Corrections après relecture (fraise en l'air, broche débranchée, comme F2.2)
 
-17. Refaire 3, toucher **Pause** pendant la montée, puis **Arrêter** aussitôt, pendant que l'axe décélère encore. Attendu dans la série : `0x85`, puis `!`, `0x85` répétés tant que la carte dit `Jog`, et `0x18` seulement après un rapport `Idle` (jamais pendant `Jog`). Considérer la référence perdue, comme à l'étape 9.
+17. Refaire 3, toucher **Pause** pendant la montée, puis **Arrêter** aussitôt, pendant que l'axe décélère encore. Attendu dans la série : `0x85`, puis `!`, `0x85` répétés tant que la carte dit `Jog`, et `0x18` après un rapport `Idle`, jamais pendant `Jog` avant 5 s (au-delà de 5 s de `Jog`, la réinitialisation part quand même : arrêter prime ; le noter si cela arrive). Considérer la référence perdue, comme à l'étape 9.
 18. Refaire 3 ; fraise en haut, « Reprendre… » ; pendant les 3 s de `G4 P3`, envoyer depuis l'interface CNCjs du PC une annulation de déplacement (bouton d'arrêt du jog, ou `0x85`). Attendu : aucune descente ensuite, « Reprendre sur place n'est plus possible… », la broche est commandée à l'arrêt (`M5`) une fois au repos.
 19. Refaire 3 ; fraise en haut, depuis un client branché directement sur la carte (Wi-Fi), si l'atelier en a un : changer G54 en Z de 1 mm. Attendu : « Reprendre sur place n'est plus possible… » dès le rapport suivant portant `WCO:` ; « Reprendre… » refusé. Remettre G54 et refaire D2 ensuite. Sinon, noter « non fait ».
 20. Qualification du binaire (à part, non couverte par le simulateur) : à l'étape 5, relever le premier mouvement du fichier après `~` (le premier arc si possible) et vérifier qu'il part exactement du point d'arrêt (MPos au millième au début et à la fin du bloc). Un écart, même inférieur à 0,01 mm, signale une position d'interpréteur qui ne suit pas les `$J=` comme le code amont : arrêter et ne pas usiner avec F2.
+
+### F2.7 Second tour de corrections (fraise en l'air, broche débranchée, comme F2.2)
+
+21. Refaire 3 ; pendant la montée, arrêter depuis l'interface CNCjs du PC (bouton Stop). Attendu : `0x85` aussitôt, répété tant que la carte dit `Jog`, puis `M5` une fois au repos ; pendant ce temps les commandes du PC qui agissent sont refusées (« Fraise dégagée par la tablette… »), puis acceptées. Si un client branché sur la carte (Wi-Fi) existe : fraise en haut, y changer G54 en Z de 1 mm et relever dans le journal de CNCjs combien de rapports passent avant le premier `WCO:` qui le montre ; noter ce nombre (limite du § SURETE, second tour).
+22. Refaire 3, « Reprendre… » ; pendant `G4 P3`, depuis le PC, envoyer `M4` (si la broche le permet, sinon noter « non fait »). Attendu : aucune descente, « Reprise arrêtée : la broche n'a pas redémarré… », `M5` au repos.
+23. Relever le délai de la reprise depuis `held` (page fermée pendant l'attente du repos, étape 11 de F2.2) : `~` part au plus quelques secondes après « Reprendre… », une fois un `WCO:` reçu ; au-delà de 5 s, refus « l'origine de la pièce… n'est plus confirmée (WCO) » : noter si la carte rafraîchit `WCO:` trop rarement au repos.
 
 Le stationnement du firmware (`0x84`) n'est pas employé par F2 ; il n'est pas à essayer dans cette séance.

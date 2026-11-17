@@ -238,7 +238,7 @@ describe('Pause et dégager through the Socket.IO entry (index.js refuseSocket)'
     expect(ctx.lines(mark).filter((d) => /^\$J=|^M[34]/.test(d))).toEqual([]);
   });
 
-  test('D9. the PC: what acts is refused in every phase, a status query passes, a stop ends the sequence', async () => {
+  test('D9. the PC: what acts is refused while draining and lifting (2-D9: the other phases), a status query passes, a stop ends the sequence', async () => {
     await setup();
     const t = await ctx.req('prepare', { operation: 'retract', revision: ctx.state().revision });
     await ctx.req('retract', { nonce: t.nonce });
