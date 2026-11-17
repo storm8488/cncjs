@@ -485,7 +485,8 @@
     "ETOUCH_RESUME_G49_AXIS": "reprise-impossible",
     "ETOUCH_RESUME_UNSUPPORTED_SYNTAX": "reprise-impossible",
     "ETOUCH_RESUME_PLANE": "reprise-impossible",
-    "ETOUCH_RESUME_DISTANCE": "reprise-impossible"
+    "ETOUCH_RESUME_DISTANCE": "reprise-impossible",
+    "ETOUCH_CONTROL_JOB": "usinage-en-cours"
   }
 };
   window.CNCTouchMessages=(window.CNCTouchMessages||[]).concat([

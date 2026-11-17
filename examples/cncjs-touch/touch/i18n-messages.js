@@ -815,6 +815,7 @@ window.CNCTouchMessages.push(
 ['maintien non confirmé à temps (connexion lente ou perdue)','keepalive not confirmed in time (slow or lost connection)','mantenimiento no confirmado a tiempo (conexión lenta o perdida)'],
 ['flux de suivi du client fermé','client monitoring stream closed','flujo de seguimiento del cliente cerrado'],
 ['pilotage pris par un autre client','control taken by another client','control tomado por otro cliente'],
+['pilotage rendu','control given back','control cedido'],
 ['rapport machine trop ancien','machine report too old','informe de la máquina demasiado antiguo'],
 ['alarme machine','machine alarm','alarma de la máquina'],
 ['déplacements réels désactivés','real moves disabled','desplazamientos reales desactivados'],
@@ -1770,6 +1771,36 @@ window.CNCTouchMessages.push([' · Sélection différente : ',' · Different sel
     " L’usinage continue.",
     " Machining continues.",
     " El mecanizado continúa."
+  ],
+  [
+    "Rendre la main",
+    "Give back control",
+    "Ceder el control"
+  ],
+  [
+    " Un palpage est en cours : rendre la main l’arrête.",
+    " Probing is in progress: giving back control stops it.",
+    " Hay un palpado en curso: ceder el control lo detiene."
+  ],
+  [
+    "Un cadrage est en cours : rendre la main l’arrête.",
+    "Framing is in progress: giving back control stops it.",
+    "Hay un encuadre en curso: ceder el control lo detiene."
+  ],
+  [
+    " Un déplacement est en cours : rendre la main l’arrête.",
+    " A move is in progress: giving back control stops it.",
+    " Hay un movimiento en curso: ceder el control lo detiene."
+  ],
+  [
+    "Un autre appareil pourra alors prendre la main, sans motif.",
+    "Another device can then take control, without a reason.",
+    "Otro dispositivo podrá entonces tomar el control, sin motivo."
+  ],
+  [
+    "Main rendue : un autre appareil peut la prendre.",
+    "Control given back: another device can take it.",
+    "Control cedido: otro dispositivo puede tomarlo."
   ],
   [
     "Rendu Performance actif.",

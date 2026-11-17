@@ -76,7 +76,7 @@ function load(options = {}) {
     removeEventListener(n, f) { listeners['doc:' + n] = (listeners['doc:' + n] || []).filter((x) => x !== f); } });
   // job-controls reads these by id from its own markup (innerHTML is not parsed here).
   ['job-dialog-modify','job-dialog-details','job-warning','job-check-text','pilot-other','job-port', 'job-feedback', 'job-load', 'job-start', 'job-pause', 'job-resume', 'job-stop', 'job-progress', 'job-check', 'job-confirm', 'job-dismiss',
-    'pilot-reason', 'pilot-dismiss', 'pilot-reason-a', 'pilot-reason-b', 'pilot-feedback', 'pilot-dialog-text', 'job-dialog-title', 'job-dialog-file', 'job-countdown', 'job-countdown-bar',
+    'pilot-reason', 'pilot-dismiss', 'pilot-mine', 'pilot-release', 'pilot-release-see', 'pilot-release-reason', 'pilot-release-note', 'pilot-reason-a', 'pilot-reason-b', 'pilot-feedback', 'pilot-dialog-text', 'job-dialog-title', 'job-dialog-file', 'job-countdown', 'job-countdown-bar',
     'job-state', 'job-selected', 'job-loaded', 'job-state-reason'].forEach(el);
   function XHR() { this.responseText = ''; this.status = 0; this.headers = {}; this.open = (method, url) => { this.method = method; this.url = url; }; this.setRequestHeader = (k, v) => { this.headers[k] = v; }; this.send = (b) => { this.body = b && JSON.parse(b); requests.push(this); }; this.abort = () => { this.aborted = true; }; }
   const window = { cncSeance:{motionFeedback(v){el('motion-status').textContent=v.status;el('motion-feedback').textContent=v.feedback;el('motion-feedback').setAttribute('data-state',v.state);},refuser(e){events.push({type:'refusal',detail:e});}}, location: { pathname: '/cnc/touch/' }, navigator: { onLine: true, maxTouchPoints: 5 }, XMLHttpRequest: XHR,

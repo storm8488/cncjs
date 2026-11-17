@@ -24,6 +24,8 @@
     uiLocale.html('<div class="job-dialog-card"><h2 id="pilot-dialog-title">La main</h2><p id="pilot-dialog-text"></p>') +
     uiLocale.html('<div id="pilot-form" class="pilot-form" hidden><div id="pilot-custom" hidden><label for="pilot-reason">Motif de la prise de pilotage (3 caractères au moins, enregistré et montré à l’autre appareil)</label><input id="pilot-reason" type="text" maxlength="200" autocomplete="off"></div>') +
     uiLocale.html('<div class="pilot-reasons"><button type="button" id="pilot-reason-a" class="t-btn">Prendre la main — je suis devant la machine</button><button type="button" id="pilot-reason-b" class="t-btn">Prendre la main — l’autre appareil est hors service</button><button type="button" id="pilot-other" class="t-btn">Autre motif…</button></div></div>') +
+    // Giving the hand back (F4): only when this device has it; the refusal during a job is written here with its remedy.
+    uiLocale.html('<div id="pilot-mine" class="pilot-form" hidden><p id="pilot-release-note"></p><p id="pilot-release-reason" hidden></p><div class="pilot-reasons"><button type="button" id="pilot-release" class="t-btn">Rendre la main</button><button type="button" id="pilot-release-see" class="t-btn" hidden>Voir l’usinage</button></div></div>') +
     uiLocale.html('<p id="pilot-feedback" role="status"></p><div class="job-dialog-actions"><button id="pilot-dismiss" class="t-btn t-btn--ghost t-btn--lg">Fermer</button><button id="pilot-takeover" class="t-btn t-btn--warn t-btn--lg" hidden disabled>Prendre la main</button></div></div></div>');
   var $ = function(id) {return document.getElementById(id);};
   // Status line for a host command running on the server (fixed under the strip, ui-2027.css).
@@ -218,12 +220,19 @@
   // 3 characters at least. Never automatic: only the Take control button sends it.
   function pilotReason(){return String($('pilot-reason').value||'').trim();}
   var pilotCustom=false;
+  // The server's own phrase for a refusal of the release during a job (ETOUCH_CONTROL_JOB), shown before the tap.
+  var controlJobMessage='Un usinage est en cours : la main ne se rend pas pendant l’usinage. Pause et Arrêter restent possibles.';
   function renderPilotDialog(){
     if($('pilot-dialog').hidden)return;
     var owner=current&&current.control&&current.control.owner,sentence=pilot.state==='mine'?uiLocale.t('Cet appareil a la main.'):pilot.state==='free'?uiLocale.t('Personne n’a la main : la première commande la prend.'):pilot.sentence||uiLocale.t('Pilotage : état machine indisponible.');
     if(pilot.state==='other'&&owner)sentence=uiLocale.t('C’est « {appareil} » qui a la main depuis {heure}.').replace('{appareil}',function(){return ownerName(owner);}).replace('{heure}',typeof owner.since==='number'?hourOf(owner.since):'—')+' '+uiLocale.t('Pause et Arrêter restent possibles ici.');
-    text('pilot-dialog-text',sentence+(pilot.takenOver?' '+pilot.takenOver:'')+(pilot.state==='other'&&current?(current.probing?uiLocale.t(' Un palpage est en cours : prendre la main l’arrête.'):current.motion&&current.motion.frame?' '+uiLocale.t('Un cadrage est en cours : prendre la main l’arrête.'):jogging(current)?uiLocale.t(' Un déplacement est en cours : prendre la main l’arrête.'):current.workflow!=='idle'?uiLocale.t(' L’usinage continue.'):''):''));
-    var other=pilot.state==='other';
+    text('pilot-dialog-text',sentence+(pilot.takenOver?' '+pilot.takenOver:'')+(pilot.state==='other'&&current?(current.probing?uiLocale.t(' Un palpage est en cours : prendre la main l’arrête.'):current.motion&&current.motion.frame?' '+uiLocale.t('Un cadrage est en cours : prendre la main l’arrête.'):jogging(current)?uiLocale.t(' Un déplacement est en cours : prendre la main l’arrête.'):current.workflow!=='idle'?uiLocale.t(' L’usinage continue.'):''):pilot.state==='mine'&&current&&current.workflow==='idle'?(current.probing?uiLocale.t(' Un palpage est en cours : rendre la main l’arrête.'):current.motion&&current.motion.frame?' '+uiLocale.t('Un cadrage est en cours : rendre la main l’arrête.'):jogging(current)?uiLocale.t(' Un déplacement est en cours : rendre la main l’arrête.'):''):''));
+    var other=pilot.state==='other',mine=pilot.state==='mine',busyJob=!!(mine&&current&&current.workflow!=='idle');
+    // What giving the hand back stops (F4), as for a takeover: a probing, a framing, a move.
+    prop('pilot-mine','hidden',!mine);text('pilot-release-note',mine?uiLocale.t('Un autre appareil pourra alors prendre la main, sans motif.'):'');
+    // Refused during a job (machining running or paused): the catalog phrase of the server's refusal, and its remedy.
+    text('pilot-release-reason',busyJob?(uiLocale.format?uiLocale.format('ETOUCH_CONTROL_JOB',null,controlJobMessage):controlJobMessage):'');prop('pilot-release-reason','hidden',!busyJob);prop('pilot-release-see','hidden',!busyJob);
+    prop('pilot-release','disabled',!mine||busyJob||pilotSending);
     prop('pilot-form','hidden',!other);prop('pilot-custom','hidden',!other||!pilotCustom);prop('pilot-takeover','hidden',!other||!pilotCustom);
     prop('pilot-takeover','disabled',!other||pilotSending||pilotReason().length<3);
     ['pilot-reason-a','pilot-reason-b'].forEach(function(id){prop(id,'disabled',!other||pilotSending);});
@@ -258,6 +267,17 @@
     run('control',{operation:'takeover',reason:reason}).then(function(data){
       pilotSending=false;if(disposed)return;
       text('job-feedback',uiLocale.t('Pilotage pris par cet appareil.'));setFeedbackState('confirmed');
+      closePilot();if(data&&data.snapshot)apply(data.snapshot,Date.now()-started);else render();
+    },function(e){pilotSending=false;if(disposed)return;text('pilot-feedback',e.message);renderPilotDialog();});
+  }
+  // Rendre la main (F4): the owner gives the lease back; the server refuses it during a job and ends our own sequences.
+  function releaseHand(){
+    if(pilotSending||pilot.state!=='mine'||(current&&current.workflow!=='idle'))return;
+    pilotSending=true;text('pilot-feedback',uiLocale.t('Demande envoyée…'));renderPilotDialog();
+    var started=Date.now();
+    run('control',{operation:'release'}).then(function(data){
+      pilotSending=false;if(disposed)return;
+      text('job-feedback',uiLocale.t('Main rendue : un autre appareil peut la prendre.'));setFeedbackState('confirmed');
       closePilot();if(data&&data.snapshot)apply(data.snapshot,Date.now()-started);else render();
     },function(e){pilotSending=false;if(disposed)return;text('pilot-feedback',e.message);renderPilotDialog();});
   }
@@ -679,6 +699,8 @@
   bind(document,'focusin',function(e){if(!$('job-dialog').hidden&&!(window.CNCStripGuard&&window.CNCStripGuard.covered($('job-dialog')))&&!$('job-dialog').contains(e.target)&&stripStops().indexOf(e.target)<0)$('job-dismiss').focus();});
   bind($('pilot-dismiss'),'click',function(){closePilot();});
   bind($('pilot-takeover'),'click',takeOver);
+  bind($('pilot-release'),'click',releaseHand);
+  bind($('pilot-release-see'),'click',function(){closePilot(false);if(window.cncSeance)window.cncSeance.lancer('voir-usinage');});
   bind($('pilot-other'),'click',function(){if(pilotSending||pilot.state!=='other')return;pilotCustom=true;renderPilotDialog();if(window.CNCTextKeyboard&&window.CNCTextKeyboard.open)window.CNCTextKeyboard.open($('pilot-reason'),{label:uiLocale.t('Autre motif…')});else $('pilot-reason').focus();});
   bind($('pilot-reason'),'input',function(){text('pilot-feedback','');renderPilotDialog();});
   // A reason of one's own: the shared text keyboard (text-keyboard.js), the kiosk has no system one.
@@ -691,7 +713,7 @@
     if(window.CNCStripGuard&&typeof window.CNCStripGuard.covered==='function'&&window.CNCStripGuard.covered($('pilot-dialog')))return;
     if(e.key==='Escape'){closePilot();e.preventDefault();e.stopImmediatePropagation();return;}
     if(e.key!=='Tab')return;
-    var order=['pilot-reason','pilot-reason-a','pilot-reason-b','pilot-other','pilot-dismiss','pilot-takeover'].map($).filter(function(n){return n&&!n.hidden&&!n.disabled&&!(n.id==='pilot-reason'&&!pilotCustom)&&!(pilot.state!=='other'&&/^pilot-reason|^pilot-other/.test(n.id));});
+    var order=['pilot-reason','pilot-reason-a','pilot-reason-b','pilot-other','pilot-release','pilot-release-see','pilot-dismiss','pilot-takeover'].map($).filter(function(n){return n&&!n.hidden&&!n.disabled&&!(n.id==='pilot-reason'&&!pilotCustom)&&!(pilot.state!=='other'&&/^pilot-reason|^pilot-other/.test(n.id))&&!(pilot.state!=='mine'&&/^pilot-release/.test(n.id));});
     // One cycle with the strip's Pause / Arrêter first, as for the confirmation (U5).
     order=stripStops().concat(order);
     if(order.length){var at=order.indexOf(document.activeElement),next=order[at<0?(e.shiftKey?order.length-1:0):(at+(e.shiftKey?order.length-1:1))%order.length];e.preventDefault();next.focus();e.stopImmediatePropagation();return;}

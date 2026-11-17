@@ -1516,19 +1516,20 @@ describe('cross-check 4 · 4. keepalive et annulation', () => {
     expect(ctx.state().motion.lastJog.reason).toBe('control');
   });
 
-  test('A libère son bail puis B revendique le port libre → 0x85', async () => {
+  test('A libère son bail → 0x85 aussitôt (F4) ; ni son keepalive ni la revendication de B ne changent plus rien', async () => {
     const ctx = setupHeld();
     const res = await running(ctx);
     await ctx.req('control', { operation: 'release' }, A);
+    expect(ctx.cancels()).toBe(1);
+    expect(ctx.state().motion.lastJog.reason).toBe('released');
     ctx.tick(50);
-    expect(ctx.cancels()).toBe(0);
     // Un keepalive de A ne re-revendique pas le port libéré (défaut 6a corrigé) :
-    await ctx.motion('jog-keepalive', { jogId: res.jogId });
+    await ctx.motion('jog-keepalive', { jogId: res.jogId }).catch(() => null);
     expect(ctx.state().control.owner).toBe(null);
     await ctx.req('control', { operation: 'claim' }, B);
     ctx.tick(50);
     expect(ctx.cancels()).toBe(1);
-    expect(ctx.state().motion.lastJog.reason).toBe('control');
+    expect(ctx.state().motion.lastJog.reason).toBe('released');
   });
 
   test('alarme pendant le jog → 0x85 (raison alarm)', async () => {

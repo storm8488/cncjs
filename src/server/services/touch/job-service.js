@@ -182,6 +182,14 @@ const startRefusal = (code, params = {}, reasons) => {
   return err;
 };
 
+// F4: giving the hand back is refused during a job; same shape as the start refusals (stable code, no values).
+const CONTROL_JOB_MESSAGE = 'Un usinage est en cours : la main ne se rend pas pendant l’usinage. Pause et Arrêter restent possibles.';
+const controlJobRefusal = () => {
+  const err = conflict(CONTROL_JOB_MESSAGE);
+  err.code = 'ETOUCH_CONTROL_JOB';
+  return err;
+};
+
 // Socket.IO commands that are not safe, refused while the server holds the machine (C-12, C-60):
 // shown by CNCjs's own interface.
 const SOCKET_PROBE_BUSY = 'Palpage en cours sur la tablette : commande refusée jusqu’à sa fin (Arrêter reste possible).';
@@ -2058,6 +2066,11 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       }
       if (op === 'release' || op === 'takeover') {
         const keyOf = (owner) => (owner ? owner.kind + ':' + owner.id : '');
+        // F4: the hand is not given back during a job (running or paused); only its holder is told so,
+        // anybody else gets the control refusal from the lease itself.
+        if (op === 'release' && c.workflow.state !== 'idle' && control.inspect(c.options.port, actor).role !== 'observer') {
+          throw controlJobRefusal();
+        }
         const before = keyOf(control.inspect(c.options.port).owner);
         const out = op === 'release' ? control.release(c.options.port, actor) : control.takeover(c.options.port, actor, body.reason);
         // The device that lost the lease loses its sequence in the same synchronous step, before any
@@ -2072,6 +2085,11 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
           }
           blockProbe.supervise(c, r);
           plateProbe.supervise(c, r);
+          // A takeover is seen by the jog's own watch; a release leaves the port free, which that watch
+          // takes for nobody's business: the move of the device that gave the hand back ends here (F4).
+          if (op === 'release') {
+            moves.stop(c, r, 'released');
+          }
         }
         return out;
       }
