@@ -218,3 +218,24 @@ dans `audit/ECARTS-PLAN.md`, pas d'une validation physique de la machine.
 - Les refus F5 et les erreurs d'ouverture automatique transportent un objet `{message}` : le test du moteur prouve que la cause survit à JSON, contrairement au champ non énumérable d'un `Error`. Le remède manuel de la page ne dépend donc pas d'un message perdu pendant le transport.
 
 Limites : aucun matériel, aucun capteur, aucun redémarrage réel ni rendu tactile validé. Une autre application série ou un relais local sans en-tête échappe à cette preuve, comme pour D3. Une prise d'origine et la preuve D2 restent nécessaires selon les gardes existants. La revue croisée et les essais F5 du protocole restent au pilote.
+
+## F10 — rechargement automatique de la page (2026-11-17)
+
+F10 ne produit aucune commande machine. `tablet-actions.js` compare les versions
+chargée/installée hors Réglages et réserve dix secondes annoncées avant navigation.
+Activité locale, dialogue ou saisie, absence de suivi, état ancien/perdu et commande
+hôte annulent/interdisent ce délai. Les parcours inline USB, Wi-Fi et mises à jour
+sont également gardés. « Plus tard » diffère de dix minutes.
+
+Un GET serveur contrôle toutes les machines avant le bandeau et un second juste
+avant la navigation : Idle, workflow idle, information fraîche, broche à zéro,
+aucun chargement/palpage/homing/jog/arrêt possible ni maintenance. Une erreur,
+réponse trop lente ou activité locale survenue entre-temps annule. Un tableau vide
+confirmé par le serveur admet une CNC déconnectée ; une coupure serveur ne vaut
+jamais repos. La reprise FIGE ne rejoue aucune action ni confirmation.
+
+Preuves : `test-auto-reload.cjs` et `test-auto-reload-recovery.cjs` (vrais modules de
+session/suivi, nouvelle epoch après renouvellement). Le nouveau document HTML
+contourne le cache ; les fichiers Touch séparés restent revalidés par `maxAge:0`.
+Les suites hors ligne ne prouvent ni le cache du kiosque, ni le toucher, ni l'état
+physique. Aucun garde serveur ou octet Grbl modifié. Essai F10 du protocole requis.

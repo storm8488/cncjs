@@ -117,8 +117,11 @@ describe('real motion against the Grbl 1.1h simulator (F1)', () => {
     const base = { port: 'SIM', generation: service.list()[0].generation, transportId: 'tA' };
     const ticket = await service.action({ ...base, action: 'prepare', operation: 'set-origin', axes: ['X'] }, A);
     expect(ticket.name).toBe('Origine X du repère G54 à la position actuelle (G10 L20 P1 X0)');
-    await expect(service.action({ ...base, action: 'set-origin', nonce: ticket.nonce }, A)).rejects.toThrow(/La machine a bougé pendant la définition d’origine \(X 0\)/);
+    // The guard can detect the unexpected move before X reaches zero. Its
+    // reported position depends on polling; check the final target separately.
+    await expect(service.action({ ...base, action: 'set-origin', nonce: ticket.nonce }, A)).rejects.toThrow(/La machine a bougé pendant la définition d’origine \(X -?\d+(?:\.\d+)?\)/);
     expect(c.written.at(-1)).toBe('G10 L20 P1 X0\n');
+    expect(await until(() => sim.machineState === 'Idle')).toBe(true);
     expect(sim.machinePosition.x).toBeCloseTo(0, 3);
   });
 });

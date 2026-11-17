@@ -10,7 +10,7 @@
   var t=uiLocale.t;
   var section=document.getElementById('ks-system'),panel=document.getElementById('screen-settings');
   if(!section||!panel)return;
-  var CONFIRM_MS=8000,CHECK_MS=600000;
+  var CONFIRM_MS=8000,CHECK_MS=600000,VERSION_MS=30000;
 
   function el(tag,cls,text){var n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}
   function set(n,value){if(n.textContent!==value)n.textContent=value;}
@@ -39,6 +39,7 @@
   function shown(){return !disposed&&!document.hidden&&panel.classList.contains('active')&&panel.getAttribute('data-settings-tab')==='system';}
   function request(method,url,body,auth,done){
     var x=new XMLHttpRequest();x.open(method,url,true);x.timeout=8000;
+    if(url.indexOf('VERSION.json?')===0)x.setRequestHeader('Cache-Control','no-cache');
     if(auth){var c=token();if(!c){done(401,null);return null;}x.setRequestHeader('Authorization','Bearer '+c);}
     if(body!==undefined)x.setRequestHeader('Content-Type','application/json');
     x.onload=function(){var data=null;try{data=JSON.parse(x.responseText);}catch(_){/* Keep the existing fallback when storage or parsing fails. */}done(x.status,data);};
@@ -173,21 +174,110 @@
   }
   function loadVersion(initial){
     if(disposed||versionXhr)return;
-    versionXhr=request('GET','VERSION.json?'+Date.now(),undefined,false,function(code,data){
+    versionXhr=request('GET','VERSION.json?'+(initial?'':'installed=')+Date.now(),undefined,false,function(code,data){
       versionXhr=null;if(disposed)return;
       var read=code===200&&data&&typeof data.commit==='string'&&/^[0-9a-f]{7,40}$/.test(data.commit)?{commit:data.commit,branch:typeof data.branch==='string'?data.branch:'',repo:typeof data.repo==='string'&&/^[\w.-]+\/[\w.-]+$/.test(data.repo)?data.repo:'',deployedAt:data.deployedAt}:null;
       if(initial)info=read;
       installed=read;
-      renderVersion();if(shown())checkRemote();paint();
+      renderVersion();if(shown())checkRemote();paint();autoEvaluate();
     });
+  }
+
+  // F10: only static metadata is polled off-tab. No machine command is replayed
+  // after a server restart; FIGE owns stream/session recovery as before.
+  var autoBanner=null,autoText=null,autoLater=null,autoTimer=null,versionTimer=null;
+  var deadline=0,deferredUntil=0,retryAfter=0,autoPending=false,autoGeneration=0,navigating=false;
+  var elapsed=window.performance&&typeof window.performance.now==='function'?function(){return window.performance.now();}:Date.now;
+  var lastTransport=!!(window.cncState&&window.cncState.get().transportConnected);
+  function detail(){try{return window.cncJobControls?window.cncJobControls.state():window.cncState.get();}catch(_){return null;}}
+  function controllerBusy(c){return !c||!c.fresh||c.workflow!=='idle'||c.activeState!=='Idle'||c.spindleSpeed!==0||
+    c.canStop||c.loading||c.homing||c.probing||c.probeBusy||c.workOffset&&c.workOffset.state==='checking'||
+    c.refusals&&c.refusals.readSettings&&c.refusals.readSettings.code==='ETOUCH_SETTINGS_READING'||
+    c.motion&&(c.motion.jog||c.motion.cancelling||c.motion.cancelUnconfirmed||c.motion.frame);}
+  function localAction(){
+    // Connection confirmations are inline cards, not dialogs. Host updates and
+    // Wi-Fi forms also own requests independently of the job controls.
+    return [['cncConnectCnc',['busy','open']],['cncSystemUpdates',['busy','armed','running']],['cncWifiSettings',['busy','formOpen']]].some(function(entry){
+      var owner=window[entry[0]],state=owner&&owner.state();
+      return state&&entry[1].some(function(key){return !!state[key];});
+    });
+  }
+  function autoBlocked(){
+    var d=detail(),s=window.cncScreenSaver&&window.cncScreenSaver.status(),a=document.activeElement;
+    if(disposed||navigating||document.hidden||busy||armed||localAction()||!d||!d.transportConnected||d.busy||d.halt||d.systemCommand||
+      s&&s.blocked||d.machine&&controllerBusy(d.machine))return true;
+    if(a&&(a.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)))return true;
+    var dialogs=document.querySelectorAll('[role="dialog"]');
+    for(var i=0;i<dialogs.length;i++)if(!dialogs[i].hidden&&dialogs[i].getClientRects().length)return true;
+    return false;
+  }
+  function cancelAuto(){
+    autoGeneration++;deadline=0;autoPending=false;clearTimeout(autoTimer);autoTimer=null;
+    if(autoBanner&&!autoBanner.hidden)autoBanner.hidden=true;
+  }
+  function autoCandidate(){return !!(info&&installed&&info.commit!==installed.commit&&elapsed()>=deferredUntil);}
+  function serverRest(done){
+    var own=++autoGeneration,started=elapsed();autoPending=true;
+    request('GET',apiBase()+'/touch-job',undefined,true,function(code,data){
+      if(disposed||own!==autoGeneration)return;
+      autoPending=false;
+      done(code===200&&data&&Array.isArray(data.controllers)&&!data.systemCommand&&
+        !data.controllers.some(controllerBusy)&&elapsed()-started<2500&&!autoBlocked()&&autoCandidate());
+    });
+  }
+  function makeBanner(){
+    if(autoBanner)return;
+    autoBanner=el('div','ks-auto-reload');autoBanner.hidden=true;
+    autoText=el('span');autoText.setAttribute('role','status');autoBanner.appendChild(autoText);
+    autoLater=el('button','ks-secondary',t('Plus tard'));autoLater.type='button';autoBanner.appendChild(autoLater);
+    autoLater.addEventListener('click',function(){deferredUntil=elapsed()+CHECK_MS;cancelAuto();});
+    document.body.appendChild(autoBanner);
+  }
+  function countAuto(){
+    if(!autoCandidate()||autoBlocked()){cancelAuto();return;}
+    var left=Math.ceil((deadline-elapsed())/1000);
+    if(left<=0){
+      deadline=0;retryAfter=elapsed()+VERSION_MS;
+      serverRest(function(ready){
+        if(!ready){cancelAuto();return;}
+        // Chromium ignores reload(true). Bypass the cached document with a unique
+        // URL; Touch assets have maxAge=0 (bundles also have content-hashed names).
+        var url=new URL(window.location.href);url.searchParams.set('touchReload',String(Date.now()));
+        navigating=true;window.location.replace(url.href);
+      });return;
+    }
+    set(autoText,t('Nouvelle version : rechargement dans {seconds} s').replace('{seconds}',String(left)));
+    if(autoBanner.hidden)autoBanner.hidden=false;
+    autoTimer=setTimeout(countAuto,1000);
+  }
+  function autoEvaluate(){
+    if(!autoCandidate()||autoBlocked()){cancelAuto();return;}
+    if(deadline||autoPending||elapsed()<retryAfter)return;
+    retryAfter=elapsed()+VERSION_MS;
+    serverRest(function(ready){if(!ready){cancelAuto();return;}makeBanner();deadline=elapsed()+10000;countAuto();});
+  }
+  function pollVersion(){
+    if(disposed)return;
+    if(!document.hidden)loadVersion(false);
+    autoEvaluate();versionTimer=setTimeout(pollVersion,VERSION_MS);
+  }
+  function interaction(event){if(autoBanner&&event&&autoBanner.contains(event.target))return;retryAfter=elapsed()+10000;cancelAuto();}
+  ['pointerdown','keydown','input','focusin'].forEach(function(name){document.addEventListener(name,interaction,true);});
+  document.addEventListener('visibilitychange',function(){cancelAuto();if(!document.hidden)loadVersion(false);});
+  function observeAuto(){
+    var d=detail(),connected=!!(d&&d.transportConnected);
+    if(connected&&!lastTransport)loadVersion(false);
+    lastTransport=connected;autoEvaluate();
   }
 
   function refresh(){if(!shown()){opened=false;if(armed)disarm();return;}loadList();if(!opened)loadVersion(false);opened=true;if(info)checkRemote();paint();}
   window.addEventListener('cnc-settings-tab',refresh);
   window.addEventListener('cnc-screen-change',refresh);
-  window.addEventListener('cnc-job-status',function(){if(shown())paint();});
-  window.addEventListener('cnc-screen-saver-status',function(){if(shown())paint();});
-  window.addEventListener('pagehide',function(e){if(e&&e.persisted)return;disposed=true;clearTimeout(armTimer);});
+  window.addEventListener('cnc-job-status',function(){if(shown())paint();observeAuto();});
+  window.addEventListener('cnc-screen-saver-status',function(){if(shown())paint();autoEvaluate();});
+  window.addEventListener('pagehide',function(e){cancelAuto();if(e&&e.persisted)return;disposed=true;clearTimeout(armTimer);clearTimeout(versionTimer);});
+  window.addEventListener('pageshow',function(e){if(e&&e.persisted&&!disposed)loadVersion(false);});
   renderVersion();loadVersion(true);
+  versionTimer=setTimeout(pollVersion,VERSION_MS);
   window.cncTabletActions={loadedVersion:function(){return info?Object.assign({},info):null;},state:function(){return {commands:commands.length,armed:armed,busy:busy};}};
 })();

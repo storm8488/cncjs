@@ -207,3 +207,9 @@ body.ks-ui main>#screen-history.active,body.ks-ui main>#screen-history.kept{grid
 .ks-ui #screen-more .ks-tile:disabled small{color:var(--disabled-fg)}
 
 .ks-ui #screen-home .ks-step-body>.card>h2,.ks-ui #file{display:none}
+/* F10: transient notice; the safety strip and dialogs keep their own layer. */
+.ks-auto-reload[hidden]{display:none!important}
+.ks-auto-reload{position:fixed;z-index:400;bottom:16px;left:16px;right:16px;width:max-content;max-width:calc(100% - 32px);margin:auto;display:flex;align-items:center;gap:12px;padding:12px 16px;border:2px solid var(--warn);border-radius:12px;background:var(--surface);color:var(--fg);font-size:var(--fs-16);box-shadow:0 4px 20px #0006}
+.ks-auto-reload span{min-width:0;overflow-wrap:break-word}
+.ks-auto-reload button{min-height:48px;flex-shrink:0}
+@media(max-width:600px){.ks-auto-reload{width:auto;flex-wrap:wrap}.ks-auto-reload button{width:100%}}
