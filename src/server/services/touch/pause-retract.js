@@ -66,6 +66,8 @@ export const SOCKET_RETRACT_BUSY = 'Fraise dégagée par la tablette : commande 
 // job-service.js available(): what moves or writes, from the tablet, while the tail of a dropped
 // retract lasts (third review D2).
 export const RETRACT_TAIL_BUSY = 'Dégagement arrêté : la fin du déplacement de la fraise n’est pas prouvée. Attendez le repos, ou touchez Arrêter.';
+// job-service.js overridable(): a correction from the tablet while a retract lasts (third review D4).
+export const RETRACT_OVERRIDE_BUSY = 'Pause et dégager en cours : corrections refusées jusqu’à la reprise ou à l’arrêt.';
 
 // The only lines the sequence ever writes (§ 4.3).
 const LINE = /^(M5|M[34] S\d+(\.\d+)?|G4 P3|\$J=G91 G21 Z-?\d+(\.\d+)? F\d+(\.\d+)?)$/;
@@ -130,6 +132,11 @@ export const createRetract = (deps) => {
   const spindleSpeed = (c, r, s) => {
     const v = controllerStatus(c).spindle;
     return s.speedReport === r.reports && typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
+  };
+  // The spindle override CNCjs knows (the last Ov: received), null when none was.
+  const spindleOverride = (c) => {
+    const ov = controllerStatus(c).ov;
+    return Array.isArray(ov) && ov.length === 3 && typeof ov[2] === 'number' && Number.isFinite(ov[2]) ? ov[2] : null;
   };
   const feedOverride = (c) => {
     const ov = controllerStatus(c).ov;
@@ -254,6 +261,12 @@ export const createRetract = (deps) => {
     // The in-place resume was already ruled out (work offset changed after the rest): failed instead.
     if (s.invalid) {
       toFailed(c, r, s, s.invalid);
+      return;
+    }
+    // The program's spindle seen stopped or changed since the rest (third review D3): failed instead.
+    const lost = setpointLost(s);
+    if (lost) {
+      toFailed(c, r, s, { code: 'ETOUCH_RETRACT_STATE_CHANGED', params: lost });
       return;
     }
     s.phase = 'held';
@@ -587,8 +600,10 @@ export const createRetract = (deps) => {
   // FS:, or turning again, never brings it back). Before any speed above 0 nothing goes down: a 0
   // then only means « not proven yet » (an `ok` taken for ours too early must not fail a sound
   // resume; the dwell ends failed if the speed is still 0 once it is over).
+  // Third review D4: the expected setpoint is the mode and the S of our M3/M4, and the spindle
+  // override remembered at rest (ovLost, report()); a $G with another S is lost like another mode.
   const spindleLost = (c, r, s) => {
-    if (s.spindleLost) {
+    if (s.spindleLost || s.ovLost) {
       return true;
     }
     return !!s.spindleSpun && spindleSpeed(c, r, s) === 0;
@@ -597,8 +612,61 @@ export const createRetract = (deps) => {
     if (!s.spindle || !s.spindleSpun || !s.spindleModal || spindleLost(c, r, s)) {
       return false;
     }
-    const mode = parserOf(c).modal && parserOf(c).modal.spindle;
-    return modalFresh(r) && mode === s.spindle.mode;
+    const now = modalOf(c);
+    return modalFresh(r) && now.modal.spindle === s.spindle.mode && now.S === s.spindle.speed;
+  };
+
+  // Third review D3, one rule for the spindle while it is not ours (no M3/M4 of ours written). Until
+  // our M5 is written (held, the resume from held, a lift not begun): as remembered at rest, from the
+  // first report of the rest on. Once parked: stopped, from the report after the proof on. Every
+  // explicit FS: and every $G is compared with it as it comes (report(), modal()), and a difference
+  // is kept for good: neither a later report without FS: nor the spindle turning again bring it back.
+  const spindleWant = (s) => {
+    if (!s.mem || s.spindleT) {
+      return null;
+    }
+    if (s.parkReport !== null) {
+      return { mode: 'M5', turning: false, since: s.parkReport + 1 };
+    }
+    if (s.m5Sent) {
+      return null;
+    }
+    const m = s.mem.modal;
+    const on = m.modal.spindle === 'M3' || m.modal.spindle === 'M4';
+    return { mode: m.modal.spindle, turning: on && m.S !== 0, since: s.restFrom };
+  };
+  // What makes the remembered spindle setpoint wrong now ({ field }), or null.
+  const setpointLost = (s) => {
+    if (s.ovLost) {
+      return { field: 'Ov' };
+    }
+    if (s.foreignSpindle) {
+      return { field: s.foreignSpindle };
+    }
+    const want = spindleWant(s);
+    if (!want) {
+      return null;
+    }
+    const at = want.turning ? s.lastZero : s.lastTurn;
+    return at !== null && at >= want.since ? { field: 'spindle' } : null;
+  };
+  // In the event itself: held, parked or the resume before our M3/M4 end the in-place resume; our
+  // own spindle is lost (a descent is cancelled); a lift goes on (the spindle is stopped anyway) and
+  // what it saw counts if it ends held (toHeld) or parked (lift).
+  const spindleCheck = (c, r, s) => {
+    if (r.retract !== s || s.phase === 'failed') {
+      return;
+    }
+    if (s.spindleT && s.phase === 'returning') {
+      if (s.ovLost) {
+        spindleGone(c, r, s);
+      }
+      return;
+    }
+    const lost = (s.phase === 'held' || s.phase === 'parked' || s.phase === 'returning') && setpointLost(s);
+    if (lost) {
+      invalidate(c, r, s, { code: 'ETOUCH_RETRACT_STATE_CHANGED', params: lost });
+    }
   };
   // A loss seen: the in-place resume ends at once (a descent is cancelled, the spindle stopped at rest).
   const spindleGone = (c, r, s) => {
@@ -655,6 +723,9 @@ export const createRetract = (deps) => {
     const out = { line, t, deadline: clock() + limitMs, okMark: null, modalMark: null };
     s.out = out;
     s.written += 1;
+    if (line === 'M5') {
+      s.m5Sent = true;
+    }
     if (/^M[34] /.test(line)) {
       s.spindleOn = true;
       // Its answers tell from when reports and $G replies speak of the spindle we restarted.
@@ -702,8 +773,9 @@ export const createRetract = (deps) => {
         endJog(s);
       }
       s.lastModalMark = out.modalMark;
-      // `~` needs a work offset reported after the last line of ours (second review D4).
-      s.wcoFrom = Math.max(s.wcoFrom, out.okMark);
+      // `~` needs a work offset reported after the last line of ours (second review D4), once at rest:
+      // in a report of the Idle streak that proved it over, or later (third review: not one of its Jog).
+      s.wcoFrom = Math.max(s.wcoFrom, Math.max(s.idleFrom, out.okMark + 1) - 1);
       return out;
     }, (err) => {
       // A line Grbl refused never ran.
@@ -753,7 +825,9 @@ export const createRetract = (deps) => {
       // The work offset in force at the stop (D4, second review): the last explicit WCO received
       // before « Pause et dégager », every WCO received since equal to it (report()); without one,
       // no in-place resume.
-      wco: s.refWco ? { ...s.refWco } : null
+      wco: s.refWco ? { ...s.refWco } : null,
+      // The spindle override in force at rest (third review D4): every Ov: since must equal it.
+      ov: spindleOverride(c)
     };
     s.spindle = (spindle === 'M3' || spindle === 'M4') && p.S !== null ? { mode: spindle, speed: p.S } : null;
     s.spindleOn = spindle === 'M3' || spindle === 'M4';
@@ -816,9 +890,16 @@ export const createRetract = (deps) => {
       })
       .then(() => {
         s.spindleOn = false;
+        s.parkReport = r.reports;
         // The work offset changed after the rest (D4): the bit is up, but no in-place resume.
         if (s.invalid) {
           toFailed(c, r, s, s.invalid);
+          return;
+        }
+        // A spindle setpoint changed by someone else on the way (third review D3, D4): no resume either.
+        const lost = setpointLost(s);
+        if (lost) {
+          toFailed(c, r, s, { code: 'ETOUCH_RETRACT_STATE_CHANGED', params: lost });
           return;
         }
         s.phase = 'parked';
@@ -848,6 +929,7 @@ export const createRetract = (deps) => {
         // The line of the file the machine finished at (every line received is executed now).
         s.line = stopLine(c, r);
         s.restReport = r.reports;
+        s.restFrom = a.n;
         s.restMpos = b.mpos;
         s.modalMark = s.modals;
         s.restClock = clock();
@@ -963,6 +1045,15 @@ export const createRetract = (deps) => {
       spindleLost: false,
       spindleSpun: false,
       spindleModal: false,
+      // Third review: the latest reports with an explicit FS: of 0 and above 0, the first report of
+      // the rest, our M5 written, the report that proved it parked; a $G or an Ov: of someone else.
+      lastZero: null,
+      lastTurn: null,
+      restFrom: null,
+      m5Sent: false,
+      parkReport: null,
+      foreignSpindle: null,
+      ovLost: false,
       // The work offset reference: the last explicit WCO before the request, and from which report
       // on every WCO is compared with it (second review D4).
       refWco: r.wco ? { x: r.wco.x, y: r.wco.y, z: r.wco.z } : null,
@@ -1049,8 +1140,11 @@ export const createRetract = (deps) => {
     if (final && s.spindleT && !spindleRunning(c, r, s)) {
       throw failure('ETOUCH_RETRACT_SPINDLE');
     }
-    if (final && !s.spindleT && (spindle === 'M3' || spindle === 'M4') && spindleSpeed(c, r, s) === 0) {
-      throw failure('ETOUCH_RETRACT_STATE_CHANGED', { field: 'spindle' });
+    // The spindle while it is not ours (third review D3): never seen otherwise since the rest, or
+    // since it was parked (setpointLost); the override as at rest.
+    const lost = s.spindleT ? (s.ovLost && { field: 'Ov' }) : setpointLost(s);
+    if (lost) {
+      throw failure('ETOUCH_RETRACT_STATE_CHANGED', lost);
     }
     const profile = profileOf(c, r);
     if (profile.kind !== 'cnc' || settingNumber(allSettings(c), 32) !== 0) {
@@ -1316,6 +1410,11 @@ export const createRetract = (deps) => {
     }
     if (typeof seen.speed === 'number' && Number.isFinite(seen.speed)) {
       s.speedReport = r.reports;
+      if (seen.speed > 0) {
+        s.lastTurn = r.reports;
+      } else {
+        s.lastZero = r.reports;
+      }
     }
     // An Idle streak counts reports with coordinates only (D8).
     if (state === 'Idle' && xyz) {
@@ -1372,10 +1471,17 @@ export const createRetract = (deps) => {
         invalidate(c, r, s, { code: 'ETOUCH_RETRACT_ZERO_CHANGED', params: { axis: ref ? axis.toUpperCase() : 'WCO' } });
       }
     }
+    // Third review D4: every Ov: once the state is remembered equals the override at rest (100 when
+    // none was known then, Grbl's own value at start), for good.
+    const ov = Array.isArray(seen.ov) && seen.ov.length === 3 ? Number(seen.ov[2]) : null;
+    if (s.mem && ov !== null && ov !== (s.mem.ov === null ? 100 : s.mem.ov)) {
+      s.ovLost = true;
+    }
+    spindleCheck(c, r, s);
     if (s.phase === 'draining' && s.step === 'drain') {
       const mpos = mposOf(c);
       if (drained(c) && state === 'Idle' && mpos && xyz) {
-        s.rest = s.rest.concat([{ mpos, at: clock() }]).slice(-2);
+        s.rest = s.rest.concat([{ mpos, at: clock(), n: r.reports }]).slice(-2);
       } else {
         s.rest = [];
       }
@@ -1387,14 +1493,26 @@ export const createRetract = (deps) => {
     const s = r.retract;
     if (s) {
       s.modals += 1;
-      // Received after the `ok` of the M3/M4 we wrote: the mode of the spindle we restarted.
+      const now = modalOf(c);
+      // Received after the `ok` of the M3/M4 we wrote: the mode and the S of the spindle we restarted
+      // (third review D4: another S is lost like another mode).
       if (s.spindleT && s.spindleT.oks >= 1 && s.spindle) {
-        const mode = parserOf(c).modal && parserOf(c).modal.spindle;
-        if (mode !== s.spindle.mode && s.spindleSpun) {
+        const same = now.modal.spindle === s.spindle.mode && now.S === s.spindle.speed;
+        if (!same && s.spindleSpun) {
           spindleGone(c, r, s);
         }
-        s.spindleModal = mode === s.spindle.mode;
+        s.spindleModal = same;
       }
+      // The spindle while it is not ours: the mode and the S as they must be (spindleWant).
+      const want = spindleWant(s);
+      if (want && !s.foreignSpindle) {
+        if (now.modal.spindle !== want.mode) {
+          s.foreignSpindle = 'spindle';
+        } else if (now.S !== s.mem.modal.S) {
+          s.foreignSpindle = 'S';
+        }
+      }
+      spindleCheck(c, r, s);
     }
   };
 

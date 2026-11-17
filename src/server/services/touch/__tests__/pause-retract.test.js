@@ -1416,3 +1416,209 @@ describe('Pause et dégager: the windows of the second review', () => {
     expect(resetAt).toBeLessThanOrEqual(5500);
   });
 });
+
+describe('Pause et dégager: the windows of the third review', () => {
+  // Held: the stream closed for good while draining, a new stream of the same device.
+  const toHeld = async (ctx) => {
+    await ctx.retract();
+    ctx.service.closeTransport('tA');
+    ctx.service.openTransport('tA2', A);
+    await ctx.rest();
+    await ctx.wait(500);
+    expect(ctx.state().pauseRetract).toMatchObject({ phase: 'held', failure: { code: 'ETOUCH_RETRACT_STREAM' } });
+  };
+  const resumeHeld = async (ctx) => {
+    const t = await ctx.req('prepare', { operation: 'resume', revision: ctx.state().revision }, A, 'tA2');
+    return ctx.req('resume', { nonce: t.nonce }, A, 'tA2');
+  };
+  const bare = (ctx, extra = '') => ctx.parse('<Idle|MPos:' + f3(ctx.m.x) + ',' + f3(ctx.m.y) + ',' + f3(ctx.m.z) + extra + '>');
+  const wcoField = (ctx) => '|WCO:' + f3(ctx.wco.x) + ',' + f3(ctx.wco.y) + ',' + f3(ctx.wco.z);
+
+  test('3-D3. held, the resume asked: FS:0, then a report with XYZ and WCO without FS: no `~`, failed for good', async () => {
+    const ctx = await setup();
+    await toHeld(ctx);
+    ctx.report('Idle');
+    ctx.modal();
+    const mark = ctx.mark();
+    await resumeHeld(ctx);
+    ctx.now += 250;
+    ctx.report('Idle', { speed: 0 });
+    ctx.now += 250;
+    bare(ctx, wcoField(ctx));
+    ctx.modal();
+    await ctx.wait(300);
+    // Turning again afterwards changes nothing: the stop was seen.
+    await ctx.idle(2, { wco: true });
+    await ctx.wait(300);
+    expect(ctx.lines(mark)).not.toContain('~');
+    expect(ctx.state().pauseRetract).toMatchObject({ phase: 'failed', failure: { code: 'ETOUCH_RETRACT_STATE_CHANGED', params: { field: 'spindle' } } });
+  });
+
+  test.each([
+    ['FS:0 once, then turning again', 'speed'],
+    ['a $G with M5, then M3 again', 'modal'],
+    ['a $G with another S, then S1000 again', 'S']
+  ])('3-D3b. held, before the request: %s: the in-place resume is refused for good', async (name, how) => {
+    const ctx = await setup();
+    await toHeld(ctx);
+    if (how === 'speed') {
+      ctx.now += 250;
+      ctx.report('Idle', { speed: 0 });
+    } else if (how === 'modal') {
+      ctx.gc.spindle = 'M5';
+      ctx.modal();
+      ctx.gc.spindle = 'M3';
+    } else {
+      ctx.gc.S = '1';
+      ctx.modal();
+      ctx.gc.S = '1000';
+    }
+    ctx.modal();
+    await ctx.idle(2, { wco: true });
+    await ctx.wait(1100);
+    const mark = ctx.mark();
+    await expect(resumeHeld(ctx)).rejects.toMatchObject({ code: 'ETOUCH_RETRACT_STATE_CHANGED' });
+    await ctx.wait(500);
+    expect(ctx.lines(mark)).toEqual([]);
+    expect(ctx.state().pauseRetract.phase).toBe('failed');
+  });
+
+  test('3-D3c. held reached through the rest itself: FS:0 in a report of the rest, M3 S1000 in the $G: refused', async () => {
+    const ctx = await setup({ z: -129.7 });
+    await ctx.retract();
+    ctx.finish();
+    await ctx.idle(1);
+    await ctx.idle(1, { speed: 0 });
+    ctx.modal();
+    await ctx.wait(500);
+    expect(ctx.state().pauseRetract.phase).toBe('failed');
+    expect(ctx.state().pauseRetract.failure).toMatchObject({ code: 'ETOUCH_RETRACT_STATE_CHANGED', params: { field: 'spindle' } });
+  });
+
+  // The resume up to the approach written (M3 S1000 proven turning, the dwell over).
+  const toApproach = async (ctx) => {
+    await ctx.park();
+    const mark = ctx.mark();
+    await ctx.resume();
+    await ctx.wait(100);
+    ctx.gc.spindle = 'M3';
+    await ctx.okIdle(2, { speed: 1000 });
+    ctx.modal();
+    await ctx.okIdle(2, { speed: 1000 });
+    expect(ctx.lines(mark)).toEqual(['M3 S1000\n', 'G4 P3\n', '$J=G91 G21 Z-108.4 F600\n']);
+    return mark;
+  };
+  const plunges = (ctx, mark) => ctx.lines(mark).filter((d) => d === '$J=G91 G21 Z-5 F100\n');
+
+  test('3-D4. S1 set by a client while the plunge waits for the stream ($G M3 S1, FS:0,1): no plunge', async () => {
+    const ctx = await setup();
+    const mark = await toApproach(ctx);
+    ctx.service.closeTransport('tA', true);
+    await ctx.jog(-113.4);
+    ctx.gc.S = '1';
+    ctx.modal();
+    await ctx.idle(2, { speed: 1 });
+    ctx.service.openTransport('tA9', A);
+    await ctx.idle(2, { speed: 1 });
+    await ctx.wait(300);
+    expect(plunges(ctx, mark)).toEqual([]);
+    expect(ctx.state().pauseRetract).toMatchObject({ phase: 'failed', failure: { code: 'ETOUCH_RETRACT_SPINDLE' } });
+  });
+
+  test('3-D4b. S1 set by a client during the approach: the approach is cancelled at once', async () => {
+    const ctx = await setup();
+    const mark = await toApproach(ctx);
+    ctx.parse('ok');
+    ctx.now += 250;
+    ctx.report('Jog', { speed: 1000 });
+    const m2 = ctx.mark();
+    ctx.gc.S = '1';
+    ctx.modal();
+    expect(ctx.lines(m2)[0]).toBe('\x85');
+    expect(ctx.state().pauseRetract).toMatchObject({ phase: 'failed', failure: { code: 'ETOUCH_RETRACT_SPINDLE' } });
+    ctx.m.z = -60;
+    await ctx.idle(3, { speed: 1 });
+    await ctx.wait(300);
+    expect(plunges(ctx, mark)).toEqual([]);
+  });
+
+  test.each([['the approach', 'jog'], ['the wait before the plunge', 'wait']])('3-D4c. the spindle override changed (Ov:…,50) during %s: no plunge', async (name, when) => {
+    const ctx = await setup();
+    const mark = await toApproach(ctx);
+    if (when === 'jog') {
+      ctx.parse('ok');
+      ctx.now += 250;
+      ctx.report('Jog', { speed: 1000 });
+      ctx.now += 250;
+      bare(ctx, '|FS:600,500|Ov:100,100,50');
+      expect(ctx.lines(mark).pop()).toBe('\x85');
+      ctx.m.z = -60;
+      await ctx.idle(3, { speed: 500 });
+    } else {
+      ctx.service.closeTransport('tA', true);
+      await ctx.jog(-113.4);
+      ctx.now += 250;
+      bare(ctx, '|FS:0,500|Ov:100,100,50');
+      ctx.service.openTransport('tA9', A);
+      await ctx.idle(2, { speed: 500 });
+    }
+    await ctx.wait(300);
+    expect(plunges(ctx, mark)).toEqual([]);
+    expect(ctx.state().pauseRetract.phase).toBe('failed');
+  });
+
+  test('3-D4e. no correction from the tablet while a retract lasts: draining, parked, during the resume', async () => {
+    const ctx = await setup();
+    const BUSY = /corrections refusées jusqu’à la reprise/;
+    const refused = async () => {
+      const mark = ctx.mark();
+      for (const [kind, value] of [['spindle', 10], ['spindle', -1], ['feed', 10], ['rapid', 50]]) {
+        // eslint-disable-next-line no-await-in-loop
+        await expect(ctx.req('override', { kind, value })).rejects.toThrow(BUSY);
+      }
+      expect(ctx.since(mark).filter((d) => d !== '?' && d !== '$G\n')).toEqual([]);
+    };
+    await ctx.retract();
+    await refused();
+    await ctx.rest();
+    await ctx.jog(-5);
+    ctx.gc.spindle = 'M5';
+    await ctx.okIdle(2, { wco: true });
+    ctx.modal();
+    expect(phase(ctx)).toBe('parked');
+    await refused();
+    await ctx.resume();
+    await ctx.wait(100);
+    expect(phase(ctx)).toBe('returning');
+    await refused();
+  });
+
+  test('3-D4d. `~` needs a work offset reported once the last descent is proven over: the one of its Jog report is not enough', async () => {
+    const ctx = await setup({ z: -8 });
+    await ctx.retract();
+    await ctx.rest();
+    await ctx.wait(0);
+    await ctx.jog(-5);
+    ctx.gc.spindle = 'M5';
+    await ctx.okIdle(2, { wco: true });
+    const mark = ctx.mark();
+    await ctx.resume();
+    await ctx.wait(100);
+    ctx.gc.spindle = 'M3';
+    await ctx.okIdle(2, { speed: 1000 });
+    ctx.modal();
+    await ctx.okIdle(2, { speed: 1000 });
+    expect(ctx.lines(mark)).toEqual(['M3 S1000\n', 'G4 P3\n', '$J=G91 G21 Z-3 F100\n']);
+    ctx.parse('ok');
+    ctx.now += 250;
+    ctx.report('Jog', { wco: true });
+    ctx.m.z = -8;
+    await ctx.idle(2);
+    ctx.modal();
+    await ctx.wait(300);
+    expect(ctx.lines(mark)).not.toContain('~');
+    await ctx.idle(1, { wco: true });
+    await ctx.wait(200);
+    expect(ctx.lines(mark)).toContain('~');
+  });
+});

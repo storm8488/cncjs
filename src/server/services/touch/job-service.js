@@ -36,7 +36,7 @@ import { createSystemCommands } from './system-command.js';
 // eslint-disable-next-line import/extensions
 import { createWorkOffset } from './work-offset.js';
 // eslint-disable-next-line import/extensions
-import { createRetract, SOCKET_RETRACT_BUSY, RETRACT_TAIL_BUSY } from './pause-retract.js';
+import { createRetract, SOCKET_RETRACT_BUSY, RETRACT_TAIL_BUSY, RETRACT_OVERRIDE_BUSY } from './pause-retract.js';
 
 // Kept exported from here for the existing callers and tests.
 // eslint-disable-next-line import/extensions
@@ -484,7 +484,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         // F2: Idle streaks, proof of rest and work offset of a retract (pause-retract.js), with what
         // this very report carried (CNCjs keeps the XYZ and FS: of an older one).
         try {
-          retract.report(c, r, { xyz: explicitXyz(payload), speed: payload && payload.spindle });
+          retract.report(c, r, { xyz: explicitXyz(payload), speed: payload && payload.spindle, ov: payload && payload.ov });
         } catch (_) {
           // Never break CNCjs's reading of the port; the supervision tick decides again.
         }
@@ -1165,9 +1165,18 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
   };
 
+  // F2 (third review D4): the spindle setpoint is remembered at rest and compared until `~`: no
+  // correction from the tablet while a retract lasts (from the PC: socketRefusal).
+  const notRetracting = (c) => {
+    if (record(c).retract) {
+      throw conflict(RETRACT_OVERRIDE_BUSY);
+    }
+  };
+
   // Overrides act on the running (or held) program only.
   const overridable = (c) => {
     available(c);
+    notRetracting(c);
     if (!['running', 'paused'].includes(c.workflow.state)) {
       throw conflict('Les corrections s’appliquent pendant un travail en cours ou en pause.');
     }
@@ -1178,6 +1187,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
   // the program (M2/M30) or a reset, then returns to 100 %.
   const rapidOverridable = (c) => {
     available(c);
+    notRetracting(c);
     if (['running', 'paused'].includes(c.workflow.state)) {
       return;
     }
