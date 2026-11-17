@@ -293,7 +293,7 @@ export const createRetract = (deps) => {
     let overAt = jogging ? null : clock();
     if (jogging) {
       s.cancelMark = r.reports;
-      c.command('jogCancel');
+      write(c, r, s, 'jogCancel');
     }
     s.securing = true;
     const end = () => {
@@ -310,7 +310,7 @@ export const createRetract = (deps) => {
       }
       const state = activeOf(c);
       if (state === 'Jog' && r.reports > jogMark && clock() - sentAt >= CANCEL_RESEND_MS) {
-        c.command('jogCancel');
+        write(c, r, s, 'jogCancel');
         sentAt = clock();
         jogMark = r.reports;
       }
@@ -320,7 +320,7 @@ export const createRetract = (deps) => {
       }
       if (!moving && s.spindleOn && state === 'Idle' && idleSince(r, s, s.cancelMark === null ? mark : s.cancelMark) && fresh(r) && quiet(c)) {
         s.spindleOn = false;
-        c.command('gcode', 'M5');
+        write(c, r, s, 'gcode', 'M5');
         end();
         changed();
         return;
@@ -332,6 +332,31 @@ export const createRetract = (deps) => {
       later(c, r, step, 50);
     };
     later(c, r, step, 50);
+  };
+
+  // The only way a retract writes to the board (second review: no write after a banner). Nothing in
+  // another session of the board or on a closed port; a line or the resume never after an alarm
+  // either (an Alarm state, homing or reference lost). The stops (jog cancel, feed hold) always go.
+  // Returns null when the write may go, else the failure that forbids it.
+  const unwritable = (c, r, s, cmd) => {
+    if (!connected(c) || r.startups !== s.startups) {
+      return failure('ETOUCH_RETRACT_RESTART');
+    }
+    if (cmd !== 'jogCancel' && cmd !== 'feedhold' && (/^Alarm/.test(activeOf(c)) || r.homed !== true || r.referenceLost)) {
+      return failure('ETOUCH_RETRACT_ALARM', alarmParams(r));
+    }
+    return null;
+  };
+  const write = (c, r, s, cmd, arg) => {
+    if (unwritable(c, r, s, cmd)) {
+      return false;
+    }
+    if (arg === undefined) {
+      c.command(cmd);
+    } else {
+      c.command(cmd, arg);
+    }
+    return true;
   };
 
   // The single point where a retract is forgotten (a stop, a load or a run from anywhere, Pause or a
@@ -389,8 +414,9 @@ export const createRetract = (deps) => {
     s.cancelled = true;
     const quiet = code === 'ETOUCH_RETRACT_ALARM' || code === 'ETOUCH_RETRACT_RESTART';
     // Nothing of ours written yet, or the lifting jog refused by the board: nothing moved, the bit
-    // is where it stopped (phase held).
-    if (s.phase === 'lifting' && code !== 'ETOUCH_RETRACT_MOVED' &&
+    // is where it stopped (phase held). Never after an alarm or a restart (second review D5): the
+    // reference is gone for good, whatever comes after (a new homing, the same values again).
+    if (s.phase === 'lifting' && code !== 'ETOUCH_RETRACT_MOVED' && !quiet &&
         (!s.written || (code === 'ETOUCH_RETRACT_ERROR' && s.step === 'lift' && s.written === 1))) {
       toHeld(c, r, s, f);
       return;
@@ -575,6 +601,10 @@ export const createRetract = (deps) => {
       throw failure('ETOUCH_RETRACT_ERROR', { error: -1 });
     }
     before(c, r, s, line, where);
+    const forbidden = unwritable(c, r, s, 'gcode');
+    if (forbidden) {
+      throw forbidden;
+    }
     const t = answers(c, r);
     const out = { line, t, deadline: clock() + limitMs, okMark: null, modalMark: null };
     s.out = out;
@@ -588,7 +618,7 @@ export const createRetract = (deps) => {
       s.jogT = t;
       s.cancelMark = null;
     }
-    c.command('gcode', line);
+    write(c, r, s, 'gcode', line);
     changed();
     return until(c, r, s, () => {
       if (t.error) {
@@ -1100,10 +1130,14 @@ export const createRetract = (deps) => {
         logOf(c, r, s, 'resumed', {});
         log({ event: 'resume', ...jobInfo(r.job), controller: controllerInfo(c, r), pause: 'retract', actor: s.resumeActor });
         // Done: the spindle and the bit are the program's again (no spindle stop may follow).
+        const forbidden = unwritable(c, r, s, 'gcode:resume');
+        if (forbidden) {
+          throw forbidden;
+        }
         s.phase = 'resumed';
         s.spindleOn = false;
         drop(c, r, s);
-        c.command('gcode:resume');
+        write(c, r, s, 'gcode:resume');
         changed();
       })
       .catch(sequenceFailed(c, r, s));
@@ -1121,7 +1155,7 @@ export const createRetract = (deps) => {
     if (s.phase === 'draining') {
       // The ordinary pause from now on: a feed hold, resumed by `~` like any pause.
       drop(c, r, s);
-      c.command('feedhold');
+      write(c, r, s, 'feedhold');
       changed();
       return { message: 'Pause demandée. Attendre l’état Hold.' };
     }
@@ -1306,8 +1340,9 @@ export const createRetract = (deps) => {
   // The record is dropped (port closed, service disposed): one jog cancel for a jog of ours.
   const forget = (c, r) => {
     const all = [r.retract, r.retractTail].filter(Boolean);
-    if (all.some((s) => jogMaybe(c, s)) && connected(c)) {
-      c.command('jogCancel');
+    const jog = all.find((s) => jogMaybe(c, s));
+    if (jog) {
+      write(c, r, jog, 'jogCancel');
     }
     all.forEach((s) => {
       s.cancelled = true;

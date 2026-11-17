@@ -1149,6 +1149,56 @@ describe('Pause et dégager: the windows of the second review', () => {
     expect(ctx.since(mark)).toContain('\x18');
   });
 
+  test.each(['Alarm', 'banner'])('2-D5. %s while the lift waits for the stream (nothing of ours written): failed for good, even once homed again at the same place', async (event) => {
+    const ctx = await setup();
+    await ctx.retract();
+    ctx.finish();
+    ctx.service.closeTransport('tA', true);
+    await ctx.idle(2);
+    ctx.modal();
+    await ctx.wait(100);
+    expect(ctx.state().pauseRetract).toMatchObject({ phase: 'lifting', step: 'lift' });
+    const mark = ctx.mark();
+    if (event === 'Alarm') {
+      ctx.now += 250;
+      ctx.report('Alarm');
+    } else {
+      ctx.parse(BANNER);
+    }
+    expect(ctx.state().pauseRetract.phase).toBe('failed');
+    // A client homes the machine again; position, offset and modal state back as they were.
+    ctx.now += 250;
+    ctx.report('Home', { at: { x: -1, y: -1, z: -1 } });
+    ctx.now += 1000;
+    ctx.report('Idle', { wco: true });
+    ctx.modal();
+    ctx.service.openTransport('tA7', A);
+    await ctx.idle(2, { wco: true });
+    await expect(ctx.req('prepare', { operation: 'resume', revision: ctx.state().revision }, A, 'tA7')).rejects.toThrow();
+    await ctx.wait(500);
+    expect(ctx.lines(mark)).toEqual([]);
+    expect(ctx.state().pauseRetract.failure.code).toBe(event === 'Alarm' ? 'ETOUCH_RETRACT_ALARM' : 'ETOUCH_RETRACT_RESTART');
+  });
+
+  test('2-D2. a banner while the tail of a stopped lift waits for rest: no spindle stop, no line, in the new session', async () => {
+    const ctx = await setup();
+    await ctx.retract();
+    await ctx.rest();
+    await ctx.wait(0);
+    ctx.parse('ok');
+    ctx.now += 250;
+    ctx.report('Jog');
+    ctx.service.socketStop('/dev/null');
+    ctx.controller.command('gcode:stop');
+    const mark = ctx.mark();
+    ctx.parse(BANNER);
+    ctx.m = { x: 0, y: 0, z: 0 };
+    await ctx.idle(4);
+    await ctx.wait(500);
+    expect(ctx.lines(mark).filter((d) => d !== '\x85')).toEqual([]);
+    expect(ctx.service.socketRefusal('/dev/null')).toBe(null);
+  });
+
   test('2-D1c. Arrêter, a jog still reported after 5 s: cancels repeated, no reset before the time limit, the reset at the limit (stop over position)', async () => {
     const ctx = await setup();
     await cancelledLift(ctx);
