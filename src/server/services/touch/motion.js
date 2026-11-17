@@ -540,20 +540,20 @@ export const createMotion = (deps) => {
         return;
       }
       if (!motionEnabled(config)) {
-        cancel(c, r, 'disabled', pending.startups);
+        cancel(c, r, 'disabled');
         return;
       }
       if (!transports.has(transportId)) {
-        cancel(c, r, 'transport', pending.startups);
+        cancel(c, r, 'transport');
         return;
       }
       const owner = control.inspect(c.options.port).owner;
       if (owner && actor && keyOf(owner) !== keyOf(actor)) {
-        cancel(c, r, 'control', pending.startups);
+        cancel(c, r, 'control');
         return;
       }
       if (!fresh(r)) {
-        cancel(c, r, 'stale', pending.startups);
+        cancel(c, r, 'stale');
         return;
       }
       later(c, r, check, STEP_WATCH_MS);
@@ -584,37 +584,29 @@ export const createMotion = (deps) => {
     }
   };
 
-  // The one passage of every jog cancel (0x85) this module writes (lot F1, second review): only to
-  // the board session (`startups`) of what it cancels. A step, a continuous jog, a framing or a
-  // cancel of a session that a banner ended gets nothing: the restarted board dropped them, and
-  // nothing automatic reaches it (D-06). A stop asked by a person after the banner (stop(), with
-  // the current session) acts on the restarted board like on any other. True when written.
-  const writeJogCancel = (c, r, startups) => {
-    if (startups !== r.startups || !connected(c)) {
-      return false;
-    }
-    c.command('jogCancel');
-    return true;
-  };
-
   // Ends a continuous jog (if any) and cancels whatever jog Grbl runs: 0x85,
   // sent again when the `$J` is acknowledged after it (a 0x85 that reached
   // Grbl before the `$J` was parsed is ignored outside the Jog state) and
   // while a report newer than the last 0x85 still shows Jog. Not confirmed
   // after CANCEL_LIMIT_MS: the operator is told and it is recorded, and the
   // 0x85 keeps being repeated while Jog is reported, for at most the planned
-  // duration of the `$J` (CANCEL_MAX_MS at most). `startups`: the board session of what is
-  // cancelled (a supervisor passes the one of its move); the current one by default (a stop asked).
-  const cancel = (c, r, why, startups = r.startups) => {
+  // duration of the `$J` (CANCEL_MAX_MS at most).
+  // Lot F1 (third review): the cancel of a framing (`framing`, the one running, or one taking over a
+  // framing's line or cancel) belongs to its board session, and a banner ends its repeats without a
+  // byte (D-06). Every other one, a step's or a continuous jog's, is the cancel of before the lot,
+  // banner or not.
+  const cancel = (c, r, why, framing = null) => {
     const s = stateOf(r);
+    const framed = !!(framing || s.frame || (s.cancel && s.cancel.framed) || (s.pending && s.pending.framed));
     endSession(c, r, s.session, 'cancelled', why, STOP_REASONS[why] || why);
     if (s.frame) {
       endFrame(c, r, s.frame, 'cancelled', why);
     }
-    if (!writeJogCancel(c, r, startups)) {
+    if (!connected(c)) {
       changed();
       return;
     }
+    c.command('jogCancel');
     const p0 = s.pending;
     const planned = p0 && p0.kind === 'jog' ? p0.sentAt + p0.limitMs - clock() : 0;
     const job = {
@@ -625,7 +617,8 @@ export const createMotion = (deps) => {
       until: clock() + Math.min(CANCEL_MAX_MS, Math.max(CANCEL_LIMIT_MS, planned)),
       unconfirmed: false,
       reason: why,
-      startups
+      framed,
+      startups: r.startups
     };
     s.cancel = job;
     changed();
@@ -637,9 +630,9 @@ export const createMotion = (deps) => {
         s.cancel = null;
         return;
       }
-      // The board restarted: the jog it cancelled is gone with its session, and nothing more is
-      // written to the new one, not even a jog cancel (D-06, lot F1 review C1).
-      if (r.startups !== job.startups) {
+      // A framing's cancel: the board restarted, the framing is gone with its session, and nothing
+      // more is written to the new one, not even a jog cancel (D-06, lot F1 review C1).
+      if (job.framed && r.startups !== job.startups) {
         s.cancel = null;
         changed();
         return;
@@ -648,11 +641,11 @@ export const createMotion = (deps) => {
       const p = s.pending;
       if (p && p.kind === 'jog' && p.t.oks > job.oks) {
         job.oks = p.t.oks;
-        writeJogCancel(c, r, job.startups);
+        c.command('jogCancel');
         job.sentAt = clock();
         job.mark = r.reports;
       } else if (state === 'Jog' && r.reports > job.mark && clock() - job.sentAt >= CANCEL_RESEND_MS) {
-        writeJogCancel(c, r, job.startups);
+        c.command('jogCancel');
         job.sentAt = clock();
         job.mark = r.reports;
       }
@@ -724,7 +717,7 @@ export const createMotion = (deps) => {
       }
       const why = stopReason(c, r, session);
       if (why) {
-        cancel(c, r, why, session.startups);
+        cancel(c, r, why);
         return;
       }
       // Over by itself: end of its bounded distance, or refused by Grbl.
@@ -792,8 +785,6 @@ export const createMotion = (deps) => {
       distanceMm: room,
       command: line,
       since: Date.now(),
-      // The board session it runs in: a banner ends it without a byte (writeJogCancel).
-      startups: r.startups,
       deadline: clock() + KEEPALIVE_TIMEOUT_MS,
       until: clock() + Math.min(MAX_JOG_MS, 60000 * room / p.feed) + SESSION_MARGIN_MS
     };
@@ -824,7 +815,7 @@ export const createMotion = (deps) => {
     // Past the deadline the watchdog cancels at its next tick: a late
     // keepalive never extends the jog.
     if (clock() > session.deadline) {
-      cancel(c, r, 'late', session.startups);
+      cancel(c, r, 'late');
       throw conflict('Maintien reçu trop tard : déplacement annulé (0x85).');
     }
     session.deadline = clock() + KEEPALIVE_TIMEOUT_MS;
@@ -867,7 +858,7 @@ export const createMotion = (deps) => {
       gate(c, r, name);
     } catch (err) {
       if (body.operation === 'jog-keepalive' && stateOf(r).session) {
-        cancel(c, r, 'disabled', stateOf(r).session.startups);
+        cancel(c, r, 'disabled');
       }
       throw err;
     }
@@ -1051,7 +1042,7 @@ export const createMotion = (deps) => {
     session.code = code;
     session.params = params;
     endFrame(c, r, session, result, why);
-    cancel(c, r, why, session.startups);
+    cancel(c, r, why, session);
   };
 
   // Why the next line of a CNC framing may not leave now, checked right before each line and at
@@ -1181,6 +1172,8 @@ export const createMotion = (deps) => {
       const i = session.index;
       session.index += 1;
       session.pending = send(c, r, /^\$J=/.test(session.lines[i]) ? 'jog' : 'frame', session.lines[i], session.limits[i]);
+      // A line of a framing: after a banner, nothing automatic is written for it (cancel, forget).
+      session.pending.framed = true;
     };
     // One supervision step of a CNC framing (§ 5.2): every stop condition first, then the line sent
     // last until it is answered, at rest and arrived, then the next one, only with a stream open.
@@ -1280,7 +1273,7 @@ export const createMotion = (deps) => {
       }
       const why = frameStopReason(c, r, session);
       if (why) {
-        cancel(c, r, why, session.startups);
+        cancel(c, r, why);
         return;
       }
       const p = s.pending;
@@ -1295,7 +1288,7 @@ export const createMotion = (deps) => {
           return;
         }
         if (activeOf(c) !== 'Idle') {
-          cancel(c, r, 'state', session.startups);
+          cancel(c, r, 'state');
           return;
         }
         sendNext();
@@ -1566,9 +1559,9 @@ export const createMotion = (deps) => {
       abortFrame(c, r, cncFrame, 'cancelled', 'transport', 'ETOUCH_FRAME_STREAM', {});
     }
     if (s.session && s.session.transportId === id) {
-      cancel(c, r, 'transport', s.session.startups);
+      cancel(c, r, 'transport');
     } else if (s.frame && !cncFrame && s.frame.transportId === id) {
-      cancel(c, r, 'transport', s.frame.startups);
+      cancel(c, r, 'transport');
     }
   };
 
@@ -1581,17 +1574,18 @@ export const createMotion = (deps) => {
   const framing = (r) => !!(r.motion && r.motion.frame);
 
   // The controller record is dropped (port closed, or the service disposed):
-  // its answer listeners go with it. A jog of ours of the current board session on a controller
-  // still open gets one 0x85 (no timer is left behind to repeat it); one of a session a banner
-  // ended gets nothing (second review, C1).
+  // its answer listeners go with it. A jog of ours on a controller still
+  // open gets one 0x85 (no timer is left behind to repeat it). Lot F1 (third review): a framing's
+  // line or cancel of a board session a banner ended counts for nothing (D-06).
   const forget = (c, r) => {
     const s = r.motion;
     if (!s) {
       return;
     }
-    const live = [s.session, s.frame, s.cancel, s.pending && s.pending.kind === 'jog' ? s.pending : null].filter(Boolean);
-    if (live.some((move) => move.startups === r.startups)) {
-      writeJogCancel(c, r, r.startups);
+    const ended = (move) => (move === s.frame || move.framed) && move.startups !== r.startups;
+    const live = [s.session, s.frame, s.cancel, s.pending && s.pending.kind === 'jog' ? s.pending : null].filter((move) => move && !ended(move));
+    if (live.length && connected(c)) {
+      c.command('jogCancel');
     }
     if (s.session) {
       endSession(c, r, s.session, 'cancelled', 'dispose', STOP_REASONS.dispose);

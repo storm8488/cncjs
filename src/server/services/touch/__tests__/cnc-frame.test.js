@@ -158,6 +158,7 @@ const setup = ({ settings = SETTINGS, enabled = true, homed = true, machines = [
     invalidate: (cause) => ctx.invalidated.push(cause)
   }));
   const history = { record: (e) => ctx.history.push(e) };
+  ctx.files = files;
   ctx.service = createService({ get: () => ctx.controllers }, config, () => ctx.now, { workOffset, control: ctx.control, history, files });
   services.push(ctx.service);
   ctx.generation = ctx.service.list()[0].generation;
@@ -1303,9 +1304,10 @@ describe('CNC framing: the families of the second review', () => {
     ctx.report();
   };
 
-  // Family 2: a write after a banner. Every jog cancel of motion.js goes to the board session of what
-  // it cancels: nothing automatic reaches a restarted board.
-  test('family 2: the service disposed after a banner (port closed, CNCjs stopping) writes nothing for a framing, a step or a continuous jog of the old session; before it, one 0x85', async () => {
+  // Family 2: a write after a banner. A framing's line or cancel belongs to its board session: nothing
+  // automatic reaches a restarted board for it. A step or a continuous jog keeps the automatic stop
+  // it had before the lot (third review: the second round had taken it away; manual-jog-banner.test.js).
+  test('family 2 (third review): the service disposed after a banner writes nothing for a framing of the old session; a step or a continuous jog gets its 0x85 as before the lot; before a banner, one 0x85 each', async () => {
     for (const what of ['framing', 'step', 'continuous']) {
       for (const restarted of [true, false]) {
         const ctx = setup();
@@ -1316,12 +1318,14 @@ describe('CNC framing: the families of the second review', () => {
         const before = ctx.c.written.length;
         services.splice(services.indexOf(ctx.service), 1);
         ctx.service.dispose();
-        expect([what, restarted, ctx.c.written.slice(before)]).toEqual([what, restarted, restarted ? [] : ['\x85']]);
+        expect([what, restarted, ctx.c.written.slice(before)]).toEqual([what, restarted, restarted && what === 'framing' ? [] : ['\x85']]);
       }
     }
   });
 
-  test('family 2: after a banner, the supervision of a step or a continuous jog of the old session writes nothing (stale report, stream closed, lease taken)', async () => {
+  // Third review: the regression of the second round. A $J run by the restarted board (Jog reported)
+  // is stopped by the supervision of the step or continuous jog, as before the lot.
+  test('family 2 (third review): after a banner, the supervision of a step or a continuous jog still cancels it (0x85, nothing else) when its report goes stale, its stream closes or its lease is taken', async () => {
     const causes = [
       ['stale report', () => {}],
       ['stream closed', (ctx) => ctx.service.closeTransport('tA')],
@@ -1337,7 +1341,8 @@ describe('CNC framing: the families of the second review', () => {
         jest.advanceTimersByTime(100);
         ctx.c.state.status.activeState = 'Idle';
         ctx.tick(3000);
-        expect([what, cause, ctx.c.written.slice(before)]).toEqual([what, cause, []]);
+        const after = ctx.c.written.slice(before);
+        expect([what, cause, after[0], after.filter((b) => b !== '\x85')]).toEqual([what, cause, '\x85', []]);
       }
     }
   });
@@ -1440,5 +1445,314 @@ describe('CNC framing: the families of the second review', () => {
     expect(ctx.lines()).toEqual(['M5']);
     expect(ctx.state().motion.lastFrame).toMatchObject({ code: 'ETOUCH_FRAME_POSITION', params: { axis: 'Z', expected: '-5', reported: '-5.054' } });
     expectNothingAfter(ctx, 1);
+  });
+});
+
+// The third safety review (Astra, F1): the state table of the sequence (F1-CORRECTIONS.md,
+// « Troisième tour »). Each state, each event, one answer, one case. The manual moves (a step, a
+// continuous jog) are not in it: they behave exactly as before the lot (manual-jog-banner.test.js).
+describe('CNC framing: the state table of the third review', () => {
+  const banner = (ctx) => ctx.c.runner.emit('startup', { firmware: 'Grbl', version: '1.1h' });
+  const jog = (ctx) => {
+    ctx.c.state.status.activeState = 'Jog';
+    ctx.report();
+  };
+  // Each state, reached from a fresh setup.
+  const STATES = {
+    // The start confirmed, the file being read again (frameStarting), held until the event is
+    // over: nothing written yet.
+    'start pending': async (ctx) => {
+      await ctx.req('load', { file: 'box.nc' });
+      const ticket = await ctx.machine('frame-prepare');
+      const read = ctx.files.fingerprintOf;
+      ctx.files.fingerprintOf = (name) => new Promise((resolve) => {
+        ctx.release = () => resolve(read(name));
+      });
+      ctx.started = ctx.machine('frame', { nonce: ticket.nonce }).then(() => 'started', (err) => err.message);
+    },
+    'M5 sent, unanswered': async (ctx) => {
+      await ctx.start();
+    },
+    'a side in flight (Jog)': async (ctx) => {
+      await ctx.start();
+      runTo(ctx, 4);
+      jog(ctx);
+    },
+    // The side answered and seen twice at rest at its end, before the supervisor's next step.
+    'between two lines': async (ctx) => {
+      await ctx.start();
+      runTo(ctx, 4);
+      jog(ctx);
+      ctx.c.at(60 + OFFSET.x, 20 + OFFSET.y, -5);
+      ctx.ok();
+      ctx.c.state.status.activeState = 'Idle';
+      ctx.report();
+      ctx.report();
+    },
+    // The stream of the device rotating (its grace): the side ended meanwhile, the next one waits.
+    'stream rotating': async (ctx) => {
+      await ctx.start();
+      runTo(ctx, 4);
+      ctx.service.closeTransport('tA', true);
+      ctx.run();
+    },
+    // Stopped by Arrêter during a side: the framing is over, its 0x85 repeated while Jog is reported.
+    cancelling: async (ctx) => {
+      await ctx.start();
+      runTo(ctx, 4);
+      jog(ctx);
+      await ctx.req('stop', {}, B);
+    },
+    // Ended by a banner while a side ran; the restarted board reports Jog (a $J received after it).
+    'ended by a banner': async (ctx) => {
+      await ctx.start();
+      runTo(ctx, 4);
+      jog(ctx);
+      banner(ctx);
+    }
+  };
+  const shiftZero = (ctx) => {
+    ctx.proof += 1;
+    ctx.c.state.status.wpos = { ...ctx.c.state.status.wpos, x: f3(Number(ctx.c.state.status.wpos.x) + 1) };
+  };
+  // Each event: what it does, whether it acts in its own step (sync), how long it takes otherwise
+  // (wait, with reports unless silent).
+  const EVENTS = {
+    Arrêter: { act: (ctx) => ctx.req('stop', {}, B), sync: true },
+    Pause: { act: (ctx) => ctx.req('pause', {}, B), sync: true },
+    'relâchement (jog-stop)': { act: (ctx) => ctx.req('motion', { operation: 'jog-stop' }, B, 'tB'), sync: true },
+    'Arrêter la broche': { act: (ctx) => ctx.req('spindleStop', {}, B), sync: true },
+    'arrêt du PC': { act: (ctx) => ctx.service.socketStop('TEST'), sync: true },
+    'annulation de jog du PC': { act: (ctx) => ctx.service.socketJogCancel('TEST'), sync: true },
+    bannière: { act: banner, sync: true },
+    alarme: {
+      act: (ctx) => {
+        ctx.c.runner.emit('alarm', { message: '2' });
+        ctx.c.state.status.activeState = 'Alarm';
+      },
+      wait: 50
+    },
+    'flux fermé': { act: (ctx) => ctx.service.closeTransport('tA'), sync: true },
+    'flux en rotation, non rouvert': { act: (ctx) => ctx.service.closeTransport('tA', true), wait: 3100 },
+    'main perdue': { act: (ctx) => ctx.req('control', { operation: 'takeover', reason: 'At the machine' }, B), sync: true },
+    'rapport de broche': {
+      act: (ctx) => {
+        ctx.c.state.status.spindle = 9000;
+      },
+      wait: 50
+    },
+    'rapport de zéro (WCO, preuve D2)': { act: shiftZero, wait: 50 },
+    // The last report 2.6 s old at the supervisor's next step.
+    'rapports périmés': {
+      act: (ctx) => {
+        ctx.now += 2600;
+      },
+      wait: 50,
+      silent: true
+    },
+    // The line in flight past its limit: M5 10 s, a side of 50 mm at 600 mm/min 5 s + 10 s.
+    'ligne hors délai': { act: () => {}, wait: 15200 },
+    'service arrêté': {
+      act: (ctx) => {
+        services.splice(services.indexOf(ctx.service), 1);
+        ctx.service.dispose();
+      },
+      sync: true
+    }
+  };
+  const E = Object.keys(EVENTS);
+  // The answers. 'refused': the start never happens, nothing written. '<code>' or 'reason:<why>':
+  // the framing ends (in the event's own step when it is sync) with that code or reason, then 0x85
+  // and nothing but 0x85, never a line. 'restart': ends, and not a byte after the banner, whatever
+  // is reported. 'cancel only': no line; nothing but 0x85 (the stop of a person, or the cancel in
+  // progress). 'nothing': not a byte. 'disposed': one 0x85 and nothing after. 'n/a': cannot happen
+  // in that state.
+  const all = (answer) => Object.fromEntries(E.map((event) => [event, answer]));
+  const RUNNING = {
+    Arrêter: 'reason:stop',
+    Pause: 'reason:pause',
+    'relâchement (jog-stop)': 'reason:operator',
+    'Arrêter la broche': 'reason:spindle',
+    'arrêt du PC': 'reason:socket',
+    'annulation de jog du PC': 'reason:socket',
+    bannière: 'restart',
+    alarme: 'ETOUCH_FRAME_ALARM',
+    'flux fermé': 'ETOUCH_FRAME_STREAM',
+    'flux en rotation, non rouvert': 'ETOUCH_FRAME_STREAM',
+    'main perdue': 'ETOUCH_FRAME_CONTROL',
+    'rapport de broche': 'ETOUCH_FRAME_STATE:spindle',
+    'rapport de zéro (WCO, preuve D2)': 'ETOUCH_FRAME_STATE:offset',
+    'rapports périmés': 'ETOUCH_FRAME_STALE',
+    'ligne hors délai': 'ETOUCH_FRAME_TIMEOUT',
+    'service arrêté': 'disposed'
+  };
+  const TABLE = {
+    'start pending': { ...all('refused'), 'ligne hors délai': 'n/a' },
+    'M5 sent, unanswered': RUNNING,
+    'a side in flight (Jog)': RUNNING,
+    'between two lines': { ...RUNNING, 'ligne hors délai': 'n/a' },
+    'stream rotating': { ...RUNNING, 'flux fermé': 'n/a', 'ligne hors délai': 'n/a' },
+    cancelling: { ...all('cancel only'), bannière: 'nothing', 'ligne hors délai': 'n/a', 'service arrêté': 'disposed' },
+    'ended by a banner': {
+      ...all('nothing'),
+      Arrêter: 'cancel only',
+      Pause: 'cancel only',
+      'relâchement (jog-stop)': 'cancel only',
+      'Arrêter la broche': 'cancel only',
+      'ligne hors délai': 'n/a'
+    }
+  };
+  const CELLS = Object.keys(STATES).flatMap((state) => E.map((event) => [state, event, TABLE[state][event]]))
+    .filter(([, , answer]) => answer !== 'n/a');
+
+  // Two events in a row: a cancel that takes over a framing's cancel or line stays the framing's.
+  test('cancelling, Arrêter again (or a stop of a CNCjs client, or the jog stop), then the banner: not a byte after the banner (laser and CNC)', async () => {
+    for (const kind of ['cnc', 'laser']) {
+      for (const [name, again] of [
+        ['Arrêter', (ctx) => ctx.req('stop', {}, B)],
+        ['jog-stop', (ctx) => ctx.req('motion', { operation: 'jog-stop' }, B, 'tB')],
+        ['Pause', (ctx) => ctx.req('pause', {}, B)]
+      ]) {
+        const label = [kind, name];
+        const laser = { ...SETTINGS, $32: '1' };
+        const ctx = kind === 'cnc' ? setup() : setup({ settings: laser, machines: [laserRecord(laser)] });
+        if (kind === 'cnc') {
+          await ctx.start();
+          runTo(ctx, 4);
+        } else {
+          await ctx.start('frame.nc');
+          runTo(ctx, 3);
+        }
+        jog(ctx);
+        await ctx.req('stop', {}, B);
+        ctx.tick(300);
+        await again(ctx);
+        ctx.tick(300);
+        expect([label, ctx.state().motion.cancelling]).toEqual([label, true]);
+        banner(ctx);
+        const before = ctx.c.written.length;
+        ctx.tick(3000);
+        ctx.c.state.status.activeState = 'Idle';
+        ctx.tick(61000);
+        expect([label, ctx.c.written.slice(before)]).toEqual([label, []]);
+      }
+    }
+  });
+
+  test('ended by a banner, Arrêter (0x85 while Jog, a person asked it), then a second banner: not a byte after it', async () => {
+    const ctx = setup();
+    await ctx.start();
+    runTo(ctx, 4);
+    jog(ctx);
+    banner(ctx);
+    await ctx.req('stop', {}, B);
+    ctx.tick(300);
+    expect(ctx.c.written.at(-1)).toBe('\x85');
+    banner(ctx);
+    const before = ctx.c.written.length;
+    ctx.tick(3000);
+    expect(ctx.c.written.slice(before)).toEqual([]);
+  });
+
+  // A remark of the third review: the 200 ms between two 0x85 hold for the repeats on Jog reports;
+  // a late ok of the $J cancelled sends its 0x85 at once (it may have been parsed after the first).
+  test('cancelling: an ok of the $J arriving after the 0x85 sends one more at once; the repeats on Jog reports stay 200 ms apart', async () => {
+    const ctx = setup();
+    await ctx.start();
+    runTo(ctx, 4);
+    jog(ctx);
+    const times = [];
+    const watchWrites = (ms) => {
+      for (let t = 0; t < ms; t += 50) {
+        const before = ctx.c.written.length;
+        ctx.tick(50);
+        ctx.c.written.slice(before).forEach(() => times.push(ctx.now));
+      }
+    };
+    const t0 = ctx.now;
+    await ctx.req('stop', {}, B);
+    times.push(ctx.now);
+    ctx.ok();
+    watchWrites(50);
+    expect(times).toEqual([t0, t0 + 50]);
+    watchWrites(2000);
+    const gaps = times.slice(2).map((t, i) => t - times[i + 1]);
+    expect(gaps.length).toBeGreaterThan(5);
+    gaps.forEach((gap) => expect(gap).toBeGreaterThanOrEqual(200));
+    expect(ctx.c.written.slice(-times.length).every((b) => b === '\x85')).toBe(true);
+  });
+
+  test('every cell of the table has one answer', () => {
+    Object.keys(STATES).forEach((state) => {
+      expect([state, Object.keys(TABLE[state]).sort()]).toEqual([state, E.slice().sort()]);
+      E.forEach((event) => expect([state, event, typeof TABLE[state][event]]).toEqual([state, event, 'string']));
+    });
+  });
+
+  test.each(CELLS)('%s × %s → %s', async (state, event, answer) => {
+    const ctx = setup();
+    await STATES[state](ctx);
+    const count = ctx.lines().length;
+    const before = ctx.c.written.length;
+    const { act, sync, wait = 0, silent = false } = EVENTS[event];
+    let refusal = null;
+    try {
+      await act(ctx);
+    } catch (err) {
+      refusal = err.message;
+    }
+    const disposed = event === 'service arrêté';
+    const frameNow = () => (disposed ? null : ctx.state().motion.frame);
+    if (sync && answer !== 'refused') {
+      // In the event's own step: no framing any more.
+      expect(frameNow()).toBeNull();
+    }
+    for (let t = 0; t < wait; t += 50) {
+      ctx.now += 50;
+      if (!silent) {
+        ctx.report();
+      }
+      jest.advanceTimersByTime(50);
+    }
+    if (ctx.release) {
+      ctx.release();
+    }
+    const result = ctx.started ? await ctx.started : null;
+    // Then a second of Jog reported, and a minute at rest.
+    if (ctx.c.state.status.activeState !== 'Alarm') {
+      ctx.c.state.status.activeState = 'Jog';
+    }
+    ctx.tick(1000);
+    ctx.c.state.status.activeState = 'Idle';
+    ctx.ok();
+    ctx.tick(61000);
+    const written = ctx.c.written.slice(before);
+    // Arrêter la broche with no framing running (not started, or over) writes its own M5, as it
+    // would without a framing (Grbl refuses it in Jog); never a framing line.
+    const own = event === 'Arrêter la broche' && ['start pending', 'cancelling', 'ended by a banner'].includes(state);
+    expect(ctx.lines().slice(count)).toEqual(own ? ['M5'] : []);
+    expect(frameNow()).toBeNull();
+    const after = written.filter((b) => !(own && b === 'M5\n'));
+    if (answer === 'refused') {
+      expect([result, after.filter((b) => b === '\x85')]).toEqual([expect.not.stringMatching(/^started$/), []]);
+    } else if (answer === 'restart' || answer === 'nothing') {
+      expect(after).toEqual([]);
+      if (answer === 'restart') {
+        expect(ctx.state().motion.lastFrame).toMatchObject({ result: 'cancelled', code: 'ETOUCH_FRAME_RESTART' });
+      }
+    } else if (answer === 'cancel only') {
+      expect(after.filter((b) => b !== '\x85')).toEqual([]);
+    } else if (answer === 'disposed') {
+      expect(after).toEqual(['\x85']);
+    } else {
+      expect([refusal, after[0], after.filter((b) => b !== '\x85')]).toEqual([null, '\x85', []]);
+      const last = ctx.state().motion.lastFrame;
+      if (answer.startsWith('reason:')) {
+        expect(last).toMatchObject({ result: 'cancelled', reason: answer.slice(7), code: null });
+      } else {
+        const [code, cause] = answer.split(':');
+        expect(last).toMatchObject({ code, ...(cause ? { params: { state: cause } } : {}) });
+      }
+    }
   });
 });
