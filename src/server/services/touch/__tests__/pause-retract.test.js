@@ -849,7 +849,7 @@ describe('Pause et dégager: the windows found by the review', () => {
     }
   };
 
-  test.each([['spindle on', 'M3'], ['spindle off', 'M5']])('D1. Arrêter after a failure, the jog still moving (%s): hold first, cancel repeated while Jog, reset only at rest', async (name, spindle) => {
+  test.each([['spindle on', 'M3'], ['spindle off', 'M5']])('D1. Arrêter after a failure, the jog still moving (%s): hold first, cancel repeated while Jog, the reset at rest (or at the 5 s limit of halt.js, 2-D1c)', async (name, spindle) => {
     const ctx = await setup();
     if (spindle === 'M5') {
       ctx.gc.spindle = 'M5';
@@ -1620,5 +1620,280 @@ describe('Pause et dégager: the windows of the third review', () => {
     await ctx.idle(1, { wco: true });
     await ctx.wait(200);
     expect(ctx.lines(mark)).toContain('~');
+  });
+});
+
+// Third review: the state table of the whole sequence (F2-CORRECTIONS.md, « Troisième tour »). Each
+// state is reached with the real controller, each event is played in it; the phase right after the
+// event is the one of the table, and then, the board answering every line for 4 s (its `ok`, its
+// Jog then Idle, the cancel and the feed hold that stop a jog, the reset that restarts it, its
+// reports, its $G and their `ok`), the invariants hold in every cell:
+//   I1 nothing of ours goes down or restarts afterwards (no descent, M3/M4, G4, `~`), no line of
+//      the file leaves;
+//   I2 never a reset while the board jogs;
+//   I3 while a jog of ours may still move, no move of the tablet is accepted, and Arrêter holds first;
+//   I4 a move of the tablet is refused in every state (act).
+// A resume the event leaves going on (returning × act) goes to its end: I1 does not apply there.
+describe('Pause et dégager: the state table (third review)', () => {
+  const STATES = ['D', 'L0', 'LJ', 'LM', 'P', 'H', 'Rv', 'RS', 'RJ', 'RF', 'F', 'T0', 'T'];
+  const EVENTS = ['stop', 'pcStop', 'cancel', 'pause', 'banner', 'alarm', 'stream', 'lease', 'spindle', 'setpoint', 'ov', 'zero', 'stale', 'act'];
+  // The phase right after the event: n none (forgotten), d draining, l lifting, p parked, h held,
+  // r returning, f failed. Columns in the order of EVENTS.
+  const TABLE = {
+    D: 'n n d n f f d d d d d d d d',
+    L0: 'n n h h f f h h l l l l h l',
+    LJ: 'n n f f f f f f l l l l f l',
+    LM: 'n n f f f f f f l l l l f l',
+    P: 'n n p p f f p f f f f f p p',
+    H: 'n n h h f f h h f f f f h h',
+    Rv: 'n n f f f f f f f f f f f r',
+    RS: 'n n f f f f f f f f f f f r',
+    RJ: 'n n f f f f f f f f f f f r',
+    RF: 'n n f f f f f f f f f f f r',
+    F: 'n n f f f f f f f f f f f f',
+    T0: 'n n n n n n n n n n n n n n',
+    T: 'n n n n n n n n n n n n n n'
+  };
+  const PHASES = { n: null, d: 'draining', l: 'lifting', p: 'parked', h: 'held', r: 'returning', f: 'failed' };
+  // States where a jog of ours runs on the board when the event comes (T0: not reported yet).
+  const JOGGING = ['LJ', 'RJ', 'F', 'T0', 'T'];
+  const STEP = { axis: 'X', direction: 1, step: 1, feed: 500 };
+
+  const build = {
+    D: async (ctx) => {
+      await ctx.retract();
+    },
+    L0: async (ctx) => {
+      // Nothing of ours written: the lift waits for the stream (rotation).
+      await ctx.retract();
+      ctx.finish();
+      ctx.service.closeTransport('tA', true);
+      await ctx.idle(2);
+      ctx.modal();
+      await ctx.wait(100);
+    },
+    LJ: async (ctx) => {
+      await ctx.retract();
+      await ctx.rest();
+      await ctx.wait(0);
+      ctx.parse('ok');
+      ctx.now += 250;
+      ctx.report('Jog');
+      ctx.board.jog = { dz: 113.4, left: 4 };
+    },
+    LM: async (ctx) => {
+      await ctx.retract();
+      await ctx.rest();
+      await ctx.wait(0);
+      await ctx.jog(-5);
+    },
+    P: async (ctx) => {
+      await ctx.park();
+    },
+    H: async (ctx) => {
+      await ctx.retract();
+      ctx.service.closeTransport('tA');
+      ctx.service.openTransport('tA2', A);
+      ctx.tid = 'tA2';
+      await ctx.rest();
+      await ctx.wait(500);
+    },
+    Rv: async (ctx) => {
+      await build.H(ctx);
+      ctx.report('Idle');
+      ctx.modal();
+      const t = await ctx.req('prepare', { operation: 'resume', revision: ctx.state().revision }, A, 'tA2');
+      await ctx.req('resume', { nonce: t.nonce }, A, 'tA2');
+      await ctx.wait(100);
+    },
+    RS: async (ctx) => {
+      await ctx.park();
+      await ctx.resume();
+      await ctx.wait(100);
+      ctx.gc.spindle = 'M3';
+      await ctx.okIdle(2, { speed: 1000 });
+      ctx.modal();
+    },
+    RJ: async (ctx) => {
+      await build.RS(ctx);
+      await ctx.okIdle(2, { speed: 1000 });
+      ctx.parse('ok');
+      ctx.now += 250;
+      ctx.report('Jog');
+      ctx.board.jog = { dz: -108.4, left: 4 };
+    },
+    RF: async (ctx) => {
+      // From Z -8: one slow descent of 3 mm, then the final checks wait for a $G and a WCO.
+      await ctx.retract();
+      await ctx.rest();
+      await ctx.wait(0);
+      await ctx.jog(-5);
+      ctx.gc.spindle = 'M5';
+      await ctx.okIdle(2, { wco: true });
+      await ctx.resume();
+      await ctx.wait(100);
+      ctx.gc.spindle = 'M3';
+      await ctx.okIdle(2, { speed: 1000 });
+      ctx.modal();
+      await ctx.okIdle(2, { speed: 1000 });
+      await ctx.jog(-8);
+    },
+    F: async (ctx) => {
+      await build.LJ(ctx);
+      await ctx.req('pause');
+      ctx.board.seen = ctx.mark();
+      ctx.board.jog.left = 4;
+    },
+    // The tail: the lift stopped from the PC; T0 before the board reported its jog (still Idle).
+    T0: async (ctx) => {
+      await ctx.retract();
+      await ctx.rest();
+      await ctx.wait(0);
+      ctx.parse('ok');
+      ctx.board.jog = { dz: 113.4, left: 4 };
+      ctx.service.socketStop('/dev/null', 'stop');
+      ctx.controller.command('gcode:stop');
+    },
+    T: async (ctx) => {
+      await build.LJ(ctx);
+      ctx.service.socketStop('/dev/null', 'stop');
+      ctx.controller.command('gcode:stop');
+    }
+  };
+
+  const fire = {
+    stop: (ctx) => ctx.req('stop', {}, A, ctx.tid).catch((err) => err),
+    pcStop: (ctx) => {
+      ctx.service.socketStop('/dev/null', 'stop');
+      ctx.controller.command('gcode:stop');
+    },
+    cancel: (ctx) => {
+      ctx.service.socketStop('/dev/null', 'cancel');
+      ctx.controller.write('\x85');
+    },
+    pause: (ctx) => ctx.req('pause', {}, A, ctx.tid).catch((err) => err),
+    banner: (ctx) => {
+      ctx.board.jog = null;
+      ctx.parse(BANNER);
+    },
+    alarm: (ctx) => {
+      ctx.board.jog = null;
+      ctx.now += 250;
+      ctx.report('Alarm');
+    },
+    stream: (ctx) => {
+      ctx.service.closeTransport(ctx.tid);
+      // L0: its stream already away (rotation), the grace runs out.
+      return ctx.state().pauseRetract && ctx.state().pauseRetract.phase === 'lifting' && ctx.tid === 'tA' && !ctx.board.jog ? ctx.wait(3100) : null;
+    },
+    lease: (ctx) => ctx.service.action({ port: '/dev/null', action: 'control', operation: 'takeover', reason: 'essai' }, B),
+    // The spindle reported against what it must be: stopped when it turns, turning when stopped.
+    spindle: (ctx) => {
+      ctx.now += 250;
+      ctx.report(ctx.board.jog ? 'Jog' : 'Idle', { speed: ctx.gc.spindle === 'M5' ? 1000 : 0 });
+    },
+    // A client sets another S: $G M3 S1 (the board's own state, seen by CNCjs's poll).
+    setpoint: (ctx) => {
+      ctx.gc.S = '1';
+      ctx.modal();
+    },
+    // A client sets the spindle override to 50 %.
+    ov: (ctx) => {
+      ctx.now += 250;
+      ctx.parse('<' + (ctx.board.jog ? 'Jog' : 'Idle') + '|MPos:' + f3(ctx.m.x) + ',' + f3(ctx.m.y) + ',' + f3(ctx.m.z) + '|FS:0,500|Ov:100,100,50>');
+    },
+    zero: (ctx) => {
+      ctx.wco.z -= 10;
+      ctx.now += 250;
+      ctx.report(ctx.board.jog ? 'Jog' : 'Idle', { wco: true });
+    },
+    stale: (ctx) => ctx.wait(3000),
+    act: (ctx) => expect(ctx.req('motion', { operation: 'jog', ...STEP }, A, ctx.tid)).rejects.toThrow()
+  };
+
+  // The board for `ms`: it answers every line of ours, runs a jog until a cancel or a feed hold
+  // stops it (one more Jog report), restarts on a reset, reports every 250 ms (WCO one in four) and
+  // answers $G every 500 ms.
+  const board = async (ctx, ms) => {
+    const b = ctx.board;
+    for (let t = 0; t < ms; t += 250) {
+      const fresh = ctx.writes.slice(b.seen).map((w) => w.data);
+      b.seen = ctx.writes.length;
+      fresh.forEach((d) => {
+        const jog = /^\$J=G91 G21 Z(-?[\d.]+)/.exec(d);
+        if (d === '\x85' || d === '!') {
+          if (b.jog) {
+            b.jog.left = Math.min(b.jog.left, 1);
+            b.jog.cancelled = true;
+          }
+        } else if (d === '\x18') {
+          b.resets.push(b.jog ? 'Jog' : 'Idle');
+          b.jog = null;
+          ctx.parse(BANNER);
+        } else if (jog) {
+          ctx.parse('ok');
+          b.jog = { dz: Number(jog[1]), left: 3 };
+        } else if (d === 'M5\n' || /^M[34] S/.test(d)) {
+          ctx.parse('ok');
+          ctx.gc.spindle = d.slice(0, 2);
+        } else if (/^G4 /.test(d)) {
+          ctx.parse('ok');
+        }
+      });
+      ctx.now += 250;
+      if (b.jog && b.jog.left > 0) {
+        b.jog.left -= 1;
+        ctx.report('Jog');
+      } else {
+        if (b.jog) {
+          ctx.m.z += b.jog.cancelled ? b.jog.dz / 2 : b.jog.dz;
+          b.jog = null;
+        }
+        ctx.report('Idle', { wco: t % 1000 === 0 });
+      }
+      if (t % 500 === 0) {
+        ctx.modal();
+      }
+      ctx.service.observe();
+      // eslint-disable-next-line no-await-in-loop
+      await jest.advanceTimersByTimeAsync(250);
+    }
+  };
+
+  const CELLS = [];
+  STATES.forEach((state) => EVENTS.forEach((event, i) => CELLS.push([state, event, PHASES[TABLE[state].split(' ')[i]]])));
+
+  test('the table has one answer per cell', () => {
+    STATES.forEach((state) => expect([state, TABLE[state].split(' ').length]).toEqual([state, EVENTS.length]));
+    expect(CELLS.length).toBe(STATES.length * EVENTS.length);
+  });
+
+  test.each(CELLS)('%s × %s → %s; then I1 to I4', async (state, event, expected) => {
+    const ctx = await setup(state === 'RF' ? { z: -8 } : {});
+    ctx.tid = 'tA';
+    ctx.board = { jog: null, seen: 0, resets: [] };
+    await build[state](ctx);
+    ctx.board.seen = ctx.mark();
+    const mark = ctx.mark();
+    if (JOGGING.includes(state)) {
+      // I3: a jog of ours may still move: no move of the tablet.
+      expect(ctx.state().motion.canJog).toBe(false);
+    }
+    await fire[event](ctx);
+    await ctx.wait(0);
+    expect((ctx.state().pauseRetract || {}).phase || null).toBe(expected);
+    if (event === 'stop' && JOGGING.includes(state)) {
+      // I3: Arrêter holds first while a jog of ours may still move.
+      expect(ctx.lines(mark)[0]).toBe('!');
+    }
+    await board(ctx, 4000);
+    const after = ctx.lines(mark);
+    // I1: nothing of ours goes down or restarts, no line of the file leaves (a resume left going on,
+    // the move of the tablet refused, goes to its end: returning × act).
+    if (expected !== 'returning') {
+      expect(after.filter((d) => /^\$J=G91 G21 Z-|^M[34]|^G4|^~$|^G1 X/.test(d))).toEqual([]);
+    }
+    // I2: never a reset while the board jogs.
+    expect(ctx.board.resets.filter((s) => s === 'Jog')).toEqual([]);
   });
 });
