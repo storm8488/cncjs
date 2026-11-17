@@ -1934,3 +1934,8 @@ window.CNCTouchMessages.push(
   ['Reconnexion…','Reconnecting…','Reconectando…'],
   ['suivi perdu','stream lost','seguimiento perdido']
 );
+// F10 automatic interface reload.
+(window.CNCTouchMessages=window.CNCTouchMessages||[]).push(
+['Nouvelle version : rechargement dans {seconds} s','New version: reloading in {seconds} s','Nueva versión: recarga en {seconds} s'],
+['Plus tard','Later','Más tarde']
+);

@@ -113,3 +113,32 @@ Après réussite des phases précédentes, rebrancher les éléments hors tensio
 Pour chaque étape, remplir : effectué/non effectué, résultat exact, attendu, preuve, anomalie, responsable et date. Un refus conservateur est consigné comme tel, sans dérogation automatique. Une phase non faite reste non vérifiée.
 
 Après E-A/E-B, mettre à jour les hypothèses du profil LUNYEE, la marge et les conclusions de FIRMWARE/SURETE avec les mesures obtenues. La revue de sûreté finale, le harnais complet et la décision d'adopter l'installation appartiennent au pilote/opérateur ; les tests logiciels verts de FINAL ne valent ni essai physique ni approbation de coupe.
+## F10 — installation et rechargement automatique, sans clavier
+
+Essai par l'opérateur après installation autorisée, sur Surface CNC puis RT laser.
+F10 n'ajoute aucun mouvement : ne lancer aucun mouvement dans le seul but de
+tester une mise à jour. Noter versions chargée/installée, URL, heure et résultat.
+
+1. Garder la page ouverte avec son cache déjà utilisé. Machine réellement au repos,
+   broche arrêtée ou CNC déconnectée. Installer une version différente par le
+   parcours habituel, sans recharger à la main. En moins de 30 secondes plus les
+   échanges serveur, attendre le bandeau puis dix secondes annoncées. Vérifier
+   dans Plus/Réglages que la nouvelle version est chargée après une seule navigation.
+   Refaire avec les fichiers séparés réellement livrés, sans supposer un bundle.
+2. Refaire en touchant « Plus tard » avant la fin. Aucun rechargement pendant dix
+   minutes ; le bandeau doit ensuite revenir lorsque tout est au repos. Vérifier
+   les trois langues, texte agrandi, l'accès au bouton et Pause/Arrêter dégagés.
+3. Pendant un compte à rebours, ouvrir un dialogue, commencer une saisie, choisir
+   un port USB ou ouvrir le formulaire Wi-Fi : le délai doit disparaître. Fermer
+   ou terminer l'action ; un nouveau délai entier doit précéder tout rechargement.
+4. Installer pendant une séance d'essai déjà prévue par le protocole, avec une
+   action en cours puis en pause : aucun rechargement. Ne jamais forcer le repos
+   pour ce test. Après fin et broche arrêtée, le délai doit pouvoir commencer.
+5. Au repos, redémarrer CNCjs par le parcours autorisé pendant que l'ancienne page
+   reste ouverte. Vérifier retour du suivi/de la session, nouvelle version détectée,
+   dix secondes entières et nouvelle version chargée sans clavier. Aucune ancienne
+   confirmation, connexion USB ou action machine ne doit être rejouée.
+6. Si le serveur reste injoignable ou la machine ne donne plus d'état récent,
+   constater qu'aucun rechargement automatique n'enlève les commandes d'arrêt.
+   Vérifier également qu'une autre machine occupée sur le même serveur bloque
+   la navigation. Toute incertitude interrompt l'essai et reste consignée.

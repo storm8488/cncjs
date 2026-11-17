@@ -2693,11 +2693,12 @@ async function settingsWalk(cdp, tag, dir, results, info, opts) {
   info.placement = {};
   base.forEach((c, i) => { info.placement[c.key] = SETTINGS_TABS.filter((t) => info.tabs[t].children[i].shown).join('+') || (c.hidden ? 'hidden' : 'none'); });
 }
-// Only the single cache-busted startup metadata read may precede System.
+// P2 startup read and F10 installed-version polling are the only off-tab metadata reads.
 function settingsOffTabRequests(list) {
   const startupVersion = (r) => r.method === 'GET' && /^VERSION\.json\?\d+$/.test(r.url) && r.startup === true;
+  const installedVersion = (r) => r.method === 'GET' && /^VERSION\.json\?installed=\d+$/.test(r.url);
   const boot = list.filter(startupVersion);
-  return list.filter((r) => !(r.active && r.tab === 'system') && !(boot.length === 1 && startupVersion(r)));
+  return list.filter((r) => !(r.active && r.tab === 'system') && !installedVersion(r) && !(boot.length === 1 && startupVersion(r)));
 }
 // Requests seen by the trap: system ones only while Système is shown (startup version excepted), never a host command, install or Wi-Fi change.
 async function settingsRequests(cdp, tag, info) {
