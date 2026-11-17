@@ -113,3 +113,16 @@ Après réussite des phases précédentes, rebrancher les éléments hors tensio
 Pour chaque étape, remplir : effectué/non effectué, résultat exact, attendu, preuve, anomalie, responsable et date. Un refus conservateur est consigné comme tel, sans dérogation automatique. Une phase non faite reste non vérifiée.
 
 Après E-A/E-B, mettre à jour les hypothèses du profil LUNYEE, la marge et les conclusions de FIRMWARE/SURETE avec les mesures obtenues. La revue de sûreté finale, le harnais complet et la décision d'adopter l'installation appartiennent au pilote/opérateur ; les tests logiciels verts de FINAL ne valent ni essai physique ni approbation de coupe.
+
+## F5 — Reconnexion automatique (à réaliser par l'opérateur)
+
+Préparation : machine sans usinage, table dégagée, fraise en l'air, énergie de coupe empêchée et arrêt physique accessible. Vérifier l'URL locale du kiosque (`127.0.0.1` ou `localhost`) et le champ `local:true` de la réponse authentifiée `GET /api/touch-backlight`. Une URL réseau de la tablette n'est pas locale au sens D3.
+
+1. Sans port mémorisé, ouvrir la page : aucune ouverture automatique. Connecter une fois manuellement et attendre le suivi de la machine. Dans Réglages → Machine et performances, vérifier « Reconnexion automatique », sa portée « Cette tablette » et l'état activé.
+2. Fermer proprement le port au repos, puis recharger la page locale : une seule ouverture du port précédent, sans toucher Connecter. Relever l'éventuel redémarrage de la carte, l'alarme et la perte de référence ; aucun axe ni broche ne doit démarrer. Vérifier que prise d'origine et preuve du zéro restent exigées. Ne pas les confondre avec la réussite de la connexion.
+3. Recharger alors que le port est déjà ouvert, puis depuis un PC distant : aucune réouverture ni redémarrage. Avec le PC ayant la main, constater l'absence d'ouverture automatique, y compris si un autre port est présenté. Un scénario de bail conservé après fermeture nécessite un banc : ne pas maintenir artificiellement une situation inconnue sur la machine.
+4. Débrancher le port au repos, recharger puis le rebrancher après l'échec : aucune seconde tentative. Connecter reste possible manuellement. Présenter un autre adaptateur USB : il ne doit jamais remplacer automatiquement le port mémorisé.
+5. Désactiver le réglage, fermer le port au repos, recharger : aucun `open`. Réactiver : aucun `open` immédiat ; l'option ne prend effet qu'au prochain chargement. Vérifier sa persistance après fermeture du navigateur et redémarrage de la tablette.
+6. Vérifier le message d'échec et son bouton de connexion manuelle en FR/EN/ES, avec texte standard et agrandi. Contrôler le défilement et la cible du réglage à 1366 × 911 et 1366 × 768. Rejouer le harnais strict Réglages avant installation.
+
+Parties serveur à reconstruire pour F5 : `src/server/lib/local-request.js`, `src/server/api/api.touch.js`, `src/server/services/touch/index.js`, `src/server/services/cncengine/CNCEngine.js`. Livrer ensemble serveur et page ; cette liste ne constitue pas une autorisation de déploiement. Aucun de ces essais physiques n'a été réalisé dans le lot F5.

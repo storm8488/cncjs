@@ -4,6 +4,7 @@
 import settings from '../../config/settings';
 import logger from '../../lib/logger';
 import store from '../../store';
+import { localRequest } from '../../lib/local-request';
 import config from '../configstore';
 import { createService } from './job-service';
 import { createStream, VERSION } from './touch-stream';
@@ -104,6 +105,18 @@ const socketActor = (socket) => {
     label: 'CNCjs' + (address ? ' ' + address : ''),
     user: typeof user.name === 'string' ? user.name : ''
   };
+};
+
+// F5: recheck the actual Socket.IO HTTP peer and all leases at the open boundary.
+// A closed port normally has no lease; refusing every remaining lease is conservative.
+const refuseAutoConnect = (socket) => {
+  if (!control || !localRequest(socket && socket.request)) {
+    return { message: 'Reconnexion automatique réservée à la tablette de la machine.' };
+  }
+  if (Object.keys(control.owners()).length) {
+    return { message: 'Un appareil a la main. Connectez la machine manuellement.' };
+  }
+  return null;
 };
 
 // A full homing cycle sent by a socket and written to the port at once: the `homing` command or
@@ -278,6 +291,7 @@ export default {
   reserveSystemCommand,
   readHistory,
   refuseSocket,
+  refuseAutoConnect,
   attachSocket,
   detachSocket,
   refuseSystemCommand,
