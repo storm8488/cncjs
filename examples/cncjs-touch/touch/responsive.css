@@ -576,3 +576,127 @@ body.ks-ui #screen-settings .ks-settings-tabs{gap:12px}
 body.ks-ui[data-simulation="true"] #screen-jog .ks-step-body{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:max-content max-content;gap:12px;height:100%;overflow:auto;align-content:start}
 body.ks-ui[data-simulation="true"] #screen-jog .ks-step-body>.card{min-height:min-content;grid-area:auto}
 body.ks-ui[data-simulation="true"] #screen-jog .ks-panel-intro{grid-column:1/-1}
+
+/* === F16: phone held upright (≤ 599 px wide: 412 x 915, 360 x 800) ===========
+   The same page (design/PROMPT-FONCTIONS-6.md § 2, F16). The strip takes three rows: the state beside
+   Pause (or Reprendre / Remise en route) and Arrêter, 64 px and always in view; « La main » and the
+   lock; the report age, under the messages. The rail runs along the bottom edge with the step numbers
+   (the step head names the screen; each entry's name stays in the page, visually hidden). One card
+   across the width, the content scrolls between the strip and the rail; no horizontal scroll. Nothing
+   here matches the two tablets (1366 x 911, 1366 x 768), even with an on-screen keyboard
+   (test-small-screens.cjs). */
+@media (max-width:599px){
+ :root{--statusbar-h:176px}
+ body.ks-ui #real-banner,body.ks-ui #simulation-banner{grid-template-columns:minmax(0,1fr) auto auto;grid-template-rows:64px 48px 40px;column-gap:8px;row-gap:6px;padding:4px 8px!important;align-content:center}
+ body.ks-ui #real-banner>.t-strip-actions,body.ks-ui #simulation-banner>.t-strip-actions{display:contents}
+ body.ks-ui #real-banner>.t-state,body.ks-ui #simulation-banner>.t-state{grid-column:1;grid-row:1;align-self:stretch;height:auto;min-width:0;padding:0 8px;gap:0;font-size:20px}
+ body.ks-ui .t-state>svg{display:none}
+ body.ks-ui #t-state-text{white-space:normal;line-height:1.05}
+ body.ks-ui .t-strip-actions #t-pause,body.ks-ui .t-strip-actions #t-resume,body.ks-ui .t-strip-actions #t-recover{grid-column:2;grid-row:1;width:auto;min-width:96px;height:64px;padding:0 8px;font-size:18px;white-space:nowrap;line-height:1.1}
+ body.ks-ui .t-strip-actions #t-recover{max-width:120px;white-space:normal}
+ body.ks-ui .t-strip-actions #t-stop{grid-column:3;grid-row:1;width:auto;min-width:96px;height:64px;padding:0 8px;font-size:18px;gap:6px}
+ body.ks-ui .t-strip-actions #t-pilot{grid-column:1/3;grid-row:2;justify-self:stretch;width:auto;min-width:0;max-width:none;height:48px;flex-direction:row;justify-content:flex-start;gap:6px;padding:0 12px}
+ body.ks-ui .t-strip-actions #t-pilot b{flex:1 1 auto;min-width:0}
+ body.ks-ui #real-banner>.t-strip-right,body.ks-ui #simulation-banner>.t-strip-right{grid-column:3;grid-row:2;justify-self:end}
+ body.ks-ui .t-strip-right .ks-clock,body.ks-ui .t-strip-right .ks-exit{display:none}
+ body.ks-ui #real-banner>.t-fresh,body.ks-ui #simulation-banner>.t-fresh{grid-column:1/4;grid-row:3}
+ body.ks-ui #real-banner>.t-vitals,body.ks-ui #simulation-banner>.t-vitals{display:none}
+ body.ks-ui .t-messages{grid-column:1/4;grid-row:3;margin:0}
+ /* Rail: the step numbers and their marks, « Plus » keeps its word. */
+ body.ks-ui #tabbar .ks-nav:not([data-ks-screen="more"]) .ks-nav-name{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+ body.ks-ui #tabbar .ks-step-number{width:32px;height:32px;font-size:18px}
+ body.ks-ui #tabbar{gap:6px!important}
+ /* Content: narrower gutters; the step bar keeps its secondary command beside the main one. */
+ body.ks-ui main{padding:8px!important}
+ body.ks-ui main>#screen-more,body.ks-ui main>#screen-jog,body.ks-ui main>#screen-files,body.ks-ui main>#screen-check,body.ks-ui main>#screen-home,body.ks-ui main>#screen-machine,body.ks-ui main>#screen-history{top:8px;left:8px;right:8px}
+ body.ks-ui main>.ks-step-screen.active,body.ks-ui main>.ks-step-screen.kept,body.ks-ui main>#screen-home.ks-step-screen.active,body.ks-ui main>#screen-machine.ks-step-screen.active,body.ks-ui main>#screen-files.ks-step-screen.active,body.ks-ui main>#screen-jog.ks-step-screen.active,body.ks-ui main>#screen-check.ks-step-screen.active{height:calc(var(--view-height) - 16px)!important;gap:8px!important}
+ body.ks-ui .ks-step-head{gap:8px}
+ body.ks-ui .ks-step-head>span{display:none}
+ body.ks-ui .ks-step-head>b{max-width:none;min-width:0;white-space:normal;line-height:1.2}
+ body.ks-ui main>.ks-step-screen>.ks-stepbar{gap:8px;padding-top:8px}
+ body.ks-ui .ks-stepbar button[id$="-main"]{flex:1 1 150px;max-width:none;min-height:64px}
+ body.ks-ui .ks-stepbar p,body.ks-ui #screen-files .ks-stepbar p{max-height:calc(3.9em + 2px);line-height:1.3}
+ /* 1 · Machine: a command goes under its line rather than squeezing it. */
+ body.ks-ui #machine-list .ks-line-text{flex:1 1 150px}
+ /* 5 · Usinage: the work coordinates on one row without their unit, each correction under its name. */
+ body.ks-ui #screen-home .home-coords .t-coords{grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr);column-gap:6px}
+ body.ks-ui #screen-home .home-coords .t-coords-card .t-unit{display:none}
+ body.ks-ui #screen-home .home-coords .t-val{font-size:clamp(16px,4.6vw,20px);text-align:right}
+ body.ks-ui #screen-home .t-override{grid-template-columns:minmax(0,1fr);gap:6px}
+ body.ks-ui #screen-home .t-ov-name b{display:inline;margin-left:8px}
+ body.ks-ui #screen-home .t-ov-row{gap:8px}
+ body.ks-ui #screen-home .job-metrics{overflow:visible}
+ /* The message of Usinage: its sentence, then its commands and their reasons, one under the other. */
+ body.ks-ui #home-notice{flex-direction:column;align-items:stretch}
+ body.ks-ui #home-notice-actions>span{flex:1 1 100%}
+ /* The view's buttons along the top of the drawing, « Agrandir le tracé » at the bottom left. */
+ body.ks-ui .job-art>.home-inspect-row{top:auto;bottom:8px;left:8px;right:auto}
+ /* Inner boxes give up their own scroll: only the step body scrolls (one scroll per screen). */
+ body.ks-real.ks-ui #screen-jog .ks-step-body>.ks-motion-arrows{max-height:none;overflow:visible}
+ body.ks-real.ks-ui #screen-jog .ks-motion-coordinates{max-width:none}
+ /* 3 · Zéro pièce: the 96 px cross on the width, Z+ and Z− on a row under it, the steps over the speeds. */
+ body.ks-real.ks-ui #screen-jog .ks-zero-cross{flex-wrap:wrap}
+ body.ks-real.ks-ui #screen-jog .ks-zero-cross .zrow{grid-template-rows:96px;grid-template-columns:96px 96px;grid-auto-flow:column;gap:12px;align-self:auto}
+ body.ks-real.ks-ui #screen-jog .ks-jog-choices{grid-template-columns:minmax(0,1fr)}
+ /* 2 · Fichier: the list at its height (pages below it), each file's state under its name. */
+ body.ks-ui.t-compact main>#screen-files .library-list-panel{min-height:0;grid-template-rows:auto 48px auto auto 48px}
+ body.ks-ui #screen-files #library-list{overflow:visible}
+ body.ks-ui #screen-files .library-detail{min-height:0;overflow:visible}
+ body.ks-ui #screen-files .library-file{grid-template-columns:64px minmax(0,1fr);gap:4px 12px}
+ body.ks-ui #screen-files .library-thumb{width:64px;height:42px;grid-row:span 2}
+ body.ks-ui #screen-files .library-file .library-file-state{grid-column:2;justify-self:start;white-space:normal;line-height:1.3;max-width:100%}
+ /* 4 · Contrôle: verdict, then the two drawings, each at its own height. */
+ body.ks-ui #screen-check .check-layout{grid-template-columns:minmax(0,1fr);height:auto}
+ body.ks-ui #screen-check .check-layout>section{overflow:visible}
+ body.ks-ui #check-verdict{max-height:none;overflow:visible}
+ body.ks-ui #check-rapids .t-override{grid-template-columns:minmax(0,1fr)}
+ /* Dialogs (« La main », confirmations): their commands one under the other, each across the card. */
+ body.ks-ui .job-dialog-actions{grid-template-columns:minmax(0,1fr)}
+ body.ks-ui .job-dialog-actions #job-confirm{min-width:0}
+ /* Plus: one tile across the width (whole words at any text size). */
+ #screen-more .ks-tiles{grid-template-columns:minmax(0,1fr)!important}
+}
+/* F16, Journal on a phone and in a low narrow window (1024 x 600): the page of events at its height (the
+   screen scrolls), rows and page buttons within the width. */
+@media (max-width:599px),(max-width:1099px) and (max-height:649px){
+ body.ks-ui #screen-history.active,body.ks-ui #screen-history.kept{height:auto!important;grid-template-rows:auto auto}
+ body.ks-ui #screen-history .ks-history-card{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto auto;min-width:0}
+ body.ks-ui #screen-history ol{overflow:visible}
+}
+@media (max-width:599px){
+ body.ks-ui #screen-history .ks-history-source .t-seg button{min-width:0}
+ body.ks-ui .ks-history-pagination{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+ body.ks-ui .ks-history-pagination button{min-width:0;white-space:nowrap;padding:0 12px}
+ body.ks-ui #real-history-page{grid-column:1/-1;grid-row:1;text-align:center}
+}
+/* === F16: 1024 x 600 and other landscape windows under 1100 px =================
+   The strip keeps the state word whole (it may take two lines), Pause and Arrêter keep their 64 px,
+   « La main » and the commands narrow a little so that the report age and the file stay readable;
+   the clock gives its room. The step bar puts its sentence beside its commands (one row). */
+@media (min-width:760px) and (max-width:1099px){
+ body.ks-ui .t-state{min-width:0;font-size:22px;gap:8px}
+ body.ks-ui .t-state>svg{width:24px;height:24px}
+ body.ks-ui #t-state-text{white-space:normal;line-height:1.05}
+ body.ks-ui #real-banner,body.ks-ui #simulation-banner{column-gap:12px}
+ body.ks-ui .t-strip-actions #t-pause,body.ks-ui .t-strip-actions #t-resume,body.ks-ui .t-strip-actions #t-recover{width:160px;min-width:160px}
+ body.ks-ui .t-strip-actions #t-stop{width:132px;min-width:132px}
+ body.ks-ui .t-strip-actions #t-pilot{width:132px;min-width:132px;gap:2px}
+ /* « La main » shows who has it: the chevron gives its height to the value. */
+ body.ks-ui .t-strip-actions #t-pilot::after{content:none}
+ body.ks-ui .t-strip-actions #t-pilot b{flex:none}
+ body.ks-ui .t-strip-right .ks-clock{display:none}
+ /* The step bar's sentence: up to three lines before it scrolls, none scrolled by a pixel of glyph. */
+ body.ks-ui .ks-stepbar p,body.ks-ui #screen-files .ks-stepbar p{max-height:calc(3.9em + 2px);line-height:1.3}
+ /* The step's state in its head (« La machine ne répond plus… »): whole, on two lines if it must. */
+ body.ks-ui .ks-step-head>b{white-space:normal;line-height:1.2;text-align:right}
+}
+@media (min-width:900px) and (max-width:1099px){
+ body.ks-ui main>.ks-step-screen>.ks-stepbar{flex-wrap:nowrap}
+ body.ks-ui .ks-stepbar p{flex:1 1 auto;flex-basis:auto}
+ body.ks-ui .ks-stepbar button[id$="-main"]{flex:0 1 320px;margin-left:0}
+}
+/* Contrôle: « 100 % » of the rapids stays inside its button in narrower windows (1280 x 800, 1180 x 820, phones). */
+@media (max-width:1299px){
+ #check-rapids button{padding:8px 4px;font-size:20px}
+}
+

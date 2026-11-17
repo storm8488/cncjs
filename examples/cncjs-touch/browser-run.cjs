@@ -14,7 +14,7 @@
 //   --url URL        touch base URL of a running server (default: preview-server.cjs)
 //   --browser PATH   Chrome/Edge executable (default: CNC_BROWSER or well-known paths)
 //   --repeat N       start-up repetitions (default 5)
-//   --only LIST      comma list among measure,responsive,sim,settings,startup,e2e,strip,v2,screens,rail (default all;
+//   --only LIST      comma list among measure,responsive,sim,settings,startup,e2e,strip,v2,screens,rail,small (default all;
 //                    rail = fixed six-entry rail, both axes, v1 1366 x 768 / v2 1366 x 911,
 //                    FR/EN/ES, standard/large, dark/light, main screens and subscreen Back;
 //                    responsive = every screen at the CSS viewports of RESPONSIVE (landscape,
@@ -41,6 +41,9 @@
 //                    screens = every screen but Réglages in every machine state (hors ligne, repos, pilote pris,
 //                    homing, palpage, travail, pause, alarme, périmé), v1 Éco 1366 x 768 laser and v2 1366 x 911 CNC,
 //                    FR/ES, dark/light, standard/large text, one folder per screen, variant and state; see screensMeasure
+//                    small = phone held upright (412 x 915, 360 x 800) and 1024 x 600, FR/EN/ES, standard/large text, every
+//                    screen at rest, in a job, paused, in alarm, and « La main »: Pause / Arrêter, no horizontal scroll, rail,
+//                    whole words; no F16 media query matches the two tablets; browser-small.cjs
 //   --keep-browser   do not kill the browser at the end (debugging)
 //   --strict         also fail (exit 1) on a layout regression in the variants the
 //                    interface is made for (1366 x 768 and 1024 x 600, standard and
@@ -72,7 +75,7 @@ const URL_BASE = option('--url', '');
 // --root DIR: serve another copy of the pages through the fixture (a bundled build, output/touch-bundle).
 const ROOT_DIR = option('--root', '');
 const REPEAT = Math.max(1, Number(option('--repeat', 5)) || 5);
-const ONLY = option('--only', 'measure,responsive,sim,settings,startup,e2e,strip,v2,screens,rail').split(',');
+const ONLY = option('--only', 'measure,responsive,sim,settings,startup,e2e,strip,v2,screens,rail,small').split(',');
 const KEEP = args.includes('--keep-browser');
 const STRICT = args.includes('--strict');
 const EXCEPTIONS_FILE = path.resolve(option('--exceptions', path.join(__dirname, 'layout-exceptions.json')));
@@ -3243,6 +3246,7 @@ async function main() {
     // Every screen in every machine state, on the same fixture (design/PROMPT-ECRANS-MULTIAGENT.md, phase 0).
     if (ONLY.includes('screens') && !URL_BASE) await screensMeasure(summary);
     if (ONLY.includes('rail') && !URL_BASE) await railMeasure(cdp, summary);
+    if (ONLY.includes('small') && !URL_BASE) await require('./browser-small.cjs').run(module.exports, summary);
   } catch (e) { failures.push('harness: ' + (e.stack || e.message)); log('FAIL harness: ' + e.message); }
   let strictResult = null;
   try { strictResult = strictCheck(summary); } catch (e) { failures.push('strict check: ' + e.message); }
@@ -3267,3 +3271,5 @@ async function main() {
 if (require.main === module) main().catch((e) => { console.error('browser-run: ' + (e.stack || e.message)); process.exit(1); });
 module.exports = { commandShape, SUIVI_SHAPE, SCREENS_REAL_STATE, staleStatusChecks, jogReadings, jogControlsChecks, checkJobConsent, clearJobConsent, machineOriginSheet };
 Object.assign(module.exports, { writeSummary, startV2Fixture, confirmJob, clickSessionAction, V2_OVERLAP, RAIL, railChecks, JOG_CHOICES, jogChoiceChecks, FILE_COLUMN, GUIDE_MODE, guideChecks, strictCheck, loadExceptions, infoClipOf, stoppedChecks, stoppedLayoutChecks, settingsOffTabRequests, GOALS, RESPONSIVE, MEASURE, CDP, findBrowser, launchBrowser, startFixture, navigate, waitReady, waitSettled, goScreen, setViewport, sleep, median, pageErrors });
+// Lot F16 (browser-small.cjs): the small-screen step reuses the screens fixture and measures.
+Object.assign(module.exports, { OUT, failures, log, screensCapture, settingsStorage, v2Storage, v2Open, SCREENS_READY, V2_FLAGS, V2_GPU_TRAP, V2_PROFILE, V2_LASER_PROFILE, PROBE_STORE });
