@@ -1567,9 +1567,11 @@ describe('CNC framing: the state table of the third review', () => {
   // The answers. 'refused': the start never happens, nothing written. '<code>' or 'reason:<why>':
   // the framing ends (in the event's own step when it is sync) with that code or reason, then 0x85
   // and nothing but 0x85, never a line. 'restart': ends, and not a byte after the banner, whatever
-  // is reported. 'cancel only': no line; nothing but 0x85 (the stop of a person, or the cancel in
-  // progress). 'nothing': not a byte. 'disposed': one 0x85 and nothing after. 'n/a': cannot happen
-  // in that state.
+  // is reported. 'cancel': the stop asked by a person, not refused: at least one 0x85 and nothing
+  // else. 'cancel only': no line; nothing but 0x85 (the cancel in progress, repeated while Jog is
+  // reported). 'M5 only': Arrêter la broche's own M5, not refused, and not another byte (fourth
+  // review: no cancel of the framing after its banner). 'nothing': not a byte. 'disposed': one 0x85
+  // and nothing after. 'n/a': cannot happen in that state.
   const all = (answer) => Object.fromEntries(E.map((event) => [event, answer]));
   const RUNNING = {
     Arrêter: 'reason:stop',
@@ -1596,13 +1598,23 @@ describe('CNC framing: the state table of the third review', () => {
     'a side in flight (Jog)': RUNNING,
     'between two lines': { ...RUNNING, 'ligne hors délai': 'n/a' },
     'stream rotating': { ...RUNNING, 'flux fermé': 'n/a', 'ligne hors délai': 'n/a' },
-    cancelling: { ...all('cancel only'), bannière: 'nothing', 'ligne hors délai': 'n/a', 'service arrêté': 'disposed' },
+    cancelling: {
+      ...all('cancel only'),
+      Arrêter: 'cancel',
+      Pause: 'cancel',
+      'relâchement (jog-stop)': 'cancel',
+      'arrêt du PC': 'cancel',
+      'annulation de jog du PC': 'cancel',
+      bannière: 'nothing',
+      'ligne hors délai': 'n/a',
+      'service arrêté': 'disposed'
+    },
     'ended by a banner': {
       ...all('nothing'),
-      Arrêter: 'cancel only',
-      Pause: 'cancel only',
-      'relâchement (jog-stop)': 'cancel only',
-      'Arrêter la broche': 'cancel only',
+      Arrêter: 'cancel',
+      Pause: 'cancel',
+      'relâchement (jog-stop)': 'cancel',
+      'Arrêter la broche': 'M5 only',
       'ligne hors délai': 'n/a'
     }
   };
@@ -1744,8 +1756,12 @@ describe('CNC framing: the state table of the third review', () => {
       if (answer === 'restart') {
         expect(ctx.state().motion.lastFrame).toMatchObject({ result: 'cancelled', code: 'ETOUCH_FRAME_RESTART' });
       }
+    } else if (answer === 'cancel') {
+      expect([refusal, after.length > 0, after.filter((b) => b !== '\x85')]).toEqual([null, true, []]);
     } else if (answer === 'cancel only') {
       expect(after.filter((b) => b !== '\x85')).toEqual([]);
+    } else if (answer === 'M5 only') {
+      expect([refusal, written]).toEqual([null, ['M5\n']]);
     } else if (answer === 'disposed') {
       expect(after).toEqual(['\x85']);
     } else {

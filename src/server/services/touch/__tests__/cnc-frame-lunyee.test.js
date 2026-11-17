@@ -276,7 +276,9 @@ describe('CNC framing on the simulator (LUNYEE profile)', () => {
       const unlock = await req('prepare', { operation: 'unlock' });
       await req('unlock', { nonce: unlock.nonce });
     }
-    expect(await until(() => state().activeState === 'Idle')).toBe(true);
+    // At rest, and the D2 reading of the new session over (else ETOUCH_OFFSET_CHECKING comes first,
+    // depending on how fast the simulator answers under load).
+    expect(await until(() => state().activeState === 'Idle' && state().workOffset.state !== 'checking')).toBe(true);
     const err = await refusalOf(req('machine', { operation: 'frame-prepare' }));
     expect(err && err.code).toBe('ETOUCH_CNC_FRAME_NOT_HOMED');
     expect(state().canFrame).toBe(false);
