@@ -17,6 +17,7 @@ import { signatureOf } from '../machine-profile';
 import { expectCatalogMatch } from './touch-codes-catalog';
 import { provenOffset } from './support/proven-offset';
 import { offsetRefusal } from '../work-offset';
+import { pageSeesBusy } from './support/auto-reload-rest';
 
 // The real touch facade (index.js refuseSocket, refuseUpload) over the service of a test: its
 // createService returns `mockFacade.service` when set, else the real one (every other test).
@@ -1535,6 +1536,8 @@ describe('CNC framing: the state table of the third review', () => {
     'flux fermé': { act: (ctx) => ctx.service.closeTransport('tA'), sync: true },
     'flux en rotation, non rouvert': { act: (ctx) => ctx.service.closeTransport('tA', true), wait: 3100 },
     'main perdue': { act: (ctx) => ctx.req('control', { operation: 'takeover', reason: 'At the machine' }, B), sync: true },
+    // Merge with lot F4: the device of the framing gives the hand back (« Rendre la main »).
+    'main rendue (F4)': { act: (ctx) => ctx.req('control', { operation: 'release' }, A), sync: true },
     'rapport de broche': {
       act: (ctx) => {
         ctx.c.state.status.spindle = 9000;
@@ -1580,6 +1583,7 @@ describe('CNC framing: the state table of the third review', () => {
     'flux fermé': 'ETOUCH_FRAME_STREAM',
     'flux en rotation, non rouvert': 'ETOUCH_FRAME_STREAM',
     'main perdue': 'ETOUCH_FRAME_CONTROL',
+    'main rendue (F4)': 'ETOUCH_FRAME_CONTROL',
     'rapport de broche': 'ETOUCH_FRAME_STATE:spindle',
     'rapport de zéro (WCO, preuve D2)': 'ETOUCH_FRAME_STATE:offset',
     'rapports périmés': 'ETOUCH_FRAME_STALE',
@@ -1754,5 +1758,53 @@ describe('CNC framing: the state table of the third review', () => {
         expect(last).toMatchObject({ code, ...(cause ? { params: { state: cause } } : {}) });
       }
     }
+  });
+});
+
+// Merge of the lots (feat/fonctions-5): the CNC framing with « Rendre la main » (F4) and with the
+// automatic reload of the page (F10).
+describe('CNC framing with the other lots of the merge', () => {
+  test('F4: giving the hand back during a framing ends it once, with its own code, and nothing leaves after it', async () => {
+    const ctx = setup();
+    await ctx.start();
+    runTo(ctx, 4);
+    await ctx.req('control', { operation: 'release' }, A);
+    // The framing's own stop (C-12), then the release's stop of any other jog: one jog cancel only.
+    expect(ctx.c.written.filter((w) => w === '\x85')).toHaveLength(1);
+    expect(ctx.state().motion.lastFrame).toMatchObject({ result: 'cancelled', code: 'ETOUCH_FRAME_CONTROL' });
+    expect(ctx.state().control.owner).toBeNull();
+    expectNothingAfter(ctx, 4);
+  });
+
+  test('F4: the same with Jog reported (a side in flight): one jog cancel when the hand is given back', async () => {
+    const ctx = setup();
+    await ctx.start();
+    runTo(ctx, 4);
+    ctx.c.state.status.activeState = 'Jog';
+    ctx.report();
+    const before = ctx.c.written.length;
+    await ctx.req('control', { operation: 'release' }, A);
+    expect(ctx.c.written.slice(before)).toEqual(['\x85']);
+    expect(ctx.state().motion.lastFrame).toMatchObject({ result: 'cancelled', code: 'ETOUCH_FRAME_CONTROL' });
+  });
+
+  test('F10: from the confirmation to the return, the page never sees the machine at rest', async () => {
+    const ctx = setup();
+    await ctx.req('load', { file: 'box.nc' });
+    const ticket = await ctx.machine('frame-prepare');
+    await ctx.machine('frame', { nonce: ticket.nonce });
+    const seen = [];
+    while (ctx.state().motion.frame) {
+      // Between two lines the board reports Idle and the job is idle: only the framing says busy.
+      const s = ctx.state();
+      seen.push([s.activeState || s.state, pageSeesBusy(s)]);
+      expect(pageSeesBusy(s)).toBe(true);
+      ctx.run();
+    }
+    expect(seen.length).toBe(LINES.length);
+    expect(ctx.state().motion.lastFrame).toMatchObject({ result: 'ended' });
+    // Back at rest after the framing: the same rule lets the page reload.
+    ctx.tick(200);
+    expect(pageSeesBusy(ctx.state())).toBe(false);
   });
 });

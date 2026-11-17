@@ -1104,15 +1104,17 @@ export const createMotion = (deps) => {
   };
 
   // A CNC framing in progress is checked now, in the same step as a change of the lease (C-12).
+  // True when this ended it (its jog cancel is written).
   const supervise = (c, r) => {
     const session = r.motion && r.motion.frame;
     if (!session || session.kind !== 'cnc' || !connected(c)) {
-      return;
+      return false;
     }
     const stop = cncStop(c, r, session);
     if (stop) {
       abortFrame(c, r, session, 'cancelled', stop[0], stop[1], stop[2]);
     }
+    return !!stop;
   };
 
   // plan: { lines, limits (ms per line), bounds, feed }, checked by the caller; a CNC plan

@@ -125,6 +125,55 @@ function stripChecks(s, portrait) {
   return errors;
 }
 
+// Merge of the lots (feat/fonctions-5): the command added by F4 (« Rendre la main », refused during a job)
+// on a small screen, this device holding the hand. The same measures as the other screens (whole words,
+// text in its control, Pause and Arrêter in reach); the v2 bench refuses every POST, so only what the
+// server's snapshot shows is measured. F1's « Cadrer à vide… » is on Contrôle, measured in every state.
+const VISIBLE = `(function(id){var n=document.getElementById(id);if(!n||n.hidden||!n.getClientRects().length)return null;var r=n.getBoundingClientRect();
+  return {w:r.width,h:r.height,left:r.left,right:r.right,vw:document.documentElement.clientWidth,disabled:!!n.disabled,text:(n.textContent||'').trim()};})`;
+async function mergedCommands(h, cdp, fx, v, report, summary) {
+  const { screensCapture, failures, log } = h;
+  // A fresh page: the last state of the variant may have ended the stream (« lost »).
+  fx.extra = null;
+  fx.setPhase('idle');
+  await h.v2Open(cdp, fx.base + 'index.html?small=' + v.id + '-merge', false);
+  const id = await cdp.evaluate('localStorage.getItem("cnc-touch-client-id")');
+  const mine = { owner: { kind: 'touch', id, label: 'Tablette', present: true, since: Date.now() }, lastChange: null };
+  const steps = [
+    ['job-held', 'running', { control: mine }, 'm.workflow==="running"']
+  ];
+  for (const [step, phase, extra, ready] of steps) {
+    const tag = 'small ' + v.id + ' ' + step, results = [];
+    fx.extra = extra;
+    fx.setPhase(phase);
+    try {
+      await cdp.waitFor('(function(){var m=window.cncState&&window.cncState.get().machine;return !!(m&&m.control&&m.control.owner&&m.control.owner.id===' + JSON.stringify(id) + '&&' + ready + ');})()', 20000, 'state ' + step);
+      await h.sleep(1500);
+      const page = await cdp.evaluate('({lang:document.documentElement.lang,v2:document.body.classList.contains("perf-v2"),large:document.body.classList.contains("display-large")})');
+      await screensCapture(cdp, 'small-merge-home-' + v.id + '-' + step, 'home', 'Usinage', tag, page, results);
+      const s = await cdp.evaluate(STRIP);
+      report.push({ variant: v.id, phase: step, screen: 'home', strip: s });
+      for (const e of stripChecks(s, v.portrait)) failures.push(tag + ' Usinage: ' + e);
+      // « La main »: Rendre la main shown for the holder, struck through during the job, with its reason and remedy.
+      await h.goScreen(cdp, 'home');
+      await cdp.evaluate('document.getElementById("t-pilot").click();true');
+      await cdp.waitFor('!document.getElementById("pilot-dialog").hidden', 5000, 'dialog « La main »');
+      const give = await cdp.evaluate(VISIBLE + '("pilot-release")'), why = await cdp.evaluate(VISIBLE + '("pilot-release-reason")'), see = await cdp.evaluate(VISIBLE + '("pilot-release-see")');
+      if (!give || !give.disabled || !why || !why.text || !see) failures.push(tag + ': « Rendre la main » not refused with its reason and remedy (' + JSON.stringify({ give, why: !!why, see: !!see }) + ')');
+      await screensCapture(cdp, 'small-merge-pilot-' + v.id + '-' + step, 'pilot', 'La main (dialogue)', tag, page, results, { stay: true });
+      const d = await cdp.evaluate(STRIP);
+      report.push({ variant: v.id, phase: step, screen: 'pilot', strip: d });
+      for (const e of stripChecks(d, false)) failures.push(tag + ' La main (dialogue): ' + e);
+      await cdp.evaluate('document.getElementById("pilot-dismiss").click();true');
+      await cdp.waitFor('document.getElementById("pilot-dialog").hidden', 5000, 'dialog « La main » closed');
+      log(tag + ': Usinage and « La main » checked');
+    } catch (e) { failures.push(tag + ': ' + e.message); log('FAIL ' + tag + ': ' + e.message); }
+    summary.measurements.push({ variant: tag, dir: 'small-merge-*-' + v.id + '-' + step, dpr: 1, results, strict: true, overlap: true });
+  }
+  fx.extra = null;
+  fx.setPhase('idle');
+}
+
 async function run(h, summary) {
   const { startV2Fixture, launchBrowser, setViewport, v2Storage, settingsStorage, v2Open, screensCapture, sleep, log, failures } = h;
   const only = process.env.CNC_SMALL_ONLY ? new RegExp(process.env.CNC_SMALL_ONLY) : null;
@@ -175,6 +224,7 @@ async function run(h, summary) {
           } catch (e) { failures.push(tag + ': ' + e.message); log('FAIL ' + tag + ': ' + e.message); }
           summary.measurements.push({ variant: tag, dir: 'small-*-' + v.id + '-' + phase, dpr: 1, results, strict: true, overlap: true });
         }
+        if (v.kind === 'cnc') await mergedCommands(h, cdp, fx, v, report, summary);
         if (h.pageErrors.length) failures.push('small ' + v.id + ': page exceptions: ' + h.pageErrors.slice(0, 3).join(' | ').slice(0, 600));
       } catch (e) { failures.push('small ' + v.id + ': ' + e.message); log('FAIL small ' + v.id + ': ' + e.message); }
     }

@@ -2285,12 +2285,13 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
           }
           blockProbe.supervise(c, r);
           plateProbe.supervise(c, r);
-          // A CNC framing (lot F1) as well.
-          moves.supervise(c, r);
+          // A CNC framing (lot F1) as well: ended first, with its own code (the hand lost) and its jog cancel.
+          const framingEnded = moves.supervise(c, r);
           // A takeover is seen by the jog's own watch; a release leaves the port free, which that watch
           // takes for nobody's business: the move of the device that gave the hand back ends here (F4),
-          // unless all that is left is a framing ended at a banner (F1, nothing written to the new session).
-          if (op === 'release' && !moves.bannerLeftover(r)) {
+          // unless it was the CNC framing just ended above (a single jog cancel) or all that is left is a
+          // framing ended at a banner (F1, nothing written to the new session).
+          if (op === 'release' && !framingEnded && !moves.bannerLeftover(r)) {
             moves.stop(c, r, 'released');
           }
         }

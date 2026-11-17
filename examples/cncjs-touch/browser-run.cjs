@@ -1213,6 +1213,8 @@ function startV2Fixture() {
     const plain = fx.controller;
     fx.controller = function () {
       const c = plain();
+      // fx.extra (browser-small.cjs, merge of the lots): fields of the server's snapshot laid over a phase.
+      if (fx.extra) Object.assign(c, typeof fx.extra === 'function' ? fx.extra(c) : fx.extra);
       if (fx.probeInput) c.probeInput = { fresh: true, ageMs: 120, state: 'free', code: 'MISSING', pins: '', reason: 'Champ Pn absent : entrée libre non confirmée. Capacité du firmware à valider.' };
       // Block probing (palpage au bloc, job-service.js blockReady): refused at rest until the contact test (a laser:
       // refused), refused outside rest; fx.blockProbe (screensProbe) replaces these fields with one state of the cycle.

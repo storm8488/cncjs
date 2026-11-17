@@ -38,7 +38,9 @@ const tests = [
  'performance-v2-safety',
  'auto-connect','auto-reload','auto-reload-recovery',
  'small-screens',
- 'cnc-frame'
+ 'cnc-frame',
+ // Merge of the lots: F5 and F10 in the same page load.
+ 'f5-f10'
 ].map(name=>'test-'+name+'.cjs');
 // The backend (job service, event stream, motion preflight, probe input) lives in
 // src/server/services/touch and is covered by the root Jest suite (`yarn test`).
