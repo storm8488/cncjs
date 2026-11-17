@@ -537,6 +537,10 @@ export const createRetract = (deps) => {
     if (state !== 'Idle' || !drained(c) || !r.job || r.job.revision !== s.revision || Number(c.sender.state.sent) !== s.sent) {
       throw failure('ETOUCH_RETRACT_UNEXPECTED', { state: state || '?' });
     }
+    // The spindle we restarted, lost once since its `ok`: nothing more of ours but its stop.
+    if (spindleLost(c, r, s)) {
+      throw failure('ETOUCH_RETRACT_SPINDLE');
+    }
   };
 
   // The position of the machine is `at` within POS_TOL, or throws ETOUCH_RETRACT_POSITION. Only the
@@ -553,16 +557,34 @@ export const createRetract = (deps) => {
     return true;
   };
 
-  // The spindle turns now (D3): the latest report says a speed above 0, or, without FS:, a $G received
-  // after our M3/M4 says M3/M4; and no $G received since then says otherwise.
+  // The spindle we restarted (second review D3), one rule for every check. Proven turning once,
+  // after the `ok` of our M3/M4, a report said a speed above 0 (spindleSpun) and a $G said the
+  // expected mode (spindleModal); from then on it is lost for good as soon as a report says a speed
+  // of 0 or a $G says another mode (report(), modal(): a later report without FS:, or turning again,
+  // never brings it back). Before that proof nothing goes down: a 0 or another mode then only means
+  // « not proven yet » (an `ok` taken for ours too early must not fail a sound resume).
+  const spindleLost = (c, r, s) => {
+    if (s.spindleLost) {
+      return true;
+    }
+    return !!s.spindleSpun && spindleSpeed(c, r, s) === 0;
+  };
   const spindleRunning = (c, r, s) => {
-    const mode = parserOf(c).modal && parserOf(c).modal.spindle;
-    const modalSince = s.modals > s.spindleMark && modalFresh(r);
-    if (modalSince && mode !== 'M3' && mode !== 'M4') {
+    if (!s.spindle || !s.spindleSpun || !s.spindleModal || spindleLost(c, r, s)) {
       return false;
     }
-    const speed = spindleSpeed(c, r, s);
-    return speed !== null ? speed > 0 : modalSince;
+    const mode = parserOf(c).modal && parserOf(c).modal.spindle;
+    return modalFresh(r) && mode === s.spindle.mode;
+  };
+  // A loss seen: the in-place resume ends at once (a descent is cancelled, the spindle stopped at rest).
+  const spindleGone = (c, r, s) => {
+    if (!s.spindleLost) {
+      s.spindleLost = true;
+      changed();
+    }
+    if (r.retract === s && s.phase === 'returning') {
+      fail(c, r, s, 'ETOUCH_RETRACT_SPINDLE');
+    }
   };
 
   // Right before a line is written (D2, D3): the machine is where the line was computed from, with
@@ -611,6 +633,11 @@ export const createRetract = (deps) => {
     s.written += 1;
     if (/^M[34] /.test(line)) {
       s.spindleOn = true;
+      // Its answers tell from when reports and $G replies speak of the spindle we restarted.
+      s.spindleT = t;
+      s.spindleLost = false;
+      s.spindleSpun = false;
+      s.spindleModal = false;
     }
     if (/^\$J=/.test(line)) {
       // The tracker of its answers is kept until the jog is proven over (report(), second review D1b).
@@ -624,7 +651,7 @@ export const createRetract = (deps) => {
       if (t.error) {
         throw failure('ETOUCH_RETRACT_ERROR', { error: t.error });
       }
-      if (where.spindle && !spindleRunning(c, r, s)) {
+      if ((where.spindle && !spindleRunning(c, r, s)) || spindleLost(c, r, s)) {
         throw failure('ETOUCH_RETRACT_SPINDLE');
       }
       if (t.oks >= 1) {
@@ -904,7 +931,12 @@ export const createRetract = (deps) => {
       securing: false,
       xyzReport: null,
       speedReport: null,
-      spindleMark: 0,
+      // The spindle we restarted: the tracker of its M3/M4, lost since, then proven turning: a report
+      // after its `ok` with a speed above 0, a $G after it with the expected mode (spindleRunning).
+      spindleT: null,
+      spindleLost: false,
+      spindleSpun: false,
+      spindleModal: false,
       restWco: null,
       // The in-place resume ruled out without stopping the lift (D4).
       invalid: null,
@@ -981,6 +1013,14 @@ export const createRetract = (deps) => {
     if (other) {
       throw failure('ETOUCH_RETRACT_STATE_CHANGED', { field: other[0] });
     }
+    // Right before `~` (second review D3): the spindle we restarted still proven turning the expected
+    // way; a spindle of the program left on at rest (from held) not reported at 0.
+    if (final && s.spindleT && !spindleRunning(c, r, s)) {
+      throw failure('ETOUCH_RETRACT_SPINDLE');
+    }
+    if (final && !s.spindleT && (spindle === 'M3' || spindle === 'M4') && spindleSpeed(c, r, s) === 0) {
+      throw failure('ETOUCH_RETRACT_STATE_CHANGED', { field: 'spindle' });
+    }
     const profile = profileOf(c, r);
     if (profile.kind !== 'cnc' || settingNumber(allSettings(c), 32) !== 0) {
       throw failure('ETOUCH_RETRACT_LASER', {}, true);
@@ -1055,28 +1095,17 @@ export const createRetract = (deps) => {
             changed();
             return send(c, r, s, sp.mode + ' S' + fmt(sp.speed), LINE_MARGIN_MS, () => atPosition(c, r, s, here(m.zTop)), { from: here(m.zTop) });
           })
-          .then((started) => {
-            // A $G received after this `ok` tells the spindle mode from then on (spindleRunning).
-            s.spindleMark = started.modalMark;
+          .then(() => {
             s.step = 'dwell';
             changed();
-            return send(c, r, s, 'G4 P' + RETRACT_SPINUP_S, RETRACT_SPINUP_S * 1000 + LINE_MARGIN_MS, (out) => {
+            // The dwell ends once the spindle is proven turning the expected way (spindleRunning).
+            return send(c, r, s, 'G4 P' + RETRACT_SPINUP_S, RETRACT_SPINUP_S * 1000 + LINE_MARGIN_MS, () => {
               atPosition(c, r, s, here(m.zTop));
-              const speed = spindleSpeed(c, r, s);
-              if (speed !== null) {
-                if (speed > 0) {
-                  return true;
-                }
+              // Still at 0 once the dwell is over, or lost since: it did not start (or stopped).
+              if (spindleLost(c, r, s) || spindleSpeed(c, r, s) === 0) {
                 throw failure('ETOUCH_RETRACT_SPINDLE');
               }
-              if (s.modals > out.modalMark && modalFresh(r)) {
-                const mode = parserOf(c).modal && parserOf(c).modal.spindle;
-                if (mode === 'M3' || mode === 'M4') {
-                  return true;
-                }
-                throw failure('ETOUCH_RETRACT_SPINDLE');
-              }
-              return false;
+              return spindleRunning(c, r, s);
             }, { from: here(m.zTop) });
           });
       }
@@ -1278,6 +1307,15 @@ export const createRetract = (deps) => {
     }
     const xyz = seen.xyz === true;
     track(c, r, s, state, seen);
+    // After the `ok` of the M3/M4 we wrote: a speed above 0 proves it turning, a speed of 0 after
+    // that loses it for good (spindleRunning).
+    if (s.spindleT && s.spindleT.oks >= 1 && r.reports > s.spindleT.reportsAtOk && typeof seen.speed === 'number') {
+      if (seen.speed > 0) {
+        s.spindleSpun = true;
+      } else if (s.spindleSpun) {
+        spindleGone(c, r, s);
+      }
+    }
     // D5: an Alarm state, even in a single report between two ticks, ends the retract now.
     if (/^Alarm/.test(state)) {
       fail(c, r, s, 'ETOUCH_RETRACT_ALARM', alarmParams(r));
@@ -1305,8 +1343,17 @@ export const createRetract = (deps) => {
   };
   // Every $G reply (job-service r.modal).
   const modal = (c, r) => {
-    if (r.retract) {
-      r.retract.modals += 1;
+    const s = r.retract;
+    if (s) {
+      s.modals += 1;
+      // Received after the `ok` of the M3/M4 we wrote: the mode of the spindle we restarted.
+      if (s.spindleT && s.spindleT.oks >= 1 && s.spindle) {
+        const mode = parserOf(c).modal && parserOf(c).modal.spindle;
+        if (mode !== s.spindle.mode && s.spindleSpun && s.spindleModal) {
+          spindleGone(c, r, s);
+        }
+        s.spindleModal = mode === s.spindle.mode;
+      }
     }
   };
 

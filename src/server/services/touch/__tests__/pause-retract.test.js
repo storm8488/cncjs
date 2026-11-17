@@ -285,6 +285,7 @@ describe('Pause et dégager: what is written to the board', () => {
     expect(ctx.lines(mark)).toEqual(['M3 S1000\n']);
     ctx.gc.spindle = 'M3';
     await ctx.okIdle(2, { speed: 1000 });
+    ctx.modal();
     expect(ctx.lines(mark)).toEqual(['M3 S1000\n', 'G4 P3\n']);
     await ctx.okIdle(2, { speed: 1000 });
     expect(ctx.lines(mark).pop()).toBe('$J=G91 G21 Z-108.4 F600\n');
@@ -368,6 +369,7 @@ describe('Pause et dégager: what is written to the board', () => {
     await ctx.wait(100);
     ctx.gc.spindle = 'M3';
     await ctx.okIdle(2);
+    ctx.modal();
     await ctx.okIdle(2);
     await ctx.jog(-8);
     ctx.gc.distance = 'G91';
@@ -464,6 +466,7 @@ describe('Pause et dégager: Arrêter, Pause and the other stops', () => {
     await ctx.wait(100);
     ctx.gc.spindle = 'M3';
     await ctx.okIdle(2);
+    ctx.modal();
     await ctx.okIdle(2);
     const mark = ctx.mark();
     await ctx.req('stop');
@@ -885,6 +888,7 @@ describe('Pause et dégager: the windows found by the review', () => {
     await ctx.wait(100);
     ctx.gc.spindle = 'M3';
     await ctx.okIdle(2, { speed: 1000 });
+    ctx.modal();
     expect(ctx.lines(mark)).toEqual(['M3 S1000\n', 'G4 P3\n']);
     // The stream rotates during the dwell: the descent waits for it.
     ctx.service.closeTransport('tA', true);
@@ -907,6 +911,7 @@ describe('Pause et dégager: the windows found by the review', () => {
     await ctx.wait(100);
     ctx.gc.spindle = 'M3';
     await ctx.okIdle(2, { speed: 1000 });
+    ctx.modal();
     await ctx.okIdle(2, { speed: 1000 });
     expect(ctx.lines(mark).pop()).toBe('$J=G91 G21 Z-108.4 F600\n');
     ctx.parse('ok');
@@ -929,6 +934,7 @@ describe('Pause et dégager: the windows found by the review', () => {
     await ctx.wait(100);
     ctx.gc.spindle = 'M3';
     await ctx.okIdle(2, { speed: 1000 });
+    ctx.modal();
     await ctx.okIdle(2, { speed: 1000 });
     ctx.parse('ok');
     ctx.now += 250;
@@ -988,6 +994,7 @@ describe('Pause et dégager: the windows found by the review', () => {
     await ctx.wait(100);
     ctx.gc.spindle = 'M3';
     await ctx.okIdle(2, { speed: 1000 });
+    ctx.modal();
     await ctx.okIdle(2, { speed: 1000 });
     await ctx.jog(-8);
     expect(ctx.lines(mark)).toEqual(['M3 S1000\n', 'G4 P3\n', '$J=G91 G21 Z-3 F100\n']);
@@ -1197,6 +1204,90 @@ describe('Pause et dégager: the windows of the second review', () => {
     await ctx.wait(500);
     expect(ctx.lines(mark).filter((d) => d !== '\x85')).toEqual([]);
     expect(ctx.service.socketRefusal('/dev/null')).toBe(null);
+  });
+
+  // To the dwell: « Reprendre… », M3 answered, G4 P3 written; a $G after M3's `ok` says M3 (CNCjs's poll).
+  const toDwell = async (ctx) => {
+    await ctx.park();
+    const mark = ctx.mark();
+    await ctx.resume();
+    await ctx.wait(100);
+    ctx.gc.spindle = 'M3';
+    await ctx.okIdle(2, { speed: 1000 });
+    ctx.modal();
+    expect(ctx.lines(mark)).toEqual(['M3 S1000\n', 'G4 P3\n']);
+    return mark;
+  };
+  const descents = (ctx, mark) => ctx.lines(mark).filter((d) => /^\$J=G91 G21 Z-/.test(d));
+
+  test('2-D3a. FS:0, then a report with XYZ and no FS before the next check: the loss is kept, no descent', async () => {
+    const ctx = await setup();
+    const mark = await toDwell(ctx);
+    ctx.parse('ok');
+    ctx.now += 250;
+    ctx.report('Idle', { speed: 0 });
+    for (let i = 0; i < 3; i++) {
+      ctx.now += 250;
+      ctx.parse('<Idle|MPos:' + f3(ctx.m.x) + ',' + f3(ctx.m.y) + ',' + f3(ctx.m.z) + '>');
+    }
+    ctx.modal();
+    await ctx.wait(300);
+    await ctx.idle(2, { speed: 1000 });
+    await ctx.wait(200);
+    expect(descents(ctx, mark)).toEqual([]);
+    expect(ctx.state().pauseRetract).toMatchObject({ phase: 'failed', failure: { code: 'ETOUCH_RETRACT_SPINDLE' } });
+  });
+
+  test('2-D3b. the spindle turned the other way (M4 from a client, speed above 0): no descent', async () => {
+    const ctx = await setup();
+    const mark = await toDwell(ctx);
+    ctx.gc.spindle = 'M4';
+    ctx.modal();
+    await ctx.okIdle(2, { speed: 1000 });
+    await ctx.wait(200);
+    expect(descents(ctx, mark)).toEqual([]);
+    expect(ctx.state().pauseRetract).toMatchObject({ phase: 'failed', failure: { code: 'ETOUCH_RETRACT_SPINDLE' } });
+  });
+
+  test('2-D3c. FS:0 once during the dwell, turning again after: the loss is kept, no descent', async () => {
+    const ctx = await setup();
+    const mark = await toDwell(ctx);
+    ctx.now += 250;
+    ctx.report('Idle', { speed: 0 });
+    await ctx.wait(50);
+    ctx.parse('ok');
+    await ctx.idle(2, { speed: 1000 });
+    ctx.modal();
+    await ctx.wait(200);
+    expect(descents(ctx, mark)).toEqual([]);
+    expect(ctx.state().pauseRetract.failure.code).toBe('ETOUCH_RETRACT_SPINDLE');
+  });
+
+  test('2-D3d. FS:0 after the plunge, then a $G that still says M3 S1000: no `~`', async () => {
+    const ctx = await setup({ z: -8 });
+    await ctx.retract();
+    await ctx.rest();
+    await ctx.wait(0);
+    await ctx.jog(-5);
+    ctx.gc.spindle = 'M5';
+    await ctx.okIdle(2, { wco: true });
+    const mark = ctx.mark();
+    await ctx.resume();
+    await ctx.wait(100);
+    ctx.gc.spindle = 'M3';
+    await ctx.okIdle(2, { speed: 1000 });
+    ctx.modal();
+    await ctx.okIdle(2, { speed: 1000 });
+    await ctx.jog(-8);
+    expect(ctx.lines(mark)).toEqual(['M3 S1000\n', 'G4 P3\n', '$J=G91 G21 Z-3 F100\n']);
+    ctx.now += 250;
+    ctx.report('Idle', { speed: 0, wco: true });
+    ctx.now += 250;
+    ctx.parse('<Idle|MPos:' + f3(ctx.m.x) + ',' + f3(ctx.m.y) + ',' + f3(ctx.m.z) + '>');
+    ctx.modal();
+    await ctx.wait(300);
+    expect(ctx.lines(mark)).not.toContain('~');
+    expect(ctx.state().pauseRetract.phase).toBe('failed');
   });
 
   test('2-D1c. Arrêter, a jog still reported after 5 s: cancels repeated, no reset before the time limit, the reset at the limit (stop over position)', async () => {
