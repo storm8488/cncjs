@@ -145,7 +145,30 @@ const phase = (p, extra = {}) => Object.assign({ phase: p, step: null, since: 1,
     }
     f.controls().dispose();
   }
-  // Without its stream the page asks for no retract (FIGE guard).
-  assert(touch('job-controls.js').includes("'blockProbe','retract'].indexOf(action)>=0"));
+  // Without its stream the page asks for no retract (FIGE guard), played (F2-CORRECTIONS.md D9): the
+  // stream lost under an open confirmation, the effect button, then the notice button again, POST
+  // neither prepare nor retract; Pause and Arrêter still leave at once.
+  {
+    const f = load();
+    const stream = await f.connect(f.machine({ workflow: 'running', activeState: 'Run', canPause: true, canStop: true, canRetract: true }));
+    const opening = f.controls().retract();
+    f.answer(f.posts().at(-1), { nonce: 'n-lost', name: 'Pause et dégager', expiresIn: 15 });
+    await opening;
+    assert.equal(f.el('job-dialog').hidden, false);
+    f.el('job-check').checked = true; f.el('job-check').fire('change');
+    f.advance(600); f.el('job-check').fire('change');
+    const before = f.posts().length;
+    stream.onerror(); await f.flush();
+    // The confirmation is cancelled with the stream; its effect button, touched anyway, sends nothing.
+    assert.equal(f.el('job-dialog').hidden, true);
+    f.el('job-confirm').disabled = false; f.el('job-confirm').fire('click'); await f.flush();
+    const again = await f.controls().retract(); await f.flush();
+    assert.equal(again.opened, false);
+    assert.match(again.error.message, /Suivi interrompu/);
+    assert.deepEqual(f.posts().slice(before).map((p) => p.body.action), [], 'no request without the stream');
+    f.controls().pause(); f.controls().stop(); await f.flush();
+    assert.deepEqual(f.posts().slice(before).map((p) => p.body.action), ['pause', 'stop']);
+    f.controls().dispose();
+  }
   console.log('PASS pause and retract: button and its reason, three touches, Pause at once, seven screen states FR/EN/ES, resume texts.');
 })().catch((e) => { console.error(e); process.exitCode = 1; });

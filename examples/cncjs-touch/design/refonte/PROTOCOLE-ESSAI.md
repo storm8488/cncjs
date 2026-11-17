@@ -151,4 +151,11 @@ Zéro Z posé **40 mm au-dessus** de la pièce ou de la table (le fichier tourne
 15. Fraise montée, pièce bridée, passe de 1 mm dans une chute de MDF. « Pause et dégager » au milieu d'une ligne droite, attendre l'arrêt et la montée, enlever les copeaux, « Reprendre… ». Après : chercher la marque au point d'arrêt (profondeur et décalage latéral ≤ 0,05 mm ; une légère trace de chauffe est attendue).
 16. Seulement ensuite : même essai dans un arc, puis à la profondeur de travail habituelle.
 
+### F2.6 Corrections après relecture (fraise en l'air, broche débranchée, comme F2.2)
+
+17. Refaire 3, toucher **Pause** pendant la montée, puis **Arrêter** aussitôt, pendant que l'axe décélère encore. Attendu dans la série : `0x85`, puis `!`, `0x85` répétés tant que la carte dit `Jog`, et `0x18` seulement après un rapport `Idle` (jamais pendant `Jog`). Considérer la référence perdue, comme à l'étape 9.
+18. Refaire 3 ; fraise en haut, « Reprendre… » ; pendant les 3 s de `G4 P3`, envoyer depuis l'interface CNCjs du PC une annulation de déplacement (bouton d'arrêt du jog, ou `0x85`). Attendu : aucune descente ensuite, « Reprendre sur place n'est plus possible… », la broche est commandée à l'arrêt (`M5`) une fois au repos.
+19. Refaire 3 ; fraise en haut, depuis un client branché directement sur la carte (Wi-Fi), si l'atelier en a un : changer G54 en Z de 1 mm. Attendu : « Reprendre sur place n'est plus possible… » dès le rapport suivant portant `WCO:` ; « Reprendre… » refusé. Remettre G54 et refaire D2 ensuite. Sinon, noter « non fait ».
+20. Qualification du binaire (à part, non couverte par le simulateur) : à l'étape 5, relever le premier mouvement du fichier après `~` (le premier arc si possible) et vérifier qu'il part exactement du point d'arrêt (MPos au millième au début et à la fin du bloc). Un écart, même inférieur à 0,01 mm, signale une position d'interpréteur qui ne suit pas les `$J=` comme le code amont : arrêter et ne pas usiner avec F2.
+
 Le stationnement du firmware (`0x84`) n'est pas employé par F2 ; il n'est pas à essayer dans cette séance.
