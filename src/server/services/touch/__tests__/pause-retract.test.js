@@ -1750,29 +1750,39 @@ describe('Pause et dégager: the spindle direction reported in A: (fourth review
 //   I4 a move of the tablet is refused in every state (act).
 // A resume the event leaves going on (returning × act) goes to its end: I1 does not apply there.
 describe('Pause et dégager: the state table (third review)', () => {
-  const STATES = ['D', 'L0', 'LJ', 'LM', 'P', 'H', 'Rv', 'RS', 'RJ', 'RF', 'F', 'T0', 'T'];
-  const EVENTS = ['stop', 'pcStop', 'cancel', 'pause', 'banner', 'alarm', 'stream', 'lease', 'spindle', 'setpoint', 'ov', 'zero', 'stale', 'act'];
+  // Fourth review: the rows A0, AJ, A1 (a stop of Arrêter in progress) and the column `dir`.
+  const BASE = ['D', 'L0', 'LJ', 'LM', 'P', 'H', 'Rv', 'RS', 'RJ', 'RF', 'F', 'T0', 'T'];
+  const STATES = BASE.concat(['A0', 'AJ', 'A1']);
+  const EVENTS = ['stop', 'pcStop', 'cancel', 'pause', 'banner', 'alarm', 'stream', 'lease', 'spindle', 'setpoint', 'ov', 'zero', 'stale', 'act', 'dir'];
   // The phase right after the event: n none (forgotten), d draining, l lifting, p parked, h held,
   // r returning, f failed. Columns in the order of EVENTS.
   const TABLE = {
-    D: 'n n d n f f d d d d d d d d',
-    L0: 'n n h h f f h h l l l l h l',
-    LJ: 'n n f f f f f f l l l l f l',
-    LM: 'n n f f f f f f l l l l f l',
-    P: 'n n p p f f p f f f f f p p',
-    H: 'n n h h f f h h f f f f h h',
-    Rv: 'n n f f f f f f f f f f f r',
-    RS: 'n n f f f f f f f f f f f r',
-    RJ: 'n n f f f f f f f f f f f r',
-    RF: 'n n f f f f f f f f f f f r',
-    F: 'n n f f f f f f f f f f f f',
-    T0: 'n n n n n n n n n n n n n n',
-    T: 'n n n n n n n n n n n n n n'
+    D: 'n n d n f f d d d d d d d d d',
+    L0: 'n n h h f f h h l l l l h l l',
+    LJ: 'n n f f f f f f l l l l f l l',
+    LM: 'n n f f f f f f l l l l f l l',
+    P: 'n n p p f f p f f f f f p p f',
+    H: 'n n h h f f h h f f f f h h f',
+    Rv: 'n n f f f f f f f f f f f r f',
+    RS: 'n n f f f f f f f f f f f r f',
+    RJ: 'n n f f f f f f f f f f f r f',
+    RF: 'n n f f f f f f f f f f f r f',
+    F: 'n n f f f f f f f f f f f f f',
+    T0: 'n n n n n n n n n n n n n n n',
+    T: 'n n n n n n n n n n n n n n n',
+    A0: 'n n n n n n n n n n n n n n n',
+    AJ: 'n n n n n n n n n n n n n n n',
+    A1: 'n n n n n n n n n n n n n n n'
   };
   const PHASES = { n: null, d: 'draining', l: 'lifting', p: 'parked', h: 'held', r: 'returning', f: 'failed' };
   // States where a jog of ours runs on the board when the event comes (T0: not reported yet).
   const JOGGING = ['LJ', 'RJ', 'F', 'T0', 'T'];
-  const STEP = { axis: 'X', direction: 1, step: 1, feed: 500 };
+  // States where the stop of Arrêter runs: A0 (T0, then Arrêter: `!` written, still Idle reported),
+  // AJ (Arrêter during the lift, Jog reported), A1 (A0, the jog over: the reset written, no banner).
+  const HALTING = ['A0', 'AJ', 'A1'];
+  // Fourth review: the step the tablet allows with the spindle on (0.1 mm), so that a refusal is the
+  // one of the guard tested, not of the size of the step (1 mm was refused for that alone).
+  const STEP = { axis: 'X', direction: 1, step: 0.1, feed: 100 };
 
   const build = {
     D: async (ctx) => {
@@ -1873,6 +1883,36 @@ describe('Pause et dégager: the state table (third review)', () => {
       await build.LJ(ctx);
       ctx.service.socketStop('/dev/null', 'stop');
       ctx.controller.command('gcode:stop');
+    },
+    // The board takes the feed hold of Arrêter (it cancels a jog: one more Jog report at most).
+    A0: async (ctx) => {
+      await build.T0(ctx);
+      const mark = ctx.mark();
+      await ctx.req('stop');
+      expect(ctx.lines(mark)[0]).toBe('!');
+      ctx.board.jog.left = 1;
+      ctx.board.jog.cancelled = true;
+    },
+    AJ: async (ctx) => {
+      await build.LJ(ctx);
+      const mark = ctx.mark();
+      await ctx.req('stop');
+      expect(ctx.lines(mark)[0]).toBe('!');
+      ctx.board.jog.left = 1;
+      ctx.board.jog.cancelled = true;
+    },
+    A1: async (ctx) => {
+      await build.A0(ctx);
+      const mark = ctx.mark();
+      ctx.now += 250;
+      ctx.report('Jog');
+      await ctx.wait(100);
+      ctx.m.z += ctx.board.jog.dz / 2;
+      ctx.board.jog = null;
+      ctx.now += 250;
+      ctx.report('Idle');
+      await ctx.wait(100);
+      expect(ctx.lines(mark)).toContain('');
     }
   };
 
@@ -1923,7 +1963,15 @@ describe('Pause et dégager: the state table (third review)', () => {
       ctx.report(ctx.board.jog ? 'Jog' : 'Idle', { wco: true });
     },
     stale: (ctx) => ctx.wait(3000),
-    act: (ctx) => expect(ctx.req('motion', { operation: 'jog', ...STEP }, A, ctx.tid)).rejects.toThrow()
+    act: (ctx) => expect(ctx.req('motion', { operation: 'jog', ...STEP }, A, ctx.tid)).rejects.toThrow(),
+    // Fourth review: the board reports the spindle turning the other way (A:C; A:S when it must be
+    // M4), speed and override as they must be, no new $G.
+    dir: (ctx) => {
+      ctx.now += 250;
+      const turning = ctx.gc.spindle === 'M5' ? 0 : Number(ctx.gc.S);
+      ctx.parse('<' + (ctx.board.jog ? 'Jog' : 'Idle') + '|MPos:' + f3(ctx.m.x) + ',' + f3(ctx.m.y) + ',' + f3(ctx.m.z) + '|FS:0,' + turning +
+        '|Ov:100,100,100|A:' + (ctx.gc.spindle === 'M4' ? 'S' : 'C') + '>');
+    }
   };
 
   // The board for `ms`: it answers every line of ours, runs a jog until a cancel or a feed hold
@@ -1990,9 +2038,10 @@ describe('Pause et dégager: the state table (third review)', () => {
     await build[state](ctx);
     ctx.board.seen = ctx.mark();
     const mark = ctx.mark();
-    if (JOGGING.includes(state)) {
-      // I3: a jog of ours may still move: no move of the tablet.
+    if (JOGGING.includes(state) || HALTING.includes(state)) {
+      // I3: a jog of ours may still move, or the stop of Arrêter runs: no move of the tablet, Arrêter offered.
       expect(ctx.state().motion.canJog).toBe(false);
+      expect(ctx.state().canStop).toBe(true);
     }
     await fire[event](ctx);
     await ctx.wait(0);
@@ -2009,6 +2058,87 @@ describe('Pause et dégager: the state table (third review)', () => {
       expect(after.filter((d) => /^\$J=G91 G21 Z-|^M[34]|^G4|^~$|^G1 X/.test(d))).toEqual([]);
     }
     // I2: never a reset while the board jogs.
+    expect(ctx.board.resets.filter((s) => s === 'Jog')).toEqual([]);
+  });
+  // Fourth review: the pairs. From every state of the table, every event, then (at once, or after one
+  // report of the board) what an operator or the PC does next: a move of the tablet (act), an acting
+  // command of the PC (pcAct), Arrêter (stop), the stop of the PC (pcStop), « Reprendre… » (resume).
+  // The truth is the board's (a jog running) and the bytes (a stop of Arrêter whose reset the board
+  // has not taken yet). After the second event, the board answering 4 s:
+  //   P1 nothing of ours goes down or restarts, no line of the file leaves, unless a resume runs: one
+  //      the first event left going on, or one the second asked from parked or held;
+  //   P2 never a reset while the board jogs;
+  //   P3 while a jog runs on the board, a stop of Arrêter is not over or a retract exists, a move of
+  //      the tablet is refused and an acting command of the PC too;
+  //   P4 Arrêter while a jog runs, no stop of Arrêter before it: the feed hold first.
+  const SECONDS = ['act', 'pcAct', 'stop', 'pcStop', 'resume'];
+  const second = {
+    act: (ctx) => ctx.req('motion', { operation: 'jog', ...STEP }, A, ctx.tid).then(() => 'accepted', (err) => err),
+    pcAct: (ctx) => ctx.service.socketRefusal('/dev/null'),
+    stop: fire.stop,
+    pcStop: fire.pcStop,
+    resume: async (ctx) => {
+      ctx.now += 250;
+      ctx.report(ctx.board.jog ? 'Jog' : 'Idle', { wco: true });
+      ctx.modal();
+      try {
+        const t = await ctx.req('prepare', { operation: 'resume', revision: ctx.state().revision }, A, ctx.tid);
+        return await ctx.req('resume', { nonce: t.nonce }, A, ctx.tid);
+      } catch (err) {
+        return err;
+      }
+    }
+  };
+  const PAIRS = [];
+  BASE.forEach((state) => EVENTS.forEach((first) => SECONDS.forEach((then) => [0, 250].forEach((gap) => PAIRS.push([state, first, then, gap])))));
+
+  test('the pairs cover every base state, every event, every follow-up, at once and after a report', () => {
+    expect(PAIRS.length).toBe(BASE.length * EVENTS.length * SECONDS.length * 2);
+  });
+
+  test.each(PAIRS)('%s × %s, then %s after %i ms: P1 to P4', async (state, first, then, gap) => {
+    const ctx = await setup(state === 'RF' ? { z: -8 } : {});
+    ctx.tid = 'tA';
+    ctx.board = { jog: null, seen: 0, resets: [] };
+    await build[state](ctx);
+    ctx.board.seen = ctx.mark();
+    const mark = ctx.mark();
+    // The first event (its own expectations are the table's): `act` is the refused move there.
+    await fire[first](ctx);
+    await ctx.wait(0);
+    const p1 = (ctx.state().pauseRetract || {}).phase || null;
+    if (gap) {
+      await board(ctx, gap);
+    }
+    const before = (ctx.state().pauseRetract || {}).phase || null;
+    const jogging = !!ctx.board.jog;
+    const stopping = first === 'stop' && ctx.lines(mark).some((d) => d === '!' || d === '') && ctx.board.resets.length === 0;
+    const busy = jogging || stopping || before !== null;
+    const m2 = ctx.mark();
+    const out = await second[then](ctx);
+    await ctx.wait(0);
+    const after = (ctx.state().pauseRetract || {}).phase || null;
+    // P3.
+    if (busy && then === 'act') {
+      expect(out).toBeInstanceOf(Error);
+      expect(ctx.lines(m2).filter((d) => /^\$J=G91 G21 X/.test(d))).toEqual([]);
+    }
+    if (busy && then === 'pcAct') {
+      expect(out).not.toBe(null);
+    }
+    // P4.
+    if (then === 'stop' && jogging && first !== 'stop') {
+      expect(ctx.lines(m2)[0]).toBe('!');
+    }
+    await board(ctx, 4000);
+    // P1: a resume ran (left going on by the first event, the table's returning × act, or asked by
+    // the second from parked or held); it may then end with `~` and the file.
+    if ([p1, before, after].includes('returning')) {
+      expect(p1 === 'returning' || (then === 'resume' && ['parked', 'held'].includes(before))).toBe(true);
+    } else {
+      expect(ctx.lines(mark).filter((d) => /^\$J=G91 G21 Z-|^M[34]|^G4|^~$|^G1 X/.test(d))).toEqual([]);
+    }
+    // P2.
     expect(ctx.board.resets.filter((s) => s === 'Jog')).toEqual([]);
   });
 });

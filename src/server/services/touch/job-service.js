@@ -2515,6 +2515,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       // after a stop from the PC, Jog reported, the jog cancel alone bypassed it). A line of it not
       // answered yet (a jog above all) is held first; a spindle stop still due leaves the reset to
       // haltPlan (spindle turning).
+      const hadRetract = !!(r.retract || r.retractTail);
       const retractOut = retract.halt(c, r);
       // A jog of ours, even one Grbl has not reported yet (report still Idle).
       if (c.workflow.state === 'idle' && moves.moving(c, r) && !retractOut) {
@@ -2592,8 +2593,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       if (door) {
         c.command('reset');
       } else {
-        // F2 (fourth review): a stop that takes over a retract reserves the machine until it is over.
-        halt(c, plan, !!retractOut);
+        // F2 (fourth review): a stop that takes over a retract, in any phase, reserves the machine
+        // until it is over (halt.js; nothing is reserved when it writes nothing).
+        halt(c, plan, hadRetract);
       }
       return { message: 'Arrêt demandé. Vérifiez l’immobilisation ; ce bouton ne remplace pas l’arrêt physique.' };
     }
