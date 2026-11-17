@@ -8,19 +8,14 @@
 |---|---|---|---|
 | I-01 | Grouper les scripts de la page en un paquet | Spec 13.1.1, C8 | Non réalisé. Adapter l'installation et prouver les langues et Chromium 106 avant de changer le chargement dont dépendent Pause et Arrêter. |
 | I-02 | Alléger les paquets constants du flux | Spec 13.1.1, C10, plan 7 | Non réalisé. Évolution du protocole serveur/page ; mesurer taille et fréquence, garder les états et refus complets. |
-| I-03 | Cadrer à vide une pièce sur la CNC | Spec 13.1.2, veille 6 | Non réalisé. Le cadrage **laser** existe déjà. Définir hauteur, trajet, brides, arrêt et courses pour la CNC avant toute commande nouvelle. |
 | I-04 | Afficher une pastille de course sur chaque ligne de fichier sans la sélectionner | Spec 13.1.3 | Non réalisé. Aujourd'hui le contrôle porte sur le fichier touché ; décider du coût des lectures, de leur identité et de leur invalidation au changement de zéro. |
-| I-05 | Reconnecter automatiquement le dernier port | Spec 13.1.4, veille 15 | Non réalisé. La connexion reste explicite ; ne pas confondre avec la relecture automatique de version/réglages, déjà livrée. |
 | I-06 | Mémoriser au serveur que le zéro appartient à cette pièce | Spec 13.1.5 | Non réalisé. Définir l'identité de pièce, sa durée et les événements qui la périment. Après redémarrage, « Ancien zéro » reste une information prudente. |
 | I-07 | Réinitialiser la carte depuis la tablette | Spec 13.1.6, plan 7 | Non réalisé. Le reset peut perdre la référence et n'est pas un arrêt physique ; concevoir permissions, confirmation et remise en route. |
-| I-08 | Recharger la page automatiquement après installation | Spec 13.1.6, plan 7 | Non réalisé. Le bouton manuel Recharger vérifie déjà le repos local et serveur. Décider du risque d'interrompre les commandes et dialogues. |
 | I-09 | Surveiller le test de broche de mise en service | Spec 13.1.6, C-69 | Non réalisé. Définir arrêt sur perte de flux/pilote, délai maximal et observation réelle de l'arrêt. Le test actuel n'acquiert pas ces garanties par la refonte. |
 | I-10 | Donner un code stable à chaque phrase du serveur | Spec 13.1.7, TEXTES 4.3 | Partiel : les refus codés ont leur phrase et remède. Les anciens messages sans code utilisent encore une reconnaissance de préfixe ; compléter le protocole et ses tests avant de retirer ce repli. |
-| I-11 | Remonter à une hauteur de sécurité à la pause | Spec 13.1.8, veille hors liste | Non réalisé. Une pause n'ajoute aujourd'hui aucun mouvement de dégagement. Définir le repère, la garde de course, les obstacles et la reprise. |
+| I-11 | Remonter à une hauteur de sécurité à la pause | Spec 13.1.8, veille hors liste | **Écrit, pas installé : la relecture de sûreté n'a pas donné son accord (branche `feat/F2`).** Une pause n'ajoute aujourd'hui aucun mouvement de dégagement. Définir le repère, la garde de course, les obstacles et la reprise. |
 | I-12 | Exporter un journal dédié des points palpés, notamment sur clé USB | Spec 13.1.8, veille hors liste | Non réalisé comme fonction dédiée. L6 affiche déjà les contacts/origines/valeurs numériques du **bloc** reçus dans l'historique ; la plaque ne fournit pas le même relevé. Ne pas annoncer que toute trace est absente, ni inventer des contacts de plaque. |
 | I-13 | Choisir à neuf points l'origine du fichier | Spec 13.1.8, veille 6 | Non réalisé. Les dessins actuels montrent les données reçues ; ils ne changent pas l'origine du programme. Définir les transformations et leur preuve. |
-| I-14 | Concevoir un format propre à 1024 × 600 et au portrait | Spec 13.1.9 | Non réalisé. Les cartes s'empilent avec défilement ; ce n'est pas une validation tactile de ces formats. |
-| I-15 | Rendre volontairement la main | Spec 13.1.10 | Non réalisé côté page. Le serveur possède `control/release` ; définir emplacement et conséquences sur les séquences en cours, qui sont annulées. |
 | I-16 | Lancer un mouvement en deux touchers sur le kiosque, sans la case | Spec 13.1.11, veille 12 | **Non réalisé : retire un garde.** La case, le nonce, l'expiration et l'armement restent. Une décision explicite de l'opérateur et une conception de sûreté sont nécessaires. D3/local ne prouve pas la présence d'une personne. |
 | I-17 | Retenir le dernier cycle de bloc Z/X/Y entre séances | Spec 13.1.12, veille 4 | Non réalisé. L'arrivée sur Zéro pièce revient à XYZ ; les dimensions et profils mesurés restent mémorisés. Ne jamais proposer une cote physique supposée. |
 | I-18 | Envoyer directement le côté et la distance du dépassement d'un palpage | Spec 13.1.13 | Non réalisé côté serveur. La page les déduit des bornes reçues. Définir des paramètres codés sans déplacer le calcul d'autorisation hors du serveur. |
@@ -29,6 +24,16 @@
 | I-21 | Choisir les points de palpage au doigt sur une caméra | Veille hors liste, DATRON non vérifié | Non réalisé, sans cas de terrain justifiant le matériel, la calibration ou les commandes associées. |
 | I-22 | Charger moins de catalogues en français | Spec 12, C9 | Optimisation retirée de L6 : les variantes navigateur EN/ES n'ont pas pu être validées. Conserver le chargement complet jusqu'à cette preuve. |
 | I-23 | Reprendre après une coupure de courant de la machine (tablette restée sur batterie) | Opérateur, 2026-11-17 | Non réalisé, mis de côté à sa demande. Le zéro pièce survit dans la carte ; la position machine est perdue (prise d'origine à refaire, précision des capteurs) ; la carte ne rapporte pas la ligne usinée, seulement les lignes envoyées (environ 15 mouvements d'avance). À concevoir : reconnaître la coupure (redémarrage de la carte en plein usinage), choisir une ligne de reprise sûre quelques lignes avant, enregistrer l'avancement sur disque si la tablette s'éteint aussi, guider vers « Reprendre à une ligne ». Limites à dire : marque possible à la reprise, fraise peut-être cassée, essai réel fraise en l'air d'abord. À faire après F2 (mêmes parties du code). |
+
+## Réalisé le 17 novembre 2026
+
+Réunies dans la branche `feat/fonctions-5` (rapport : `../fonctions/RAPPORT.md`). Aucune n'est encore essayée sur la machine : chacune a son essai dans `PROTOCOLE-ESSAI.md`, fraise en l'air d'abord.
+
+- I-03 — Cadrer à vide une pièce sur la CNC : lot F1, « Cadrer à vide… » sur 4 · Contrôle (Z monte seul en haut, tour du rectangle broche arrêtée, retour au départ, Z ne redescend pas). Quatre relectures de sûreté ; la dernière : « installable pour un essai encadré ».
+- I-05 — Reconnecter automatiquement le dernier port : lot F5, une tentative au chargement du kiosque local, vers le dernier port ouvert avec succès ; réglage pour l'éteindre.
+- I-08 — Recharger la page automatiquement après installation : lot F10, bandeau de 10 s avec « Plus tard », seulement quand tout est au repos.
+- I-14 — Format propre à 1024 × 600 et au portrait : lot F16, même page, Pause et Arrêter toujours visibles, les deux tablettes inchangées.
+- I-15 — Rendre volontairement la main : lot F4, « Rendre la main » dans le dialogue « La main », refusé pendant un usinage.
 
 ## Éléments écartés du plan, sans nouvelle fonction livrée
 

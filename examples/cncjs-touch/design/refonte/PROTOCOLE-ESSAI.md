@@ -191,3 +191,10 @@ Ne **pas** essayer : une cible hors course « pour voir », `$20=0`, un reset en
 Les fenêtres trouvées par la relecture (rotation du flux, bannière, `jogCancel`, `autolevel:stop` ou porte `0x84` d'un client tiers, `$G` sans `FS`, réglages, repère ou décalage changés pendant le cadrage) sont prouvées sur banc et simulateur seulement (`../fonctions/F1-CORRECTIONS.md`) ; elles ne se provoquent pas à l'essai.
 
 **Relevé à rendre** : fait / non fait par étape, lignes écrites, positions aux coins, temps d'un côté, temps et distance d'arrêt, toute surprise. Une étape non faite reste non vérifiée. Après l'essai, mettre à jour C7 et C8 de la conception et la limite F1 de `SURETE.md`.
+
+## F4 — Rendre la main (essai réel, fraise en l'air, broche arrêtée)
+
+1. Repos, la tablette a la main : « La main : ici » puis « Rendre la main ». Le bandeau passe à « La main : libre » ; le PC ou un téléphone prend la main **sans motif** ; la tablette devient observatrice (Pause et Arrêter restent actifs).
+2. Même geste pendant un usinage en cours, puis en pause : le bouton est rayé avec sa phrase, la main reste à la tablette, rien ne bouge ; « Voir l'usinage » ouvre l'écran 5.
+3. Un pas long et lent (X 50 mm à 100 mm/min) : pendant qu'il court, rendre la main ; le pas s'arrête net (Jog → Idle, `0x85` au journal) et rien ne repart seul.
+4. Pendant un cadrage à vide (§ 8, table vide) : rendre la main l'arrête (« Cadrage arrêté : le pilotage a changé de main »), un seul arrêt, la fraise reste en haut.
