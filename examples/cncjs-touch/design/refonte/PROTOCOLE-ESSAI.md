@@ -136,7 +136,7 @@ Mouvement nouveau (`SURETE.md` § F1, conception `../fonctions/F1-CONCEPTION.md`
 | F1-C12 | Même essai avec **Pause**. | Comme C11 ; le cadrage ne reprend pas. |
 | F1-C13 | Lancer depuis la page Touch du PC, puis **fermer l'onglet** pendant un côté ; recommencer en **prenant la main** depuis la tablette pendant un côté. | Arrêt dans les deux cas (« Cadrage arrêté avant la fin… »). |
 | F1-C14 | Pendant un côté, « feed hold » dans CNCjs classique. | La fraise s'arrête et **ne repart pas**. |
-| F1-C14b | Pendant un côté, puis **à l'arrêt entre deux côtés** (pendant la demi-seconde de repos), regarder 3 · Zéro pièce / les flèches sur la tablette, et tenter un pas depuis la page Touch du PC. | Flèches grisées « Déplacement en cours : attendez l'arrêt. » ; le pas est refusé « Cadrage en cours. » ; le cadrage continue à la même hauteur. |
+| F1-C14b | Pendant un côté, puis **à l'arrêt entre deux côtés** (pendant la demi-seconde de repos), regarder 3 · Zéro pièce / les flèches sur la tablette, et tenter un pas **depuis la tablette qui a lancé le cadrage** (celle qui a la main : depuis un autre appareil, le refus de pilotage masquerait l'essai). | Flèches grisées « Déplacement en cours : attendez l'arrêt. » ; le pas est refusé « Cadrage en cours. » ; le cadrage continue à la même hauteur. |
 | F1-C14c | Pendant un côté, charger un fichier depuis CNCjs classique (glisser un `.nc`). | Refusé (« Cadrage en cours sur la tablette… ») ; le cadrage continue. |
 | F1-C15 | Facultatif, une seule fois : arrêt physique pendant un côté. | Tout s'arrête ; au retour reconnecter, relire, prise d'origine ; le cadrage ne reprend pas. |
 | F1-D16 | Brider la planche, monter la fraise, zéro pièce habituel, broche **toujours débranchée**. Vérifier que rien sur la table n'est plus haut que la fraise relevée. | — |
@@ -145,6 +145,6 @@ Mouvement nouveau (`SURETE.md` § F1, conception `../fonctions/F1-CONCEPTION.md`
 
 Ne **pas** essayer : une cible hors course « pour voir », `$20=0`, un reset en mouvement, un redémarrage de CNCjs pendant un côté.
 
-Les fenêtres trouvées par la relecture (rotation du flux, bannière, `jogCancel` d'un client tiers, `$G` sans `FS`) sont prouvées sur banc et simulateur seulement (`../fonctions/F1-CORRECTIONS.md`) ; elles ne se provoquent pas à l'essai.
+Les fenêtres trouvées par la relecture (rotation du flux, bannière, `jogCancel`, `autolevel:stop` ou porte `0x84` d'un client tiers, `$G` sans `FS`, réglages, repère ou décalage changés pendant le cadrage) sont prouvées sur banc et simulateur seulement (`../fonctions/F1-CORRECTIONS.md`) ; elles ne se provoquent pas à l'essai.
 
 **Relevé à rendre** : fait / non fait par étape, lignes écrites, positions aux coins, temps d'un côté, temps et distance d'arrêt, toute surprise. Une étape non faite reste non vérifiée. Après l'essai, mettre à jour C7 et C8 de la conception et la limite F1 de `SURETE.md`.
