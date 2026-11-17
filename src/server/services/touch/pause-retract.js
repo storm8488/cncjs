@@ -139,9 +139,33 @@ export const createRetract = (deps) => {
     return !!(c.workflow && c.workflow.state === 'paused' && s && s.hold === true && Number(s.received) === Number(s.sent) &&
       !feeder.queue && !feeder.pending);
   };
+  // Nothing waits to be sent or answered, whatever CNCjs's workflow: never while a program runs.
+  const quiet = (c) => {
+    const feeder = c.feeder && typeof c.feeder.toJSON === 'function' ? c.feeder.toJSON() : {};
+    const s = c.sender && c.sender.state;
+    const state = c.workflow && c.workflow.state;
+    return !feeder.queue && !feeder.pending && !!s && (state === 'paused' ? drained(c) : state === 'idle' && Number(s.received) === Number(s.sent));
+  };
   const owner = (c) => keyOf(control.inspect(c.options.port).owner);
   // A jog of ours may still move (D1): written and not proven at rest since, or a report says Jog.
   const jogMaybe = (c, s) => !!(s.jogLive || (s.out && /^\$J=/.test(s.out.line)) || activeOf(c) === 'Jog');
+  // The retract in progress, or the one dropped while a jog of it may still move or its spindle
+  // stop is due (r.retractTail, second review D1): both are followed by every report.
+  const live = (r, s) => r.retract === s || r.retractTail === s;
+  // A jog of ours proven over (or the retract gone): its tracker of Grbl's answers is released.
+  const endJog = (s) => {
+    s.jogLive = false;
+    if (s.jogT) {
+      s.jogT.done();
+      s.jogT = null;
+    }
+  };
+  const untail = (r, s) => {
+    if (r.retractTail === s) {
+      r.retractTail = null;
+      changed();
+    }
+  };
   // The last two reports, both received after report number `mark`, say Idle with coordinates of
   // their own (report() counts an Idle streak only over reports carrying XYZ).
   const idleSince = (r, s, mark) => s.idleFrom !== null && r.reports - Math.max(s.idleFrom, mark + 1) >= 1;
@@ -194,7 +218,7 @@ export const createRetract = (deps) => {
     }
     const j = r.job;
     const state = activeOf(c);
-    if (r.retract || !j || !j.started || j.external || j.stopped || j.finishedAt || j.errors || j.boardRestarted || j.probeFailed ||
+    if (r.retract || r.retractTail || !j || !j.started || j.external || j.stopped || j.finishedAt || j.errors || j.boardRestarted || j.probeFailed ||
         c.workflow.state !== 'running' || !fresh(r) || !['Run', 'Idle'].includes(state)) {
       throw refusal('ETOUCH_RETRACT_NOT_RUNNING');
     }
@@ -248,27 +272,40 @@ export const createRetract = (deps) => {
   };
 
   // After a move of ours was interrupted: jog cancel (0x85), repeated while a newer report still
-  // says Jog, then the spindle stopped (M5) once two fresh reports say Idle, same session, no alarm
-  // (§ 7). Nothing more after SECURE_MS, nothing at all once the retract is forgotten (Arrêter).
+  // says Jog, then the spindle stopped (M5) once two fresh reports say Idle, same session, no alarm,
+  // nothing waiting in CNCjs and no program running (§ 7). It goes on after the retract is dropped
+  // (Arrêter excepted, halt.js takes over): a stop, a load or an end of the job from anywhere no
+  // longer abandons it (second review D1). The jog cancel lasts until the jog is proven over
+  // (report()), the M5 may come within SECURE_MS after that.
   const secure = (c, r, s) => {
     if (!connected(c) || r.startups !== s.startups || /^Alarm/.test(activeOf(c))) {
       return;
     }
+    s.secureId += 1;
+    const id = s.secureId;
     const jogging = jogMaybe(c, s);
-    const spindle = s.spindleOn;
-    const mark = r.reports;
-    const since = clock();
-    const startups = r.startups;
-    let sentAt = clock();
-    let jogMark = r.reports;
-    if (jogging) {
-      c.command('jogCancel');
-    }
-    if (!jogging && !spindle) {
+    if (!jogging && !s.spindleOn) {
       return;
     }
+    const mark = r.reports;
+    let sentAt = clock();
+    let jogMark = r.reports;
+    let overAt = jogging ? null : clock();
+    if (jogging) {
+      s.cancelMark = r.reports;
+      c.command('jogCancel');
+    }
+    s.securing = true;
+    const end = () => {
+      s.securing = false;
+      untail(r, s);
+    };
     const step = () => {
-      if (r.retract !== s || !connected(c) || r.startups !== startups || /^Alarm/.test(activeOf(c))) {
+      if (s.secureId !== id) {
+        return;
+      }
+      if (!live(r, s) || !connected(c) || r.startups !== s.startups || /^Alarm/.test(activeOf(c))) {
+        end();
         return;
       }
       const state = activeOf(c);
@@ -277,26 +314,46 @@ export const createRetract = (deps) => {
         sentAt = clock();
         jogMark = r.reports;
       }
-      // At rest again (two reports with coordinates after the cancel): no jog of ours moves any more.
-      if (state === 'Idle' && idleSince(r, s, mark)) {
-        s.jogLive = false;
+      const moving = jogMaybe(c, s);
+      if (!moving && overAt === null) {
+        overAt = clock();
       }
-      if (spindle && s.spindleOn && state === 'Idle' && idleSince(r, s, mark) && fresh(r) && drained(c)) {
+      if (!moving && s.spindleOn && state === 'Idle' && idleSince(r, s, s.cancelMark === null ? mark : s.cancelMark) && fresh(r) && quiet(c)) {
         s.spindleOn = false;
         c.command('gcode', 'M5');
+        end();
         changed();
         return;
       }
-      // Without a spindle to stop: until the jog is proven over (or SECURE_MS).
-      if (!spindle && state !== 'Jog' && !s.jogLive && r.reports > mark) {
-        return;
-      }
-      if (clock() - since > SECURE_MS) {
+      if (!moving && (!s.spindleOn || clock() - overAt > SECURE_MS)) {
+        end();
         return;
       }
       later(c, r, step, 50);
     };
     later(c, r, step, 50);
+  };
+
+  // The single point where a retract is forgotten (a stop, a load or a run from anywhere, Pause or a
+  // feed hold while draining, the resume done). A jog of ours that may still move, or a spindle stop
+  // due after an interrupted move, outlives it as r.retractTail (second review D1).
+  const drop = (c, r, s) => {
+    const interrupted = (s.phase === 'lifting' || s.phase === 'returning') && !s.fromHeld && !s.cancelled;
+    s.cancelled = true;
+    if (r.retract === s) {
+      r.retract = null;
+    }
+    if (!s.securing && (jogMaybe(c, s) || (interrupted && s.spindleOn))) {
+      secure(c, r, s);
+    }
+    // From here on, the jog of ours is followed by jogLive and its tracker (report()).
+    s.out = null;
+    if (s.securing) {
+      r.retractTail = s;
+    } else {
+      endJog(s);
+    }
+    changed();
   };
 
   // The single entry for everything that stops or degrades the retract (§ 7).
@@ -402,8 +459,7 @@ export const createRetract = (deps) => {
     // CNCjs's workflow left the pause without us (a resume or a stop we did not send).
     if (c.workflow && c.workflow.state !== 'paused') {
       if (s.phase === 'draining') {
-        r.retract = null;
-        changed();
+        drop(c, r, s);
       } else {
         fail(c, r, s, 'ETOUCH_RETRACT_FOREIGN');
       }
@@ -527,7 +583,10 @@ export const createRetract = (deps) => {
       s.spindleOn = true;
     }
     if (/^\$J=/.test(line)) {
+      // The tracker of its answers is kept until the jog is proven over (report(), second review D1b).
       s.jogLive = true;
+      s.jogT = t;
+      s.cancelMark = null;
     }
     c.command('gcode', line);
     changed();
@@ -558,15 +617,22 @@ export const createRetract = (deps) => {
       t.done();
       s.out = null;
       // Two reports at rest after its `ok`: the jog is over.
-      s.jogLive = false;
+      if (s.jogT === t) {
+        endJog(s);
+      }
       s.lastModalMark = out.modalMark;
       return out;
     }, (err) => {
-      t.done();
       // A line Grbl refused never ran.
       if (t.error && s.out === out) {
         s.out = null;
-        s.jogLive = false;
+      }
+      if (s.jogT === t && t.error) {
+        endJog(s);
+      }
+      // A jog of ours not proven over keeps its tracker (report() ends it).
+      if (s.jogT !== t) {
+        t.done();
       }
       throw err;
     });
@@ -687,8 +753,7 @@ export const createRetract = (deps) => {
     const state = activeOf(c);
     // A feed hold from elsewhere (or a door): an ordinary pause from now on.
     if (/^(Hold|Door)/.test(state)) {
-      r.retract = null;
-      changed();
+      drop(c, r, s);
       return;
     }
     if (s.step === 'drain') {
@@ -801,6 +866,12 @@ export const createRetract = (deps) => {
       written: 0,
       // A jog of ours written and not proven over (D1); the latest reports with XYZ and with FS (D8, D3).
       jogLive: false,
+      // The tracker of Grbl's answers to that jog, and the report count when it was cancelled.
+      jogT: null,
+      cancelMark: null,
+      // secure(): its run (a newer one, or Arrêter, ends the older) and whether it still runs.
+      secureId: 0,
+      securing: false,
       xyzReport: null,
       speedReport: null,
       spindleMark: 0,
@@ -1028,8 +1099,10 @@ export const createRetract = (deps) => {
         resumeChecks(c, r, s, { final: true, needWco: true });
         logOf(c, r, s, 'resumed', {});
         log({ event: 'resume', ...jobInfo(r.job), controller: controllerInfo(c, r), pause: 'retract', actor: s.resumeActor });
-        r.retract = null;
-        s.cancelled = true;
+        // Done: the spindle and the bit are the program's again (no spindle stop may follow).
+        s.phase = 'resumed';
+        s.spindleOn = false;
+        drop(c, r, s);
         c.command('gcode:resume');
         changed();
       })
@@ -1047,7 +1120,7 @@ export const createRetract = (deps) => {
     }
     if (s.phase === 'draining') {
       // The ordinary pause from now on: a feed hold, resumed by `~` like any pause.
-      r.retract = null;
+      drop(c, r, s);
       c.command('feedhold');
       changed();
       return { message: 'Pause demandée. Attendre l’état Hold.' };
@@ -1060,56 +1133,56 @@ export const createRetract = (deps) => {
   };
   const moving = (r) => !!(r.retract && (r.retract.phase === 'lifting' || r.retract.phase === 'returning'));
 
-  // Arrêter (job-service.js 'stop'): the retract is forgotten, synchronously. 'jog': a jog may still
-  // move, whatever the phase (D1: after a failure too, until two reports at rest proved it over; or a
-  // report says Jog): a feed hold first, which cancels it, and halt.js repeats the jog cancel while a
-  // report says Jog, the reset only at rest. 'line': another line of ours is not answered yet.
+  // Arrêter (job-service.js 'stop'): the retract and its tail are forgotten, synchronously; halt.js
+  // takes over (feed hold, jog cancel repeated while Jog, the reset at rest or at its time limit).
+  // 'jog': a jog of ours may still move, whatever the phase (D1: after a failure or a stop from
+  // elsewhere too, until two reports at rest proved it over; or a report says Jog). 'line': another
+  // line of ours is not answered yet. 'spindle': see below.
   const halt = (c, r) => {
-    const s = r.retract;
-    if (!s) {
+    const all = [r.retract, r.retractTail].filter(Boolean);
+    if (!all.length) {
       return '';
     }
-    const jogging = jogMaybe(c, s);
-    const out = s.out ? 'line' : '';
-    s.cancelled = true;
+    const jogging = all.some((s) => jogMaybe(c, s));
+    // 'spindle': the spindle stop of an interrupted move was still due (halt.js: reset if it turns).
+    let out = all.some((s) => s.securing && s.spindleOn) ? 'spindle' : '';
+    if (r.retract && r.retract.out) {
+      out = 'line';
+    }
+    all.forEach((s) => {
+      s.cancelled = true;
+      // Its own spindle stop and jog cancel end here: halt.js resets the board.
+      s.secureId += 1;
+      s.securing = false;
+      endJog(s);
+    });
     r.retract = null;
+    r.retractTail = null;
     changed();
     return jogging ? 'jog' : out;
   };
 
-  // A stop sent from a socket (index.js refuseSocket), before the command goes its own way (§ 7).
-  const socketStop = (c, r) => {
+  // Everything a socket sends that index.js lets pass, except a status query (second review D1, one
+  // point for every client): `how` 'stop' (a stop, a hold, a reset, a door, a feeder stop) or
+  // 'cancel' (a jog cancel only). Before the command goes its own way: a lift or a descent of ours
+  // stops (jog cancel, then M5 at rest, see secure); while draining, a stop makes it the ordinary
+  // pause and a cancel drops the lift (held at rest); fraise en haut, a stop ends the in-place resume.
+  const socket = (c, r, how) => {
     const s = r.retract;
     if (!s) {
       return;
     }
     if (s.phase === 'draining') {
-      r.retract = null;
-      changed();
-      return;
-    }
-    if (s.phase !== 'held' && s.phase !== 'failed') {
-      fail(c, r, s, 'ETOUCH_RETRACT_FOREIGN');
-    }
-  };
-
-  // A jog cancel sent from a socket (`jogCancel`, 0x85; index.js refuseSocket), before it goes its
-  // own way (D6): a lift or a descent of ours stops here, and no line of ours follows it; while the
-  // machine finishes its lines, the lift is dropped (held at rest).
-  const socketJogCancel = (c, r) => {
-    const s = r.retract;
-    if (!s) {
-      return;
-    }
-    if (s.phase === 'draining') {
-      if (s.wantLift) {
+      if (how === 'stop') {
+        drop(c, r, s);
+      } else if (s.wantLift) {
         s.wantLift = false;
         s.failure = failureOf('ETOUCH_RETRACT_FOREIGN', {});
         changed();
       }
       return;
     }
-    if (s.phase === 'lifting' || s.phase === 'returning') {
+    if (s.phase === 'lifting' || s.phase === 'returning' || (s.phase === 'parked' && how === 'stop')) {
       fail(c, r, s, 'ETOUCH_RETRACT_FOREIGN');
     }
   };
@@ -1129,25 +1202,17 @@ export const createRetract = (deps) => {
   // Every status report (job-service r.status, after the count): Idle streaks, rest, offset.
   // `seen.xyz`: this report carries coordinates of its own (CNCjs keeps the old ones otherwise, D8);
   // `seen.speed`: the spindle speed of its FS: field, or undefined.
-  const report = (c, r, seen = {}) => {
-    const s = r.retract;
-    if (!s) {
-      return;
-    }
-    const state = activeOf(c);
+  // What every report tells a retract, in progress or dropped (its tail): the latest reports with XYZ
+  // and with FS (D8, D3), the Idle streak, and the end of a jog of ours that the sequence no longer
+  // waits for (cancelled, or the retract gone): its line answered, then two reports at rest with
+  // coordinates after its `ok` and after its cancel (second review D1b, whatever the time it takes).
+  const track = (c, r, s, state, seen) => {
     const xyz = seen.xyz === true;
     if (xyz) {
       s.xyzReport = r.reports;
     }
     if (typeof seen.speed === 'number' && Number.isFinite(seen.speed)) {
       s.speedReport = r.reports;
-    }
-    // D5: an Alarm state, even in a single report between two ticks, ends the retract now.
-    if (/^Alarm/.test(state)) {
-      fail(c, r, s, 'ETOUCH_RETRACT_ALARM', alarmParams(r));
-      s.idleFrom = null;
-      s.rest = [];
-      return;
     }
     // An Idle streak counts reports with coordinates only (D8).
     if (state === 'Idle' && xyz) {
@@ -1156,6 +1221,35 @@ export const createRetract = (deps) => {
       }
     } else {
       s.idleFrom = null;
+    }
+    const t = s.jogT;
+    if (s.jogLive && (s.cancelled || r.retract !== s) && t && (t.error || t.oks >= 1)) {
+      const mark = Math.max(t.oks >= 1 ? t.reportsAtOk : 0, s.cancelMark === null ? 0 : s.cancelMark);
+      if ((t.error && !t.oks) || (state === 'Idle' && idleSince(r, s, mark))) {
+        endJog(s);
+        changed();
+      }
+    }
+  };
+
+  const report = (c, r, seen = {}) => {
+    const state = activeOf(c);
+    const tail = r.retractTail;
+    if (tail && tail !== r.retract) {
+      track(c, r, tail, state, seen);
+    }
+    const s = r.retract;
+    if (!s) {
+      return;
+    }
+    const xyz = seen.xyz === true;
+    track(c, r, s, state, seen);
+    // D5: an Alarm state, even in a single report between two ticks, ends the retract now.
+    if (/^Alarm/.test(state)) {
+      fail(c, r, s, 'ETOUCH_RETRACT_ALARM', alarmParams(r));
+      s.idleFrom = null;
+      s.rest = [];
+      return;
     }
     // D4: every WCO received after the rest equals the one in force at the stop.
     if (s.restReport !== null && r.wco && r.wco.report === r.reports && r.wco.report > s.restReport) {
@@ -1182,11 +1276,11 @@ export const createRetract = (deps) => {
     }
   };
 
-  // The job ends (stopped, a new file, a new run): the retract goes with it.
-  const forgetJob = (r) => {
+  // The job ends (stopped, a new file, a new run, from anywhere): the retract goes with it, its jog
+  // cancel and spindle stop do not (drop, second review D1).
+  const forgetJob = (c, r) => {
     if (r.retract) {
-      r.retract.cancelled = true;
-      r.retract = null;
+      drop(c, r, r.retract);
     }
   };
 
@@ -1211,15 +1305,18 @@ export const createRetract = (deps) => {
 
   // The record is dropped (port closed, service disposed): one jog cancel for a jog of ours.
   const forget = (c, r) => {
-    const s = r.retract;
-    if (!s) {
-      return;
-    }
-    if (jogMaybe(c, s) && connected(c)) {
+    const all = [r.retract, r.retractTail].filter(Boolean);
+    if (all.some((s) => jogMaybe(c, s)) && connected(c)) {
       c.command('jogCancel');
     }
-    s.cancelled = true;
+    all.forEach((s) => {
+      s.cancelled = true;
+      s.secureId += 1;
+      s.securing = false;
+      endJog(s);
+    });
     r.retract = null;
+    r.retractTail = null;
   };
 
   const snapshot = (c, r) => {
@@ -1268,8 +1365,7 @@ resume,
 pause,
 moving,
 halt,
-socketStop,
-socketJogCancel,
+socket,
 alarmed,
 restarted,
 report,

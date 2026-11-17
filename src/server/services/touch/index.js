@@ -118,35 +118,24 @@ const fullHoming = (kind, cmdOrData) => {
   return kind === 'writeln' && typeof cmdOrData === 'string' && /^[ \t]*\$h[ \t]*$/i.test(cmdOrData);
 };
 
-// Socket commands and raw writes that stop or hold the machine (PLAN-CORRECTIONS § 1.6).
-const SOCKET_STOP_COMMANDS = ['gcode:stop', 'stop', 'feeder:stop', 'feedhold', 'gcode:pause', 'pause', 'reset'];
-const socketStopping = (kind, cmdOrData) => {
-  if (kind === 'command') {
-    return SOCKET_STOP_COMMANDS.includes(cmdOrData);
-  }
-  const line = String(cmdOrData === undefined || cmdOrData === null ? '' : cmdOrData).replace(/[\r\n]/g, '').trim();
-  // The caller has already checked safeWrite: a query or jog cancel mixed with a stop is safe too.
-  return line.indexOf('!') >= 0 || line.indexOf('\x18') >= 0;
-};
-
-// Socket commands and raw writes that cancel a jog (F2, pause-retract.js).
-const socketJogCancelling = (kind, cmdOrData) => (kind === 'command'
-  ? cmdOrData === 'jogCancel'
-  : String(cmdOrData === undefined || cmdOrData === null ? '' : cmdOrData).indexOf('\x85') >= 0);
+// What passes as safe (control.js SAFE_COMMANDS, SAFE_WRITES) is a stop, a hold, a cancel or a
+// status query. A status query changes nothing; a jog cancel alone is a 'cancel'; everything else,
+// including what a future safe command would add, is a 'stop' (PLAN-CORRECTIONS § 1.6; F2 second
+// review D1: one point for every stop or cancel of any client).
+const SOCKET_QUERIES = ['statusreport', 'autolevel:getProbeState'];
+const rawLine = (data) => String(data === undefined || data === null ? '' : data).replace(/[\r\n]/g, '').trim();
+const socketQuery = (kind, cmdOrData) => (kind === 'command' ? SOCKET_QUERIES.includes(cmdOrData) : /^\?+$/.test(rawLine(cmdOrData)));
+const socketCancelOnly = (kind, cmdOrData) => (kind === 'command' ? cmdOrData === 'jogCancel' : /^[?\x85]*\x85[?\x85]*$/.test(rawLine(cmdOrData)));
 
 const refuseSocket = (socket, port, kind, cmdOrData) => {
   if (!control) {
     return null;
   }
   const safe = kind === 'command' ? safeCommand(cmdOrData) : safeWrite(cmdOrData);
-  // A stop first ends the sequence of the server in progress (plate or block probe, work offset
-  // check D2), synchronously, then goes its own way (PLAN-CORRECTIONS § 1.6).
-  if (safe && socketStopping(kind, cmdOrData)) {
-    service.socketStop(port);
-  }
-  // A jog cancel ends a lift or a descent of « Pause et dégager » the same way (F2).
-  if (safe && socketJogCancelling(kind, cmdOrData)) {
-    service.socketJogCancel(port);
+  // A stop or a cancel first ends the sequence of the server in progress (plate or block probe,
+  // work offset check D2, « Pause et dégager »), synchronously, then goes its own way.
+  if (safe && !socketQuery(kind, cmdOrData)) {
+    service.socketStop(port, socketCancelOnly(kind, cmdOrData) ? 'cancel' : 'stop');
   }
   try {
     // Nothing that moves or writes passes, whoever owns the port, while a sequence of the server

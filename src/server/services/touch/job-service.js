@@ -356,8 +356,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         // Status reports received, so a step can wait for a newer one.
         reports: 0,
         xyzAt: null,
-        // « Pause et dégager » in progress or done (F2, pause-retract.js), null otherwise.
+        // « Pause et dégager » in progress or done (F2, pause-retract.js), null otherwise; and the one
+        // dropped while a jog of it may still move or its spindle stop is due (second review D1).
         retract: null,
+        retractTail: null,
         generation: crypto.randomBytes(12).toString('hex')
       };
       // D2: whether the work offset the board applies is proven equal to `$#` (work-offset.js).
@@ -596,7 +598,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         changed();
       };
       r.file = () => {
-        retract.forgetJob(r);
+        retract.forgetJob(c, r);
         r.job = null;
         r.ticket = null;
         changed();
@@ -666,7 +668,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       // `external`: the PC resumes it, not the tablet (TESTING.md, job follow-up).
       r.run = () => {
         r.foreignHome = null;
-        retract.forgetJob(r);
+        retract.forgetJob(c, r);
         if (r.job) {
           r.job.started = true;
           // Started by the service (ownStart, consumed here) or from outside.
@@ -708,7 +710,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       // before CNCjs's own listener, which rewinds the sender.
       r.stopped = () => {
         r.offset.invalidate('stop');
-        retract.forgetJob(r);
+        retract.forgetJob(c, r);
         const j = r.job;
         if (j && j.started && !j.stopped && !j.finishedAt && c.sender && c.sender.state && c.sender.state.name === j.name) {
           const line = stopLine(c, r);
@@ -1785,8 +1787,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       // A macro waiting in a dwell (CNCjs queue not empty) can be stopped too.
       canStop: c.workflow.state !== 'idle' || ['Run', 'Hold', 'Home', 'Jog'].includes(state.activeState) || /^Door/.test(state.activeState || '') ||
         !!r.probing || !!r.starting || !!r.frameStarting || homingActive(r) || !!(feederState.queue || feederState.pending) ||
-        // A jog sent by the service may run before Grbl reports Jog (F1).
-        moves.moving(c, r),
+        // A jog sent by the service may run before Grbl reports Jog (F1); or one of a dropped
+        // retract (F2, second review D1).
+        moves.moving(c, r) || !!r.retractTail,
       homing: homingActive(r),
       overrides: overridesOf(state),
       canOverride: !overrideReason,
@@ -2527,10 +2530,11 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         plateStop(c, r);
         return { message: 'Palpage interrompu. Vérifiez l’immobilisation ; le zéro Z n’est pas réglé.' };
       }
-      // F2: a retract is forgotten; a line of it not answered yet (a jog above all) is held first.
+      // F2: a retract is forgotten, its tail too; a line of it not answered yet (a jog above all) is
+      // held first; a spindle stop still due leaves the reset to haltPlan (spindle turning).
       const retractOut = retract.halt(c, r);
       const feeder = c.feeder.toJSON();
-      if (c.workflow.state === 'idle' && !['Run', 'Hold'].includes(activeState) && !feeder.queue && !feeder.pending) {
+      if (c.workflow.state === 'idle' && !['Run', 'Hold'].includes(activeState) && !feeder.queue && !feeder.pending && !retractOut) {
         if (starting) {
           return { message: START_CANCELLED };
         }
@@ -2538,7 +2542,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       }
       r.ticket = null;
       let plan = door ? '' : haltPlan(c);
-      if (retractOut === 'jog' || (retractOut && !plan)) {
+      if (retractOut === 'jog' || (retractOut === 'line' && !plan)) {
         plan = 'hold';
       }
       if (c.workflow.state === 'idle') {
@@ -2825,47 +2829,41 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     if (r && r.probing) {
       return conflict(SOCKET_PROBE_BUSY);
     }
-    // F2: whatever its phase and whoever owns the port, until the resume or Arrêter.
-    if (r && r.retract) {
+    // F2: whatever its phase and whoever owns the port, until the resume or Arrêter; and while a jog
+    // of a dropped retract may still move or its spindle stop is due (second review D1).
+    if (r && (r.retract || r.retractTail)) {
       return conflict(SOCKET_RETRACT_BUSY);
     }
     return r && (r.offset.checking() || r.offset.restoring()) ? r.offset.refusal() : null;
   };
 
-  // index.js refuseSocket: a stop from a socket (gcode:stop, stop, feeder:stop, feedhold, pause,
-  // reset, `!`, 0x18) first ends, synchronously, the sequence of the server in progress: the block
-  // probe and the plate probe (feed hold then reset, PLAN-CORRECTIONS § 1.6, C-09), the D2
-  // transaction. The command then goes its own way.
-  const socketStop = (port) => {
+  // index.js refuseSocket: everything a socket sends that passes, except a status query (second
+  // review D1, one point). `how` 'stop' (gcode:stop, stop, feeder:stop, feedhold, pause, reset, a door,
+  // `!`, 0x18…) first ends, synchronously, the sequence of the server in progress: the block probe and
+  // the plate probe (feed hold then reset, PLAN-CORRECTIONS § 1.6, C-09), the D2 transaction. 'cancel'
+  // (a jog cancel only) leaves them. Both reach « Pause et dégager » (F2, pause-retract.js). The
+  // command then goes its own way.
+  const socketStop = (port, how = 'stop') => {
     const c = !disposed && controllers()[port];
     const r = c && records.get(c);
     if (!r) {
       return;
     }
-    r.offset.cancel();
-    if (r.frameStarting) {
-      r.frameStarting.cancelled = true;
+    if (how === 'stop') {
+      r.offset.cancel();
+      if (r.frameStarting) {
+        r.frameStarting.cancelled = true;
+      }
+      if (r.starting) {
+        r.starting.cancelled = true;
+      }
+      if (r.probing && r.probing.kind === 'block') {
+        blockProbe.stop(c, r, 'stop');
+      } else if (r.probing) {
+        plateStop(c, r);
+      }
     }
-    if (r.starting) {
-      r.starting.cancelled = true;
-    }
-    if (r.probing && r.probing.kind === 'block') {
-      blockProbe.stop(c, r, 'stop');
-    } else if (r.probing) {
-      plateStop(c, r);
-    }
-    // F2 (pause-retract.js): forgotten while it waits for rest, stopped while it moves.
-    retract.socketStop(c, r);
-  };
-
-  // index.js refuseSocket: a jog cancel from a socket (`jogCancel`, 0x85) first ends, synchronously,
-  // the lift or the descent of a retract (F2, pause-retract.js); the command then goes its own way.
-  const socketJogCancel = (port) => {
-    const c = !disposed && controllers()[port];
-    const r = c && records.get(c);
-    if (r) {
-      retract.socketJogCancel(c, r);
-    }
+    retract.socket(c, r, how);
   };
 
   const dispose = () => {
@@ -2896,7 +2894,6 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     socketCommand,
     socketRefusal,
     socketStop,
-    socketJogCancel,
     control,
     dispose
   };

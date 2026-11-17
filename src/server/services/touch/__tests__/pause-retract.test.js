@@ -1091,3 +1091,80 @@ describe('Pause et dégager: the windows found by the review', () => {
     expect(ctx.state().pauseRetract).toMatchObject({ phase: 'held', failure: { code: 'ETOUCH_RETRACT_STREAM' } });
   });
 });
+
+// Second review (F2-CORRECTIONS.md, second round): each family closed at one point, its windows played.
+describe('Pause et dégager: the windows of the second review', () => {
+  const cancelledLift = async (ctx) => {
+    await ctx.retract();
+    await ctx.rest();
+    await ctx.wait(0);
+    ctx.parse('ok');
+    ctx.now += 250;
+    ctx.report('Jog');
+    await ctx.req('pause');
+    expect(phase(ctx)).toBe('failed');
+  };
+  const jogging = async (ctx, n) => {
+    for (let i = 0; i < n; i++) {
+      ctx.now += 250;
+      ctx.report('Jog');
+      // eslint-disable-next-line no-await-in-loop
+      await jest.advanceTimersByTimeAsync(250);
+    }
+  };
+
+  test('2-D1b. the jog proven over after more than 5 s (spindle off): the cancel repeated meanwhile, then Arrêter writes nothing', async () => {
+    const ctx = await setup();
+    ctx.gc.spindle = 'M5';
+    ctx.report('Run', { feed: 600 });
+    await cancelledLift(ctx);
+    await jogging(ctx, 22);
+    const late = ctx.mark();
+    await jogging(ctx, 4);
+    expect(ctx.lines(late)).toContain('\x85');
+    ctx.m.z = -80;
+    await ctx.idle(3);
+    await ctx.wait(300);
+    const mark = ctx.mark();
+    await ctx.req('stop');
+    await ctx.wait(1000);
+    expect(ctx.lines(mark)).toEqual([]);
+    expect(ctx.state()).toMatchObject({ jobStopped: true, homed: true, pauseRetract: null });
+  });
+
+  test('2-D1d. a stop from the PC during the dwell, then Arrêter on the tablet before the spindle stop: refused never, the spindle reset', async () => {
+    const ctx = await setup();
+    await ctx.park();
+    await ctx.resume();
+    await ctx.wait(100);
+    ctx.gc.spindle = 'M3';
+    await ctx.okIdle(2, { speed: 1000 });
+    // The PC's stop goes through the touch facade (socketStop) then CNCjs.
+    ctx.service.socketStop('/dev/null');
+    ctx.controller.command('gcode:stop');
+    const mark = ctx.mark();
+    const out = await ctx.req('stop');
+    expect(out.message).toMatch(/Arrêt demandé/);
+    await ctx.wait(100);
+    expect(ctx.since(mark)).toContain('\x18');
+  });
+
+  test('2-D1c. Arrêter, a jog still reported after 5 s: cancels repeated, no reset before the time limit, the reset at the limit (stop over position)', async () => {
+    const ctx = await setup();
+    await cancelledLift(ctx);
+    const mark = ctx.mark();
+    await ctx.req('stop');
+    const t0 = ctx.now;
+    let resetAt = null;
+    for (let i = 0; i < 28 && resetAt === null; i++) {
+      // eslint-disable-next-line no-await-in-loop
+      await jogging(ctx, 1);
+      if (ctx.lines(mark).includes('\x18')) {
+        resetAt = ctx.now - t0;
+      }
+    }
+    expect(ctx.lines(mark).filter((d) => d === '\x85').length).toBeGreaterThan(5);
+    expect(resetAt).toBeGreaterThanOrEqual(5000);
+    expect(resetAt).toBeLessThanOrEqual(5500);
+  });
+});

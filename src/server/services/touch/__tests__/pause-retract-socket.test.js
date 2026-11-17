@@ -12,6 +12,7 @@ import config from '../../configstore';
 import store from '../../../store';
 import settings from '../../../config/settings';
 import touch from '../index';
+import { SAFE_COMMANDS, SAFE_WRITES } from '../control';
 
 jest.mock('../../../lib/logger', () => {
   const l = () => ({ error: () => {}, warn: () => {}, info: () => {}, verbose: () => {}, debug: () => {}, silly: () => {} });
@@ -28,7 +29,8 @@ jest.mock('../job-service', () => {
     createService: (s, c, clock, options = {}) => {
       // eslint-disable-next-line global-require
       const { provenOffset: offset } = require('./support/proven-offset');
-      mockService.current = actual.createService(s, c, clock, { ...options, workOffset: offset });
+      // The fake clock of the timers (Date.now), so the service's delays follow advanceTimersByTime.
+      mockService.current = actual.createService(s, c, clock || (() => Date.now()), { ...options, workOffset: offset });
       return mockService.current;
     }
   };
@@ -159,6 +161,29 @@ const setup = async () => {
     await ctx.wait(100);
     expect(ctx.state().pauseRetract.phase).toBe('parked');
   };
+  // « Pause et dégager », rest, the lift written and answered, a report says Jog.
+  ctx.toLift = async () => {
+    const t = await ctx.req('prepare', { operation: 'retract', revision: ctx.state().revision });
+    await ctx.req('retract', { nonce: t.nonce });
+    const s = controller.sender.state;
+    for (let i = s.received; i < s.sent; i++) {
+      parse('ok');
+    }
+    await ctx.idle(2);
+    ctx.modal();
+    await ctx.wait(100);
+    expect(ctx.lines(ctx.mark() - 1)).toEqual(['$J=G91 G21 Z113.4 F600\n']);
+    parse('ok');
+    ctx.report('Jog');
+    expect(ctx.state().pauseRetract.phase).toBe('lifting');
+  };
+  ctx.jogging = async (n) => {
+    for (let i = 0; i < n; i++) {
+      ctx.report('Jog');
+      // eslint-disable-next-line no-await-in-loop
+      await jest.advanceTimersByTimeAsync(250);
+    }
+  };
   // « Reprendre… », then the spindle restarted: the dwell G4 P3 is the last line written.
   ctx.toDwell = async () => {
     ctx.report('Idle', { wco: true });
@@ -238,5 +263,117 @@ describe('Pause et dégager through the Socket.IO entry (index.js refuseSocket)'
     expect(ctx.socket('write', '!')).toBe(null);
     expect(ctx.lines(mark)).toEqual(expect.arrayContaining(['\x85', '!']));
     expect(ctx.state().pauseRetract).toMatchObject({ phase: 'failed', failure: { code: 'ETOUCH_RETRACT_FOREIGN' } });
+  });
+
+  // Second review (F2-CORRECTIONS.md, second round): every command and raw write that index.js lets
+  // pass while a retract exists, enumerated from control.js, not from the review.
+  const QUERIES = ['statusreport', 'autolevel:getProbeState', '?'];
+  const PASSING = SAFE_COMMANDS.filter((cmd) => !QUERIES.includes(cmd)).map((cmd) => ['command', cmd])
+    .concat(SAFE_WRITES.filter((ch) => !QUERIES.includes(ch)).map((ch) => ['write', ch]));
+
+  test('2-D1. the list of what passes is the one of control.js (stops, cancels, queries only)', () => {
+    expect(PASSING.length).toBe(SAFE_COMMANDS.length + SAFE_WRITES.length - QUERIES.length);
+    expect(PASSING.length).toBeGreaterThan(10);
+  });
+
+  test.each(PASSING)('2-D1. %s %j passed to the board during the lift: the lift ends at once, a jog cancel first, nothing of ours goes down', async (kind, data) => {
+    await setup();
+    await ctx.toLift();
+    const mark = ctx.mark();
+    expect(ctx.socket(kind, data)).toBe(null);
+    expect(ctx.lines(mark)[0]).toBe('\x85');
+    expect(['failed', undefined]).toContain((ctx.state().pauseRetract || {}).phase);
+    await ctx.jogging(3);
+    ctx.m.z = -60;
+    await ctx.idle(3);
+    await ctx.wait(300);
+    expect(ctx.lines(mark).filter((d) => /^\$J=|^M[34]|^G4/.test(d))).toEqual([]);
+  });
+
+  test.each(QUERIES.map((q) => [q === '?' ? 'write' : 'command', q]))('2-D1. a status query (%s %j) changes nothing', async (kind, data) => {
+    await setup();
+    await ctx.toLift();
+    const mark = ctx.mark();
+    expect(ctx.socket(kind, data)).toBe(null);
+    expect(ctx.lines(mark).filter((d) => d !== '?')).toEqual([]);
+    expect(ctx.state().pauseRetract.phase).toBe('lifting');
+  });
+
+  test('2-D1. a stop from the PC (gcode:stop) during the lift: the jog cancel is repeated while Jog, then M5 at rest; the PC waits meanwhile', async () => {
+    await setup();
+    await ctx.toLift();
+    const mark = ctx.mark();
+    expect(ctx.socket('command', 'gcode:stop')).toBe(null);
+    expect(ctx.controller.workflow.state).toBe('idle');
+    // 30 more reports say Jog (the cancel lost on the link, or a long deceleration).
+    await ctx.jogging(30);
+    expect(ctx.lines(mark).filter((d) => d === '\x85').length).toBeGreaterThan(5);
+    expect(ctx.lines(mark)).not.toContain('M5\n');
+    // What acts from the PC waits until the jog is proven over.
+    expect(ctx.socket('command', 'gcode')).not.toBe(null);
+    ctx.m.z = -60;
+    await ctx.idle(3);
+    await ctx.wait(200);
+    expect(ctx.lines(mark).filter((d) => d !== '\x85')).toEqual(['M5\n']);
+  });
+
+  test('2-D1. the program loaded again from outside (gcode:load) during the lift: the jog cancel and M5 at rest still follow', async () => {
+    await setup();
+    await ctx.toLift();
+    const mark = ctx.mark();
+    // api.gcode.js loads a file without passing through the socket refusal.
+    ctx.controller.command('gcode:load', 'other.nc', 'G0 X0', {}, () => {});
+    await ctx.jogging(4);
+    expect(ctx.lines(mark).filter((d) => d === '\x85').length).toBeGreaterThanOrEqual(2);
+    ctx.m.z = -60;
+    await ctx.idle(3);
+    await ctx.wait(200);
+    expect(ctx.lines(mark).filter((d) => d !== '\x85')).toEqual(['M5\n']);
+  });
+
+  test('2-D1. a stop from the PC during the dwell of the resume (spindle restarted, nothing moving): M5 at rest still follows', async () => {
+    await setup();
+    await ctx.park();
+    await ctx.toDwell();
+    const mark = ctx.mark();
+    expect(ctx.socket('command', 'gcode:stop')).toBe(null);
+    ctx.parse('ok');
+    await ctx.idle(3);
+    await ctx.wait(200);
+    expect(ctx.lines(mark)).toEqual(['M5\n']);
+    // The tail is over: nothing of F2 keeps the PC waiting any more.
+    expect(ctx.service.socketRefusal(PORT)).toBe(null);
+  });
+
+  test('2-D9. what acts is also refused while parked, during the descent, held and failed', async () => {
+    const busy = 'Fraise dégagée par la tablette : commande refusée jusqu’à la reprise (Arrêter reste possible).';
+    const acts = [['command', 'gcode:resume'], ['command', 'cyclestart'], ['write', '~'], ['command', 'gcode'], ['writeln', 'M5'], ['command', 'homing'], ['command', 'unlock']];
+    const refused = (phase) => acts.forEach(([kind, data]) => expect([phase, data, (ctx.socket(kind, data) || {}).message]).toEqual([phase, data, busy]));
+    await setup();
+    await ctx.park();
+    refused('parked');
+    await ctx.toDwell();
+    refused('returning');
+    expect(ctx.socket('command', 'jogCancel')).toBe(null);
+    expect(ctx.state().pauseRetract.phase).toBe('failed');
+    refused('failed');
+    touch.stop();
+    store.set('controllers', {});
+    ctx.controller.destroy();
+    ctx = null;
+    // Held: the stream closed for good while draining.
+    await setup();
+    const t = await ctx.req('prepare', { operation: 'retract', revision: ctx.state().revision });
+    await ctx.req('retract', { nonce: t.nonce });
+    ctx.service.closeTransport('tA');
+    const s = ctx.controller.sender.state;
+    for (let i = s.received; i < s.sent; i++) {
+      ctx.parse('ok');
+    }
+    await ctx.idle(2);
+    ctx.modal();
+    await ctx.wait(500);
+    expect(ctx.state().pauseRetract.phase).toBe('held');
+    refused('held');
   });
 });
