@@ -303,13 +303,16 @@ describe('xvf bout en bout : commandes système', () => {
   });
 
   test('sensible pendant un travail en cours : 409, rien lancé', async () => {
+    // The job is started by a caller without a client id (the classic interface), which leaves the port
+    // free: a tablet may not give the hand back during a job (F4), so it cannot free it itself.
     const A = tablet('tab-A');
     const gen = snap().generation;
-    await A.post({ action: 'load', file: 'job.nc' });
+    const anonymous = (body) => answer(postJob, { user: { id: 'u1', name: 'op' }, body: { port: 'TEST', transportId: A.transportId, ...body } });
+    await anonymous({ action: 'load', file: 'job.nc' });
     report();
-    const t = await A.post({ action: 'prepare', operation: 'start', revision: snap().revision, generation: gen });
-    await A.post({ action: 'start', nonce: t.payload.nonce, generation: gen });
-    await A.post({ action: 'control', operation: 'release' });
+    const t = await anonymous({ action: 'prepare', operation: 'start', revision: snap().revision, generation: gen });
+    await anonymous({ action: 'start', nonce: t.payload.nonce, generation: gen });
+    expect(snap().control.owner).toBeNull();
     report();
     const res = await runReq('reboot');
     expect(res.statusCode).toBe(409);

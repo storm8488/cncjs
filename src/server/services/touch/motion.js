@@ -85,6 +85,7 @@ const STOP_REASONS = {
   keepalive: 'maintien non confirmé à temps (connexion lente ou perdue)',
   transport: 'flux de suivi du client fermé',
   control: 'pilotage pris par un autre client',
+  released: 'pilotage rendu',
   stale: 'rapport machine trop ancien',
   alarm: 'alarme machine',
   disabled: 'déplacements réels désactivés',

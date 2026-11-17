@@ -2672,6 +2672,9 @@ describe('F5: attribution of control in the service', () => {
     await expect(ctx.req('prepare', { operation: 'resume', revision: ctx.state().revision }, TABLET_A)).rejects.toThrow(/Tablette B/);
     // Release by the owner: free again; by someone else: refused.
     await expect(ctx.req('control', { operation: 'release' }, TABLET_A)).rejects.toThrow(/Tablette B/);
+    // F4: the owner may not give the hand back while its job runs; once the job is over, it may.
+    await expect(ctx.req('control', { operation: 'release' }, TABLET_B)).rejects.toMatchObject({ code: 'ETOUCH_CONTROL_JOB' });
+    ctx.c.workflow.state = 'idle';
     expect(await ctx.req('control', { operation: 'release' }, TABLET_B)).toMatchObject({ owner: null });
     expect(ctx.state().control.owner).toBeNull();
     await expect(ctx.req('control', { operation: 'nonsense' }, TABLET_B)).rejects.toThrow(/inconnue/);
