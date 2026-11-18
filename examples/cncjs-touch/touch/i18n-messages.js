@@ -1,6 +1,7 @@
 // Source phrase, English, Spanish. UI only: never translate controller commands or user data.
 window.CNCTouchMessages = [
 ['Progression indisponible','Progress unavailable','Progreso no disponible'],
+['Avancement compté en lignes','Progress counted in lines','Avance contado en líneas'],
 ['Temps écoulé : ','Elapsed time: ','Tiempo transcurrido: '],
 ['Temps restant estimé','Estimated time remaining','Tiempo restante estimado'],
 ['Durée calculée depuis le programme chargé','Duration calculated from the loaded program','Duración calculada a partir del programa cargado'],

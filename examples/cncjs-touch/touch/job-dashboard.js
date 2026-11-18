@@ -34,7 +34,7 @@
   function rapidState(host,prefix,d){var m=d&&d.machine,allowed=!!(m&&m.fresh&&!d.busy&&(!d.pilot||d.pilot.state!=='other')&&('canRapidOverride' in m?m.canRapidOverride:m.canOverride)),v=m&&m.overrides&&m.overrides.rapid;
     var read=$(prefix+'-override-rapid');if(read&&read.textContent!==(typeof v==='number'?v+' %':'—'))read.textContent=typeof v==='number'?v+' %':'—';
     Array.prototype.forEach.call(host.querySelectorAll('button[data-kind="rapid"]'),function(b){if(b.disabled===allowed)b.disabled=!allowed;var pressed=String(typeof v==='number'&&Number(b.getAttribute('data-value'))===v);if(b.getAttribute('aria-pressed')!==pressed)b.setAttribute('aria-pressed',pressed);});
-    var note=$(prefix+'-rapid-reason'),reason=allowed?'':d&&d.pilot&&d.pilot.state==='other'?uiLocale.t('La main est sur un autre appareil.'):m&&m.rapidOverrideReason?(uiLocale.message||uiLocale.t)(m.rapidOverrideReason):uiLocale.t('Impossible pour l’instant.');if(note&&note.textContent!==reason)note.textContent=reason;
+    var note=$(prefix+'-rapid-reason'),reason=allowed?'':d&&d.pilot&&d.pilot.state==='other'?($(prefix+'-override-note')?'':uiLocale.t('La main est sur un autre appareil.')):m&&m.rapidOverrideReason?(uiLocale.message||uiLocale.t)(m.rapidOverrideReason):uiLocale.t('Impossible pour l’instant.');if(note&&note.textContent!==reason)note.textContent=reason;
   }
   function rapidRow(host,prefix){host.innerHTML=rapidMarkup(prefix,uiLocale.t('Rapides au départ'))+'<p id="'+prefix+'-rapid-reason"></p>';host.addEventListener('click',overrideClick);rapidHosts.push({host:host,prefix:prefix});if(rapidDetail)rapidState(host,prefix,rapidDetail);}
   var rapidDetail=null;
@@ -276,7 +276,7 @@
     // A program that reached its end with lines refused by Grbl (error:N) is not "finished".
     var failed=!simulation&&c&&c.finishedWithErrors===true&&finiteNumber(c.jobErrors)&&c.jobErrors>0;
     if(valid&&(c.finished===true||failed)&&c.workflow==='idle')p=100;
-    var progressKnown=valid,programProgress=null,elapsed=null;
+    var progressKnown=valid,programProgress=null,elapsed=null,byLines=false;
     // Acknowledgements only describe the sender's buffer. Prefer the server's model of this run;
     // an older server may use a matching preview, but never the buffer percentage as a fallback.
     if(valid&&!simulation&&!(c.workflow==='idle'&&(c.finished===true||failed))){
@@ -295,6 +295,12 @@
       }
       progressKnown=runP!==null;
       if(progressKnown)p=runP;
+      // No duration model (a program beyond the timing walk's 20000 moves): count the acknowledged lines
+      // of a long file, where the few lines Grbl holds in its planner weigh less than one percent.
+      if(!progressKnown&&jp&&jp.durationSeconds===null&&(c.workflow==='running'||c.workflow==='paused')){
+        var lt=linesTotal(c);
+        if(finiteNumber(lt)&&lt>=2000){p=acknowledgedLine(c,lt)/lt*100;progressKnown=true;byLines=true;}
+      }
     }
     if(valid&&c.workflow==='running')p=Math.min(99,p);
     var percent=progressKnown?Math.floor(p)+' %':'—',remaining=null,eta=uiLocale.t('Temps restant : —');
@@ -326,6 +332,10 @@
         remaining=programProgress.remainingSeconds;
         eta=uiLocale.t('Temps restant estimé')+' : '+remainingText(remaining);
         if(c.workflow==='paused')eta=uiLocale.t('En pause — ')+remainingText(remaining)+uiLocale.t(' restantes');
+      }else if(byLines){
+        remaining=null;
+        eta=uiLocale.t('Avancement compté en lignes');
+        if(c.workflow==='paused')eta=uiLocale.t('En pause — ')+eta;
       }else if(!progressKnown&&(c.workflow==='running'||c.workflow==='paused')){
         remaining=null;
         eta=uiLocale.t('Progression indisponible');

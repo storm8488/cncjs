@@ -56,6 +56,18 @@ unknown.send({ received: 56 });
 assert.equal(unknown.percent(), '—', 'an older server without a preview never falls back to acknowledgements');
 unknown.send({ jobProgress: { ...progress(60), durationSeconds: null, percent: null, remainingSeconds: null } });
 assert.match(unknown.eta(), /Progression indisponible.*Temps écoulé : 1 min/);
+// A program too long for the duration model (real case: 496555 lines): the acknowledged lines, no remaining time.
+for (const language of ['fr', 'en', 'es']) {
+  const long = fixture(language), none = { ...progress(60), durationSeconds: null, percent: null, remainingSeconds: null };
+  long.send({ total: 496555, received: 21560, jobProgress: none });
+  assert.equal(long.percent(), '4 %', 'lines of a long file');
+  assert.equal(long.node('home-job-progress').hidden, false);
+  assert.match(long.eta(), language === 'fr' ? /Avancement compté en lignes/ : language === 'en' ? /Progress counted in lines/ : /Avance contado en líneas/);
+  long.send({ jobProgress: { ...progress(420) } });
+  assert.equal(long.percent(), '—', 'an exhausted estimate stays unknown, even on a long file');
+  long.send({ total: 1999, received: 1000, jobProgress: none });
+  assert.equal(long.percent(), '—', 'a short file never shows its buffer share');
+}
 for (const bad of [NaN, Infinity, -1, 100, '40']) {
   unknown.send({ jobProgress: { ...progress(60), percent: bad } });
   assert.equal(unknown.percent(), '—');

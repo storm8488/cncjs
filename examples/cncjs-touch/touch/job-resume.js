@@ -163,9 +163,9 @@
     var state=screenState(Object.assign({},status,{summary:summary}));set(noticeText,'textContent',state.text);if(notice.getAttribute('data-tone')!==state.tone)notice.setAttribute('data-tone',state.tone);
     set(m5,'hidden',!state.pause);set(m5,'disabled',!(machine&&machine.canSpindleStop));set(m5,'textContent',t(laserOf(machine)?'Éteindre le laser':'Arrêter la broche'));
     set(m5Reason,'textContent',state.pause&&!(machine&&machine.canSpindleStop)?message(machine&&machine.spindleStopReason||t('Arrêt de la broche indisponible.')):'');
-    set(open,'hidden',false);set(open,'disabled',!permitted());set(open,'textContent',t(laserOf(machine)?'Reprendre à un début de passe…':'Reprendre à une ligne…'));
+    var jobOn=!!(machine&&machine.workflow==='running');set(open,'hidden',jobOn);set(open,'disabled',!permitted());set(open,'textContent',t(laserOf(machine)?'Reprendre à un début de passe…':'Reprendre à une ligne…'));
     var lr=laserOf(machine)?capabilityOf(machine,'laserResume'):null;set(open,'title',lr&&!lr.supported?lr.reason:'');
-    set(openReason,'textContent',permitted()?'':lr&&!lr.supported?lr.reason:!targetFile()?t('Aucun fichier chargé.'):machine&&machine.workflow!=='idle'?t('Un usinage est en cours.'):message(machine&&machine.loadReason||t('Impossible pour l’instant.')));
+    set(openReason,'textContent',permitted()||jobOn?'':lr&&!lr.supported?lr.reason:!targetFile()?t('Aucun fichier chargé.'):machine&&machine.workflow!=='idle'?t('Un usinage est en cours.'):message(machine&&machine.loadReason||t('Impossible pour l’instant.')));
     set(details,'hidden',!state.details);
     if(isOpen&&!loading&&(!machine||resumeFile!==targetFile()||openedKey!==identity()||machine.workflow!=='idle')){close();if(root.cncShell)root.cncShell.closeSheet();}
     if(isOpen)set(load,'disabled',!checked||!permitted()||loading);
