@@ -24,15 +24,34 @@ async function fixture(monotonic=false){
  const ctx={window:win,document:doc,Date:{now:()=>now},Promise,CustomEvent:function(){},setInterval:f=>{timers.push(f);return 1;},clearInterval(){},XMLHttpRequest(){throw Error('No hardware/network permitted');}};
  vm.runInNewContext(fs.readFileSync(__dirname+'/touch/job-controls.js','utf8'),ctx);
  const flush=()=>new Promise(setImmediate);await flush();
- const begin=async()=>{node('home-job-start').focus();node('job-start').click();await flush();};
+ const begin=async()=>{node('home-job-start').focus();win.cncJobControls.start();await flush();};
  const resolve=async()=>{const f=pending;pending=null;f({nonce:'ticket',name:'leaf.nc',expiresIn:15});await flush();};
  const open=async()=>{await begin();await resolve();assert.equal(node('job-dialog').hidden,false);};
- const check=()=>{node('job-check').checked=true;node('job-check').handlers.change.call(node('job-check'));};
+ const check=()=>{now+=600;elapsed+=600;node('job-check').checked=true;node('job-check').handlers.change.call(node('job-check'));};
  return {node,doc,win,machine,calls,emit,flush,begin,resolve,open,check,advance(ms){now+=ms;elapsed+=ms;},jumpWall:ms=>now+=ms};
 }
 (async()=>{
+ // L6: technical resume lines and file-authored pause messages remain readable
+ // in Details without being copied to the operator confirmation or its ticket.
+ {
+   const f=await fixture();let details;
+   f.win.cncShell={details:value=>{details=value;}};
+   f.machine.resume={from:42,total:100,line:'G1 X5',notes:['G54 work frame']};
+   f.win.cncJobControls.refresh();await f.flush();await f.open();
+   f.node('job-dialog-details').onclick();
+   assert(details.lignes.some(r=>r.valeur==='G1 X5'));
+   assert(details.lignes.some(r=>r.valeur==='G54 work frame'));
+   assert(!JSON.stringify(details).includes('ticket'),'details never copy the confirmation nonce');
+ }
+ {
+   const f=await fixture();let details;
+   f.win.cncShell={details:value=>{details=value;}};
+   Object.assign(f.machine,{activeState:'Hold',workflow:'paused',canStart:false,canResume:true,programPause:{kind:'M0',message:'M0 (check clamps)'}});
+   f.win.cncJobControls.refresh();await f.flush();f.win.cncJobControls.resume();await f.flush();await f.resolve();
+   f.node('job-dialog-details').onclick();assert(details.lignes.some(r=>r.valeur==='M0 (check clamps)'),'file message is preserved in Details');
+ }
  for(const jump of [-3600000,3600000]){
-   const timed=await fixture(true);await timed.open();timed.jumpWall(jump);timed.advance(14999);
+   const timed=await fixture(true);await timed.open();timed.jumpWall(jump);timed.advance(14399);
    timed.win.cncJobControls.refresh();await timed.flush();timed.check();assert.equal(timed.node('job-confirm').disabled,false);
    timed.advance(1);timed.check();assert.equal(timed.node('job-confirm').disabled,true,'Expires after exactly 15 elapsed seconds');
    timed.node('job-confirm').handlers.click();await timed.flush();assert(timed.node('job-dialog').hidden);
@@ -44,7 +63,7 @@ async function fixture(monotonic=false){
  }
  let f=await fixture();await f.open();
  // The simulation has no machine travel: the travel line stays hidden.
- assert.equal(f.node('job-travel').hidden,true);
+ assert(!fs.readFileSync(__dirname+'/touch/job-controls.js','utf8').includes('id="job-travel"'));
  assert.equal(f.doc.activeElement.id,'job-dismiss');assert(f.node('main').inert);
  assert.match(f.node('job-countdown').textContent,/15 s/);
  function key(key,shiftKey=false){let prevented=false;f.emit('keydown',{key,shiftKey,preventDefault(){prevented=true;},stopImmediatePropagation(){}});return prevented;}
@@ -66,7 +85,7 @@ async function fixture(monotonic=false){
  f=await fixture();f.machine.canMacro=true;f.machine.macros=[{id:'m1',name:'Dégagement Z'}];f.win.cncJobControls.refresh();await f.flush();
  f.win.cncJobControls.prepareMacro('m1');await f.flush();
  assert.deepEqual(f.calls.at(-1),{action:'prepare',port:'SIMULATION',generation:'g1',operation:'macro',macroId:'m1'});
- await f.resolve();assert.equal(f.node('job-dialog').hidden,false);assert.equal(f.node('job-dialog-title').textContent,'Exécuter la macro');
+ await f.resolve();assert.equal(f.node('job-dialog').hidden,false);assert.equal(f.node('job-dialog-title').textContent,'Lancer la macro leaf.nc');
  f.check();f.node('job-confirm').click();f.node('job-confirm').click();await f.flush();
  assert.equal(f.calls.filter(c=>c.action==='macro').length,1);assert.equal(f.calls.at(-1).nonce,'ticket');assert(f.node('job-dialog').hidden);
  f.machine.canMacro=false;f.machine.macroReason='Travail en cours.';f.win.cncJobControls.prepareMacro('m1');await f.flush();await f.resolve();
@@ -76,7 +95,7 @@ async function fixture(monotonic=false){
  assert.deepEqual(f.calls.at(-1),{action:'override',port:'SIMULATION',generation:'g1',kind:'feed',value:10});
  // Commissioning commands ($X, $H, spindle test) use the same dialog and nonce,
  // without a loaded program; the ticket follows the matching can* flag.
- for(const [op,flag,label] of [['unlock','canUnlock','Déverrouiller la machine'],['home','canHome','Lancer la prise d’origine'],['spindle','canSpindleTest','Démarrer la broche']]){
+ for(const [op,flag,label] of [['unlock','canUnlock','Déverrouiller sans prise d’origine'],['home','canHome','Lancer la prise d’origine machine'],['spindle','canSpindleTest','Démarrer la broche']]){
    f=await fixture();f.machine[flag]=true;f.machine.revision=undefined;f.win.cncJobControls.refresh();await f.flush();
    f.win.cncJobControls.prepareCommand(op);await f.flush();
    assert.deepEqual(f.calls.at(-1),{action:'prepare',port:'SIMULATION',generation:'g1',operation:op});
@@ -89,7 +108,11 @@ async function fixture(monotonic=false){
  // A confirmed command with parameters (Z zero with a plate) sends them with the prepare request and uses its own title.
  {const g=await fixture();g.machine.canZeroZ=true;g.win.cncJobControls.prepareCommand('zeroZ',{thickness:10,search:15});await g.flush();
   const req=g.calls.at(-1);assert.equal(req.action,'prepare');assert.equal(req.operation,'zeroZ');assert.equal(req.thickness,10);assert.equal(req.search,15);assert.equal(req.revision,undefined);
-  await g.resolve();assert.equal(g.node('job-dialog').hidden,false);assert.equal(g.node('job-dialog-title').textContent,'Régler le zéro Z avec la plaque');
+  await g.resolve();assert.equal(g.node('job-dialog').hidden,false);assert.equal(g.node('job-dialog-title').textContent,'Zéro Z à la plaque');
   g.machine.canZeroZ=false;g.win.cncJobControls.refresh();await g.flush();assert(g.node('job-dialog').hidden,'the dialog closes when the server no longer allows the probe');}
+ // UI-6 (rehearsal): closed by a server refusal (probe already in contact), the reason is shown.
+ {const g=await fixture();g.machine.canZeroZ=true;g.win.cncJobControls.prepareCommand('zeroZ',{thickness:10,search:15});await g.flush();await g.resolve();
+  g.machine.canZeroZ=false;g.machine.zeroZReason='Sonde déjà en contact : vérifiez la pince et la plaque.';g.win.cncJobControls.refresh();await g.flush();
+  assert(g.node('job-dialog').hidden);assert.equal(require('./command-state-fixture.cjs')(g.win,'job-feedback').textContent,'Confirmation annulée : Sonde déjà en contact : vérifiez la pince et la plaque.');}
  console.log('PASS: focus, inert restoration, keyboard trap, delayed prepare, modal exclusion, stale click, alarm/revision invalidation, visibility/disposal and single confirmation; no network.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

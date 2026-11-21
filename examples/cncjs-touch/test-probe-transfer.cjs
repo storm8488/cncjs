@@ -6,7 +6,8 @@ const text=transfer.encode([base],'real');
 assert.deepEqual(transfer.decode(text,'real'),[base]);
 assert.deepEqual(transfer.decode('\ufeff'+text,'real'),[base]);
 assert.throws(()=>transfer.decode(text,'simulation'),/RÉEL/);
-assert.throws(()=>transfer.decode(transfer.encode([model.demo()],'simulation'),'real'),/SIMULATION/);
+// Real page (final interface): still refused, without pointing to the simulation mode.
+assert.throws(()=>transfer.decode(transfer.encode([model.demo()],'simulation'),'real'),/^Error: Sauvegarde incompatible avec cette interface\.$/);
 assert.throws(()=>transfer.decode('x'.repeat(65537),'real'),/volumineux/);
 assert.throws(()=>transfer.decode('{','real'),/illisible/);
 const data=JSON.parse(text);

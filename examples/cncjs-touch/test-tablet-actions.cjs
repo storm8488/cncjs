@@ -2,12 +2,12 @@
 // Réglages → Système → Tablette: version and update check, CNCjs host commands with a
 // second confirming tap, refused during a job. Network is mocked; nothing is run.
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
-const {document,node,element,activeScreens}=require('./dom-fixture.cjs').createDOM(['settings']);
+const {document,node,element}=require('./dom-fixture.cjs').createDOM(['settings']);
 const panel=node('screen-settings'),section=node('ks-system'),foot=element('p');section.appendChild(foot);
 panel.setAttribute('data-settings-tab','system');
-let timers=[],requests=[],token='jwt',now=1e12,machine=null;
+let timers=[],requests=[],token='jwt',now=1e12,machine=null,reloads=0;
 const handlers={};
-const window={addEventListener:(n,f)=>handlers[n]=f,cncState:{get:()=>({apiBase:'/api',machine})}};
+const window={location:{reload:()=>reloads++},addEventListener:(n,f)=>handlers[n]=f,cncState:{get:()=>({apiBase:'/api',machine})}};
 function XHR(){this.headers={};requests.push(this);}
 XHR.prototype.open=function(m,u){this.method=m;this.url=u;};
 XHR.prototype.setRequestHeader=function(k,v){this.headers[k]=v;};
@@ -22,7 +22,8 @@ const box=section.children[0],[,version,update,list,status]=box.children;
 const answer=(url,code,data)=>{const r=requests.filter(x=>x.url.startsWith(url)).at(-1);assert(r,'request to '+url);r.status=code;r.responseText=JSON.stringify(data);r.onload();};
 assert.equal(section.children.at(-1),foot,'the block goes before the footnote');
 assert.match(version.textContent,/inconnue/);
-assert.equal(requests.length,0,'nothing loaded before the tab is shown');
+assert.equal(requests.length,1,'the loaded version is read once before System opens');
+assert(requests[0].url.startsWith('VERSION.json?'),'load-time version is cache-busted');
 
 handlers['cnc-settings-tab']({detail:'system'});
 const listReq=requests.find(r=>r.url==='/api/commands');assert(listReq);assert.equal(listReq.headers.Authorization,'Bearer jwt');
@@ -37,7 +38,7 @@ assert(!list.children.some(b=>/secret/.test(b.textContent)),'shell commands are 
 
 // Version and update check against GitHub.
 answer('VERSION.json',200,{commit:'bf9d81c7aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',branch:'feat/touch-server-integration',repo:'storm8488/cncjs',deployedAt:'2026-10-16T16:35:00Z'});
-assert.match(version.textContent,/^Interface bf9d81c · feat\/touch-server-integration · installée le /);
+assert.match(version.textContent,/^Interface chargée : bf9d81c · feat\/touch-server-integration · installée le /);
 const gh=requests.at(-1);assert.equal(gh.url,'https://api.github.com/repos/storm8488/cncjs/commits/feat%2Ftouch-server-integration');
 assert.equal(gh.headers.Authorization,undefined,'the CNCjs token never goes to GitHub');
 answer('https://api.github.com',200,{sha:'0123456789abcdef',commit:{message:'feat(touch): something new\n\nbody'}});
@@ -89,13 +90,52 @@ machine={workflow:'idle'};handlers['cnc-job-status']();assert(!upd.disabled);
 
 // Leaving the tab disarms; no session means no list request.
 upd.click();panel.setAttribute('data-settings-tab','display');handlers['cnc-settings-tab']({detail:'display'});assert.equal(upd.getAttribute('data-state'),'idle');
+// The Machine tab too: a pending second tap is cancelled, nothing is posted.
+panel.setAttribute('data-settings-tab','system');handlers['cnc-settings-tab']({detail:'system'});
+const posts=requests.filter(r=>r.method==='POST').length;
+upd.click();assert.equal(upd.getAttribute('data-state'),'armed');
+panel.setAttribute('data-settings-tab','machine');handlers['cnc-settings-tab']({detail:'machine'});assert.equal(upd.getAttribute('data-state'),'idle');
+assert.equal(requests.filter(r=>r.method==='POST').length,posts,'the first tap posted nothing');
+answer('/api/commands',200,{records:[{id:'u1',title:'Mettre à jour l’interface'},{id:'r1',title:'Redémarrer la tablette'}]});
 panel.setAttribute('data-settings-tab','system');token='';handlers['cnc-settings-tab']({detail:'system'});
 assert.match(status.textContent,/Session CNCjs requise/);assert.equal(list.children.length,0);
 // Empty list.
 token='jwt';handlers['cnc-settings-tab']({detail:'system'});answer('/api/commands',200,{records:[]});assert.match(status.textContent,/Aucune commande/);
+// C-49: a later installation never replaces the version loaded by this page.
+machine=null;
+panel.setAttribute('data-settings-tab','display');handlers['cnc-settings-tab']({detail:'display'});
+panel.setAttribute('data-settings-tab','system');now++;handlers['cnc-settings-tab']({detail:'system'});
+answer('VERSION.json',200,{commit:'0123456789abcdef',branch:'feat/refonte-ui'});
+assert.match(version.textContent,/chargée : bf9d81c/,'loaded version remains immutable');
+const installed=box.children.find(n=>n.className==='ks-tablet-installed'),reload=box.children.find(n=>n.className==='ks-tablet-reload ks-secondary');
+assert(installed&&!installed.hidden);assert.match(installed.textContent,/installée : 0123456/);
+assert(reload&&!reload.hidden&&!reload.disabled);
+const quietReload={fresh:true,workflow:'idle',activeState:'Idle',spindleSpeed:0};
+for(const patch of [{workflow:'running'},{workflow:'paused'},{activeState:'Home'},{activeState:'Alarm'},{fresh:false},{spindleSpeed:1000},{loading:true},{homing:true},{probing:true},{motion:{jog:true}}]){
+  machine={...quietReload,...patch};handlers['cnc-job-status']();assert(reload.disabled,'reload refused for '+JSON.stringify(patch));
+  reload.handlers.click();assert.equal(reloads,0);
+}
+machine=quietReload;handlers['cnc-job-status']();assert(!reload.disabled);
+reload.click();answer('/api/touch-job',200,{controllers:[{...quietReload,activeState:'Run'}]});assert.equal(reloads,0,'server guard is checked at the last moment');
+reload.click();answer('/api/touch-job',500,{});assert.equal(reloads,0,'unknown server state refuses reload');
+reload.click();answer('/api/touch-job',200,{controllers:[quietReload],systemCommand:{title:'Update'}});assert.equal(reloads,0,'host maintenance refuses reload');
+reload.click();answer('/api/touch-job',200,{controllers:[quietReload]});assert.equal(reloads,1,'one explicit click reloads at confirmed rest');
+panel.setAttribute('data-settings-tab','display');handlers['cnc-settings-tab']({detail:'display'});
+panel.setAttribute('data-settings-tab','system');handlers['cnc-settings-tab']({detail:'system'});
+answer('VERSION.json',200,{commit:'bf9d81c7aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'});
+assert(installed.hidden&&reload.hidden,'same installed and loaded version needs no reload');
 for(const name of ['index.html','simulation.html']){
   const html=fs.readFileSync(__dirname+'/touch/'+name,'utf8');
   assert.equal((html.match(/src="tablet-actions\.js/g)||[]).length,1);
   assert(html.indexOf('system-monitor.js')<html.indexOf('tablet-actions.js'),'the system panel exists before the actions are added');
 }
+// The browser harness permits exactly one startup metadata GET, no other off-tab request.
+const {settingsOffTabRequests}=require('./browser-run.cjs');
+const startupRead={method:'GET',url:'VERSION.json?1000',startup:true,active:false,tab:'display'};
+assert.deepEqual(settingsOffTabRequests([startupRead]),[]);
+assert.equal(settingsOffTabRequests([startupRead,{...startupRead,url:'VERSION.json?1001'}]).length,2,'duplicate startup reads are refused');
+for(const patch of [{startup:false},{method:'POST'},{url:'VERSION.json'},{url:'/api/commands'},{url:'/api/touch-system'},{url:'https://api.github.com/repos/fixture/x'}]){
+ assert.equal(settingsOffTabRequests([{...startupRead,...patch}]).length,1,'no broad off-tab exemption');
+}
+assert.deepEqual(settingsOffTabRequests([{method:'GET',url:'/api/commands',active:true,tab:'system'}]),[]);
 console.log('PASS tablet actions: titles only, two-tap confirmation with expiry, refused during a job, version and update check, no token to GitHub.');

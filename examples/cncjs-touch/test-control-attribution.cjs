@@ -17,7 +17,7 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
   await f.connect();
   assert(f.requests.find((r) => f.isStream(r.url)).url.endsWith('/touch-events?clientId=' + encodeURIComponent(id)), 'the stream carries the id (presence)');
   f.window.dispatchEvent({ type: 'cnc-library-select', detail: { file: 'part.nc', name: 'part.nc' } });
-  f.el('job-load').click();
+  f.controls().load();
   const load1 = f.posts().at(-1);
   assert.equal(load1.body.action, 'load'); assert.equal(load1.body.clientId, id); assert.match(load1.body.clientLabel, /^Tablette [a-z0-9]{4}$/);
   f.answer(load1, { message: 'Chargé' }); await f.flush();
@@ -25,7 +25,7 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
   const again = load({ storage }); assert.equal(again.controls().clientId(), id, 'reload keeps the same id'); again.controls().dispose();
   // A PC (no touch points) names itself "Poste": the other devices see which one pilots.
   const desk = load({ storage: new Map(storage), touchPoints: 0 }); await desk.connect();
-  desk.window.dispatchEvent({ type: 'cnc-library-select', detail: { file: 'part.nc', name: 'part.nc' } }); desk.el('job-load').click();
+  desk.window.dispatchEvent({ type: 'cnc-library-select', detail: { file: 'part.nc', name: 'part.nc' } }); desk.controls().load();
   assert.match(desk.posts().at(-1).body.clientLabel, /^Poste [a-z0-9]{4}$/); desk.controls().dispose();
 
   // 2. Unreadable id: a malformed stored value is replaced; a storage that throws gives a page-long id.
@@ -57,30 +57,35 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
 
   // 4. Pause and Stop stay usable while another device pilots; nothing on the client blocks them.
   f.push([f.machine({ workflow: 'running', activeState: 'Run', canStart: false, canLoad: false, canPause: true, canStop: true, control: { owner: other, lastChange: null } })]);
-  assert.equal(f.el('job-pause').disabled, false); assert.equal(f.el('job-stop').disabled, false);
-  f.el('job-pause').click(); assert.equal(f.posts().at(-1).body.action, 'pause'); f.answer(f.posts().at(-1), { message: 'Pause' }); await f.flush();
-  f.el('job-stop').click(); assert.equal(f.posts().at(-1).body.action, 'stop'); f.answer(f.posts().at(-1), { message: 'Arrêt' }); await f.flush();
+  assert.equal(require('./command-state-fixture.cjs')(f.window,'job-pause').disabled, false); assert.equal(require('./command-state-fixture.cjs')(f.window,'job-stop').disabled, false);
+  require('./command-state-fixture.cjs')(f.window,'job-pause').click(); assert.equal(f.posts().at(-1).body.action, 'pause'); f.answer(f.posts().at(-1), { message: 'Pause' }); await f.flush();
+  require('./command-state-fixture.cjs')(f.window,'job-stop').click(); assert.equal(f.posts().at(-1).body.action, 'stop'); f.answer(f.posts().at(-1), { message: 'Arrêt' }); await f.flush();
 
   // 5. ECONTROL refusal: the owner's name and the next step, no takeover sent.
   f.push([f.machine({ control: { owner: other, lastChange: null } })]);
   f.window.dispatchEvent({ type: 'cnc-library-select', detail: { file: 'part.nc', name: 'part.nc' } });
-  f.el('job-load').click(); const refused = f.posts().at(-1);
+  assert(f.el('job-load').disabled&&f.el('job-start').disabled,'another owner refuses the visible commands');
+  f.push([f.machine({control:{owner:null,lastChange:null}})]);f.controls().load(); const refused = f.posts().at(-1);
+  f.push([f.machine({control:{owner:other,lastChange:null}})]);
   f.answer(refused, { message: 'Pilotage de COM3 attribué à « Tablette B » (tablette, ana) : …', code: 'ECONTROL', owner: other }, 409); await f.flush();
-  assert.match(f.el('job-feedback').textContent, /^Refusé : pilotage attribué à « Tablette B »/);
-  assert.match(f.el('job-feedback').textContent, /touchez Pilote dans le bandeau et prenez le pilotage avec un motif/);
-  assert.equal(f.el('job-feedback').getAttribute('data-state'), 'failed');
+  assert.match(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, /^Refusé : pilotage attribué à « Tablette B »/);
+  assert.match(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, /touchez Pilote dans le bandeau et prenez le pilotage avec un motif/);
+  assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').getAttribute('data-state'), 'failed');
   assert(!f.posts().some((r) => r.body.action === 'control'), 'a refusal never takes over by itself');
+  f.push([f.machine({control:{owner:other,lastChange:null}})]);assert.match(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent,/pilotage attribué/,'same state keeps refusal');
+  f.push([f.machine({control:{owner:null,lastChange:null}})]);assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent,'','C-30c: stale refusal cleared');assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').getAttribute('data-state'),'');
   // Any other 409 keeps the server message as it is.
-  f.el('job-load').click(); f.answer(f.posts().at(-1), { message: 'Machine occupée.' }, 409); await f.flush();
-  assert.equal(f.el('job-feedback').textContent, 'Machine occupée.');
+  f.controls().load(); f.answer(f.posts().at(-1), { message: 'Machine occupée.' }, 409); await f.flush();
+  assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Machine occupée.');
+  f.push([f.machine({control:{owner:other,lastChange:null}})]);assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent,'Machine occupée.','other failures survive a pilot change');
 
   // 6. Takeover dialog: opened by a tap (from the strip chip), focus on the reason, background inert.
   const chip = f.el('t-pilot'); chip.focus();
   assert.equal(f.controls().openPilot(), true);
-  assert.equal(f.el('pilot-dialog').hidden, false); assert.equal(f.document.activeElement.id, 'pilot-reason'); assert.equal(f.el('main').inert, true);
+  assert.equal(f.el('pilot-dialog').hidden, false); assert.equal(f.document.activeElement.id, 'pilot-reason-a'); assert.equal(f.el('main').inert, true);
   assert.equal(f.el('real-banner').inert, false, 'the strip (Pause, Arrêter) stays usable under the pilot dialog');
-  assert.match(f.el('pilot-dialog-text').textContent, /Piloté par « Tablette B »/);
-  assert.equal(f.el('pilot-form').hidden, false); assert.equal(f.el('pilot-takeover').hidden, false); assert.equal(f.el('pilot-takeover').disabled, true, 'no reason, no takeover');
+  assert.match(f.el('pilot-dialog-text').textContent, /C’est « Tablette B » qui a la main depuis/);
+  assert.equal(f.el('pilot-form').hidden, false); assert.equal(f.el('pilot-takeover').hidden, true);f.el('pilot-other').click();assert.equal(f.el('pilot-takeover').hidden,false); assert.equal(f.el('pilot-takeover').disabled, true, 'no reason, no takeover');
   f.el('pilot-reason').value = 'ab'; f.el('pilot-reason').fire('input'); assert.equal(f.el('pilot-takeover').disabled, true, '2 characters are not a reason');
   f.el('pilot-reason').value = '   ab  '; f.el('pilot-reason').fire('input'); assert.equal(f.el('pilot-takeover').disabled, true, 'spaces do not count');
   // Tab stays inside: last → first, first (shift) → last.
@@ -95,18 +100,18 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
   assert.equal(f.el('pilot-dialog').hidden, true); assert(!f.posts().some((r) => r.body.action === 'control'));
   // A preset reason fills the field; the takeover is sent only by the button, with the reason and the id.
   f.controls().openPilot(); f.el('pilot-reason-a').textContent = 'Opérateur devant la machine'; f.el('pilot-reason-a').click();
-  assert.equal(f.el('pilot-reason').value, 'Opérateur devant la machine'); assert.equal(f.document.activeElement.id, 'pilot-takeover');
-  assert(!f.posts().some((r) => r.body.action === 'control'), 'choosing a reason does not send');
+  assert.equal(f.el('pilot-reason').value, 'Opérateur devant la machine'); assert(f.el('pilot-reason-a').disabled&&f.el('pilot-reason-b').disabled);
+  assert.equal(f.posts().filter((r) => r.body.action === 'control').length,1,'the preset takes control directly');
   f.el('pilot-takeover').click(); f.el('pilot-takeover').click();
   const takeovers = f.posts().filter((r) => r.body.action === 'control');
   assert.equal(takeovers.length, 1, 'one request per tap, none while it is on its way');
   assert.deepEqual({ op: takeovers[0].body.operation, reason: takeovers[0].body.reason, id: takeovers[0].body.clientId }, { op: 'takeover', reason: 'Opérateur devant la machine', id });
   // A refused takeover (reason rejected by the server) stays in the dialog with its message.
   f.answer(takeovers[0], { message: 'Prise de pilotage refusée : indiquez un motif (3 caractères au moins).', code: 'ECONTROL', owner: other }, 409); await f.flush();
-  assert.equal(f.el('pilot-dialog').hidden, false); assert.match(f.el('pilot-feedback').textContent, /Refusé : pilotage attribué à « Tablette B »/);
-  f.el('pilot-takeover').click(); const accepted = f.posts().filter((r) => r.body.action === 'control').at(-1);
+  assert.equal(f.el('pilot-dialog').hidden, false); assert.equal(f.el('pilot-feedback').textContent, 'Prise de pilotage refusée : indiquez un motif (3 caractères au moins).');
+  f.el('pilot-reason-b').textContent='Prendre la main — l’autre appareil est hors service';f.el('pilot-reason-b').click(); const accepted = f.posts().filter((r) => r.body.action === 'control').at(-1);
   f.answer(accepted, { owner: { kind: 'touch', id }, previous: other, role: 'operator' }); await f.flush();
-  assert.equal(f.el('pilot-dialog').hidden, true); assert.equal(f.el('job-feedback').textContent, 'Pilotage pris par cet appareil.'); assert.equal(f.document.activeElement, chip);
+  assert.equal(f.el('pilot-dialog').hidden, true); assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Pilotage pris par cet appareil.'); assert.equal(f.document.activeElement, chip);
   // When this device owns or the port is free, the dialog informs only (no takeover form).
   f.push([f.machine({ control: { owner: { kind: 'touch', id, label: 'x', present: true }, lastChange: null } })]);
   f.controls().openPilot(); assert.equal(f.el('pilot-form').hidden, true); assert.equal(f.el('pilot-takeover').hidden, true); assert.equal(f.document.activeElement.id, 'pilot-dismiss');
@@ -115,9 +120,9 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
   f.key('Escape');
   // The previous owner is told who took over and why (once).
   f.push([f.machine({ control: { owner: other, lastChange: { type: 'takeover', at: 42, previous: { kind: 'touch', id }, owner: other, reason: 'Changement d’équipe' } } })]);
-  assert.equal(f.el('job-feedback').textContent, 'Pilotage repris par « Tablette B » — motif : Changement d’équipe');
-  f.el('job-feedback').textContent = 'autre'; f.push([f.machine({ control: { owner: other, lastChange: { type: 'takeover', at: 42, previous: { kind: 'touch', id }, owner: other, reason: 'Changement d’équipe' } } })]);
-  assert.equal(f.el('job-feedback').textContent, 'autre', 'shown once per takeover');
+  assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Pilotage repris par « Tablette B » — motif : Changement d’équipe');
+  const beforeRepeat=f.events.length; f.push([f.machine({ control: { owner: other, lastChange: { type: 'takeover', at: 42, previous: { kind: 'touch', id }, owner: other, reason: 'Changement d’équipe' } } })]);
+  assert.equal(f.events.length,beforeRepeat,'shown once per takeover');
   // The dialog never stacks on another dialog, and closes with a screen change or a hidden page.
   f.el('job-dialog').hidden = false; assert.equal(f.controls().openPilot(), false); f.el('job-dialog').hidden = true;
   f.controls().openPilot(); f.window.dispatchEvent({ type: 'cnc-screen-change', detail: 'files' }); assert.equal(f.el('pilot-dialog').hidden, true);
@@ -136,12 +141,12 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
   const chipNode = byId('t-pilot');
   assert(chipNode, 'the chip exists'); assert.equal(chipNode.hidden, false); assert.equal(byId('t-pilot-value').textContent, '—', 'unknown before any state');
   assert.equal(chipNode.parentNode.className, 't-strip-actions', 'in the actions cell, which a message never covers');
-  strip(mine); assert.equal(byId('t-pilot-value').textContent, 'Cet appareil'); assert.equal(chipNode.getAttribute('data-state'), 'mine');
+  strip(mine); assert.equal(byId('t-pilot-value').textContent, 'ici'); assert.equal(chipNode.getAttribute('data-state'), 'mine');
   strip(otherDetail, { workflow: 'running', activeState: 'Run', canPause: true, canStop: true });
-  assert.equal(byId('t-pilot-value').textContent, 'Tablette B'); assert.equal(chipNode.getAttribute('data-state'), 'other');
-  assert.match(chipNode.getAttribute('aria-label'), /^Pilote : Piloté par « Tablette B »/);
+  assert.equal(byId('t-pilot-value').textContent, 'autre'); assert.equal(chipNode.getAttribute('data-state'), 'other');
+  assert.match(chipNode.getAttribute('aria-label'), /^La main : Piloté par « Tablette B »/);
   assert.equal(byId('t-pause').disabled, false); assert.equal(byId('t-stop').disabled, false, 'Pause and Stop stay active under another owner');
-  strip({ state: 'free', value: 'Libre', sentence: 'Libre : …' }); assert.equal(byId('t-pilot-value').textContent, 'Libre'); assert.equal(chipNode.hidden, false);
+  strip({ state: 'free', value: 'Libre', sentence: 'Libre : …' }); assert.equal(byId('t-pilot-value').textContent, 'libre'); assert.equal(chipNode.hidden, false);
   handlers['cnc-job-status']({ detail: { simulation: false, transportConnected: false, machine: null } }); assert.equal(chipNode.hidden, false); assert.equal(byId('t-pilot-value').textContent, '—');
   chipNode.click(); assert.equal(opened.length, 1, 'a tap opens the pilot dialog');
   // A shown message (notice) leaves the chip visible: it is not in the message's columns.
@@ -150,3 +155,101 @@ const other = { kind: 'touch', id: 't-other-1234abcd', label: 'Tablette B', user
   assert(!/t-pilot[^{]*\{[^}]*display:none/.test(css), 'no rule hides the chip');
   console.log('PASS control attribution (F5): persistent clientId, unreadable id regenerated, two owners, ECONTROL refusal, cancelled and confirmed takeover, focus return, Pause/Stop always active, chip always shown.');
 })().catch((e) => { console.error(e); process.exit(1); });
+
+(async()=>{
+ const f=load();await f.connect();const waiting=f.controls().prepareCommand('home');const req=f.posts().at(-1),count=f.posts().length;
+ const second=await f.controls().prepareCommand('home');assert.equal(second.opened,false);assert.equal(second.error.message,'Opération en cours…');
+ assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent,second.error.message,'C-31: busy preparation is visible');assert.equal(f.posts().length,count);
+ f.answer(req,{message:'Home refused'},409);await waiting;f.controls().dispose();
+})().catch(e=>{console.error(e);process.exitCode=1;});
+
+(async()=>{
+ for(const [patch,warning] of [[{probing:true},/Un palpage est en cours.*l’arrête/],[{motion:{frame:{index:0}}},/Un cadrage est en cours.*l’arrête/],[{motion:{jog:{axis:'X'}}},/Un déplacement est en cours.*l’arrête/],[{workflow:'running'},/L’usinage continue/]]){
+  const f=load();await f.connect(f.machine({...patch,control:{owner:other,lastChange:null}}));f.controls().openPilot();
+  assert.match(f.el('pilot-dialog-text').textContent,warning);assert.match(f.el('pilot-dialog-text').textContent,/depuis/);
+  f.el('pilot-reason-b').textContent='Prendre la main — l’autre appareil est hors service';f.el('pilot-reason-b').click();f.el('pilot-reason-a').click();
+  const sent=f.posts().filter(r=>r.body.action==='control');assert.equal(sent.length,1,'both preset buttons share the in-flight guard');assert.equal(sent[0].body.operation,'takeover');assert.equal(sent[0].body.reason,f.el('pilot-reason-b').textContent);
+  f.answer(sent[0],{});await f.flush();f.controls().dispose();
+ }
+})().catch(e=>{console.error(e);process.exitCode=1;});
+
+(async()=>{
+ const f=load();await f.connect(f.machine({workflow:'running',activeState:'Run',canPause:true,canStop:true,canLoad:false,canStart:false}));
+ f.el('main').inert=true;require('./command-state-fixture.cjs')(f.window,'job-pause').inert=true;require('./command-state-fixture.cjs')(f.window,'job-stop').inert=true;f.el('job-dialog').hidden=false;
+ const pausing=f.controls().pause();assert(f.el('job-dialog').hidden,'direct Pause closes a confirmation');
+ let req=f.posts().at(-1);assert.equal(req.body.action,'pause');f.answer(req,{message:'Pause'});await pausing;
+ f.push([]);assert(f.lastStatus().halt,'busy target retained when the state disappears');
+ const stopping=f.controls().stop();req=f.posts().at(-1);assert.equal(req.body.action,'stop');assert.equal(req.body.port,'COM3');
+ f.answer(req,{message:'Arrêt'});await stopping;
+ f.push([f.machine()]);const count=f.posts().length;assert.equal(f.controls().pause(),undefined);assert.equal(f.controls().stop(),undefined);
+ assert.equal(f.posts().length,count,'disabled direct actions send nothing');f.controls().dispose();
+})().catch(e=>{console.error(e);process.exitCode=1;});
+
+// F4 · Rendre la main: the button of the "La main" dialog, only when this device has the hand.
+(async()=>{
+ const id='t-self-1234abcd',mineOwner={kind:'touch',id,label:'Tablette A',present:true,since:1};
+ const storage=new Map([['cnc',JSON.stringify({state:{session:{token:'offline-fixture'}}})],['cnc-touch-client-id',id]]);
+ const open=async(patch,options)=>{const f=load(Object.assign({storage:new Map(storage)},options));await f.connect(f.machine(Object.assign({control:{owner:mineOwner,lastChange:null}},patch)));assert.equal(f.controls().pilot().state,'mine');assert.equal(f.controls().openPilot(),true);return f;};
+ // At rest, this device has the hand: the button is there, enabled, and says what happens.
+ let f=await open({});
+ assert.equal(f.el('pilot-mine').hidden,false);assert.equal(f.el('pilot-form').hidden,true,'no takeover form for the owner');
+ assert.equal(f.el('pilot-release').disabled,false);
+ assert.match(f.el('pilot-release-note').textContent,/Un autre appareil pourra alors prendre la main, sans motif/);
+ assert.equal(f.el('pilot-release-reason').hidden,true);assert.equal(f.el('pilot-release-see').hidden,true);
+ assert.equal(f.el('pilot-dialog-text').textContent,'Cet appareil a la main.');
+ // One request per tap, none while it is on its way; control/release, nothing else.
+ f.el('pilot-release').click();f.el('pilot-release').click();
+ let sent=f.posts().filter((r)=>r.body.action==='control');assert.equal(sent.length,1);assert.equal(sent[0].body.operation,'release');assert.equal(sent[0].body.clientId,id);assert.equal(sent[0].body.reason,undefined,'no reason is asked');
+ assert.equal(f.el('pilot-release').disabled,true,'rayé while the request is on its way');
+ f.answer(sent[0],{owner:null,role:'observer',snapshot:{controllers:[]}});await f.flush();
+ assert.equal(f.el('pilot-dialog').hidden,true,'the dialog closes once the hand is given back');
+ assert.equal(f.el('job-feedback').textContent,'Main rendue : un autre appareil peut la prendre.');assert.equal(f.el('job-feedback').getAttribute('data-state'),'confirmed');
+ // The next snapshot says nobody has it: the dialog informs only.
+ f.push([f.machine({control:{owner:null,lastChange:{type:'release',at:5,previous:mineOwner}}})]);
+ assert.equal(f.controls().pilot().state,'free');f.controls().openPilot();assert.equal(f.el('pilot-mine').hidden,true);assert.equal(f.el('pilot-release').disabled,true);f.controls().dispose();
+ // Another device has it: no release button either (a takeover is the other way).
+ f=load({storage:new Map(storage)});await f.connect(f.machine({control:{owner:other,lastChange:null}}));f.controls().openPilot();assert.equal(f.el('pilot-mine').hidden,true);assert.equal(f.el('pilot-form').hidden,false);f.controls().dispose();
+
+ // What the release stops is said first, as for a takeover.
+ for(const [patch,warning] of [[{probing:true},/Un palpage est en cours : rendre la main l’arrête/],[{motion:{frame:{index:0}}},/Un cadrage est en cours : rendre la main l’arrête/],[{motion:{jog:{axis:'X'}}},/Un déplacement est en cours : rendre la main l’arrête/]]){
+  f=await open(patch);assert.match(f.el('pilot-dialog-text').textContent,warning);assert.equal(f.el('pilot-release').disabled,false,'a probing, a framing or a move does not refuse it: it ends them');f.controls().dispose();
+ }
+
+ // During a job (running or paused): rayé with the server's phrase and its remedy; nothing is sent.
+ for(const patch of [{workflow:'running',activeState:'Run',canPause:true,canStop:true,canLoad:false,canStart:false},{workflow:'paused',activeState:'Hold',canStop:true,canLoad:false,canStart:false}]){
+  f=await open(patch);
+  assert.equal(f.el('pilot-release').disabled,true);assert.equal(f.el('pilot-release-reason').hidden,false);
+  assert.equal(f.el('pilot-release-reason').textContent,'Un usinage est en cours : la main ne se rend pas pendant l’usinage. Pause et Arrêter restent possibles.');
+  assert.equal(f.el('pilot-release-see').hidden,false);assert.doesNotMatch(f.el('pilot-dialog-text').textContent,/rendre la main l’arrête/);
+  f.el('pilot-release').click();assert(!f.posts().some((r)=>r.body.action==='control'),'a refused release is not sent');
+  // The remedy leads to the Usinage screen (which closes the dialog) and sends nothing.
+  const launched=[];f.window.cncSeance={lancer(remedy){launched.push(remedy);f.window.dispatchEvent({type:'cnc-screen-change',detail:'home'});}};
+  f.el('pilot-release-see').click();assert.deepEqual(launched,['voir-usinage']);assert.equal(f.el('pilot-dialog').hidden,true);assert(!f.posts().some((r)=>r.body.action==='control'));
+  // The job ends while the dialog is open: the button comes back.
+  f.controls().openPilot();f.push([f.machine({control:{owner:mineOwner,lastChange:null}})]);
+  assert.equal(f.el('pilot-release').disabled,false);assert.equal(f.el('pilot-release-reason').hidden,true);assert.equal(f.el('pilot-release-see').hidden,true);
+  f.controls().dispose();
+ }
+
+ // The state read was stale and the server refuses it (ETOUCH_CONTROL_JOB): the cause is written in the dialog, which stays open.
+ f=await open({});f.el('pilot-release').click();sent=f.posts().filter((r)=>r.body.action==='control');
+ f.answer(sent[0],{message:'Un usinage est en cours : la main ne se rend pas pendant l’usinage. Pause et Arrêter restent possibles.',code:'ETOUCH_CONTROL_JOB'},409);await f.flush();
+ assert.equal(f.el('pilot-dialog').hidden,false);assert.match(f.el('pilot-feedback').textContent,/^Un usinage est en cours : la main ne se rend pas pendant l’usinage/);assert.equal(f.el('pilot-release').disabled,false,'the button comes back after the refusal');
+ f.controls().dispose();
+
+ // Tab stays inside the dialog and reaches the new buttons; the refused one is skipped.
+ f=await open({workflow:'running',activeState:'Run'});f.el('pilot-dismiss').focus();assert(f.key('Tab'));assert.notEqual(f.document.activeElement.id,'pilot-release','the refused button is skipped');
+ f.controls().dispose();
+ f=await open({});f.el('pilot-release').focus();assert(f.key('Tab'));assert.equal(f.document.activeElement.id,'pilot-dismiss');assert(f.key('Tab',{shiftKey:true}));assert.equal(f.document.activeElement.id,'pilot-release');
+ f.controls().dispose();
+
+ // English and Spanish: every new text is translated, and the refusal comes from the server's code table.
+ for(const [language,words] of [['en',{button:'Give back control',reason:/Machining is in progress/,note:/Another device can then take control, without a reason/,done:'Control given back: another device can take it.'}],['es',{button:'Ceder el control',reason:/Hay un mecanizado en curso/,note:/Otro dispositivo podrá entonces tomar el control, sin motivo/,done:'Control cedido: otro dispositivo puede tomarlo.'}]]){
+  const catalogs=['i18n-messages-machine.js'];
+  f=await open({},{language,catalogs});assert.equal(f.window.cncI18n.t('Rendre la main'),words.button);
+  assert.match(f.el('pilot-release-note').textContent,words.note);
+  f.el('pilot-release').click();sent=f.posts().filter((r)=>r.body.action==='control');f.answer(sent[0],{owner:null});await f.flush();assert.equal(f.el('job-feedback').textContent,words.done);f.controls().dispose();
+  f=await open({workflow:'paused',activeState:'Hold',canStop:true},{language,catalogs});assert.match(f.el('pilot-release-reason').textContent,words.reason);f.controls().dispose();
+ }
+ console.log('PASS give back the hand (F4): button only for the owner, one request, no reason asked, refused with phrase and remedy during a job, what it stops said first, server refusal shown, Tab order, FR/EN/ES.');
+})().catch(e=>{console.error(e);process.exitCode=1;});

@@ -134,6 +134,9 @@ const read = (file, version, entry, fp = FP_A) => ({ file, fingerprint: fp, size
   assert.equal(v.node('project-save').disabled, true, 'not editable before it is kept');
   assert.equal(v.node('project-favorite').disabled, true);
   assert.match(v.node('project-summary').textContent, /Matière : MDF/);
+  // Declared values for the v2 comparisons (Fichiers, Préparer): a sheet of another version gives none.
+  assert.equal(JSON.stringify(v.window.CNCProjects.declared('a.nc')), JSON.stringify({ file: 'a.nc', fingerprint: FP_A, version: 'other', material: null, tool: null, stock: null }));
+  assert.equal(v.window.CNCProjects.declared('b.nc'), null, 'only the selected file’s sheet is known');
   v.node('project-adopt').handlers.click(); await flush();
   let put = v.take('PUT', '/touch-projects', 'a.nc');
   assert.deepEqual(JSON.parse(put.body), { adopt: true, file: 'a.nc', fingerprint: FP_A });
@@ -158,6 +161,7 @@ const read = (file, version, entry, fp = FP_A) => ({ file, fingerprint: fp, size
   reply(put, read('a.nc', 'current', { file: 'a.nc', fingerprint: FP_A, material: 'Chêne', tool: 'Fraise 3 mm', stock: { x: 200, y: 100.5, z: null }, notes: 'Z0 dessus', favorite: false, related: ['b.nc', 'gone.nc'] })); await flush();
   assert.equal(v.node('project-dialog').hidden, true, 'closed once saved');
   assert.match(v.node('project-summary').textContent, /Matière : Chêne · Outil : Fraise 3 mm · Brut : 200 × 100[.,]5 × \? mm · Notes : Z0 dessus/);
+  assert.equal(JSON.stringify(v.window.CNCProjects.declared('a.nc')), JSON.stringify({ file: 'a.nc', fingerprint: FP_A, version: 'current', material: 'Chêne', tool: 'Fraise 3 mm', stock: { x: 200, y: 100.5, z: null } }));
   const links = v.node('project-related-links').children;
   assert.deepEqual(links.map(b => [b.textContent, b.disabled]), [['↗ b.nc', false], ['↗ gone.nc (absent)', true]]);
   // An invalid stock never leaves the page; the dialog stays open with the reason.

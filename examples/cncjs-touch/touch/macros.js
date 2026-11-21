@@ -5,20 +5,20 @@
   'use strict';
   var uiLocale=window.cncI18n||{t:function(s){return s;},html:function(s){return s;}};
   var shell=window.cncShell;
-  if(!shell||!shell.sheet||!shell.preparationActions)return;
+  if(!shell||!shell.sheet)return;
   var panel=shell.sheet('ks-macros',uiLocale.t('Macros CNCjs'));
   panel.content.innerHTML=uiLocale.html('<p id="ks-macros-status" role="status"></p><div id="ks-macros-list" class="ks-macro-list"></div><p class="ks-help">Chaque macro est envoyée au contrôleur après confirmation, machine au repos. Vérifiez son contenu dans CNCjs avant de l’utiliser depuis cet écran.</p>');
   var status=document.getElementById('ks-macros-status'),list=document.getElementById('ks-macros-list');
-  var button=document.createElement('button');button.type='button';button.className='ks-secondary ks-macros-open';button.textContent=uiLocale.t('Macros…');button.disabled=true;
+  var button=document.getElementById('ks-macros-open');if(!button)return;
   button.addEventListener('click',panel.open);
-  shell.preparationActions.appendChild(button);
-  var machine=null,signature='',rows=Object.create(null);
-  function setText(el,value){if(el.textContent!==value)el.textContent=value;}
+  var machine=null,pilot=null,signature='',rows=Object.create(null);
+  function setText(el,value){if(el&&el.textContent!==value)el.textContent=value;}
   function render(){
     var macros=machine&&Array.isArray(machine.macros)?machine.macros.filter(function(m){return m&&typeof m.id==='string'&&typeof m.name==='string';}):[];
-    var ready=!!(machine&&machine.fresh&&machine.canMacro);
+    var ready=!!(machine&&machine.fresh&&machine.canMacro&&!(pilot&&pilot.state==='other'));
     var key=JSON.stringify([macros,ready,machine&&machine.macroReason]);
     var disabled=!machine||!macros.length;
+    setText(button.querySelector('small'),!macros.length?uiLocale.t('Aucune macro dans CNCjs'):uiLocale.t('Macros CNCjs'));
     if(button.disabled!==disabled)button.disabled=disabled;
     if(key===signature)return;signature=key;
     var keep=Object.create(null);
@@ -27,8 +27,8 @@
       if(!row){row=document.createElement('button');row.type='button';row.className='ks-macro';row.setAttribute('data-macro',m.id);
         row.addEventListener('click',function(){
           if(row.disabled||!window.cncJobControls||typeof window.cncJobControls.prepareMacro!=='function')return;
-          shell.closeSheet(); // the confirmation dialog must not stack on this sheet
-          window.cncJobControls.prepareMacro(m.id);
+          shell.closeSheet();
+          window.cncJobControls.prepareMacro(m.id).then(function(result){if(result&&!result.opened&&result.error){panel.open();if(window.cncRefus)window.cncRefus.montrer(panel.content,result.error);}});
         });
         rows[m.id]=row;}
       setText(row,m.name);row.disabled=!ready;keep[m.id]=true;
@@ -37,7 +37,11 @@
     while(list.children.length>macros.length)list.removeChild(list.lastChild);
     Object.keys(rows).forEach(function(id){if(!keep[id])delete rows[id];});
     setText(status,!machine?uiLocale.t('État machine indisponible.'):!macros.length?uiLocale.t('Aucune macro définie dans CNCjs.'):ready?uiLocale.t('Machine au repos : touchez une macro pour la confirmer.'):(machine.macroReason?(uiLocale.message||uiLocale.t)(machine.macroReason):uiLocale.t('Macros indisponibles dans l’état actuel.')));
+    if(window.cncRefus){
+      if(macros.length&&!ready&&machine){setText(status,'');window.cncRefus.montrer(panel.content,machine.refusals&&machine.refusals.macro||{message:machine.macroReason});}
+      else window.cncRefus.effacer(panel.content);
+    }
   }
-  window.addEventListener('cnc-job-status',function(e){machine=e.detail&&e.detail.machine||null;render();});
+  window.addEventListener('cnc-job-status',function(e){machine=e.detail&&e.detail.machine||null;pilot=e.detail&&e.detail.pilot||null;render();});
   render();
 })();

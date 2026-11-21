@@ -120,7 +120,8 @@ export const createBacklight = ({ fs = nodeFs, config = null, setTimer = setTime
 
   const wake = () => {
     check();
-    if (temporary && typeof userPercent === 'number') {
+    const level = current();
+    if ((temporary || (level !== null && level < MIN_PERCENT)) && typeof userPercent === 'number') {
       apply(userPercent);
     }
     temporary = false;
@@ -151,11 +152,13 @@ export const createBacklight = ({ fs = nodeFs, config = null, setTimer = setTime
   // Restores the stored level once at start; any failure leaves the panel as it is.
   const restore = () => {
     const stored = config ? config.get(CONFIG_KEY) : undefined;
-    if (typeof stored !== 'number' || !Number.isFinite(stored) || !writable()) {
+    const valid = typeof stored === 'number' && Number.isFinite(stored);
+    if ((!valid && !(current() !== null && current() < MIN_PERCENT)) || !writable()) {
       return false;
     }
     try {
-      userPercent = apply(stored);
+      userPercent = apply(valid ? stored : DEFAULT_PERCENT);
+      temporary = false;
       return true;
     } catch (err) {
       return false;

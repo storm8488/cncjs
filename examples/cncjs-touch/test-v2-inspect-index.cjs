@@ -1,0 +1,28 @@
+'use strict';
+const assert = require('assert').strict;
+const {fixture, geometry, adapter} = require('./test-v2-inspect.cjs');
+const f = fixture(), p = f.provider, view = adapter(), g = geometry(500000);
+p.attach(view); p.update(g); assert.equal(p.diagnostics().ready, false); f.slice();
+assert.equal(p.diagnostics().ready, false, '500k preparation yields rather than completing a long synchronous task');
+f.flush(); assert.equal(p.diagnostics().ready, true); assert(p.diagnostics().indexBytes <= 7 * 1024 * 1024);
+p.begin(); let hit = p.pick({x: 4999992, y: 0, radius: 2});
+assert.equal(hit.candidates[0].segment, 499999); assert(hit.visitedNodes <= 2048); assert(hit.testedSegments <= 1024);
+const q = fixture(), a = q.provider, v = adapter(); a.attach(v); a.update(geometry(20000, true)); q.flush(); a.begin();
+hit = a.pick({x: 2, y: 0, radius: 5}); assert.equal(hit.candidates.length, 8); assert.equal(hit.truncated, true);
+assert.equal(a.snapshot().selection.segment, null, 'overlap is not a fabricated exact selection');
+assert.equal(a.snapshot().selection.candidates.length, 8); assert.equal(a.choose(9999), null, 'only presented candidates may be chosen');
+a.choose(hit.candidates[3].segment); assert.equal(a.snapshot().selection.segment, hit.candidates[3].segment); assert.equal(a.snapshot().selection.approximate, true);
+v.visible = id => id === 8; hit = a.pick({x: 2, y: 0, radius: 5}); assert.equal(hit.candidates[0].segment, 8, 'hidden segments cannot be picked');
+v.project = (x, y) => {q.advance(0.1); return {x, y};};
+hit = a.pick({x: 2, y: 0, radius: 5}); assert(hit.elapsedMs < 8, 'deadline checked within bounded node/leaf work'); assert(hit.truncated);
+const local = fixture(), lp = local.provider; lp.attach(adapter());
+lp.updatePath({count: 3, positions: new Float64Array([0, 0, 0, 5, 0, -1, 10, 0, -2]), lines: new Uint32Array([0, 50, 51])},
+  {identity: g.identity, geometryKey: 'local-fp-revision', quality: 'simplified', toleranceMm: 0.25});
+local.flush(); lp.begin(); hit = lp.pick({x: 2, y: 0, radius: 1}); assert.equal(hit.candidates[0].sourceLine, 50); assert.equal(hit.candidates[0].approximate, true);
+assert.equal(hit.candidates[0].toleranceMm, 0.25); assert.equal(hit.candidates[0].nominalMm.z, -0.4);
+const arcs = fixture(), arcGeometry = geometry(); arcGeometry.toleranceMm = 0.01;
+arcs.provider.attach(adapter()); arcs.provider.update(arcGeometry); arcs.flush(); arcs.provider.begin();
+assert.equal(arcs.provider.pick({x: 2, y: 0, radius: 1}).candidates[0].approximate, true, 'full tessellated geometry still declares its approximation');
+lp.updatePath({count: 3, positions: new Float64Array(9), lines: new Uint32Array(3)}, {identity: {key: null}, geometryKey: 'name-only'});
+assert.equal(lp.snapshot().available, false, 'name-only geometry is not inspectable');
+console.log('PASS v2 inspect index: 500k segments, bounded slices/search, ambiguity, filters, deadlines and borrowed local path.');

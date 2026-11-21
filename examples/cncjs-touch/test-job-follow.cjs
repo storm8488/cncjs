@@ -8,14 +8,13 @@ function fixture(saved){
   const {document,node,element}=require('./dom-fixture.cjs').createDOM(['home']);
   document.body.getAttribute=()=>null;
   const settings=node('screen-settings');settings.querySelector=()=>null;
-  const feedback=node('home-job-feedback'),parent=element('div');parent.appendChild(feedback);
+  const summary=element('div');summary.hidden=true;summary.appendChild(element('p'));const dismiss=element('button');dismiss.addEventListener('click',()=>{summary.hidden=true;const b=node('home-left').parentNode;if(b)b.setAttribute('data-v2-summary','0');});summary.appendChild(dismiss);
   let dialogs=[];document.querySelectorAll=()=>dialogs;
   const store=new Map(saved?[['cncjs-touch-job-follow-v1',saved]]:[]),listeners={},went=[],locks=[];let now=1e12;
   const window={cncI18n:{t:s=>s,locale:'fr-FR'},addEventListener:(n,f)=>listeners[n]=f,
-    cncShell:{go:n=>went.push(n)},cncScreenLock:{lock:()=>locks.push(true)}};
+    CNCJobResume:{summary(value){summary.hidden=!value;if(value){summary.children[0].textContent=value.text;summary.setAttribute('data-tone',value.tone);}const b=node('home-left').parentNode;if(b)b.setAttribute('data-v2-summary',value?'1':'0');}},cncShell:{go:n=>went.push(n)},cncScreenLock:{lock:()=>locks.push(true)}};
   vm.runInNewContext(fs.readFileSync(__dirname+'/touch/job-follow.js','utf8'),{document,window,Date:{now:()=>now},
     localStorage:{getItem:k=>store.has(k)?store.get(k):null,setItem:(k,v)=>store.set(k,v)},JSON,Math,Array,Object,String,Number});
-  const summary=parent.children.find(c=>c.id==='home-job-summary');
   return {node,settings,store,listeners,went,locks,summary,set dialogs(v){dialogs=v;},
     advance:ms=>{now+=ms;},screen:n=>listeners['cnc-screen-change']({detail:n}),
     send:m=>listeners['cnc-job-status']({detail:{simulation:false,machine:m}})};
@@ -32,7 +31,7 @@ f.advance(30000);f.send(M({workflow:'paused',activeState:'Hold:0',total:1200,rec
 f.advance(60000);f.send(M({workflow:'running',total:1200,received:400}));
 f.advance(45000);f.send(M({workflow:'idle',finished:true,total:1200,received:0}));
 assert.equal(f.summary.getAttribute('data-tone'),'ok');
-assert.equal(f.summary.children[0].textContent.replace(/[  ]/g,' '),'Travail terminé · Support.nc · durée 1 min 15 s · 1 200 lignes','the pause is not counted, lines come from the run');
+assert.equal(f.summary.children[0].textContent.replace(/[\u00a0\u202f]/g,' '),'Travail terminé · Support.nc · durée 1 min 15 s · 1 200 lignes','the pause is not counted, lines come from the run');
 f.summary.children[1].click();assert(f.summary.hidden);
 // Stopped before the end; then a program with Grbl errors.
 f.send(M({workflow:'running',total:50,received:1}));f.advance(5000);f.send(M({workflow:'running',total:50,received:20}));f.send(M({workflow:'idle'}));
@@ -64,6 +63,18 @@ f.screen('files');f.send(M());f.send(M({workflow:'running'}));assert.deepEqual(f
 f=fixture(JSON.stringify({open:false,lock:true}));assert.equal(f.settings.children[0].children[2].getAttribute('aria-pressed'),'false');
 f=fixture('{broken');assert.equal(f.settings.children[0].children[2].getAttribute('aria-pressed'),'true','unreadable storage: defaults');
 // The two switches of the card sit in rows 1 and 2 of the right column (a shared cell hid one of them).
+// Affichage tab: right after the screen sleep card, the same place in index and simulation; « Cette tablette » badge.
+{
+  const scope=f.settings.children[0].children[0].children[0];
+  assert.equal(scope.className,'ks-scope');assert.equal(scope.getAttribute('data-scope'),'tablet');assert.equal(scope.textContent,'Cette tablette');
+  const {document,node,element}=require('./dom-fixture.cjs').createDOM(['home']);document.body.getAttribute=()=>null;
+  const p=node('screen-settings'),sleep=element('div'),coords=element('div');sleep.className='card ks-display-sleep';coords.className='card ks-display-card';
+  p.appendChild(sleep);p.appendChild(coords);Object.defineProperty(sleep,'nextSibling',{get:()=>p.children[p.children.indexOf(sleep)+1]||null});
+  p.querySelector=sel=>sel==='.ks-display-sleep'?sleep:null;
+  vm.runInNewContext(fs.readFileSync(__dirname+'/touch/job-follow.js','utf8'),{document,window:{cncI18n:{t:s=>s,locale:'fr-FR'},addEventListener(){}},Date,
+    localStorage:{getItem:()=>null,setItem(){}},JSON,Math,Array,Object,String,Number});
+  assert.deepEqual(p.children.map(c=>c.className),['card ks-display-sleep','card ks-display-card ks-job-follow-card','card ks-display-card'],'after the screen sleep card');
+}
 const css=fs.readFileSync(__dirname+'/touch/settings-list.css','utf8');
 assert.match(css,/.ks-job-follow-card>#job-follow-open{grid-row:1}/);assert.match(css,/.ks-job-follow-card>#job-follow-lock{grid-row:2}/);
 for(const name of ['index.html','simulation.html']){
@@ -71,4 +82,26 @@ for(const name of ['index.html','simulation.html']){
   assert.equal((html.match(/src="job-follow\.js\?v=/g)||[]).length,1);
   ['job-dashboard.js','touch-shell.js','screen-lock.js'].forEach(dep=>assert(html.indexOf(dep)<html.indexOf('job-follow.js'),dep+' loads first'));
 }
-console.log('PASS job follow-up: Suivi on a new job only, lock option, summary (finished, errors, stopped, pauses excluded), switches kept, script order.');
+// Surface Pro 2026-11-09: CNCjs counted 8 lines for a 7-line file; the gauge said « 6 / 7 », the summary « 7 / 8 ».
+// With Suivi's preview of the same file, the summary counts the file's lines like the gauge.
+f=fixture();f.node('home-job-image').cncPreview={file:'a--touch-1.nc',lines:7};
+f.send(M());f.send(M({workflow:'running',total:8,received:7}));f.send(M({workflow:'idle',jobStopped:true,total:8,received:0}));
+assert.match(f.summary.children[0].textContent,/^Travail arrêté avant la fin · .* · 6 \/ 7 lignes$/);
+f.send(M({workflow:'running',total:8,received:8}));f.send(M({workflow:'idle',finished:true,total:8,received:0}));
+assert.match(f.summary.children[0].textContent,/^Travail terminé · .* · 7 lignes$/,'a finished job counts the file lines too');
+// Another file's preview is not used.
+f=fixture();f.node('home-job-image').cncPreview={file:'other.nc',lines:7};
+f.send(M());f.send(M({workflow:'running',total:8,received:7}));f.send(M({workflow:'idle',jobStopped:true,total:8,received:0}));
+assert.match(f.summary.children[0].textContent,/ · 7 \/ 8 lignes$/);
+// A resume from line 400 of a 500-line file (preamble of 8): the summary counts in the file, like the gauge.
+f=fixture();
+f.send(M());f.send(M({workflow:'running',total:109,received:58,resume:{from:400,total:500,preambleLength:8}}));f.send(M({workflow:'idle',jobStopped:true,total:109,received:0}));
+assert.match(f.summary.children[0].textContent,/ · 449 \/ 500 lignes$/,'resumed job counted from its line, as the gauge');
+// The v2 messages slot knows when the summary is shown: on at the summary, off at OK and at a new job.
+f=fixture();const board=f.node('home-board');board.appendChild(f.node('home-left'));
+f.send(M());f.send(M({workflow:'running',total:10,received:3}));f.send(M({workflow:'idle',jobStopped:true}));
+assert.equal(board.getAttribute('data-v2-summary'),'1','summary shown');
+f.summary.children[1].click();assert(f.summary.hidden);assert.equal(board.getAttribute('data-v2-summary'),'0','OK hides it at once');
+f.send(M({workflow:'running',total:10,received:1}));f.send(M({workflow:'idle',jobStopped:true}));assert.equal(board.getAttribute('data-v2-summary'),'1');
+f.send(M({workflow:'running',total:10,received:1}));assert.equal(board.getAttribute('data-v2-summary'),'0','a new job hides it');
+console.log('PASS job follow-up: Suivi on a new job only, lock option, summary (finished, errors, stopped, pauses excluded, file lines like the gauge), switches kept, script order.');

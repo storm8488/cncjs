@@ -1,0 +1,702 @@
+/* CNCjs Touch — mises en page adaptatives (lot B, PROFILES-CONTRACT.md §7). Chargée en dernier.
+ *
+ * La mise en page suit la largeur ET la hauteur CSS réelles, le zoom, l'orientation et le clavier
+ * virtuel (viewport-fit.js mesure visualViewport) avec des règles souples (requêtes média,
+ * grilles, clamp()), jamais transform: scale() pour faire tenir. Quatre modes :
+ *   - paysage confortable (≥ 1100 × 650) : tracé et panneau de commandes côte à côte (UI 2027) ;
+ *   - fenêtre compacte (body.t-compact, touch-shell.js) : informations secondaires repliées ;
+ *   - portrait : rail en bas, bandeau sur deux lignes, écrans empilés qui défilent ;
+ *   - inspection (body.t-inspect, bouton « Inspecter » de Suivi) : tracé agrandi, détails repliés.
+ * Un écran plus haut que la fenêtre (zoom, texte agrandi, clavier) grandit (data-fit-overflow,
+ * viewport-fit.js) et main défile ; Pause et Arrêter restent dans le bandeau, toujours visibles.
+ * Cibles : 64 px principales, 48 px secondaires ; texte utile ≥ 16 px. Chromium 106 : pas de
+ * :has(), pas de dvh, pas d'imbrication, pas de container queries. */
+:root{--t-responsive:1;--rail-h:0px}
+
+/* === Commun ================================================================ */
+/* Un écran qui ne tient pas grandit à sa hauteur de contenu ; main défile (viewport-fit.js). */
+body.ks-ui main>.screen[data-fit-overflow="true"]{height:auto!important;min-height:calc(var(--view-height,600px) - 32px);padding-bottom:16px}
+body.ks-ui main>#screen-home[data-fit-overflow="true"] .job-dashboard{height:auto!important;min-height:calc(var(--view-height,600px) - 32px)}
+body.ks-ui main>#screen-home[data-fit-overflow="true"] .job-art{min-height:clamp(220px,45vh,560px)}
+/* La confirmation et les feuilles défilent dans leur carte au lieu de rétrécir. */
+html body.ks-ui .job-dialog-card{max-height:calc(100vh - var(--statusbar-h,72px) - 24px);overflow:auto;overscroll-behavior:contain;transform:none}
+html body.ks-ui .ks-sheet-card{max-height:calc(100vh - var(--statusbar-h,72px) - 24px)}
+/* Bouton « Agrandir le tracé » de Suivi (touch-shell.js) : posé dans le coin haut droit de l'aperçu,
+   hors du flux, pour ne rien pousser hors de la colonne des commandes. */
+body.ks-ui .job-art>.home-inspect-row{position:absolute;top:var(--sp-2);right:var(--sp-2);z-index:3}
+.t-inspect-toggle{min-height:var(--tap);padding:0 var(--sp-4);font:600 var(--fs-16)/1 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m);cursor:pointer;touch-action:manipulation;white-space:nowrap}
+.t-inspect-toggle[aria-pressed="true"]{background:var(--info-soft);border-color:var(--info)}
+body.ks-ui .home-inspect-row{display:flex;justify-content:flex-end;gap:var(--tap-gap);margin:0}
+/* Estimation par les mouvements (lot C) : texte utile à 16 px ; en fenêtre compacte, une ligne,
+   pour ne pas pousser Arrêter hors de vue. */
+body.ks-ui.t-compact .home-job-motion{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+/* Préparer : les actions passent à la ligne (texte agrandi, espagnol) au lieu de sortir de l'écran. */
+body.ks-ui .ks-preparation-actions{flex-wrap:wrap}
+/* Fichiers : « Charger et ouvrir le Suivi » reste visible en bas du détail qui défile, seulement quand il
+   est actif : désactivé (alarme, travail, hors ligne), il suit le flux et ne couvre plus l'aide qui dit
+   pourquoi. Le conteneur passe en display:contents pour que le bouton colle dans .library-execution (un
+   collant reste dans la boîte de son parent, qui avait la hauteur du bouton). Sans :has() ni JS. */
+body.ks-ui #screen-files .library-execution>.job-buttons{display:contents}
+body.ks-ui #screen-files .library-execution #job-load:not(:disabled){position:sticky;bottom:0;z-index:2}
+/* Portée d'un réglage : cette tablette ou le serveur CNCjs (Réglages). */
+.ks-scope{display:inline-block;margin-left:var(--sp-2);padding:2px var(--sp-2);border:1px solid var(--line-strong);border-radius:var(--r-pill);font:600 var(--fs-16)/1.2 var(--font);color:var(--mute);vertical-align:middle;white-space:nowrap}
+.ks-scope[data-scope="tablet"]{border-color:var(--info);color:var(--info-text)}
+.ks-scope[data-scope="server"]{border-color:var(--warn);color:var(--warn-text)}
+/* Machine visée dans le bandeau (status-strip.js). */
+.t-vital--machine b{max-width:220px;overflow:hidden;text-overflow:ellipsis}
+.t-vital--machine[data-kind="unknown"] b{color:var(--warn-text)}
+
+/* === Inspection : tracé agrandi, panneau de détails replié ==================== */
+body.ks-ui.t-inspect .job-dashboard{grid-template-columns:minmax(0,1fr) minmax(0,auto)!important}
+body.ks-ui.t-inspect .job-metrics>:not(.home-inspect-row):not(.home-progress):not(#home-job-primary-row):not(#home-job-resume-row):not(.home-stop):not(#home-job-ready):not(.home-job-summary):not(.home-zone){display:none!important}
+body.ks-ui.t-inspect .job-metrics{width:clamp(280px,26vw,360px)}
+body.ks-ui.t-inspect .home-overrides{display:none!important}
+
+/* === Grands écrans : colonnes plus larges, sans agrandir les cibles ========== */
+@media (min-width:1500px) and (min-height:860px){
+  body.ks-ui .job-dashboard{grid-template-columns:minmax(0,1fr) clamp(520px,34vw,700px)}
+  body.ks-ui #screen-files.active,body.ks-ui #screen-files.kept{grid-template-columns:minmax(0,1fr) clamp(560px,36vw,760px)}
+  body.ks-ui #screen-jog.active,body.ks-ui #screen-jog.kept{grid-template-columns:clamp(560px,36vw,720px) minmax(0,1fr)}
+}
+
+/* === Fenêtre étroite (≤ 899 px, toute orientation) : une colonne ============== */
+@media (max-width:899px){
+  body.ks-ui main>.screen{height:auto!important;min-height:calc(var(--view-height,600px) - 32px)}
+  body.ks-ui .job-dashboard{grid-template-columns:minmax(0,1fr)!important;height:auto!important;min-height:0}
+  /* Commandes d'abord (avancement, Démarrer / Reprendre), le tracé ensuite. */
+  body.ks-ui .job-metrics{order:-1}
+  body.ks-ui .job-art{min-height:clamp(240px,40vh,620px);flex:none}
+  body.ks-ui #screen-files.active,body.ks-ui #screen-files.kept{grid-template-columns:minmax(0,1fr)!important;height:auto!important}
+  body.ks-ui #screen-jog.active,body.ks-ui #screen-jog.kept{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:auto!important;grid-template-areas:none!important;height:auto!important}
+  body.ks-ui #screen-jog.active>*,body.ks-ui #screen-jog.kept>*{grid-area:auto!important}
+  body.ks-ui #screen-machine.active,body.ks-ui #screen-machine.kept{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:auto!important;height:auto!important}
+  body.ks-ui .ks-tiles{grid-template-columns:repeat(2,minmax(0,1fr))!important;grid-template-rows:none!important;grid-auto-rows:minmax(120px,auto)}
+  body.ks-ui.t-inspect .job-dashboard{grid-template-columns:minmax(0,1fr)!important}
+  body.ks-ui.t-inspect .job-metrics{width:auto;order:0}
+  body.ks-ui.t-inspect .job-art{min-height:clamp(320px,62vh,900px)}
+}
+
+/* === Fenêtre basse (clavier virtuel, zoom, paysage court) ==================== */
+@media (max-height:560px){
+  /* Les écrans prennent la hauteur de leur contenu : main défile sous le bandeau. */
+  body.ks-ui main>.screen{height:auto!important;min-height:calc(var(--view-height,400px) - 32px)}
+  body.ks-ui .job-dashboard{height:auto!important}
+  body.ks-ui .job-art{min-height:clamp(200px,60vh,420px);flex:none}
+  body.ks-ui #screen-files .library-list-panel,body.ks-ui #screen-files .library-detail{height:auto}
+}
+/* Paysage bas et peu large (zoom 150 %) : Suivi sur une colonne, les corrections gardent leur largeur. */
+@media (max-width:1099px) and (max-height:560px){
+  body.ks-ui .job-dashboard{grid-template-columns:minmax(0,1fr)!important}
+  body.ks-ui .job-metrics{order:-1}
+  body.ks-ui.t-inspect .job-metrics{width:auto;order:0}
+}
+/* Rail court : libellés seuls, cibles réparties sur la hauteur (48 px au moins à 1×). Dès 650 px de haut
+   (le seuil de t-compact) : à 1024 × 600, l'icône de « Segui-miento » était écrasée à 10 px. */
+@media (max-height:650px) and (min-width:600px){
+  body.ks-ui #tabbar{gap:4px!important;padding:4px!important;overflow:hidden}
+  body.ks-ui #tabbar .ks-nav{min-height:0;max-height:none;flex:1 1 0;padding:0 2px}
+  body.ks-ui #tabbar .ks-nav svg{display:none}
+  body.ks-ui #tabbar .ks-nav span{letter-spacing:0}
+}
+
+/* === Bandeau étroit en paysage : l'essentiel sur une ligne ==================== */
+@media (max-width:999px){
+  body.ks-ui #real-banner,body.ks-ui #simulation-banner{gap:var(--sp-2);padding:0 var(--sp-2)!important}
+  body.ks-ui .t-state{min-width:0;padding:0 var(--sp-3);gap:var(--sp-2)}
+  body.ks-ui .t-strip-actions{gap:var(--sp-2)}
+  body.ks-ui .t-strip-actions .t-btn--danger{min-width:0}
+  body.ks-ui .t-strip-actions .t-btn{padding-left:var(--sp-3);padding-right:var(--sp-3)}
+  body.ks-ui .t-strip-right{gap:var(--sp-2)}
+  body.ks-ui .t-strip-right .ks-clock,body.ks-ui .t-strip-right .ks-exit{display:none}
+  body.ks-ui .t-pilot{max-width:130px;min-width:72px}
+}
+
+/* === Portrait (et fenêtres étroites assez hautes) ============================= */
+@media (orientation:portrait) and (max-width:1099px),(max-width:759px) and (min-height:600px){
+  :root{--statusbar-h:132px;--rail-h:72px}
+  body.ks-ui{--ks-rail:0px}
+  /* Bandeau sur deux lignes : état et commandes, puis âge, valeurs et groupe de droite. */
+  body.ks-ui #real-banner,body.ks-ui #simulation-banner{grid-template-columns:auto minmax(0,1fr) auto;grid-template-rows:64px 52px;row-gap:4px;align-content:center}
+  body.ks-ui #real-banner>.t-state,body.ks-ui #simulation-banner>.t-state{grid-column:1;grid-row:1}
+  body.ks-ui #real-banner>.t-strip-actions,body.ks-ui #simulation-banner>.t-strip-actions{grid-column:2/4;grid-row:1;justify-self:end}
+  body.ks-ui #real-banner>.t-fresh,body.ks-ui #simulation-banner>.t-fresh{grid-column:1;grid-row:2}
+  body.ks-ui #real-banner>.t-vitals,body.ks-ui #simulation-banner>.t-vitals{grid-column:2;grid-row:2}
+  body.ks-ui #real-banner>.t-strip-right,body.ks-ui #simulation-banner>.t-strip-right{grid-column:3;grid-row:2}
+  body.ks-ui .t-messages{grid-column:1/3;grid-row:2}
+  body.ks-ui .t-strip-right .ks-clock{display:inline}
+  /* Rail en bas, sur toute la largeur. */
+  body.ks-ui #tabbar{top:auto!important;left:0!important;right:0!important;bottom:0!important;width:auto!important;height:var(--rail-h)!important;flex-direction:row!important;align-items:stretch;gap:4px!important;padding:4px!important;border-right:0;border-top:1px solid var(--line)}
+  body.ks-ui #tabbar .ks-nav{flex:1 1 0;min-width:0;min-height:0;max-height:none;padding:2px}
+  body.ks-ui #tabbar .ks-nav.active{box-shadow:inset 0 4px 0 var(--accent)}
+  body.ks-ui main{left:0!important;width:100%!important;bottom:var(--rail-h)!important}
+  body.ks-ui .t-system-command{left:0}
+  /* Écrans empilés : une colonne, hauteur au contenu, main défile ; commandes d'abord. */
+  body.ks-ui main>.screen{height:auto!important;min-height:calc(var(--view-height,600px) - 32px)}
+  body.ks-ui .job-dashboard{grid-template-columns:minmax(0,1fr)!important;height:auto!important;min-height:0}
+  body.ks-ui .job-metrics{order:-1}
+  body.ks-ui .job-art{min-height:clamp(240px,40vh,620px);flex:none}
+  body.ks-ui #screen-files.active,body.ks-ui #screen-files.kept{grid-template-columns:minmax(0,1fr)!important;height:auto!important}
+  body.ks-ui #screen-jog.active,body.ks-ui #screen-jog.kept{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:auto!important;grid-template-areas:none!important;height:auto!important}
+  body.ks-ui #screen-jog.active>*,body.ks-ui #screen-jog.kept>*{grid-area:auto!important}
+  body.ks-ui #screen-machine.active,body.ks-ui #screen-machine.kept{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:auto!important;height:auto!important}
+  body.ks-ui .ks-tiles{grid-template-columns:repeat(2,minmax(0,1fr))!important;grid-template-rows:none!important;grid-auto-rows:minmax(140px,auto)}
+  /* Inspection en portrait : le tracé prend la hauteur, les détails restent dessous. */
+  body.ks-ui.t-inspect .job-dashboard{grid-template-columns:minmax(0,1fr)!important}
+  body.ks-ui.t-inspect .job-metrics{width:auto;order:0}
+  body.ks-ui.t-inspect .job-art{min-height:clamp(320px,62vh,900px)}
+}
+/* Portrait très étroit (zoom) : le rail ne garde que les libellés. */
+@media (orientation:portrait) and (max-width:620px){
+  body.ks-ui #tabbar .ks-nav svg{display:none}
+  body.ks-ui #tabbar .ks-nav span{font-size:var(--fs-16)}
+  body.ks-ui .t-vitals{display:none}
+}
+/* Réglages → diagnostic of this tablet (tablet-diagnostic.js). */
+.ks-diagnostic-list{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr);gap:var(--sp-1) var(--sp-3);margin:var(--sp-2) 0;font-size:var(--fs-16)}
+.ks-diagnostic-list dt{color:var(--mute)}.ks-diagnostic-list dd{margin:0;overflow-wrap:anywhere}
+.ks-ui #screen-settings .ks-diagnostic .ks-help{font-size:var(--fs-16);margin-top:0!important}
+/* Laser without a Z axis (laser-z.js): Z coordinates and controls hidden on this tablet. */
+body.machine-laser.laser-no-z [data-laser-z]{display:none!important}
+/* Fichiers: the preview's status line goes under the image (the frame clips what overflows it). */
+body.ks-ui .pv3d-status.pv3d-status--below{position:static;margin:0;max-width:none;white-space:normal;background:var(--surface-2);color:var(--fg)}
+/* « Favori », « Ouvrir la fiche » and « Agrandir » took fixed dark colours (older sheets) in both
+   themes: same theme colours as the other secondary buttons of Fichiers and Suivi. Disabled ones
+   keep the shared disabled look. */
+body.ks-ui #project-favorite:not(:disabled),body.ks-ui #project-open:not(:disabled){background:transparent;color:var(--fg);border:1px solid var(--line-strong);border-radius:var(--r-m)}
+body.ks-ui .preview-open:not(:disabled){background:var(--surface);color:var(--fg);border:1px solid var(--line-strong);border-radius:var(--r-m)}
+
+/* === Poste large (body.perf-wide, touch-shell.js) =============================
+   Profil Performance, rendu WebGL matériel et fenêtre ≥ 1300 × 880 en paysage (PERFORMANCE-UI-SPEC.md
+   § 2.2, § 5) : la classe seule décide, aucune requête média ne répète la règle. Hors perf-wide, rien
+   ne change. Cibles 64 / 48 / 96 px et texte ≥ 16 px comme ailleurs. */
+/* Préparer avec l'origine visuelle (body.perf-origin, posée par origin-preview.js quand #op-card est
+   montée) : coordonnées puis croix de jog dans la colonne gauche, sur toute la hauteur ; à droite le
+   bandeau d'intro puis la carte #op-card. À 1366 × 911, le bandeau sur toute la largeur ne laisse pas
+   la place à la croix sous les coordonnées (mesuré par browser-run.cjs) : il passe à droite. Le
+   tableau prend les tailles de la spécification (travail 36 px, machine 20 px, rangées 48 px) et la
+   ligne « Contrôleur suivi » se replie comme en fenêtre compacte. Entre le canvas de la carte et la
+   flèche la plus proche : la gouttière et les marges des deux cartes (≥ 24 px). Sans perf-origin, la
+   grille actuelle de Préparer s'applique. */
+body.ks-ui.perf-wide.perf-origin #screen-jog.active,body.ks-ui.perf-wide.perf-origin #screen-jog.kept{grid-template-columns:clamp(440px,34vw,520px) minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;grid-template-areas:"coords intro" "coords origin" "arrows origin"}
+body.ks-ui.perf-wide.perf-origin #screen-jog .ks-panel-intro{grid-area:intro;flex-wrap:wrap;row-gap:var(--sp-2)}
+body.ks-ui.perf-wide.perf-origin #screen-jog .ks-motion-coordinates{grid-area:coords;height:auto;min-height:0;gap:6px}
+body.ks-ui.perf-wide.perf-origin #screen-jog .ks-motion-arrows{grid-area:arrows;height:auto;min-height:0;gap:var(--sp-6);padding:var(--sp-2) var(--sp-3)!important}
+body.ks-ui.perf-wide.perf-origin #screen-jog #op-card{grid-area:origin;min-width:0;min-height:0;height:auto;align-self:stretch;overflow:hidden}
+body.ks-ui.perf-wide.perf-origin #screen-jog #jog-controller{display:none}
+body.ks-ui.perf-wide.perf-origin #screen-jog .ks-coordinate-table tbody tr{height:48px}
+body.ks-ui.perf-wide.perf-origin #screen-jog .ks-coordinate-table th,body.ks-ui.perf-wide.perf-origin #screen-jog .ks-coordinate-table td{padding:0 var(--sp-2)}
+body.ks-ui.perf-wide.perf-origin #screen-jog .ks-coordinate-table td b,body.ks-ui.perf-wide.perf-origin #screen-jog .ks-coordinate-table td[data-sim-coordinate]{font-size:var(--fs-36)}
+body.ks-ui.perf-wide.perf-origin #screen-jog .ks-coordinate-table td[data-coordinate=machine] b,body.ks-ui.perf-wide.perf-origin #screen-jog .ks-coordinate-table td[data-sim-coordinate=machinePosition]{font-size:var(--fs-20)}
+body.ks-ui.perf-wide.perf-origin #screen-jog .ks-coordinate-table td[data-coordinate=machine],body.ks-ui.perf-wide.perf-origin #screen-jog .ks-coordinate-table td[data-sim-coordinate=machinePosition]{width:110px}
+body.ks-ui.perf-wide.perf-origin #screen-jog .ks-coordinate-table td:last-child{width:104px}
+/* Suivi en zones (job-dashboard.js, .job-dashboard[data-zones]) : Vue (#home-left) | Instruments
+   (#home-zone-gauges) | Commandes (#home-zone-controls). Deux zones (Q3b, 1366 × 911) : la colonne
+   de droite garde ses 520 px, les instruments au-dessus des commandes, les corrections sous la vue.
+   Trois zones (fenêtre plus large) : 340 | 400 px, la vue au moins aussi large qu'aujourd'hui,
+   les corrections dans Commandes. Arrêter reste seul en bas des commandes. .job-art garde
+   position: relative et sa hauteur de grille (la vue 3D de V s'y monte). */
+body.ks-ui.perf-wide .job-dashboard[data-zones="2"]{grid-template-columns:minmax(0,1fr) 520px}
+body.ks-ui.perf-wide .job-dashboard[data-zones="3"]{grid-template-columns:minmax(0,1fr) 756px}
+body.ks-ui.perf-wide .job-dashboard[data-zones] .job-art{position:relative;flex:1 1 0;min-height:240px}
+/* Une note à côté de l'aperçu affiché (aperçu non vérifié…) garde au moins 210 px, en v1 Éco aussi : sur la RT,
+   l'image la réduisait à une colonne d'un caractère qui étirait .job-art (1 293 px) et faisait défiler Suivi.
+   En v1 elle s'élargit quand l'image laisse de la place (image basse en pause : la note ne passe plus sous
+   « Agrandir le tracé » et « Agrandir ») ; la v2 garde sa colonne fixe. .job-art reste une rangée. */
+body.ks-ui .job-dashboard #home-job-image{min-width:0}
+body.ks-ui .job-dashboard #home-job-image:not([hidden])+#home-image-status{flex:0 1 auto;min-width:210px}
+body.ks-ui.perf-wide .job-dashboard[data-zones] #home-job-image:not([hidden])+#home-image-status{flex:0 0 210px}
+body.ks-ui.perf-wide .job-dashboard[data-zones] .job-metrics{gap:var(--sp-3)}
+body.ks-ui.perf-wide .job-dashboard[data-zones="3"] .job-metrics{display:grid;grid-template-columns:340px 400px;grid-template-rows:minmax(0,1fr);column-gap:var(--sp-4);align-items:stretch}
+body.ks-ui.perf-wide .home-zone{display:flex;flex-direction:column;gap:var(--sp-2);min-width:0;min-height:0}
+body.ks-ui.perf-wide .home-zone>*{flex-shrink:0;margin-top:0;margin-bottom:0}
+body.ks-ui.perf-wide .job-dashboard[data-zones="2"] .home-zone-controls{flex:1 1 auto}
+body.ks-ui.perf-wide .home-zone-controls>.home-stop{margin-top:auto}
+body.ks-ui.perf-wide .home-zone-controls>.home-load{margin-bottom:0}
+/* Instruments : pourcentage 64 px et ligne acquittée, temps restant 28 px avec sa source, coordonnées
+   travail 48 px et machine 24 px, avance et broche réelles 28 px, corrections lues, courbe (trois zones). */
+body.ks-ui.perf-wide #home-job-eta,body.ks-ui.perf-wide #home-job-motion{display:none}
+body.ks-ui.perf-wide .home-gauge-ack{display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:0;text-align:right}
+body.ks-ui.perf-wide .home-gauge-ack small{font:600 var(--fs-16)/1.1 var(--font);color:var(--mute);letter-spacing:.04em;text-transform:uppercase}
+body.ks-ui.perf-wide .home-gauge-ack b{font:600 var(--fs-20)/1.1 var(--font-num);font-variant-numeric:tabular-nums;white-space:nowrap}
+body.ks-ui.perf-wide .home-gauge-eta{display:flex;flex-direction:column;gap:2px;padding:var(--sp-2) var(--sp-4)!important}
+body.ks-ui.perf-wide .home-gauge-eta-title{margin:0;font:600 var(--fs-28)/1.15 var(--font-num);font-variant-numeric:tabular-nums;color:var(--fg);overflow-wrap:anywhere}
+body.ks-ui.perf-wide .home-gauge-eta .t-help{margin:0;font-size:var(--fs-16);line-height:1.3}
+body.ks-ui.perf-wide .home-gauge-eta .t-help[hidden]{display:none}
+body.ks-ui.perf-wide .home-live-tiles b{font-size:var(--fs-28)}
+body.ks-ui.perf-wide .home-gauge-overrides{margin:0;font:var(--fs-18)/1.3 var(--font);color:var(--mute);font-variant-numeric:tabular-nums}
+body.ks-ui.perf-wide .home-gauge-overrides b{color:var(--fg);white-space:nowrap}
+body.ks-ui.perf-wide .home-gauge-overrides b[data-off="true"]{color:var(--warn-text)}
+body.ks-ui.perf-wide .home-gauge-curve{display:none}
+body.ks-ui.perf-wide .job-dashboard[data-zones="3"] .home-gauge-curve{display:flex;flex-direction:column;flex:0 1 auto;min-height:0;padding:var(--sp-2) var(--sp-3)!important}
+body.ks-ui.perf-wide .home-gauge-curve-title{margin:0;font:600 var(--fs-16)/1.2 var(--font);color:var(--mute)}
+body.ks-ui.perf-wide .home-gauge-curve svg{display:block;width:100%;height:90px;min-height:48px;flex:0 1 auto;margin-top:var(--sp-1)}
+body.ks-ui.perf-wide .home-gauge-curve-grid{fill:none;stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
+body.ks-ui.perf-wide .home-gauge-curve-line{fill:none;stroke:var(--info-text);stroke-width:2;vector-effect:non-scaling-stroke}
+/* Commandes : corrections ±10 % / 100 % à 64 px, ±1 % et rapides à 48 px ; en trois zones, le nom
+   au-dessus de sa rangée (400 px de large). */
+body.ks-ui.perf-wide .t-override:not(.t-override--rapid) .t-ov-row .t-btn:not(.t-fine){min-height:var(--tap-primary)}
+body.ks-ui.perf-wide .t-override--rapid .t-ov-row .t-btn{min-height:var(--tap)}
+body.ks-ui.perf-wide .job-dashboard[data-zones="3"] .t-override{grid-template-columns:minmax(0,1fr);gap:var(--sp-1)}
+body.ks-ui.perf-wide .job-dashboard[data-zones="3"] .t-ov-name{display:flex;align-items:baseline;gap:var(--sp-3)}
+body.ks-ui.perf-wide .job-dashboard[data-zones="3"] .t-ov-name b{display:inline;margin:0}
+body.ks-ui.perf-wide .job-dashboard[data-zones="3"] .t-ov-row .t-btn{font-size:var(--fs-20);padding:0 var(--sp-1)}
+body.ks-ui.perf-wide .job-dashboard[data-zones="3"] .t-ov-row .t-fine{font-size:var(--fs-18)}
+/* Inspection : deux zones comme aujourd'hui (avancement et commandes principales) ; trois zones : la
+   vue prend la place des instruments, les commandes restent entières. */
+body.ks-ui.perf-wide.t-inspect .job-dashboard[data-zones="2"] .home-zone-gauges>:not(.home-progress),body.ks-ui.perf-wide.t-inspect .job-dashboard[data-zones="2"] #home-zone-controls>:not(#home-job-primary-row):not(#home-job-resume-row):not(.home-stop):not(#home-job-ready):not(.home-overrides){display:none!important}
+body.ks-ui.perf-wide.t-inspect .job-dashboard[data-zones="2"] #home-zone-controls{flex:1 1 auto}
+body.ks-ui.perf-wide.t-inspect .job-dashboard[data-zones="3"]{grid-template-columns:minmax(0,1fr) 400px!important}
+body.ks-ui.perf-wide.t-inspect .job-dashboard[data-zones="3"] .job-metrics{width:auto;grid-template-columns:400px}
+body.ks-ui.perf-wide.t-inspect .job-dashboard[data-zones="3"] .home-zone-gauges{display:none!important}
+body.ks-ui.perf-wide.t-inspect .job-dashboard[data-zones="3"] .home-overrides:not([hidden]){display:grid!important}
+/* Fichiers : la liste à gauche, le détail et son grand aperçu à droite. */
+body.ks-ui.perf-wide #screen-files.active,body.ks-ui.perf-wide #screen-files.kept{grid-template-columns:clamp(440px,34vw,560px) minmax(0,1fr)}
+body.ks-ui.perf-wide #screen-files .library-detail{grid-template-rows:auto auto auto auto minmax(420px,1fr) auto auto}
+/* La liste plus étroite : le titre et « Ajouter » en haut, la recherche et « Favoris » dessous (comme en
+   fenêtre compacte), pour que le champ de recherche garde sa largeur. */
+body.ks-ui.perf-wide #screen-files .library-list-panel{grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto auto minmax(0,1fr) auto;grid-template-areas:"title add" "search fav" "status status" "list list" "pages pages"}
+
+/* L1: shared session frame, identical in Eco and Performance. */
+body.ks-ui #tabbar{top:72px;gap:12px;padding:8px!important}
+/* The 88px border-box rail has 71px inside its padding and right border. */
+body.ks-ui #tabbar .ks-nav{flex:none;min-height:88px;height:88px;width:100%;padding:4px 2px;gap:6px;font-size:16px}
+body.ks-ui #tabbar .ks-nav[data-ks-screen="more"]{margin-top:auto;height:64px;min-height:64px;border-top:1px solid var(--line-strong);border-radius:0}
+body.ks-ui #tabbar .ks-nav span{font-size:16px;line-height:1.15;white-space:normal;overflow-wrap:normal;hyphens:none;word-break:normal}
+body.ks-ui.display-large #tabbar .ks-nav-name{font-size:18px}
+/* Whole translated words, including Mecanizado at 18px, need more than 71px.
+   The session frame follows the same token; touch targets keep their height. */
+@media(min-width:1100px) and (min-height:650px){
+ body.ks-ui{--rail-w:128px;--ks-rail:var(--rail-w)}
+ body.ks-ui #tabbar .ks-nav-name{letter-spacing:0}
+}
+.ks-step-number{position:relative;border:1px solid var(--line-strong);border-radius:50%;width:28px;height:28px;display:grid;place-items:center}
+.ks-step-mark{position:absolute;right:-9px;top:-8px;font-size:16px;background:var(--surface);border-radius:50%}
+body.ks-ui #tabbar .ks-nav>b{font-size:16px}
+.ks-nav[data-seance-state="alerte"] .ks-step-mark{color:var(--warn-text)}
+.ks-nav[data-seance-state="suite"] .ks-step-number{border:2px solid var(--accent)}
+.ks-nav[data-seance-state="attente"]{color:var(--mute)}
+body.ks-ui main>.ks-step-screen{position:absolute;padding-top:52px!important;padding-bottom:76px!important;box-sizing:border-box;min-height:0}
+.ks-step-body{display:contents}
+.ks-ui .ks-step-head{position:absolute;top:0;left:0;right:0;height:40px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line);min-width:0}
+.ks-ui .ks-step-head h2{font-size:20px;color:var(--fg);margin:0;white-space:nowrap}
+.ks-step-head>span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;color:var(--mute);font-size:16px}
+.ks-step-head>b{font-size:16px;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ks-ui .ks-stepbar{position:absolute;bottom:0;left:0;right:0;display:flex;gap:12px;align-items:center;min-height:64px;background:var(--bg);border-top:1px solid var(--line);z-index:3}
+.ks-ui .ks-stepbar p{flex:1;min-width:120px;font-size:16px;line-height:1.25;margin:0;max-height:60px;overflow:auto}
+.ks-ui .ks-stepbar button{font-size:16px;min-height:48px;border:1px solid var(--line-control);background:var(--surface-2);color:var(--fg);border-radius:8px;padding:8px 16px;max-width:300px;line-height:1.15}
+.ks-ui .ks-stepbar button[id$="-main"]{flex:0 0 320px;min-height:64px;max-width:320px;font-size:18px;background:var(--accent);color:var(--on-accent)}
+.ks-ui .ks-stepbar button[data-style="contour"]{background:var(--surface);color:var(--fg)}
+.ks-ui .ks-stepbar [hidden]{display:none!important}
+.ks-ui .ks-stepbar button:disabled{background:repeating-linear-gradient(135deg,var(--disabled-bg),var(--disabled-bg) 7px,var(--disabled-stripe) 7px,var(--disabled-stripe) 9px);color:var(--disabled-fg);pointer-events:none}
+.ks-refus{display:flex;align-items:center;gap:12px;padding:12px;border-left:4px solid var(--warn-text);background:var(--surface-2);color:var(--fg);font-size:16px}
+.ks-refus>span{flex:1}.ks-refus button,.ks-back{min-height:48px;font-size:16px}
+#ks-details pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:16px}
+.ks-ui #screen-more.active,.ks-ui #screen-more.kept{display:flex;flex-direction:column;gap:16px;height:100%;min-height:0}
+#screen-more .ks-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:200px;gap:16px;flex:1;align-content:start;min-height:0;overflow:auto}
+#screen-more .ks-tile{min-height:200px;height:200px}.ks-ui #more-version{font-size:16px;margin:0}
+.ks-ui #screen-check.active,.ks-ui #screen-check.kept{display:block;height:100%}
+#check-verdict{max-height:100%;overflow:auto}
+.ks-ui #screen-machine #ks-connect{grid-column:1/-1;min-width:0}
+.ks-ui #real-banner .t-strip-actions,.ks-ui #simulation-banner .t-strip-actions{flex:0 0 auto;gap:12px;align-items:center}
+.ks-ui .t-strip-actions #t-pilot{width:160px;min-width:160px;height:48px;border:1px solid var(--line-control);border-radius:8px;display:flex;gap:4px;align-items:center;justify-content:center}
+.ks-ui .t-strip-actions #t-pilot::after{content:'›';font-size:22px}
+.ks-ui .t-strip-actions #t-pilot span,.ks-ui .t-strip-actions #t-pilot b{font-size:16px;text-transform:none;letter-spacing:0}
+.ks-ui .t-strip-actions #t-pause,.ks-ui .t-strip-actions #t-resume,.ks-ui .t-strip-actions #t-recover{width:200px;min-width:200px;height:64px;min-height:64px;font-size:18px;white-space:normal}
+.ks-ui .t-strip-actions #t-stop{width:148px;min-width:148px;height:64px;min-height:64px}
+.ks-ui #real-banner[data-job="true"] .t-vital--machine{display:none}
+.ks-ui.display-large #real-banner[data-job="true"] .t-vital--feed{display:none}
+.ks-ui #real-banner[data-job="true"] .t-vital--file{min-width:120px;flex:1}
+.ks-ui #real-banner .t-vitals{gap:12px;flex:1;overflow:hidden}
+.ks-ui #real-banner .t-vital--file{min-width:0}
+.ks-ui #real-banner[data-job="true"] .t-vital--file{min-width:120px}
+.ks-ui .job-dialog-card{width:600px;max-width:calc(100vw - 48px)}
+.ks-ui .job-dialog-actions #job-confirm{min-height:64px;min-width:300px;max-width:100%;font-size:18px}
+.ks-ui .job-dialog-actions[data-avoid-origin="true"]{flex-direction:row-reverse}
+.ks-ui .pilot-reasons{display:flex;flex-direction:column;gap:12px}
+.ks-ui .pilot-reasons button{min-height:64px;font-size:16px;white-space:normal}
+.ks-ui #pilot-reason-a{background:var(--accent);color:var(--on-accent)}
+@media(max-height:649px){body.ks-ui #tabbar .ks-nav{height:56px;min-height:56px}body.ks-ui #tabbar .ks-nav .ks-nav-name{display:none}body.ks-ui #tabbar .ks-nav[data-ks-screen="more"] .ks-nav-name{display:block}}
+@media(max-width:1099px),(max-height:649px){body.ks-ui main>.ks-step-screen{padding-bottom:140px!important;overflow:auto}.ks-ui .ks-stepbar{position:fixed;left:104px;right:16px;bottom:16px;flex-wrap:wrap}.ks-ui .ks-stepbar p{flex-basis:100%}.ks-ui .ks-stepbar button[id$="-main"]{margin-left:auto}#screen-more .ks-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Current content hosts retain the existing card rules. */
+
+/* Normal actions and states use neutral ink; bright colour signals attention. */
+.ks-ui .t-btn--primary,.ks-ui .job-start,.ks-ui .ks-connect-go{background:var(--accent);color:var(--on-accent)}
+.ks-ui .t-state[data-tone="ok"],.ks-ui .ks-machine-word[data-tone="ok"]{color:var(--fg);background:var(--surface)}
+
+/* L2: the same machine checklist and incident layout in Eco and Performance. */
+body.ks-ui:not([data-simulation=true]) #screen-machine.active,body.ks-ui:not([data-simulation=true]) #screen-machine.kept{grid-template-columns:minmax(0,1fr)!important;grid-template-rows:minmax(0,1fr)!important;gap:0}
+.ks-ui #machine-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;min-height:0;height:100%}
+.ks-ui #machine-layout[data-incident=true]{grid-template-columns:minmax(0,790fr) minmax(0,444fr)}
+.ks-ui .ks-machine-column{display:flex;flex-direction:column;gap:12px;min-height:0;min-width:0}
+.ks-ui #machine-ready{flex:1;margin:0;padding:12px!important;overflow:auto}
+.ks-ui #machine-ready h2,.ks-ui #machine-incident h2{margin:0 0 8px;font-size:20px;line-height:24px}
+.ks-ui #machine-list{list-style:none;margin:0;padding:0}
+.ks-ui #machine-list li{display:flex;align-items:center;gap:12px;min-height:52px;font-size:16px;line-height:1.25}
+.ks-ui .ks-line-mark{flex:0 0 24px;font-size:22px;text-align:center}
+.ks-ui .ks-line-text{flex:1;min-width:0}
+.ks-ui #machine-list [data-line-state=alerte]{color:var(--warn-text)}
+.ks-ui #machine-list button,.ks-ui .ks-machine-secondary button,.ks-ui #machine-incident button,.ks-ui #ks-machine-details button{min-height:48px;font:inherit;font-size:16px;padding:8px 12px;border:1px solid var(--line-control);border-radius:8px;background:var(--surface-2);color:var(--fg);line-height:1.2}
+.ks-ui #machine-list button{max-width:190px}
+.ks-ui .ks-machine-secondary{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.ks-ui .ks-machine-secondary #machine-unlock{min-height:64px;max-width:310px}
+.ks-ui .ks-machine-secondary p{flex:1;min-width:140px;font-size:16px;margin:0;line-height:1.2}
+.ks-ui #machine-incident{display:flex;flex-direction:column;margin:0;padding:16px!important;font-size:16px;line-height:1.4;overflow:auto}
+.ks-ui #machine-incident[hidden],.ks-ui #machine-ready[hidden]{display:none!important}
+.ks-ui #machine-incident button{align-self:flex-end;margin-top:auto}
+.ks-ui #machine-incident-lines p{margin:12px 0}
+.ks-ui #machine-layout .ks-connect{display:flex;flex-direction:column;align-items:stretch;gap:16px;flex:1;margin:0;padding:20px}
+.ks-ui #machine-layout .ks-connect[hidden]{display:none!important}
+.ks-ui #machine-layout .ks-connect-actions{display:flex;flex-wrap:wrap;gap:12px}
+.ks-ui #machine-layout .ks-connect button{min-height:48px;font-size:16px}
+.ks-ui #machine-layout .ks-connect .ks-connect-port{min-height:64px}
+.ks-ui #machine-layout .ks-connect-go,.ks-ui #machine-layout .ks-connect-actions button:not(.ks-connect-go):not(:first-child){min-height:64px}
+.ks-ui #ks-machine-details .ks-sheet-card{width:min(1120px,calc(100vw - 48px))}
+.ks-ui #ks-machine-details .ks-sheet-content{display:flex;flex-direction:column;gap:16px;font-size:16px}
+.ks-ui #machine-details-content{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}
+.ks-ui #machine-details-content p{font-size:16px;overflow-wrap:anywhere}
+.ks-ui #ks-machine-details #job-port{min-height:48px;font-size:16px}
+.ks-ui #ks-machine-details .ks-limits-table,.ks-ui #ks-machine-details .ks-coordinate-table{width:100%;font-size:16px}
+.ks-ui #ks-machine-details #perf-v2-machine{overflow:visible;flex:none}
+.ks-ui #machine-list button:disabled,.ks-ui .ks-machine-secondary button:disabled,.ks-ui #machine-details-reread:disabled{background:repeating-linear-gradient(135deg,var(--disabled-bg),var(--disabled-bg) 7px,var(--disabled-stripe) 7px,var(--disabled-stripe) 9px);color:var(--disabled-fg)}
+.ks-ui #machine-layout[data-stale=true] #machine-list{opacity:.6}
+.ks-ui.display-large #machine-list li,.ks-ui.display-large #machine-incident,.ks-ui.display-large #machine-list button,.ks-ui.display-large .ks-machine-secondary p{font-size:18px}
+.ks-ui #pilot-dialog .pilot-reasons{flex-direction:column;align-items:stretch}
+.ks-ui #pilot-reason-a,.ks-ui #pilot-reason-b{min-height:64px;font-size:18px}
+.ks-ui #pilot-other{align-self:flex-start;min-height:48px;font-size:16px}
+@media(min-height:850px){.ks-ui #machine-list li{min-height:64px}}
+@media(max-width:1099px),(max-height:649px){.ks-ui #machine-layout[data-incident=true]{grid-template-columns:minmax(0,1fr)}.ks-ui #machine-layout{height:auto}.ks-ui #machine-ready{overflow:visible}.ks-ui #machine-list li{flex-wrap:wrap}.ks-ui #machine-details-content{grid-template-columns:minmax(0,1fr)}}
+
+/* L3a: one Zero piece layout in Eco and Performance. Cards never hide the jog cross. */
+body.ks-real.ks-ui #screen-jog.screen.active,body.ks-real.ks-ui #screen-jog.screen.kept{display:grid;grid-template-columns:minmax(0,380fr) minmax(444px,456fr) minmax(0,386fr)!important;grid-template-rows:minmax(0,1fr)!important;grid-template-areas:"coords arrows tools"!important;gap:12px!important}
+body.ks-real.ks-ui #screen-jog .ks-step-body>.card{padding:12px!important;height:auto;align-self:start;min-width:0;display:flex;flex-direction:column;gap:12px}
+body.ks-real.ks-ui #screen-jog .ks-motion-coordinates{grid-area:coords}
+body.ks-real.ks-ui #screen-jog .ks-motion-arrows{grid-area:arrows}
+body.ks-real.ks-ui #screen-jog .ks-zero-tools{grid-area:tools}
+body.ks-real.ks-ui #screen-jog .ks-zero-axis{display:grid;grid-template-columns:24px minmax(0,1fr) auto 136px;gap:8px;align-items:center;min-height:64px;font-size:var(--fs-20)}
+body.ks-real.ks-ui #screen-jog .ks-zero-axis b{font:500 var(--fs-28)/1 var(--font-num);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+body.ks-real.ks-ui #screen-jog .ks-zero-axis small{font-size:var(--fs-16);color:var(--mute)}
+body.ks-real.ks-ui #screen-jog .ks-zero-axis button,body.ks-real.ks-ui #screen-jog #jog-zero-xyz{min-height:64px;font-size:var(--fs-16);border:1px solid var(--faint);border-radius:var(--r-m);background:var(--surface-2);color:var(--fg);padding:8px}
+body.ks-real.ks-ui #screen-jog .ks-zero-axis button:disabled{opacity:1;color:var(--disabled-fg);background:repeating-linear-gradient(135deg,var(--disabled-bg) 0 6px,var(--disabled-stripe) 6px 14px);border-color:var(--line)}
+body.ks-real.ks-ui #screen-jog .ks-zero-cross{display:flex;gap:12px;align-items:stretch;justify-content:center}
+body.ks-real.ks-ui #screen-jog .ks-zero-cross .pad{grid-template-columns:repeat(3,96px);grid-template-rows:repeat(3,96px);gap:12px}
+body.ks-real.ks-ui #screen-jog .ks-zero-cross .zrow{grid-template-rows:96px 96px;gap:120px;align-self:stretch}
+body.ks-real.ks-ui #screen-jog .ks-zero-cross .jog{width:96px;height:96px;min-width:96px;min-height:96px}
+/* JOG: two equal groups below the cross. Numeric steps and feeds share a regular grid;
+ * Continuous occupies its own aligned row. Keep 96 px arrows and 48 px choices at 768 px. */
+body.ks-real.ks-ui #screen-jog .ks-step-body>.ks-motion-arrows{padding:6px 12px!important;max-height:100%;overflow:auto}
+body.ks-real.ks-ui #screen-jog .ks-motion-arrows>*{flex:none}
+body.ks-real.ks-ui #screen-jog .ks-jog-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}
+body.ks-real.ks-ui #screen-jog .ks-jog-choice-group{display:flex;flex-direction:column;gap:6px;min-width:0}
+body.ks-real.ks-ui #screen-jog .ks-jog-choice-title{margin:0;font:600 var(--fs-16)/1.2 var(--font);color:var(--mute)}
+body.ks-real.ks-ui #screen-jog #steps,body.ks-real.ks-ui #screen-jog #feeds{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:0;border:0;background:transparent}
+body.ks-real.ks-ui #screen-jog #steps .step,body.ks-real.ks-ui #screen-jog #feeds .step{min-width:48px;min-height:48px;padding:0 4px;border:1px solid var(--faint);font-size:var(--fs-18)}
+body.ks-real.ks-ui #screen-jog #steps .step[data-step="hold"]{grid-column:1 / -1;font:600 var(--fs-16)/1.2 var(--font)}
+body.ks-real.ks-ui #screen-jog #jog-hold-reason{margin-top:6px!important;line-height:1.25}
+body.ks-real.ks-ui #screen-jog #steps .step:disabled,body.ks-real.ks-ui #screen-jog #feeds .step:disabled{opacity:1;color:var(--disabled-fg);background:repeating-linear-gradient(135deg,var(--disabled-bg) 0 6px,var(--disabled-stripe) 6px 14px);border-color:var(--line)}
+body.ks-real.ks-ui #screen-jog .ks-zero-tools .ks-panel-intro{display:contents}
+body.ks-real.ks-ui #screen-jog .ks-zero-tools .ks-preparation-actions{display:flex;flex-direction:column;gap:12px}
+body.ks-real.ks-ui #screen-jog .ks-zero-tools p{font-size:var(--fs-16);line-height:1.3;margin:0}
+body.ks-real.ks-ui #screen-jog .ks-zero-tools #zero-kind-open{min-height:64px}
+#ks-zero-more .ks-sheet-content{display:flex;flex-direction:column;gap:12px}
+#ks-zero-more .ks-zero-machine{min-height:64px;font-size:var(--fs-18);padding:12px;border:1px solid var(--line-control);border-radius:var(--r-m);color:var(--fg);background:var(--surface-2)}
+#ks-zero-more .ks-zero-machine:disabled{opacity:1;color:var(--disabled-fg);background:repeating-linear-gradient(135deg,var(--disabled-bg) 0 6px,var(--disabled-stripe) 6px 14px)}
+#ks-zero-more p{font-size:var(--fs-18);line-height:1.35}
+body.ks-real.ks-ui #screen-jog [hidden],#ks-zero-more [hidden]{display:none!important}
+body.ks-real.ks-ui.laser-no-z #screen-jog [data-laser-z],body.ks-real.ks-ui.laser-no-z #ks-zero-more [data-laser-z]{display:none!important}
+@media(max-width:1099px),(max-height:649px){body.ks-real.ks-ui #screen-jog.screen.active,body.ks-real.ks-ui #screen-jog.screen.kept{grid-template-columns:minmax(444px,1fr)!important;grid-template-rows:auto auto auto!important;grid-template-areas:"arrows" "coords" "tools"!important;align-content:start}body.ks-real.ks-ui #screen-jog .ks-motion-coordinates{max-width:440px}body.ks-real.ks-ui #screen-jog .ks-zero-axis{grid-template-columns:24px minmax(0,1fr) auto 136px}}
+
+/* Until L4 arranges Control, its relocated placement stays inside the scrolling body. */
+body.ks-real.ks-ui #screen-check .ks-step-body{display:flex;flex-direction:column;gap:12px;height:100%;min-height:0;overflow:auto}
+body.ks-real.ks-ui #screen-check #check-verdict{flex:none;max-height:none}
+/* L4: the same file cards and check diagrams in Eco and Performance. */
+body.ks-ui #screen-files.active,body.ks-ui #screen-files.kept{grid-template-columns:minmax(0,42fr) minmax(0,58fr);grid-template-rows:minmax(0,1fr)}
+body.ks-ui #screen-files .library-list-panel,body.ks-ui:not(.t-compact) #screen-files .library-list-panel{grid-column:1;grid-row:1;grid-template-columns:minmax(120px,1fr) auto;grid-template-rows:32px 48px minmax(0,1fr) 48px;grid-template-areas:"title title" "search fav" "list list" "pages pages";gap:12px}
+body.ks-ui #screen-files .library-list-title h2{display:block;font-size:20px}
+body.ks-ui #screen-files #library-search{min-height:48px;font-size:18px}
+body.ks-ui #screen-files #library-favorites{grid-area:fav}
+body.ks-ui #screen-files .library-file{min-height:68px;grid-template-columns:80px minmax(0,1fr) auto}
+body.ks-ui #screen-files .library-thumb{width:80px;height:52px}
+body.ks-ui #screen-files #library-list{gap:12px}
+body.ks-ui #screen-files .library-detail{display:grid;grid-column:2;grid-row:1;grid-template-columns:minmax(0,1fr) 190px;grid-template-rows:auto minmax(220px,1fr) auto auto auto;gap:12px;overflow:auto}
+body.ks-ui #screen-files #library-name{grid-column:1/-1;grid-row:1}
+body.ks-ui #screen-files .library-detail>.library-image-wrap{grid-column:1;grid-row:2;min-height:220px;max-height:none}
+body.ks-ui #screen-files .files-facts{grid-column:2;grid-row:2;flex-direction:column;gap:24px;align-self:start;padding:0}
+body.ks-ui #screen-files .files-facts>div{min-width:0}
+body.ks-ui #screen-files .files-facts strong{font-size:24px}
+body.ks-ui #screen-files #job-loaded{grid-column:1/-1;grid-row:3}
+body.ks-ui #screen-files .files-verdict{grid-column:1/-1;grid-row:4}
+body.ks-ui #screen-files .ks-file-tools{grid-column:1/-1;grid-row:5;display:flex;gap:12px}
+body.ks-ui #screen-files .ks-file-tools>button{flex:1;min-height:48px;font-size:16px;padding:8px;background:var(--surface-2);color:var(--fg);border:1px solid var(--line-control)}
+body.ks-ui #screen-files #perf-v2-files{grid-column:1/-1;grid-row:3}
+body.ks-ui.perf-v2 #screen-files #job-loaded{display:none}
+body.ks-ui #screen-files .library-execution{display:none}
+body.ks-ui #screen-check .ks-step-body{display:block}
+body.ks-ui #screen-check .check-layout{height:100%;min-height:0}
+body.ks-ui #check-side svg{font-size:24px}
+@media(max-width:1099px),(max-height:649px){
+ body.ks-ui #screen-files.active,body.ks-ui #screen-files.kept{grid-template-columns:minmax(0,1fr)!important;overflow:auto}
+ body.ks-ui #screen-files .library-detail{grid-column:1;grid-row:2;min-height:480px}
+ body.ks-ui #screen-files .library-list-panel{min-height:410px}
+ body.ks-ui #screen-check .check-layout{height:auto}
+}
+
+.ks-ui .ks-stepbar p[data-tone="danger"]{color:var(--danger-text)}
+.ks-ui .ks-stepbar p[data-tone="warn"]{color:var(--warn-text)}
+#job-start-drawing{height:240px;min-height:0}
+#job-start-drawing svg{max-height:240px;font-size:32px}
+
+/* L5: fixed machining layout; renderers enrich only read-only content. */
+body.ks-ui #screen-home .job-dashboard,body.ks-ui.perf-wide.perf-v2 #screen-home .job-dashboard[data-zones][data-v2="suivi"]{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:12px;min-height:0;height:100%}
+body.ks-ui #screen-home .home-left,body.ks-ui #screen-home .job-metrics{display:flex;flex-direction:column;gap:12px;min-width:0;min-height:0;overflow:visible}
+body.ks-ui #screen-home .home-left>.job-art,body.ks-ui.perf-wide.perf-v2 #screen-home .home-left>.job-art{flex:1 1 0;min-height:100px}
+body.ks-ui #screen-home .home-stop,body.ks-ui.perf-wide.perf-v2 #screen-home .home-stop{flex:0 0 98px;height:98px;padding:0;margin:0;display:flex;flex-direction:column;gap:12px}
+body.ks-ui #home-job-stop{min-height:64px;width:100%;margin:0}body.ks-ui .home-stop .t-help{font-size:16px;text-align:center}
+body.ks-ui #screen-home .home-overrides{display:flex;flex-direction:column;gap:12px;padding:0;border:0;background:transparent;margin:0;flex:none}
+body.ks-ui #screen-home .t-override{display:grid;grid-template-columns:90px minmax(0,1fr);align-items:center;gap:12px;margin:0;min-height:64px}
+body.ks-ui #screen-home .t-ov-row{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+body.ks-ui #screen-home .t-override--rapid .t-ov-row{grid-template-columns:repeat(3,minmax(0,1fr))}
+body.ks-ui #screen-home .t-ov-row .t-btn,body.ks-ui.perf-wide.perf-v2 #screen-home .t-ov-row .t-btn.t-fine{min-height:64px;padding:0 4px;font-size:16px;grid-column:auto}
+body.ks-ui #screen-home .t-ov-name{font-size:16px}body.ks-ui #screen-home .t-ov-name b{display:block;font-size:16px}
+body.ks-ui #screen-home .home-overrides-head,body.ks-ui #home-rapid-note,body.ks-ui #home-job-ready,body.ks-ui #home-job-selection,body.ks-ui #home-machine-card,body.ks-ui #home-spindle-warning,body.ks-ui #home-job-motion,body.ks-ui #screen-home .home-live-tiles{display:none}
+body.ks-ui #home-override-note,body.ks-ui #home-rapid-reason{margin:0;font-size:16px}body.ks-ui #home-override-note:empty,body.ks-ui #home-rapid-reason:empty{display:none}
+body.ks-ui #home-notice{min-height:100px;flex:0 0 auto;padding:8px;margin:0;overflow:visible;font-size:16px}
+body.ks-ui #home-notice p{margin:0 0 8px;font-size:16px}body.ks-ui #home-notice-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+body.ks-ui #home-notice-actions .t-btn{min-height:48px;font-size:16px;padding:0 8px}
+body.ks-ui #home-pause-m5,body.ks-ui #home-pause-plate-start,body.ks-ui #home-finish-plate-start{min-height:64px}
+body.ks-ui #home-notice span:empty{display:none}body.ks-ui #home-notice span{font-size:16px}
+body.ks-ui #home-coords .t-coords-card{margin:0;padding:4px 8px}body.ks-ui #home-coords h2{font-size:16px;margin:0}body.ks-ui #home-coords .t-val{font-size:20px}
+body.ks-ui #screen-home .home-progress{padding:12px;min-height:84px;flex:none}body.ks-ui #home-job-eta{font-size:16px;margin:0}
+body.ks-ui #screen-home .home-gauge-curve{height:80px;flex:0 0 80px;margin:0;overflow:hidden}body.ks-ui #screen-home .home-gauge-curve svg{height:42px}
+body.ks-ui #screen-home .home-v2-sequence{height:48px;flex:0 0 48px}body.ks-ui #screen-home .home-v2-seq-detail,body.ks-ui #screen-home .home-v2-eyebrow{display:none}
+body.ks-ui #screen-home .tool-position-note{font-size:16px;margin:0;flex:none}body.ks-ui #screen-home .home-progress-text{min-width:0}
+body.ks-ui #ks-resume-sheet .ks-sheet-content{display:flex;flex-wrap:wrap;align-items:center;gap:12px;font-size:18px}
+body.ks-ui #ks-resume-sheet input{width:160px;height:64px;font-size:24px}body.ks-ui #home-resume-hint,body.ks-ui #home-resume-route,body.ks-ui #home-resume-plan{flex-basis:100%;margin:0}
+body.ks-ui #home-resume-remedies{display:flex;gap:12px}body.ks-ui #home-resume-load{min-height:64px;margin-left:auto}
+body.ks-ui #screen-home button:disabled{background-image:repeating-linear-gradient(135deg,transparent,transparent 8px,rgba(128,128,128,.12) 8px,rgba(128,128,128,.12) 10px)}
+@media(max-width:1100px){body.ks-ui #screen-home .job-dashboard,body.ks-ui.perf-wide.perf-v2 #screen-home .job-dashboard[data-zones][data-v2="suivi"]{display:flex;flex-direction:column;height:auto}body.ks-ui #screen-home .job-metrics{order:-1}body.ks-ui #screen-home .home-left>.job-art{min-height:240px}}
+
+body.ks-ui #screen-home .home-progress-title{font-size:18px;line-height:24px;margin:0 0 8px}body.ks-ui #home-job-percent{font-size:32px;line-height:1.1}body.ks-ui #screen-home .home-overrides[data-on="true"] #home-override-note{display:none}
+
+body.ks-ui #home-current-line{font-size:16px;margin:0}
+
+/* Renderer-independent instrument dimensions keep all command centres fixed. */
+body.ks-ui #screen-home .home-progress{height:112px;min-height:112px;box-sizing:border-box}
+body.ks-ui #screen-home .home-coords{height:48px;min-height:48px;flex:0 0 48px;display:flex;align-items:center}
+body.ks-ui #screen-home .home-coords .t-coords-card{display:flex;align-items:center;gap:12px;width:100%;box-sizing:border-box}
+body.ks-ui #screen-home .home-coords .t-coords{display:grid;grid-template-columns:20px minmax(96px,1fr) 20px minmax(96px,1fr) 20px minmax(96px,1fr) 20px;gap:4px;align-items:center;flex:1;min-width:0}
+body.ks-ui #screen-home .home-coords .t-coords-card h2{font-size:16px;flex:0 0 auto}
+body.ks-ui #screen-home .home-coords .t-coords-card .t-unit{display:block;font-size:16px}
+
+/* Keep the instrument row identical in both renderers. The generic card display
+   above must not reveal the second coordinate card or squeeze its values. */
+body.ks-ui #screen-home #home-machine-card{display:none}
+body.ks-ui #screen-home .home-coords .t-unit:not(:last-child){display:none}
+body.ks-ui #screen-home .home-coords .t-val{font-size:20px;white-space:nowrap}
+body.ks-ui #screen-home .job-metrics{overflow:auto}
+/* Optional instruments consume preview space, never the Stop command's slot. */
+body.ks-ui #screen-home .home-stop{order:3}
+body.ks-ui #screen-home .home-gauge-curve{order:1}
+body.ks-ui #screen-home .home-v2-sequence{order:2}
+/* The refresh button is 56px tall: a 32px title row let it cover Search. */
+body.ks-ui #screen-files .library-list-panel,body.ks-ui:not(.t-compact) #screen-files .library-list-panel{grid-template-rows:minmax(56px,auto) 48px minmax(0,1fr) 48px}
+body.ks-ui #screen-files .library-list-title{gap:12px;justify-content:space-between}
+/* Parked screen boxes have no touch surface, including transparent areas. */
+body.ks-ui main>.screen.kept:not(.active){pointer-events:none}
+
+/* Separate touch targets even when they share a segmented-control outline. */
+body.ks-ui .t-seg{gap:12px;flex-wrap:wrap}
+body.ks-ui .pv3d-views{gap:12px;flex-wrap:wrap;max-width:calc(100% - 16px)}
+body.ks-ui #screen-settings .ks-settings-tabs{gap:12px}
+
+/* Compact screens reserve space for the header and footer. Only the content
+   scrolls: no command may paint underneath the persistent session actions. */
+@media(max-width:1099px),(max-height:649px){
+ body.ks-ui main>.ks-step-screen.active,body.ks-ui main>.ks-step-screen.kept{display:flex!important;flex-direction:column;gap:12px!important;height:calc(var(--view-height) - 16px)!important;min-height:0!important;padding-top:0!important;padding-bottom:0!important;overflow:hidden}
+ /* Legacy per-screen height:auto!important must not collapse the flex body. */
+ body.ks-ui main>#screen-machine.ks-step-screen.active,body.ks-ui main>#screen-machine.ks-step-screen.kept,
+ body.ks-ui main>#screen-files.ks-step-screen.active,body.ks-ui main>#screen-files.ks-step-screen.kept,
+ body.ks-ui main>#screen-jog.ks-step-screen.active,body.ks-ui main>#screen-jog.ks-step-screen.kept,
+ body.ks-ui main>#screen-check.ks-step-screen.active,body.ks-ui main>#screen-check.ks-step-screen.kept,
+ body.ks-ui main>#screen-home.ks-step-screen.active,body.ks-ui main>#screen-home.ks-step-screen.kept{height:calc(var(--view-height) - 16px)!important}
+ body.ks-ui main>.ks-step-screen>.ks-step-head{position:static;flex:none;height:auto;min-height:40px}
+ body.ks-ui main>.ks-step-screen>.ks-step-body{display:flex!important;flex-direction:column;gap:12px;flex:1 1 0;min-height:0;height:auto;overflow:auto!important}
+ body.ks-ui main>.ks-step-screen>.ks-step-body>.card{flex:none}
+ body.ks-ui main>.ks-step-screen>.ks-stepbar{position:static;flex:none;flex-wrap:wrap;padding-top:12px}
+ body.ks-ui .ks-stepbar button[id$="-main"]{flex:1 1 260px;min-width:0}
+ body.ks-ui #machine-layout{height:auto;min-height:0;flex:none;grid-auto-rows:max-content;align-content:start}
+ body.ks-ui #machine-ready{flex:none;overflow:visible}
+ body.ks-ui .ks-machine-column{flex:none}
+ body.ks-real.ks-ui #screen-jog .ks-step-body{display:grid!important;grid-template-columns:minmax(0,1fr);grid-template-rows:repeat(3,max-content);grid-template-areas:none!important;align-content:start}
+ body.ks-real.ks-ui #screen-jog .ks-step-body>.card{grid-area:auto;min-height:min-content;max-width:none}
+ body.ks-real.ks-ui #screen-jog .ks-motion-arrows{order:-1}
+ body.ks-ui #screen-files .library-list-panel,body.ks-ui #screen-files .library-detail{flex:none;grid-area:auto;min-height:410px}
+ body.ks-ui #screen-home .job-dashboard{height:auto!important}
+ body.ks-ui #screen-more .ks-tiles{flex:none;grid-auto-rows:minmax(160px,auto)}
+ body.ks-ui #tabbar{gap:12px!important}
+}
+/* Optional preview instruments never displace the session Stop command. */
+@media(min-width:1101px) and (min-height:650px){
+ /* Resolve the dashboard's percentage against the session content box, even
+    when a previous intrinsic measurement set data-fit-overflow. */
+ body.ks-ui main>#screen-home.ks-step-screen.active,body.ks-ui main>#screen-home.ks-step-screen.kept{height:calc(var(--view-height) - 32px)!important}
+ body.ks-ui main>#screen-home.ks-step-screen .ks-step-body>.card.wide{height:100%;min-height:0}
+ body.ks-ui main>#screen-home.ks-step-screen .job-dashboard{height:100%!important;min-height:0}
+ body.ks-ui main>#screen-home.ks-step-screen .home-left>.job-art{min-height:100px}
+ body.ks-ui #screen-home .home-left{position:relative;padding-bottom:110px;box-sizing:border-box}
+ body.ks-ui #screen-home .home-stop{position:absolute;left:0;right:0;bottom:0;height:98px;margin:0;padding:0}
+}
+@media (orientation:portrait) and (max-width:1099px),(max-width:759px) and (min-height:600px){
+ /* 64px targets + 6px padding + 1px border fit in the 72px rail. */
+ body.ks-ui #tabbar{padding:3px!important}
+ body.ks-ui #tabbar .ks-nav,body.ks-ui #tabbar .ks-nav[data-ks-screen="more"]{flex:1 1 0;width:auto;height:64px;min-height:64px;margin-top:0;gap:2px;padding:2px}
+ body.ks-ui #tabbar .ks-step-number{height:24px;width:24px}
+ body.ks-ui #tabbar .ks-nav-name{font-size:16px;line-height:16px}
+}
+/* Six 48px targets plus five 12px gaps cannot fit beside a 384px-high
+   zoomed viewport. Put the rail below the content instead of clipping Plus. */
+@media(max-height:499px){
+ :root{--rail-h:72px}
+ body.ks-ui #tabbar{top:auto!important;left:0!important;right:0!important;bottom:0!important;width:auto!important;height:72px!important;flex-direction:row!important;padding:3px!important;gap:12px!important}
+ body.ks-ui #tabbar .ks-nav,body.ks-ui #tabbar .ks-nav[data-ks-screen="more"]{flex:1 1 0;width:auto;height:64px;min-height:48px;margin-top:0}
+ body.ks-ui main{left:0!important;width:100%!important;bottom:72px!important}
+}
+@media(max-width:759px){
+ body.ks-ui .t-strip-actions #t-pilot{width:128px;min-width:128px}
+ body.ks-ui .t-strip-actions #t-pause,body.ks-ui .t-strip-actions #t-resume,body.ks-ui .t-strip-actions #t-recover{width:128px;min-width:128px;font-size:16px}
+ body.ks-ui .t-strip-actions #t-stop{width:96px;min-width:96px;font-size:16px}
+}
+@media(max-width:599px){
+ body.ks-ui #screen-home .home-coords{height:auto;flex:none}
+ body.ks-ui #screen-home .home-coords .t-coords-card{flex-direction:column;align-items:stretch;height:auto;gap:4px}
+ body.ks-ui #screen-home .home-coords .t-coords-card h2{flex:none}
+}
+/* Simulation retains its coordinate editor inside a scrolling content box.
+   Intrinsic card rows cannot overflow across the persistent session footer. */
+body.ks-ui[data-simulation="true"] #screen-jog .ks-step-body{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:max-content max-content;gap:12px;height:100%;overflow:auto;align-content:start}
+body.ks-ui[data-simulation="true"] #screen-jog .ks-step-body>.card{min-height:min-content;grid-area:auto}
+body.ks-ui[data-simulation="true"] #screen-jog .ks-panel-intro{grid-column:1/-1}
+
+/* === F16: phone held upright (≤ 599 px wide: 412 x 915, 360 x 800) ===========
+   The same page (design/PROMPT-FONCTIONS-6.md § 2, F16). The strip takes three rows: the state beside
+   Pause (or Reprendre / Remise en route) and Arrêter, 64 px and always in view; « La main » and the
+   lock; the report age, under the messages. The rail runs along the bottom edge with the step numbers
+   (the step head names the screen; each entry's name stays in the page, visually hidden). One card
+   across the width, the content scrolls between the strip and the rail; no horizontal scroll. Nothing
+   here matches the two tablets (1366 x 911, 1366 x 768), even with an on-screen keyboard
+   (test-small-screens.cjs). */
+@media (max-width:599px){
+ :root{--statusbar-h:176px}
+ body.ks-ui #real-banner,body.ks-ui #simulation-banner{grid-template-columns:minmax(0,1fr) auto auto;grid-template-rows:64px 48px 40px;column-gap:8px;row-gap:6px;padding:4px 8px!important;align-content:center}
+ body.ks-ui #real-banner>.t-strip-actions,body.ks-ui #simulation-banner>.t-strip-actions{display:contents}
+ body.ks-ui #real-banner>.t-state,body.ks-ui #simulation-banner>.t-state{grid-column:1;grid-row:1;align-self:stretch;height:auto;min-width:0;padding:0 8px;gap:0;font-size:20px}
+ body.ks-ui .t-state>svg{display:none}
+ body.ks-ui #t-state-text{white-space:normal;line-height:1.05}
+ body.ks-ui .t-strip-actions #t-pause,body.ks-ui .t-strip-actions #t-resume,body.ks-ui .t-strip-actions #t-recover{grid-column:2;grid-row:1;width:auto;min-width:96px;height:64px;padding:0 8px;font-size:18px;white-space:nowrap;line-height:1.1}
+ body.ks-ui .t-strip-actions #t-recover{max-width:120px;white-space:normal}
+ body.ks-ui .t-strip-actions #t-stop{grid-column:3;grid-row:1;width:auto;min-width:96px;height:64px;padding:0 8px;font-size:18px;gap:6px}
+ body.ks-ui .t-strip-actions #t-pilot{grid-column:1/3;grid-row:2;justify-self:stretch;width:auto;min-width:0;max-width:none;height:48px;flex-direction:row;justify-content:flex-start;gap:6px;padding:0 12px}
+ body.ks-ui .t-strip-actions #t-pilot b{flex:1 1 auto;min-width:0}
+ body.ks-ui #real-banner>.t-strip-right,body.ks-ui #simulation-banner>.t-strip-right{grid-column:3;grid-row:2;justify-self:end}
+ body.ks-ui .t-strip-right .ks-clock,body.ks-ui .t-strip-right .ks-exit{display:none}
+ body.ks-ui #real-banner>.t-fresh,body.ks-ui #simulation-banner>.t-fresh{grid-column:1/4;grid-row:3}
+ body.ks-ui #real-banner>.t-vitals,body.ks-ui #simulation-banner>.t-vitals{display:none}
+ body.ks-ui .t-messages{grid-column:1/4;grid-row:3;margin:0}
+ /* Rail: the step numbers and their marks, « Plus » keeps its word. */
+ body.ks-ui #tabbar .ks-nav:not([data-ks-screen="more"]) .ks-nav-name{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+ body.ks-ui #tabbar .ks-step-number{width:32px;height:32px;font-size:18px}
+ body.ks-ui #tabbar{gap:6px!important}
+ /* Content: narrower gutters; the step bar keeps its secondary command beside the main one. */
+ body.ks-ui main{padding:8px!important}
+ body.ks-ui main>#screen-more,body.ks-ui main>#screen-jog,body.ks-ui main>#screen-files,body.ks-ui main>#screen-check,body.ks-ui main>#screen-home,body.ks-ui main>#screen-machine,body.ks-ui main>#screen-history{top:8px;left:8px;right:8px}
+ body.ks-ui main>.ks-step-screen.active,body.ks-ui main>.ks-step-screen.kept,body.ks-ui main>#screen-home.ks-step-screen.active,body.ks-ui main>#screen-machine.ks-step-screen.active,body.ks-ui main>#screen-files.ks-step-screen.active,body.ks-ui main>#screen-jog.ks-step-screen.active,body.ks-ui main>#screen-check.ks-step-screen.active{height:calc(var(--view-height) - 16px)!important;gap:8px!important}
+ body.ks-ui .ks-step-head{gap:8px}
+ body.ks-ui .ks-step-head>span{display:none}
+ body.ks-ui .ks-step-head>b{max-width:none;min-width:0;white-space:normal;line-height:1.2}
+ body.ks-ui main>.ks-step-screen>.ks-stepbar{gap:8px;padding-top:8px}
+ body.ks-ui .ks-stepbar button[id$="-main"]{flex:1 1 150px;max-width:none;min-height:64px}
+ body.ks-ui .ks-stepbar p,body.ks-ui #screen-files .ks-stepbar p{max-height:calc(3.9em + 2px);line-height:1.3}
+ /* 1 · Machine: a command goes under its line rather than squeezing it. */
+ body.ks-ui #machine-list .ks-line-text{flex:1 1 150px}
+ /* 5 · Usinage: the work coordinates on one row without their unit, each correction under its name. */
+ body.ks-ui #screen-home .home-coords .t-coords{grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr);column-gap:6px}
+ body.ks-ui #screen-home .home-coords .t-coords-card .t-unit{display:none}
+ body.ks-ui #screen-home .home-coords .t-val{font-size:clamp(16px,4.6vw,20px);text-align:right}
+ body.ks-ui #screen-home .t-override{grid-template-columns:minmax(0,1fr);gap:6px}
+ body.ks-ui #screen-home .t-ov-name b{display:inline;margin-left:8px}
+ body.ks-ui #screen-home .t-ov-row{gap:8px}
+ body.ks-ui #screen-home .job-metrics{overflow:visible}
+ /* The message of Usinage: its sentence, then its commands and their reasons, one under the other. */
+ body.ks-ui #home-notice{flex-direction:column;align-items:stretch}
+ body.ks-ui #home-notice-actions>span{flex:1 1 100%}
+ /* The view's buttons along the top of the drawing, « Agrandir le tracé » at the bottom left. */
+ body.ks-ui .job-art>.home-inspect-row{top:auto;bottom:8px;left:8px;right:auto}
+ /* Inner boxes give up their own scroll: only the step body scrolls (one scroll per screen). */
+ body.ks-real.ks-ui #screen-jog .ks-step-body>.ks-motion-arrows{max-height:none;overflow:visible}
+ body.ks-real.ks-ui #screen-jog .ks-motion-coordinates{max-width:none}
+ /* 3 · Zéro pièce: the 96 px cross on the width, Z+ and Z− on a row under it, the steps over the speeds. */
+ body.ks-real.ks-ui #screen-jog .ks-zero-cross{flex-wrap:wrap}
+ body.ks-real.ks-ui #screen-jog .ks-zero-cross .zrow{grid-template-rows:96px;grid-template-columns:96px 96px;grid-auto-flow:column;gap:12px;align-self:auto}
+ body.ks-real.ks-ui #screen-jog .ks-jog-choices{grid-template-columns:minmax(0,1fr)}
+ /* 2 · Fichier: the list at its height (pages below it), each file's state under its name. */
+ body.ks-ui.t-compact main>#screen-files .library-list-panel{min-height:0;grid-template-rows:auto 48px auto auto 48px}
+ body.ks-ui #screen-files #library-list{overflow:visible}
+ body.ks-ui #screen-files .library-detail{min-height:0;overflow:visible}
+ body.ks-ui #screen-files .library-file{grid-template-columns:64px minmax(0,1fr);gap:4px 12px}
+ body.ks-ui #screen-files .library-thumb{width:64px;height:42px;grid-row:span 2}
+ body.ks-ui #screen-files .library-file .library-file-state{grid-column:2;justify-self:start;white-space:normal;line-height:1.3;max-width:100%}
+ /* 4 · Contrôle: verdict, then the two drawings, each at its own height. */
+ body.ks-ui #screen-check .check-layout{grid-template-columns:minmax(0,1fr);height:auto}
+ body.ks-ui #screen-check .check-layout>section{overflow:visible}
+ body.ks-ui #check-verdict{max-height:none;overflow:visible}
+ body.ks-ui #check-rapids .t-override{grid-template-columns:minmax(0,1fr)}
+ /* Dialogs (« La main », confirmations): their commands one under the other, each across the card. */
+ body.ks-ui .job-dialog-actions{grid-template-columns:minmax(0,1fr)}
+ body.ks-ui .job-dialog-actions #job-confirm{min-width:0}
+ /* Plus: one tile across the width (whole words at any text size). */
+ #screen-more .ks-tiles{grid-template-columns:minmax(0,1fr)!important}
+}
+/* F16, Journal on a phone and in a low narrow window (1024 x 600): the page of events at its height (the
+   screen scrolls), rows and page buttons within the width. */
+@media (max-width:599px),(max-width:1099px) and (max-height:649px){
+ body.ks-ui #screen-history.active,body.ks-ui #screen-history.kept{height:auto!important;grid-template-rows:auto auto}
+ body.ks-ui #screen-history .ks-history-card{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto auto;min-width:0}
+ body.ks-ui #screen-history ol{overflow:visible}
+}
+@media (max-width:599px){
+ body.ks-ui #screen-history .ks-history-source .t-seg button{min-width:0}
+ body.ks-ui .ks-history-pagination{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+ body.ks-ui .ks-history-pagination button{min-width:0;white-space:nowrap;padding:0 12px}
+ body.ks-ui #real-history-page{grid-column:1/-1;grid-row:1;text-align:center}
+}
+/* === F16: 1024 x 600 and other landscape windows under 1100 px =================
+   The strip keeps the state word whole (it may take two lines), Pause and Arrêter keep their 64 px,
+   « La main » and the commands narrow a little so that the report age and the file stay readable;
+   the clock gives its room. The step bar puts its sentence beside its commands (one row). */
+@media (min-width:760px) and (max-width:1099px){
+ body.ks-ui .t-state{min-width:0;font-size:22px;gap:8px}
+ body.ks-ui .t-state>svg{width:24px;height:24px}
+ body.ks-ui #t-state-text{white-space:normal;line-height:1.05}
+ body.ks-ui #real-banner,body.ks-ui #simulation-banner{column-gap:12px}
+ body.ks-ui .t-strip-actions #t-pause,body.ks-ui .t-strip-actions #t-resume,body.ks-ui .t-strip-actions #t-recover{width:160px;min-width:160px}
+ body.ks-ui .t-strip-actions #t-stop{width:132px;min-width:132px}
+ body.ks-ui .t-strip-actions #t-pilot{width:132px;min-width:132px;gap:2px}
+ /* « La main » shows who has it: the chevron gives its height to the value. */
+ body.ks-ui .t-strip-actions #t-pilot::after{content:none}
+ body.ks-ui .t-strip-actions #t-pilot b{flex:none}
+ body.ks-ui .t-strip-right .ks-clock{display:none}
+ /* The step bar's sentence: up to three lines before it scrolls, none scrolled by a pixel of glyph. */
+ body.ks-ui .ks-stepbar p,body.ks-ui #screen-files .ks-stepbar p{max-height:calc(3.9em + 2px);line-height:1.3}
+ /* The step's state in its head (« La machine ne répond plus… »): whole, on two lines if it must. */
+ body.ks-ui .ks-step-head>b{white-space:normal;line-height:1.2;text-align:right}
+}
+@media (min-width:900px) and (max-width:1099px){
+ body.ks-ui main>.ks-step-screen>.ks-stepbar{flex-wrap:nowrap}
+ body.ks-ui .ks-stepbar p{flex:1 1 auto;flex-basis:auto}
+ body.ks-ui .ks-stepbar button[id$="-main"]{flex:0 1 320px;margin-left:0}
+}
+/* Contrôle: « 100 % » of the rapids stays inside its button in narrower windows (1280 x 800, 1180 x 820, phones). */
+@media (max-width:1299px){
+ #check-rapids button{padding:8px 4px;font-size:20px}
+}
+

@@ -21,6 +21,13 @@ jest.mock('../../config/settings', () => {
   const actual = jest.requireActual('../../config/settings').default;
   return { __esModule: true, default: { ...actual, rcfile: p.join(o.tmpdir(), 'xvf-e2e-rc', '.cncrc'), route: '/' } };
 });
+// D2: the fake controller never answers `$#`; the work offset is taken as proven.
+jest.mock('../../services/touch/job-service', () => {
+  const actual = jest.requireActual('../../services/touch/job-service');
+  const { provenOffset } = jest.requireActual('../../services/touch/__tests__/support/proven-offset');
+  const createService = (store, config, clock, options = {}) => actual.createService(store, config, clock, { workOffset: provenOffset, ...options });
+  return { ...actual, createService };
+});
 jest.mock('../../services/taskrunner', () => {
   const E = require('events');
   const t = new E();
@@ -152,6 +159,11 @@ beforeEach(() => {
   touch.snapshot();
   report();
   c.runner.emit('parserstate', c.state.parserstate);
+  // $22=1: the machine seen homed (Home then Idle), so a start is not refused for its reference (C-05).
+  c.state.status.activeState = 'Home';
+  report();
+  c.state.status.activeState = 'Idle';
+  report();
 });
 
 afterEach(() => {
@@ -291,13 +303,16 @@ describe('xvf bout en bout : commandes système', () => {
   });
 
   test('sensible pendant un travail en cours : 409, rien lancé', async () => {
+    // The job is started by a caller without a client id (the classic interface), which leaves the port
+    // free: a tablet may not give the hand back during a job (F4), so it cannot free it itself.
     const A = tablet('tab-A');
     const gen = snap().generation;
-    await A.post({ action: 'load', file: 'job.nc' });
+    const anonymous = (body) => answer(postJob, { user: { id: 'u1', name: 'op' }, body: { port: 'TEST', transportId: A.transportId, ...body } });
+    await anonymous({ action: 'load', file: 'job.nc' });
     report();
-    const t = await A.post({ action: 'prepare', operation: 'start', revision: snap().revision, generation: gen });
-    await A.post({ action: 'start', nonce: t.payload.nonce, generation: gen });
-    await A.post({ action: 'control', operation: 'release' });
+    const t = await anonymous({ action: 'prepare', operation: 'start', revision: snap().revision, generation: gen });
+    await anonymous({ action: 'start', nonce: t.payload.nonce, generation: gen });
+    expect(snap().control.owner).toBeNull();
     report();
     const res = await runReq('reboot');
     expect(res.statusCode).toBe(409);

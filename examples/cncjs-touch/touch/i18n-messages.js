@@ -1,5 +1,74 @@
 // Source phrase, English, Spanish. UI only: never translate controller commands or user data.
 window.CNCTouchMessages = [
+['Progression indisponible','Progress unavailable','Progreso no disponible'],
+['Avancement compté en lignes','Progress counted in lines','Avance contado en líneas'],
+['Temps écoulé : ','Elapsed time: ','Tiempo transcurrido: '],
+['Temps restant estimé','Estimated time remaining','Tiempo restante estimado'],
+['Durée calculée depuis le programme chargé','Duration calculated from the loaded program','Duración calculada a partir del programa cargado'],
+['Progression estimée selon la durée des mouvements, sans les accélérations.','Progress estimated from motion duration, excluding acceleration.','Progreso estimado según la duración de los movimientos, sin aceleraciones.'],
+['Données manquantes.','Missing data.','Faltan datos.'],
+['Relisez les réglages.','Reread the settings.','Vuelva a leer los ajustes.'],
+['Tient dans la machine.','Fits in the machine.','Cabe en la máquina.'],
+['Course non vérifiée.','Travel not checked.','Recorrido sin comprobar.'],
+['La machine s’arrêtera en alarme et perdra sa position.','The machine will stop with an alarm and lose its position.','La máquina se detendrá con una alarma y perderá su posición.'],
+['Je suis devant la machine et je sais que le fichier dépasse de {n} mm.','I am at the machine and know the file exceeds travel by {n} mm.','Estoy ante la máquina y sé que el archivo supera el recorrido en {n} mm.'],
+['Fiche du projet','Project sheet','Ficha del proyecto'],
+['Aperçu indisponible.','Preview unavailable.','Vista previa no disponible.'],
+['Vue de dessus','Top view','Vista superior'],
+['Vue de côté','Side view','Vista lateral'],
+['Verdict','Verdict','Resultado'],
+['Vue 3D du placement','3D placement view','Vista 3D de la posición'],
+['Détails du contrôle','Check details','Detalles de la comprobación'],
+['Détails du fichier','File details','Detalles del archivo'],
+['Emprise','Footprint','Superficie ocupada'],
+['Profondeur sous le zéro','Depth below zero','Profundidad bajo el cero'],
+['Ne descend pas sous le zéro','Does not go below zero','No baja del cero'],
+['Choisissez un fichier.','Choose a file.','Elija un archivo.'],
+['Fichier choisi. Chargez-le pour continuer.','File selected. Load it to continue.','Archivo elegido. Cárguelo para continuar.'],
+['Fichier chargé. Le zéro Z sera à refaire.','File loaded. Z zero will need setting again.','Archivo cargado. Habrá que volver a fijar el cero Z.'],
+['Contrôle indisponible.','Check unavailable.','Comprobación no disponible.'],
+['Tient dans la machine avec le zéro pièce actuel.','Fits in the machine with the current work zero.','Cabe en la máquina con el cero de pieza actual.'],
+['Descend {n} mm trop bas avec le zéro pièce actuel.','Goes {n} mm too low with the current work zero.','Baja {n} mm demasiado con el cero de pieza actual.'],
+['Monte {n} mm trop haut avec le zéro pièce actuel.','Goes {n} mm too high with the current work zero.','Sube {n} mm demasiado con el cero de pieza actual.'],
+['Dépasse de {n} mm {cote} avec le zéro pièce actuel.','Extends {n} mm {cote} with the current work zero.','Sobresale {n} mm {cote} con el cero de pieza actual.'],
+['Course pas encore vérifiée : la machine vérifie le zéro pièce.','Travel not checked yet: the machine is checking work zero.','Recorrido aún sin comprobar: la máquina comprueba el cero de pieza.'],
+['Course non vérifiée : origine machine pas prise.','Travel not checked: machine not homed.','Recorrido sin comprobar: falta buscar el origen máquina.'],
+['Course non vérifiable pour ce fichier.','Travel cannot be checked for this file.','No se puede comprobar el recorrido de este archivo.'],
+['Le fichier dépasse la course de la machine.','The file exceeds the machine travel.','El archivo supera el recorrido de la máquina.'],
+['Le fichier demande une position hors de la machine, ligne {n}. Refaire le zéro n’y change rien.','The file requests a position outside the machine on line {n}. Resetting zero will not help.','El archivo pide una posición fuera de la máquina en la línea {n}. Rehacer el cero no lo resuelve.'],
+['Tout est prêt : le fichier tient dans la machine.','Everything is ready: the file fits in the machine.','Todo listo: el archivo cabe en la máquina.'],
+['Tient dans la machine','Fits in the machine','Cabe en la máquina'],
+['Dépasse en Z','Exceeds Z travel','Supera el recorrido Z'],
+['Usinage en cours','Machining in progress','Mecanizado en curso'],
+['Rechargez « {fichier} » avant de démarrer.','Reload “{fichier}” before starting.','Vuelva a cargar «{fichier}» antes de iniciar.'],
+['Démarrer malgré le dépassement…','Start despite the overrun…','Iniciar pese al exceso de recorrido…'],
+['Démarrer malgré le dépassement','Start despite the overrun','Iniciar pese al exceso de recorrido'],
+['Lancer malgré le dépassement','Run despite the overrun','Ejecutar pese al exceso de recorrido'],
+['Démarrer quand même arrêtera la machine en alarme et lui fera perdre sa position.','Starting anyway will stop the machine with an alarm and it will lose its position.','Iniciar de todos modos detendrá la máquina con una alarma y perderá su posición.'],
+['Je suis devant la machine et j’accepte ce dépassement : {depassement}.','I am at the machine and accept this overrun: {depassement}.','Estoy ante la máquina y acepto este exceso de recorrido: {depassement}.'],
+['Le contrôle a changé. Recommencez.','The check has changed. Start again.','La comprobación ha cambiado. Repita la operación.'],
+['Ni les brides ni la pièce ne sont vues.','Clamps and the workpiece are not detected.','No se detectan las mordazas ni la pieza.'],
+['Course utilisable','Usable travel','Recorrido útil'],
+['Rapides au départ','Starting rapids','Rápidos al iniciar'],
+['Le fichier demande {n} tr/min : la broche tournera à son maximum.','The file requests {n} rpm: the spindle will run at its maximum.','El archivo pide {n} rpm: el husillo girará al máximo.'],
+['La main est sur un autre appareil.','Another device has control.','Otro dispositivo tiene el control.'],
+['tient','fits','cabe'],
+['dépasse','exceeds travel','supera el recorrido'],
+['descend {n} mm trop bas','goes {n} mm too low','baja {n} mm demasiado'],
+['monte {n} mm trop haut','goes {n} mm too high','sube {n} mm demasiado'],
+['dépasse de {n} mm {cote}','extends {n} mm {cote}','sobresale {n} mm {cote}'],
+['marge {n} mm','{n} mm clearance','margen de {n} mm'],
+['à droite','to the right','a la derecha'],
+['à gauche','to the left','a la izquierda'],
+['vers le fond','towards the back','hacia el fondo'],
+['vers l’avant','towards the front','hacia delante'],
+['trop haut','too high','demasiado alto'],
+['trop bas','too low','demasiado bajo'],
+['zéro pièce','work zero','cero de pieza'],
+['zéro Z','Z zero','cero Z'],
+['fraise','tool','fresa'],
+['haut de la course','top of travel','parte alta del recorrido'],
+['plus bas possible','lowest possible','mínimo posible'],
 ['Préférences enregistrées illisibles. Mémorisation bloquée ; utilisez « Rétablir l’affichage » pour les remplacer.','Saved preferences cannot be read. Saving is blocked; use “Reset display” to replace them.','No se pueden leer las preferencias guardadas. Guardado bloqueado; use «Restablecer pantalla» para sustituirlas.'],
 ['Les préférences ont changé dans un autre onglet. Affichage appliqué ici uniquement ; rechargez au repos avant de les enregistrer.','Preferences changed in another tab. Display changes apply here only; reload while idle before saving them.','Las preferencias cambiaron en otra pestaña. Los cambios solo se aplican aquí; recargue en reposo antes de guardarlos.'],
 ['La mémorisation de l’affichage n’a pas pu être confirmée. Les changements restent appliqués à cette page.','Display settings could not be confirmed as saved. Changes remain applied to this page.','No se pudo confirmar el guardado de la pantalla. Los cambios siguen aplicados en esta página.'],
@@ -23,7 +92,7 @@ window.CNCTouchMessages = [
 ['Français','Français','Français'],['English','English','English'],['Español','Español','Español'],
 ['Menu','Menu','Menú'],['Retour','Back','Volver'],['Fichiers','Files','Archivos'],['Préparer','Prepare','Preparar'],['Suivi','Monitor','Segui\u00admiento'],['Machine','Machine','Máquina'],['Journal','Journal','Registro'],['Réglages','Settings','Ajustes'],['Palpage','Probing','Sondeo'],['Limites','Limits','Límites'],
 ['Déplacer / Origine','Move / Origin','Mover / Origen'],['Déplacer · Origine · Palpage','Move · Origin · Probe','Mover · Origen · Sondeo'],['Choisir et charger un parcours','Select and load a toolpath','Seleccionar y cargar una trayectoria'],['Avancement et commandes','Progress and controls','Progreso y controles'],['État et limites','Status and limits','Estado y límites'],['Événements et exports','Events and exports','Eventos y exportación'],['Affichage et veille','Display and sleep','Pantalla y suspensión'],
-['CONTRÔLEUR VIRTUEL','VIRTUAL CONTROLLER','CONTROLADOR VIRTUAL'],['CONTRÔLEUR CNCjs','CNCjs CONTROLLER','CONTROLADOR CNCjs'],['Contrôleur CNCjs','CNCjs controller','Controlador CNCjs'],['MACHINE RÉELLE','REAL MACHINE','MÁQUINA REAL'],['Interface réelle ↗','Real interface ↗','Interfaz real ↗'],['Simulation ↗','Simulation ↗','Simulación ↗'],['SIMULATION','SIMULATION','SIMULACIÓN'],['Simulation','Simulation','Simulación'],['simulation','simulation','simulación'],['interface réelle','real interface','interfaz real'],
+['CONTRÔLEUR VIRTUEL','VIRTUAL CONTROLLER','CONTROLADOR VIRTUAL'],['CONTRÔLEUR CNCjs','CNCjs CONTROLLER','CONTROLADOR CNCjs'],['Contrôleur CNCjs','CNCjs controller','Controlador CNCjs'],['MACHINE RÉELLE','REAL MACHINE','MÁQUINA REAL'],['Interface réelle ↗','Real interface ↗','Interfaz real ↗'],['SIMULATION','SIMULATION','SIMULACIÓN'],['Simulation','Simulation','Simulación'],['simulation','simulation','simulación'],['interface réelle','real interface','interfaz real'],
 ['Prêt','Ready','Listo'],['En cours','Running','En curso'],['En pause','Paused','En pausa'],['Alarme','Alarm','Alarma'],['Indisponible','Unavailable','No disponible'],['Connexion…','Connecting…','Conectando…'],['Aucun fichier chargé','No file loaded','Ningún archivo cargado'],['Aucun fichier chargé.','No file loaded.','Ningún archivo cargado.'],
 ['Coordonnées de travail fictives.','Simulated work coordinates.','Coordenadas de trabajo simuladas.'],['Aucune commande au laser.','No laser commands.','Sin órdenes al láser.'],['Coordonnées de travail du contrôleur. Déplacements à blanc ; origines désactivées.','Controller work coordinates. Dry-run moves; origin changes disabled.','Coordenadas de trabajo del controlador. Movimientos de prueba; cambios de origen desactivados.'],
 ['Votre écran','Your display','Su pantalla'],['Préférences conservées dans ce navigateur.','Preferences saved in this browser.','Preferencias guardadas en este navegador.'],['Taille du texte','Text size','Tamaño del texto'],['Choisissez le confort de lecture.','Choose your reading comfort.','Elija el tamaño más cómodo.'],['Standard','Standard','Normal'],['Agrandi','Large','Grande'],['Suivi du travail réel','Real job monitoring','Seguimiento del trabajo real'],['Coordonnées machine en plus des coordonnées de travail.','Machine coordinates in addition to work coordinates.','Coordenadas de máquina además de las de trabajo.'],['Coordonnées machine','Machine coordinates','Coordenadas de máquina'],['Affichées','Shown','Visibles'],['Masquées','Hidden','Ocultas'],['Ce choix concerne le suivi réel. Les positions restent disponibles dans Déplacer / Origine.','This applies to real job monitoring. Positions remain available in Move / Origin.','Esto afecta al seguimiento real. Las posiciones siguen disponibles en Mover / Origen.'],
@@ -32,66 +101,27 @@ window.CNCTouchMessages = [
 ['Veille suspendue : retour au repos non confirmé.','Sleep suspended: return to idle unconfirmed.','Suspensión desactivada: vuelta al reposo sin confirmar.'],['Veille suspendue pendant le palpage simulé.','Sleep suspended during simulated probing.','Suspensión desactivada durante el sondeo simulado.'],['Veille suspendue : alarme pendant le travail.','Sleep suspended: alarm during a job.','Suspensión desactivada: alarma durante el trabajo.'],['Veille suspendue pendant la pause.','Sleep suspended while paused.','Suspensión desactivada durante la pausa.'],['Veille suspendue pendant le travail.','Sleep suspended during the job.','Suspensión desactivada durante el trabajo.'],
 ['Prendre en main CNCjs Touch','Getting started with CNCjs Touch','Primeros pasos con CNCjs Touch'],['Mode actuel :','Current mode:','Modo actual:'],['Retour aux réglages','Back to settings','Volver a ajustes'],['Guide d’utilisation','User guide','Guía de uso'],['Rubriques du guide','Guide topics','Temas de la guía'],['Utilisation','Usage','Uso'],['Modes et fonctions','Modes and features','Modos y funciones'],['Surface et veille','Surface and sleep','Surface y suspensión'],['En cas de blocage','Troubleshooting','Resolver problemas'],
 ['Fichiers → Suivi','Files → Monitor','Archivos → Seguimiento'],['Préparer → Fichiers → Suivi','Prepare → Files → Monitor','Preparar → Archivos → Seguimiento'],
-['1 · Ajoutez le G-code depuis le PC. La bibliothèque et les aperçus sont partagés avec la Surface.','1 · Upload G-code from the PC. The library and previews are shared with the Surface.','1 · Añada el G-code desde el PC. La biblioteca y las vistas previas se comparten con la Surface.'],
-['2 · Sélectionnez un fichier pour voir son aperçu. Sélectionner ne signifie pas charger ou démarrer.','2 · Select a file to see its preview. Selecting does not load or start it.','2 · Seleccione un archivo para ver la vista previa. Seleccionar no significa cargar ni iniciar.'],
-['3 · Dans Suivi, chargez la sélection, puis confirmez le démarrage du fichier chargé. Après arrêt ou fin, rechargez pour recommencer. Une sélection différente est signalée avant de remplacer le fichier chargé.','3 · In Monitor, load the selection, then confirm starting the loaded file. Reload after stopping or finishing to start again. A different selection is indicated before replacing the loaded file.','3 · En Seguimiento, cargue la selección y confirme el inicio del archivo cargado. Tras detener o finalizar, vuelva a cargar para empezar de nuevo. Se indica una selección distinta antes de sustituir el archivo cargado.'],
-['Préparer réunit axes, zéros, palpage et saisie des coordonnées. Le pavé numérique propose Aller à, Déplacer de et Définir ici ; mm ou pouces. G54–G59 et les déplacements restent simulés.','Prepare groups axes, zeroing, probing and coordinate entry. The keypad offers Go to, Move by and Set here, in mm or inches. G54–G59 and movements remain simulated.','Preparar reúne ejes, ceros, sondeo e introducción de coordenadas. El teclado ofrece Ir a, Mover y Definir aquí, en mm o pulgadas. G54–G59 y los movimientos siguen siendo simulados.'],
-['Suivi affiche l’image, le pourcentage, le temps restant et les commandes. Le point rose indique la position G54 connue ; régénérez les anciens aperçus pour l’afficher.','Monitor shows the image, percentage, remaining time and controls. The pink dot indicates the known G54 position; regenerate older previews to display it.','Seguimiento muestra la imagen, el porcentaje, el tiempo restante y los controles. El punto rosa indica la posición G54 conocida; regenere las vistas previas antiguas para mostrarlo.'],
-['Journal conserve les événements de cette page. Exportez-les avant de recharger pour garder une trace.','Journal stores events from this page. Export them before reloading to keep a record.','Registro conserva los eventos de esta página. Expórtelos antes de recargar para conservarlos.'],
-['Aucune commande de déplacement, de laser ou de palpage n’est envoyée au contrôleur.','No movement, laser or probing commands are sent to the controller.','No se envían órdenes de movimiento, láser ni sondeo al controlador.'],
-['Les déplacements et origines sont fictifs. Le travail dure 60 secondes hors pauses, indépendamment du G-code.','Movements and origins are simulated. A job lasts 60 seconds excluding pauses, regardless of the G-code.','Los movimientos y orígenes son simulados. El trabajo dura 60 segundos sin contar pausas, independientemente del G-code.'],
-['Le palpage utilise un banc séparé avec des contacts fictifs. La bibliothèque et les fichiers ajoutés restent partagés sur le serveur.','Probing uses a separate bench with simulated contacts. The library and uploaded files remain shared on the server.','El sondeo utiliza un banco separado con contactos simulados. La biblioteca y los archivos añadidos siguen compartidos en el servidor.'],
+
 ['Interface réelle · état actuel','Real interface · current status','Interfaz real · estado actual'],
-['Fichiers : chargement et exécution raccordés à CNCjs. Démarrage et reprise nécessitent une confirmation.','Files: loading and execution are connected to CNCjs. Starting and resuming require confirmation.','Archivos: carga y ejecución conectadas a CNCjs. El inicio y la reanudación requieren confirmación.'],
-["Déplacements : essais à blanc. Zéros et palpage : lancement physique désactivé, sauf le zéro Z avec une plaque depuis Suivi. Machine et Limites : lecture seule.", "Movement: dry-run preparation. Zeroing and probing: physical launch disabled, except Z zero with a touch plate from Suivi. Machine and Limits: read-only.", "Desplazamientos: ensayos en vacío. Ceros y sondeo: lanzamiento físico desactivado, salvo el cero Z con una placa desde Seguimiento. Máquina y Límites: solo lectura."],
-['L’estimation du suivi est indicative. Toutes les lignes acquittées ne signifient pas que les mouvements sont terminés. L’arrêt logiciel ne remplace pas l’arrêt physique.','Monitoring estimates are indicative. All lines acknowledged does not mean motion is complete. Software stop does not replace the physical stop.','La estimación es orientativa. Todas las líneas confirmadas no significa que los movimientos hayan terminado. La parada por software no sustituye a la parada física.'],
+
 ['Confort sur la Surface','Surface comfort','Comodidad en la Surface'],
-['Réglages propose la taille du texte, les coordonnées du suivi, le plein écran et la durée avant veille.','Settings provides text size, monitoring coordinates, full screen and the sleep delay.','Ajustes permite cambiar el tamaño del texto, las coordenadas del seguimiento, la pantalla completa y el tiempo de suspensión.'],
-['La veille noire est suspendue pendant un travail, une pause ou un palpage simulé. Le délai repart après le retour au repos confirmé. Selon le réglage Luminosité, elle éteint ou baisse l’écran.','Black-screen sleep is suspended during a job, pause or simulated probing. Its delay restarts after a confirmed return to idle. Depending on the Brightness setting, it switches the screen off or dims it.','La pantalla negra se suspende durante un trabajo, una pausa o un sondeo simulado. El plazo vuelve a empezar tras confirmar el reposo. Según el ajuste de Brillo, apaga o atenúa la pantalla.'],
-['Le premier toucher réveille seulement l’écran. Touchez ensuite la commande voulue.','The first touch only wakes the screen. Then touch the desired control.','El primer toque solo despierta la pantalla. Después toque el control deseado.'],
+
 ['Préférences et navigation','Preferences and navigation','Preferencias y navegación'],
-['Le menu et les commandes restent dans la fenêtre. Les longues listes utilisent Précédent / Suivant.','Menus and controls stay within the window. Long lists use Previous / Next.','El menú y los controles permanecen dentro de la ventana. Las listas largas usan Anterior / Siguiente.'],
-['Les préférences et profils de sonde sont propres à ce navigateur. Utilisez Sauvegarde / transfert dans Palpage pour copier les profils sur la Surface.','Preferences and probe profiles belong to this browser. Use Backup / transfer in Probing to copy profiles to the Surface.','Las preferencias y los perfiles de sonda pertenecen a este navegador. Use Copia / transferencia en Sondeo para copiar los perfiles a la Surface.'],
-['Les profils réels et simulés restent séparés. Après une mise à jour de l’interface, rechargez la page au repos pour afficher la nouvelle version.','Real and simulated profiles remain separate. After an interface update, reload the page while idle to display the new version.','Los perfiles reales y simulados permanecen separados. Tras actualizar la interfaz, recargue la página en reposo para mostrar la nueva versión.'],
+
 ['Fichier ou démarrage bloqué','File or start blocked','Archivo o inicio bloqueado'],
-['Sélectionné = aperçu consulté. Chargé = fichier utilisé par Suivi. Chargez la sélection au repos avant de démarrer ; choisir un autre aperçu ne remplace pas le travail en cours.','Selected = preview being viewed. Loaded = file used by Monitor. Load the selection while idle before starting; choosing another preview does not replace the current job.','Seleccionado = vista previa consultada. Cargado = archivo usado en Seguimiento. Cargue la selección en reposo antes de iniciar; elegir otra vista previa no sustituye el trabajo en curso.'],
-['Confirmation expirée ou fichier changé : fermez la fenêtre, vérifiez le nom chargé dans Suivi, puis demandez une nouvelle confirmation.','Confirmation expired or file changed: close the dialog, check the loaded name in Monitor, then request a new confirmation.','Confirmación caducada o archivo cambiado: cierre la ventana, compruebe el nombre cargado en Seguimiento y solicite una nueva confirmación.'],
-['Aperçu absent : dans Fichiers, ouvrez Détails de l’aperçu et régénérez depuis le PC. Le G-code reste disponible.','Missing preview: in Files, open Preview details and regenerate it from the PC. The G-code remains available.','Sin vista previa: en Archivos, abra Detalles de la vista previa y regenérela desde el PC. El G-code sigue disponible.'],
+
 ['Connexion, alarme ou veille','Connection, alarm or sleep','Conexión, alarma o suspensión'],
-['Alarme fictive : dans Machine, effacez-la puis confirmez Reprendre dans Suivi. La progression reste en pause ; aucune commande réelle n’est envoyée.','Simulated alarm: clear it in Machine, then confirm Resume in Monitor. Progress remains paused; no real commands are sent.','Alarma simulada: bórrela en Máquina y confirme Reanudar en Seguimiento. El progreso permanece en pausa; no se envían órdenes reales.'],
-['Dans Machine, consultez Fraîcheur des données. Serveur connecté ne signifie pas rapport Grbl récent. Attendez le retour du suivi et d’un rapport récent ; une alarme doit être diagnostiquée dans CNCjs.','In Machine, check Data freshness. Server connected does not mean a recent Grbl report. Wait for monitoring and a recent report to return; diagnose any alarm in CNCjs.','En Máquina, consulte Actualidad de los datos. Servidor conectado no significa informe Grbl reciente. Espere a que vuelvan el seguimiento y un informe reciente; diagnostique las alarmas en CNCjs.'],
-['Veille suspendue : un travail, une pause ou une activité non résolue maintient l’écran visible. Attendez un retour au repos confirmé.','Sleep suspended: a job, pause or unresolved activity keeps the screen visible. Wait for a confirmed return to idle.','Suspensión desactivada: un trabajo, una pausa o una actividad sin resolver mantiene la pantalla visible. Espere a confirmar el reposo.'],
-['Pour conserver une trace, exportez le Journal avant de recharger la page. Le journal concerne cette page, pas toutes les sessions du serveur.','To keep a record, export the Journal before reloading. The journal covers this page, not all server sessions.','Para conservar los datos, exporte el Registro antes de recargar. El registro corresponde a esta página, no a todas las sesiones del servidor.'],
+
 ['Ouvrir Fichiers →','Open Files →','Abrir Archivos →'],['Ouvrir Machine →','Open Machine →','Abrir Máquina →'],['Ouvrir Journal →','Open Journal →','Abrir Registro →'],['Ouvrir le suivi →','Open Monitor →','Abrir Seguimiento →'],['Journal des événements →','Event journal →','Registro de eventos →'],['Exporter le journal','Export journal','Exportar registro'],
 ['Charger la sélection','Load selection','Cargar selección'],['Charger le fichier sélectionné','Load selected file','Cargar archivo seleccionado'],['Démarrer…','Start…','Iniciar…'],['Démarrer le fichier chargé…','Start loaded file…','Iniciar archivo cargado…'],['Pause','Pause','Pausa'],['Reprendre…','Resume…','Reanudar…'],['Arrêter le travail','Stop job','Detener trabajo'],['Confirmer','Confirm','Confirmar'],['Annuler','Cancel','Cancelar'],['Fermer','Close','Cerrar'],['Fermer ×','Close ×','Cerrar ×'],['Confirmer le démarrage','Confirm start','Confirmar inicio'],['Confirmer la reprise','Confirm resume','Confirmar reanudación'],
 ['Exécution sur la machine','Machine execution','Ejecución en la máquina'],['Aucune machine connectée','No machine connected','Ninguna máquina conectada'],['Lecture de l’état…','Reading status…','Leyendo estado…'],['Le chargement ne démarre pas le travail.','Loading does not start the job.','La carga no inicia el trabajo.'],['L’arrêt logiciel ne remplace pas l’arrêt physique de la machine.','Software stop does not replace the machine’s physical stop.','La parada por software no sustituye a la parada física de la máquina.'],['Test des boutons uniquement. Aucun mouvement ni activation du laser.','Button test only. No movement or laser activation.','Solo prueba de botones. Sin movimiento ni activación del láser.'],['Cette action met la machine en mouvement et peut activer l’outil. Vérifiez la machine, l’origine et la zone de travail.','This action moves the machine and may activate the tool. Check the machine, origin and work area.','Esta acción mueve la máquina y puede activar la herramienta. Compruebe la máquina, el origen y la zona de trabajo.'],['Je souhaite lancer cette simulation.','I want to start this simulation.','Deseo iniciar esta simulación.'],['Je suis devant la machine et prêt à lancer ce fichier.','I am at the machine and ready to run this file.','Estoy junto a la máquina y listo para ejecutar este archivo.'],['Confirmation valable','Confirmation valid for','Confirmación válida durante'],['Confirmation expirée. Préparez une nouvelle confirmation.','Confirmation expired. Prepare a new confirmation.','Confirmación caducada. Prepare una nueva confirmación.'],
 ['Simulateur indisponible. Rechargez la page.','Simulator unavailable. Reload the page.','Simulador no disponible. Recargue la página.'],['Session CNCjs requise.','CNCjs session required.','Se requiere una sesión CNCjs.'],['Commandes indisponibles (HTTP','Controls unavailable (HTTP','Controles no disponibles (HTTP'],['Connexion perdue ou réponse incertaine. Vérifiez l’état avant toute nouvelle action.','Connection lost or response uncertain. Check status before any further action.','Conexión perdida o respuesta incierta. Compruebe el estado antes de otra acción.'],['Module de suivi absent ou incompatible. Installez la version attendue avant de charger ou démarrer.','Monitoring module missing or incompatible. Install the expected version before loading or starting.','Módulo de seguimiento ausente o incompatible. Instale la versión requerida antes de cargar o iniciar.'],['Suivi continu interrompu. Lecture de secours ; attendez le rétablissement avant de charger ou confirmer.','Continuous monitoring interrupted. Fallback reading; wait for recovery before loading or confirming.','Seguimiento continuo interrumpido. Lectura de respaldo; espere su recuperación antes de cargar o confirmar.'],['État machine trop ancien : attendre un rapport récent.','Machine status too old: wait for a recent report.','Estado de máquina demasiado antiguo: espere un informe reciente.'],
-['Sélectionné dans la bibliothèque :','Selected in library:','Seleccionado en la biblioteca:'],['Aucun fichier sélectionné dans la bibliothèque.','No file selected in the library.','Ningún archivo seleccionado en la biblioteca.'],['Chargé dans CNCjs :','Loaded in CNCjs:','Cargado en CNCjs:'],['Aucun fichier chargé dans CNCjs.','No file loaded in CNCjs.','Ningún archivo cargado en CNCjs.'],['Fichier chargé : état indisponible.','Loaded file: status unavailable.','Archivo cargado: estado no disponible.'],['dans CNCjs','in CNCjs','en CNCjs'],['dans le simulateur','in the simulator','en el simulador'],['Connectez le contrôleur dans CNCjs et attendez un état récent.','Connect the controller in CNCjs and wait for recent status.','Conecte el controlador en CNCjs y espere un estado reciente.'],['Alarme fictive : ouvrez Machine pour terminer le test d’alarme. La reprise devra être confirmée.','Simulated alarm: open Machine to end the alarm test. Resuming will require confirmation.','Alarma simulada: abra Máquina para finalizar la prueba de alarma. La reanudación requerirá confirmación.'],['Chargement et démarrage bloqués : le contrôleur est en ALARM. Consultez le message d’alarme dans CNCjs et résolvez sa cause. Quand la machine sera prête (Idle), chargez le fichier puis touchez Démarrer.','Loading and start blocked: the controller is in ALARM. Check the alarm message in CNCjs and resolve its cause. When the machine is ready (Idle), load the file and touch Start.','Carga e inicio bloqueados: el controlador está en ALARM. Consulte la alarma en CNCjs y resuelva su causa. Cuando la máquina esté lista (Idle), cargue el archivo y toque Iniciar.'],['En attente d’un état récent du contrôleur.','Waiting for recent controller status.','Esperando un estado reciente del controlador.'],['Étape suivante : Charger le fichier sélectionné, puis Démarrer.','Next step: Load selected file, then Start.','Siguiente paso: Cargar archivo seleccionado y después Iniciar.'],['Sélectionnez un fichier dans la bibliothèque.','Select a file in the library.','Seleccione un archivo en la biblioteca.'],['Chargement indisponible.','Loading unavailable.','Carga no disponible.'],['Travail en pause. Touchez Reprendre pour confirmer la reprise.','Job paused. Touch Resume to confirm resuming.','Trabajo en pausa. Toque Reanudar para confirmar.'],['Travail en cours.','Job running.','Trabajo en curso.'],['Fichier chargé. Touchez Démarrer pour confirmer.','File loaded. Touch Start to confirm.','Archivo cargado. Toque Iniciar para confirmar.'],['Choisir une machine','Choose a machine','Elegir una máquina'],['Machine non connectée ou état indisponible.','Machine disconnected or status unavailable.','Máquina desconectada o estado no disponible.'],['Connexion interrompue. Nouvelle confirmation requise.','Connection interrupted. New confirmation required.','Conexión interrumpida. Se requiere una nueva confirmación.'],['Retour à la page : attendre un nouvel état.','Returned to page: wait for new status.','Vuelta a la página: espere un nuevo estado.'],['Ouvrir le mode SIMULATION (sans machine)','Open SIMULATION mode (no machine)','Abrir modo SIMULACIÓN (sin máquina)'],
+['Sélectionné dans la bibliothèque :','Selected in library:','Seleccionado en la biblioteca:'],['Aucun fichier sélectionné dans la bibliothèque.','No file selected in the library.','Ningún archivo seleccionado en la biblioteca.'],['Chargé dans CNCjs :','Loaded in CNCjs:','Cargado en CNCjs:'],['Aucun fichier chargé dans CNCjs.','No file loaded in CNCjs.','Ningún archivo cargado en CNCjs.'],['Fichier chargé : état indisponible.','Loaded file: status unavailable.','Archivo cargado: estado no disponible.'],['dans CNCjs','in CNCjs','en CNCjs'],['dans le simulateur','in the simulator','en el simulador'],['Connectez le contrôleur dans CNCjs et attendez un état récent.','Connect the controller in CNCjs and wait for recent status.','Conecte el controlador en CNCjs y espere un estado reciente.'],['Alarme fictive : ouvrez Machine pour terminer le test d’alarme. La reprise devra être confirmée.','Simulated alarm: open Machine to end the alarm test. Resuming will require confirmation.','Alarma simulada: abra Máquina para finalizar la prueba de alarma. La reanudación requerirá confirmación.'],['Chargement et démarrage bloqués : le contrôleur est en ALARM. Consultez le message d’alarme dans CNCjs et résolvez sa cause. Quand la machine sera prête (Idle), chargez le fichier puis touchez Démarrer.','Loading and start blocked: the controller is in ALARM. Check the alarm message in CNCjs and resolve its cause. When the machine is ready (Idle), load the file and touch Start.','Carga e inicio bloqueados: el controlador está en ALARM. Consulte la alarma en CNCjs y resuelva su causa. Cuando la máquina esté lista (Idle), cargue el archivo y toque Iniciar.'],['En attente d’un état récent du contrôleur.','Waiting for recent controller status.','Esperando un estado reciente del controlador.'],['Étape suivante : Charger le fichier sélectionné, puis Démarrer.','Next step: Load selected file, then Start.','Siguiente paso: Cargar archivo seleccionado y después Iniciar.'],['Sélectionnez un fichier dans la bibliothèque.','Select a file in the library.','Seleccione un archivo en la biblioteca.'],['Chargement indisponible.','Loading unavailable.','Carga no disponible.'],['Travail en pause. Touchez Reprendre pour confirmer la reprise.','Job paused. Touch Resume to confirm resuming.','Trabajo en pausa. Toque Reanudar para confirmar.'],['Travail en cours.','Job running.','Trabajo en curso.'],['Fichier chargé. Touchez Démarrer pour confirmer.','File loaded. Touch Start to confirm.','Archivo cargado. Toque Iniciar para confirmar.'],['Choisir une machine','Choose a machine','Elegir una máquina'],['Machine non connectée ou état indisponible.','Machine disconnected or status unavailable.','Máquina desconectada o estado no disponible.'],['Connexion interrompue. Nouvelle confirmation requise.','Connection interrupted. New confirmation required.','Conexión interrumpida. Se requiere una nueva confirmación.'],['Retour à la page : attendre un nouvel état.','Returned to page: wait for new status.','Vuelta a la página: espere un nuevo estado.'],
 ['au repos','idle','en reposo'],['en pause','paused','en pausa'],['travail en cours','job running','trabajo en curso'],['Travail simulé','Simulated job','Trabajo simulado'],['SIMULATION —','SIMULATION —','SIMULACIÓN —'],['Suivi continu interrompu. Nouvelle confirmation requise.','Continuous monitoring interrupted. New confirmation required.','Seguimiento continuo interrumpido. Se requiere una nueva confirmación.'],
-['Aperçu du fichier','File preview','Vista previa del archivo'],['Sélectionnez un fichier pour afficher son aperçu.','Select a file to display its preview.','Seleccione un archivo para mostrar su vista previa.'],['Suivi du travail','Job monitor','Seguimiento del trabajo'],['Avancement du travail','Job progress','Progreso del trabajo'],['Temps restant : —','Time remaining: —','Tiempo restante: —'],['Chargement de l’aperçu…','Loading preview…','Cargando vista previa…'],['Session CNCjs requise pour lire l’aperçu.','CNCjs session required to read the preview.','Se requiere una sesión CNCjs para leer la vista previa.'],['Aperçu indisponible. Régénérez-le dans Fichiers.','Preview unavailable. Regenerate it in Files.','Vista previa no disponible. Regenérela en Archivos.'],['Temps restant : chargez un fichier','Time remaining: load a file','Tiempo restante: cargue un archivo'],['Temps restant : état indisponible','Time remaining: status unavailable','Tiempo restante: estado no disponible'],['Terminé — 0 s restantes','Finished — 0 s remaining','Finalizado — quedan 0 s'],['Toutes les lignes acquittées — attendre la fin des mouvements','All lines acknowledged — wait for motion to finish','Todas las líneas confirmadas — espere al final de los movimientos'],['Travail arrêté — temps restant indisponible','Job stopped — time remaining unavailable','Trabajo detenido — tiempo restante no disponible'],['Durée simulée :','Simulated duration:','Duración simulada:'],['Temps restant : estimation après démarrage','Time remaining: estimate after start','Tiempo restante: estimación tras iniciar'],['En pause —','Paused —','En pausa —'],['restantes','remaining','restantes'],['estimation suspendue','estimate suspended','estimación suspendida'],['Temps restant','Time remaining','Tiempo restante'],['simulé','simulated','simulado'],['estimé','estimated','estimado'],['Temps restant : calcul en cours…','Time remaining: calculating…','Tiempo restante: calculando…'],['État indisponible : attendre la connexion.','Status unavailable: wait for connection.','Estado no disponible: espere la conexión.'],['Opération en cours…','Operation in progress…','Operación en curso…'],['Alarme active : commandes bloquées.','Alarm active: controls blocked.','Alarma activa: controles bloqueados.'],['Travail en pause.','Job paused.','Trabajo en pausa.'],['Fichier chargé, prêt à démarrer.','File loaded, ready to start.','Archivo cargado, listo para iniciar.'],['Commande indisponible.','Control unavailable.','Control no disponible.'],['Rechargez le fichier pour un nouveau départ.','Reload the file to start again.','Vuelva a cargar el archivo para empezar de nuevo.'],['Choisissez et chargez le fichier du prochain travail.','Choose and load the file for the next job.','Elija y cargue el archivo del próximo trabajo.'],['Chargez la sélection avant de démarrer.','Load the selection before starting.','Cargue la selección antes de iniciar.'],['Choisissez un fichier dans Fichiers.','Choose a file in Files.','Elija un archivo en Archivos.'],['Sélection différente :','Different selection:','Selección distinta:'],['. Charger la sélection remplacera le fichier chargé.','. Loading the selection will replace the loaded file.','. Cargar la selección sustituirá el archivo cargado.'],['Recharger le fichier','Reload file','Volver a cargar archivo'],['Suivi — SIMULATION','Monitor — SIMULATION','Seguimiento — SIMULACIÓN'],['Sélectionné :','Selected:','Seleccionado:'],['Progression fictive sur 60 secondes, hors pauses. Aucun G-code exécuté.','Simulated progress over 60 seconds, excluding pauses. No G-code executed.','Progreso simulado durante 60 segundos, sin pausas. No se ejecuta G-code.'],['Progression des lignes acquittées. Estimation indicative selon le rythme observé, pas selon la durée des mouvements.','Progress of acknowledged lines. Indicative estimate from the observed rate, not motion duration.','Progreso de las líneas confirmadas. Estimación orientativa según el ritmo observado, no la duración de los movimientos.'],['Progression fictive :','Simulated progress:','Progreso simulado:'],['Lignes acquittées :','Acknowledged lines:','Líneas confirmadas:'],
+['Aperçu du fichier','File preview','Vista previa del archivo'],['Sélectionnez un fichier pour afficher son aperçu.','Select a file to display its preview.','Seleccione un archivo para mostrar su vista previa.'],['Suivi du travail','Job monitor','Seguimiento del trabajo'],['Avancement du travail','Job progress','Progreso del trabajo'],['Temps restant : —','Time remaining: —','Tiempo restante: —'],['Chargement de l’aperçu…','Loading preview…','Cargando vista previa…'],['Session CNCjs requise pour lire l’aperçu.','CNCjs session required to read the preview.','Se requiere una sesión CNCjs para leer la vista previa.'],['Aperçu indisponible. Régénérez-le dans Fichiers.','Preview unavailable. Regenerate it in Files.','Vista previa no disponible. Regenérela en Archivos.'],['Temps restant : chargez un fichier','Time remaining: load a file','Tiempo restante: cargue un archivo'],['Temps restant : état indisponible','Time remaining: status unavailable','Tiempo restante: estado no disponible'],['Terminé — 0 s restantes','Finished — 0 s remaining','Finalizado — quedan 0 s'],['Toutes les lignes acquittées — attendre la fin des mouvements','All lines acknowledged — wait for motion to finish','Todas las líneas confirmadas — espere al final de los movimientos'],['Travail arrêté — temps restant indisponible','Job stopped — time remaining unavailable','Trabajo detenido — tiempo restante no disponible'],['Durée simulée :','Simulated duration:','Duración simulada:'],['Temps restant : estimation après démarrage','Time remaining: estimate after start','Tiempo restante: estimación tras iniciar'],['En pause —','Paused —','En pausa —'],['restantes','remaining','restantes'],['estimation suspendue','estimate suspended','estimación suspendida'],['Temps restant','Time remaining','Tiempo restante'],['simulé','simulated','simulado'],['estimé','estimated','estimado'],['Temps restant : calcul en cours…','Time remaining: calculating…','Tiempo restante: calculando…'],['État indisponible : attendre la connexion.','Status unavailable: wait for connection.','Estado no disponible: espere la conexión.'],['Opération en cours…','Operation in progress…','Operación en curso…'],['Alarme active : commandes bloquées.','Alarm active: controls blocked.','Alarma activa: controles bloqueados.'],['Travail en pause.','Job paused.','Trabajo en pausa.'],['Fichier chargé, prêt à démarrer.','File loaded, ready to start.','Archivo cargado, listo para iniciar.'],['Commande indisponible.','Control unavailable.','Control no disponible.'],['Rechargez le fichier pour un nouveau départ.','Reload the file to start again.','Vuelva a cargar el archivo para empezar de nuevo.'],['Choisissez et chargez le fichier du prochain travail.','Choose and load the file for the next job.','Elija y cargue el archivo del próximo trabajo.'],['Chargez la sélection avant de démarrer.','Load the selection before starting.','Cargue la selección antes de iniciar.'],['Choisissez un fichier dans Fichiers.','Choose a file in Files.','Elija un archivo en Archivos.'],['Sélection différente :','Different selection:','Selección distinta:'],['. Charger la sélection remplacera le fichier chargé.','. Loading the selection will replace the loaded file.','. Cargar la selección sustituirá el archivo cargado.'],['Recharger le fichier','Reload file','Recargar archivo'],['Suivi — SIMULATION','Monitor — SIMULATION','Seguimiento — SIMULACIÓN'],['Sélectionné :','Selected:','Seleccionado:'],['Progression fictive sur 60 secondes, hors pauses. Aucun G-code exécuté.','Simulated progress over 60 seconds, excluding pauses. No G-code executed.','Progreso simulado durante 60 segundos, sin pausas. No se ejecuta G-code.'],['Progression des lignes acquittées. Estimation indicative selon le rythme observé, pas selon la durée des mouvements.','Progress of acknowledged lines. Indicative estimate from the observed rate, not motion duration.','Progreso de las líneas confirmadas. Estimación orientativa según el ritmo observado, no la duración de los movimientos.'],['Progression fictive :','Simulated progress:','Progreso simulado:'],['Lignes acquittées :','Acknowledged lines:','Líneas confirmadas:'],
 ['Fraîcheur des données','Data freshness','Actualidad de los datos'],['âge inconnu','age unknown','antigüedad desconocida'],['moins de 1 s','less than 1 s','menos de 1 s'],['Simulateur local · aucune liaison machine.','Local simulator · no machine connection.','Simulador local · sin conexión a la máquina.'],['Suivi continu :','Continuous monitoring:','Seguimiento continuo:'],['connecté.','connected.','conectado.'],['indisponible.','unavailable.','no disponible.'],['Rapports Grbl : non utilisés en simulation.','Grbl reports: not used in simulation.','Informes Grbl: no utilizados en simulación.'],['Rapport Grbl : aucun contrôleur sélectionné.','Grbl report: no controller selected.','Informe Grbl: ningún controlador seleccionado.'],['Rapport Grbl ·','Grbl report ·','Informe Grbl ·'],['· récent.','· recent.','· reciente.'],['· non exploitable pour démarrer.','· unusable for starting.','· no válido para iniciar.'],['Les états fictifs ne valident pas la connexion à la CNC.','Simulated states do not validate the CNC connection.','Los estados simulados no validan la conexión con la CNC.'],['Le suivi doit être rétabli avant de charger, démarrer ou reprendre.','Monitoring must recover before loading, starting or resuming.','El seguimiento debe restablecerse antes de cargar, iniciar o reanudar.'],['Sélectionnez un contrôleur dans Fichiers → Détails de l’aperçu.','Select a controller in Files → Preview details.','Seleccione un controlador en Archivos → Detalles de la vista previa.'],['Aucun âge fiable reçu. Une connexion serveur ne garantit pas un rapport machine récent.','No reliable age received. A server connection does not guarantee a recent machine report.','No se recibió una antigüedad fiable. La conexión al servidor no garantiza un informe reciente de la máquina.'],['Le serveur répond, mais le rapport machine est trop ancien. Attendez un nouveau rapport.','The server responds, but the machine report is too old. Wait for a new report.','El servidor responde, pero el informe de la máquina es demasiado antiguo. Espere uno nuevo.'],['Rapport reçu, mais non validé par le suivi. Attendez le rétablissement du suivi.','Report received but not validated by monitoring. Wait for monitoring to recover.','Informe recibido, pero no validado por el seguimiento. Espere a que se restablezca.'],['Âge du rapport machine, distinct de la liaison serveur. Un rapport récent ne garantit pas que le démarrage est autorisé.','Machine report age, separate from the server connection. A recent report does not guarantee that starting is allowed.','Antigüedad del informe de la máquina, distinta de la conexión al servidor. Un informe reciente no garantiza que se permita iniciar.'],['Rapport : —','Report: —','Informe: —'],['Rapport :','Report:','Informe:'],
-['＋ Ajouter un fichier','＋ Add file','＋ Añadir archivo'],['Ajouter un fichier à la bibliothèque','Add file to library','Añadir archivo a la biblioteca'],['Détails de l’aperçu','Preview details','Detalles de la vista previa'],['Détails du fichier et de l’aperçu','File and preview details','Detalles del archivo y de la vista previa'],['Dimensions du parcours XY','XY toolpath dimensions','Dimensiones de la trayectoria XY'],['Dimensions XY','XY dimensions','Dimensiones XY'],['Fonctions de la machine','Machine features','Funciones de la máquina'],['Réinitialiser la simulation','Reset simulation','Reiniciar simulación'],['Vitesse du test à blanc','Dry-run speed','Velocidad de la prueba sin ejecución'],['Test d’alarme fictive','Simulated alarm test','Prueba de alarma simulada'],['Aide aux repères','Coordinate frame help','Ayuda de sistemas de coordenadas'],['Comprendre l’origine','Understanding the origin','Entender el origen'],['Profils de sonde','Probe profiles','Perfiles de sonda'],['Test du contact','Contact test','Prueba de contacto'],['Résultats du palpage','Probe results','Resultados del sondeo'],['Sauvegarde des profils','Profile backup','Copia de perfiles'],['Préparation du palpage','Probe preparation','Preparación del sondeo'],['Palpage X / Y / Z','X / Y / Z probing','Sondeo X / Y / Z'],['Ouvrir le palpage X / Y / Z','Open X / Y / Z probing','Abrir sondeo X / Y / Z'],
-['Page masquée : essais bloqués.','Page hidden: trials blocked.','Página oculta: pruebas bloqueadas.'],
-['Serveur déconnecté : essais bloqués.','Server disconnected: trials blocked.','Servidor desconectado: pruebas bloqueadas.'],
-['Aucun contrôleur suivi. Ouvrez la connexion dans CNCjs.','No controller followed. Open the connection in CNCjs.','Ningún controlador seguido. Abra la conexión en CNCjs.'],
-['État du contrôleur périmé : attendez son actualisation.','Controller state is stale: wait for an update.','Estado del controlador caducado: espere su actualización.'],
-['Contrôleur Grbl requis pour cet essai.','A Grbl controller is required for this trial.','Se requiere un controlador Grbl para esta prueba.'],
-['Une opération est en cours : essais bloqués.','An operation is in progress: trials blocked.','Hay una operación en curso: pruebas bloqueadas.'],
-['Contrôleur non prêt (','Controller not ready (','Controlador no listo ('],
-[') : essais bloqués.','): trials blocked.','): pruebas bloqueadas.'],
-['Commandes en attente : essais bloqués.','Commands pending: trials blocked.','Comandos pendientes: pruebas bloqueadas.'],
-['Vérification serveur indisponible : actualisez la page.','Server check unavailable: reload the page.','Verificación del servidor no disponible: recargue la página.'],
-['Vérification par le serveur…','Checking with the server…','Verificando con el servidor…'],
+['+ Ajouter un fichier','+ Add file','+ Añadir archivo'],['Ajouter un fichier à la bibliothèque','Add file to library','Añadir archivo a la biblioteca'],['Détails de l’aperçu','Preview details','Detalles de la vista previa'],['Détails du fichier et de l’aperçu','File and preview details','Detalles del archivo y de la vista previa'],['Dimensions du parcours XY','XY toolpath dimensions','Dimensiones de la trayectoria XY'],['Dimensions XY','XY dimensions','Dimensiones XY'],['Fonctions de la machine','Machine features','Funciones de la máquina'],['Réinitialiser la simulation','Reset simulation','Reiniciar simulación'],['Test d’alarme fictive','Simulated alarm test','Prueba de alarma simulada'],['Aide aux repères','Coordinate frame help','Ayuda de sistemas de coordenadas'],['Comprendre l’origine','Understanding the origin','Entender el origen'],['Profils de sonde','Probe profiles','Perfiles de sonda'],['Test du contact','Contact test','Prueba de contacto'],['Résultats du palpage','Probe results','Resultados del sondeo'],['Sauvegarde des profils','Profile backup','Copia de perfiles'],['Préparation du palpage','Probe preparation','Preparación del sondeo'],['Palpage X / Y / Z','X / Y / Z probing','Sondeo X / Y / Z'],['Ouvrir le palpage X / Y / Z','Open X / Y / Z probing','Abrir sondeo X / Y / Z'],
 ['Prêt pour un essai à blanc · pas ','Ready for a dry trial · step ','Listo para una prueba en vacío · paso '],
-['Session CNCjs requise. Aucun mouvement envoyé.','CNCjs session required. No movement sent.','Sesión de CNCjs requerida. No se envió ningún movimiento.'],
-['Vérification refusée par le serveur.','Check refused by the server.','Verificación rechazada por el servidor.'],
-[' Aucun mouvement envoyé.',' No movement sent.',' No se envió ningún movimiento.'],
-['Réponse serveur incohérente. Aucun mouvement envoyé.','Inconsistent server reply. No movement sent.','Respuesta incoherente del servidor. No se envió ningún movimiento.'],
-['Vérifié par le serveur : ','Checked by the server: ','Verificado por el servidor: '],
-[' mm/min. Aucun mouvement envoyé.',' mm/min. No movement sent.',' mm/min. No se envió ningún movimiento.'],
-['Serveur injoignable. Essai non validé ; aucun mouvement envoyé.','Server unreachable. Trial not validated; no movement sent.','Servidor inaccesible. Prueba no validada; no se envió ningún movimiento.'],
-['Vérification en cours. Aucun mouvement envoyé.','Checking. No movement sent.','Verificación en curso. No se envió ningún movimiento.'],
-['Vérification impossible. Aucun mouvement envoyé.','Check impossible. No movement sent.','Verificación imposible. No se envió ningún movimiento.'],
 ['Position outil : données ou aperçu indisponibles.','Tool position: data or preview unavailable.','Posición de la herramienta: datos o vista previa no disponibles.'],
 ['Position outil : régénérez cet ancien aperçu dans Fichiers.','Tool position: regenerate this old preview in Files.','Posición de la herramienta: regenere esta vista previa antigua en Archivos.'],
 [' Tracé orange : avancement fictif.',' Orange path: simulated progress.',' Trazado naranja: avance simulado.'],
@@ -100,8 +130,6 @@ window.CNCTouchMessages = [
 ['Position outil : repère G54 et rapports en mm requis.','Tool position: G54 and reports in mm required.','Posición de la herramienta: se requieren G54 e informes en mm.'],
 ['Position outil inconnue.','Tool position unknown.','Posición de la herramienta desconocida.'],
 ['Position outil hors aperçu ou projection invalide.','Tool position outside the preview or invalid projection.','Posición de la herramienta fuera de la vista previa o proyección no válida.'],
-['Point rose : position fictive G54. Le travail simulé ne déplace pas ce point.','Pink dot: simulated G54 position. The simulated job does not move it.','Punto rosa: posición simulada G54. El trabajo simulado no lo mueve.'],
-['Point rose : position de travail rapportée, G54 · projection indicative.','Pink dot: reported work position, G54 · indicative projection.','Punto rosa: posición de trabajo informada, G54 · proyección indicativa.'],
 ['préparation réelle','real preparation','preparación real'],
 [' (fictive)',' (simulated)',' (simulada)'],
 [' (fictif)',' (simulated)',' (simulado)'],
@@ -183,24 +211,24 @@ window.CNCTouchMessages.push(
 ['épaisseur Z','Z thickness','espesor Z'],['décalage de face X','X face offset','desfase de cara X'],['décalage de face Y','Y face offset','desfase de cara Y'],['vitesse d’approche','approach speed','velocidad de aproximación'],['vitesse de seconde touche','second-touch speed','velocidad del segundo contacto'],['distance de recherche','search distance','distancia de búsqueda'],['distance de retrait','retract distance','distancia de retroceso'],['dégagement','clearance','despeje'],['Coin de montage à choisir.','Choose a mounting corner.','Elija una esquina de montaje.'],['Coin de montage invalide.','Invalid mounting corner.','Esquina de montaje no válida.'],['Diamètre outil / pige à renseigner.','Enter tool / pin diameter.','Introduzca el diámetro de herramienta / pasador.'],['Direction','Direction','Dirección'],['Direction de recherche invalide.','Invalid search direction.','Dirección de búsqueda no válida.'],['La seconde touche doit être au plus aussi rapide que l’approche.','Second touch must not be faster than approach.','El segundo contacto no debe ser más rápido que la aproximación.'],['Le retrait doit être inférieur à la recherche maximale.','Retract must be less than maximum search.','El retroceso debe ser menor que la búsqueda máxima.'],['Retrait supérieur ou égal à la recherche.','Retract greater than or equal to search.','Retroceso mayor o igual que la búsqueda.'],['Seconde touche plus rapide que l’approche.','Second touch faster than approach.','Segundo contacto más rápido que la aproximación.'],['Mesure ou profil invalide.','Invalid measurement or profile.','Medida o perfil no válido.'],['Opération invalide.','Invalid operation.','Operación no válida.'],['Signal invalide.','Invalid signal.','Señal no válida.'],['Repère ou scénario invalide.','Invalid work frame or scenario.','Sistema de coordenadas o escenario no válido.'],['Choisissez XYZ pour cet incident.','Choose XYZ for this incident.','Elija XYZ para este incidente.'],['Cycle déjà en cours.','Cycle already running.','Ciclo ya en curso.'],['Cycle en cours.','Cycle running.','Ciclo en curso.'],['Test virtuel uniquement, hors cycle.','Virtual test only, outside a cycle.','Solo prueba virtual, fuera de un ciclo.'],['Commencez par un signal libre.','Start with a clear signal.','Empiece con una señal libre.'],['Simulez maintenant un contact.','Now simulate contact.','Simule ahora un contacto.'],['Simulez la libération du contact.','Simulate contact release.','Simule la liberación del contacto.'],['Contact fictif vérifié et libre.','Simulated contact checked and clear.','Contacto simulado comprobado y libre.'],['Tester le contact avant de lancer.','Test contact before starting.','Pruebe el contacto antes de iniciar.'],['Position initiale fictive et disponibilité à confirmer.','Confirm simulated initial position and availability.','Confirme la posición inicial simulada y la disponibilidad.'],['Origine fictive à vérifier : réinitialisez le banc.','Check simulated origin: reset the bench.','Compruebe el origen simulado: reinicie el banco.'],['Origine fictive à vérifier.','Simulated origin must be checked.','Debe comprobarse el origen simulado.'],['Vérifiez le contact libre → contact → libre.','Check contact clear → contact → clear.','Compruebe el contacto libre → contacto → libre.'],['Test guidé : libre → contact → libre.','Guided test: clear → contact → clear.','Prueba guiada: libre → contacto → libre.'],['Validation du contact','Contact validation','Validación de contacto'],['Démarrage du banc fictif','Starting simulated bench','Inicio del banco simulado'],['Première recherche','First search','Primera búsqueda'],['Retrait et libération','Retract and release','Retroceso y liberación'],['Seconde touche lente','Slow second touch','Segundo contacto lento'],['Validation des mesures','Measurement validation','Validación de medidas'],['Calcul de l’origine','Origin calculation','Cálculo del origen'],['Application fictive','Simulated application','Aplicación simulada'],['Dégagement fictif','Simulated clearance','Despeje simulado'],['Terminé','Finished','Finalizado'],['Retirez la sonde et la pince avant de lancer l’usinage.','Remove the probe and clip before starting machining.','Retire la sonda y la pinza antes de iniciar el mecanizado.'],['Contact déjà actif au départ. Aucune recherche.','Contact already active at start. No search.','Contacto ya activo al inicio. Sin búsqueda.'],['Recherche bornée terminée sans contact valide. Aucune origine appliquée.','Bounded search ended without valid contact. No origin applied.','Búsqueda limitada terminada sin contacto válido. No se aplica origen.'],['Contact persistant après retrait. Cycle bloqué.','Contact persists after retract. Cycle blocked.','El contacto persiste tras retroceder. Ciclo bloqueado.'],['Connexion fictive perdue. Nouvelle vérification requise ; aucune reprise automatique.','Simulated connection lost. New check required; no automatic resume.','Conexión simulada perdida. Se requiere otra comprobación; sin reanudación automática.'],['Délai fictif dépassé. Aucun retrait automatique.','Simulated timeout. No automatic retract.','Tiempo simulado agotado. Sin retroceso automático.'],['Échec d’application fictive : origine à vérifier. Suite bloquée.','Simulated application failed: check origin. Continuation blocked.','Fallo de aplicación simulada: compruebe el origen. Continuación bloqueada.'],['Arrêt utilisateur. Aucun retrait automatique.','User stop. No automatic retract.','Parada del usuario. Sin retroceso automático.'],['Banc fictif indépendant : aucun G-code, aucune trajectoire ni origine machine réelle. Coordonnées de contact synthétiques en mm.','Independent simulated bench: no G-code, real toolpath or machine origin. Synthetic contact coordinates in mm.','Banco simulado independiente: sin G-code, trayectoria ni origen real de máquina. Coordenadas de contacto sintéticas en mm.'],
 ['Aucun profil à restaurer.','No profile to restore.','Ningún perfil para restaurar.'],['Ce nom existe déjà. Choisissez un nom distinct.','This name already exists. Choose another name.','Este nombre ya existe. Elija otro nombre.'],['Ce nom existe déjà. Renommez le profil actuel avant de restaurer.','This name already exists. Rename the current profile before restoring.','Este nombre ya existe. Cambie el nombre del perfil actual antes de restaurar.'],['Conservez au moins un profil enregistré.','Keep at least one saved profile.','Conserve al menos un perfil guardado.'],['Copie ·','Copy ·','Copia ·'],['Maximum : 8 profils. Aucun profil ajouté.','Maximum: 8 profiles. No profiles added.','Máximo: 8 perfiles. No se añadieron perfiles.'],['Maximum : 8 profils. Supprimez un profil pour libérer une place.','Maximum: 8 profiles. Delete a profile to free a slot.','Máximo: 8 perfiles. Elimine un perfil para liberar espacio.'],['Profil absent.','Profile missing.','Falta el perfil.'],['Profil enregistré introuvable.','Saved profile not found.','Perfil guardado no encontrado.'],['Profils à importer absents.','No profiles to import.','No hay perfiles para importar.'],['Sauvegarde de suppression invalide.','Invalid deletion backup.','Copia de eliminación no válida.'],['Fichier JSON illisible.','Unreadable JSON file.','Archivo JSON ilegible.'],['Fichier trop volumineux (64 Ko maximum).','File too large (maximum 64 KB).','Archivo demasiado grande (máximo 64 KB).'],['Format de sauvegarde de profils non reconnu.','Unrecognised profile backup format.','Formato de copia de perfiles no reconocido.'],['La sauvegarde doit contenir de 1 à 8 profils.','The backup must contain 1 to 8 profiles.','La copia debe contener de 1 a 8 perfiles.'],['Mode du fichier inconnu.','Unknown file mode.','Modo de archivo desconocido.'],['Nom de profil invalide (60 caractères maximum).','Invalid profile name (maximum 60 characters).','Nombre de perfil no válido (máximo 60 caracteres).'],['Structure du profil invalide ou champs inattendus.','Invalid profile structure or unexpected fields.','Estructura de perfil no válida o campos inesperados.'],['Ce fichier appartient au mode','This file belongs to mode','Este archivo pertenece al modo'],['. Ouvrez le même mode pour l’importer.','. Open the same mode to import it.','. Abra el mismo modo para importarlo.'],['Un profil différent porte déjà le nom «','A different profile already has the name “','Otro perfil ya tiene el nombre «'],['». Renommez-le avant l’import.','”. Rename it before importing.','». Cámbiele el nombre antes de importar.'],
 ['Axe ou repère inconnu.','Unknown axis or work frame.','Eje o sistema de coordenadas desconocido.'],['Opération ou unité invalide.','Invalid operation or unit.','Operación o unidad no válida.'],['Saisissez une valeur numérique, sans commande G-code.','Enter a numeric value, without G-code commands.','Introduzca un valor numérico, sin órdenes G-code.'],['Valeur absente ou hors plage de calcul (±100 000 mm).','Missing value or outside calculation range (±100,000 mm).','Valor ausente o fuera del rango de cálculo (±100 000 mm).'],['Vitesse de préparation : 1 à 1 500 mm/min.','Preparation speed: 1 to 1,500 mm/min.','Velocidad de preparación: de 1 a 1500 mm/min.'],['Aucun trajet calculé.','No toolpath calculated.','No se calcula trayectoria.'],['Contrôleur virtuel ·','Virtual controller ·','Controlador virtual ·'],['Contrôleur réel ·','Real controller ·','Controlador real ·'],['inconnu','unknown','desconocido'],['libre','clear','libre'],['actif','active','activo'],
-['Accueil','Home','Inicio'],['Accueil — simulation','Home — simulation','Inicio — simulación'],['Chargement de l’interface…','Loading interface…','Cargando interfaz…'],['Réessayer','Retry','Reintentar'],['JavaScript doit être activé pour utiliser l’interface.','JavaScript must be enabled to use the interface.','JavaScript debe estar activado para usar la interfaz.'],['CNC - Tactile','CNC - Touch','CNC - Táctil'],['CNC — SIMULATION','CNC — SIMULATION','CNC — SIMULACIÓN'],['SIMULATION — aucune commande envoyée à la machine','SIMULATION — no commands sent to the machine','SIMULACIÓN — no se envían órdenes a la máquina'],['Quitter la simulation et revenir à l’interface réelle','Leave simulation and return to the real interface','Salir de la simulación y volver a la interfaz real'],['Test des boutons avec une progression fictive sur 60 secondes, indépendante du G-code. Ce test ne valide ni le parcours, ni les réglages du laser.','Button test with simulated progress over 60 seconds, independent of G-code. This test validates neither toolpath nor laser settings.','Prueba de botones con progreso simulado de 60 segundos, independiente del G-code. No valida la trayectoria ni los ajustes del láser.'],['Fichier','File','Archivo'],['Fichier — SIMULATION','File — SIMULATION','Archivo — SIMULACIÓN'],['Fichiers — simulation','Files — simulation','Archivos — simulación'],['Fichiers — aperçu local','Files — local preview','Archivos — vista previa local'],['Choisir un fichier G-code','Choose a G-code file','Elegir un archivo G-code'],['Afficher / masquer le G-code','Show / hide G-code','Mostrar / ocultar G-code'],['Aucun fichier sélectionné.','No file selected.','Ningún archivo seleccionado.'],['Coordonnées de travail','Work coordinates','Coordenadas de trabajo'],['Travail','Work','Trabajo'],['Déplacer et définir l’origine','Move and set origin','Mover y definir origen'],['Repères et origine','Work frames and origin','Sistemas de coordenadas y origen'],['Coordonnées fictives · mm','Simulated coordinates · mm','Coordenadas simuladas · mm'],['Axes X / Y','X / Y axes','Ejes X / Y'],['Axe Z','Z axis','Eje Z'],['Pas de déplacement · mm','Move increment · mm','Paso de movimiento · mm'],['Zéro X','Zero X','Cero X'],['Zéro Y','Zero Y','Cero Y'],['Zéro Z','Zero Z','Cero Z'],['Zéro XYZ','Zero XYZ','Cero XYZ'],['Définir le zéro','Set zero','Definir cero'],['Réinitialiser…','Reset…','Restablecer…'],['Réinitialiser les coordonnées fictives','Reset simulated coordinates','Restablecer coordenadas simuladas'],['Remettre les positions machine et travail fictives à zéro. Cette action reste bloquée pendant un travail ou une alarme.','Reset simulated machine and work positions to zero. This action stays blocked during a job or alarm.','Restablecer a cero las posiciones simuladas de máquina y trabajo. Esta acción permanece bloqueada durante un trabajo o una alarma.'],['La position machine fictive représente les déplacements effectués dans le simulateur. Le zéro de travail définit un repère à cette position : il change les coordonnées de travail sans déplacer les axes.','Simulated machine position represents moves made in the simulator. Work zero defines a frame at this position: it changes work coordinates without moving axes.','La posición de máquina simulada representa los movimientos del simulador. El cero de trabajo define un sistema en esa posición: cambia las coordenadas de trabajo sin mover los ejes.'],['Les valeurs restent dans cette page et disparaissent au rechargement. Le travail simulé ne déplace pas les axes. Aucune trajectoire, vitesse ou limite physique n’est simulée. Aucun réglage du contrôleur réel n’est modifié.','Values remain on this page and disappear on reload. Simulated jobs do not move axes. No toolpath, speed or physical limits are simulated. No real controller settings are changed.','Los valores permanecen en esta página y desaparecen al recargar. El trabajo simulado no mueve los ejes. No se simulan trayectoria, velocidad ni límites físicos. No se modifican ajustes del controlador real.'],['La position machine et la position de travail proviennent du contrôleur. Définir un zéro de travail change le repère de la pièce sans déplacer les axes.','Machine and work positions come from the controller. Setting work zero changes the workpiece frame without moving axes.','Las posiciones de máquina y trabajo proceden del controlador. Definir un cero de trabajo cambia el sistema de la pieza sin mover los ejes.'],['Les commandes d’origine et de palpage restent désactivées. Les flèches testent le choix d’axe, de pas et de vitesse sans envoyer de commande.','Origin and probing commands remain disabled. Arrows test axis, increment and speed selection without sending commands.','Las órdenes de origen y sondeo siguen desactivadas. Las flechas prueban eje, paso y velocidad sin enviar órdenes.'],['Les cotes, profils enregistrés et diagnostics sont regroupés dans le panneau Palpage. Son lancement réel reste désactivé.','Dimensions, saved profiles and diagnostics are grouped in Probing. Real probing remains disabled.','Las medidas, perfiles guardados y diagnósticos se agrupan en Sondeo. El inicio real sigue desactivado.'],['Origines non activées','Origin changes disabled','Cambios de origen desactivados'],['TEST À BLANC','DRY RUN','PRUEBA SIN EJECUCIÓN'],['Aucun déplacement réel. Origines et palpage non activés.','No real movement. Origins and probing disabled.','Sin movimiento real. Orígenes y sondeo desactivados.'],['Machine non prête.','Machine not ready.','Máquina no lista.'],['Vitesse du test…','Test speed…','Velocidad de prueba…'],['Vitesse choisie pour l’essai à blanc. Aucun déplacement réel n’est envoyé.','Speed selected for dry run. No real movement sent.','Velocidad elegida para la prueba. No se envía ningún movimiento real.'],
-['Contrôleur virtuel','Virtual controller','Controlador virtual'],['État et test d’alarme de la simulation.','Simulation status and alarm test.','Estado y prueba de alarma de la simulación.'],['Détails du test','Test details','Detalles de la prueba'],['État actuel','Current status','Estado actual'],['Alarme fictive','Simulated alarm','Alarma simulada'],['Déclencher l’alarme','Trigger alarm','Activar alarma'],['Effacer l’alarme','Clear alarm','Borrar alarma'],['Après effacement, la reprise du travail demande une confirmation dans Suivi.','After clearing, resuming requires confirmation in Monitor.','Tras borrarla, reanudar requiere confirmación en Seguimiento.'],['L’alarme suspend la progression et bloque démarrage, reprise, chargement, déplacements et origines. Elle annule les confirmations en attente. Arrêter le travail reste possible.','The alarm suspends progress and blocks start, resume, loading, movements and origins. Pending confirmations are cancelled. Stopping the job remains possible.','La alarma suspende el progreso y bloquea inicio, reanudación, carga, movimientos y orígenes. Cancela las confirmaciones pendientes. Sigue siendo posible detener el trabajo.'],['Effacer l’alarme ne redémarre pas le travail. Ce test d’interface ne reproduit pas toutes les alarmes Grbl.','Clearing the alarm does not restart the job. This interface test does not reproduce all Grbl alarms.','Borrar la alarma no reinicia el trabajo. Esta prueba de interfaz no reproduce todas las alarmas Grbl.'],['Contrôleur fictif local au navigateur. Aucun lien avec l’alarme réelle du laser.','Local browser simulator. No connection to the real laser alarm.','Simulador local del navegador. Sin relación con la alarma real del láser.'],['Connexion et coordonnées · lecture seule','Connection and coordinates · read only','Conexión y coordenadas · solo lectura'],['Connexion et état','Connection and status','Conexión y estado'],['Fonctions disponibles','Available features','Funciones disponibles'],['Coordonnées du contrôleur · mm','Controller coordinates · mm','Coordenadas del controlador · mm'],['En cas d’alarme, consulter sa cause dans CNCjs.','If an alarm occurs, check its cause in CNCjs.','Si hay una alarma, consulte su causa en CNCjs.'],['Déplacements : test à blanc. Origines et palpage : commandes désactivées. Aucun paramètre du contrôleur modifié ici.','Movements: dry run. Origins and probing: commands disabled. No controller parameters changed here.','Movimientos: prueba sin ejecución. Orígenes y sondeo: órdenes desactivadas. Aquí no se modifican parámetros del controlador.'],['Fichiers : bibliothèque partagée, chargement et exécution réels. Le démarrage et la reprise demandent une confirmation et un état machine compatible.','Files: shared library, real loading and execution. Starting and resuming require confirmation and compatible machine status.','Archivos: biblioteca compartida, carga y ejecución reales. Iniciar y reanudar requieren confirmación y un estado compatible de la máquina.'],['Ce panneau n’est pas un arrêt d’urgence. Conserver l’accès à l’arrêt physique de la machine.','This panel is not an emergency stop. Keep access to the machine’s physical stop.','Este panel no es una parada de emergencia. Mantenga accesible la parada física de la máquina.'],['Serveur : …','Server: …','Servidor: …'],['Contrôleur : …','Controller: …','Controlador: …'],['État : …','Status: …','Estado: …'],
+['Accueil','Home','Inicio'],['Accueil — simulation','Home — simulation','Inicio — simulación'],['Chargement de l’interface…','Loading interface…','Cargando interfaz…'],['Réessayer','Retry','Reintentar'],['JavaScript doit être activé pour utiliser l’interface.','JavaScript must be enabled to use the interface.','JavaScript debe estar activado para usar la interfaz.'],['CNC - Tactile','CNC - Touch','CNC - Táctil'],['CNC — SIMULATION','CNC — SIMULATION','CNC — SIMULACIÓN'],['SIMULATION — aucune commande envoyée à la machine','SIMULATION — no commands sent to the machine','SIMULACIÓN — no se envían órdenes a la máquina'],['Quitter la simulation et revenir à l’interface réelle','Leave simulation and return to the real interface','Salir de la simulación y volver a la interfaz real'],['Test des boutons avec une progression fictive sur 60 secondes, indépendante du G-code. Ce test ne valide ni le parcours, ni les réglages du laser.','Button test with simulated progress over 60 seconds, independent of G-code. This test validates neither toolpath nor laser settings.','Prueba de botones con progreso simulado de 60 segundos, independiente del G-code. No valida la trayectoria ni los ajustes del láser.'],['Fichier','File','Archivo'],['Fichier — SIMULATION','File — SIMULATION','Archivo — SIMULACIÓN'],['Fichiers — simulation','Files — simulation','Archivos — simulación'],['Fichiers — aperçu local','Files — local preview','Archivos — vista previa local'],['Choisir un fichier G-code','Choose a G-code file','Elegir un archivo G-code'],['Afficher / masquer le G-code','Show / hide G-code','Mostrar / ocultar G-code'],['Aucun fichier sélectionné.','No file selected.','Ningún archivo seleccionado.'],['Coordonnées de travail','Work coordinates','Coordenadas de trabajo'],['Travail','Work','Trabajo'],['Déplacer et définir l’origine','Move and set origin','Mover y definir origen'],['Repères et origine','Work frames and origin','Sistemas de coordenadas y origen'],['Coordonnées fictives · mm','Simulated coordinates · mm','Coordenadas simuladas · mm'],['Axes X / Y','X / Y axes','Ejes X / Y'],['Axe Z','Z axis','Eje Z'],['Pas de déplacement · mm','Move increment · mm','Paso de movimiento · mm'],['Zéro X','Zero X','Cero X'],['Zéro Y','Zero Y','Cero Y'],['Zéro Z','Zero Z','Cero Z'],['Zéro XYZ','Zero XYZ','Cero XYZ'],['Définir le zéro','Set zero','Definir cero'],['Réinitialiser…','Reset…','Restablecer…'],['Réinitialiser les coordonnées fictives','Reset simulated coordinates','Restablecer coordenadas simuladas'],['Remettre les positions machine et travail fictives à zéro. Cette action reste bloquée pendant un travail ou une alarme.','Reset simulated machine and work positions to zero. This action stays blocked during a job or alarm.','Restablecer a cero las posiciones simuladas de máquina y trabajo. Esta acción permanece bloqueada durante un trabajo o una alarma.'],['La position machine fictive représente les déplacements effectués dans le simulateur. Le zéro de travail définit un repère à cette position : il change les coordonnées de travail sans déplacer les axes.','Simulated machine position represents moves made in the simulator. Work zero defines a frame at this position: it changes work coordinates without moving axes.','La posición de máquina simulada representa los movimientos del simulador. El cero de trabajo define un sistema en esa posición: cambia las coordenadas de trabajo sin mover los ejes.'],['Les valeurs restent dans cette page et disparaissent au rechargement. Le travail simulé ne déplace pas les axes. Aucune trajectoire, vitesse ou limite physique n’est simulée. Aucun réglage du contrôleur réel n’est modifié.','Values remain on this page and disappear on reload. Simulated jobs do not move axes. No toolpath, speed or physical limits are simulated. No real controller settings are changed.','Los valores permanecen en esta página y desaparecen al recargar. El trabajo simulado no mueve los ejes. No se simulan trayectoria, velocidad ni límites físicos. No se modifican ajustes del controlador real.'],['La position machine et la position de travail proviennent du contrôleur. Définir un zéro de travail change le repère de la pièce sans déplacer les axes.','Machine and work positions come from the controller. Setting work zero changes the workpiece frame without moving axes.','Las posiciones de máquina y trabajo proceden del controlador. Definir un cero de trabajo cambia el sistema de la pieza sin mover los ejes.'],['TEST À BLANC','DRY RUN','PRUEBA SIN EJECUCIÓN'],['Machine non prête.','Machine not ready.','Máquina no lista.'],
+['Contrôleur virtuel','Virtual controller','Controlador virtual'],['État et test d’alarme de la simulation.','Simulation status and alarm test.','Estado y prueba de alarma de la simulación.'],['Détails du test','Test details','Detalles de la prueba'],['État actuel','Current status','Estado actual'],['Alarme fictive','Simulated alarm','Alarma simulada'],['Déclencher l’alarme','Trigger alarm','Activar alarma'],['Effacer l’alarme','Clear alarm','Borrar alarma'],['Après effacement, la reprise du travail demande une confirmation dans Suivi.','After clearing, resuming requires confirmation in Monitor.','Tras borrarla, reanudar requiere confirmación en Seguimiento.'],['L’alarme suspend la progression et bloque démarrage, reprise, chargement, déplacements et origines. Elle annule les confirmations en attente. Arrêter le travail reste possible.','The alarm suspends progress and blocks start, resume, loading, movements and origins. Pending confirmations are cancelled. Stopping the job remains possible.','La alarma suspende el progreso y bloquea inicio, reanudación, carga, movimientos y orígenes. Cancela las confirmaciones pendientes. Sigue siendo posible detener el trabajo.'],['Effacer l’alarme ne redémarre pas le travail. Ce test d’interface ne reproduit pas toutes les alarmes Grbl.','Clearing the alarm does not restart the job. This interface test does not reproduce all Grbl alarms.','Borrar la alarma no reinicia el trabajo. Esta prueba de interfaz no reproduce todas las alarmas Grbl.'],['Contrôleur fictif local au navigateur. Aucun lien avec l’alarme réelle du laser.','Local browser simulator. No connection to the real laser alarm.','Simulador local del navegador. Sin relación con la alarma real del láser.'],['Connexion, coordonnées et commandes $X/$H','Connection, coordinates and $X/$H commands','Conexión, coordenadas y órdenes $X/$H'],['Connexion et état','Connection and status','Conexión y estado'],['Fonctions disponibles','Available features','Funciones disponibles'],['Coordonnées du contrôleur · mm','Controller coordinates · mm','Coordenadas del controlador · mm'],['En cas d’alarme, consulter sa cause dans CNCjs.','If an alarm occurs, check its cause in CNCjs.','Si hay una alarma, consulte su causa en CNCjs.'],['Lecture seule : coordonnées, état et paramètres du contrôleur. Aucun paramètre n’est modifié ici.','Read only: controller coordinates, state and settings. No setting is changed here.','Solo lectura: coordenadas, estado y parámetros del controlador. Aquí no se modifica ningún parámetro.'],['Fichiers : bibliothèque partagée, chargement et exécution réels. Le démarrage et la reprise demandent une confirmation et un état machine compatible.','Files: shared library, real loading and execution. Starting and resuming require confirmation and compatible machine status.','Archivos: biblioteca compartida, carga y ejecución reales. Iniciar y reanudar requieren confirmación y un estado compatible de la máquina.'],['Ce panneau n’est pas un arrêt d’urgence. Conserver l’accès à l’arrêt physique de la machine.','This panel is not an emergency stop. Keep access to the machine’s physical stop.','Este panel no es una parada de emergencia. Mantenga accesible la parada física de la máquina.'],['Serveur : …','Server: …','Servidor: …'],['Contrôleur : …','Controller: …','Controlador: …'],['État : …','Status: …','Estado: …'],
 ['Événements de la session','Session events','Eventos de la sesión'],['Du plus récent au plus ancien · mémoire locale','Newest first · local memory','Más recientes primero · memoria local'],['Journal de l’interface réelle','Real interface journal','Registro de la interfaz real'],['100 derniers événements · cet appareil · effacé au rechargement','Last 100 events · this device · cleared on reload','Últimos 100 eventos · este dispositivo · se borra al recargar'],['Connexions, états reçus et fichiers chargés. Le journal reste sur cet appareil et contient au maximum 100 événements. Exportez-le avant de recharger la page.','Connections, received states and loaded files. The journal stays on this device with up to 100 events. Export before reloading.','Conexiones, estados recibidos y archivos cargados. El registro permanece en este dispositivo con hasta 100 eventos. Expórtelo antes de recargar.'],['Les 100 derniers événements et l’état du simulateur. Exportez avant de recharger la page pour conserver une trace. Ce journal ne concerne pas le contrôleur réel.','The last 100 events and simulator status. Export before reloading to keep a record. This journal does not cover the real controller.','Los últimos 100 eventos y el estado del simulador. Exporte antes de recargar para conservarlos. Este registro no corresponde al controlador real.'],['Un retour au repos ne certifie pas la fin des mouvements. Les événements antérieurs à l’ouverture de cette page ne sont pas disponibles.','A return to idle does not certify motion completion. Events before this page was opened are unavailable.','Volver al reposo no certifica el fin de los movimientos. No están disponibles los eventos anteriores a la apertura de esta página.'],['Rapport texte','Text report','Informe de texto'],['Fichier JSON','JSON file','Archivo JSON'],['Téléchargement local, aucun envoi externe.','Local download, no external upload.','Descarga local, sin envío externo.'],['Téléchargement local, sans envoi au serveur.','Local download, no server upload.','Descarga local, sin envío al servidor.'],
-['Coordonnées ·','Coordinates ·','Coordenadas ·'],['Coordonnées · Aller à / Définir','Coordinates · Go to / Set','Coordenadas · Ir a / Definir'],['Coordonnées · préparer sans mouvement','Coordinates · prepare without moving','Coordenadas · preparar sin movimiento'],['PRÉPARATION LOCALE','LOCAL PREPARATION','PREPARACIÓN LOCAL'],['Repère','Work frame','Sistema de coordenadas'],['Unité de saisie','Input unit','Unidad de entrada'],['pouces','inches','pulgadas'],['Opération','Operation','Operación'],['Aller à une coordonnée','Go to a coordinate','Ir a una coordenada'],['Déplacer de ± une valeur','Move by ± a value','Mover ± un valor'],['Définir la coordonnée ici','Set coordinate here','Definir coordenada aquí'],['Valeur','Value','Valor'],['Saisir une valeur','Enter a value','Introducir un valor'],['Vitesse · mm/min','Speed · mm/min','Velocidad · mm/min'],['Pavé numérique','Numeric keypad','Teclado numérico'],['Effacer','Clear','Borrar'],['Calcul local uniquement. Aucune commande à la machine.','Local calculation only. No machine commands.','Solo cálculo local. Sin órdenes a la máquina.'],['Confirmer la simulation','Confirm simulation','Confirmar simulación'],['Exécution réelle non activée','Real execution disabled','Ejecución real desactivada'],['Positions instantanées et fictives, sans calcul de trajectoire ni de limites physiques.','Instant simulated positions, without toolpath or physical limit calculations.','Posiciones simuladas instantáneas, sin calcular trayectorias ni límites físicos.'],['Préparation indicative : limites, homing et trajet non validés. Aucun G-code envoyé.','Indicative preparation: limits, homing and path not validated. No G-code sent.','Preparación orientativa: límites, referenciado y trayectoria sin validar. No se envía G-code.'],['État absent ou périmé : attendre un rapport récent.','Missing or stale status: wait for a recent report.','Estado ausente u obsoleto: espere un informe reciente.'],['Travail, alarme ou palpage : préparation bloquée.','Job, alarm or probing: preparation blocked.','Trabajo, alarma o sondeo: preparación bloqueada.'],['État machine incompatible avec la préparation.','Machine status incompatible with preparation.','Estado de máquina incompatible con la preparación.'],['Unité de rapport ou repère machine inconnu. Aucune valeur supposée.','Unknown report unit or machine work frame. No values assumed.','Unidad del informe o sistema de coordenadas desconocido. No se suponen valores.'],['repère inconnu','unknown work frame','G5x desconocido'],['État modifié ou préparation expirée : préparez à nouveau.','Status changed or preparation expired: prepare again.','Estado cambiado o preparación caducada: prepare de nuevo.'],['Simulation locale · aucun contrôleur réel','Local simulation · no real controller','Simulación local · sin controlador real'],['Lecture du contrôleur · aucune commande envoyée','Controller reading · no commands sent','Lectura del controlador · sin enviar órdenes'],['Coordonnées indisponibles','Coordinates unavailable','Coordenadas no disponibles'],['Saisissez une valeur, puis préparez l’opération.','Enter a value, then prepare the operation.','Introduzca un valor y prepare la operación.'],['Origine modifiée, aucun déplacement.','Origin changed, no movement.','Origen cambiado, sin movimiento.'],['Paramètres modifiés : préparez à nouveau.','Parameters changed: prepare again.','Parámetros cambiados: prepare de nuevo.'],['Préparation invalide : recommencez.','Invalid preparation: start again.','Preparación no válida: empiece de nuevo.'],['non exécuté.','not executed.','no ejecutado.'],['mm · machine','mm · machine','mm · máquina'],['travail →','work →','trabajo →'],
+['Coordonnées ·','Coordinates ·','Coordenadas ·'],['Coordonnées · Aller à / Définir','Coordinates · Go to / Set','Coordenadas · Ir a / Definir'],['Coordonnées · préparer sans mouvement','Coordinates · prepare without moving','Coordenadas · preparar sin movimiento'],['PRÉPARATION LOCALE','LOCAL PREPARATION','PREPARACIÓN LOCAL'],['Repère','Work frame','Sistema de coordenadas'],['Unité de saisie','Input unit','Unidad de entrada'],['pouces','inches','pulgadas'],['Opération','Operation','Operación'],['Aller à une coordonnée','Go to a coordinate','Ir a una coordenada'],['Déplacer de ± une valeur','Move by ± a value','Mover ± un valor'],['Définir la coordonnée ici','Set coordinate here','Definir coordenada aquí'],['Valeur','Value','Valor'],['Saisir une valeur','Enter a value','Introducir un valor'],['Vitesse · mm/min','Speed · mm/min','Velocidad · mm/min'],['Pavé numérique','Numeric keypad','Teclado numérico'],['Effacer','Clear','Borrar'],['Calcul local uniquement. Aucune commande à la machine.','Local calculation only. No machine commands.','Solo cálculo local. Sin órdenes a la máquina.'],['Confirmer la simulation','Confirm simulation','Confirmar simulación'],['Exécution réelle non activée','Real execution disabled','Ejecución real desactivada'],['Positions instantanées et fictives, sans calcul de trajectoire ni de limites physiques.','Instant simulated positions, without toolpath or physical limit calculations.','Posiciones simuladas instantáneas, sin calcular trayectorias ni límites físicos.'],['Préparation indicative : limites, homing et trajet non validés. Aucun G-code envoyé.','Indicative preparation: limits, homing and path not validated. No G-code sent.','Preparación orientativa: límites, referenciado y trayectoria sin validar. No se envía G-code.'],['État absent ou périmé : attendre un rapport récent.','Missing or stale status: wait for a recent report.','Estado ausente u obsoleto: espere un informe reciente.'],['Travail, alarme ou palpage : préparation bloquée.','Job, alarm or probing: preparation blocked.','Trabajo, alarma o sondeo: preparación bloqueada.'],['État machine incompatible avec la préparation.','Machine status incompatible with preparation.','Estado de máquina incompatible con la preparación.'],['Unité de rapport ou repère machine inconnu. Aucune valeur supposée.','Unknown report unit or machine work frame. No values assumed.','Unidad del informe o sistema de coordenadas desconocido. No se suponen valores.'],['repère inconnu','unknown work frame','G5x ?'],['État modifié ou préparation expirée : préparez à nouveau.','Status changed or preparation expired: prepare again.','Estado cambiado o preparación caducada: prepare de nuevo.'],['Simulation locale · aucun contrôleur réel','Local simulation · no real controller','Simulación local · sin controlador real'],['Lecture du contrôleur · aucune commande envoyée','Controller reading · no commands sent','Lectura del controlador · sin enviar órdenes'],['Coordonnées indisponibles','Coordinates unavailable','Coordenadas no disponibles'],['Saisissez une valeur, puis préparez l’opération.','Enter a value, then prepare the operation.','Introduzca un valor y prepare la operación.'],['Origine modifiée, aucun déplacement.','Origin changed, no movement.','Origen cambiado, sin movimiento.'],['Paramètres modifiés : préparez à nouveau.','Parameters changed: prepare again.','Parámetros cambiados: prepare de nuevo.'],['Préparation invalide : recommencez.','Invalid preparation: start again.','Preparación no válida: empiece de nuevo.'],['non exécuté.','not executed.','no ejecutado.'],['mm · machine','mm · machine','mm · máquina'],['travail →','work →','trabajo →'],
 ['Limites de la machine','Machine limits','Límites de la máquina'],['Limites de la machine →','Machine limits →','Límites de la máquina →'],['Lecture seule','Read only','Solo lectura'],['Paramètre','Parameter','Parámetro'],['Vitesse maximale','Maximum speed','Velocidad máxima'],['Accélération','Acceleration','Aceleración'],['Course maximale','Maximum travel','Recorrido máximo'],['Limites logicielles','Soft limits','Límites por software'],['Fins de course','Limit switches','Finales de carrera'],['Référencement','Homing','Referenciado'],['Activé','Enabled','Activado'],['Désactivé','Disabled','Desactivado'],['Simulation · limites physiques non simulées','Simulation · physical limits not simulated','Simulación · límites físicos no simulados'],['Les déplacements fictifs ne modélisent ni vitesse, ni accélération, ni course physique.','Simulated movements do not model speed, acceleration or physical travel.','Los movimientos simulados no modelan velocidad, aceleración ni recorrido físico.'],['Aucune machine connectée · valeurs indisponibles','No machine connected · values unavailable','Ninguna máquina conectada · valores no disponibles'],['Limites disponibles pour un contrôleur Grbl connecté','Limits available for a connected Grbl controller','Límites disponibles para un controlador Grbl conectado'],['Connexion perdue · valeurs indisponibles','Connection lost · values unavailable','Conexión perdida · valores no disponibles'],['Contrôleur non compatible avec les limites Grbl','Controller incompatible with Grbl limits','Controlador incompatible con límites Grbl'],['Contrôleur sélectionné indisponible · valeurs inconnues','Selected controller unavailable · unknown values','Controlador seleccionado no disponible · valores desconocidos'],['Grbl · en attente des réglages','Grbl · waiting for settings','Grbl · esperando ajustes'],['Aucun réglage reçu du contrôleur','No settings received from controller','No se recibieron ajustes del controlador'],['En attente des réglages transmis par CNCjs. Aucun réglage du contrôleur n’est modifié ici.','Waiting for settings from CNCjs. No controller settings are changed here.','Esperando ajustes enviados por CNCjs. Aquí no se modifica ningún ajuste del controlador.'],['Derniers réglages connus de CNCjs, reçus à','Last known CNCjs settings, received at','Últimos ajustes conocidos de CNCjs, recibidos a las'],['/12 paramètres reçus','/12 parameters received','/12 parámetros recibidos'],['. « — » : valeur absente ou invalide. Le référencement activé ne signifie pas que la machine est référencée.','. “—”: missing or invalid value. Enabled homing does not mean the machine has been homed.','. «—»: valor ausente o no válido. Tener el referenciado activado no significa que la máquina esté referenciada.'],
 ['Palpage ·','Probing ·','Sondeo ·'],['préparation','preparation','preparación'],['Préparation','Preparation','Preparación'],['X / Y / Z / XYZ · aucune commande physique','X / Y / Z / XYZ · no physical commands','X / Y / Z / XYZ · sin órdenes físicas'],['Sauvegarde / transfert','Backup / transfer','Copia / transferencia'],['Palper','Probe','Sondear'],['Profil de sonde','Probe profile','Perfil de sonda'],['Repère de travail','Work coordinate system','Sistema de coordenadas de trabajo'],['Outil / pige · diamètre mm','Tool / pin · diameter mm','Herramienta / pasador · diámetro mm'],['Scénario fictif','Simulated scenario','Escenario simulado'],['Je confirme la position initiale fictive et le test de contact.','I confirm the simulated initial position and contact test.','Confirmo la posición inicial simulada y la prueba de contacto.'],['Lancer la simulation','Start simulation','Iniciar simulación'],['Arrêter le palpage','Stop probing','Detener sondeo'],['Réinitialiser le banc','Reset bench','Reiniciar banco'],['Progression du palpage simulé','Simulated probing progress','Progreso del sondeo simulado'],['Retour au palpage','Back to probing','Volver al sondeo'],['Résultats / journal','Results / journal','Resultados / registro'],['Banc fictif · journal de cette page, 100 événements maximum','Simulated bench · this page’s journal, up to 100 events','Banco simulado · registro de esta página, máximo 100 eventos'],['Exporter JSON','Export JSON','Exportar JSON'],['Ces origines sont propres au banc de palpage. Les coordonnées de l’autre simulateur et celles de la CNC ne sont pas modifiées.','These origins belong to the probing bench. Coordinates of the other simulator and CNC are not changed.','Estos orígenes pertenecen al banco de sondeo. No se modifican las coordenadas del otro simulador ni de la CNC.'],['Palpage X / Y / Z →','X / Y / Z probing →','Sondeo X / Y / Z →'],['Bilan des paramètres et des conditions actuelles','Summary of current parameters and conditions','Resumen de parámetros y condiciones actuales'],['Paramètres sélectionnés','Selected parameters','Parámetros seleccionados'],['Modifier le profil','Edit profile','Editar perfil'],['Outil / repère','Tool / work frame','Herramienta / sistema de coordenadas'],['Les valeurs sont celles du profil sélectionné. Ce récapitulatif ne modifie aucun paramètre.','Values come from the selected profile. This summary changes no parameters.','Los valores proceden del perfil seleccionado. Este resumen no modifica parámetros.'],['Tester le contact','Test contact','Probar contacto'],['Diagnostic de l’entrée','Input diagnostics','Diagnóstico de entrada'],['Schéma indisponible. Vérifiez les paramètres du profil.','Diagram unavailable. Check profile parameters.','Esquema no disponible. Compruebe los parámetros del perfil.'],['Sauvegarde des profils ·','Profile backup ·','Copia de perfiles ·'],['RÉEL','REAL','REAL'],['Transfert par fichier entre PC et Surface','File transfer between PC and Surface','Transferencia de archivos entre PC y Surface'],['Exporter les profils enregistrés','Export saved profiles','Exportar perfiles guardados'],['Le fichier contient les cotes et réglages des profils enregistrés dans ce navigateur.','The file contains dimensions and settings of profiles saved in this browser.','El archivo contiene medidas y ajustes de los perfiles guardados en este navegador.'],['Télécharger la sauvegarde','Download backup','Descargar copia'],['Le diamètre de l’outil se règle séparément. La démonstration, les résultats et le test de contact ne sont pas transférés.','Tool diameter is set separately. The demonstration, results and contact test are not transferred.','El diámetro de la herramienta se ajusta por separado. La demostración, los resultados y la prueba de contacto no se transfieren.'],['Copiez le fichier sur l’autre appareil puis ouvrez ce panneau dans le même mode. Les sauvegardes SIMULATION et RÉEL restent séparées.','Copy the file to the other device and open this panel in the same mode. SIMULATION and REAL backups remain separate.','Copie el archivo al otro dispositivo y abra este panel en el mismo modo. Las copias de SIMULACIÓN y REAL permanecen separadas.'],['Importer des profils','Import profiles','Importar perfiles'],['Fichier de sauvegarde · JSON, 64 Ko maximum','Backup file · JSON, maximum 64 KB','Archivo de copia · JSON, máximo 64 KB'],['Choisissez un fichier pour afficher son contenu avant l’ajout.','Choose a file to view its contents before adding.','Elija un archivo para ver su contenido antes de añadirlo.'],['Profil à examiner','Profile to inspect','Perfil a revisar'],['Ajouter les profils','Add profiles','Añadir perfiles'],['Ajout sans écraser les profils existants. Doublons identiques ignorés ; noms en conflit refusés. Les cotes importées restent à vérifier sur votre montage.','Adds without overwriting existing profiles. Identical duplicates skipped; conflicting names rejected. Imported dimensions must still be checked against your setup.','Añade sin sobrescribir perfiles existentes. Omite duplicados idénticos y rechaza nombres en conflicto. Compruebe las medidas importadas en su montaje.'],
 ['non configuré','not configured','sin configurar'],['Non configuré','Not configured','Sin configurar'],['Non configurée','Not configured','Sin configurar'],['Épaisseur Z :','Z thickness:','Espesor Z:'],['Faces X / Y :','X / Y faces:','Caras X / Y:'],['Coin :','Corner:','Esquina:'],['Sens X / Y :','X / Y directions:','Sentidos X / Y:'],['Vitesses :','Speeds:','Velocidades:'],['Recherche :','Search:','Búsqueda:'],['Retrait :','Retract:','Retroceso:'],['Dégagement :','Clearance:','Despeje:'],['profil(s) à ajouter ·','profile(s) to add ·','perfil(es) para añadir ·'],['doublon(s) ignoré(s). Vérifiez les valeurs ci-dessous.','duplicate(s) skipped. Check the values below.','duplicado(s) omitido(s). Compruebe los valores siguientes.'],['Aucun profil ajouté.','No profiles added.','No se añadieron perfiles.'],['Fichier trop volumineux (64 Ko maximum). Aucun profil ajouté.','File too large (maximum 64 KB). No profiles added.','Archivo demasiado grande (máximo 64 KB). No se añadieron perfiles.'],['Lecture de la sauvegarde…','Reading backup…','Leyendo copia…'],['Lecture du fichier impossible. Aucun profil ajouté.','Cannot read file. No profiles added.','No se puede leer el archivo. No se añadieron perfiles.'],['Sauvegarde proposée au téléchargement.','Backup ready to download.','Copia lista para descargar.'],['Export impossible :','Cannot export:','No se puede exportar:'],['Import non enregistré :','Import not saved:','Importación sin guardar:'],['profil(s) ajouté(s) et enregistré(s). Sélectionnez le profil dans Palpage avant utilisation.','profile(s) added and saved. Select the profile in Probing before use.','perfil(es) añadido(s) y guardado(s). Seleccione el perfil en Sondeo antes de usarlo.'],
 ['Valeurs locales à ce navigateur · millimètres et mm/min','Local browser values · millimetres and mm/min','Valores locales del navegador · milímetros y mm/min'],['Nom du profil','Profile name','Nombre del perfil'],['Nouveau profil','New profile','Nuevo perfil'],['Géométrie','Geometry','Geometría'],['Directions','Directions','Direcciones'],['Recherche','Search','Búsqueda'],['Épaisseur Z calibrée · mm','Calibrated Z thickness · mm','Espesor Z calibrado · mm'],['Décalage signé face X − bord pièce · mm','Signed offset X face − workpiece edge · mm','Desfase con signo cara X − borde de pieza · mm'],['Décalage signé face Y − bord pièce · mm','Signed offset Y face − workpiece edge · mm','Desfase con signo cara Y − borde de pieza · mm'],['Ces dimensions appartiennent à la sonde. Le diamètre de l’outil est saisi séparément sur l’écran Palpage. Les valeurs inconnues restent vides.','These dimensions belong to the probe. Tool diameter is entered separately in Probing. Unknown values remain blank.','Estas dimensiones pertenecen a la sonda. El diámetro de herramienta se introduce aparte en Sondeo. Los valores desconocidos quedan vacíos.'],['Coin de montage','Mounting corner','Esquina de montaje'],['Sens X','X direction','Sentido X'],['Sens Y','Y direction','Sentido Y'],['Z : recherche vers le bas sur une plaque posée sur le dessus. Aucun ordre XYZ réel ni dégagement automatique déduit de ce coin.','Z: downward search on a plate placed on top. No real XYZ sequence or automatic clearance inferred from this corner.','Z: búsqueda hacia abajo sobre una placa colocada encima. Esta esquina no determina una secuencia XYZ real ni un despeje automático.'],['Première approche · mm/min','First approach · mm/min','Primera aproximación · mm/min'],['Seconde touche · mm/min','Second touch · mm/min','Segundo contacto · mm/min'],['Recherche maximale par touche · mm','Maximum search per touch · mm','Búsqueda máxima por contacto · mm'],['Retrait entre touches · mm','Retract between touches · mm','Retroceso entre contactos · mm'],['Dégagement prévu · mm','Planned clearance · mm','Despeje previsto · mm'],['Bornes de saisie du logiciel, pas des limites machine certifiées. Aucune valeur réelle inventée.','Software input bounds, not certified machine limits. No real values invented.','Rangos de entrada del software, no límites certificados de máquina. No se inventan valores reales.'],['Enregistrer le profil','Save profile','Guardar perfil'],['Dupliquer le profil','Duplicate profile','Duplicar perfil'],['Supprimer ce profil ?','Delete this profile?','¿Eliminar este perfil?'],['Restaurer le dernier supprimé','Restore last deleted profile','Restaurar último perfil eliminado'],['Aucune suppression avant confirmation.','Nothing deleted before confirmation.','No se elimina nada antes de confirmar.'],['Seul ce profil enregistré sera retiré. La dernière suppression reste récupérable jusqu’à la suppression suivante.','Only this saved profile will be removed. The last deletion can be recovered until the next deletion.','Solo se eliminará este perfil guardado. Se puede recuperar la última eliminación hasta la siguiente.'],['Confirmer la suppression','Confirm deletion','Confirmar eliminación'],['Conservez au moins un profil.','Keep at least one profile.','Conserve al menos un perfil.'],['Donnez un nom au profil.','Give the profile a name.','Dé un nombre al perfil.'],['La seconde touche doit être plus lente ou égale à l’approche.','The second touch must be slower than or equal to the approach speed.','El segundo contacto debe ser más lento o igual que la aproximación.'],['Le retrait doit être inférieur à la recherche.','Retract must be less than search distance.','El retroceso debe ser menor que la distancia de búsqueda.'],['Valeur hors limites :','Value out of range:','Valor fuera de rango:'],['Les profils actuels sont conservés.','Current profiles are preserved.','Se conservan los perfiles actuales.'],['Les profils ont changé. Sélectionnez à nouveau le profil.','Profiles changed. Select the profile again.','Los perfiles cambiaron. Seleccione el perfil de nuevo.'],['Enregistrez vos modifications avant cette action, ou revenez au palpage pour les abandonner.','Save your changes before this action, or return to Probing to discard them.','Guarde los cambios antes de esta acción o vuelva a Sondeo para descartarlos.'],['Enregistrement local impossible. Aucun changement appliqué aux profils.','Cannot save locally. No changes applied to profiles.','No se puede guardar localmente. No se aplicaron cambios a los perfiles.'],['Enregistrement local indisponible : valeurs conservées seulement dans cette page.','Local saving unavailable: values kept only on this page.','Guardado local no disponible: valores conservados solo en esta página.'],['Profil enregistré.','Profile saved.','Perfil guardado.'],['Profil enregistré. Les champs vides bloquent les opérations concernées.','Profile saved. Blank fields block the affected operations.','Perfil guardado. Los campos vacíos bloquean las operaciones afectadas.'],['Profil supprimé. Vous pouvez restaurer la dernière suppression.','Profile deleted. You can restore the last deletion.','Perfil eliminado. Puede restaurar la última eliminación.'],['Suppression annulée.','Deletion cancelled.','Eliminación cancelada.'],['Suppression annulée à la sortie du panneau.','Deletion cancelled when leaving the panel.','Eliminación cancelada al salir del panel.'],['Profils locaux illisibles : paramètres à vérifier.','Unreadable local profiles: check parameters.','Perfiles locales ilegibles: compruebe los parámetros.'],['Dernière suppression illisible : profils actuels conservés.','Last deletion unreadable: current profiles preserved.','Última eliminación ilegible: se conservan los perfiles actuales.'],['/ 8 profils · Les champs vides restent non configurés.','/ 8 profiles · Blank fields remain unconfigured.','/ 8 perfiles · Los campos vacíos quedan sin configurar.'],['/ 8 profils enregistrés ·','/ 8 saved profiles ·','/ 8 perfiles guardados ·'],['/ 8 profils.','/ 8 profiles.','/ 8 perfiles.'],
-['DÉMO · bloc fictif','DEMO · simulated block','DEMO · bloque simulado'],['Copie du bloc fictif','Copy of simulated block','Copia del bloque simulado'],['Copie de démonstration ; utilisable uniquement dans ce mode simulation.','Demo copy; usable only in this simulation mode.','Copia de demostración; utilizable solo en este modo de simulación.'],['à définir','to be defined','por definir'],['À mesurer','To measure','Por medir'],['à renseigner','to be entered','por introducir'],['Coin','Corner','Esquina'],['Coin : à définir','Corner: undefined','Esquina: sin definir'],['Épaisseur :','Thickness:','Espesor:'],['Outil / pige','Tool / pin','Herramienta / pasador'],['Outil / pige :','Tool / pin:','Herramienta / pasador:'],['Outil Ø :','Tool Ø:','Herramienta Ø:'],['Profil :','Profile:','Perfil:'],['Opération :','Operation:','Operación:'],['Approche / seconde touche :','Approach / second touch:','Aproximación / segundo contacto:'],['Recherche / retrait / dégagement :','Search / retract / clearance:','Búsqueda / retroceso / despeje:'],['Valeurs de démonstration ·','Demo values ·','Valores de demostración ·'],['· coin','· corner','· esquina'],['· sens X / Y :','· X / Y directions:','· sentidos X / Y:'],['· repère :','· work frame:','· sistema de coordenadas:'],['· facultatif pour Z','· optional for Z','· opcional para Z'],['· contact :','· contact:','· contacto:'],['· origine appliquée :','· origin applied:','· origen aplicado:'],
-['Entrée de sonde fictive','Simulated probe input','Entrada de sonda simulada'],['Vérification guidée sans déplacement automatique','Guided check without automatic movement','Comprobación guiada sin movimiento automático'],['Simuler libre','Simulate clear','Simular libre'],['Simuler contact','Simulate contact','Simular contacto'],['Utilisez les boutons pour simuler libre → contact → libre. Aucun mouvement.','Use the buttons to simulate clear → contact → clear. No movement.','Use los botones para simular libre → contacto → libre. Sin movimiento.'],['1 · Contact libre','1 · Contact clear','1 · Contacto libre'],['2 · Contact établi','2 · Contact made','2 · Contacto establecido'],['3 · Contact libéré','3 · Contact released','3 · Contacto liberado'],['Le mode réel attend un adaptateur d’entrée sonde validé. Un état inconnu ne vaut jamais « libre ».','Real mode awaits a validated probe-input adapter. Unknown never means clear.','El modo real requiere un adaptador de entrada de sonda validado. Desconocido nunca significa libre.'],['Diagnostic de l’entrée sonde','Probe input diagnostics','Diagnóstico de entrada de sonda'],['Rapports reçus · lecture seule · aucune commande machine','Received reports · read only · no machine commands','Informes recibidos · solo lectura · sin órdenes a la máquina'],['Lecture seule des rapports CNCjs existants. Ce diagnostic ne valide ni le câblage ni un cycle de palpage.','Read-only access to existing CNCjs reports. This diagnostic validates neither wiring nor a probing cycle.','Lectura de informes CNCjs existentes. Este diagnóstico no valida el cableado ni un ciclo de sondeo.'],['Un champ Pn absent reste inconnu. Le test guidé réel et le lancement restent désactivés jusqu’à validation du firmware et du montage.','A missing Pn field remains unknown. Real guided testing and launch remain disabled until firmware and setup are validated.','Un campo Pn ausente sigue siendo desconocido. La prueba guiada real y el inicio permanecen desactivados hasta validar firmware y montaje.'],['Contrôleur suivi : aucun','Monitored controller: none','Controlador supervisado: ninguno'],['Contrôleur suivi :','Monitored controller:','Controlador supervisado:'],['Sonde : inconnu','Probe: unknown','Sonda: desconocida'],['Sonde :','Probe:','Sonda:'],['Entrée réelle :','Real input:','Entrada real:'],['état inconnu','unknown state','estado desconocido'],['contact signalé','contact reported','contacto indicado'],['libre signalé','clear reported','libre indicado'],['· signal reçu','· signal received','· señal recibida'],['Attendre un nouveau rapport Grbl.','Wait for a new Grbl report.','Espere un nuevo informe Grbl.'],['Rapport trop ancien : entrée sonde inconnue.','Report too old: probe input unknown.','Informe demasiado antiguo: entrada de sonda desconocida.'],['Rapport sonde non reconnu.','Unrecognised probe report.','Informe de sonda no reconocido.'],['Diagnostic indisponible : connectez un contrôleur Grbl dans CNCjs.','Diagnostics unavailable: connect a Grbl controller in CNCjs.','Diagnóstico no disponible: conecte un controlador Grbl en CNCjs.'],['Palpage réel non activé','Real probing disabled','Sondeo real desactivado'],['Préparation uniquement. Palpage réel désactivé.','Preparation only. Real probing disabled.','Solo preparación. Sondeo real desactivado.'],
+['DÉMO · bloc fictif','DEMO · simulated block','DEMO · bloque simulado'],['Copie du bloc fictif','Copy of simulated block','Copia del bloque simulado'],['Copie de démonstration ; utilisable uniquement dans ce mode simulation.','Demo copy; usable only in this simulation mode.','Copia de demostración; utilizable solo en este modo de simulación.'],['à définir','to be defined','por definir'],['À mesurer','To measure','Por medir'],['à renseigner','to be entered','por introducir'],['Coin','Corner','Esquina'],['Coin : à définir','Corner: not set','Esquina: elegir'],['Épaisseur :','Thickness:','Espesor:'],['Outil / pige','Tool / pin','Herramienta / pasador'],['Outil / pige :','Tool / pin:','Herramienta / pasador:'],['Outil Ø :','Tool Ø:','Herramienta Ø:'],['Profil :','Profile:','Perfil:'],['Opération :','Operation:','Operación:'],['Approche / seconde touche :','Approach / second touch:','Aproximación / segundo contacto:'],['Recherche / retrait / dégagement :','Search / retract / clearance:','Búsqueda / retroceso / despeje:'],['Valeurs de démonstration ·','Demo values ·','Valores de demostración ·'],['· coin','· corner','· esquina'],['· sens X / Y :','· X / Y directions:','· sentidos X / Y:'],['· repère :','· work frame:','· sistema de coordenadas:'],['· facultatif pour Z','· optional for Z','· opcional para Z'],['· contact :','· contact:','· contacto:'],['· origine appliquée :','· origin applied:','· origen aplicado:'],
+['Entrée de sonde fictive','Simulated probe input','Entrada de sonda simulada'],['Vérification guidée sans déplacement automatique','Guided check without automatic movement','Comprobación guiada sin movimiento automático'],['Simuler libre','Simulate clear','Simular libre'],['Simuler contact','Simulate contact','Simular contacto'],['Utilisez les boutons pour simuler libre → contact → libre. Aucun mouvement.','Use the buttons to simulate clear → contact → clear. No movement.','Use los botones para simular libre → contacto → libre. Sin movimiento.'],['1 · Contact libre','1 · Contact clear','1 · Contacto libre'],['2 · Contact établi','2 · Contact made','2 · Contacto establecido'],['3 · Contact libéré','3 · Contact released','3 · Contacto liberado'],['Le mode réel attend un adaptateur d’entrée sonde validé. Un état inconnu ne vaut jamais « libre ».','Real mode awaits a validated probe-input adapter. Unknown never means clear.','El modo real requiere un adaptador de entrada de sonda validado. Desconocido nunca significa libre.'],['Diagnostic de l’entrée sonde','Probe input diagnostics','Diagnóstico de entrada de sonda'],['Rapports reçus · lecture seule · aucune commande machine','Received reports · read only · no machine commands','Informes recibidos · solo lectura · sin órdenes a la máquina'],['Lecture seule des rapports CNCjs existants. Ce diagnostic ne valide ni le câblage ni un cycle de palpage.','Read-only access to existing CNCjs reports. This diagnostic validates neither wiring nor a probing cycle.','Lectura de informes CNCjs existentes. Este diagnóstico no valida el cableado ni un ciclo de sondeo.'],['Un champ Pn absent reste inconnu. Le test guidé réel et le lancement restent désactivés jusqu’à validation du firmware et du montage.','A missing Pn field remains unknown. Real guided testing and launch remain disabled until firmware and setup are validated.','Un campo Pn ausente sigue siendo desconocido. La prueba guiada real y el inicio permanecen desactivados hasta validar firmware y montaje.'],['Contrôleur suivi : aucun','Monitored controller: none','Controlador supervisado: ninguno'],['Contrôleur suivi :','Monitored controller:','Controlador supervisado:'],['Sonde : inconnu','Probe: unknown','Sonda: desconocida'],['Sonde :','Probe:','Sonda:'],['Entrée réelle :','Real input:','Entrada real:'],['état inconnu','unknown state','estado desconocido'],['contact signalé','contact reported','contacto indicado'],['libre signalé','clear reported','libre indicado'],['· signal reçu','· signal received','· señal recibida'],['Attendre un nouveau rapport Grbl.','Wait for a new Grbl report.','Espere un nuevo informe Grbl.'],['Rapport trop ancien : entrée sonde inconnue.','Report too old: probe input unknown.','Informe demasiado antiguo: entrada de sonda desconocida.'],['Rapport sonde non reconnu.','Unrecognised probe report.','Informe de sonda no reconocido.'],['Aucun contact signalé par la carte.','No contact reported by the board.','La placa no indica ningún contacto.'],['Diagnostic indisponible : connectez un contrôleur Grbl dans CNCjs.','Diagnostics unavailable: connect a Grbl controller in CNCjs.','Diagnóstico no disponible: conecte un controlador Grbl en CNCjs.'],['Palpage réel non activé','Real probing disabled','Sondeo real desactivado'],['Préparation uniquement. Palpage réel désactivé.','Preparation only. Real probing disabled.','Solo preparación. Sondeo real desactivado.'],
 ['Réussite','Success','Éxito'],['Absence de contact','No contact','Sin contacto'],['Contact actif au départ','Contact active at start','Contacto activo al inicio'],['Contact après retrait','Contact after retract','Contacto tras retroceso'],['Délai dépassé','Timeout','Tiempo agotado'],['Déconnexion','Disconnection','Desconexión'],['Échec au milieu de XYZ','Failure during XYZ','Fallo durante XYZ'],['Banc fictif : aucune trajectoire physique simulée.','Simulated bench: no physical toolpath simulated.','Banco simulado: no simula una trayectoria física.'],['En attente','Waiting','En espera'],['Application partielle','Partial application','Aplicación parcial'],['Cycle interrompu','Cycle interrupted','Ciclo interrumpido'],['Aucun point bloquant fictif','No simulated blockers','Sin bloqueos simulados'],['Palpage simulé terminé','Simulated probing finished','Sondeo simulado finalizado'],['Aucune réussite annoncée.','No success claimed.','No se declara éxito.'],['Origine fictive partiellement appliquée : à vérifier. Réinitialisez le banc avant un nouvel essai.','Simulated origin partially applied: check it. Reset the bench before another test.','Origen simulado aplicado parcialmente: compruébelo. Reinicie el banco antes de otra prueba.'],['Banc fictif réinitialisé. Aucun repère réel modifié.','Simulated bench reset. No real work frame changed.','Banco simulado reiniciado. Sin cambios en sistemas de coordenadas reales.'],['Arrêt utilisateur fictif. Aucun retrait automatique.','Simulated user stop. No automatic retract.','Parada de usuario simulada. Sin retroceso automático.'],['Alarme fictive. Cycle interrompu ; aucune origine supplémentaire appliquée.','Simulated alarm. Cycle interrupted; no further origins applied.','Alarma simulada. Ciclo interrumpido; no se aplican más orígenes.'],['État du simulateur incompatible. Cycle interrompu, aucune reprise automatique.','Incompatible simulator status. Cycle interrupted, no automatic resume.','Estado del simulador incompatible. Ciclo interrumpido, sin reanudación automática.'],['Page masquée : simulation interrompue, aucune reprise automatique.','Page hidden: simulation interrupted, no automatic resume.','Página oculta: simulación interrumpida, sin reanudación automática.'],['Sortie du panneau de palpage : simulation arrêtée. Aucun retrait automatique.','Left probing panel: simulation stopped. No automatic retract.','Salida del panel de sondeo: simulación detenida. Sin retroceso automático.'],['Simulateur occupé, en alarme ou indisponible.','Simulator busy, in alarm or unavailable.','Simulador ocupado, en alarma o no disponible.'],['Verrou du simulateur indisponible.','Simulator lock unavailable.','Bloqueo del simulador no disponible.'],['Journal exporté localement.','Journal exported locally.','Registro exportado localmente.'],
 ['Schéma de principe, sans échelle.','Schematic diagram, not to scale.','Esquema de principio, sin escala.'],['XY · vue de dessus','XY · top view','XY · vista superior'],['Z · vue de côté','Z · side view','Z · vista lateral'],['Pièce','Workpiece','Pieza'],['Recherche X','X search','Búsqueda X'],['Recherche Y','Y search','Búsqueda Y'],['Z vers le bas sur une plaque posée au-dessus.','Z downward on a plate placed on top.','Z hacia abajo sobre una placa colocada encima.'],['Repère du dessin : X+ vers la droite, Y+ vers le haut. Coin rose et sens saisis, sans échelle ni trajet. À confronter au montage réel.','Diagram frame: X+ right, Y+ up. Pink corner and entered directions, without scale or path. Compare with the real setup.','Sistema del dibujo: X+ a la derecha, Y+ arriba. Esquina rosa y sentidos introducidos, sin escala ni trayectoria. Compare con el montaje real.'],
 ['← Précédent','← Previous','← Anterior'],['Suivant →','Next →','Siguiente →'],['↻ Actualiser','↻ Refresh','↻ Actualizar'],['Page','Page','Página'],['Fichier :','File:','Archivo:'],['Axe','Axis','Eje'],['Minimum','Minimum','Mínimo'],['Maximum','Maximum','Máximo'],['Étendue','Range','Extensión'],['Origine','Origin','Origen'],['Déplacement','Movement','Movimiento'],
 ['✓ Sélectionné','✓ Selected','✓ Seleccionado'],['● Chargé','● Loaded','● Cargado'],['▶ En cours','▶ Running','▶ En curso'],['Ⅱ En pause','Ⅱ Paused','Ⅱ En pausa'],['! Alarme · chargé','! Alarm · loaded','! Alarma · cargado'],['· État chargé indisponible','· Loaded state unavailable','· Estado de carga no disponible'],['À jour ·','Updated ·','Actualizado ·'],
 ['Fichiers sur le serveur','Server files','Archivos del servidor'],['Bibliothèque partagée','Shared library','Biblioteca compartida'],['Rechercher un fichier','Search files','Buscar archivos'],['Nom du fichier…','File name…','Nombre del archivo…'],['Fichiers disponibles','Available files','Archivos disponibles'],['FICHIER SÉLECTIONNÉ','SELECTED FILE','ARCHIVO SELECCIONADO'],['Sélectionnez un fichier','Select a file','Seleccione un archivo'],['Aucun fichier choisi.','No file chosen.','Ningún archivo elegido.'],['Aucun résultat.','No results.','Sin resultados.'],['Connexion à la bibliothèque…','Connecting to library…','Conectando con la biblioteca…'],['Chargement de la liste…','Loading list…','Cargando lista…'],['Actualisation de la bibliothèque…','Refreshing library…','Actualizando biblioteca…'],['Liste indisponible. Utilisez Actualiser pour réessayer.','List unavailable. Use Refresh to try again.','Lista no disponible. Use Actualizar para reintentar.'],['La bibliothèque est vide. Envoyez un premier fichier depuis le PC.','The library is empty. Upload the first file from the PC.','La biblioteca está vacía. Envíe el primer archivo desde el PC.'],
-['＋ Envoyer depuis ce PC','＋ Upload from this PC','＋ Enviar desde este PC'],['Envoyez depuis le PC, retrouvez vos fichiers sur la tablette.','Upload from the PC, find your files on the tablet.','Envíe desde el PC y encuentre los archivos en la tableta.'],['Le fichier et son image 2D seront enregistrés sur le serveur.','The file and its 2D image will be saved on the server.','El archivo y su imagen 2D se guardarán en el servidor.'],['Fichier G-code — 20 Mo maximum','G-code file — maximum 20 MB','Archivo G-code — máximo 20 MB'],['Envoyer à la bibliothèque','Upload to library','Enviar a la biblioteca'],['Stocké pour plus tard','Stored for later','Guardado para más tarde'],['L’envoi et la sélection ne démarrent pas la machine.','Uploading and selecting do not start the machine.','Enviar y seleccionar no inicia la máquina.'],['Exécution — prochaine étape','Execution — next step','Ejecución — próximo paso'],['Aperçu du parcours XY','XY toolpath preview','Vista previa de la trayectoria XY'],['L’aperçu 2D apparaîtra ici.','The 2D preview will appear here.','La vista previa 2D aparecerá aquí.'],['Régénérer l’aperçu depuis ce PC','Regenerate preview from this PC','Regenerar vista previa desde este PC'],['Chargement de l’image…','Loading image…','Cargando imagen…'],['Chargement des dimensions enregistrées…','Loading saved dimensions…','Cargando dimensiones guardadas…'],['Aperçu indisponible :','Preview unavailable:','Vista previa no disponible:'],['. Le G-code reste disponible.','. The G-code remains available.','. El G-code sigue disponible.'],['Image illisible. Le G-code reste enregistré.','Unreadable image. The G-code remains saved.','Imagen ilegible. El G-code sigue guardado.'],['Aucune image disponible pour ce fichier. Envoyez-le depuis cette interface pour créer son aperçu.','No image available for this file. Upload it through this interface to create a preview.','No hay imagen para este archivo. Envíelo desde esta interfaz para crear una vista previa.'],['D’après l’aperçu enregistré · en millimètres','From the saved preview · in millimetres','Según la vista previa guardada · en milímetros'],['Dimensions indisponibles. Régénérez l’aperçu depuis le PC via « Détails de l’aperçu ».','Dimensions unavailable. Regenerate the preview from the PC via Preview details.','Dimensiones no disponibles. Regenere la vista previa desde el PC en Detalles de la vista previa.'],['Trajets rapides G0 inclus. Départ supposé X0 Y0. Projection XY approximative : ce ne sont pas les dimensions de la pièce. Z non représenté.','Includes G0 rapid moves. Assumed start X0 Y0. Approximate XY projection: these are not the workpiece dimensions. Z is not shown.','Incluye movimientos rápidos G0. Inicio supuesto X0 Y0. Proyección XY aproximada: no son las dimensiones de la pieza. Z no se muestra.'],
+['+ Envoyer depuis ce PC','+ Upload from this PC','+ Enviar desde este PC'],['Envoyez depuis le PC, retrouvez vos fichiers sur la tablette.','Upload from the PC, find your files on the tablet.','Envíe desde el PC y encuentre los archivos en la tableta.'],['Le fichier et son image 2D seront enregistrés sur le serveur.','The file and its 2D image will be saved on the server.','El archivo y su imagen 2D se guardarán en el servidor.'],['Fichier G-code — 20 Mo maximum','G-code file — maximum 20 MB','Archivo G-code — máximo 20 MB'],['Envoyer à la bibliothèque','Upload to library','Enviar a la biblioteca'],['Stocké pour plus tard','Stored for later','Guardado para más tarde'],['L’envoi et la sélection ne démarrent pas la machine.','Uploading and selecting do not start the machine.','Enviar y seleccionar no inicia la máquina.'],['Exécution — prochaine étape','Execution — next step','Ejecución — próximo paso'],['Aperçu du parcours XY','XY toolpath preview','Vista previa de la trayectoria XY'],['L’aperçu 2D apparaîtra ici.','The 2D preview will appear here.','La vista previa 2D aparecerá aquí.'],['Régénérer l’aperçu depuis ce PC','Regenerate preview from this PC','Regenerar vista previa desde este PC'],['Chargement de l’image…','Loading image…','Cargando imagen…'],['Chargement des dimensions enregistrées…','Loading saved dimensions…','Cargando dimensiones guardadas…'],['Aperçu indisponible :','Preview unavailable:','Vista previa no disponible:'],['. Le G-code reste disponible.','. The G-code remains available.','. El G-code sigue disponible.'],['Image illisible. Le G-code reste enregistré.','Unreadable image. The G-code remains saved.','Imagen ilegible. El G-code sigue guardado.'],['Aucune image disponible pour ce fichier. Envoyez-le depuis cette interface pour créer son aperçu.','No image available for this file. Upload it through this interface to create a preview.','No hay imagen para este archivo. Envíelo desde esta interfaz para crear una vista previa.'],['D’après l’aperçu enregistré · en millimètres','From the saved preview · in millimetres','Según la vista previa guardada · en milímetros'],['Dimensions indisponibles. Régénérez l’aperçu depuis le PC via « Détails de l’aperçu ».','Dimensions unavailable. Regenerate the preview from the PC via Preview details.','Dimensiones no disponibles. Regenere la vista previa desde el PC en Detalles de la vista previa.'],['Trajets rapides G0 inclus. Départ supposé X0 Y0. Projection XY approximative : ce ne sont pas les dimensions de la pièce. Z non représenté.','Includes G0 rapid moves. Assumed start X0 Y0. Approximate XY projection: these are not the workpiece dimensions. Z is not shown.','Incluye movimientos rápidos G0. Inicio supuesto X0 Y0. Proyección XY aproximada: no son las dimensiones de la pieza. Z no se muestra.'],
 ['Choisissez un G-code non vide de 20 Mo maximum.','Choose a non-empty G-code file up to 20 MB.','Elija un archivo G-code no vacío de hasta 20 MB.'],['Ce fichier semble binaire. Un G-code texte est attendu.','This file appears binary. Text G-code is required.','Este archivo parece binario. Se requiere G-code de texto.'],['Lecture du fichier…','Reading file…','Leyendo archivo…'],['Lecture du fichier impossible.','Cannot read file.','No se puede leer el archivo.'],['Lecture annulée.','Reading cancelled.','Lectura cancelada.'],['Envoi du G-code au serveur…','Uploading G-code to server…','Enviando G-code al servidor…'],['Enregistrement de l’image 2D…','Saving 2D image…','Guardando imagen 2D…'],['enregistré. Disponible sur la tablette.','saved. Available on the tablet.','guardado. Disponible en la tableta.'],['G-code enregistré, mais image non enregistrée.','G-code saved, but image not saved.','G-code guardado, pero imagen sin guardar.'],['Envoi non confirmé.','Upload not confirmed.','Envío sin confirmar.'],['Préparation annulée. Aucun fichier envoyé.','Preparation cancelled. No file uploaded.','Preparación cancelada. No se envió ningún archivo.'],['Annuler la préparation','Cancel preparation','Cancelar preparación'],['Annulé','Cancelled','Cancelado'],['Lecture du fichier enregistré…','Reading saved file…','Leyendo archivo guardado…'],['Fichier ou sélection modifiés : relancez la régénération.','File or selection changed: restart regeneration.','Archivo o selección cambiados: reinicie la regeneración.'],['Sélection modifiée : régénération annulée.','Selection changed: regeneration cancelled.','Selección cambiada: regeneración cancelada.'],['Aperçu non modifié :','Preview unchanged:','Vista previa sin cambios:'],['✓ Aperçu mis à jour sur le serveur, visible aussi sur la tablette.','✓ Preview updated on the server, also visible on the tablet.','✓ Vista previa actualizada en el servidor, visible también en la tableta.'],['Lecture binaire indisponible : utilisez un navigateur compatible pour régénérer l’aperçu.','Binary reading unavailable: use a compatible browser to regenerate the preview.','Lectura binaria no disponible: use un navegador compatible para regenerar la vista previa.'],['Le dossier partagé CNCjs n’est pas encore configuré.','The CNCjs shared folder is not configured yet.','La carpeta compartida de CNCjs aún no está configurada.'],['Le serveur a refusé la demande (HTTP','The server rejected the request (HTTP','El servidor rechazó la solicitud (HTTP'],['Le serveur ne répond pas. Actualisez la liste avant de réessayer.','The server is not responding. Refresh the list before trying again.','El servidor no responde. Actualice la lista antes de reintentar.'],['Réponse du serveur illisible.','Unreadable server response.','Respuesta del servidor ilegible.'],['Session expirée : ouvrez CNCjs et reconnectez-vous.','Session expired: open CNCjs and sign in again.','Sesión caducada: abra CNCjs y vuelva a iniciar sesión.'],['Ouvrez CNCjs à la racine du serveur pour établir la session, puis rechargez cette page.','Open CNCjs at the server root to establish a session, then reload this page.','Abra CNCjs en la raíz del servidor para iniciar sesión y recargue esta página.'],['aucune image enregistrée','no saved image','ninguna imagen guardada'],['image trop volumineuse','image too large','imagen demasiado grande'],['Image trop volumineuse.','Image too large.','Imagen demasiado grande.'],['Métadonnées non reconnues','Unrecognised metadata','Metadatos no reconocidos'],['Ko','KB','KB'],['Mo','MB','MB'],
-['Serveur : authentification requise','Server: sign-in required','Servidor: inicio de sesión requerido'],['Serveur : connecté','Server: connected','Servidor: conectado'],['Serveur : connexion refusée','Server: connection refused','Servidor: conexión rechazada'],['Serveur : connexion…','Server: connecting…','Servidor: conectando…'],['Serveur : déconnecté','Server: disconnected','Servidor: desconectado'],['Serveur : suivi connecté','Server: monitoring connected','Servidor: seguimiento conectado'],['Serveur : suivi indisponible','Server: monitoring unavailable','Servidor: seguimiento no disponible'],['Contrôleur :','Controller:','Controlador:'],['Contrôleur : aucun sélectionné','Controller: none selected','Controlador: ninguno seleccionado'],['Contrôleur : inconnu','Controller: unknown','Controlador: desconocido'],['État :','Status:','Estado:'],['État : données indisponibles','Status: data unavailable','Estado: datos no disponibles'],['État : données périmées','Status: stale data','Estado: datos obsoletos'],['Choisissez le contrôleur dans Fichiers.','Choose the controller in Files.','Elija el controlador en Archivos.'],['Connexion au serveur perdue. Les valeurs affichées ne sont plus à jour.','Server connection lost. Displayed values are no longer current.','Conexión al servidor perdida. Los valores mostrados ya no están actualizados.'],['Ouvrez CNCjs à la racine du même serveur, connectez-vous, puis rechargez /touch/.','Open CNCjs at the same server root, sign in, then reload /touch/.','Abra CNCjs en la raíz del mismo servidor, inicie sesión y recargue /touch/.'],['Erreur CNCjs :','CNCjs error:','Error CNCjs:'],['Serveur inaccessible. Vérifiez la connexion réseau.','Server unreachable. Check the network connection.','Servidor inaccesible. Compruebe la conexión de red.'],
+['Serveur : authentification requise','Server: sign-in required','Servidor: inicio de sesión requerido'],['Serveur : connecté','Server: connected','Servidor: conectado'],['Serveur : connexion refusée','Server: connection refused','Servidor: conexión rechazada'],['Serveur : connexion…','Server: connecting…','Servidor: conectando…'],['Serveur : déconnecté','Server: disconnected','Servidor: desconectado'],['Serveur : suivi connecté','Server: monitoring connected','Servidor: seguimiento conectado'],['Serveur : suivi indisponible','Server: monitoring unavailable','Servidor: seguimiento no disponible'],['Contrôleur :','Controller:','Controlador:'],['Contrôleur : aucun sélectionné','Controller: none selected','Controlador: ninguno seleccionado'],['Contrôleur : inconnu','Controller: unknown','Controlador: desconocido'],['État :','Status:','Estado:'],['État : données indisponibles','Status: data unavailable','Estado: datos no disponibles'],['État : données périmées','Status: stale data','Estado: datos obsoletos'],['Aucun contrôleur suivi : ouvrez le port dans CNCjs au PC ou choisissez le contrôleur dans Fichiers. Port fermé, Arrêter n’atteint pas la machine.','No controller followed: open the port in CNCjs on the PC or choose the controller in Files. With the port closed, Stop does not reach the machine.','Ningún controlador seguido: abra el puerto en CNCjs en el PC o elija el controlador en Archivos. Con el puerto cerrado, Detener no llega a la máquina.'],['Connexion au serveur perdue. Les valeurs affichées ne sont plus à jour.','Server connection lost. Displayed values are no longer current.','Conexión al servidor perdida. Los valores mostrados ya no están actualizados.'],['Ouvrez CNCjs à la racine du même serveur, connectez-vous, puis rechargez /touch/.','Open CNCjs at the same server root, sign in, then reload /touch/.','Abra CNCjs en la raíz del mismo servidor, inicie sesión y recargue /touch/.'],['Erreur CNCjs :','CNCjs error:','Error CNCjs:'],['Serveur inaccessible. Vérifiez la connexion réseau.','Server unreachable. Check the network connection.','Servidor inaccesible. Compruebe la conexión de red.'],
 ['État fictif :','Simulated state:','Estado simulado:'],['Simulateur indisponible','Simulator unavailable','Simulador no disponible'],['Simulateur indisponible.','Simulator unavailable.','Simulador no disponible.'],['Travail :','Job:','Trabajo:'],['Aucun fichier chargé dans le simulateur.','No file loaded in the simulator.','Ningún archivo cargado en el simulador.'],['Prêt — un appui déplace de','Ready — one press moves by','Listo — una pulsación mueve'],['mm (instantané et fictif).','mm (instant, simulated).','mm (instantáneo y simulado).'],['Alarme simulée : déplacements et origines bloqués. Voir l’onglet Machine.','Simulated alarm: movements and origins blocked. See Machine.','Alarma simulada: movimientos y orígenes bloqueados. Consulte Máquina.'],['Travail en cours ou en pause : déplacements et origines bloqués. Arrêtez le travail pour les tester.','Job running or paused: movements and origins blocked. Stop the job to test them.','Trabajo en curso o en pausa: movimientos y orígenes bloqueados. Detenga el trabajo para probarlos.'],
 ['Démarrage fictif.','Simulated start.','Inicio simulado.'],['Pause fictive.','Simulated pause.','Pausa simulada.'],['Reprise fictive.','Simulated resume.','Reanudación simulada.'],['Travail fictif arrêté.','Simulated job stopped.','Trabajo simulado detenido.'],['Travail fictif terminé.','Simulated job finished.','Trabajo simulado finalizado.'],['Déplacement fictif effectué.','Simulated move completed.','Movimiento simulado realizado.'],['Origine de travail fictive mise à zéro, sans déplacement.','Simulated work origin zeroed without movement.','Origen de trabajo simulado puesto a cero sin movimiento.'],['Coordonnées fictives réinitialisées.','Simulated coordinates reset.','Coordenadas simuladas restablecidas.'],['Alarme fictive déclenchée.','Simulated alarm triggered.','Alarma simulada activada.'],['Alarme fictive effacée. Aucun démarrage automatique ; confirmez la reprise si le travail est en pause.','Simulated alarm cleared. No automatic start; confirm resuming if the job is paused.','Alarma simulada borrada. Sin inicio automático; confirme la reanudación si el trabajo está en pausa.'],['Fichier sélectionné pour le test ; aucun G-code exécuté.','File selected for testing; no G-code executed.','Archivo seleccionado para la prueba; no se ejecuta G-code.'],['Session de simulation ouverte.','Simulation session opened.','Sesión de simulación abierta.'],['Arrêtez la simulation avant de charger un autre fichier.','Stop the simulation before loading another file.','Detenga la simulación antes de cargar otro archivo.'],['Rechargez le fichier pour recommencer.','Reload the file to start again.','Vuelva a cargar el archivo para empezar de nuevo.'],['Simulation terminée. Rechargez le fichier pour recommencer.','Simulation finished. Reload the file to start again.','Simulación finalizada. Vuelva a cargar el archivo para empezar de nuevo.'],['Aucune simulation en cours.','No simulation running.','Ninguna simulación en curso.'],['Palpage simulé en cours : autres commandes bloquées.','Simulated probing in progress: other controls blocked.','Sondeo simulado en curso: otros controles bloqueados.'],['Commandes bloquées.','Controls blocked.','Controles bloqueados.'],['Travail suspendu.','Job suspended.','Trabajo suspendido.'],['Alarme simulée : voir l’onglet Machine.','Simulated alarm: see Machine.','Alarma simulada: consulte Máquina.'],['Confirmation simulée expirée ou invalide.','Simulated confirmation expired or invalid.','Confirmación simulada caducada o no válida.']
 );
@@ -235,6 +263,9 @@ window.CNCTouchMessages.push(['Macro fictive « ','Simulated macro “','Macro s
 window.CNCTouchMessages.push([' » exécutée.','” executed.','» ejecutada.']);
 window.CNCTouchMessages.push(['Affichage','Display','Pantalla']);
 window.CNCTouchMessages.push(['Système','System','Sistema']);
+window.CNCTouchMessages.push(['Machine et performances','Machine & performance','Máquina y rendimiento']);
+window.CNCTouchMessages.push(['Actions système','System actions','Acciones del sistema']);
+window.CNCTouchMessages.push(['Machine au repos uniquement · confirmation par un second appui','Machine idle only · confirm with a second tap','Solo con la máquina en reposo · confirmar con un segundo toque']);
 window.CNCTouchMessages.push(['Ordinateur du serveur CNCjs','CNCjs server computer','Ordenador del servidor CNCjs']);
 window.CNCTouchMessages.push(['Processeur','Processor','Procesador']);
 window.CNCTouchMessages.push(['Température','Temperature','Temperatura']);
@@ -269,7 +300,7 @@ window.CNCTouchMessages.push(['Ce serveur CNCjs ne fournit pas les mesures syst�
 window.CNCTouchMessages.push(['Mesures système indisponibles.','System figures unavailable.','Medidas del sistema no disponibles.']);
 window.CNCTouchMessages.push(['Serveur injoignable. Nouvel essai automatique.','Server unreachable. Retrying automatically.','Servidor inaccesible. Nuevo intento automático.']);
 window.CNCTouchMessages.push(['Lecture des mesures…','Reading figures…','Leyendo medidas…']);
-window.CNCTouchMessages.push(['Affichage · veille · système','Display · sleep · system','Pantalla · reposo · sistema']);
+window.CNCTouchMessages.push(['Affichage · machine · système','Display · machine · system','Pantalla · máquina · sistema']);
 window.CNCTouchMessages.push(['Historique · 10 min','History · 10 min','Historial · 10 min']);
 window.CNCTouchMessages.push(['Réseau','Network','Red']);
 window.CNCTouchMessages.push(['Relevé toutes les ','Sampled every ','Medido cada ']);
@@ -318,8 +349,8 @@ window.CNCTouchMessages.push(['Aucun rétroéclairage réglable sur cet ordinate
 window.CNCTouchMessages.push(['Réglage bloqué : CNCjs n’a pas le droit de modifier la luminosité (règle udev à installer, voir README).','Blocked: CNCjs is not allowed to change the brightness (install the udev rule, see README).','Bloqueado: CNCjs no tiene permiso para cambiar el brillo (instale la regla udev, vea el README).']);
 window.CNCTouchMessages.push(['Ce serveur CNCjs ne gère pas la luminosité.','This CNCjs server does not handle brightness.','Este servidor CNCjs no gestiona el brillo.']);
 window.CNCTouchMessages.push(['Luminosité indisponible.','Brightness unavailable.','Brillo no disponible.']);
-window.CNCTouchMessages.push(['Pendant la veille','During screen sleep','Durante el reposo']);
-window.CNCTouchMessages.push(['Luminosité pendant la veille','Brightness during screen sleep','Brillo durante el reposo']);
+window.CNCTouchMessages.push(['Pendant la veille','During screen sleep','Durante la suspensión']);
+window.CNCTouchMessages.push(['Luminosité pendant la veille','Brightness during screen sleep','Brillo durante la suspensión']);
 window.CNCTouchMessages.push(['Écran éteint','Screen off','Pantalla apagada']);
 window.CNCTouchMessages.push(['Luminosité minimale','Minimum brightness','Brillo mínimo']);
 window.CNCTouchMessages.push(['Inchangée','Unchanged','Sin cambios']);
@@ -489,6 +520,7 @@ window.CNCTouchMessages.push(["Confirmation expirée ou déjà utilisée.", "Con
 window.CNCTouchMessages.push(["Arrêt broche (M5) envoyé.", "Spindle stop (M5) sent.", "Parada del husillo (M5) enviada."]);
 window.CNCTouchMessages.push(["Aucun travail en cours.", "No job running.", "Ningún trabajo en curso."]);
 window.CNCTouchMessages.push(["Pause demandée. Attendre l’état Hold.", "Pause requested. Wait for the Hold state.", "Pausa solicitada. Espere el estado Hold."]);
+window.CNCTouchMessages.push(["Pause confirmée : la machine est en Hold.", "Pause confirmed: the machine is in Hold.", "Pausa confirmada: la máquina está en Hold."]);
 window.CNCTouchMessages.push(["Déplacement annulé.", "Move cancelled.", "Desplazamiento cancelado."]);
 window.CNCTouchMessages.push(["Prise d’origine interrompue (réinitialisation). La carte demandera $H ou $X.", "Homing interrupted (reset). The board will ask for $H or $X.", "Búsqueda de origen interrumpida (reinicio). La placa pedirá $H o $X."]);
 window.CNCTouchMessages.push(["Aucun travail à arrêter.", "No job to stop.", "Ningún trabajo que detener."]);
@@ -496,9 +528,9 @@ window.CNCTouchMessages.push(["Arrêt demandé. Vérifiez l’immobilisation ; c
 window.CNCTouchMessages.push(["Action inconnue.", "Unknown action.", "Acción desconocida."]);
 window.CNCTouchMessages.push(["Arrêt avec porte ouverte (réinitialisation). La carte peut demander $H ou $X.", "Stopped with the door open (reset). The board may ask for $H or $X.", "Parada con la puerta abierta (reinicio). La placa puede pedir $H o $X."]);
 window.CNCTouchMessages.push(["Fin de course touchée", "Limit switch triggered", "Final de carrera activado"]);
-window.CNCTouchMessages.push(["La position machine est perdue. Dégagez l’axe de la butée à la main ou au jog, déverrouillez ($X) puis refaites la prise d’origine ($H).", "The machine position is lost. Move the axis off the switch by hand or by jogging, unlock ($X), then home again ($H).", "La posición de la máquina se ha perdido. Aleje el eje del final de carrera a mano o con jog, desbloquee ($X) y vuelva a hacer el homing ($H)."]);
+window.CNCTouchMessages.push(['Position perdue. Carte sans réponse : Reset dans CNCjs au PC. Dégagez l’axe (à la main, ou au jog après $X), puis prise d’origine ($H).','Position lost. Board not answering: Reset in CNCjs on the PC. Move the axis off (by hand, or jog after $X), then home ($H).','Posición perdida. Placa sin respuesta: Reset en CNCjs en el PC. Aleje el eje (a mano, o con jog tras $X) y haga el homing ($H).']);
 window.CNCTouchMessages.push(["Limite logicielle dépassée", "Soft limit exceeded", "Límite de software superado"]);
-window.CNCTouchMessages.push(["Le programme ou le déplacement sortait de la course de la machine ($130–$132). Vérifiez l’origine de travail et le programme, puis déverrouillez ($X).", "The program or move went outside the machine travel ($130–$132). Check the work origin and the program, then unlock ($X).", "El programa o el movimiento salía del recorrido de la máquina ($130–$132). Compruebe el origen de trabajo y el programa, y luego desbloquee ($X)."]);
+window.CNCTouchMessages.push(['Hors course machine ($130–$132). Carte sans réponse : Reset dans CNCjs au PC. Vérifiez l’origine de travail et le programme, puis déverrouillez ($X).','Outside the machine travel ($130–$132). Board not answering: Reset in CNCjs on the PC. Check the work origin and the program, then unlock ($X).','Fuera del recorrido de la máquina ($130–$132). Placa sin respuesta: Reset en CNCjs en el PC. Compruebe el origen de trabajo y el programa, y luego desbloquee ($X).']);
 window.CNCTouchMessages.push(["Réinitialisation pendant un mouvement", "Reset during a move", "Reinicio durante un movimiento"]);
 window.CNCTouchMessages.push(["Un arrêt ou une réinitialisation a coupé un déplacement : la position peut être fausse. Refaites la prise d’origine ($H) avant de reprendre.", "A stop or reset cut a move short: the position may be wrong. Home again ($H) before continuing.", "Una parada o un reinicio interrumpió un movimiento: la posición puede ser incorrecta. Vuelva a hacer el homing ($H) antes de continuar."]);
 window.CNCTouchMessages.push(["Sonde déjà en contact au départ", "Probe already in contact at start", "Sonda ya en contacto al inicio"]);
@@ -545,6 +577,8 @@ window.CNCTouchMessages.push(["aperçu du fichier indisponible.", "file preview 
 window.CNCTouchMessages.push(["prise d’origine désactivée ($22), les coordonnées machine ne sont pas repérées.", "homing disabled ($22), machine coordinates are not referenced.", "homing desactivado ($22), las coordenadas de máquina no están referenciadas."]);
 window.CNCTouchMessages.push(["positions rapportées en pouces ($13=1).", "positions reported in inches ($13=1).", "posiciones informadas en pulgadas ($13=1)."]);
 window.CNCTouchMessages.push(["position machine inconnue.", "machine position unknown.", "posición de máquina desconocida."]);
+window.CNCTouchMessages.push(["course $130 inconnue.", "$130 travel unknown.", "recorrido $130 desconocido."]);
+window.CNCTouchMessages.push(["course $131 inconnue.", "$131 travel unknown.", "recorrido $131 desconocido."]);
 window.CNCTouchMessages.push(["Hors course machine : ", "Outside the machine travel: ", "Fuera del recorrido de la máquina: "]);
 window.CNCTouchMessages.push(["course ", "travel ", "recorrido "]);
 window.CNCTouchMessages.push([". Vérifiez l’origine de travail avant de démarrer.", ". Check the work origin before starting.", ". Compruebe el origen de trabajo antes de empezar."]);
@@ -555,7 +589,7 @@ window.CNCTouchMessages.push([" s alors que CNCjs attend encore sa réponse (lig
 window.CNCTouchMessages.push(['Repos','Idle','Reposo'],['Hors ligne','Offline','Sin conexión'],['Rapport ancien','Stale report','Informe antiguo'],['Porte ouverte','Door open','Puerta abierta'],['Vérification','Check mode','Verificación'],['Veille','Sleep','Reposo profundo'],['Inconnu','Unknown','Desconocido'],['Arrêter','Stop','Detener'],['Réel ↗','Real ↗','Real ↗'],['Âge du dernier rapport machine','Age of the last machine report','Antigüedad del último informe de la máquina']);
 window.CNCTouchMessages.push(['Broche réelle','Actual spindle','Husillo real'],['Arrêt logiciel · pas un arrêt d’urgence','Software stop · not an emergency stop','Parada por software · no es una parada de emergencia'],['Corrections','Overrides','Correcciones'],['−10 %','−10 %','−10 %'],['+10 %','+10 %','+10 %'],['−1 %','−1 %','−1 %'],['+1 %','+1 %','+1 %'],['100 %','100 %','100 %']);
 window.CNCTouchMessages.push(['Charger et ouvrir le Suivi','Load and open Monitor','Cargar y abrir Seguimiento']);
-window.CNCTouchMessages.push(['Reprendre où j’en étais : ','Resume where I was: ','Reanudar donde estaba: '],[' · en cours',' · running',' · en curso'],[' · en pause',' · paused',' · en pausa'],[' · prêt à démarrer',' · ready to start',' · listo para iniciar'],['Prêt à démarrer','Ready to start','Listo para iniciar'],['Chargé : ','Loaded: ','Cargado: '],['Choisir un parcours','Choose a toolpath','Elegir un recorrido'],['Bloqué : alarme','Blocked: alarm','Bloqueado: alarma'],['Bloqué : travail en cours','Blocked: job running','Bloqueado: trabajo en curso'],['Simulateur','Simulator','Simulador'],['Déplacements à blanc','Dry-run moves','Movimientos en vacío'],['Mise en service en cours','Commissioning in progress','Puesta en servicio en curso'],['Mise en service à faire','Commissioning to do','Puesta en servicio pendiente'],['Chronologie et export','Timeline and export','Cronología y exportación'],['Effacez l’alarme ci-contre, puis confirmez la reprise dans Suivi.','Clear the alarm here, then confirm the resume in Monitor.','Borre la alarma aquí y confirme la reanudación en Seguimiento.'],['Ouvrir →','Open →','Abrir →']);
+window.CNCTouchMessages.push(['Reprendre où j’en étais : ','Resume where I was: ','Reanudar donde estaba: '],[' · en cours',' · running',' · en curso'],[' · en pause',' · paused',' · en pausa'],[' · prêt à démarrer',' · ready to start',' · listo para iniciar'],['Prêt à démarrer','Ready to start','Listo para iniciar'],['Chargé : ','Loaded: ','Cargado: '],['Choisir un parcours','Choose a toolpath','Elegir un recorrido'],['Bloqué : alarme','Blocked: alarm','Bloqueado: alarma'],['Bloqué : travail en cours','Blocked: job running','Bloqueado: trabajo en curso'],['Simulateur','Simulator','Simulador'],['Mise en service en cours','Commissioning in progress','Puesta en servicio en curso'],['Mise en service à faire','Commissioning to do','Puesta en servicio pendiente'],['Chronologie et export','Timeline and export','Cronología y exportación'],['Effacez l’alarme ci-contre, puis confirmez la reprise dans Suivi.','Clear the alarm here, then confirm the resume in Monitor.','Borre la alarma aquí y confirme la reanudación en Seguimiento.'],['Ouvrir →','Open →','Abrir →']);
 window.CNCTouchMessages.push(['Tout','All','Todo'],['Erreurs','Errors','Errores'],['Travaux','Jobs','Trabajos'],['Alarmes','Alarms','Alarmas'],['Filtre','Filter','Filtro']);
 window.CNCTouchMessages.push(['Thème','Theme','Tema'],['Sombre','Dark','Oscuro'],['Clair','Light','Claro'],['Sombre pour l’atelier, clair à fort contraste pour la lumière du jour.','Dark for the workshop, high-contrast light for daylight.','Oscuro para el taller, claro de alto contraste para la luz del día.']);
 window.CNCTouchMessages.push(['Indisponible dans l’état actuel de la machine.','Unavailable in the current machine state.','No disponible en el estado actual de la máquina.']);
@@ -584,7 +618,7 @@ window.CNCTouchMessages.push(["Ligne de reprise", "Resume line", "Línea de rean
 window.CNCTouchMessages.push(["Vérifier", "Check", "Comprobar"]);
 window.CNCTouchMessages.push(["Charger la reprise", "Load the resume", "Cargar la reanudación"]);
 window.CNCTouchMessages.push(["Dernier arrêt après la ligne ", "Last stop after line ", "Última parada tras la línea "]);
-window.CNCTouchMessages.push([" (acquittée). Grbl exécute jusqu’à 15 mouvements plus tard : ligne proposée ", " (acknowledged). Grbl executes up to 15 moves later: suggested line ", " (confirmada). Grbl ejecuta hasta 15 movimientos después: línea propuesta "]);
+window.CNCTouchMessages.push([' (acquittée). Jusqu’à 15 mouvements acquittés peuvent ne pas avoir été exécutés : ligne proposée ',' (acknowledged). Up to 15 acknowledged moves may not have run yet: suggested line ',' (confirmada). Hasta 15 movimientos confirmados pueden no haberse ejecutado: línea propuesta ']);
 window.CNCTouchMessages.push(["Numéro de ligne tel qu’affiché pendant le travail (lignes non vides).", "Line number as shown during the job (non-empty lines).", "Número de línea tal como se muestra durante el trabajo (líneas no vacías)."]);
 window.CNCTouchMessages.push(["Indiquez une ligne (2 ou plus).", "Enter a line (2 or more).", "Indique una línea (2 o más)."]);
 window.CNCTouchMessages.push(["Vérification…", "Checking…", "Comprobando…"]);
@@ -593,12 +627,12 @@ window.CNCTouchMessages.push(["Zéro Z avec une plaque", "Z zero with a touch pl
 window.CNCTouchMessages.push(["Épaisseur de la plaque (mm)", "Plate thickness (mm)", "Espesor de la placa (mm)"]);
 window.CNCTouchMessages.push(["Descente maximale (mm)", "Maximum travel down (mm)", "Bajada máxima (mm)"]);
 window.CNCTouchMessages.push(["Palper le zéro Z…", "Probe Z zero…", "Palpar el cero Z…"]);
-window.CNCTouchMessages.push(["Posez la plaque sur la pièce sous l’outil et branchez la sonde. Descente à 100 mm/min, recul 1 mm, seconde touche à 25 mm/min ; le dessus de la plaque devient Z = épaisseur, puis l’outil remonte 5 mm au-dessus.", "Put the plate on the part under the tool and connect the probe. Travel down at 100 mm/min, 1 mm back-off, second touch at 25 mm/min; the plate top becomes Z = thickness, then the tool rises 5 mm above it.", "Coloque la placa sobre la pieza bajo la herramienta y conecte la sonda. Bajada a 100 mm/min, retroceso de 1 mm, segundo toque a 25 mm/min; la parte superior de la placa pasa a Z = espesor y la herramienta sube 5 mm por encima."]);
+window.CNCTouchMessages.push(["Posez la plaque sur la pièce sous l’outil et branchez la sonde. Descente à 100 mm/min, recul 1 mm, seconde touche à 25 mm/min ; le dessus de la plaque devient Z = épaisseur, puis l’outil remonte jusqu’à 5 mm au-dessus, sans dépasser sa hauteur de départ.", "Put the plate on the part under the tool and connect the probe. Travel down at 100 mm/min, 1 mm back-off, second touch at 25 mm/min; the plate top becomes Z = thickness, then the tool rises up to 5 mm above it, never above its start height.", "Coloque la placa sobre la pieza bajo la herramienta y conecte la sonda. Bajada a 100 mm/min, retroceso de 1 mm, segundo toque a 25 mm/min; la parte superior de la placa pasa a Z = espesor y la herramienta sube hasta 5 mm por encima, sin superar su altura de partida."]);
 window.CNCTouchMessages.push(["Indiquez l’épaisseur de la plaque (mm).", "Enter the plate thickness (mm).", "Indique el espesor de la placa (mm)."]);
 window.CNCTouchMessages.push(["Descente maximale invalide (1 à 100 mm).", "Invalid maximum travel (1 to 100 mm).", "Bajada máxima no válida (1 a 100 mm)."]);
 window.CNCTouchMessages.push(["Plaque de ", "Plate of ", "Placa de "]);
 window.CNCTouchMessages.push([" mm posée sous l’outil et sonde branchée ? Descente de ", " mm under the tool and probe connected? Travel down of ", " mm bajo la herramienta y sonda conectada? Bajada de "]);
-window.CNCTouchMessages.push([" mm au plus ; le dessus de la plaque deviendra Z = épaisseur, puis l’outil remontera 5 mm au-dessus.", " mm at most; the plate top will read Z = thickness, then the tool rises 5 mm above it.", " mm como máximo; la parte superior de la placa pasará a Z = espesor y la herramienta subirá 5 mm por encima."]);
+window.CNCTouchMessages.push([" mm au plus ; le dessus de la plaque deviendra Z = épaisseur, puis l’outil remontera jusqu’à 5 mm au-dessus, sans dépasser sa hauteur de départ.", " mm at most; the plate top will read Z = thickness, then the tool rises up to 5 mm above it, never above its start height.", " mm como máximo; la parte superior de la placa pasará a Z = espesor y la herramienta subirá hasta 5 mm por encima, sin superar su altura de partida."]);
 window.CNCTouchMessages.push(["Dernier zéro Z : plaque ", "Last Z zero: plate ", "Último cero Z: placa "]);
 window.CNCTouchMessages.push([" mm, repère ", " mm, work offset ", " mm, sistema "]);
 window.CNCTouchMessages.push([", contact à Z machine ", ", contact at machine Z ", ", contacto en Z máquina "]);
@@ -645,8 +679,6 @@ window.CNCTouchMessages.push(
 ['Commande désactivée dans CNCjs.','Command disabled in CNCjs.','Comando desactivado en CNCjs.'],
 ['Commande système en cours : ','System command running: ','Comando del sistema en curso: '],
 ['Demande envoyée…','Request sent…','Solicitud enviada…'],
-['Vérifier le déplacement · aucun mouvement envoyé · pas ','Check the move · no motion sent · step ','Comprobar el desplazamiento · sin movimiento enviado · paso '],
-['VÉRIFICATION SEULE','CHECK ONLY','SOLO COMPROBACIÓN'],
 // Audit 31 (UI): shared numeric pad.
 ['de ','from ','de '],
 [' à ',' to ',' a '],
@@ -767,6 +799,33 @@ window.CNCTouchMessages.push(
 ['Travail arrêté','Job stopped','Trabajo detenido'],
 ['Ligne refusée par Grbl','Line refused by Grbl','Línea rechazada por Grbl'],
 ['Carte redémarrée pendant le travail','Board restarted during the job','Placa reiniciada durante el trabajo'],
+['Définition d’origine','Work origin setting','Definición del origen'],
+['Déplacement manuel','Manual jog','Desplazamiento manual'],
+['Arrêt de déplacement non confirmé','Jog stop not confirmed','Parada de desplazamiento no confirmada'],
+['Cadrage','Framing','Encuadre'],
+['Fiche machine modifiée','Machine record changed','Ficha de máquina modificada'],
+// Journal « Serveur »: reasons of a failed origin (server sentence) and stop codes of jog/frame (real-history.js).
+['Grbl a refusé la définition d’origine','Grbl refused the work origin setting','Grbl rechazó la definición del origen'],
+['La machine a bougé pendant la définition d’origine : arrêtez et vérifiez le contrôleur','The machine moved while the work origin was being set: stop and check the controller','La máquina se movió durante la definición del origen: detenga y compruebe el controlador'],
+['Le repère n’a pas pris la valeur 0 attendue','The coordinate system did not take the expected value 0','El sistema de coordenadas no tomó el valor 0 esperado'],
+['Connexion machine perdue pendant la définition d’origine : vérifiez le repère','Machine connection lost while the work origin was being set: check the coordinate system','Conexión con la máquina perdida durante la definición del origen: compruebe el sistema de coordenadas'],
+['Définition d’origine sans réponse à temps : vérifiez la machine et le repère','Work origin setting not answered in time: check the machine and the coordinate system','La definición del origen no respondió a tiempo: compruebe la máquina y el sistema de coordenadas'],
+['Grbl a refusé la ligne','Grbl refused the line','Grbl rechazó la línea'],
+['relâchement ou arrêt demandé','release or stop requested','soltado o parada solicitada'],
+['bouton Arrêter','Stop button','botón Detener'],
+['maintien non confirmé à temps (connexion lente ou perdue)','keepalive not confirmed in time (slow or lost connection)','mantenimiento no confirmado a tiempo (conexión lenta o perdida)'],
+['flux de suivi du client fermé','client monitoring stream closed','flujo de seguimiento del cliente cerrado'],
+['pilotage pris par un autre client','control taken by another client','control tomado por otro cliente'],
+['pilotage rendu','control given back','control cedido'],
+['rapport machine trop ancien','machine report too old','informe de la máquina demasiado antiguo'],
+['alarme machine','machine alarm','alarma de la máquina'],
+['déplacements réels désactivés','real moves disabled','desplazamientos reales desactivados'],
+['maintien reçu après l’échéance','keepalive received after the deadline','mantenimiento recibido tras el plazo'],
+['bouton Pause','Pause button','botón Pausa'],
+['machine sortie du repos (Idle) pendant le cadrage','machine left Idle during framing','la máquina salió del reposo (Idle) durante el encuadre'],
+['service arrêté','service stopped','servicio detenido'],
+['connexion au contrôleur perdue','controller connection lost','conexión con el controlador perdida'],
+['fin de la course autorisée atteinte','end of the allowed travel reached','fin del recorrido permitido alcanzado'],
 ['Terminé avec erreurs','Finished with errors','Terminado con errores'],
 ['Pilotage','Control','Control'],
 ['Pilotage pris','Control taken','Control tomado'],
@@ -847,6 +906,7 @@ window.CNCTouchMessages.push(
 ['Modifier la fiche','Edit the sheet','Editar la ficha'],
 ['Une fiche décrit le fichier : elle ne change ni les avances, ni la broche, ni les réglages machine.','A sheet describes the file: it changes neither feeds, nor the spindle, nor machine settings.','Una ficha describe el archivo: no cambia ni avances, ni husillo, ni ajustes de máquina.'],
 ['Matière','Stock material','Material'],
+['Retour à la ligne','New line','Salto de línea'],
 ['Brut X (mm)','Stock X (mm)','Bruto X (mm)'],
 ['Brut Y (mm)','Stock Y (mm)','Bruto Y (mm)'],
 ['Brut Z (mm)','Stock Z (mm)','Bruto Z (mm)'],
@@ -864,7 +924,7 @@ window.CNCTouchMessages.push(
 ['Enregistrer le repère et l’origine actuels (juste après le palpage, sans avoir changé d’origine)','Record the current frame and origin (right after probing, without having changed the origin)','Registrar el sistema y el origen actuales (justo después del palpado, sin haber cambiado el origen)'],
 ['Enregistrer la provenance','Save the provenance','Guardar la procedencia'],
 ['Retirer la provenance','Remove the provenance','Retirar la procedencia'],
-['Nom, matière, outil, notes…','Name, material, tool, notes…','Nombre, material, herramienta, notas…'],
+['Rechercher…','Search…','Buscar…'],
 ['★ Favoris seulement','★ Favourites only','★ Solo favoritos'],
 ['Le fichier a changé depuis l’ouverture de la fiche : rouvrez-la.','The file changed since the sheet was opened: open it again.','El archivo cambió desde que se abrió la ficha: vuelva a abrirla.'],
 ['Cette fiche concerne une autre version du fichier : choisissez « Garder pour cette version » ou effacez-la.','This sheet describes another version of the file: choose “Keep for this version” or clear it.','Esta ficha corresponde a otra versión del archivo: elija «Conservar para esta versión» o bórrela.'],
@@ -883,72 +943,33 @@ window.CNCTouchMessages.push(
 
 // Real moves and work origins (F1, real-motion.js / job-controls.js), and the fixed server messages they show.
 window.CNCTouchMessages.push(
-['Déplacement réel','Real move','Desplazamiento real'],
-['EXPÉRIMENTAL','EXPERIMENTAL','EXPERIMENTAL'],
-['Déplacements réels non activés (validation matérielle requise).','Real moves not enabled (hardware validation required).','Desplazamientos reales no activados (se requiere validación en la máquina).'],
-['RÉEL · la machine bouge · relâchez pour arrêter','REAL · the machine moves · release to stop','REAL · la máquina se mueve · suelte para detener'],
-['RÉEL · chaque appui envoie un pas à la machine','REAL · every tap sends a step to the machine','REAL · cada pulsación envía un paso a la máquina'],
-['Position rapportée par le contrôleur · ','Position reported by the controller · ','Posición informada por el controlador · '],
 ['repère ','offset ','sistema '],
-['unité inconnue','unknown unit','unidad desconocida'],
 ['Mode','Mode','Modo'],
-['Par pas','Steps','Por pasos'],
 ['Maintien','Hold','Mantener'],
 ['Pas · mm','Step · mm','Paso · mm'],
-['Avance · mm/min','Feed · mm/min','Avance · mm/min'],
 ['Avance max X / Y / Z : ','Max feed X / Y / Z: ','Avance máx. X / Y / Z: '],
 [' · limite prudente ($11x inconnu)',' · cautious limit ($11x unknown)',' · límite prudente ($11x desconocido)'],
-['Origine ici','Origin here','Origen aquí'],
 ['Définir l’origine ','Set origin ','Definir origen '],
 ['Confirmer l’origine ','Confirm origin ','Confirmar origen '],
 ['position machine ','machine position ','posición máquina '],
-[' → travail ',' → work ',' → trabajo '],
 ['Arrêter reste disponible dans le bandeau.','Stop remains available in the status bar.','Detener sigue disponible en la barra de estado.'],
-['Demande envoyée : ','Request sent: ','Solicitud enviada: '],
-['En attente du serveur…','Waiting for the server…','Esperando al servidor…'],
-['Accepté par le serveur : ','Accepted by the server: ','Aceptado por el servidor: '],
-['Refusé par le serveur : ','Refused by the server: ','Rechazado por el servidor: '],
 ['Sans réponse du serveur : ','No answer from the server: ','Sin respuesta del servidor: '],
 ['raison inconnue','unknown reason','motivo desconocido'],
-['État observé : ','Observed state: ','Estado observado: '],
-['État observé : aucun rapport.','Observed state: no report.','Estado observado: ningún informe.'],
-['jog du serveur en cours ','server jog in progress ','jog del servidor en curso '],
-['annulation (0x85) en cours de confirmation','cancel (0x85) being confirmed','cancelación (0x85) pendiente de confirmación'],
 ['ANNULATION NON CONFIRMÉE : utilisez l’arrêt physique si la machine bouge encore','CANCEL NOT CONFIRMED: use the physical stop if the machine still moves','CANCELACIÓN NO CONFIRMADA: use la parada física si la máquina sigue moviéndose'],
-['dernier jog : ','last jog: ','último jog: '],
-['dernière origine : ','last origin: ','último origen: '],
-['dernière origine : échec — ','last origin: failed — ','último origen: fallo — '],
 [' réglée',' set',' definido'],
-['Déplacement réel indisponible : ','Real move unavailable: ','Desplazamiento real no disponible: '],
-['Déplacement réel indisponible.','Real move unavailable.','Desplazamiento real no disponible.'],
-['Suivi continu interrompu : déplacement réel bloqué.','Live feed interrupted: real move blocked.','Seguimiento interrumpido: desplazamiento real bloqueado.'],
-['Maintien continu non activé.','Continuous hold not enabled.','Mantenimiento continuo no activado.'],
-['Pas réels non activés.','Real steps not enabled.','Pasos reales no activados.'],
-['Serveur sans état de déplacement : rechargez la page.','Server without move state: reload the page.','Servidor sin estado de desplazamiento: recargue la página.'],
 ['Confirmation d’origine en attente : confirmez ou annulez-la d’abord.','Origin confirmation pending: confirm or cancel it first.','Confirmación de origen pendiente: confírmela o cancélela primero.'],
-['Origine réelle non activée.','Real origin not enabled.','Origen real no activado.'],
-['Origine réelle indisponible.','Real origin unavailable.','Origen real no disponible.'],
-['Déplacement en cours : attendez le repos.','Move in progress: wait for rest.','Desplazamiento en curso: espere al reposo.'],
 ['Commandes indisponibles : rechargez la page.','Commands unavailable: reload the page.','Comandos no disponibles: recargue la página.'],
-['arrêt du déplacement (jog-stop)','stopping the move (jog-stop)','parada del desplazamiento (jog-stop)'],
-['Arrêt envoyé…','Stop sent…','Parada enviada…'],
-['Arrêt accepté : ','Stop accepted: ','Parada aceptada: '],
 ['Sans maintien, le serveur annule lui-même le jog après 250 ms.','Without a keepalive, the server cancels the jog by itself after 250 ms.','Sin mantenimiento, el servidor cancela el jog por sí mismo tras 250 ms.'],
 ['Déplacement terminé ou annulé','Move finished or cancelled','Desplazamiento terminado o cancelado'],
 ['maintien refusé','hold refused','mantenimiento rechazado'],
-[' en maintien · ',' held · ',' mantenido · '],
 [' · pas ',' · step ',' · paso '],
-['préparation de l’origine ','preparing origin ','preparación del origen '],
-['Ticket reçu du serveur : vérifiez puis confirmez.','Ticket received from the server: check, then confirm.','Ticket recibido del servidor: compruebe y confirme.'],
 ['Confirmation expirée ou état changé : demandez-la à nouveau.','Confirmation expired or state changed: ask for it again.','Confirmación caducada o estado cambiado: solicítela de nuevo.'],
-['confirmation : ','confirmation: ','confirmación: '],
 ['Définition d’origine annulée : rien n’a été envoyé.','Origin setting cancelled: nothing was sent.','Definición de origen cancelada: no se envió nada.'],
 ['suivi interrompu','feed interrupted','seguimiento interrumpido'],
 ['fenêtre quittée','window left','ventana abandonada'],
 ['page masquée','page hidden','página oculta'],
 ['page quittée','page left','página abandonada'],
 ['écran changé','screen changed','pantalla cambiada'],
-['panneau fermé','panel closed','panel cerrado'],
 ['fonction désactivée','function disabled','función desactivada'],
 ['arrêt demandé','stop requested','parada solicitada'],
 ['Simulation : aucun déplacement réel.','Simulation: no real move.','Simulación: ningún desplazamiento real.'],
@@ -1006,6 +1027,9 @@ window.CNCTouchMessages.push(['Numéro d’outil trop grand','Tool number too hi
 // Audit 31 (fixes): strip during a loss of the state, alarm code kept, preview notes.
 window.CNCTouchMessages.push(['(code effacé au redémarrage de la carte, déduit de l’état précédent)','(code wiped by the board restart, deduced from the previous state)','(código borrado al reiniciar la placa, deducido del estado anterior)']);
 window.CNCTouchMessages.push(['Pause et Arrêter restent disponibles ; les autres commandes attendent un état récent.','Pause and Stop remain available; other commands wait for a recent state.','Pausa y Detener siguen disponibles; los demás comandos esperan un estado reciente.']);
+// Écrans (lot Fichiers): offline text per command still allowed, Fichiers reason, preparation progress.
+window.CNCTouchMessages.push(['Arrêter reste disponible ; les autres commandes attendent un état récent.','Stop remains available; other commands wait for a recent state.','Detener sigue disponible; los demás comandos esperan un estado reciente.'],['Pause reste disponible ; les autres commandes attendent un état récent.','Pause remains available; other commands wait for a recent state.','Pausa sigue disponible; los demás comandos esperan un estado reciente.'],['Fichier chargé : ouvrez le Suivi pour démarrer.','File loaded: open Monitor to start.','Archivo cargado: abra el Seguimiento para iniciar.']);
+window.CNCTouchMessages.push(['Encodage de l’image PNG…','Encoding the PNG image…','Codificando la imagen PNG…'],['Préparation du parcours hors interface…','Preparing the toolpath off the interface…','Preparando el recorrido fuera de la interfaz…'],['Analyse du parcours :','Analysing the toolpath:','Analizando el recorrido:'],['Analyse locale du parcours :','Local toolpath analysis:','Análisis local del recorrido:'],['Dessin du parcours :','Drawing the toolpath:','Dibujando el recorrido:'],['Dessin local du parcours :','Local toolpath drawing:','Dibujo local del recorrido:'],['Encodage PNG local synchrone — réactivité non garantie…','Synchronous local PNG encoding — responsiveness not guaranteed…','Codificación PNG local síncrona — capacidad de respuesta no garantizada…'],['— lecture locale limitée à 256 Kio, réactivité non garantie.','— local reading limited to 256 KiB, responsiveness not guaranteed.','— lectura local limitada a 256 KiB, capacidad de respuesta no garantizada.'],['— analyse locale découpée, réactivité non garantie.','— local analysis in slices, responsiveness not guaranteed.','— análisis local por partes, capacidad de respuesta no garantizada.'],['Worker indisponible','Worker unavailable','Worker no disponible'],['Worker inaccessible','Worker unreachable','Worker inaccesible'],['Worker sans réponse','Worker not responding','Worker sin respuesta'],['Version du Worker incompatible','Incompatible Worker version','Versión del Worker incompatible'],['Lecture du serveur indisponible dans le Worker','Server reading unavailable in the Worker','Lectura del servidor no disponible en el Worker']);
 window.CNCTouchMessages.push(['segments.','segments.','segmentos.']);
 window.CNCTouchMessages.push(['État perdu','State lost','Estado perdido']);
 window.CNCTouchMessages.push(['État machine perdu : Pause et Arrêter sont envoyés quand même (sans confirmation) ; les autres commandes attendent le retour du suivi.','Machine state lost: Pause and Stop are still sent (without confirmation); other commands wait for monitoring to return.','Estado de la máquina perdido: Pausa y Detener se envían igualmente (sin confirmación); los demás comandos esperan el regreso del seguimiento.']);
@@ -1023,6 +1047,60 @@ window.CNCTouchMessages.push(['Le palpage descend Z jusqu’au contact avec la p
 window.CNCTouchMessages.push(['Je suis devant la machine, la plaque et la pince sont en place.','I am at the machine, the plate and the clip are in place.','Estoy frente a la máquina, la placa y la pinza están en su sitio.']);
 window.CNCTouchMessages.push(['déduite','inferred','deducida']);
 window.CNCTouchMessages.push(['écran verrouillé','screen locked','pantalla bloqueada']);
+// Suivi (lot écrans 2026-11) : textes courts, alarme, notes fixes de reprise du serveur (resume.js commonNotes).
+window.CNCTouchMessages.push(['Temps restant : après démarrage','Time remaining: after start','Tiempo restante: tras iniciar']);
+window.CNCTouchMessages.push(['Alarme — estimation suspendue','Alarm — estimate suspended','Alarma — estimación suspendida']);
+window.CNCTouchMessages.push(['Alarme : position non garantie.','Alarm: position not guaranteed.','Alarma: posición no garantizada.']);
+window.CNCTouchMessages.push(['Le programme ne fixe pas ses unités (G20/G21) : la machine garde les siennes.','The program does not set its units (G20/G21): the machine keeps its own.','El programa no fija sus unidades (G20/G21): la máquina mantiene las suyas.']);
+window.CNCTouchMessages.push(['Le programme ne choisit pas de repère (G54-G59) : la machine garde le sien.','The program does not choose a work offset (G54-G59): the machine keeps its own.','El programa no elige sistema de coordenadas (G54-G59): la máquina mantiene el suyo.']);
+window.CNCTouchMessages.push(['Le programme ne fixe pas son mode d’avance (G94) : la machine garde le sien.','The program does not set its feed mode (G94): the machine keeps its own.','El programa no fija su modo de avance (G94): la máquina mantiene el suyo.']);
+// Refus du serveur (conflict('…') de src/server/services/touch), phrases complètes montrées par uiLocale.message.
+window.CNCTouchMessages.push(['Palpage en cours.','Probing in progress.','Palpando.']);
+// Raison de démarrage pendant une prise d’origine (banc browser-run, phase homing), traduite par job-controls (lot Transverses M5).
+window.CNCTouchMessages.push(['Prise d’origine en cours.','Homing in progress.','Búsqueda de origen en curso.']);
+window.CNCTouchMessages.push(['Client non identifié : impossible d’attribuer le pilotage.','Unidentified client: control cannot be assigned.','Cliente no identificado: no se puede asignar el control.']);
+window.CNCTouchMessages.push(['Fichier modifié depuis le chargement : rechargez-le.','File changed since it was loaded: reload it.','Archivo modificado desde la carga: vuelva a cargarlo.']);
+window.CNCTouchMessages.push(['Déplacement en cours : attendez le retour au repos (Idle).','Motion in progress: wait for idle (Idle).','Movimiento en curso: espere al reposo (Idle).']);
+window.CNCTouchMessages.push(['Travail démarré depuis l’interface CNCjs : reprenez-le depuis le PC.','Job started from the CNCjs interface: resume it from the PC.','Trabajo iniciado desde la interfaz CNCjs: reanúdelo desde el PC.']);
+window.CNCTouchMessages.push(['Attendez l’arrêt de la machine (Idle ou Hold) avant de reprendre.','Wait for the machine to stop (Idle or Hold) before resuming.','Espere a que la máquina se detenga (Idle o Hold) antes de reanudar.']);
+window.CNCTouchMessages.push(['Des commandes sont en attente : attendez avant de reprendre.','Commands are pending: wait before resuming.','Hay órdenes pendientes: espere antes de reanudar.']);
+window.CNCTouchMessages.push(['Opération de pilotage inconnue.','Unknown control operation.','Operación de control desconocida.']);
+window.CNCTouchMessages.push(['Travail en cours ou en pause : déplacement réel refusé.','Job running or paused: real motion refused.','Trabajo en curso o en pausa: movimiento real rechazado.']);
+window.CNCTouchMessages.push(['Des commandes sont en attente.','Commands are pending.','Hay órdenes pendientes.']);
+window.CNCTouchMessages.push(['Cadrage invalide.','Invalid framing.','Encuadre no válido.']);
+window.CNCTouchMessages.push(['Définition d’origine abandonnée (service arrêté ou contrôleur retiré) : vérifiez le repère.','Origin setting abandoned (service stopped or controller removed): check the work offset.','Definición de origen abandonada (servicio detenido o controlador retirado): compruebe el sistema de coordenadas.']);
+window.CNCTouchMessages.push(['Le zéro Z avec plaque se règle au repos ou pendant une pause du programme (M0, M1, M6).','The plate Z zero is set at rest or during a program pause (M0, M1, M6).','El cero Z con placa se ajusta en reposo o durante una pausa del programa (M0, M1, M6).']);
+window.CNCTouchMessages.push(['État modal ($G) trop ancien : attendre un rapport récent.','Modal state ($G) too old: wait for a recent report.','Estado modal ($G) demasiado antiguo: espere un informe reciente.']);
+window.CNCTouchMessages.push(['Mode relatif (G91) actif : le zéro Z avec plaque exige G90.','Relative mode (G91) active: the plate Z zero requires G90.','Modo relativo (G91) activo: el cero Z con placa exige G90.']);
+window.CNCTouchMessages.push(['Unités en pouces (G20) : le zéro Z avec plaque exige G21.','Inch units (G20): the plate Z zero requires G21.','Unidades en pulgadas (G20): el cero Z con placa exige G21.']);
+window.CNCTouchMessages.push(['Repère de travail inconnu : attendre un rapport $G.','Unknown work offset: wait for a $G report.','Sistema de coordenadas desconocido: espere un informe $G.']);
+window.CNCTouchMessages.push(['Position Z inconnue.','Z position unknown.','Posición Z desconocida.']);
+window.CNCTouchMessages.push(['Entrée sonde : rapport trop ancien.','Probe input: report too old.','Entrada de sonda: informe demasiado antiguo.']);
+window.CNCTouchMessages.push(['La sonde est déjà en contact : dégagez-la avant de palper.','The probe is already in contact: clear it before probing.','La sonda ya está en contacto: libérela antes de palpar.']);
+window.CNCTouchMessages.push(['Entrée sonde illisible dans le rapport Grbl.','Probe input unreadable in the Grbl report.','Entrada de sonda ilegible en el informe de Grbl.']);
+window.CNCTouchMessages.push(['Connexion machine perdue pendant le palpage.','Machine connection lost during probing.','Conexión con la máquina perdida durante el palpado.']);
+window.CNCTouchMessages.push(['Palpage abandonné (service arrêté ou contrôleur retiré) : vérifiez la machine.','Probing abandoned (service stopped or controller removed): check the machine.','Palpado abandonado (servicio detenido o controlador retirado): compruebe la máquina.']);
+// Machine (lot écrans 4): the reason under $X / $H and the note under the coordinates.
+window.CNCTouchMessages.push(['$X et $H indisponibles :','$X and $H unavailable:','$X y $H no disponibles:']);
+window.CNCTouchMessages.push(['$X indisponible :','$X unavailable:','$X no disponible:']);
+window.CNCTouchMessages.push(['$H indisponible :','$H unavailable:','$H no disponible:']);
+window.CNCTouchMessages.push(['Touchez Arrêter, puis $X.','Touch Stop, then $X.','Toque Detener y luego $X.']);
+window.CNCTouchMessages.push(['Code non reconnu : consulter CNCjs.','Unrecognized code: check CNCjs.','Código no reconocido: consulte CNCjs.']);
+// The server's $X / $H reasons that carry a value (job-service.js spindleStill, available): {value} as received.
+window.CNCTouchMessages.push(['La broche tourne encore ({value} tr/min) : arrêtez-la d’abord (M5).','The spindle is still turning ({value} rpm): stop it first (M5).','El husillo sigue girando ({value} rpm): deténgalo primero (M5).']);
+window.CNCTouchMessages.push(['La broche est commandée ({value}) : arrêtez-la d’abord (M5).','The spindle is commanded on ({value}): stop it first (M5).','El husillo está activado ({value}): deténgalo primero (M5).']);
+window.CNCTouchMessages.push(['Commande système en cours ({value}) : attendez sa fin.','System command running ({value}): wait for it to finish.','Comando del sistema en curso ({value}): espere a que termine.']);
+// Menu (lot écrans 6): a machine moving outside a job, the file's state unknown while the observation is lost,
+// alarm and stale report in the resume bar.
+window.CNCTouchMessages.push(['Machine en mouvement','Machine moving','Máquina en movimiento'],['État du fichier indisponible','File status unavailable','Estado del archivo no disponible'],
+  [' · alarme',' · alarm',' · alarma'],[' · rapport ancien',' · stale report',' · informe antiguo']);
+// Préparer (lot jog): coordinates editor, probe screens (the server's probe input reasons, probe-input.js, as
+// received) and the real-motion position line while the report is stale.
+window.CNCTouchMessages.push([' mm · Travail : ',' mm · Work: ',' mm · Trabajo: '],['fictif.','simulated.','ficticio.'],['Supprimer…','Delete…','Eliminar…'],
+  ['Contact signalé par le champ Pn du rapport Grbl.','Contact reported by the Pn field of the Grbl report.','Contacto indicado por el campo Pn del informe Grbl.'],
+  ['Champ Pn explicite : entrée P non active.','Explicit Pn field: P input not active.','Campo Pn explícito: entrada P no activa.'],
+  ['Champ Pn absent : entrée libre non confirmée. Capacité du firmware à valider.','Pn field missing: free input not confirmed. Firmware capability to be validated.','Campo Pn ausente: entrada libre no confirmada. Capacidad del firmware por validar.'],
+  ['Rapport sonde non reconnu : état inconnu.','Probe report not recognized: unknown state.','Informe de sonda no reconocido: estado desconocido.']);
 // Server refusals by stable code (cncI18n.format): code, French, English, Spanish.
 // {name}: a value of the refusal's params; [ … ]: dropped when one of its values is null.
 // The French template is the server's message, written exactly as it builds it.
@@ -1036,7 +1114,6 @@ window.CNCTouchCodes = [
 ['ETOUCH_RESUME_TOOL_LENGTH','Décalage de longueur d’outil (G43) à la ligne {line} : non rejoué, reprise impossible.','Tool length offset (G43) at line {line}: not replayed, cannot resume.','Corrector de longitud de herramienta (G43) en la línea {line}: no se reproduce, no se puede reanudar.'],
 ['ETOUCH_RESUME_UNITS_LATE','Le programme fixe ses unités ({units}) à la ligne {line} après des déplacements faits dans les unités de la machine : reprise impossible.','The program sets its units ({units}) at line {line} after moves made in the machine’s units: cannot resume.','El programa fija sus unidades ({units}) en la línea {line} tras movimientos hechos en las unidades de la máquina: no se puede reanudar.'],
 ['ETOUCH_RESUME_RELATIVE','Le programme est en coordonnées relatives (G91) à la ligne {from} : reprise impossible.','The program is in relative coordinates (G91) at line {from}: cannot resume.','El programa está en coordenadas relativas (G91) en la línea {from}: no se puede reanudar.'],
-['ETOUCH_RESUME_TOOL_OFFSET_ACTIVE','Décalage de longueur d’outil (G43.1) actif depuis la ligne {line} : non rejoué, reprise impossible avant son annulation (G49).','Tool length offset (G43.1) active since line {line}: not replayed, cannot resume before it is cancelled (G49).','Corrector de longitud de herramienta (G43.1) activo desde la línea {line}: no se reproduce, no se puede reanudar antes de su anulación (G49).'],
 ['ETOUCH_RESUME_WCS_POSITION','Le programme change de repère ({wcs} à la ligne {line}) : X, Y et Z doivent être redonnés en absolu sous ce repère avant la ligne {from}. Choisissez une ligne plus loin.','The program changes work offset ({wcs} at line {line}): X, Y and Z must be given again in absolute in that offset before line {from}. Choose a later line.','El programa cambia de sistema de coordenadas ({wcs} en la línea {line}): X, Y y Z deben darse de nuevo en absoluto en ese sistema antes de la línea {from}. Elija una línea posterior.'],
 ['ETOUCH_RESUME_POSITION','Position avant la ligne {from} inconnue (X, Y et Z doivent avoir été donnés en absolu) : choisissez une ligne plus loin.','Position before line {from} unknown (X, Y and Z must have been given in absolute): choose a later line.','Posición antes de la línea {from} desconocida (X, Y y Z deben haberse dado en absoluto): elija una línea posterior.'],
 ['ETOUCH_RESUME_CLEARANCE','Hauteur de dégagement inconnue avant la ligne {from} : choisissez une ligne plus loin.','Clearance height unknown before line {from}: choose a later line.','Altura de seguridad desconocida antes de la línea {from}: elija una línea posterior.'],
@@ -1083,3 +1160,824 @@ window.CNCTouchCodes = [
 ['ETOUCH_MOTION_WCS_CHANGED','Le repère actif a changé depuis la confirmation ({from} → {to}) : confirmez à nouveau.','The active work offset changed since the confirmation ({from} → {to}): confirm again.','El sistema de coordenadas activo cambió desde la confirmación ({from} → {to}): confirme de nuevo.'],
 ['ETOUCH_MOTION_POSITION_UNKNOWN','Position machine {axis} inconnue.','Machine position {axis} unknown.','Posición de máquina {axis} desconocida.']
 ];
+// Rehearsal before the CNC trial (2026-11).
+window.CNCTouchMessages.push(['La broche tourne encore alors qu’aucun travail n’est en cours : arrêtez-la (M5).','The spindle is still turning with no job running: stop it (M5).','El husillo sigue girando sin ningún trabajo en curso: párelo (M5).']);
+window.CNCTouchMessages.push(['Le laser est encore allumé alors qu’aucun travail n’est en cours : éteignez-le (M5).','The laser is still on with no job running: turn it off (M5).','El láser sigue encendido sin ningún trabajo en curso: apáguelo (M5).']);
+window.CNCTouchMessages.push(['Réinitialisation envoyée pour interrompre la prise d’origine. Vérifiez l’immobilisation ; la carte demandera $H ou $X.','Reset sent to interrupt homing. Check that the axes have stopped; the board will ask for $H or $X.','Reinicio enviado para interrumpir la búsqueda de origen. Compruebe que los ejes están parados; la placa pedirá $H o $X.']);
+window.CNCTouchMessages.push(['Fichier modifié depuis « Vérifier » : vérifiez à nouveau la reprise.','File changed since “Check”: check the resume again.','Archivo modificado desde «Comprobar»: compruebe de nuevo la reanudación.']);
+window.CNCTouchMessages.push(['Pilotage de cet appareil libéré : appareil absent trop longtemps. La première action réussie le reprend.','Control of this device released: the device was away too long. The first successful action takes it back.','Control de este dispositivo liberado: el dispositivo estuvo ausente demasiado tiempo. La primera acción correcta lo recupera.']);
+window.CNCTouchMessages.push(['Pause donnée hors de cet écran : touchez Pause, puis Reprendre.','Pause given outside this screen: touch Pause, then Resume.','Pausa dada fuera de esta pantalla: toque Pausa y luego Reanudar.']);
+window.CNCTouchMessages.push(['Confirmation annulée : ','Confirmation cancelled: ','Confirmación cancelada: ']);
+window.CNCTouchMessages.push(['Pause : les axes ralentissent jusqu’à l’arrêt et la broche tourne toujours. Ne mettez pas les mains près de l’outil.','Pause: the axes are slowing to a stop and the spindle is still turning. Keep your hands away from the tool.','Pausa: los ejes están frenando hasta detenerse y el husillo sigue girando. No acerque las manos a la herramienta.']);
+window.CNCTouchMessages.push(['Envoi suspendu : Grbl peut encore exécuter les mouvements déjà reçus et la broche tourne. Ne mettez pas les mains près de l’outil.','Sending suspended: Grbl may still run the moves it already received and the spindle is turning. Keep your hands away from the tool.','Envío suspendido: Grbl aún puede ejecutar los movimientos ya recibidos y el husillo gira. No acerque las manos a la herramienta.']);
+// Real page without the simulation mode (no entry point, no wording that refers to it).
+window.CNCTouchMessages.push(
+
+['Progression du palpage','Probing progress','Progreso del sondeo'],
+['Journal de cette page, 100 événements maximum','This page’s journal, up to 100 events','Registro de esta página, máximo 100 eventos'],
+['Ces origines sont propres au banc de palpage. Les coordonnées de la CNC ne sont pas modifiées.','These origins belong to the probing bench. CNC coordinates are not changed.','Estos orígenes pertenecen al banco de sondeo. No se modifican las coordenadas de la CNC.'],
+['Copiez le fichier sur l’autre appareil puis ouvrez ce panneau pour l’importer.','Copy the file to the other device and open this panel to import it.','Copie el archivo al otro dispositivo y abra este panel para importarlo.'],
+['Banc réinitialisé. Aucun repère réel modifié.','Bench reset. No real work frame changed.','Banco reiniciado. Sin cambios en sistemas de coordenadas reales.'],
+['Sauvegarde incompatible avec cette interface.','Backup not compatible with this interface.','Copia no compatible con esta interfaz.']);
+// Préparer, real page (real-motion.js): the arrows move the machine; refusals said as what to do.
+window.CNCTouchMessages.push(
+['Pas de ','Step of ','Paso de '],
+[' mm refusé : machine non référencée ou course inconnue. Faites la prise d’origine (Machine) ; sinon 1 mm au plus.',' mm refused: machine not homed or travel unknown. Home it (Machine); otherwise 1 mm at most.',' mm rechazado: máquina sin referenciar o recorrido desconocido. Haga la búsqueda de origen (Máquina); si no, 1 mm como máximo.'],
+['Course ','Travel of ','Recorrido de '],
+[' ambiguë à cette position : refaites la prise d’origine (Machine) pour fixer le sens de la course.',' ambiguous at this position: home again (Machine) to fix the direction of travel.',' ambiguo en esta posición: repita la búsqueda de origen (Máquina) para fijar el sentido del recorrido.'],
+['Position machine incohérente avec la course ($23, $130–$132) : refaites la prise d’origine et faites vérifier les réglages.','Machine position inconsistent with the travel ($23, $130–$132): home again and have the settings checked.','Posición de máquina incoherente con el recorrido ($23, $130–$132): repita la búsqueda de origen y haga revisar los ajustes.'],
+['Broche en rotation : pas de continu, pas de 0,1 mm au plus. Arrêtez la broche (M5).','Spindle turning: no continuous move, steps of 0.1 mm at most. Stop the spindle (M5).','Husillo girando: sin movimiento continuo, pasos de 0,1 mm como máximo. Pare el husillo (M5).'],
+['Continu indisponible : machine non référencée ou course inconnue. Faites la prise d’origine (Machine) ou utilisez les pas.','Continuous unavailable: machine not homed or travel unknown. Home it (Machine) or use the steps.','Continuo no disponible: máquina sin referenciar o recorrido desconocido. Haga la búsqueda de origen (Máquina) o use los pasos.'],
+['Vitesse trop élevée pour ','Speed too high for ','Velocidad demasiado alta para '],
+[' mm/min au plus. Choisissez une vitesse plus basse.',' mm/min at most. Choose a lower speed.',' mm/min como máximo. Elija una velocidad menor.'],
+['Aucune machine connectée : touchez Connecter la CNC dans le Menu.','No machine connected: tap Connect the CNC in the Menu.','Ninguna máquina conectada: toque Conectar la CNC en el Menú.'],
+['Suivi interrompu : déplacement bloqué jusqu’à son retour.','Monitoring interrupted: moves blocked until it is back.','Seguimiento interrumpido: desplazamiento bloqueado hasta su regreso.'],
+['État machine trop ancien : attendez un rapport récent.','Machine status too old: wait for a recent report.','Estado de la máquina demasiado antiguo: espere un informe reciente.'],
+['Pilotée par « ','Controlled by “','Controlada por «'],
+[' » : touchez Pilote (bandeau) pour prendre la main.','”: tap Pilot (status bar) to take control.','»: toque Piloto (barra de estado) para tomar el control.'],
+['Ce serveur CNCjs ne permet pas les déplacements depuis la tablette.','This CNCjs server does not allow moves from the tablet.','Este servidor CNCjs no permite desplazamientos desde la tableta.'],
+['Déplacements non activés sur ce serveur CNCjs (touch.motion.enabled).','Moves not enabled on this CNCjs server (touch.motion.enabled).','Desplazamientos no activados en este servidor CNCjs (touch.motion.enabled).'],
+['Version de la carte inconnue : touchez Relire les réglages.','Board version unknown: tap Read the settings again.','Versión de la placa desconocida: toque Volver a leer los ajustes.'],
+['Palpage en cours : attendez sa fin.','Probing in progress: wait for it to end.','Sondeo en curso: espere a que termine.'],
+['Chargement en cours : attendez sa fin.','Loading in progress: wait for it to end.','Carga en curso: espere a que termine.'],
+['Travail en cours : déplacement manuel impossible.','Job running: manual moves impossible.','Trabajo en curso: desplazamiento manual imposible.'],
+['Travail en pause : reprenez-le ou arrêtez-le avant de déplacer.','Job paused: resume or stop it before moving.','Trabajo en pausa: reanúdelo o deténgalo antes de desplazar.'],
+[' : Déverrouiller ($X) ou Prise d’origine ($H) dans Machine.',': Unlock ($X) or Homing ($H) in Machine.',': Desbloquear ($X) o Búsqueda de origen ($H) en Máquina.'],
+['Prise d’origine en cours : attendez sa fin.','Homing in progress: wait for it to end.','Búsqueda de origen en curso: espere a que termine.'],
+['Déplacement en cours : attendez l’arrêt.','Move in progress: wait for it to stop.','Desplazamiento en curso: espere a que se detenga.'],
+['Machine en pause : touchez Arrêter (bandeau), puis Prise d’origine.','Machine on hold: tap Stop (status bar), then Homing.','Máquina en pausa: toque Detener (barra de estado) y luego Búsqueda de origen.'],
+['Porte de sécurité ouverte : fermez-la, puis touchez Arrêter (bandeau).','Safety door open: close it, then tap Stop (status bar).','Puerta de seguridad abierta: ciérrela y luego toque Detener (barra de estado).'],
+['Carte en veille : réinitialisez-la (bouton de la carte ou remise sous tension).','Board asleep: reset it (board button or power cycle).','Placa en reposo: reiníciela (botón de la placa o nuevo encendido).'],
+['La machine doit être au repos : état ','The machine must be idle: state ','La máquina debe estar en reposo: estado '],
+['Déplacement indisponible.','Move unavailable.','Desplazamiento no disponible.'],
+['Origine de travail indisponible.','Work origin unavailable.','Origen de trabajo no disponible.'],
+['Sans réponse du serveur : vérifiez la position avant de continuer.','No answer from the server: check the position before going on.','Sin respuesta del servidor: compruebe la posición antes de continuar.'],
+['Refusé : ','Refused: ','Rechazado: '],
+[' · continu : ',' · continuous: ',' · continuo: '],
+['arrêt envoyé…','stop sent…','parada enviada…'],
+['arrêté.','stopped.','detenido.'],
+['bouton masqué','button hidden','botón oculto'],
+[' · continu · ',' · continuous · ',' · continuo · '],
+[' : envoi…',': sending…',': enviando…'],
+[' · continu : en cours, relâchez pour arrêter.',' · continuous: moving, release to stop.',' · continuo: en curso, suelte para detener.'],
+['arrêt envoyé','stop sent','parada enviada'],
+['envoi…','sending…','enviando…'],
+['envoyé à la machine.','sent to the machine.','enviado a la máquina.'],
+['demande de confirmation…','asking for confirmation…','solicitando confirmación…'],
+[' réglée.',' set.',' fijado.'],
+['Définir l’origine de travail','Set the work origin','Definir el origen de trabajo'],
+['Aucun axe ne bouge.','No axis moves.','Ningún eje se mueve.'],
+['Relecture des réglages de la carte ($$)…','Reading the board settings ($$)…','Leyendo los ajustes de la placa ($$)…'],
+['Réglages relus : vérifiez que les commandes sont de nouveau disponibles.','Settings read: check that the commands are available again.','Ajustes leídos: compruebe que los comandos vuelven a estar disponibles.'],
+['Vitesse · ','Speed · ','Velocidad · '],
+['continu','continuous','continuo'],
+['Déplacement continu ','Continuous move ','Desplazamiento continuo '],
+[' : relâchez pour arrêter.',': release to stop.',': suelte para detener.'],
+['Les flèches déplacent la machine · ','The arrows move the machine · ','Las flechas mueven la máquina · '],
+['continu · ','continuous · ','continuo · '],
+[' · relâchez pour arrêter',' · release to stop',' · suelte para detener'],
+['pas ','step ','paso '],
+['Machine non référencée : pas de 1 mm au plus, pas de continu. Prise d’origine dans Machine.','Machine not homed: steps of 1 mm at most, no continuous move. Homing in Machine.','Máquina sin referenciar: pasos de 1 mm como máximo, sin continuo. Búsqueda de origen en Máquina.'],
+['pilotage pris par un autre appareil','control taken by another device','control tomado por otro dispositivo'],
+['Déplacement arrêté : ','Move stopped: ','Desplazamiento detenido: '],
+['autre appui','another touch','otro toque'],
+['Ouvrir la sonde','Open the probe','Abrir la sonda'],
+['Vitesse de déplacement','Move speed','Velocidad de desplazamiento'],
+['Prêt à déplacer','Ready to move','Listo para desplazar'],
+['Déplacement indisponible','Move unavailable','Desplazamiento no disponible'],
+['Sonde : profils et diagnostic','Probe: profiles and diagnostic','Sonda: perfiles y diagnóstico'],
+['Zéro Z avec une plaque : dans Suivi, machine au repos','Z zero with a plate: in Monitor, machine idle','Cero Z con placa: en Seguimiento, máquina en reposo'],
+['Zéro Z avec plaque → Suivi','Z zero with plate → Monitor','Cero Z con placa → Seguimiento'],
+
+['Touchez Arrêter, puis $H.','Tap Stop, then $H.','Toque Detener y luego $H.'],
+['Touchez Relire les réglages ($$).','Tap Read the settings again ($$).','Toque Volver a leer los ajustes ($$).'],
+['Touchez Déverrouiller ($X), puis Relire les réglages ($$), puis $H.','Tap Unlock ($X), then Read the settings again ($$), then $H.','Toque Desbloquear ($X), luego Volver a leer los ajustes ($$) y luego $H.'],
+['Réglages relus.','Settings read again.','Ajustes leídos de nuevo.'],
+['Alarme : touchez Déverrouiller ($X) dans Machine, puis Relire les réglages ($$), puis Prise d’origine ($H).','Alarm: tap Unlock ($X) in Machine, then Read the settings again ($$), then Homing ($H).','Alarma: toque Desbloquear ($X) en Máquina, luego Volver a leer los ajustes ($$) y luego Búsqueda de origen ($H).'],
+['Rapports de la carte en pouces ($13=1) : réglez $13=0 sur la carte pour déplacer depuis la tablette.','Board reports in inches ($13=1): set $13=0 on the board to move from the tablet.','Informes de la placa en pulgadas ($13=1): ajuste $13=0 en la placa para mover desde la tableta.'],
+['Réglage $13 inconnu : touchez Relire les réglages ($$).','Setting $13 unknown: tap Read the settings again ($$).','Ajuste $13 desconocido: toque Volver a leer los ajustes ($$).'],
+['annulation envoyée, attente de l’arrêt…','cancel sent, waiting for the stop…','cancelación enviada, esperando la parada…'],
+['durée maximale d’un déplacement continu atteinte','longest duration of a continuous move reached','duración máxima de un desplazamiento continuo alcanzada'],
+['Coordonnées du contrôleur','Controller coordinates','Coordenadas del controlador'],
+['Continu','Continuous','Continuo'],
+['Vitesse…','Speed…','Velocidad…'],
+['Les flèches déplacent la machine du pas choisi, à la vitesse choisie ; en continu, tant que le doigt reste posé. Arrêter (bandeau) annule un déplacement en cours.','The arrows move the machine by the chosen step, at the chosen speed; in continuous mode, as long as the finger stays down. Stop (status bar) cancels a move in progress.','Las flechas mueven la máquina el paso elegido, a la velocidad elegida; en continuo, mientras el dedo siga apoyado. Detener (barra de estado) cancela un desplazamiento en curso.'],
+['Vitesse des déplacements manuels. Elle ne change pas les vitesses d’un programme.','Speed of manual moves. It does not change the speeds of a program.','Velocidad de los desplazamientos manuales. No cambia las velocidades de un programa.'],
+['Machine non référencée : pas de 1 mm au plus et pas de continu. Faites la prise d’origine dans Machine.','Machine not homed: steps of 1 mm at most and no continuous move. Home it in Machine.','Máquina sin referenciar: pasos de 1 mm como máximo y sin continuo. Haga la búsqueda de origen en Máquina.'],
+['L’arrêt d’urgence physique reste le seul arrêt garanti.','The physical emergency stop remains the only guaranteed stop.','La parada de emergencia física sigue siendo la única parada garantizada.'],
+['Zéro Z avec une plaque : dans Suivi, machine au repos. Profils et diagnostic de la sonde : panneau Sonde.','Z zero with a plate: in Monitor, machine idle. Probe profiles and diagnostic: Probe panel.','Cero Z con placa: en Seguimiento, máquina en reposo. Perfiles y diagnóstico de la sonda: panel Sonda.'],
+['Commandes réelles : Déverrouiller ($X) et Prise d’origine ($H) sur cet écran, chacune avec sa confirmation ; déplacements et zéros de travail depuis Préparer ; zéro Z avec plaque depuis Suivi.','Real commands: Unlock ($X) and Homing ($H) on this screen, each with its confirmation; moves and work zeros from Prepare; Z zero with a plate from Monitor.','Comandos reales: Desbloquear ($X) y Búsqueda de origen ($H) en esta pantalla, cada uno con su confirmación; desplazamientos y ceros de trabajo desde Preparar; cero Z con placa desde Seguimiento.']);
+
+// Kiosk startup and loaded/installed interface versions.
+window.CNCTouchMessages.push(
+["Recharger","Reload","Recargar"],
+["Chargement incomplet. Vérifiez la connexion puis réessayez.","Loading incomplete. Check the connection and try again.","Carga incompleta. Compruebe la conexión y reintente."],
+["Le chargement prend plus de temps que prévu. Vous pouvez patienter ou réessayer.","Loading is taking longer than expected. You can wait or try again.","La carga tarda más de lo previsto. Puede esperar o reintentar."],
+["Interface chargée : ","Loaded interface: ","Interfaz cargada: "],
+["Version installée : ","Installed version: ","Versión instalada: "],
+["Rechargement indisponible : attendez le retour au repos.","Reload unavailable: wait until the machine is back at rest.","Recarga no disponible: espere a que la máquina vuelva al reposo."],
+["Fermez la confirmation ouverte avant de recharger.","Close the open confirmation before reloading.","Cierre la confirmación abierta antes de recargar."]
+);
+
+window.CNCTouchMessages.push([' · Sélection différente : ',' · Different selection: ',' · Selección diferente: ']);
+
+/* Session frame (L1). */
+(function(){window.CNCTouchMessages=window.CNCTouchMessages.concat([
+  [
+    "Plus",
+    "More",
+    "Más"
+  ],
+  [
+    "Contrôle",
+    "Check",
+    "Control"
+  ],
+  [
+    "Usinage",
+    "Machining",
+    "Mecanizado"
+  ],
+  [
+    "Gravure",
+    "Engraving",
+    "Grabado"
+  ],
+  [
+    "Zéro pièce",
+    "Work zero",
+    "Cero pieza"
+  ],
+  [
+    "Macros",
+    "Macros",
+    "Macros"
+  ],
+  [
+    "Détails",
+    "Details",
+    "Detalles"
+  ],
+  [
+    "Affichage, système",
+    "Display, system",
+    "Pantalla, sistema"
+  ],
+  [
+    "Le fil de la séance",
+    "The session steps",
+    "Las etapas de la sesión"
+  ],
+  [
+    "Aucune macro dans CNCjs",
+    "No macros in CNCjs",
+    "Ninguna macro en CNCjs"
+  ],
+  [
+    "CNCjs Touch · page {version}",
+    "CNCjs Touch · page {version}",
+    "CNCjs Touch · página {version}"
+  ],
+  [
+    "Suite : {etape} →",
+    "Next: {etape} →",
+    "Siguiente: {etape} →"
+  ],
+  [
+    "Étape {n}, {etape} : {etat}",
+    "Step {n}, {etape}: {etat}",
+    "Etapa {n}, {etape}: {etat}"
+  ],
+  [
+    "Impossible pour l’instant.",
+    "Unavailable for now.",
+    "No disponible por ahora."
+  ],
+  [
+    "La tablette ne joint plus le serveur. Elle réessaie seule.",
+    "The tablet cannot reach the server. It retries automatically.",
+    "La tableta no conecta con el servidor. Reintenta automáticamente."
+  ],
+  [
+    "L’état de la machine est perdu. Arrêter reste possible.",
+    "The machine state is lost. Stop remains available.",
+    "Se ha perdido el estado de la máquina. Parar sigue disponible."
+  ],
+  [
+    "Une commande de la tablette est en cours. Attendez sa fin.",
+    "A tablet command is running. Wait until it finishes.",
+    "Hay una orden de la tableta en curso. Espere a que termine."
+  ],
+  [
+    "Alarme pendant l’usinage. Arrêtez l’usinage.",
+    "Alarm during machining. Stop machining.",
+    "Alarma durante el mecanizado. Pare el mecanizado."
+  ],
+  [
+    "Le zéro pièce n’est pas vérifié.",
+    "Work zero is not verified.",
+    "El cero pieza no está verificado."
+  ],
+  [
+    "Zéro pièce d’une séance précédente. Refaites-le pour cette pièce.",
+    "Work zero belongs to an earlier session. Set it for this workpiece.",
+    "El cero pieza es de una sesión anterior. Repítalo para esta pieza."
+  ],
+  [
+    "Rechargez le fichier avant de démarrer.",
+    "Reload the file before starting.",
+    "Recargue el archivo antes de arrancar."
+  ],
+  [
+    "Choisissez un fichier dans la liste.",
+    "Choose a file from the list.",
+    "Elija un archivo de la lista."
+  ],
+  [
+    "Tout est prêt.",
+    "Everything is ready.",
+    "Todo está listo."
+  ],
+  [
+    "Lecture des réglages en cours.",
+    "Reading settings.",
+    "Leyendo los ajustes."
+  ],
+  [
+    "Déplacement en cours.",
+    "Moving.",
+    "Movimiento en curso."
+  ],
+  [
+    "En cas de besoin : l’arrêt d’urgence de la machine.",
+    "If needed, use the machine emergency stop.",
+    "Si es necesario, use la parada de emergencia de la máquina."
+  ],
+  [
+    "Prête",
+    "Ready",
+    "Lista"
+  ],
+  [
+    "Chargé",
+    "Loaded",
+    "Cargado"
+  ],
+  [
+    "Choisi",
+    "Selected",
+    "Elegido"
+  ],
+  [
+    "Aucun fichier",
+    "No file",
+    "Ningún archivo"
+  ],
+  [
+    "Palpage…",
+    "Probing…",
+    "Palpando…"
+  ],
+  [
+    "À vérifier",
+    "To verify",
+    "Por verificar"
+  ],
+  [
+    "Posé",
+    "Set",
+    "Establecido"
+  ],
+  [
+    "Ancien zéro",
+    "Previous zero",
+    "Cero anterior"
+  ],
+  [
+    "Zéro pièce à vérifier",
+    "Work zero to verify",
+    "Cero pieza por verificar"
+  ],
+  [
+    "Dépasse",
+    "Outside travel",
+    "Fuera del recorrido"
+  ],
+  [
+    "Non vérifié",
+    "Not verified",
+    "Sin verificar"
+  ],
+  [
+    "À recharger",
+    "Reload needed",
+    "Por recargar"
+  ],
+  [
+    "Tient",
+    "Fits",
+    "Cabe"
+  ],
+  [
+    "Arrêté",
+    "Stopped",
+    "Detenido"
+  ],
+  [
+    "Rien en cours",
+    "Nothing running",
+    "Nada en curso"
+  ],
+  [
+    "Prendre la main",
+    "Take control",
+    "Tomar el control"
+  ],
+  [
+    "Remise en route",
+    "Recovery",
+    "Puesta en marcha"
+  ],
+  [
+    "Prise d’origine machine…",
+    "Home machine…",
+    "Buscar origen…"
+  ],
+  [
+    "Vérifier à nouveau",
+    "Check again",
+    "Comprobar de nuevo"
+  ],
+  [
+    "Arrêter l’usinage",
+    "Stop machining",
+    "Parar el mecanizado"
+  ],
+  [
+    "Voir l’usinage",
+    "View machining",
+    "Ver el mecanizado"
+  ],
+  [
+    "Refaire le zéro Z",
+    "Reset Z zero",
+    "Repetir el cero Z"
+  ],
+  [
+    "Refaire le zéro pièce",
+    "Reset work zero",
+    "Repetir el cero pieza"
+  ],
+  [
+    "Recharger ce fichier",
+    "Reload this file",
+    "Recargar este archivo"
+  ],
+  [
+    "Ma sonde…",
+    "My probe…",
+    "Mi sonda…"
+  ],
+  [
+    "Pourquoi ?",
+    "Why?",
+    "¿Por qué?"
+  ],
+  [
+    "Voir le dessin de départ",
+    "View starting diagram",
+    "Ver el dibujo inicial"
+  ],
+  [
+    "Relancer le palpage",
+    "Probe again",
+    "Repetir el palpado"
+  ],
+  [
+    "Changer la ligne",
+    "Change line",
+    "Cambiar la línea"
+  ],
+  [
+    "Reprendre au début",
+    "Restart from beginning",
+    "Reiniciar desde el principio"
+  ],
+  [
+    "Recommencer",
+    "Start again",
+    "Repetir"
+  ],
+  [
+    "Voir le contrôle",
+    "View check",
+    "Ver el control"
+  ],
+  [
+    "Type de machine…",
+    "Machine type…",
+    "Tipo de máquina…"
+  ],
+  [
+    "Charger ce fichier",
+    "Load this file",
+    "Cargar este archivo"
+  ],
+  [
+    "Démarrer l’usinage…",
+    "Start machining…",
+    "Iniciar mecanizado…"
+  ],
+  [
+    "Démarrer la gravure…",
+    "Start engraving…",
+    "Iniciar grabado…"
+  ],
+  [
+    "La main",
+    "Control",
+    "El control"
+  ],
+  [
+    "La main :",
+    "Control:",
+    "Control:"
+  ],
+  [
+    "ici",
+    "here",
+    "aquí"
+  ],
+  [
+    "autre",
+    "other",
+    "otro"
+  ],
+  [
+    "Aucun usinage en cours.",
+    "No machining in progress.",
+    "Ningún mecanizado en curso."
+  ],
+  [
+    "Rien à arrêter.",
+    "Nothing to stop.",
+    "Nada que parar."
+  ],
+  [
+    "à jour",
+    "up to date",
+    "al día"
+  ],
+  [
+    "ancienne · ",
+    "old · ",
+    "antigua · "
+  ],
+  [
+    "Lancer l’usinage",
+    "Start machining",
+    "Iniciar mecanizado"
+  ],
+  [
+    "Reprendre l’usinage",
+    "Resume machining",
+    "Reanudar mecanizado"
+  ],
+  [
+    "Lancer la macro",
+    "Run macro",
+    "Ejecutar macro"
+  ],
+  [
+    "Déverrouiller",
+    "Unlock",
+    "Desbloquear"
+  ],
+  [
+    "Lancer le zéro Z",
+    "Start Z zero",
+    "Iniciar cero Z"
+  ],
+  [
+    "Lancer le cadrage",
+    "Start framing",
+    "Iniciar encuadre"
+  ],
+  [
+    "Lancer le palpage {axes}",
+    "Start probing {axes}",
+    "Iniciar palpado {axes}"
+  ],
+  [
+    "Démarrer l’usinage",
+    "Start machining",
+    "Iniciar mecanizado"
+  ],
+  [
+    "Lancer la macro {nom}",
+    "Run macro {nom}",
+    "Ejecutar macro {nom}"
+  ],
+  [
+    "Déverrouiller sans prise d’origine",
+    "Unlock without homing",
+    "Desbloquear sin buscar origen"
+  ],
+  [
+    "Lancer la prise d’origine machine",
+    "Home the machine",
+    "Buscar el origen máquina"
+  ],
+  [
+    "Zéro Z à la plaque",
+    "Z zero with plate",
+    "Cero Z con placa"
+  ],
+  [
+    "Cadrer le fichier",
+    "Frame the file",
+    "Encuadrar el archivo"
+  ],
+  [
+    "Palper le bloc {axes}",
+    "Probe the block {axes}",
+    "Palpar el bloque {axes}"
+  ],
+  [
+    "Lancer la gravure",
+    "Start engraving",
+    "Iniciar grabado"
+  ],
+  [
+    "Démarrer la gravure",
+    "Start engraving",
+    "Iniciar grabado"
+  ],
+  [
+    "Les trois axes vont jusqu’à leurs capteurs, Z d’abord. Dégagez la table.",
+    "All three axes move to their switches, Z first. Clear the table.",
+    "Los tres ejes van hasta sus sensores, Z primero. Despeje la mesa."
+  ],
+  [
+    "Je suis devant la machine et la table est dégagée.",
+    "I am at the machine and the table is clear.",
+    "Estoy delante de la máquina y la mesa está despejada."
+  ],
+  [
+    "Rien ne bouge. La position de la machine peut être fausse : faites ensuite la prise d’origine.",
+    "Nothing moves. The machine position may be wrong: home it afterwards.",
+    "Nada se mueve. La posición puede ser incorrecta: busque el origen después."
+  ],
+  [
+    "La tête fait le tour du fichier, laser éteint.",
+    "The head traces the file boundary with the laser off.",
+    "El cabezal recorre el contorno del archivo con el láser apagado."
+  ],
+  [
+    "Une macro peut déplacer la machine et faire tourner la broche.",
+    "A macro can move the machine and start the spindle.",
+    "Una macro puede mover la máquina y arrancar el husillo."
+  ],
+  [
+    "Je suis devant la machine et je connais cette macro.",
+    "I am at the machine and I know this macro.",
+    "Estoy delante de la máquina y conozco esta macro."
+  ],
+  [
+    "Je suis devant la machine et j’ai vérifié que le fichier tient dans la machine.",
+    "I am at the machine and have checked that the file fits its travel.",
+    "Estoy delante de la máquina y he comprobado que el archivo cabe en su recorrido."
+  ],
+  [
+    "Prendre la main — je suis devant la machine",
+    "Take control — I am at the machine",
+    "Tomar el control — estoy delante de la máquina"
+  ],
+  [
+    "Prendre la main — l’autre appareil est hors service",
+    "Take control — the other device is out of service",
+    "Tomar el control — el otro dispositivo está fuera de servicio"
+  ],
+  [
+    " Un palpage est en cours : prendre la main l’arrête.",
+    " Probing is in progress: taking control stops it.",
+    " Hay un palpado en curso: tomar el control lo detiene."
+  ],
+  [
+    " Un déplacement est en cours : prendre la main l’arrête.",
+    " A move is in progress: taking control stops it.",
+    " Hay un movimiento en curso: tomar el control lo detiene."
+  ],
+  [
+    " L’usinage continue.",
+    " Machining continues.",
+    " El mecanizado continúa."
+  ],
+  [
+    "Rendre la main",
+    "Give back control",
+    "Ceder el control"
+  ],
+  [
+    " Un palpage est en cours : rendre la main l’arrête.",
+    " Probing is in progress: giving back control stops it.",
+    " Hay un palpado en curso: ceder el control lo detiene."
+  ],
+  [
+    "Un cadrage est en cours : rendre la main l’arrête.",
+    "Framing is in progress: giving back control stops it.",
+    "Hay un encuadre en curso: ceder el control lo detiene."
+  ],
+  [
+    " Un déplacement est en cours : rendre la main l’arrête.",
+    " A move is in progress: giving back control stops it.",
+    " Hay un movimiento en curso: ceder el control lo detiene."
+  ],
+  [
+    "Un autre appareil pourra alors prendre la main, sans motif.",
+    "Another device can then take control, without a reason.",
+    "Otro dispositivo podrá entonces tomar el control, sin motivo."
+  ],
+  [
+    "Main rendue : un autre appareil peut la prendre.",
+    "Control given back: another device can take it.",
+    "Control cedido: otro dispositivo puede tomarlo."
+  ],
+  [
+    "Rendu Performance actif.",
+    "Performance rendering active.",
+    "Renderizado Performance activo."
+  ],
+  [
+    "Rendu Performance en attente du repos de la machine.",
+    "Performance rendering is waiting for the machine to be idle.",
+    "El renderizado Performance espera a que la máquina esté en reposo."
+  ],
+  [
+    "Rendu Éco : page ouverte pendant un usinage. Rechargez-la au repos.",
+    "Eco rendering: page opened during machining. Reload at idle.",
+    "Renderizado Eco: página abierta durante un mecanizado. Recárguela en reposo."
+  ],
+  [
+    "Rendu Éco : appareil non éligible.",
+    "Eco rendering: device not eligible.",
+    "Renderizado Eco: dispositivo no compatible."
+  ]
+]);})();
+
+(function(){window.CNCTouchMessages.push(['Vitesse','Speed','Velocidad']);})();
+
+(function(){window.CNCTouchMessages=window.CNCTouchMessages.concat([
+  [
+    "Mise en service : page réelle uniquement.",
+    "Commissioning: real page only.",
+    "Puesta en servicio: solo en la página real."
+  ],
+  [
+    "Il manque : ",
+    "Missing: ",
+    "Falta: "
+  ],
+  [
+    "Le fichier demande une position hors de la machine, ligne {N}. Refaire le zéro n’y change rien.",
+    "The file requests an out-of-travel position at line {N}. Resetting work zero cannot fix it.",
+    "El archivo pide una posición fuera del recorrido en la línea {N}. Repetir el cero no lo soluciona."
+  ],
+  [
+    "Le mode laser est actif dans la machine.",
+    "Laser mode is enabled in the machine.",
+    "El modo láser está activo en la máquina."
+  ]
+]);})();
+
+(function(){window.CNCTouchMessages=window.CNCTouchMessages.concat([["Autre motif…","Other reason…","Otro motivo…"]]);})();
+
+(function(){window.CNCTouchMessages=window.CNCTouchMessages.concat([["La fraise descend jusqu’à la plaque de {epaisseur} mm, de {descente} mm au plus.","The cutter descends to the {epaisseur} mm plate, over at most {descente} mm.","La fresa baja hasta la placa de {epaisseur} mm, como máximo {descente} mm."],["La broche démarre et la machine se déplace.","The spindle starts and the machine moves.","El husillo arranca y la máquina se mueve."],["Le laser s’allume et la tête se déplace.","The laser turns on and the head moves.","El láser se enciende y el cabezal se mueve."]]);})();
+
+(function(){window.CNCTouchMessages.push(['Arrêté ligne {n}','Stopped at line {n}','Detenido en la línea {n}']);})();
+
+// L2: machine readiness and recovery.
+(window.CNCTouchMessages = window.CNCTouchMessages || []).push(
+["Pour que la machine soit prête","To get the machine ready","Para preparar la máquina"],
+["Machine connectée","Machine connected","Máquina conectada"],
+["Machine non connectée","Machine not connected","Máquina no conectada"],
+["La main : cet appareil","Control: this device","Control: este dispositivo"],
+["La main : libre","Control: free","Control: libre"],
+["C’est « {appareil} » qui a la main","“{appareil}” has control","«{appareil}» tiene el control"],
+["Réglages lus","Settings read","Ajustes leídos"],
+["Réglages pas encore lus","Settings not read yet","Ajustes aún no leídos"],
+["Lecture des réglages…","Reading settings…","Leyendo ajustes…"],
+["Usinage arrêté à la ligne {n}","Machining stopped at line {n}","Mecanizado detenido en la línea {n}"],
+["Un usinage est encore ouvert","A machining job is still open","Todavía hay un mecanizado abierto"],
+["Origine machine prise","Machine homed","Máquina referenciada"],
+["Origine machine à prendre","Home the machine","Referenciar la máquina"],
+["Origine machine à reprendre","Home the machine again","Volver a referenciar la máquina"],
+["Zéro pièce : à vérifier après la prise d’origine","Work zero: to be checked after homing","Cero pieza: por comprobar después del referenciado"],
+["Zéro pièce : non vérifié","Work zero: not checked","Cero pieza: no comprobado"],
+["Zéro pièce : gardé, vérifié","Work zero: kept and checked","Cero pieza: conservado y comprobado"],
+["Zéro pièce : vérifié","Work zero: checked","Cero pieza: comprobado"],
+["Zéro pièce : la machine le vérifie…","Work zero: the machine is checking it…","Cero pieza: la máquina lo está comprobando…"],
+["Zéro pièce : réglages à relire d’abord","Work zero: read settings again first","Cero pieza: relea primero los ajustes"],
+["Zéro pièce : à refaire","Work zero: set it again","Cero pieza: volver a ajustarlo"],
+["Zéro pièce : la machine ne l’a pas confirmé","Work zero: the machine did not confirm it","Cero pieza: la máquina no lo ha confirmado"],
+["Reprendre l’usinage à la ligne {n}","Resume machining at line {n}","Reanudar el mecanizado en la línea {n}"],
+["Reprendre à la ligne {n}…","Resume at line {n}…","Reanudar en la línea {n}…"],
+["Mise en service jamais faite pour cette machine","Commissioning has never been done for this machine","Nunca se ha realizado la puesta en servicio de esta máquina"],
+["La machine est prête.","The machine is ready.","La máquina está lista."],
+["Main ailleurs","Control elsewhere","Control en otro dispositivo"],
+["Réglages à lire","Read settings","Leer ajustes"],
+["Origine à reprendre","Home again","Volver a referenciar"],
+["Origine à prendre","Homing needed","Referenciado pendiente"],
+["Il manque : l’origine machine.","Missing: machine homing.","Falta: el referenciado de la máquina."],
+["Répondez dans la carte ci-dessus.","Answer in the card above.","Responda en la tarjeta de arriba."],
+["Déverrouiller sans prise d’origine…","Unlock without homing…","Desbloquear sin referenciar…"],
+["Sert seulement quand la machine est en alarme.","Only used when the machine is in alarm.","Solo se usa cuando la máquina está en alarma."],
+["Détails de la machine","Machine details","Detalles de la máquina"],
+["Ce qui s’est passé","What happened","Qué ha ocurrido"],
+["Gardé : le fichier chargé.","Kept: the loaded file.","Conservado: el archivo cargado."],
+["Alarme 2 : la machine a dépassé sa course.","Alarm 2: the machine exceeded its travel.","Alarma 2: la máquina ha sobrepasado su recorrido."],
+["La machine a redémarré.","The machine restarted.","La máquina se ha reiniciado."],
+["Perdu : la position de la machine.","Lost: the machine position.","Perdido: la posición de la máquina."],
+["Usinage arrêté à la ligne {n}.","Machining stopped at line {n}.","Mecanizado detenido en la línea {n}."],
+["Connecter la machine ?","Connect the machine?","¿Conectar la máquina?"],
+["La machine redémarre. Elle sera en alarme jusqu’à la prise d’origine.","The machine restarts. It will stay in alarm until homing.","La máquina se reinicia. Permanecerá en alarma hasta el referenciado."],
+["Ouverture de la connexion…","Opening the connection…","Abriendo la conexión…"],
+["Si la machine ne répond plus du tout : éteignez-la, rallumez-la, puis reconnectez. Vérifiez le capteur, puis faites la prise d’origine dans Machine.","If the machine does not respond at all: switch it off, switch it back on, then reconnect. Check the switch, then home from Machine.","Si la máquina no responde en absoluto: apáguela, enciéndala y vuelva a conectarla. Compruebe el sensor y haga el referenciado en Máquina."],
+["Si la machine ne répond plus du tout : éteignez-la, rallumez-la, puis reconnectez. Vérifiez la position de la pièce et le programme, puis faites la prise d’origine dans Machine.","If the machine does not respond at all: switch it off, switch it back on, then reconnect. Check the workpiece position and the program, then home from Machine.","Si la máquina no responde en absoluto: apáguela, enciéndala y vuelva a conectarla. Compruebe la posición de la pieza y el programa y haga el referenciado en Máquina."],
+["Code non reçu. Faites la prise d’origine dans Machine. Si la machine ne répond plus du tout : éteignez-la, rallumez-la, puis reconnectez.","Code not received. Home from Machine. If the machine does not respond at all: switch it off, switch it back on, then reconnect.","Código no recibido. Haga el referenciado en Máquina. Si la máquina no responde en absoluto: apáguela, enciéndala y vuelva a conectarla."],
+["Un cadrage est en cours : prendre la main l’arrête.","Framing is in progress: taking control stops it.","Hay un encuadre en curso: tomar el control lo detiene."],
+["Cet appareil a la main.","This device has control.","Este dispositivo tiene el control."],
+["Personne n’a la main : la première commande la prend.","Nobody has control: the first command takes it.","Nadie tiene el control: el primer comando lo toma."],
+["C’est « {appareil} » qui a la main depuis {heure}.","“{appareil}” has had control since {heure}.","«{appareil}» tiene el control desde las {heure}."]
+);
+
+(window.CNCTouchMessages = window.CNCTouchMessages || []).push(
+['Port','Port','Puerto'],
+['Pause et Arrêter restent possibles ici.','Pause and Stop remain available here.','Pausa y Detener siguen disponibles aquí.'],
+['réglages lus','settings read','ajustes leídos']
+);
+
+(window.CNCTouchMessages = window.CNCTouchMessages || []).push(
+['Un port est déjà ouvert. Choisissez la machine dans Détails de la machine.','A port is already open. Select the machine in Machine details.','Ya hay un puerto abierto. Seleccione la máquina en Detalles de la máquina.']
+);
+
+window.CNCTouchMessages.push(
+["Rien en cours.","Nothing running.","Nada en curso."],
+["Suite : Contrôle →","Next: Check →","Siguiente: Control →"],
+["Suite : Fichier →","Next: File →","Siguiente: Archivo →"],
+["Usinage en cours.","Machining in progress.","Mecanizado en curso."],
+["La machine attend. Si rien ne bouge, arrêtez l’usinage.","The machine is waiting. If nothing moves, stop machining.","La máquina espera. Si nada se mueve, detenga el mecanizado."],
+["Pause du fichier","Program pause","Pausa del archivo"],
+["Pause demandée par le fichier.","The program requested a pause.","El archivo ha solicitado una pausa."],
+["Pause. La broche tourne toujours.","Paused. The spindle is still turning.","Pausa. El husillo sigue girando."],
+["Le fichier demande un changement de fraise.","The program requests a tool change.","El archivo solicita cambiar la fresa."],
+["Reprise indisponible.","Resume unavailable.","Reanudación no disponible."],
+["La porte de la machine est ouverte. Fermez-la.","The machine door is open. Close it.","La puerta de la máquina está abierta. Ciérrela."],
+["Arrêté à la ligne {n} sur {total}.","Stopped at line {n} of {total}.","Detenido en la línea {n} de {total}."],
+["Usinage arrêté avant la fin.","Machining stopped before completion.","Mecanizado detenido antes del final."],
+["Terminé.","Finished.","Terminado."],
+["Terminé en {temps}.","Finished in {temps}.","Terminado en {temps}."],
+["Terminé avec {n} lignes refusées par la machine.","Finished with {n} lines rejected by the machine.","Terminado con {n} líneas rechazadas por la máquina."],
+["Le laser est encore allumé : éteignez-le.","The laser is still on: turn it off.","El láser sigue encendido: apáguelo."],
+["La broche tourne encore : arrêtez-la.","The spindle is still turning: stop it.","El husillo sigue girando: deténgalo."],
+["Arrêtez l’usinage.","Stop machining.","Detenga el mecanizado."],
+["Zéro Z à la plaque en cours… Arrêter l’interrompt.","Setting Z zero with the plate… Stop interrupts it.","Poniendo cero Z con la placa… Detener lo interrumpe."],
+["Zéro Z posé à la plaque.","Z zero set with the plate.","Cero Z puesto con la placa."],
+["Attendez une information à jour.","Wait for fresh information.","Espere información actualizada."],
+["Arrêter la broche","Stop spindle","Detener el husillo"],
+["Arrêt de la broche indisponible.","Spindle stop unavailable.","Parada del husillo no disponible."],
+["Éteindre le laser","Turn laser off","Apagar el láser"],
+["Reprendre à une ligne","Resume from a line","Reanudar desde una línea"],
+["Reprendre à un début de passe","Resume from a pass start","Reanudar desde un inicio de pasada"],
+["Reprendre à la ligne","Resume at line","Reanudar en la línea"],
+["Arrêté à la ligne {n}.","Stopped at line {n}.","Detenido en la línea {n}."],
+["proposée : quinze mouvements avant l’arrêt","suggested: fifteen moves before the stop","propuesta: quince movimientos antes de la parada"],
+["La fraise remonte, va au-dessus du point, redescend, puis l’usinage reprend.","The tool rises, moves above the point, descends, then machining resumes.","La fresa sube, se sitúa sobre el punto, baja y se reanuda el mecanizado."],
+["Vérification de la ligne…","Checking line…","Verificando línea…"],
+["Ligne vérifiée.","Line checked.","Línea verificada."],
+["Puissance","Power","Potencia"],
+["Les corrections servent pendant un usinage.","Overrides are used during machining.","Las correcciones se usan durante el mecanizado."],
+["Remise en route →","Recovery →","Recuperación →"]
+);
+
+window.CNCTouchMessages.push(['ligne {n}','line {n}','línea {n}']);
+// F5: startup reconnection and its tablet-scoped preference.
+window.CNCTouchMessages.push(
+  ['Reconnexion automatique','Automatic reconnection','Reconexión automática'],
+  ['Au chargement du kiosque, reconnecter une fois la dernière machine.','When the kiosk loads, reconnect once to the last machine.','Al abrir el quiosco, reconectar una vez la última máquina.'],
+  ['La connexion redémarre la machine. La prise d’origine reste à faire.','Connecting restarts the machine. Homing is still required.','La conexión reinicia la máquina. Aún debe buscar el origen.'],
+  ['Choix appliqué à la prochaine ouverture de la page.','Choice applies the next time the page opens.','La elección se aplica la próxima vez que se abra la página.'],
+  ['Reconnexion automatique réservée à la tablette de la machine.','Automatic reconnection is only available on the machine tablet.','La reconexión automática solo está disponible en la tableta de la máquina.'],
+  ['Un appareil a la main. Connectez la machine manuellement.','A device has control. Connect the machine manually.','Un dispositivo tiene el control. Conecte la máquina manualmente.'],
+  ['Un port est déjà ouvert ou en cours d’ouverture. Connectez la machine manuellement.','A port is already open or opening. Connect the machine manually.','Ya hay un puerto abierto o abriéndose. Conecte la máquina manualmente.']
+);
+window.CNCTouchMessages.push(
+  ['Suivi interrompu : reconnexion en cours…','State stream lost: reconnecting…','Seguimiento interrumpido: reconectando…'],
+  ['Reconnexion…','Reconnecting…','Reconectando…'],
+  ['suivi perdu','stream lost','seguimiento perdido']
+);
+// F10 automatic interface reload.
+(window.CNCTouchMessages=window.CNCTouchMessages||[]).push(
+['Nouvelle version : rechargement dans {seconds} s','New version: reloading in {seconds} s','Nueva versión: recarga en {seconds} s'],
+['Plus tard','Later','Más tarde']
+);

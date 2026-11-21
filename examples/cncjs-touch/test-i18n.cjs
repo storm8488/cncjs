@@ -5,7 +5,7 @@ function setup(language='fr',fail=false){
  dom.document.documentElement={lang:''};dom.document.querySelectorAll=()=>dialogs;
  const window={addEventListener:(n,f)=>events[n]=f,removeEventListener:n=>delete events[n],dispatchEvent:e=>{if(events[e.type])events[e.type](e);},location:{reload:()=>calls.reload++},cncScreenSaver:{status:()=>state}};
  const context={window,document:dom.document,localStorage:{getItem:k=>saved.get(k)||null,setItem:(k,v)=>{if(fail)throw Error('storage disabled');saved.set(k,v);}},Event:class{constructor(type){this.type=type;}}};
- ['i18n-messages.js','i18n.js','language-settings.js'].forEach(name=>vm.runInNewContext(fs.readFileSync(path.join(__dirname,'touch',name),'utf8'),context));
+ ['i18n-messages.js','i18n-messages-profiles.js','i18n.js','language-settings.js'].forEach(name=>vm.runInNewContext(fs.readFileSync(path.join(__dirname,'touch',name),'utf8'),context));
  return {...dom,window,events,state,calls,saved,dialogs};
 }
 for(const language of ['en','es']){
@@ -25,7 +25,40 @@ for(const language of ['en','es']){
  assert.equal(i.html('<button id="Fichiers" data-route="files" title="Fichiers">Fichiers</button>'),language==='en'?'<button id="Fichiers" data-route="files" title="Files">Files</button>':'<button id="Fichiers" data-route="files" title="Archivos">Archivos</button>');
  assert.equal(i.html('<option value="simulation">SIMULATION</option>'),language==='en'?'<option value="simulation">SIMULATION</option>':'<option value="simulation">SIMULACIÓN</option>');
  assert.equal(i.html('<h2>Fichiers'),language==='en'?'<h2>Files':'<h2>Archivos');
+ // Réglages, three tabs: new labels, note, intro and restart message exist in both languages.
+ const en=language==='en';
+ assert.equal(i.message('Connecté au réseau Wi-Fi « Fichiers {value} ».') ,en?'Connected to Wi-Fi network “Fichiers {value}”.':'Conectado a la red Wi-Fi «Fichiers {value}».','SSID is data, never a translation key or template');
+ assert.equal(i.message('2 paquet(s) mis à jour. Redémarrage de la tablette nécessaire.'),en?'2 package(s) updated. Tablet restart required.':'2 paquete(s) actualizado(s). Es necesario reiniciar la tableta.');
+ assert.equal(i.message('Mise à jour impossible : E: detail'),en?'Update failed: E: detail':'Error al actualizar: E: detail');
+ assert.equal(i.t('Affichage'),en?'Display':'Pantalla');assert.equal(i.t('Machine et performances'),en?'Machine & performance':'Máquina y rendimiento');assert.equal(i.t('Système'),en?'System':'Sistema');
+ assert.equal(i.t('Actions système'),en?'System actions':'Acciones del sistema');
+ assert.equal(i.t('Machine au repos uniquement · confirmation par un second appui'),en?'Machine idle only · confirm with a second tap':'Solo con la máquina en reposo · confirmar con un segundo toque');
+ assert.equal(i.t('La portée est indiquée sur chaque réglage : Cette tablette ou Serveur CNCjs.'),en?'Each setting shows its scope: This tablet or CNCjs server.':'Cada ajuste indica su alcance: Esta tableta o Servidor CNCjs.');
+ assert.equal(i.t('Redémarrage nécessaire pour finir la mise à jour : utilisez la commande de redémarrage du bloc Tablette, hors travail.'),en?'Restart needed to finish the update: use the restart command of the Tablet block, outside a job.':'Reinicio necesario para terminar la actualización: use el comando de reinicio del bloque Tableta, fuera de un trabajo.');
+ assert.equal(i.t(' »'),en?'”':'»');
+ assert.equal(i.t('Affichage · machine · système'),en?'Display · machine · system':'Pantalla · máquina · sistema');
+ assert.equal(i.t('Luminosité pendant la veille'),en?'Brightness during screen sleep':'Brillo durante la suspensión');
  const keys=new Set();s.window.CNCTouchMessages.forEach(row=>{const key=row[0].trim().replace(/\s+/g,' ');assert(!keys.has(key),'duplicate: '+row[0]);keys.add(key);assert.equal(row.length,3);row.forEach(value=>assert(typeof value==='string'&&value.length>0));});
+ // Lot jog: coordinates editor, probe screens and the real-motion line were French in EN / ES (A10–A12, M10).
+ assert.equal(i.t('Machine : ')+'1.000'+i.t(' mm · Travail : ')+'2.000 mm',en?'Machine: 1.000 mm · Work: 2.000 mm':'Máquina: 1.000 mm · Trabajo: 2.000 mm');
+ assert.equal(i.t('Déplacement ')+i.t('fictif.'),en?'Movement simulated.':'Movimiento ficticio.');
+ assert.equal(i.t('Supprimer…'),en?'Delete…':'Eliminar…');
+ for(const r of ['Contact signalé par le champ Pn du rapport Grbl.','Champ Pn explicite : entrée P non active.','Champ Pn absent : entrée libre non confirmée. Capacité du firmware à valider.','Rapport sonde non reconnu : état inconnu.'])assert.notEqual(i.message(r),r,'translated: '+r);
+ assert.equal(i.t('repère inconnu'),en?'unknown work frame':'G5x ?');
+ {const ce=fs.readFileSync(path.join(__dirname,'touch','coordinate-editor.js'),'utf8'),pu=fs.readFileSync(path.join(__dirname,'touch','probe-ui.js'),'utf8');
+  assert(!/'Machine : '\+|\?'fictif\.'/.test(ce),'coordinate-editor: no untranslated literal');
+  assert(!/,'Supprimer…',|:'inconnue'\)/.test(pu),'probe-ui: no untranslated literal');
+  assert.equal((pu.match(/\(uiLocale\.message\|\|uiLocale\.t\)\(live\.reason\)/g)||[]).length,2,'probe-ui: the server reason is translated where it is shown');
+  // Review fixes (Astra 9): the controller line of the probe screens and « État observé » of the real panel say
+  // the status strip's word (« Reposo »), never Grbl's « Idle ».
+  const rm=fs.readFileSync(path.join(__dirname,'touch','real-motion.js'),'utf8');
+  assert(!/machine\?machine\.activeState:/.test(pu)&&(pu.match(/machine\?stateWord\(machine\):/g)||[]).length===2,'probe-ui: state in the strip\'s words');
+  // Préparer (real-motion.js) names a state other than Idle with the strip's word; the old « État observé » line left with the panel.
+  assert(!/'État observé : '/.test(rm)&&/t\('La machine doit être au repos : état '\)\+stateWord\(machine\)/.test(rm),'real-motion: state in the strip\'s words');}
+ // Corner label of the probe diagram (Fable 2, Astra 10): « Esquina: sin definir » ran out of the 140-unit « Pieza »
+ // at 18 px; every language at most as long as the French one (16 characters, 125 px at 18 px).
+ assert.equal(i.t('Coin : à définir'),en?'Corner: not set':'Esquina: elegir');
+ assert(i.t('Coin : à définir').length<='Coin : à définir'.length,'corner label no longer than the French one');
  // A translated browser must retain the exact protocol and calculation contracts.
  const runtime={window:s.window};
  ['probe-model.js','coordinate-plan.js'].forEach(name=>vm.runInNewContext(fs.readFileSync(path.join(__dirname,'touch',name),'utf8'),runtime));
@@ -40,6 +73,8 @@ for(const language of ['en','es']){
  const C=s.window.CNCCoordinates,result=C.plan({wcs:'G55',workPosition:{x:10},machinePosition:{x:110}},{axis:'x',operation:'shift',unit:'mm',value:'1,5',feed:100});
  assert.equal(result.wcs,'G55');assert.equal(result.targetMachineMm,111.5);assert.equal(result.offsetMm,100);
 }
+// The language confirmation sits in the intro (shown on every tab), not at the end of the panel.
+{const s=setup();assert(s.node('panel').children.some(c=>c.className==='wide language-confirm'),'confirmation in the intro');assert(!s.node('screen-settings').children.length,'nothing appended to the panel');}
 let s=setup('invalid');assert.equal(s.window.cncI18n.language,'fr');assert.equal(s.window.cncI18n.t('Fichiers'),'Fichiers');assert(!s.window.cncI18n.save('de'));assert.equal(s.saved.get('cncjs-touch-language-v1'),'invalid');
 function choose(s,language){s.node('display-language').value=language;s.node('display-language').handlers.change();}
 s=setup();choose(s,'en');assert(!s.node('language-apply').disabled);s.node('language-apply').click();assert.equal(s.saved.get('cncjs-touch-language-v1'),'en');assert.equal(s.calls.reload,1);
@@ -52,12 +87,43 @@ s=setup();choose(s,'es');s.events.pagehide({persisted:true});assert(s.events['cn
 for(const name of ['index.html','simulation.html']){const html=fs.readFileSync(path.join(__dirname,'touch',name),'utf8');assert(html.indexOf('i18n-messages.js')<html.indexOf('i18n.js'));assert(html.indexOf('i18n.js')<html.indexOf('cnc-state.js'));assert(html.indexOf('language-settings.js')>html.indexOf('touch-shell.js'));}
 // Every literal passed to t() in the page scripts has a catalog row (a missing row stays French in EN/ES).
 {
- const sandbox={window:{}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'touch','i18n-messages.js'),'utf8'),sandbox);
- const known=new Set(sandbox.window.CNCTouchMessages.map(r=>r[0].trim().replace(/\s+/g,' ')));
+ // Origin's held v2 card can show a deferred line after the gate closes. Only
+ // calls inside a positive s.v2 branch may use this catalogue; v1/RT calls keep
+ // requiring a static row. Parse the guard rather than excluding the module.
+ const v2Branches=function(src){
+  const ranges=[],ast=require('acorn').parse(src,{ecmaVersion:2017});
+  function positive(n){return n.type==='MemberExpression'&&!n.computed&&n.object.type==='Identifier'&&n.object.name==='s'&&n.property.name==='v2'||n.type==='LogicalExpression'&&n.operator==='&&'&&(positive(n.left)||positive(n.right));}
+  function visit(n){if(!n||typeof n!=='object')return;if(n.type==='IfStatement'&&positive(n.test))ranges.push([n.consequent.start,n.consequent.end]);Object.keys(n).forEach(k=>{const v=n[k];if(Array.isArray(v))v.forEach(visit);else if(v&&typeof v==='object')visit(v);});}
+  visit(ast);return ranges;
+ };
+ assert.deepEqual(v2Branches("if (!s.v2) t('v1'); if (s.v2 || fallback) t('v1');"),[],'v1 paths cannot borrow deferred translations');
+ const guarded="if (s.v2 && closed) { t('v2'); } else { t('v1'); }",ranges=v2Branches(guarded);
+ assert(ranges.some(([a,b])=>guarded.indexOf("t('v2')")>=a&&guarded.indexOf("t('v2')")<b));
+ assert(!ranges.some(([a,b])=>guarded.indexOf("t('v1')")>=a&&guarded.indexOf("t('v1')")<b),'alternate remains static');
+ const deferred=new Set(JSON.parse(fs.readFileSync(path.join(__dirname,'touch','i18n-messages-v2.js'),'utf8')).map(row=>row[0].trim().replace(/\s+/g,' ')));
+ // Every catalog: i18n-messages.js and the per-lot i18n-messages-*.js loaded after it, no key twice across them.
+ // i18n-messages.js first: it assigns the array the others push into.
+ const catalogs=['i18n-messages.js'].concat(fs.readdirSync(path.join(__dirname,'touch')).filter(n=>/^i18n-messages-[a-z]+\.js$/.test(n)));
+ const sandbox={window:{}};catalogs.forEach(n=>vm.runInNewContext(fs.readFileSync(path.join(__dirname,'touch',n),'utf8'),sandbox));
+ const known=new Set();
+ sandbox.window.CNCTouchMessages.forEach(row=>{const key=row[0].trim().replace(/\s+/g,' ');assert(!known.has(key),'duplicate across catalogs: '+row[0]);assert.equal(row.length,3);row.forEach(value=>assert(typeof value==='string'&&value.trim(),'FR/EN/ES row: '+row[0]));known.add(key);});
+ // Literal markup is translated by html(), including attributes. Brand names,
+ // dimension symbols and the font sample are invariant in all three languages.
+ const invariant=new Set(['CNCjs TOUCH','mm','1 mm','Aa']);
+ for(const {file,value} of require('./page-text-fixture.cjs').authoredMarkup()){
+  const key=value.trim().replace(/\s+/g,' ');assert(known.has(key)||invariant.has(key),file+': markup without FR/EN/ES: '+key);
+ }
+ // The guide translates its data table at render time rather than calling t()
+ // on each literal. Check every page, including the simulation-only sentence.
+ for(const r of require('./page-text-fixture.cjs').literals('interface-guide.js')){
+  if(r.ancestors.some(n=>n.type==='VariableDeclarator'&&n.id.name==='pages'))assert(known.has(r.value.trim()),'guide row: '+r.value);
+ }
+ for(const name of ['index.html','simulation.html']){const html=fs.readFileSync(path.join(__dirname,'touch',name),'utf8');catalogs.forEach(n=>{assert(html.indexOf(n+'?')>0,name+' loads '+n);assert(html.indexOf(n+'?')<html.indexOf('i18n.js?'),name+': '+n+' before i18n.js');});}
  const missing=[];
- for(const file of fs.readdirSync(path.join(__dirname,'touch')).filter(n=>n.endsWith('.js')&&!/^(i18n|i18n-messages|startup)\.js$/.test(n))){
+ for(const file of fs.readdirSync(path.join(__dirname,'touch')).filter(n=>n.endsWith('.js')&&!/^(i18n|i18n-messages(-[a-z]+)?|startup)\.js$/.test(n))){
   const src=fs.readFileSync(path.join(__dirname,'touch',file),'utf8');
-  for(const m of src.matchAll(/\bt\('((?:[^'\\]|\\.)*)'\)/g)){const v=m[1].replace(/\\n/g," ").replace(/\\'/g,"'").trim().replace(/\s+/g,' ');if(v&&/[a-zà-ÿ]{2}/i.test(v)&&!known.has(v)&&v!=='Idle ✓')missing.push(file+': '+v);}
+  const v2=file==='origin-preview.js'?v2Branches(src):[];
+  for(const m of src.matchAll(/\bt\('((?:[^'\\]|\\.)*)'\)/g)){const v=m[1].replace(/\\n/g," ").replace(/\\'/g,"'").trim().replace(/\s+/g,' ');const lazy=deferred.has(v)&&v2.some(([a,b])=>m.index>=a&&m.index<b);if(v&&/[a-zà-ÿ]{2}/i.test(v)&&!known.has(v)&&!lazy&&v!=='Idle ✓')missing.push(file+': '+v);}
  }
  assert.deepEqual(missing,[],'phrases without a catalog row');
 }

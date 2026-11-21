@@ -19,8 +19,10 @@
     clearTimeout(timer);timer=null;
     if(disposed||document.hidden)return;
     var d=new Date();
-    if(!off()){var text=format(d),stamp=pad(d.getHours())+':'+pad(d.getMinutes());if(clock.textContent!==text)clock.textContent=text;if(clock.getAttribute('datetime')!==stamp)clock.setAttribute('datetime',stamp);}
-    // Wake just after the next minute starts; checking the switch then costs nothing.
+    // Switched off: no timer at all; display-settings.js calls tick() when the clock is switched back on.
+    if(off())return;
+    var text=format(d),stamp=pad(d.getHours())+':'+pad(d.getMinutes());if(clock.textContent!==text)clock.textContent=text;if(clock.getAttribute('datetime')!==stamp)clock.setAttribute('datetime',stamp);
+    // Wake just after the next minute starts.
     timer=setTimeout(tick,60000-(d.getSeconds()*1000+d.getMilliseconds())+50);
   }
   document.addEventListener('visibilitychange',tick);

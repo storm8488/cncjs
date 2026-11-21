@@ -122,10 +122,13 @@ function page() {
 const wired = {
   'touch-shell.js': /CNCStripGuard\.isolate\(overlay\)[\s\S]*CNCStripGuard\.tab\(e,openedSheet/,
   'numeric-pad.js': /CNCStripGuard\.isolate\(overlay\)[\s\S]*CNCStripGuard\.tab\(e, modal/,
+  'text-keyboard.js': /CNCStripGuard\.isolate\(overlay\)[\s\S]*CNCStripGuard\.tab\(e, modal/,
   'coordinate-editor.js': /CNCStripGuard\.isolate\(modal\)[\s\S]*CNCStripGuard\.tab\(e,modal/,
   'preview-viewer.js': /CNCStripGuard\.isolate\(overlay\)[\s\S]*CNCStripGuard\.tab\(e,overlay/,
   'projects.js': /CNCStripGuard\.isolate\(\$\('project-dialog'\)\)[\s\S]*CNCStripGuard\.tab\(e, \$\('project-dialog'\)\)/,
   'job-controls.js': /CNCStripGuard\.isolate\(\$\('pilot-dialog'\)\)[\s\S]*order=stripStops\(\)\.concat\(order\)/,
+  // The origin confirmation of Préparer (Zéro X / Y / Z / XYZ, real-motion.js); the padlock kept too (V3: locking closes it).
+  'real-motion.js': /CNCStripGuard\.covered\(panel\)[\s\S]*CNCStripGuard\.tab\(e,panel[\s\S]*CNCStripGuard\.isolate\(dialog\.panel,padlock\?\[padlock\]:\[\]\)/,
 };
 for (const [file, re] of Object.entries(wired)) assert.match(read(file), re, file + ' uses strip-guard.js');
 // V1 / V1b: a layer covered by another one leaves the keys to it.
@@ -138,10 +141,12 @@ for (const [file, re] of Object.entries({
 })) assert.match(read(file), re, file + ' ignores keys when covered');
 // V2: Enter on the strip's Pause / Arrêter under the pad is theirs.
 assert.match(read('numeric-pad.js'), /if \(e\.key === 'Enter' && root\.CNCStripGuard && root\.CNCStripGuard\.stops\(\)\.indexOf\(document\.activeElement\) >= 0\) return;/);
-// V3-V5: the lock isolates (Pause, Arrêter, padlock), closes the real move panel and refuses the pilot dialog.
+assert.doesNotMatch(read('text-keyboard.js'), /e\.key === 'Enter'/, 'Enter on the text keyboard is the focused button (Annuler stays Annuler)');
+// V3-V5: the lock isolates (Pause, Arrêter, padlock), closes the origin dialog of Préparer (stopping a held jog
+// and a step in flight) and refuses the pilot dialog.
 assert.match(read('screen-lock.js'), /restoreLock=window\.CNCStripGuard\.isolate\(shield,keep\)/);
 assert.match(read('screen-saver.js'), /background = window\.CNCStripGuard\.isolate\(overlay, \[\], \{ cover: true \}\)/, 'the screen saver is a layer of the stack (X1)');
-assert.match(read('real-motion.js'), /addEventListener\('cnc-screen-lock',function\(e\)\{if\(e&&e\.detail\)\{stopHold\(t\('écran verrouillé'\)\);closePanel\(false\);\}\}\)/);
+assert.match(read('real-motion.js'), /addEventListener\('cnc-screen-lock',function\(e\)\{if\(e&&e\.detail\)\{stopHold\(t\('écran verrouillé'\)\);closePanel\(false\);stopStep\(t\('écran verrouillé'\)\);\}\}\)/);
 assert.match(read('job-controls.js'), /window\.cncScreenLock\.locked\(\)\)return false;/);
 assert.doesNotMatch(read('touch-shell.js'), /open:function\(\)\{[^}]*banner\.inert=true/, 'a sheet no longer makes the strip inert');
 assert.doesNotMatch(read('preview-viewer.js'), /background=Array\.prototype\.map\.call\(document\.querySelectorAll\('main,#tabbar,#real-banner/, 'the viewer does not make the strip inert when the guard is there');
@@ -154,7 +159,7 @@ assert.match(css, /\.t-below-strip \.t-numpad-card\{max-height:calc\(100vh - var
 for (const pageFile of ['index.html', 'simulation.html']) {
   const html = read(pageFile), at = (f) => html.indexOf('src="' + f);
   assert(at('strip-guard.js') > at('i18n.js') && at('i18n.js') > 0, pageFile + ': strip-guard.js after i18n.js');
-  ['numeric-pad.js', 'touch-shell.js', 'coordinate-editor.js', 'preview-viewer.js', 'job-controls.js'].forEach((f) => { if (at(f) >= 0) assert(at('strip-guard.js') < at(f), pageFile + ': strip-guard.js before ' + f); });
+  ['numeric-pad.js', 'text-keyboard.js', 'touch-shell.js', 'coordinate-editor.js', 'preview-viewer.js', 'job-controls.js'].forEach((f) => { if (at(f) >= 0) assert(at('strip-guard.js') < at(f), pageFile + ': strip-guard.js before ' + f); });
   // Degraded start-up (D-B1): the strip stays shown and usable above « Chargement incomplet ».
   assert.match(html, /html\.cnc-degraded body>#real-banner,html\.cnc-degraded body>#simulation-banner\{visibility:visible!important;pointer-events:auto!important;position:fixed!important;left:0;right:0;top:0;z-index:2147483647\}/, pageFile);
   assert.match(html, /html\.cnc-degraded #cnc-boot\{top:var\(--statusbar-h,72px\)\}/, pageFile);
@@ -163,7 +168,7 @@ for (const pageFile of ['index.html', 'simulation.html']) {
 {
   const classes = new Set(), listeners = {};
   const ctx = { window: { addEventListener: (n, f) => { listeners[n] = f; }, removeEventListener() {} }, setTimeout: () => 1, clearTimeout() {},
-    document: { documentElement: { classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c) } }, getElementById: () => ({ textContent: '' }) } };
+    document: { addEventListener() {}, documentElement: { classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c) } }, getElementById: () => ({ textContent: '' }) } };
   vm.createContext(ctx); vm.runInContext(read('startup.js'), ctx);
   assert(!classes.has('cnc-degraded'));
   listeners.error({ target: { tagName: 'SCRIPT' } });

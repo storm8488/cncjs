@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; base-uri 'none'; form-action 'none'">
+<title>CNCjs Touch · Performance v2 — Suivi</title>
+<style>
+/* CNCjs Touch — jetons de conception (UI 2027).
+ *
+ * Un seul fichier pour toutes les couleurs, l'échelle typographique, les
+ * espacements (base 4 px), les rayons, les tailles de cible et les états.
+ * Thème sombre par défaut (atelier) ; thème clair à fort contraste choisi
+ * dans Réglages, posé par touch-shell.js : <html data-theme="light">.
+ *
+ * Contrastes vérifiés (WCAG, texte sur fond) ; 7:1 au moins pour l'information critique
+ * (mots d'état, valeurs, Arrêter), 4,5:1 pour tout autre texte :
+ *   sombre  fg/bg 16,6 · fg/surface 14,7 · mute/surface 8,1 · mute/surface-2 6,9 · faint/surface-2 4,6
+ *           états sur fond teinté : ok 8,3 · warn 8,9 · danger 7,0 · info 7,3
+ *           blanc sur danger (Arrêter) 7,5 · on-ok/ok 8,1 · on-warn/warn 10,1 · désactivé 5,3
+ *   clair   fg/bg 16,1 · fg/surface 18,3 · mute/surface 8,7 · faint/surface-2 4,8
+ *           états sur fond teinté : ok 8,1 · warn 8,1 · danger 7,8 · info 8,4
+ *           blanc sur danger 7,5 · blanc sur ok 5,0 et sur warn 4,6 (libellés ≥ 24 px gras) · désactivé 4,6
+ * Chromium 106 : pas d'imbrication, pas de color-mix(), pas de dvh. */
+:root{
+  color-scheme:dark;
+  /* Surfaces, du plus profond au plus proche. */
+  --bg:#0e1417;--surface:#182028;--surface-2:#222d36;--surface-3:#2c3942;--line:#34434d;--line-strong:#4a5b66;
+  /* Texte. --faint n'est jamais utilisé sous 16 px pour une information utile. */
+  --fg:#eef3f6;--mute:#aab8c1;--faint:#87969f;
+  /* Sens, et seulement sens : vert sûr, ambre attention, rouge arrêt, bleu information. */
+  --ok:#2fbf6b;--ok-text:#5fe39a;--ok-soft:#133523;--on-ok:#06130b;
+  --warn:#f0b13a;--warn-text:#ffc857;--warn-soft:#3a2b0b;--on-warn:#1a1200;
+  --danger:#a51d19;--danger-text:#ff8a80;--danger-soft:#3d1512;--on-danger:#ffffff;
+  --info:#3b8fe6;--info-text:#7cbcff;--info-soft:#102a44;--on-info:#06111c;
+  /* Désactivé : contraste réduit mais lisible (≥ 4,5), plus un motif rayé et une icône. */
+  --disabled-fg:#8a98a1;--disabled-bg:#1b242b;--disabled-stripe:rgba(255,255,255,.045);
+  /* Accent neutre d'interaction (sélection, focus) : jamais porteur d'état machine. */
+  --accent:#8ecbff;--focus:#ffd166;
+  --shadow:0 2px 6px rgba(0,0,0,.35);
+  /* Typographie : pile système, aucune police web. Sur la tablette (Raspbian) elle se résout en
+     Bitstream Vera Sans, large : les mises en page sont vérifiées avec Verdana, de métrique voisine. */
+  --font:"Segoe UI",system-ui,-apple-system,Roboto,"Helvetica Neue",Arial,sans-serif;
+  --font-num:var(--font);
+  --fs-12:12px;--fs-14:14px;--fs-16:16px;--fs-18:18px;--fs-20:20px;--fs-24:24px;--fs-28:28px;--fs-36:36px;--fs-48:48px;--fs-64:64px;
+  --lh-tight:1.1;--lh:1.35;--lh-loose:1.5;
+  /* Espacements sur base 4 px. */
+  --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:20px;--sp-6:24px;--sp-8:32px;--sp-10:40px;--sp-12:48px;
+  /* Rayons. */
+  --r-s:6px;--r-m:10px;--r-l:14px;--r-pill:999px;
+  /* Cibles tactiles : 64 px principal, 48 px secondaire, 12 px d'écart, 96 px pour la croix. */
+  --tap:48px;--tap-primary:64px;--tap-gap:12px;--tap-jog:96px;
+  /* Mouvement : transform/opacity seulement, 150 ms maximum. */
+  --motion:150ms;--ease:cubic-bezier(.2,.7,.3,1);
+  /* Gabarit 1366 × 768 : bandeau 72 px, rail 88 px. */
+  --statusbar-h:72px;--rail-w:88px;
+}
+:root[data-theme="light"]{
+  color-scheme:light;
+  --bg:#eef1f4;--surface:#ffffff;--surface-2:#e2e7eb;--surface-3:#d3dae0;--line:#aeb9c1;--line-strong:#7f8f9a;
+  --fg:#101619;--mute:#3f4d56;--faint:#56656f;
+  --ok:#15803d;--ok-text:#0d5226;--ok-soft:#dcf5e5;--on-ok:#ffffff;
+  --warn:#b45f06;--warn-text:#6b3903;--warn-soft:#fdebcc;--on-warn:#ffffff;
+  --danger:#a51d19;--danger-text:#8a1010;--danger-soft:#fbe0e0;--on-danger:#ffffff;
+  --info:#1d5fb5;--info-text:#123f7a;--info-soft:#dbe8fa;--on-info:#ffffff;
+  --disabled-fg:#5c6a73;--disabled-bg:#e6eaed;--disabled-stripe:rgba(0,0,0,.05);
+  --accent:#1d5fb5;--focus:#b45f06;
+  --shadow:0 2px 6px rgba(0,0,0,.18);
+}
+@media(prefers-reduced-motion:reduce){:root{--motion:0ms}}
+
+*{box-sizing:border-box}html,body{margin:0;background:#070c10;color:var(--fg);font:16px/1.35 var(--font)}
+button,a{font:inherit;-webkit-tap-highlight-color:transparent}button{cursor:pointer}button:focus-visible,a:focus-visible{outline:3px solid var(--focus);outline-offset:3px}button:disabled{cursor:default;color:var(--disabled-fg);background:var(--disabled-bg)}
+button{min-width:48px;min-height:48px;border:1px solid var(--line-strong);border-radius:10px;background:var(--surface-2);color:var(--fg);padding:0 16px;font-weight:600}button[aria-pressed="true"]{background:var(--info-soft);border-color:var(--accent);color:var(--accent)}
+.presentation{height:80px;display:flex;align-items:center;justify-content:space-between;padding:0 20px;gap:20px;border-bottom:1px solid var(--line);background:var(--surface)}.presentation strong{font-size:20px}.presentation p{margin:2px 0 0;color:var(--mute)}.presentation-actions{display:flex;gap:12px;flex-shrink:0}.presentation-actions a{display:flex;align-items:center;padding:0 12px;color:var(--accent);min-height:48px}
+.viewport{width:100vw;height:calc(100vh - 80px);overflow:hidden}.frame{width:1366px;height:911px;position:relative;overflow:hidden;background:var(--bg);display:grid;grid-template-columns:88px 1fr;grid-template-rows:80px 1fr;isolation:isolate}
+body.actual .presentation{display:none}body.actual .viewport{height:100vh}.return{display:none;position:absolute;left:8px;bottom:12px;width:72px;padding:4px;z-index:35;font-size:16px}body.actual .return{display:block}
+.strip{grid-column:1/-1;display:flex;align-items:center;gap:24px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--line);z-index:40}.run-state{display:flex;align-items:center;gap:12px;font-size:28px;font-weight:700;min-width:194px;color:var(--info-text)}.state-mark{display:block;width:12px;height:28px;background:var(--info);border-radius:3px}.strip-detail{display:flex;flex-direction:column;gap:2px;min-width:260px}.strip-detail strong{font-size:18px}.muted{color:var(--mute)}.strip-tag{color:var(--warn-text);border:1px solid #685021;padding:6px 12px;border-radius:6px;font-weight:600;margin-left:auto;white-space:nowrap}.safety{display:flex;gap:12px}.safety button{min-height:64px;font-size:24px;min-width:144px}.safety button{width:144px;flex:none;padding:0 12px}.safety .pause.resuming{font-size:20px}.safety .pause{background:var(--warn);color:var(--on-warn);border-color:var(--warn)}.safety .stop{background:var(--danger);color:white;border-color:var(--danger)}
+.rail{display:flex;flex-direction:column;gap:8px;padding:8px;background:#10171c;border-right:1px solid var(--line);grid-row:2}.nav{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;min-height:80px;text-decoration:none;border:0;background:none;padding:4px 0;font-weight:500;color:var(--mute);font-size:16px;border-radius:10px}.nav.active{background:var(--surface-2);color:var(--fg);box-shadow:inset 3px 0 var(--accent)}.nav svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.rail-foot{margin-top:auto;text-align:center;color:var(--mute);line-height:1.7;padding-bottom:64px}
+.main{min-width:0;min-height:0;padding:16px;display:grid;grid-template-rows:64px 1fr;gap:12px}.page-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.eyebrow{font-size:16px;color:var(--mute);letter-spacing:.08em;text-transform:uppercase;font-weight:600}h1{font-size:28px;line-height:1.15;margin:4px 0 0;font-weight:650;letter-spacing:-.015em}.page-heading-right{display:flex;align-items:center;gap:16px}.demo-note{color:var(--mute);text-align:right;max-width:210px}.anno-button{min-width:144px}.workbench{display:grid;grid-template-columns:minmax(0,1fr) 432px;gap:16px;min-height:0}.scene{position:relative;display:grid;grid-template-rows:64px minmax(0,1fr) 60px 92px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#101a22}.scene-tools{display:flex;align-items:center;padding:8px 12px;gap:12px;border-bottom:1px solid #283b48;background:#15212b}.scene-tools .spacer{flex:1}.scene-tools button{padding:0 12px;font-size:16px}.plot{position:relative;min-height:0;overflow:hidden;touch-action:none;background:#101a22}.plot canvas{display:block;width:100%;height:100%;touch-action:none}.plot-label{position:absolute;top:18px;left:20px;display:flex;flex-direction:column;gap:6px;pointer-events:none}.plot-label strong{font-size:18px;font-weight:500}.plot-label span{font-size:16px;color:var(--mute)}.view-chip{position:absolute;top:18px;right:16px;color:var(--mute);background:#101a22cc;padding:4px 8px;border-radius:4px;pointer-events:none}.canvas-controls{position:absolute;right:16px;bottom:16px;display:flex;gap:12px}.canvas-controls button{width:48px;padding:0;font-size:24px;background:#222d36ed}.axis-label{position:absolute;left:20px;bottom:14px;color:var(--mute);max-width:440px;pointer-events:none}.legend{display:flex;align-items:center;flex-wrap:wrap;gap:6px 20px;border-top:1px solid #283b48;padding:8px 16px;font-size:16px;background:#15212b}.legend span{display:flex;align-items:center;gap:8px}.legend .qualifier{font-size:16px;color:var(--mute);flex:1 0 100%}.swatch{display:inline-block;width:24px;height:3px;border-radius:2px;background:var(--accent)}.swatch.done{background:var(--warn-text)}.swatch.current{background:var(--fg)}.tool-dot{width:10px;height:10px;border-radius:50%;background:var(--accent)}
+.sequence{display:grid;grid-template-columns:1fr 1fr;background:var(--surface);border-top:1px solid var(--line)}.sequence>div{padding:14px 16px;min-width:0}.sequence>div+div{border-left:1px solid var(--line)}.sequence strong{display:block;font-size:20px;margin:4px 0}.sequence small{font-size:16px;color:var(--mute)}.sequence .now{color:var(--accent)}
+.instruments{display:grid;grid-template-rows:144px 136px 198px 209px;gap:12px;min-height:0}.card{border:1px solid var(--line);border-radius:14px;background:var(--surface);padding:14px 16px;min-width:0;position:relative}.card p{margin:0}.card-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.eta-value{display:flex;align-items:baseline;justify-content:space-between;margin:4px 0}.eta-value strong{font-size:38px;line-height:1.15;font-weight:600;letter-spacing:-.025em}.eta-value span{font-size:18px;color:var(--mute)}.card .explain{font-size:16px;color:var(--mute);margin-top:4px}.xyz{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:12px 0 8px}.xyz div{display:flex;align-items:baseline;gap:8px}.xyz b{font-size:25px;font-weight:600;letter-spacing:-.03em}.xyz span{font-size:18px;color:var(--mute)}.status-inline{display:flex;align-items:center;gap:8px;font-size:16px;color:var(--mute)}.status-inline i{display:block;width:7px;height:7px;border-radius:50%;background:var(--accent)}.num{font-variant-numeric:tabular-nums}.feed-top{display:flex;align-items:baseline;justify-content:space-between;margin:4px 0 0}.feed-top b{font-size:32px;font-weight:600}.feed-top span{color:var(--mute)}.chart{height:64px;display:block;width:100%;margin-top:2px}.chart-text{display:flex;justify-content:space-between;font-size:16px;color:var(--mute)}.chart path,.chart polyline{vector-effect:non-scaling-stroke}.correction-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.correction-top strong{white-space:nowrap;color:var(--warn-text);font-size:20px}.correction-buttons{display:grid;grid-template-columns:64px 48px 1fr 48px 64px;gap:12px;align-items:center}.correction-buttons button{min-height:64px;padding:0;font-size:20px}.correction-buttons .fine{min-height:48px;font-size:18px}.other-corrections{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px}.other-corrections button{font-size:16px;flex:1;padding:0 8px}.correction-hint{font-size:16px;color:var(--mute);margin-top:8px!important}
+.progress-meter{height:4px;position:absolute;left:0;right:0;bottom:0;background:var(--line)}.progress-meter i{display:block;background:var(--warn-text);height:4px;width:42%}
+.sheet{position:absolute;top:96px;right:16px;width:432px;max-height:790px;overflow:auto;padding:24px;background:#202d37;border:1px solid var(--line-strong);border-radius:14px;z-index:30;box-shadow:0 12px 50px #0009}.sheet[hidden],.annotations[hidden],.toast[hidden]{display:none}.sheet h2{font-size:24px;margin:0 0 12px}.sheet h3{font-size:18px;margin:20px 0 8px}.sheet p{font-size:18px;color:var(--mute);margin:12px 0}.sheet .close{float:right;min-width:48px;padding:0;margin:0 0 12px 12px}.sheet button.full{width:100%;min-height:64px;margin-top:12px;font-size:20px}.sheet .warning{color:var(--warn-text)}.sheet .panel-row{display:flex;gap:12px;margin:12px 0}.sheet .panel-row button{flex:1;min-height:64px;padding:0 8px}.sheet table{border-collapse:collapse;width:100%;font-size:18px}.sheet td{border-bottom:1px solid var(--line);padding:12px 0}.sheet td+td{text-align:right}.toast{position:absolute;bottom:116px;left:120px;width:740px;z-index:32;padding:16px 20px;background:#293c49;border:1px solid var(--accent);border-radius:10px;font-size:18px;pointer-events:none}.annotations{position:absolute;left:116px;top:244px;width:740px;max-height:620px;overflow:auto;z-index:31;background:#142431f5;border:1px solid var(--accent);border-radius:14px;padding:20px 24px;box-shadow:0 10px 40px #0008}.annotations h2{font-size:24px;margin:0 0 16px}.annotations ol{padding-left:24px;margin:0}.annotations li{font-size:18px;margin:0 0 14px;color:var(--mute)}.annotations strong{color:var(--fg)}.annotations .close{float:right;min-width:48px;padding:0}.annotations p{font-size:16px;color:var(--mute);margin-bottom:0}.inspection-readout{position:absolute;left:18px;bottom:58px;border:1px solid var(--accent);padding:12px 16px;border-radius:8px;background:#182a38ed;pointer-events:none;font-size:18px}.inspection-readout[hidden]{display:none}
+.safety button{height:64px;white-space:nowrap}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<header class="presentation"><div><strong>Performance v2 / Suivi</strong><p>Maquette autonome · cadre fixe 1366 × 911 · recadrage sans réduction</p></div><div class="presentation-actions"><a href="performance-v2-preparer.html">Voir Préparer</a><button id="actual-size">Taille réelle</button></div></header>
+<div class="viewport"><div class="frame" id="frame">
+  <header class="strip" aria-label="État et commandes permanentes">
+    <div class="run-state"><span class="state-mark"></span><span id="run-state">En cours</span></div>
+    <div class="strip-detail"><strong id="status-detail">Lignes acquittées · 42 %</strong><span class="muted">8 412 / 20 030 · accepté ≠ usiné</span></div>
+    <span class="strip-tag">MAQUETTE · DONNÉES FICTIVES</span>
+    <div class="safety"><button class="pause" id="pause" data-primary="true">Ⅱ Pause</button><button class="stop" id="stop" data-primary="true">Arrêter</button></div>
+  </header>
+  <nav class="rail" aria-label="Écrans">
+    <button class="nav" data-screen="Menu"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><rect x="3" y="15" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/></svg>Menu</button>
+    <a class="nav" href="performance-v2-preparer.html"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20M2 12h20M8 6l4-4 4 4M8 18l4 4 4-4M6 8l-4 4 4 4M18 8l4 4-4 4"/></svg>Préparer</a>
+    <button class="nav" data-screen="Fichiers"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l3 3h8v12H3Z"/></svg>Fichiers</button>
+    <button class="nav active" aria-current="page" id="nav-suivi"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M8 21h8M12 17v4M6 13l4-6 4 5 4-3"/></svg>Suivi</button>
+    <button class="nav" data-screen="Machine"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V3h14v18M2 21h20M8 7h8M8 12h8M12 7v8"/></svg>Machine</button>
+    <button class="nav" data-screen="Journal"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v17H5ZM8 8h8M8 12h8M8 16h5"/></svg>Journal</button>
+    <button class="nav" data-screen="Réglages"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18M3 17h18"/><circle cx="8" cy="7" r="3" fill="#10171c"/><circle cx="16" cy="17" r="3" fill="#10171c"/></svg>Réglages</button>
+    <div class="rail-foot">CNCjs<br>Touch v2</div>
+  </nav>
+  <main class="main">
+    <div class="page-heading"><div><span class="eyebrow">Suivi / pièce 01</span><h1>Plateau · surfaçage & contour</h1></div><div class="page-heading-right"><span class="demo-note">plateau_240x160.nc<br>Scénario de démonstration</span><button id="annotations-toggle" class="anno-button" aria-pressed="false">Annotations</button></div></div>
+    <div class="workbench">
+      <section class="scene" aria-label="Parcours prévu en trois dimensions">
+        <div class="scene-tools"><button id="view-toggle">Vue iso</button><button id="follow" aria-pressed="false">Suivre l’outil</button><span class="spacer"></span><button id="inspect" aria-pressed="false">Examiner</button></div>
+        <div class="plot" id="plot"><canvas id="path-canvas" role="img" aria-label="Projection 3D illustrative d’un surfaçage puis d’un contour : parcours acquitté ambre, restant bleu, outil bleu clair. Valeurs fictives."></canvas><div class="plot-label"><strong>Parcours prévu</strong><span>Brut déclaré · 240 × 160 × 18 mm</span></div><span class="view-chip" id="view-label">G54 · mm · Z ×1</span><div class="axis-label" id="gesture-help">Glisser : tourner la vue · aucun déplacement machine</div><div class="canvas-controls"><button id="zoom-out" aria-label="Éloigner la vue">−</button><button id="zoom-in" aria-label="Rapprocher la vue">+</button><button id="recenter" aria-label="Recentrer la vue">⌖</button></div><div class="inspection-readout" id="inspection-readout" hidden>Segment sélectionné · lecture seule</div></div>
+        <div class="legend"><span><i class="swatch done"></i>Acquitté</span><span><i class="swatch"></i>Restant au programme</span><span><i class="swatch current"></i>Passe</span><span><i class="tool-dot"></i>Outil</span><span class="qualifier">Acquitté = accepté par Grbl, pas nécessairement usiné.</span></div>
+        <div class="sequence"><div><span class="eyebrow now">Séquence prévue · illustration</span><strong>01 · Surfaçage</strong><small>Outil Ø 12 mm · Z −0,50 mm</small></div><div><span class="eyebrow">Ensuite · illustration</span><strong>02 · Contournage</strong><small>Ordre du fichier, pas heure de début</small></div></div>
+      </section>
+      <aside class="instruments" aria-label="Instruments et corrections">
+        <section class="card"><div class="eyebrow" id="eta-title">Temps restant · estimation</div><div class="eta-value num"><strong id="eta-value">≈ 18 min</strong><span>Écoulé 12:36</span></div><p class="explain" id="eta-source">Mouvements corrigés ×1,1 · sans accélérations</p><p class="explain">Interventions non comptées · détail ci-dessous</p><div class="progress-meter" aria-label="42 pour cent de lignes acquittées"><i></i></div></section>
+        <section class="card"><div class="card-head"><span class="eyebrow">Position rapportée · G54</span><span class="muted">mm</span></div><div class="xyz num"><div><span>X</span><b id="pos-x">138.000</b></div><div><span>Y</span><b id="pos-y">80.000</b></div><div><span>Z</span><b>−0.500</b></div></div><div class="status-inline" id="freshness"><i></i><span>Exemple : rapport frais · repère interpolé</span></div></section>
+        <section class="card"><div class="card-head"><span class="eyebrow">Avance rapportée</span><span class="muted">mm/min</span></div><div class="feed-top num"><b id="feed-value">1 800</b><span>S rapporté : <strong>12 000</strong> tr/min</span></div><svg class="chart" viewBox="0 0 396 64" role="img" aria-label="Courbe fictive sur une minute, axe vertical de zéro à deux mille millimètres par minute"><path d="M38 5H396M38 47H396" stroke="#34434d" fill="none"/><text x="0" y="16" fill="#aab8c1" font-size="16">2 k</text><text x="18" y="51" fill="#aab8c1" font-size="16">0</text><path d="M38 19L52 20 64 17 81 18 93 20 103 33 110 41 118 39 125 18 149 19 172 17 196 19 220 18 241 18 252 12 277 10 297 12 318 9 339 11 359 10 378 9 396 10" fill="none" stroke="#8ecbff" stroke-width="2.4"/><path d="M251 3V49" stroke="#ffc857" stroke-dasharray="3 4"/></svg><div class="chart-text"><span>−60 s</span><span>+10 % avance</span><span>0 s</span></div><p class="explain">Historique illustratif · une minute</p></section>
+        <section class="card"><div class="correction-top"><span class="eyebrow">Avance</span><strong id="override-read">110 % (+10 %)</strong></div><div class="correction-buttons"><button data-adjust="-10" data-primary="true">−10</button><button data-adjust="-1" class="fine">−1</button><button data-adjust="100" data-primary="true">100 %</button><button data-adjust="1" class="fine">+1</button><button data-adjust="10" data-primary="true">+10</button></div><div class="other-corrections"><button id="other-corrections">Broche / rapides…</button><button id="estimate-detail">Détail du temps</button></div><p class="correction-hint">Broche 100 % · rapides 100 % · démo</p></section>
+      </aside>
+    </div>
+  </main>
+  <button class="return" id="return" aria-label="Retour à la présentation">Retour</button>
+  <aside class="annotations" id="annotations" hidden aria-label="Annotations de conception"><button class="close" id="annotations-close" aria-label="Fermer les annotations">×</button><h2>Une vue d’ensemble, des faits lisibles.</h2><ol><li><strong>Bandeau de sécurité.</strong> Pause et Arrêter gardent leur place, leurs cibles de 64 px et la priorité sur tous les panneaux.</li><li><strong>798 px pour le parcours.</strong> Les corrections quittent le bas de la scène. La résolution sert les traits et les repères, sans réduire le texte.</li><li><strong>Acquitté n’est pas usiné.</strong> La légende reste visible. Le dessin représente un programme, pas une mesure de matière enlevée.</li><li><strong>Temps et position qualifiés.</strong> Le modèle d’estimation, le repère G54 et la fraîcheur sont voisins des valeurs.</li><li><strong>Courbe d’une minute visible.</strong> L’échelle et le changement de correction donnent un contexte à l’avance rapportée.</li><li><strong>Examiner sans commander.</strong> Touchez un segment pour le lire. Le stylet et le doigt utilisent la même action ; le bleu de l’outil ne devient jamais une cible de jog.</li><li><strong>À venir, sans promesse horaire.</strong> La séquence suivante vient des métadonnées du programme ; les noms sont fictifs ici.</li></ol><p>Projection 3D par Canvas 2D. Scénario entièrement fictif, aucune connexion. Le bouton Taille réelle supprime l’en-tête de présentation ; le cadre n’est jamais réduit.</p></aside>
+  <section class="sheet" id="sheet" hidden aria-label="Détails" tabindex="-1"></section>
+  <div class="toast" id="toast" hidden role="status"></div>
+</div></div>
+<script>
+(function(){
+'use strict';
+var $=function(id){return document.getElementById(id);};
+var paused=false,stopped=false,stale=false,following=false,inspecting=false,override=110,toastTimer=null,lastFocus=null;
+var canvas=$('path-canvas'),ctx=canvas.getContext('2d'),plot=$('plot'),yaw=-0.48,tilt=0.72,zoom=1,topView=false,pending=false,width=0,height=0;
+var segments=[],selected=-1,points=[],tool={x:138,y:80,z:-.5},drag=null,activePointers={},lastPinch=0;
+function segment(a,b,kind){segments.push({a:a,b:b,kind:kind});}
+// Illustrative tool centre path: 8 mm stepover for a 12 mm surfacing cutter,
+// then four closed contour passes. No G-code is built or sent by this page.
+for(var row=0;row<19;row++){
+ var y=6+row*(148/18),a={x:row%2?234:6,y:y,z:-.5},b={x:row%2?6:234,y:y,z:-.5};
+ if(row)segment(points[points.length-1],a,'cut');segment(a,b,'cut');points.push(b);
+}
+var last=points[points.length-1];segment(last,{x:last.x,y:last.y,z:8},'rapid');segment({x:last.x,y:last.y,z:8},{x:10,y:10,z:8},'rapid');
+for(var pass=1;pass<=4;pass++){
+ var corners=[{x:10,y:10,z:-pass*2},{x:230,y:10,z:-pass*2},{x:230,y:150,z:-pass*2},{x:10,y:150,z:-pass*2},{x:10,y:10,z:-pass*2}];
+ segment(pass===1?{x:10,y:10,z:8}:{x:10,y:10,z:-(pass-1)*2},corners[0],'cut');
+ for(var j=1;j<corners.length;j++)segment(corners[j-1],corners[j],'contour');
+}
+var ack=23; // Stylised geometry is not a 1:1 mapping of the demo line count.
+function project(p){
+ var x=p.x-120,y=p.y-80,cs=Math.cos(yaw),sn=Math.sin(yaw),xx=x*cs-y*sn,yy=x*sn+y*cs;
+ var scale=Math.min(width/365,height/218)*zoom;
+ var cy=following?tool.y-80:0,cx=following?tool.x-120:0;
+ var tx=cx*cs-cy*sn,ty=cx*sn+cy*cs;
+ return {x:width*.5+(xx-tx)*scale,y:height*.54+((yy-ty)*(topView?1:Math.sin(tilt))-p.z*(topView?0:Math.cos(tilt)))*scale};
+}
+function line(a,b,color,weight,dash){var p=project(a),q=project(b);ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(q.x,q.y);ctx.strokeStyle=color;ctx.lineWidth=weight;ctx.setLineDash(dash||[]);ctx.stroke();ctx.setLineDash([]);}
+function face(vertices,fill,stroke){ctx.beginPath();vertices.forEach(function(p,i){var q=project(p);if(i)ctx.lineTo(q.x,q.y);else ctx.moveTo(q.x,q.y);});ctx.closePath();ctx.fillStyle=fill;ctx.fill();ctx.strokeStyle=stroke;ctx.lineWidth=1;ctx.stroke();}
+function label(p,text,color,dx,dy){var q=project(p);ctx.font='16px '+getComputedStyle(document.body).fontFamily;ctx.fillStyle=color;ctx.fillText(text,q.x+(dx||0),q.y+(dy||0));}
+function paint(){
+ pending=false;var r=plot.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,2);width=r.width;height=r.height;
+ if(canvas.width!==Math.round(width*dpr)||canvas.height!==Math.round(height*dpr)){canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);}
+ ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,width,height);ctx.lineJoin='round';ctx.lineCap='round';
+ for(var gx=-60;gx<=300;gx+=20)line({x:gx,y:-60,z:-20},{x:gx,y:220,z:-20},'#243340',.7);
+ for(var gy=-60;gy<=220;gy+=20)line({x:-60,y:gy,z:-20},{x:300,y:gy,z:-20},'#243340',.7);
+ face([{x:0,y:0,z:-18},{x:240,y:0,z:-18},{x:240,y:160,z:-18},{x:0,y:160,z:-18}],'#252c2f','#5c6261');
+ face([{x:0,y:160,z:0},{x:240,y:160,z:0},{x:240,y:160,z:-18},{x:0,y:160,z:-18}],'#464644','#77766c');
+ face([{x:240,y:0,z:0},{x:240,y:160,z:0},{x:240,y:160,z:-18},{x:240,y:0,z:-18}],'#3b4142','#77766c');
+ face([{x:0,y:0,z:0},{x:240,y:0,z:0},{x:240,y:160,z:0},{x:0,y:160,z:0}],'#333e43','#87969f');
+ // Subtle stock grain is geometry, not an external texture.
+ for(var grain=14;grain<160;grain+=17)line({x:0,y:grain,z:.02},{x:240,y:grain,z:.02},'#455057',.65);
+ segments.forEach(function(s,i){var color=i<ack?'#ffc857':s.kind==='rapid'?'#8393a0':s.kind==='contour'?'#71aade':'#8ecbff';line(s.a,s.b,color,s.kind==='rapid'?1.2:2.1,s.kind==='rapid'?[5,6]:null);});
+ line({x:6,y:80,z:-.5},{x:234,y:80,z:-.5},'#eef3f6',3);
+ line({x:0,y:0,z:1},{x:38,y:0,z:1},'#ff9d8e',2);line({x:0,y:0,z:1},{x:0,y:38,z:1},'#5fe39a',2);line({x:0,y:0,z:1},{x:0,y:0,z:32},'#8ecbff',2);
+ label({x:40,y:0,z:1},'X','#ff9d8e',4,5);label({x:0,y:40,z:1},'Y','#5fe39a',0,18);if(!topView)label({x:0,y:0,z:35},'Z','#8ecbff',4,0);label({x:0,y:0,z:1},'0', '#eef3f6',-18,14);
+ var p=project(tool),up=project({x:tool.x,y:tool.y,z:34});
+ ctx.beginPath();ctx.arc(p.x,p.y,13,0,Math.PI*2);ctx.fillStyle=stale?'#87969f44':'#8ecbff22';ctx.fill();ctx.strokeStyle=stale?'#87969f':'#8ecbff';ctx.lineWidth=2;ctx.stroke();
+ if(!topView){ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(up.x,up.y);ctx.strokeStyle=stale?'#87969f':'#b9ddff';ctx.lineWidth=8;ctx.stroke();ctx.beginPath();ctx.arc(up.x,up.y,6,0,Math.PI*2);ctx.fillStyle='#d8eaff';ctx.fill();}
+ ctx.beginPath();ctx.arc(p.x,p.y,4,0,Math.PI*2);ctx.fillStyle=stale?'#87969f':'#8ecbff';ctx.fill();
+ if(selected>=0){var sel=segments[selected];line(sel.a,sel.b,'#fff',6);line(sel.a,sel.b,'#9cdbff',2);var mid=project({x:(sel.a.x+sel.b.x)/2,y:(sel.a.y+sel.b.y)/2,z:sel.a.z});ctx.beginPath();ctx.arc(mid.x,mid.y,22,0,Math.PI*2);ctx.strokeStyle='#eef3f6';ctx.lineWidth=2;ctx.stroke();}
+}
+function draw(){if(!pending&&!document.hidden){pending=true;requestAnimationFrame(paint);}}
+function toast(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(function(){$('toast').hidden=true;},4200);}
+function showPanel(title,content){lastFocus=document.activeElement;var s=$('sheet');s.innerHTML='<button class="close" id="sheet-close" aria-label="Fermer le panneau">×</button><h2>'+title+'</h2>'+content;s.hidden=false;$('annotations').hidden=true;$('annotations-toggle').setAttribute('aria-pressed','false');$('sheet-close').onclick=closePanel;s.focus();}
+function closePanel(){$('sheet').hidden=true;if(lastFocus&&lastFocus.focus)lastFocus.focus();}
+function updateState(){
+ $('run-state').textContent=stopped?'Arrêté':stale?'État périmé':paused?'En pause':'En cours';$('pause').textContent=paused?'Reprendre':'Ⅱ Pause';$('pause').disabled=stopped;$('pause').classList.toggle('resuming',paused);
+ $('feed-value').textContent=stale?'—':paused||stopped?'0':'1 800';
+ var suspended=paused||stopped||stale;$('eta-title').textContent=suspended?'Temps restant · suspendu':'Temps restant · estimation';$('eta-value').textContent=suspended?'—':'≈ 18 min';$('eta-source').textContent=suspended?'Dernière estimation : 18 min · scénario fictif':'Mouvements corrigés ×1,1 · sans accélérations';$('status-detail').textContent=stopped?'Arrêt illustré · aucun envoi':paused?'Pause illustrée · aucun envoi':'Lignes acquittées · 42 %';
+}
+$('pause').onclick=function(){if(stopped)return;if(!paused){paused=true;updateState();toast('Pause illustrée. Aucun ordre envoyé à une machine.');}else{showPanel('Reprendre · démonstration','<p>Cette maquette illustre une confirmation. Dans CNCjs, la reprise conserve le circuit et les vérifications existants.</p><button class="full" id="demo-resume">Confirmer la reprise fictive</button>');$('demo-resume').onclick=function(){paused=false;closePanel();updateState();toast('Reprise du scénario fictif.');};}};
+$('stop').onclick=function(){stopped=true;paused=false;closePanel();updateState();toast('Arrêt illustré. Ce bouton logiciel ne remplace pas l’arrêt d’urgence physique.');};
+document.querySelectorAll('[data-adjust]').forEach(function(b){b.onclick=function(){var n=Number(b.getAttribute('data-adjust')),next=n===100?100:Math.max(10,Math.min(200,override+n));showPanel('Correction · démonstration','<p>Avance : '+override+' % → <strong>'+next+' %</strong></p><p>Aucune commande n’est reliée à ces boutons. L’intégration utilisera les contrôles et les garde-fous existants.</p><button class="full" id="demo-adjust">Appliquer à l’illustration</button>');$('demo-adjust').onclick=function(){override=next;$('override-read').textContent=override+' % ('+(override>=100?'+':'−')+Math.abs(override-100)+' %)';closePanel();toast('Seul le chiffre de la maquette a changé ; le scénario et la courbe sont fixes.');};};});
+$('other-corrections').onclick=function(){showPanel('Broche et rapides','<p>Valeurs fictives de ce scénario.</p><table><tr><td>Broche</td><td>100 %</td></tr><tr><td>Rapides</td><td>100 %</td></tr></table><p>En intégration : contrôles existants, confirmations et vérifications conservées. Cette fiche ne commande rien.</p>');};
+$('estimate-detail').onclick=function(){showPanel('Ce que le temps indique','<p class="warning">≈ 18 min · estimation fictive</p><p>Modèle des mouvements corrigé ×1,1. Accélérations non modélisées.</p><table><tr><td>Rythme des lignes</td><td>19 min</td></tr><tr><td>Mouvement estimé</td><td>18 min</td></tr></table><p>Ces deux valeurs ne forment pas un intervalle de confiance. Pauses manuelles et interventions ne sont pas prédites.</p><p>En production, une durée inconnue est nommée si le programme la signale. Aucun nom d’opération ne doit être déduit de la seule forme du tracé.</p>');};
+$('actual-size').onclick=function(){document.body.classList.add('actual');draw();};$('return').onclick=function(){document.body.classList.remove('actual');draw();};
+function annotations(on){$('annotations').hidden=!on;$('annotations-toggle').setAttribute('aria-pressed',String(on));if(on)$('sheet').hidden=true;}
+$('annotations-toggle').onclick=function(){annotations($('annotations').hidden);};$('annotations-close').onclick=function(){annotations(false);$('annotations-toggle').focus();};
+$('view-toggle').onclick=function(){topView=!topView;this.textContent=topView?'Vue dessus':'Vue iso';draw();};
+$('follow').onclick=function(){if(stale){toast('Suivi indisponible : rapport fictif périmé.');return;}following=!following;this.setAttribute('aria-pressed',String(following));draw();};
+$('inspect').onclick=function(){inspecting=!inspecting;this.setAttribute('aria-pressed',String(inspecting));$('gesture-help').textContent=inspecting?'Touchez un segment · sélection visuelle uniquement':'Glisser : tourner la vue · aucun déplacement machine';if(!inspecting){selected=-1;$('inspection-readout').hidden=true;}draw();};
+$('zoom-in').onclick=function(){zoom=Math.min(1.55,zoom+.12);draw();};$('zoom-out').onclick=function(){zoom=Math.max(.65,zoom-.12);draw();};$('recenter').onclick=function(){yaw=-.48;tilt=.72;zoom=1;following=false;topView=false;$('view-toggle').textContent='Vue iso';$('follow').setAttribute('aria-pressed','false');draw();};
+function distance(p,a,b){var dx=b.x-a.x,dy=b.y-a.y,t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy||1)));return Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy);}
+function pick(e){var r=canvas.getBoundingClientRect(),p={x:e.clientX-r.left,y:e.clientY-r.top},best=24,index=-1;segments.forEach(function(s,i){var d=distance(p,project(s.a),project(s.b));if(d<best){best=d;index=i;}});selected=index;var read=$('inspection-readout');read.hidden=index<0;if(index>=0){var s=segments[index];read.textContent='Segment illustratif '+(index+1)+' · Z '+s.b.z.toFixed(2)+' mm · lecture seule';}else toast('Aucun segment à proximité. Rapprochez la vue pour examiner.');draw();}
+canvas.addEventListener('pointerdown',function(e){e.preventDefault();activePointers[e.pointerId]={x:e.clientX,y:e.clientY};canvas.setPointerCapture(e.pointerId);drag={id:e.pointerId,x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,moved:false};lastPinch=0;});
+canvas.addEventListener('pointermove',function(e){if(!activePointers[e.pointerId])return;e.preventDefault();activePointers[e.pointerId]={x:e.clientX,y:e.clientY};var ids=Object.keys(activePointers);if(ids.length===2){var a=activePointers[ids[0]],b=activePointers[ids[1]],d=Math.hypot(a.x-b.x,a.y-b.y);if(lastPinch)zoom=Math.max(.65,Math.min(1.55,zoom*d/lastPinch));lastPinch=d;following=false;$('follow').setAttribute('aria-pressed','false');if(drag)drag.moved=true;draw();return;}if(!drag||drag.id!==e.pointerId)return;var dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)>5)drag.moved=true;if(drag.moved){yaw+=dx*.006;tilt=Math.max(.2,Math.min(1.4,tilt+dy*.005));following=false;$('follow').setAttribute('aria-pressed','false');draw();}drag.x=e.clientX;drag.y=e.clientY;});
+function release(e){if(e.type==='pointerup'&&drag&&!drag.moved&&inspecting)pick(e);delete activePointers[e.pointerId];drag=null;lastPinch=0;}
+canvas.addEventListener('pointerup',release);canvas.addEventListener('pointercancel',release);canvas.addEventListener('lostpointercapture',function(e){delete activePointers[e.pointerId];});
+var screenCopy={Menu:'Les six écrans conservent le rail et le bandeau de sécurité. Cette livraison dessine Suivi et Préparer.',Fichiers:'Liste et fiche du programme, miniature statique, identité sélectionné / chargé, aperçu agrandi à la demande. Aucun chargement implicite.',Machine:'État du contrôleur, positions et limites avec leur provenance. Les procédures existantes restent derrière leurs confirmations.',Journal:'Événements et courbe rapprochés dans le temps. Lecture seule, aucun bouton de rejeu de commande.',Réglages:'Performance v2 est un choix local, après vérification du GPU matériel. Repli visuel sans déplacement de Pause / Arrêter.'};
+document.querySelectorAll('[data-screen]').forEach(function(b){b.onclick=function(){var name=b.getAttribute('data-screen');showPanel(name+' · intention v2','<p>'+screenCopy[name]+'</p><p>Écran décrit dans REFLEXION.md. Ce panneau est une annotation de maquette.</p>'+(name==='Réglages'?'<button class="full" id="test-stale">Illustrer un rapport périmé</button><button class="full" id="reset-demo">Réinitialiser la démonstration</button>':''));if(name==='Réglages'){$('test-stale').onclick=function(){stale=!stale;following=false;$('follow').setAttribute('aria-pressed','false');$('freshness').innerHTML=stale?'<span class="warning">Rapport périmé &gt; 2,5 s · repère figé</span>':'<i></i><span>Exemple : rapport frais · repère interpolé</span>';updateState();draw();closePanel();toast(stale?'État périmé illustré. Les commandes du bandeau restent accessibles.':'Exemple de rapport frais rétabli.');};$('reset-demo').onclick=function(){paused=false;stopped=false;stale=false;override=110;following=false;selected=-1;$('override-read').textContent='110 % (+10 %)';$('freshness').innerHTML='<i></i><span>Exemple : rapport frais · repère interpolé</span>';$('follow').setAttribute('aria-pressed','false');$('inspection-readout').hidden=true;closePanel();updateState();draw();};}};});
+$('nav-suivi').onclick=function(){closePanel();annotations(false);};document.addEventListener('keydown',function(e){if(e.key==='Escape'){closePanel();annotations(false);}});window.addEventListener('resize',draw);document.addEventListener('visibilitychange',function(){if(!document.hidden)draw();});draw();
+})();
+</script>
+</body>
+</html>

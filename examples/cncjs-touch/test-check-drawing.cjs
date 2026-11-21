@@ -1,0 +1,13 @@
+'use strict';
+const assert=require('assert'),{check}=require('./check-page-fixture.cjs'),view=require('./touch/program-check-view.js');
+const low={code:'ETOUCH_TRAVEL_TOO_LOW',params:{over:'15.7'},axis:'Z'};
+let c=check('outside',{blocking:[low]});c.axes.Z.verdict='outside';c.axes.Z.machineMin=-144.7;
+let svg=view.drawing(c,'side');assert(svg.includes('15,7 mm'));assert(svg.includes('zéro Z'));assert(svg.includes('pc-over'));assert(svg.includes('data-verified="true"'));
+c=check('outside',{blocking:[{code:'ETOUCH_TRAVEL_BEYOND',params:{axis:'X',sign:'+',over:'0.3'}}]});c.axes.X.verdict='outside';c.axes.X.machineMax=407.8;
+svg=view.drawing(c,'top');assert(svg.includes('0,3 mm à droite'));assert(svg.includes('pc-over'));assert(view.axisLines(c)[0].text.includes('0,3 mm'));
+c.axes.X.usable=null;svg=view.drawing(c,'top');assert(svg.includes('pc-unknown'));assert(svg.includes('non vérifié'));assert(!svg.includes('class="pc-over"'));
+c=check();svg=view.drawing(c,'top',{mpos:{x:50,y:50,z:0}});assert(svg.includes('● zéro pièce'));assert(svg.includes('+ fraise'));assert(!svg.includes('class="pc-over"'));assert(view.axisLines(c)[0].text.includes('marge 10 mm'));
+assert(view.drawing(null,'side').includes('Aucun fichier chargé.'));
+assert(view.drawing(check(),'top',{mpos:{x:'50.000',y:'50.000'}}).includes('+ fraise'),'the server also publishes numeric position strings');
+assert(!view.drawing(check('unknown'),'top').includes('NaN'));
+console.log('PASS check drawings: server overrun figures, side, usable travel, unknown dashes, zero and tool.');

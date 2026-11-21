@@ -11,7 +11,8 @@ const touch = (name) => fs.readFileSync(path.join(__dirname, 'touch', name), 'ut
 function i18n(language, extra = []) {
   const window = {}, saved = new Map([['cncjs-touch-language-v1', language]]);
   const context = { window, document: { documentElement: {}, title: '' }, localStorage: { getItem: (k) => saved.get(k) || null, setItem() {} } };
-  ['i18n-messages.js', 'i18n.js'].concat(extra).forEach((name) => vm.runInNewContext(touch(name), context));
+  // i18n-messages-machine.js: machine type and laser codes (ETOUCH_MACHINE_*, ETOUCH_LASER_*, ETOUCH_LASER_CHECK_*).
+  ['i18n-messages.js', 'i18n-messages-machine.js', 'i18n.js'].concat(extra).forEach((name) => vm.runInNewContext(touch(name), context));
   return window;
 }
 const P = (...lines) => lines.join('\n');
@@ -50,6 +51,40 @@ const refusal = (fn) => { try { fn(); } catch (err) { return err; } throw new Er
     }
   }
   assert.equal(seen.size, 13, 'every reachable resume refusal (CLEARANCE is defensive)');
+  // Machine type and laser (lot A): the laser resume refusals, every coded refusal of
+  // machine-profile.js and the laser reasons of the program check, value for value.
+  const { machineRefusal } = await import('../../src/server/services/touch/machine-profile.js');
+  const { programCheck } = await import('../../src/server/services/touch/program-check.js');
+  const laser = (gcode, from) => refusal(() => buildResume(gcode, from, { mode: 'laser' }));
+  const machineCases = [
+    laser(P('G21 G90', 'G0 X0 Y0', 'M3 S500', 'G1 X10 F1000', 'G1 Y10'), 5),
+    laser(P('G21 G90', 'M3 S500', 'G0 X0 Y0', 'G0 X5 Y5', 'G1 X10 F1000'), 4),
+    laser(P('G21 G90', 'G1 Z0 F100', 'M5', 'G0 Y5', 'G0 X1 Y1'), 4),
+    laser(P('G21 G90', 'G0 Z1 X0 Y0', 'G0 Z2', 'M5', 'G0 X1 Y1'), 5),
+    laser(P('G21 G90', 'G0 X0 Y0', 'M3', 'G1 X10 F1000', 'G0 X20 Y0'), 5)
+  ].concat(['ETOUCH_MACHINE_LASER_MODE_ON', 'ETOUCH_MACHINE_LASER_MODE_OFF', 'ETOUCH_MACHINE_SETTINGS_UNKNOWN', 'ETOUCH_MACHINE_CONNECTION',
+    'ETOUCH_MACHINE_STALE', 'ETOUCH_MACHINE_BUSY', 'ETOUCH_MACHINE_CONTROLLER_CHANGED', 'ETOUCH_MACHINE_TRANSPORT', 'ETOUCH_MACHINE_KIND_INVALID',
+    'ETOUCH_MACHINE_NOT_ASSOCIATED', 'ETOUCH_MACHINE_STORE', 'ETOUCH_MACHINE_OPERATION', 'ETOUCH_LASER_NOT_LASER', 'ETOUCH_LASER_NO_SPINDLE_TEST',
+    'ETOUCH_LASER_NO_PLATE_PROBE', 'ETOUCH_LASER_NO_TOOL_CHANGE', 'ETOUCH_LASER_NO_CNC_RESUME', 'ETOUCH_LASER_FRAME_DISABLED',
+    'ETOUCH_LASER_FRAME_NO_PROGRAM', 'ETOUCH_LASER_FRAME_CHECK', 'ETOUCH_LASER_FRAME_BOUNDS', 'ETOUCH_LASER_FRAME_POSITION',
+    'ETOUCH_LASER_FRAME_CHANGED', 'ETOUCH_LASER_FRAME_EXPIRED'].map((code) => machineRefusal(code)))
+    .concat([machineRefusal('ETOUCH_MACHINE_RESUME_MODE_CHANGED', { loaded: 'CNC', now: 'laser' }), machineRefusal('ETOUCH_MACHINE_AMBIGUOUS', { count: 2 }), machineRefusal('ETOUCH_MACHINE_NOT_IDLE', { state: 'Alarm' }),
+      machineRefusal('ETOUCH_LASER_FRAME_WCS', { wcs: 'G55', active: 'G54' }), machineRefusal('ETOUCH_LASER_FRAME_FEED', { min: 1, max: '3000' }),
+      machineRefusal('ETOUCH_LASER_FRAME_SLOW', { seconds: 75, max: 60 })]);
+  const laserCheck = programCheck(P('G21 G90', 'M3 S1200', 'G1 X10 F1000', 'M4 S100', 'G1 Y5', 'M5'), { settings: { $30: 1000 }, laser: { sMax: 1000 } }).laser;
+  const quiet = programCheck(P('G21 G90', 'G0 X10 S20'), { settings: {}, laser: { sMax: null } }).laser;
+  laserCheck.codedReasons.concat(quiet.codedReasons).forEach((r) => machineCases.push(r));
+  const machineSeen = new Set();
+  for (const err of machineCases) {
+    assert.match(err.code, /^ETOUCH_(MACHINE|LASER)_/); machineSeen.add(err.code);
+    assert.equal(fr.format(err.code, err.params, ''), err.message, err.code + ' French template');
+    for (const [language, i] of [['en', en], ['es', es]]) {
+      const text = i.format(err.code, err.params, err.message);
+      assert.notEqual(text, err.message, err.code + ' ' + language + ' translated');
+      assert.doesNotMatch(text, /[{}[\]]|power|puissance|potencia/i, err.code + ' ' + language + ' filled, no power wording');
+    }
+  }
+  assert.equal(machineSeen.size, 40, 'every machine/laser code checked against its French template');
   // [ optional part ] dropped when its value is null, kept with its value otherwise.
   const noWcs = cases.find((e) => e.code === 'ETOUCH_RESUME_NO_RAPID_Z' && e.params.wcs === null), g55 = cases.find((e) => e.code === 'ETOUCH_RESUME_NO_RAPID_Z' && e.params.wcs);
   assert(noWcs && g55, 'both forms of NO_RAPID_Z');
@@ -106,6 +141,41 @@ const refusal = (fn) => { try { fn(); } catch (err) { return err; } throw new Er
   })(path.join(__dirname, '../../src/server'));
   assert(emitted.size >= 14, 'resume codes found in src/server');
   emitted.forEach((code) => assert(codes.has(code), 'no template for ' + code));
+  for (const dead of ['ETOUCH_RESUME_FEED_MODE', 'ETOUCH_RESUME_TOOL_OFFSET_ACTIVE']) {
+    assert(!emitted.has(dead), dead + ' is not emitted by the current server');
+    assert(!codes.has(dead), dead + ' must not remain as a dead refusal template');
+  }
+  // Durable A2-7: use the actual coded S6 refusals and null optional values, rather
+  // than the obsolete uncoded French wrappers and French words used as parameters.
+  const { refusal: probeRefusal } = await import('../../src/server/services/touch/block-probe.js');
+  const probeCases = [
+    probeRefusal('ETOUCH_PROBE_AMBIGUOUS', { axis: 'X' }),
+    probeRefusal('ETOUCH_PROBE_TRAVEL_UNKNOWN', { axis: 'Y' }),
+    probeRefusal('ETOUCH_PROBE_ALARM', { alarm: null }),
+    probeRefusal('ETOUCH_PROBE_ALARM', { alarm: 4 }),
+    probeRefusal('ETOUCH_PROBE_WCS', { wcs: 'G54', active: null }),
+    probeRefusal('ETOUCH_PROBE_WCS', { wcs: 'G54', active: 'G55' })
+  ];
+  for (const language of ['fr', 'en', 'es']) {
+    const f = load({ language, catalogs: ['i18n-messages-machine.js'] }); await f.connect(f.machine({ canBlockProbe: true }));
+    const i = f.window.cncI18n;
+    for (const err of probeCases) {
+      const expected = i.format(err.code, err.params, err.message);
+      assert.equal(fr.format(err.code, err.params, ''), err.message, err.code + ' matches the actual server');
+      if (language !== 'fr') {
+        assert.notEqual(expected, err.message, err.code + ' translated in ' + language);
+        assert.doesNotMatch(expected, /Palpage refusé|inconnue?|prise d’origine|pendant le palpage|repère actif/);
+      }
+      assert.doesNotMatch(expected, /[{}[\]]/);
+      Object.values(err.params).filter((v) => v !== null).forEach((v) => assert(expected.includes(String(v))));
+      const prepared = f.controls().prepareCommand('blockProbe', { axes: 'XYZ' });
+      f.answer(f.posts().at(-1), { code: err.code, params: err.params, message: err.message }, 409);
+      const result = await prepared;
+      assert.equal(result.opened, false); assert.equal(result.error.code, err.code);
+      assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, expected, 'HTTP block probe refusal in ' + language);
+    }
+    f.controls().dispose();
+  }
 
   // F2 reasons with codes (codedReasons) are shown translated; without them, the French reasons.
   const w = i18n('en', ['program-check-view.js']), view = w.CNCProgramCheckView;
@@ -121,14 +191,14 @@ const refusal = (fn) => { try { fn(); } catch (err) { return err; } throw new Er
   // The job controls show a coded refusal (HTTP 409) in English, an uncoded one as sent.
   const f = load({ language: 'en' }); await f.connect();
   f.window.dispatchEvent({ type: 'cnc-library-select', detail: { file: 'part.nc', name: 'part.nc' } });
-  f.el('job-load').click();
+  f.controls().load();
   f.answer(f.posts().at(-1), { message: 'Avance inconnue avant la ligne 40 : choisissez une ligne plus loin.', code: 'ETOUCH_RESUME_FEED', params: { from: 40 } }, 409); await f.flush();
-  assert.equal(f.el('job-feedback').textContent, 'Feed rate unknown before line 40: choose a later line.');
-  assert.equal(f.el('job-feedback').getAttribute('data-state'), 'failed');
-  f.el('job-load').click(); f.answer(f.posts().at(-1), { message: 'Machine occupée, cas propre au serveur.' }, 409); await f.flush();
-  assert.equal(f.el('job-feedback').textContent, 'Machine occupée, cas propre au serveur.');
-  f.el('job-load').click(); f.answer(f.posts().at(-1), {}, 500); await f.flush();
-  assert.equal(f.el('job-feedback').textContent, 'Controls unavailable (HTTP 500).');
+  assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Feed rate unknown before line 40: choose a later line.');
+  assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').getAttribute('data-state'), 'failed');
+  f.controls().load(); f.answer(f.posts().at(-1), { message: 'Machine occupée, cas propre au serveur.' }, 409); await f.flush();
+  assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Machine occupée, cas propre au serveur.');
+  f.controls().load(); f.answer(f.posts().at(-1), {}, 500); await f.flush();
+  assert.equal(require('./command-state-fixture.cjs')(f.window,'job-feedback').textContent, 'Controls unavailable (HTTP 500).');
   // The error keeps its code and values for callers (resume dialog, real moves).
   const c = f.controls();
   const plan = c.resumePlan('part.nc', 40); f.answer(f.posts().at(-1), { message: 'Vitesse de broche inconnue avant la ligne 40 : reprise impossible.', code: 'ETOUCH_RESUME_SPINDLE_SPEED', params: { from: 40 } }, 409);

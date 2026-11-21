@@ -14,9 +14,13 @@ import { createProbeInput } from './probe-input.js';
 // eslint-disable-next-line import/extensions
 import { checkProgram } from './program-check.js';
 // eslint-disable-next-line import/extensions
+import { durationOf, createRunTime } from './program-time.js';
+// eslint-disable-next-line import/extensions
 import { createControl, SAFE_ACTIONS } from './control.js';
 // eslint-disable-next-line import/extensions
-import { createMotion } from './motion.js';
+import { createMotion, maxFeedOf, machinePositionKnown, MAX_JOG_MS, MIN_FEED, envelopeOf, limitsAt, usableOf } from './motion.js';
+// eslint-disable-next-line import/extensions
+import { createProfiles, describeProfile, machineRefusal, KINDS } from './machine-profile.js';
 // Parts of the service behind explicit contracts (audit 31, E2): the
 // orchestration, the guards and the public API stay here.
 // eslint-disable-next-line import/extensions
@@ -26,7 +30,11 @@ import { createHalt } from './halt.js';
 // eslint-disable-next-line import/extensions
 import { createPlateProbe } from './plate-probe.js';
 // eslint-disable-next-line import/extensions
+import { createBlockProbe, blockParams } from './block-probe.js';
+// eslint-disable-next-line import/extensions
 import { createSystemCommands } from './system-command.js';
+// eslint-disable-next-line import/extensions
+import { createWorkOffset } from './work-offset.js';
 
 // Kept exported from here for the existing callers and tests.
 // eslint-disable-next-line import/extensions
@@ -115,6 +123,25 @@ const overridesOf = (state) => {
 
 // Grbl reports the real feed rate and spindle speed as FS:feed,speed; CNCjs
 // keeps them as status.feedrate and status.spindle.
+// The status report itself gives X, Y and Z (MPos, or WPos turned into MPos by CNCjs): a report
+// without coordinates would leave the ones CNCjs held before, 0 at start.
+const explicitXyz = (payload) => ['mpos', 'wpos'].some((key) => {
+  const p = payload && payload[key];
+  return !!p && ['x', 'y', 'z'].every((axis) => ['string', 'number'].includes(typeof p[axis]) && String(p[axis]).trim() !== '' && Number.isFinite(Number(p[axis])));
+});
+
+// Machine position per axis (X, Y, Z) as CNCjs holds it now, null where not a number.
+const homeMposOf = (c) => {
+  const p = controllerStatus(c).mpos || {};
+  const out = {};
+  ['X', 'Y', 'Z'].forEach((axis) => {
+    const v = p[axis.toLowerCase()];
+    const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
+    out[axis] = typeof n === 'number' && Number.isFinite(n) ? n : null;
+  });
+  return out;
+};
+
 const realtimeValue = (value) => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null);
 
 // Only names and ids leave the server; macro contents stay in the configuration.
@@ -132,6 +159,47 @@ const conflict = (message) => {
   return err;
 };
 
+// D1 (a start proven outside the travel) and the reference guards (C-05, C-18): refusals with a
+// stable code, the values of their French message and, for ETOUCH_START_OUTSIDE, the coded
+// overruns behind it (`reasons`, program-check.js).
+export const START_MESSAGES = {
+  ETOUCH_START_OUTSIDE: 'Départ refusé : le programme sort de la course de la machine (dépassements : {count}).',
+  ETOUCH_START_NO_OVERRIDE: 'Départ hors course impossible : les limites logicielles de la carte ($20) ne sont pas actives, rien n’arrêterait le dépassement.',
+  ETOUCH_START_OVERRIDE_UNSAFE: 'Départ hors course impossible : ce fichier peut modifier les protections de la machine. Utilisez un fichier sans commande système ni expression.',
+  ETOUCH_START_OVERRIDE_CHANGED: 'Le programme, l’origine ou la machine ont changé depuis la confirmation du départ hors course : confirmez à nouveau.',
+  ETOUCH_START_NOT_HOMED: 'Machine non référencée : faites la prise d’origine avant de démarrer.',
+  ETOUCH_START_FEED_MODE: 'Reprise à une ligne refusée : la machine doit être en avance par minute (G94). Relisez son état ou remettez-la en G94.',
+  ETOUCH_ORIGIN_NOT_HOMED: 'Machine non référencée : faites la prise d’origine avant de poser une origine.'
+};
+
+const startRefusal = (code, params = {}, reasons) => {
+  const err = conflict(START_MESSAGES[code].replace(/\{(\w+)\}/g, (all, name) => String(params[name])));
+  err.code = code;
+  err.params = params;
+  if (reasons) {
+    err.reasons = reasons;
+  }
+  return err;
+};
+
+// F4: giving the hand back is refused during a job; same shape as the start refusals (stable code, no values).
+const CONTROL_JOB_MESSAGE = 'Un usinage est en cours : la main ne se rend pas pendant l’usinage. Pause et Arrêter restent possibles.';
+const controlJobRefusal = () => {
+  const err = conflict(CONTROL_JOB_MESSAGE);
+  err.code = 'ETOUCH_CONTROL_JOB';
+  return err;
+};
+
+// Socket.IO commands that are not safe, refused while the server holds the machine (C-12, C-60):
+// shown by CNCjs's own interface.
+const SOCKET_PROBE_BUSY = 'Palpage en cours sur la tablette : commande refusée jusqu’à sa fin (Arrêter reste possible).';
+const SOCKET_SYSTEM_BUSY = 'Commande système en cours sur la tablette : commande refusée jusqu’à sa fin (Arrêter reste possible).';
+const SOCKET_FRAME_BUSY = 'Cadrage en cours sur la tablette : commande refusée jusqu’à sa fin (Arrêter reste possible).';
+// CNC framing (lot F1): no spindle speed reported and no recent $G to tell it is stopped.
+const CNC_FRAME_SPINDLE_UNKNOWN = 'La broche tourne peut-être (vitesse non rapportée, état $G trop ancien) : arrêtez-la d’abord (M5).';
+// Shared by the start rejection and the response to the stop that cancelled it.
+const START_CANCELLED = 'Départ annulé.';
+
 const hasAutomations = (config) => {
   return (config.get('events') || []).some((event) => event.enabled !== false);
 };
@@ -142,12 +210,16 @@ const monotonic = () => performance.now();
 
 // Actions that need the control lease when the port is owned by someone
 // else; a touch client that identifies itself claims a free port with them.
-const GUARDED_ACTIONS = ['load', 'prepare', 'start', 'resume', 'macro', 'override', 'unlock', 'home', 'spindle', 'zeroZ', 'readSettings', 'set-origin'];
+// `machine`: type of machine and laser framing (PROFILES-CONTRACT §2, §4).
+// `verifyOffset`: the proof of the work offset (D2, work-offset.js) starts again.
+const GUARDED_ACTIONS = ['load', 'prepare', 'start', 'resume', 'macro', 'override', 'unlock', 'home', 'spindle', 'zeroZ', 'blockProbe', 'readSettings', 'set-origin', 'machine', 'verifyOffset'];
 
 // Real moves (F1, motion.js): every `motion` operation is guarded like the
 // actions above, except `jog-stop`, which is free for everyone like Stop.
 const guarded = (body) => GUARDED_ACTIONS.includes(body.action) || (body.action === 'motion' && body.operation !== 'jog-stop');
 
+// The existing service factory owns the controller lifecycle and its shared guard closures.
+// eslint-disable-next-line max-lines-per-function
 export const createService = (store, config, clock = monotonic, options = {}) => {
   const records = new Map();
   const listeners = new Set();
@@ -160,6 +232,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
   // caller in production; a service without them behaves as before.
   const history = options.history || null;
   const control = options.control || createControl();
+  // D2 (work-offset.js): a factory called once per controller record; tests written before D2
+  // give one that is always proven (__tests__/support/proven-offset.js).
+  const workOffsetOf = options.workOffset || createWorkOffset;
   const log = (event) => {
     if (history) {
       history.record(event);
@@ -171,12 +246,41 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     jobId: j.id, program: j.originalName, file: j.name, fingerprint: j.fingerprint, fromLine: j.resume ? j.resume.from : null
   } : {});
   const SYSTEM = { kind: 'system', id: 'grbl', label: 'machine' };
+  // Line of the original file acknowledged when a job stops, kept for a resume
+  // from a line (preamble lines of a resume are not lines of the file).
+  const stopLine = (c, r) => {
+    const k = Number(c.sender.state.received) || 0;
+    const res = r.job.resume;
+    if (!res) {
+      return k;
+    }
+    return k <= res.preambleLength ? res.from - 1 : res.from + (k - res.preambleLength - 1);
+  };
 
   const changed = () => {
     listeners.forEach((fn) => fn());
   };
 
   const controllers = () => store.get('controllers') || {};
+
+  const jobProgress = (c, r) => {
+    const j = r.job;
+    if (!j || !j.runTime) {
+      return null;
+    }
+    const now = clock();
+    const state = controllerStatus(c);
+    const fresh = Number.isFinite(r.seen) && now >= r.seen && now - r.seen <= MAX_REPORT_AGE_MS;
+    return j.runTime(now, {
+      fresh,
+      workflow: c.workflow.state,
+      activeState: state.activeState || '',
+      overrides: overridesOf(state),
+      ended: j.finishedAt !== null && j.finishedAt !== undefined,
+      stopped: j.stopped,
+      invalid: !!(!fresh || j.boardRestarted || j.errors || j.probeFailed || /^Alarm/.test(state.activeState || ''))
+    });
+  };
 
   // Deferred step of a stop, a probe or a spin-up, kept on the controller's
   // record so that forgetting the controller or disposing the service cancels
@@ -207,58 +311,170 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         wcs: null,
         job: null,
         loading: false,
+        // C-13: a confirmed start re-reading its file, cancellable before gcode:start.
+        starting: null,
+        // A frame reserves its asynchronous fingerprint read before its first write.
+        frameStarting: null,
         ticket: null,
         // Firmware seen in the startup banner or a $I reply, and how many
         // times the board restarted (an E-stop wired to reset restarts it).
         firmware: '',
         startups: 0,
+        settingsRead: null,
+        settingsAttempts: 0,
+        settingsRetryAt: 0,
         // Last ALARM:n code, kept until the board restarts.
         alarm: null,
+        // Incident retained through restarts and unlocks, until a homing completes.
+        lastAlarm: null,
         // Since when Grbl is idle while the job waits for acknowledgements.
         stall: null,
         // Spindle state when a tool change (M6) pause began, to restart it on resume.
         toolChange: null,
         // Line (of the original file) acknowledged when the last job was stopped.
         lastStop: null,
+        // Last resume plan checked (file, line, fingerprint), see job-load.js (E9).
+        resumeChecked: null,
         // Plate probe in progress, and the last one (result or failure).
         probing: null,
         zeroZ: null,
+        // Block probe (block-probe.js): the last one, in progress or over, and
+        // when the last one failed (a new contact test is due after it).
+        blockProbe: null,
+        blockProbeFailedAt: null,
         // Homing cycle sent ($H) and not yet over (see HOMING_MIN_MS).
         homing: null,
         // A homing cycle was seen complete (ours, or a Home state followed by
         // Idle) since the last board restart or alarm: the only ground for the
         // travel check (F2). $22=1 alone means enabled, not done.
         homed: false,
+        // Why the reference is lost since the last homing seen (C-05): 'restart' (a banner) over
+        // 'alarm' (ALARM:n, or an Alarm state of a homed machine); null when homed or never known.
+        referenceLost: null,
         sawHome: false,
+        // Machine position at the end of our last full homing cycle ($H, Home seen, then Idle) and
+        // the $23 it was homed under, or null: learnt only from a trusted machine position.
+        homeMpos: null,
+        // When a socket of another client (CNCjs on the PC) sent a full homing cycle: the command
+        // `homing`, or `writeln` of the single line $H (see socketCommand). Never $HX/$HY/$HZ, never a cycle
+        // seen without its command: only such a cycle may teach homeMpos besides ours.
+        foreignHome: null,
+        // When the last WCO was received (a WPos report needs one received after the $H).
+        wcoAt: null,
         // Status reports received, so a step can wait for a newer one.
         reports: 0,
+        xyzAt: null,
         generation: crypto.randomBytes(12).toString('hex')
+      };
+      // D2: whether the work offset the board applies is proven equal to `$#` (work-offset.js).
+      r.offset = workOffsetOf({
+        c,
+        r,
+        clock,
+        later,
+        changed,
+        answers: (...args) => answers(...args),
+        quiet: (...args) => quiet(...args),
+        connected: () => controllers()[c.options.port] === c && !c.isClose() && !!c.runner,
+        mode: () => offsetMode(c, r),
+        reportUnits: () => reportUnitsOf(c),
+        workflowIdle: () => !!c.workflow && c.workflow.state === 'idle',
+        log,
+        controllerInfo: () => controllerInfo(c, r)
+      });
+      // Where a full homing cycle left the machine, with the $23 it ran under (F1, motion.js
+      // envelopeOf), or null when CNCjs's machine position cannot be trusted.
+      const homeEnd = () => {
+        const settings = allSettings(c);
+        const mask = settings.$23 === undefined || String(settings.$23).trim() === '' ? NaN : Number(settings.$23);
+        return Number.isInteger(mask) && machinePositionKnown(settings, { wcoSeen: r.wcoSeen, wposReported: r.wposReported })
+          ? { ...homeMposOf(c), mask } : null;
       };
       r.status = (payload) => {
         r.seen = clock();
+        if (explicitXyz(payload)) {
+          r.xyzAt = r.seen;
+        }
         // A work offset reported since the board started: what CNCjs needs to
         // turn a WPos report ($10 bit 0 clear) into a machine position (F1).
         const wco = payload && payload.wco;
-        if (wco && ['x', 'y', 'z'].every((axis) => Number.isFinite(Number(wco[axis])) && String(wco[axis]).trim() !== '')) {
+        const explicitWco = !!wco && ['x', 'y', 'z'].every((axis) => Number.isFinite(Number(wco[axis])) && String(wco[axis]).trim() !== '');
+        if (explicitWco) {
           r.wcoSeen = true;
+          r.wcoAt = clock();
         }
         r.reports += 1;
+        jobProgress(c, r);
+        // The last explicit WCO: and the report that carried it (the block probe's check, C-03).
+        if (explicitWco) {
+          r.wco = { report: r.reports, x: Number(wco.x), y: Number(wco.y), z: Number(wco.z) };
+        }
         const active = controllerStatus(c).activeState || '';
+        let ownCycle = false;
+        // Our $H outstanding and the board entering Alarm (from another state, no ALARM:n line): the
+        // cycle was cut, an Idle after it ($X) is no completed homing. An Alarm already there when $H
+        // left (board locked by $22=1) is not one: the cycle may still come.
+        if (r.homing && /^Alarm/.test(active) && r.lastActive !== undefined && !/^Alarm/.test(r.lastActive)) {
+          r.homing.interrupted = true;
+        }
+        r.lastActive = active;
         if (r.homing && clock() - r.homing.since >= HOMING_MIN_MS && /^(Idle|Alarm)/.test(active)) {
           // An error received while our $H was outstanding: never a completed homing
           // (a Home report seen meanwhile still is, see sawHome below).
-          if (active === 'Idle' && !r.homing.refused) {
+          if (active === 'Idle' && !r.homing.refused && !r.homing.interrupted) {
             r.homed = true;
+            r.lastAlarm = null;
+            r.referenceLost = null;
+            // Where our own full cycle ($H, every axis), seen running (Home reported), left the
+            // machine (F1, motion.js envelopeOf): an axis homed towards its negative end ($23 bit
+            // set) found at 0 tells a firmware that forces the origin there, whose travel is then
+            // [0, $13x] only. A cycle of another client ($HX, $HY…) may home some axes only: not used.
+            // A position derived from WPos without any WCO yet is off by the work offset: not used.
+            // Limit: an axis left out of the firmware's own $H cycle keeps 0 after a board restart and
+            // cannot be told from a forced origin; the soft limits ($20=1) of the board remain.
+            ownCycle = true;
+            r.homeMpos = r.sawHome ? homeEnd() : null;
+            // WCO:0,0,0 after a homing on the LUNYEE while $# keeps the stored offset (D2).
+            r.offset.invalidate('homing');
           }
           r.homing = null;
+        }
+        if (/^Alarm/.test(active)) {
+          // An Alarm state without its ALARM:n line (a board restarted unseen, locked by $22=1 at
+          // MPos 0,0,0): the position may be lost, as after r.alarmed. A full $H of the PC sent in
+          // Alarm keeps its intention (foreignHome): its cycle comes next.
+          if (r.homed && r.referenceLost !== 'restart') {
+            r.referenceLost = 'alarm';
+          }
+          r.homed = false;
+          r.homeMpos = null;
+          r.offset.invalidate('alarm');
         }
         if (active === 'Home') {
           r.sawHome = true;
         } else if (r.sawHome && active === 'Idle') {
           r.sawHome = false;
           r.homed = true;
+          r.lastAlarm = null;
+          r.referenceLost = null;
+          r.offset.invalidate('homing');
+          // A cycle of another client may have homed some axes only ($HX, $HY…): what ours taught
+          // is dropped, unless the full cycle was seen sent (socketCommand), ran at least
+          // HOMING_MIN_MS and this very report gives the end position. Worst case, an axis taken
+          // for homed at 0 that is not (a firmware whose $H skips it): a step towards + may run
+          // past the real travel into the limit switch ($21=1, 6 switches) → ALARM:1, the board
+          // restarts, homed and homeMpos are forgotten, nothing moves before a new cycle. A limit
+          // alarm, not a crash into the frame (an obstacle within the travel is another matter).
+          if (!ownCycle) {
+            const since = r.foreignHome;
+            const proven = since !== null && clock() - since >= HOMING_MIN_MS && clock() - since <= HOMING_MAX_MS &&
+              explicitXyz(payload) && (machinePositionKnown(allSettings(c), { wposReported: r.wposReported }) || (r.wcoAt !== null && r.wcoAt >= since));
+            r.homeMpos = proven ? homeEnd() : null;
+          }
+          r.foreignHome = null;
         } else if (r.sawHome && !/^(Home|Idle)/.test(active)) {
           r.sawHome = false;
+          r.foreignHome = null;
         }
         const s = c.sender && c.sender.state;
         const waiting = c.workflow && c.workflow.state === 'running' && controllerStatus(c).activeState === 'Idle' &&
@@ -269,32 +485,67 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
           r.stall = { since: r.seen, received: s.received };
         }
         observeToolChange(c, r);
+        // An exception here would break CNCjs's reading of the port.
+        try {
+          r.offset.tick(payload);
+        } catch (_) {
+          // The proof stays where it was; nothing was written by this report.
+        }
         changed();
       };
       r.alarmed = (res) => {
         r.alarm = grblCode(res);
+        r.lastAlarm = { code: r.alarm, at: Date.now(), restarted: false };
         r.homing = null;
+        r.foreignHome = null;
+        // The board is in Alarm from now on, before its next report: a $H sent next starts from it.
+        r.lastActive = 'Alarm';
         // An alarm may have lost the position (hard/soft limit, abort during a cycle).
-        r.homed = false;
-        r.sawHome = false;
-        if (r.job && r.job.started && !r.job.stopped && !r.job.finishedAt) {
-          log({ event: 'alarm', ...jobInfo(r.job), controller: controllerInfo(c, r), code: r.alarm, actor: SYSTEM });
+        if (r.referenceLost !== 'restart') {
+          r.referenceLost = 'alarm';
         }
+        r.homed = false;
+        r.homeMpos = null;
+        r.sawHome = false;
+        r.offset.invalidate('alarm');
+        const job = r.job && r.job.started && !r.job.stopped && !r.job.finishedAt ? r.job : null;
+        log({ event: 'alarm', ...jobInfo(job), controller: controllerInfo(c, r), code: r.alarm, actor: SYSTEM });
         changed();
       };
       r.reset = (payload) => {
+        endSettingsRead(r);
+        r.settingsAttempts = 0;
+        r.settingsRetryAt = 0;
         r.seen = null;
+        r.xyzAt = null;
         r.modalSeen = null;
         r.wcs = null;
         r.ticket = null;
         r.alarm = null;
+        if (r.lastAlarm) {
+          r.lastAlarm = { ...r.lastAlarm, restarted: true };
+        }
         r.stall = null;
         r.homing = null;
         r.homed = false;
+        // The board restarted: MPos 0 where it stood on the LUNYEE, the reference is gone.
+        r.referenceLost = 'restart';
+        r.homeMpos = null;
+        r.foreignHome = null;
         r.wcoSeen = false;
+        r.wcoAt = null;
+        r.wco = null;
         // A Home state seen before the restart says nothing about the new session.
         r.sawHome = false;
         r.startups += 1;
+        // A framing ends at the banner itself, without a byte to the new session (lot F1, C1).
+        moves.restarted(c, r);
+        // A banner ends the plate's old session, including boards returning directly to Idle.
+        if (r.probing && r.probing.kind === 'plate') {
+          r.probing.cancelled = true;
+        }
+        // The board loaded its stored offsets again: the next proof needs no reload.
+        r.offset.invalidate('restart');
         // Reports counted from the banner on (a jog line lost to the restart, motion.js).
         r.reportsAtStartup = r.reports;
         // A restart (E-stop wired to reset, an alarm abort, a reset from another
@@ -305,6 +556,12 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
             r.job.aborted = true;
             log({ event: 'aborted', ...jobInfo(r.job), controller: controllerInfo(c, r), result: 'aborted', actor: SYSTEM });
           }
+        }
+        // CNCjs's sender keeps streaming on every `ok` after a restart: a board
+        // back Idle ($22=0) would run the rest of the program from a lost
+        // position, spindle off (N7). Hold the sender; the resume stays refused.
+        if (c.workflow && c.workflow.state === 'running') {
+          c.command('gcode:pause');
         }
         if (payload && typeof payload.firmware === 'string' && typeof payload.version === 'string') {
           r.firmware = (payload.firmware + ' ' + payload.version).slice(0, 63);
@@ -331,11 +588,18 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         r.modalSeen = clock();
         const value = payload && payload.modal && payload.modal.wcs;
         r.wcs = /^G5[4-9]$/.test(value || '') ? value : null;
+        r.offset.modal();
         changed();
       };
       r.file = () => {
         r.job = null;
         r.ticket = null;
+        // A program replaced during a framing (an upload of CNCjs, lot F1 review C3) ends it now:
+        // a CNC framing with its code, a laser one as a stop.
+        moves.supervise(c, r);
+        if (moves.framing(r)) {
+          moves.stop(c, r, 'program');
+        }
         changed();
       };
       c.runner.on('status', r.status);
@@ -345,8 +609,11 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       // CNCjs rewinds the sender when a program ends, so "all lines acknowledged"
       // must be remembered when it happens to tell a finished job from a stopped one.
       r.end = () => {
+        // M2/M30 load G54 again, and the program may have changed the system.
+        r.offset.invalidate('end');
         if (r.job && r.job.started && !r.job.stopped) {
           r.job.finishedAt = clock();
+          jobProgress(c, r);
           log({
             event: 'finish',
             ...jobInfo(r.job),
@@ -373,6 +640,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
           r.homing.refused = true;
           changed();
         }
+        // Maybe the refusal of a $H sent from the PC: its cycle teaches nothing.
+        r.foreignHome = null;
         if (r.probing) {
           r.probing.error = grblCode(res);
         }
@@ -393,8 +662,16 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       c.sender.on('end', r.end);
       // A new run of the loaded program (also started from CNCjs on the PC) starts
       // clean: the end, stop, restart and probe of an earlier run do not apply to it.
+      // It is a started job either way, so its end, errors, alarms and board
+      // restarts are recorded (bug hunt E-4); one started outside the service is
+      // `external`: the PC resumes it, not the tablet (TESTING.md, job follow-up).
       r.run = () => {
+        r.foreignHome = null;
         if (r.job) {
+          r.job.started = true;
+          // Started by the service (ownStart, consumed here) or from outside.
+          r.job.external = !r.job.ownStart;
+          r.job.ownStart = false;
           r.job.stopped = false;
           r.job.finishedAt = null;
           r.job.boardRestarted = false;
@@ -402,15 +679,52 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
           r.job.probeFailed = false;
           r.job.errors = 0;
           r.job.lastError = null;
+          const state = controllerStatus(c);
+          const parser = modalFresh(r) ? ((c.runner.state || {}).parserstate || {}).modal || {} : {};
+          const context = {
+            ...machineForCheck(c, r),
+            overrides: overridesOf(state),
+            feedMode: parser.feedrate,
+            wcs: parser.wcs,
+            tlo: c.settings && c.settings.parameters && c.settings.parameters.TLO
+          };
+          if (r.xyzAt === null || clock() - r.xyzAt > MAX_REPORT_AGE_MS) {
+            context.wpos = {};
+          }
+          r.job.runTime = createRunTime(durationOf(r.job.analysis, context), clock(), context.overrides);
           // Our own start names its actor; a start made from the classic interface does not.
           const actor = r.job.startActor || { kind: 'socket', id: 'cncjs', label: 'interface CNCjs' };
           r.job.startActor = null;
-          log({ event: 'start', ...jobInfo(r.job), controller: controllerInfo(c, r), startedAt: new Date().toISOString(), actor });
+          // D1: a start of ours that overrode a proven overrun says so.
+          const override = r.job.overrideStart ? { override: true } : {};
+          r.job.overrideStart = false;
+          log({ event: 'start', ...jobInfo(r.job), controller: controllerInfo(c, r), startedAt: new Date().toISOString(), ...override, actor });
+          changed();
+        }
+      };
+      r.progress = () => jobProgress(c, r);
+      // A stop made outside the service (CNCjs's Stop or Reset on the PC, a macro):
+      // the job is marked stopped with its line like one of ours (E6 / N10). Run
+      // before CNCjs's own listener, which rewinds the sender.
+      r.stopped = () => {
+        r.offset.invalidate('stop');
+        const j = r.job;
+        if (j && j.started && !j.stopped && !j.finishedAt && c.sender && c.sender.state && c.sender.state.name === j.name) {
+          const line = stopLine(c, r);
+          r.lastStop = { file: j.name, line };
+          j.stopped = true;
+          jobProgress(c, r);
+          log({ event: 'stop', ...jobInfo(j), controller: controllerInfo(c, r), result: 'stopped', line, probing: !!r.probing, actor: SYSTEM });
           changed();
         }
       };
       if (c.workflow && typeof c.workflow.on === 'function') {
         c.workflow.on('start', r.run);
+        c.workflow.on('pause', r.progress);
+        c.workflow.on('resume', r.progress);
+        if (typeof c.workflow.prependListener === 'function') {
+          c.workflow.prependListener('stop', r.stopped);
+        }
       }
       records.set(c, r);
     }
@@ -454,8 +768,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
   };
 
   const remove = (c, r) => {
+    endSettingsRead(r);
     records.delete(c);
     moves.forget(c, r);
+    blockProbe.forget(c, r);
     Array.from(r.timers).forEach((entry) => {
       clearTimeout(entry.handle);
       r.timers.delete(entry);
@@ -473,6 +789,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
     if (c.workflow && typeof c.workflow.removeListener === 'function') {
       c.workflow.removeListener('start', r.run);
+      c.workflow.removeListener('pause', r.progress);
+      c.workflow.removeListener('resume', r.progress);
+      c.workflow.removeListener('stop', r.stopped);
     }
     if (c.sender) {
       c.sender.removeListener('load', r.file);
@@ -502,11 +821,17 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     return c;
   };
 
-  const available = (c) => {
+  const available = (c, allowRestore = false) => {
     if (controllers()[c.options.port] !== c || c.isClose() || !c.ready || !c.runner || !c.sender) {
       throw conflict('Connexion machine indisponible.');
     }
     const r = record(c);
+    if (r.settingsRead) {
+      throw settingsReading();
+    }
+    if (r.originChecking || r.frameStarting) {
+      throw conflict('Des commandes sont en attente.');
+    }
     if (!Number.isFinite(r.seen) || clock() < r.seen || clock() - r.seen > MAX_REPORT_AGE_MS) {
       throw conflict('État machine trop ancien : attendre un rapport récent.');
     }
@@ -514,6 +839,30 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     // stop and M5 do not come through here).
     if (systemCommands.current()) {
       throw conflict('Commande système en cours (' + systemCommands.current().title + ') : attendez sa fin.');
+    }
+    // No guarded action writes between two lines of the D2 transaction.
+    if (r.offset.checking() || (!allowRestore && r.offset.restoring())) {
+      throw r.offset.refusal();
+    }
+  };
+
+  // Reference guards (C-05, C-18, PLAN-CORRECTIONS § 1.5): with homing enabled ($22=1 known), a
+  // machine this server has not seen homed since the board started, or that lost its reference
+  // since (a banner, an alarm, an Alarm state), starts nothing and takes no work zero: one set
+  // before the homing would be wrong after it. Broad on purpose: a CNCjs restarted cannot tell
+  // whether the reference was lost before it. $22=0 or unknown: nothing changes.
+  const referenced = (c) => settingNumber(allSettings(c), 22) !== 1 || record(c).homed === true;
+  const referenceReady = (c) => {
+    if (!referenced(c)) {
+      throw startRefusal('ETOUCH_ORIGIN_NOT_HOMED');
+    }
+  };
+
+  // D2: what runs in work coordinates waits for the offset proven (work-offset.js).
+  const offsetReady = (c) => {
+    const err = record(c).offset.refusal();
+    if (err) {
+      throw err;
     }
   };
 
@@ -593,6 +942,37 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
 
   const homingActive = (r) => !!r.homing && clock() - r.homing.since < HOMING_MAX_MS;
 
+  // When the D2 transaction may start (work-offset.js): 'write' at rest, 'read' (no reload)
+  // in a pause the program asked for, null otherwise: connected, a fresh Idle report, nothing
+  // queued, loading, probing, homing, jogging or waiting for a confirmation, no host command,
+  // the spindle still, a fresh $G naming the active system.
+  const offsetMode = (c, r) => {
+    if (controllers()[c.options.port] !== c || c.isClose() || !c.ready || !c.runner || !c.sender || !c.feeder || !c.workflow) {
+      return null;
+    }
+    if (!Number.isFinite(r.seen) || clock() < r.seen || clock() - r.seen > MAX_REPORT_AGE_MS || controllerStatus(c).activeState !== 'Idle') {
+      return null;
+    }
+    const feeder = c.feeder.toJSON();
+    if (feeder.queue || feeder.pending || systemCommands.current() || r.settingsRead || r.originChecking || r.frameStarting || r.loading ||
+        r.probing || homingActive(r) || moves.moving(c, r) ||
+        (r.ticket && clock() <= r.ticket.expires) || spindleOn(c) || !modalWcs(r)) {
+      return null;
+    }
+    if (c.workflow.state === 'idle') {
+      return 'write';
+    }
+    return c.workflow.state === 'paused' && ['M0', 'M1', 'M6'].includes(pauseKind(c)) ? 'read' : null;
+  };
+
+  const reportUnitsOf = (c) => {
+    const v = allSettings(c).$13;
+    if (v === 0 || v === '0') {
+      return 'mm';
+    }
+    return v === 1 || v === '1' ? 'in' : null;
+  };
+
   // Host command (shutdown, restart…) reserved against the machine: see
   // system-command.js. While it holds, available() refuses every action that
   // moves the machine.
@@ -604,6 +984,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     record,
     homingActive,
     moving: (c, r) => moves.moving(c, r),
+    spindleOn,
     changed,
     MAX_REPORT_AGE_MS
   });
@@ -611,7 +992,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
   // Stop sequence (feed hold, then soft reset once at rest): see halt.js.
   const { haltPlan, halt } = createHalt({ clock, controllers, record, later, spindleOn });
 
-  const readyFor = (c, action, revision) => {
+  const readyFor = (c, action, revision, travel = null) => {
     const j = validJob(c, revision);
     available(c);
     if (record(c).probing) {
@@ -625,6 +1006,27 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       }
       if (j.started || !c.sender.state.total) {
         throw conflict('Rechargez le fichier avant un nouveau démarrage.');
+      }
+      // The machine profile and $32 now, not only when the program was loaded:
+      // a resume runs only in the mode it was built for, with that mode still
+      // allowed; a laser profile starts nothing while $32 is not 1 (M3/M4
+      // would emit during every G0).
+      if (j.resume) {
+        const loaded = j.resume.mode || 'cnc';
+        const now = resumeMode(c);
+        if (now !== loaded) {
+          throw machineRefusal('ETOUCH_MACHINE_RESUME_MODE_CHANGED', { loaded: loaded === 'laser' ? 'laser' : 'CNC', now: now === 'laser' ? 'laser' : 'CNC' });
+        }
+        const r = record(c);
+        const modal = ((c.runner.state && c.runner.state.parserstate) || {}).modal || {};
+        if (!j.resumeFeedMode && (!modalFresh(r) || modal.feedrate !== 'G94')) {
+          throw startRefusal('ETOUCH_START_FEED_MODE');
+        }
+      } else {
+        const profile = profileOf(c, record(c));
+        if (profile.kind === 'laser' && profile.laser.mode !== 1) {
+          throw machineRefusal('ETOUCH_MACHINE_LASER_MODE_OFF');
+        }
       }
       // A program that does not set its units or distance mode runs in Grbl's
       // current ones, while its preview assumes millimetres and absolute.
@@ -640,11 +1042,25 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
           throw conflict('Le programme ne fixe pas son mode et la machine est en ' + (modal.distance || 'mode inconnu') + ' : ajoutez G90 au début du programme ou remettez la machine en G90.');
         }
       }
+      // No program (a resume from a line neither) on a machine without its reference (C-05):
+      // never overridden.
+      if (!referenced(c)) {
+        throw startRefusal('ETOUCH_START_NOT_HOMED');
+      }
+      // A program (a resume from a line too) runs in work coordinates (D2).
+      offsetReady(c);
     } else {
       const kind = pauseKind(c);
       const state = controllerStatus(c).activeState;
+      if (j.started && !j.external && c.workflow.state === 'running' && state === 'Hold') {
+        // Feed hold sent from the PC (`!` only): CNCjs's workflow still runs (N1).
+        throw conflict('Pause donnée hors de cet écran : touchez Pause, puis Reprendre.');
+      }
       if (!j.started || c.workflow.state !== 'paused') {
         throw conflict('La reprise exige une pause simple confirmée par la machine.');
+      }
+      if (j.external) {
+        throw conflict('Travail démarré depuis l’interface CNCjs : reprenez-le depuis le PC.');
       }
       if (kind === 'error') {
         throw conflict('Pause sur une erreur Grbl : arrêtez le travail, corrigez la cause, puis reprenez à une ligne.');
@@ -654,6 +1070,16 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       }
       if (j.probeFailed) {
         throw conflict('Palpage échoué pendant la pause : l’état modal du programme est perdu. Arrêtez le travail, puis reprenez à une ligne.');
+      }
+      if (kind === 'M6') {
+        // No tool change on a laser; no spindle restart while $32=1 without a laser profile.
+        const profile = profileOf(c, record(c));
+        if (profile.kind === 'laser') {
+          throw machineRefusal('ETOUCH_LASER_NO_TOOL_CHANGE');
+        }
+        if (record(c).toolChange && record(c).toolChange.restart && !profile.capabilities.toolChange.supported) {
+          throw machineRefusal(profile.capabilities.toolChange.code);
+        }
       }
       if (kind === 'M0' || kind === 'M1' || kind === 'M6') {
         if (state !== 'Idle' && state !== 'Hold') {
@@ -670,7 +1096,58 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     if (hasAutomations(config)) {
       throw conflict('Des automatismes CNCjs sont configurés. Leur compatibilité doit être vérifiée avant utilisation.');
     }
+    // D1, last: a deliberate override is only asked for once every other guard passed.
+    if (action === 'start') {
+      travelReady(c, j, travel);
+    }
     return j;
+  };
+
+  // D1: the check of the loaded program now (a resume from a line: its rebuilt program, preamble
+  // included), and what a deliberate override is bound to: the overruns shown (axis, side, how
+  // far), the file, the board's session, the D2 proof, $23 and the travel.
+  const travelOf = (c, r, j) => {
+    // Every load analyses its program (job-load.js); a job without one has nothing to check.
+    if (!j.analysis) {
+      return { check: null, signature: null };
+    }
+    const check = checkProgram(j.analysis, machineForCheck(c, r));
+    const s = allSettings(c);
+    const signature = JSON.stringify({
+      overruns: check.blocking.map((b) => [b.code, b.params.axis || 'Z', b.params.sign || '', b.params.over]),
+      revision: j.revision,
+      fingerprint: j.fingerprint,
+      startups: r.startups,
+      proof: r.offset.proof(),
+      mask: s.$23 === undefined ? null : String(s.$23),
+      travel: [130, 131, 132].map((n) => (s['$' + n] === undefined ? null : String(s['$' + n])))
+    });
+    return { check, signature };
+  };
+
+  // `travel`: null (an ordinary start), { request: true } (prepare with override: 'travel'), or
+  // { signature } (the start of a ticket that overrides). Never overrides D2 or the reference
+  // guard: both are checked before (readyFor).
+  const travelReady = (c, j, travel) => {
+    const r = record(c);
+    const { check, signature } = travelOf(c, r, j);
+    // An unsafe request never degrades into an ordinary ticket when its extent is unknown.
+    if (travel && j.analysis.unsafeOverride) {
+      throw startRefusal('ETOUCH_START_OVERRIDE_UNSAFE');
+    }
+    if (!check || !check.blocking.length) {
+      return;
+    }
+    if (!travel) {
+      throw startRefusal('ETOUCH_START_OUTSIDE', { count: check.blocking.length }, check.blocking);
+    }
+    // Without the board's own soft limits, nothing would stop the overrun: never overridden.
+    if (!check.overridable) {
+      throw startRefusal('ETOUCH_START_NO_OVERRIDE');
+    }
+    if (travel.signature && travel.signature !== signature) {
+      throw startRefusal('ETOUCH_START_OVERRIDE_CHANGED');
+    }
   };
 
   // Overrides act on the running (or held) program only.
@@ -705,6 +1182,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     if (hasAutomations(config)) {
       throw conflict('Des automatismes CNCjs sont configurés. Leur compatibilité doit être vérifiée avant utilisation.');
     }
+    // Its content may move in work coordinates (D2).
+    offsetReady(c);
   };
 
   // Commissioning commands ($X, $H, spindle test) never run during a job.
@@ -720,6 +1199,94 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
     if (record(c).loading) {
       throw conflict('Chargement en cours.');
+    }
+  };
+
+  const readSettingsReady = (c) => {
+    noJob(c);
+    const r = record(c);
+    const state = controllerStatus(c).activeState || '';
+    if (!/^(Idle|Alarm)(?::\d+)?$/.test(state) || homingActive(r) || (r.ticket && clock() <= r.ticket.expires)) {
+      throw conflict('La relecture exige une machine au repos ou en alarme, sans confirmation en attente.');
+    }
+  };
+
+  const settingsReading = () => Object.assign(conflict('Lecture de la version et des réglages en cours : patientez quelques secondes.'), {
+    code: 'ETOUCH_SETTINGS_READING', params: {}
+  });
+  const endSettingsRead = (r) => {
+    if (r.settingsRead) {
+      r.settingsRead.t.done();
+      r.settingsRead = null;
+    }
+  };
+
+  // Direct writes also work in Alarm, where CNCjs drops feeder lines. One line at a time,
+  // with an answer listener installed before writing (some test controllers answer synchronously).
+  // The reservation is published only after a successful write; every wait is bounded to 1.5 s.
+  const beginSettingsRead = (c, r, lines) => {
+    const read = { t: answers(c, r), index: 0, deadline: clock() + 1500 };
+    try {
+      c.writeln(lines[0]);
+    } catch (err) {
+      read.t.done();
+      throw err;
+    }
+    r.settingsRead = read;
+    changed();
+    const check = () => {
+      if (r.settingsRead !== read) {
+        return;
+      }
+      if (controllers()[c.options.port] !== c || c.isClose() || !c.runner || read.t.error || clock() >= read.deadline) {
+        endSettingsRead(r);
+        changed();
+        return;
+      }
+      if (read.t.oks) {
+        read.t.done();
+        read.index += 1;
+        if (read.index === lines.length) {
+          r.settingsRead = null;
+          changed();
+          return;
+        }
+        read.t = answers(c, r);
+        try {
+          c.writeln(lines[read.index]);
+        } catch (_) {
+          endSettingsRead(r);
+          changed();
+          return;
+        }
+        if (read.t.oks) {
+          check();
+          return;
+        }
+      }
+      later(c, r, check, 25, () => endSettingsRead(r));
+    };
+    check();
+  };
+
+  const autoReadSettings = (c) => {
+    const r = record(c);
+    const versionMissing = !r.firmware && !firmwareOf(c);
+    const settingsMissing = !Object.keys(allSettings(c)).length;
+    if ((!versionMissing && !settingsMissing) || r.settingsAttempts >= 3 || clock() < r.settingsRetryAt) {
+      return;
+    }
+    try {
+      readSettingsReady(c);
+    } catch (_) {
+      return;
+    }
+    r.settingsAttempts += 1;
+    r.settingsRetryAt = clock() + 5000;
+    try {
+      beginSettingsRead(c, r, ['$I'].concat(settingsMissing ? ['$$'] : []));
+    } catch (_) {
+      // A failed port write must never escape into CNCjs's status/heartbeat listeners.
     }
   };
 
@@ -761,7 +1328,77 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
   };
 
+  // Machine type (CNC / laser) bound to the board's identity, kept in .cncrc
+  // (`touch.machines`, see machine-profile.js). Its capabilities are enforced
+  // here; the tablet only hides or disables.
+  const profiles = createProfiles({ config });
+  const profileOf = (c, r) => describeProfile({
+    settings: allSettings(c),
+    firmware: r.firmware || firmwareOf(c),
+    version: c.settings && c.settings.version,
+    port: c.options.port,
+    records: profiles.list(),
+    frameEnabled: moves.enabled(c, r)
+  });
+  const requireCapability = (c, name) => {
+    const cap = profileOf(c, record(c)).capabilities[name];
+    if (!cap.supported) {
+      throw machineRefusal(cap.code);
+    }
+  };
+  // Resume from a line: the laser mode of the builder for a laser profile
+  // ($32=1 required), the CNC one otherwise ($32=1 refused).
+  const resumeMode = (c) => {
+    const profile = profileOf(c, record(c));
+    const cap = profile.capabilities[profile.kind === 'laser' ? 'laserResume' : 'resume'];
+    if (!cap.supported) {
+      throw machineRefusal(cap.code);
+    }
+    return profile.kind === 'laser' ? 'laser' : 'cnc';
+  };
+
+  // Changing the machine type: the machine at rest (fresh report, Idle,
+  // nothing running, held, loading, homing, probing or moving, no host
+  // command) and its settings ($$) read. Coded refusals (ETOUCH_MACHINE_*).
+  const machineReady = (c) => {
+    const r = record(c);
+    if (controllers()[c.options.port] !== c || c.isClose() || !c.ready || !c.runner || !c.sender) {
+      throw machineRefusal('ETOUCH_MACHINE_CONNECTION');
+    }
+    if (!Number.isFinite(r.seen) || clock() < r.seen || clock() - r.seen > MAX_REPORT_AGE_MS) {
+      throw machineRefusal('ETOUCH_MACHINE_STALE');
+    }
+    const feeder = c.feeder.toJSON();
+    if (systemCommands.current() || r.settingsRead || r.originChecking || r.frameStarting || r.loading || r.probing || homingActive(r) || moves.moving(c, r) ||
+        c.workflow.state !== 'idle' || feeder.queue || feeder.pending) {
+      throw machineRefusal('ETOUCH_MACHINE_BUSY');
+    }
+    const state = controllerStatus(c).activeState || '';
+    if (state !== 'Idle') {
+      throw machineRefusal('ETOUCH_MACHINE_NOT_IDLE', { state: state || 'inconnu' });
+    }
+    if (!profileOf(c, r).signature) {
+      throw machineRefusal('ETOUCH_MACHINE_SETTINGS_UNKNOWN');
+    }
+  };
+
+  const machineProfileOf = (c, r) => {
+    const profile = profileOf(c, r);
+    let changeReason = '';
+    try {
+      machineReady(c);
+      if (profile.match === 'ambiguous') {
+        throw machineRefusal('ETOUCH_MACHINE_AMBIGUOUS', { count: profile.issues.find((i) => i.code === 'ETOUCH_MACHINE_AMBIGUOUS').params.count });
+      }
+    } catch (err) {
+      changeReason = err.message;
+    }
+    const { capabilities, ...rest } = profile;
+    return { ...rest, canChange: !changeReason, changeReason, capabilities };
+  };
+
   const spindleReady = (c) => {
+    requireCapability(c, 'spindleTest');
     idle(c);
     noJob(c);
     if (!spindleTestSpeed(allSettings(c))) {
@@ -774,7 +1411,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
 
   // Z zero with a touch plate, and the tracking of Grbl's answers to the
   // lines the service sends itself: see plate-probe.js.
-  const { zeroZReady, plateParams, answers, zeroZ } = createPlateProbe({
+  const plateProbe = createPlateProbe({
     config,
     clock,
     conflict,
@@ -791,8 +1428,24 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     hasAutomations,
     grblCode,
     probeInput,
-    moving: (c, r) => moves.moving(c, r)
+    moving: (c, r) => moves.moving(c, r),
+    referenceReady,
+    haltPlan,
+    halt,
+    homingActive,
+    control,
+    transports,
+    transportActors
   });
+  const { zeroZReady, plateParams, answers, zeroZ, quiet, stop: plateStop } = plateProbe;
+  // The plate probe turns no spindle but is a CNC operation (contract §3).
+  const plateReady = (c) => {
+    requireCapability(c, 'plateProbe');
+    zeroZReady(c);
+    referenceReady(c);
+    // G38.2 Z… in work coordinates (D2).
+    offsetReady(c);
+  };
 
   // Real jogging and work origins (F1): experimental, disabled unless .cncrc
   // has touch.motion.enabled: true (see motion.js).
@@ -814,8 +1467,38 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     controllerInfo,
     allSettings,
     modalWcs,
+    referenceReady,
+    homingActive,
+    offsetReady,
     // Turning, or maybe turning: no FS speed reported and no fresh $G to tell.
     spindleOn: (c) => spindleOn(c) || (realtimeValue(controllerStatus(c).spindle) === null && !modalFresh(record(c)))
+  });
+
+  // Real probing at the corner block, Z / X / Y / XYZ: see block-probe.js.
+  const blockProbe = createBlockProbe({
+    config,
+    clock,
+    conflict,
+    controllers,
+    record,
+    later,
+    changed,
+    log,
+    controllerInfo,
+    allSettings,
+    modalWcs,
+    probeInput,
+    control,
+    transports,
+    transportActors,
+    zeroZReady,
+    answers,
+    quiet,
+    haltPlan,
+    halt,
+    homingActive,
+    requireCapability,
+    offsetReady
   });
 
   const findMacro = (id) => {
@@ -862,21 +1545,47 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       }
     },
     zeroZ: {
-      guard: zeroZReady,
+      guard: plateReady,
       params: plateParams,
+      // C-07: the search fits in the Z travel from here (checked again at the run).
+      bind: (c, params) => {
+        plateProbe.plateTravel(c, params);
+        return params;
+      },
       name: (c, params) => 'Zéro Z avec plaque de ' + params.thickness + ' mm (recherche ' + params.search + ' mm)',
-      run: zeroZ
+      run: (c, t, actor) => {
+        plateReady(c);
+        return zeroZ(c, t, actor);
+      }
+    },
+    // Block probe: the origin written once, at the end (block-probe.js).
+    blockProbe: {
+      guard: blockProbe.blockReady,
+      params: blockParams,
+      bind: blockProbe.bind,
+      name: blockProbe.name,
+      ticket: blockProbe.ticket,
+      run: blockProbe.run
     },
     // Work origin at the current position (F1, motion.js).
     'set-origin': moves.originOperation
   };
 
-  // Runs a guard and returns its failure message, or '' when it passes.
-  const reason = (guard) => {
+  // Runs a guard and returns its failure message, or '' when it passes. With `refusals`
+  // and an operation name, a coded refusal (ETOUCH_*) is kept there with its values and
+  // reasons, for the client to say it in its language (snapshot `refusals`).
+  const reason = (guard, refusals, operation) => {
     try {
       guard();
       return '';
     } catch (err) {
+      if (refusals && err && typeof err.code === 'string' && /^ETOUCH_[A-Z0-9_]+$/.test(err.code)) {
+        refusals[operation] = {
+          code: err.code,
+          ...(err.params && typeof err.params === 'object' ? { params: err.params } : {}),
+          ...(Array.isArray(err.reasons) ? { reasons: err.reasons } : {})
+        };
+      }
       return err.message;
     }
   };
@@ -905,22 +1614,31 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     const motionState = motion.inspect(c.options.port);
     const revision = r.job && r.job.revision;
 
+    // The coded refusal behind each reason below, by operation (only when it has a code).
+    const refusals = {};
     const loadReason = reason(() => {
       idle(c);
       if (r.loading) {
         throw conflict('Chargement en cours.');
       }
-    });
-    const startReason = reason(() => readyFor(c, 'start', revision));
-    const resumeReason = reason(() => readyFor(c, 'resume', revision));
+    }, refusals, 'load');
+    const startReason = reason(() => readyFor(c, 'start', revision), refusals, 'start');
+    const resumeReason = reason(() => readyFor(c, 'resume', revision), refusals, 'resume');
     const overrideReason = reason(() => overridable(c));
     const rapidReason = reason(() => rapidOverridable(c));
-    const macroReason = reason(() => macroReady(c));
-    const unlockReason = reason(() => unlockReady(c));
-    const homeReason = reason(() => homeReady(c));
-    const spindleReason = reason(() => spindleReady(c));
+    const macroReason = reason(() => macroReady(c), refusals, 'macro');
+    const unlockReason = reason(() => unlockReady(c), refusals, 'unlock');
+    const homeReason = reason(() => homeReady(c), refusals, 'home');
+    const spindleReason = reason(() => spindleReady(c), refusals, 'spindle');
     const spindleStopReason = reason(() => spindleStopReady(c));
-    const zeroZReason = reason(() => zeroZReady(c));
+    const spindleAlarm = /^Alarm/.test(state.activeState || '') ? 'La broche est arrêtée par l’alarme.' : '';
+    const zeroZReason = reason(() => plateReady(c), refusals, 'zeroZ');
+    const blockProbeReason = reason(() => blockProbe.blockReady(c), refusals, 'blockProbe');
+    const readSettingsReason = reason(() => readSettingsReady(c), refusals, 'readSettings');
+    reason(() => moves.originOperation.guard(c), refusals, 'setOrigin');
+    reason(() => moves.jogReady(c, r), refusals, 'jog');
+    // Framing (laser or CNC, lot F1): the whole guard of this machine kind now.
+    const frameReason = reason(() => planFor(c, r), refusals, 'frame');
 
     const jobErrors = (r.job && r.job.errors) || 0;
     const ended = Boolean(r.job && r.job.finishedAt && !r.job.stopped && c.workflow.state === 'idle');
@@ -970,6 +1688,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       operator: { reportUnits, wcs },
       type: c.type,
       activeState: state.activeState || '',
+      // Hold:1 (decelerating) or Hold:0 (stopped): the tablet tells them apart (phase 7).
+      subState: state.activeState === 'Hold' && Number.isInteger(state.subState) ? state.subState : null,
       feedrate: realtimeValue(state.feedrate),
       spindleSpeed: realtimeValue(state.spindle),
       workflow: c.workflow.state,
@@ -983,9 +1703,13 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       originalName: r.job && r.job.originalName,
       // SHA-256 of the loaded file (A5): the client compares it with its preview's.
       fingerprint: (r.job && r.job.fingerprint) || null,
+      // Bound to this loaded revision and this execution, independently of any preview sidecar.
+      jobProgress: jobProgress(c, r),
       // Travel pre-check of the loaded program against this machine now (F2).
       programCheck: r.job && r.job.analysis ? checkProgram(r.job.analysis, machineForCheck(c, r)) : null,
       homed: r.homed === true,
+      // Why the machine is no longer referenced ('alarm', 'restart'), null when it is (C-05).
+      referenceLost: r.homed === true ? null : r.referenceLost,
       // Who pilots this port (F5): {owner, lastChange}; the client derives its own role from its clientId.
       control: { owner: attribution.owner, lastChange: attribution.lastChange },
       total: sender.total,
@@ -993,6 +1717,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       received: sender.received,
       probeInput: probeInput.inspect(c.options.port),
       loading: r.loading,
+      canReadSettings: !readSettingsReason,
+      readSettingsReason,
       canPreviewMotion: motionState.available,
       motionReason: motionState.reason,
       canLoad: !loadReason,
@@ -1011,15 +1737,17 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       jobLastError: (r.job && r.job.lastError) || null,
       // ALARM:n while the controller is in alarm (null: no code received, e.g. homing lock).
       alarmCode: /^Alarm/.test(state.activeState || '') ? r.alarm : null,
+      lastAlarm: r.lastAlarm ? { ...r.lastAlarm } : null,
       stalledMs: r.stall && Number.isFinite(r.seen) && r.seen - r.stall.since >= STALL_MS ? r.seen - r.stall.since : null,
       programPause: programPauseOf(c, r),
       resume: r.job && r.job.resume ? { ...r.job.resume } : null,
       stoppedAtLine: r.lastStop ? r.lastStop.line : null,
       stoppedFile: r.lastStop ? r.lastStop.file : null,
-      canPause: c.workflow.state === 'running',
+      // A block probe is interrupted by Pause (it cannot be resumed).
+      canPause: c.workflow.state === 'running' || !!(r.probing && r.probing.kind === 'block') || moves.framing(r),
       // A macro waiting in a dwell (CNCjs queue not empty) can be stopped too.
       canStop: c.workflow.state !== 'idle' || ['Run', 'Hold', 'Home', 'Jog'].includes(state.activeState) || /^Door/.test(state.activeState || '') ||
-        !!r.probing || homingActive(r) || !!(feederState.queue || feederState.pending) ||
+        !!r.probing || !!r.starting || !!r.frameStarting || homingActive(r) || !!(feederState.queue || feederState.pending) ||
         // A jog sent by the service may run before Grbl reports Jog (F1).
         moves.moving(c, r),
       homing: homingActive(r),
@@ -1042,12 +1770,24 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       canSpindleTest: !spindleReason,
       spindleReason,
       spindleTestSpeed: spindleTestSpeed(allSettings(c)),
-      canSpindleStop: !spindleStopReason,
+      canSpindleStop: !spindleStopReason && !spindleAlarm,
+      spindleStopReason: spindleStopReason || spindleAlarm,
       // Z zero with a touch plate (guarded like the commissioning commands).
       canZeroZ: !zeroZReason,
       zeroZReason,
+      canFrame: !frameReason,
+      frameReason,
       probing: !!r.probing,
       zeroZ: r.zeroZ ? { ...r.zeroZ } : null,
+      // Block probe (block-probe.js): ready or why not, and the last one.
+      canBlockProbe: !blockProbeReason,
+      blockProbeReason,
+      blockProbe: r.blockProbe ? { ...r.blockProbe } : null,
+      // D2 (work-offset.js): whether the work offset the board applies is proven equal to `$#`.
+      workOffset: r.offset.snapshot(),
+      refusals,
+      // Machine type bound to this board's identity, and what it allows (PROFILES-CONTRACT §2, §3).
+      machineProfile: machineProfileOf(c, r),
       // Real moves (F1): `capabilities` (jog, jogContinuous, jogCancel, setOrigin)
       // and `motion` (what is possible now, the continuous jog, the last results).
       ...moves.snapshot(c, r)
@@ -1073,7 +1813,15 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       modal: parser ? { units: parser.units, distance: parser.distance, wcs: parser.wcs } : null,
       parameters,
       homed: r.homed === true,
-      reportUnits
+      // The homing convention our own full cycle taught (C-04): an axis homed towards its
+      // negative end found at 0 is checked in [0, $13x]. Learnt only from a trusted machine
+      // position (homeEnd), so no other position fact is needed here.
+      homeAt: r.homeMpos,
+      reportUnits,
+      // D2: until proven, what depends on the work offset is not compared (program-check.js).
+      offsetProven: r.offset.proven(),
+      // Laser additions of the program check, for a machine declared laser only.
+      ...(profileOf(c, r).kind === 'laser' ? { laser: { sMax: settingNumber(allSettings(c), 30) } } : {})
     };
   };
 
@@ -1091,7 +1839,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     log,
     jobInfo,
     controllerInfo,
-    machineForCheck
+    machineForCheck,
+    resumeMode
   });
 
   // After a tool change the spindle was stopped by the operator: start it at
@@ -1136,6 +1885,360 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     check();
   });
 
+  // Laser framing (PROFILES-CONTRACT §4): the XY box of the loaded program
+  // (validated travel check, mm, work coordinates of the active offset) at
+  // the current Z, M5 first, bounded absolute jogs. Default feed below.
+  const FRAME_FEED = 1000;
+  const fmt3 = (n) => String(Math.round(n * 1000) / 1000);
+  const framePlan = (c, r, feedAsked) => {
+    requireCapability(c, 'laserFrame');
+    moves.jogReady(c, r);
+    // $J=G90 in work coordinates (D2).
+    offsetReady(c);
+    const j = r.job;
+    const sender = c.sender.state || {};
+    if (!j || sender.name !== j.name || !sender.context || sender.context.touchJob !== j.revision) {
+      throw machineRefusal('ETOUCH_LASER_FRAME_NO_PROGRAM');
+    }
+    const a = j.analysis;
+    const check = checkProgram(a, machineForCheck(c, r));
+    if (check.axes.X.verdict !== 'validated' || check.axes.Y.verdict !== 'validated') {
+      // The check's own reasons for X and Y (an axis homed the other way, an
+      // unverified reference…) travel with the refusal as `reasons`, coded like
+      // a check's codedReasons ({code, params, message}), so the client can
+      // show them in its language (a template value is too short for them).
+      const reasons = ['X', 'Y'].flatMap((axis) => check.axes[axis].codedReasons)
+        .filter((reason, i, all) => all.findIndex((other) => other.message === reason.message) === i);
+      const err = machineRefusal('ETOUCH_LASER_FRAME_CHECK');
+      err.reasons = reasons;
+      throw err;
+    }
+    if (a.rawUnits || !a.extent.X || !a.extent.Y) {
+      throw machineRefusal('ETOUCH_LASER_FRAME_BOUNDS');
+    }
+    const active = modalWcs(r);
+    if (a.wcs && a.wcs !== active) {
+      throw machineRefusal('ETOUCH_LASER_FRAME_WCS', { wcs: a.wcs, active: active || 'inconnu' });
+    }
+    const settings = allSettings(c);
+    const max = Math.min(maxFeedOf(settings, 'X').max, maxFeedOf(settings, 'Y').max);
+    const feed = feedAsked === undefined || feedAsked === null ? Math.min(FRAME_FEED, max) : feedAsked;
+    if (typeof feed !== 'number' || !Number.isFinite(feed) || feed < MIN_FEED || feed > max) {
+      throw machineRefusal('ETOUCH_LASER_FRAME_FEED', { min: MIN_FEED, max: fmt3(max) });
+    }
+    const wpos = controllerStatus(c).wpos || {};
+    const here = ['x', 'y'].map((axis) => {
+      const v = wpos[axis];
+      const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
+      return typeof n === 'number' && Number.isFinite(n) ? n : null;
+    });
+    if (here.includes(null)) {
+      throw machineRefusal('ETOUCH_LASER_FRAME_POSITION');
+    }
+    const bounds = {
+      xMin: Number(fmt3(a.extent.X.min)),
+      xMax: Number(fmt3(a.extent.X.max)),
+      yMin: Number(fmt3(a.extent.Y.min)),
+      yMax: Number(fmt3(a.extent.Y.max))
+    };
+    const { xMin, xMax, yMin, yMax } = bounds;
+    const corners = [[xMin, yMin], [xMax, yMin], [xMax, yMax], [xMin, yMax], [xMin, yMin]];
+    const f = Number(fmt3(feed));
+    const lines = ['M5'];
+    const limits = [10000];
+    let from = here;
+    corners.forEach(([x, y]) => {
+      const ms = 60000 * Math.hypot(x - from[0], y - from[1]) / f;
+      if (ms > MAX_JOG_MS) {
+        throw machineRefusal('ETOUCH_LASER_FRAME_SLOW', { seconds: Math.ceil(ms / 1000), max: MAX_JOG_MS / 1000 });
+      }
+      lines.push('$J=G90 G21 X' + fmt3(x) + ' Y' + fmt3(y) + ' F' + fmt3(f));
+      limits.push(ms + 10000);
+      from = [x, y];
+    });
+    return { lines, limits, bounds, feed: f, job: j };
+  };
+
+  // CNC framing in the air (lot F1, examples/cncjs-touch/design/fonctions/F1-CONCEPTION.md): M5,
+  // then Z alone up to CNC_FRAME_CLEARANCE_MM under the top of the Z travel by a relative,
+  // unsigned jog (it can only rise), then the XY box of the program in work coordinates like the
+  // laser framing, then back above the start. Z never comes down. Every line is a bounded `$J=`.
+  const CNC_FRAME_FEED = 600;
+  const CNC_FRAME_MAX_FEED = 1500;
+  const CNC_FRAME_Z_FEED = 300;
+  const CNC_FRAME_CLEARANCE_MM = 5;
+  const CNC_FRAME_MIN_RISE_MM = 0.01;
+  const CNC_FRAME_MIN_SEGMENT_MM = 0.001;
+  const CNC_FRAME_EDGE_MM = 1e-6;
+  const cncFramePlan = (c, r, feedAsked) => {
+    // G3 to G7: the machine kind, at rest, homed, the work offset proven (D2), the spindle still.
+    requireCapability(c, 'cncFrame');
+    moves.jogReady(c, r);
+    if (r.homed !== true) {
+      throw machineRefusal('ETOUCH_CNC_FRAME_NOT_HOMED');
+    }
+    offsetReady(c);
+    spindleStill(c);
+    if (realtimeValue(controllerStatus(c).spindle) === null && !modalFresh(r)) {
+      throw conflict(CNC_FRAME_SPINDLE_UNKNOWN);
+    }
+    // G8 to G11: the loaded program, its travel check in X and Y, its outline, its work offset.
+    const j = r.job;
+    const sender = c.sender.state || {};
+    if (!j || sender.name !== j.name || !sender.context || sender.context.touchJob !== j.revision) {
+      throw machineRefusal('ETOUCH_LASER_FRAME_NO_PROGRAM');
+    }
+    const a = j.analysis;
+    const check = checkProgram(a, machineForCheck(c, r));
+    const xy = ['X', 'Y'];
+    if (xy.some((axis) => check.axes[axis].verdict === 'outside')) {
+      const reasons = (check.blocking || []).filter((b) => b.code === 'ETOUCH_TRAVEL_BEYOND' && xy.includes(b.params && b.params.axis));
+      if (reasons.length) {
+        const err = machineRefusal('ETOUCH_CNC_FRAME_OUTSIDE', { count: reasons.length });
+        err.reasons = reasons;
+        throw err;
+      }
+    }
+    if (xy.some((axis) => check.axes[axis].verdict !== 'validated')) {
+      const reasons = xy.flatMap((axis) => check.axes[axis].codedReasons)
+        .filter((reason, i, all) => all.findIndex((other) => other.message === reason.message) === i);
+      const err = machineRefusal('ETOUCH_LASER_FRAME_CHECK');
+      err.reasons = reasons;
+      throw err;
+    }
+    if (a.rawUnits || !a.extent.X || !a.extent.Y) {
+      throw machineRefusal('ETOUCH_LASER_FRAME_BOUNDS');
+    }
+    const active = modalWcs(r);
+    if (a.wcs && a.wcs !== active) {
+      throw machineRefusal('ETOUCH_LASER_FRAME_WCS', { wcs: a.wcs, active: active || 'inconnu' });
+    }
+    // G12: the board refuses by itself any target beyond its travel ($20=1).
+    const settings = allSettings(c);
+    if (settingNumber(settings, 20) !== 1) {
+      throw machineRefusal('ETOUCH_CNC_FRAME_SOFT_LIMITS');
+    }
+    // G13: where the machine is, in work and machine coordinates.
+    const status = controllerStatus(c);
+    const at = (kind, axis) => {
+      const v = status[kind] && status[kind][axis];
+      const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
+      return typeof n === 'number' && Number.isFinite(n) ? n : null;
+    };
+    const wx = at('wpos', 'x');
+    const wy = at('wpos', 'y');
+    const mx = at('mpos', 'x');
+    const my = at('mpos', 'y');
+    const mz = at('mpos', 'z');
+    if ([wx, wy, mx, my, mz].includes(null)) {
+      throw machineRefusal('ETOUCH_LASER_FRAME_POSITION');
+    }
+    // G14: the safe height, in the one Z travel the machine position fits.
+    const env = envelopeOf(settings, r.homed, { wcoSeen: r.wcoSeen, wposReported: r.wposReported, homeAt: r.homeMpos });
+    const zAt = limitsAt(env.Z, mz, 'Z');
+    if (!zAt.limits || zAt.ambiguous) {
+      throw machineRefusal('ETOUCH_CNC_FRAME_Z');
+    }
+    const zUsable = usableOf(zAt.limits);
+    const safeZ = Number(fmt3(zUsable.high - CNC_FRAME_CLEARANCE_MM));
+    if (safeZ < zUsable.low) {
+      throw machineRefusal('ETOUCH_CNC_FRAME_Z');
+    }
+    // G15: the way back (the start) inside the usable travel too; the corners are the check's (G9).
+    [['X', mx], ['Y', my]].forEach(([axis, m]) => {
+      const lim = limitsAt(env[axis], m, axis);
+      const u = lim.limits && !lim.ambiguous ? usableOf(lim.limits) : null;
+      if (!u || m < u.low - CNC_FRAME_EDGE_MM || m > u.high + CNC_FRAME_EDGE_MM) {
+        throw machineRefusal('ETOUCH_CNC_FRAME_START', { axis, value: fmt3(m), low: u ? fmt3(u.low) : '?', high: u ? fmt3(u.high) : '?' });
+      }
+    });
+    // G16: a slow feed (600 mm/min by default, 1500 at most), no line longer than MAX_JOG_MS.
+    const max = Math.min(CNC_FRAME_MAX_FEED, maxFeedOf(settings, 'X').max, maxFeedOf(settings, 'Y').max);
+    const feed = feedAsked === undefined || feedAsked === null ? Math.min(CNC_FRAME_FEED, max) : feedAsked;
+    if (typeof feed !== 'number' || !Number.isFinite(feed) || feed < MIN_FEED || feed > max) {
+      throw machineRefusal('ETOUCH_LASER_FRAME_FEED', { min: MIN_FEED, max: fmt3(max) });
+    }
+    const f = Number(fmt3(feed));
+    const fz = Number(fmt3(Math.min(CNC_FRAME_Z_FEED, maxFeedOf(settings, 'Z').max)));
+    const slow = (ms) => {
+      if (ms > MAX_JOG_MS) {
+        throw machineRefusal('ETOUCH_LASER_FRAME_SLOW', { seconds: Math.ceil(ms / 1000), max: MAX_JOG_MS / 1000 });
+      }
+      return ms;
+    };
+    // The lines (§ 4.2), each with its time limit, its phase and the machine position it ends at.
+    const lines = ['M5'];
+    const limits = [10000];
+    const phases = ['spindle'];
+    // M5 moves nothing: the machine stays where the plan was made (review D2).
+    const expect = [{ x: mx, y: my, z: mz }];
+    let moveMs = 0;
+    const rise = Number(fmt3(safeZ - mz));
+    if (rise >= CNC_FRAME_MIN_RISE_MM) {
+      const ms = slow(60000 * rise / fz);
+      lines.push('$J=G91 G21 Z' + fmt3(rise) + ' F' + fmt3(fz));
+      limits.push(ms + 10000);
+      phases.push('raise');
+      expect.push({ x: mx, y: my, z: mz + rise });
+      moveMs += ms;
+    }
+    const bounds = {
+      xMin: Number(fmt3(a.extent.X.min)),
+      xMax: Number(fmt3(a.extent.X.max)),
+      yMin: Number(fmt3(a.extent.Y.min)),
+      yMax: Number(fmt3(a.extent.Y.max))
+    };
+    const { xMin, xMax, yMin, yMax } = bounds;
+    const start = { x: Number(fmt3(wx)), y: Number(fmt3(wy)) };
+    // Machine = work + (MPos − WPos), the offset the travel check used (program-check.js).
+    const offX = mx - wx;
+    const offY = my - wy;
+    let from = [start.x, start.y];
+    let sides = 0;
+    [['approach', xMin, yMin], ['side', xMax, yMin], ['side', xMax, yMax], ['side', xMin, yMax], ['side', xMin, yMin], ['return', start.x, start.y]].forEach(([phase, x, y]) => {
+      const length = Math.hypot(x - from[0], y - from[1]);
+      // A segment of no length is not sent (a flat box, a start on the first corner).
+      if (length <= CNC_FRAME_MIN_SEGMENT_MM) {
+        return;
+      }
+      const ms = slow(60000 * length / f);
+      lines.push('$J=G90 G21 X' + fmt3(x) + ' Y' + fmt3(y) + ' F' + fmt3(f));
+      limits.push(ms + 10000);
+      phases.push(phase);
+      expect.push({ x: x + offX, y: y + offY });
+      sides += phase === 'side' ? 1 : 0;
+      moveMs += ms;
+      from = [x, y];
+    });
+    return {
+      kind: 'cnc',
+      lines,
+      limits,
+      phases,
+      sides,
+      expect,
+      bounds,
+      feed: f,
+      zFeed: fz,
+      safeZ: { machine: safeZ, rise: rise >= CNC_FRAME_MIN_RISE_MM ? rise : 0 },
+      // The work offset in X/Y the targets are written in: compared at every step of the sequence.
+      offset: { x: offX, y: offY },
+      start,
+      seconds: Math.ceil(moveMs / 1000),
+      job: j,
+      revision: j.revision
+    };
+  };
+  // The machine kind chooses the plan: a declared laser frames at its height, anything else in the air.
+  const planFor = (c, r, feed) => (profileOf(c, r).kind === 'laser' ? framePlan : cncFramePlan)(c, r, feed);
+
+  const MACHINE_OPERATIONS = ['set-kind', 'forget', 'frame-prepare', 'frame'];
+
+  // POST {action: 'machine', operation: 'set-kind' | 'forget' | 'frame-prepare' | 'frame'}.
+  // set-kind / forget write .cncrc only: nothing is ever sent to the
+  // controller, and $30, $31, $32 are never changed.
+  const machineAction = (c, r, body, actor) => {
+    const op = body.operation;
+    if (!MACHINE_OPERATIONS.includes(op)) {
+      throw machineRefusal('ETOUCH_MACHINE_OPERATION');
+    }
+    if (typeof body.generation !== 'string' || body.generation !== r.generation) {
+      throw machineRefusal('ETOUCH_MACHINE_CONTROLLER_CHANGED');
+    }
+    const framing = op === 'frame-prepare' || op === 'frame';
+    if ((framing && typeof body.transportId !== 'string') || (body.transportId !== undefined && !transports.has(body.transportId))) {
+      throw machineRefusal('ETOUCH_MACHINE_TRANSPORT');
+    }
+    if (op === 'set-kind' || op === 'forget') {
+      if (op === 'set-kind' && !KINDS.includes(body.kind)) {
+        throw machineRefusal('ETOUCH_MACHINE_KIND_INVALID');
+      }
+      machineReady(c);
+      const profile = profileOf(c, r);
+      const controller = controllerInfo(c, r);
+      if (op === 'forget') {
+        const removed = profiles.forget({ signature: profile.signature });
+        log({ event: 'machine', operation: 'forget', controller, signature: profile.signature, removed: removed.map((m) => ({ id: m.id, label: m.label || '', kind: m.kind })), actor: actor || null });
+        changed();
+        return { message: 'Fiche machine oubliée. Aucune commande envoyée à la carte.' };
+      }
+      const { record: saved, previous } = profiles.setKind({ signature: profile.signature, kind: body.kind, label: body.label });
+      log({ event: 'machine', operation: 'set-kind', controller, machine: { id: saved.id, label: saved.label, kind: saved.kind, signature: saved.signature }, previous, actor: actor || null });
+      changed();
+      return {
+        message: saved.kind === 'laser' ? 'Type de machine enregistré : laser. Aucune commande envoyée à la carte.' : 'Type de machine enregistré : CNC. Aucune commande envoyée à la carte.',
+        machine: { id: saved.id, label: saved.label, kind: saved.kind }
+      };
+    }
+    moves.bound(body, actor);
+    if (op === 'frame-prepare') {
+      const plan = planFor(c, r, body.feed);
+      const nonce = crypto.randomBytes(24).toString('hex');
+      r.ticket = {
+        nonce,
+        operation: 'frame',
+        kind: plan.kind || 'laser',
+        revision: plan.job.revision,
+        fingerprint: plan.job.fingerprint,
+        lines: plan.lines,
+        feed: plan.feed,
+        expires: clock() + TICKET_LIFETIME_MS,
+        transportId: body.transportId
+      };
+      if (plan.kind === 'cnc') {
+        return {
+          nonce,
+          name: 'Cadrage à vide X ' + fmt3(plan.bounds.xMin) + ' → ' + fmt3(plan.bounds.xMax) + ', Y ' + fmt3(plan.bounds.yMin) + ' → ' + fmt3(plan.bounds.yMax) +
+            ' mm à ' + fmt3(plan.feed) + ' mm/min (M5, Z machine ' + fmt3(plan.safeZ.machine) + ', sans broche)',
+          operation: 'frame',
+          expiresIn: TICKET_LIFETIME_MS / 1000,
+          generation: r.generation,
+          frame: { kind: 'cnc', lines: plan.lines.slice(), bounds: plan.bounds, feed: plan.feed, zFeed: plan.zFeed, safeZ: plan.safeZ, start: plan.start, seconds: plan.seconds }
+        };
+      }
+      return {
+        nonce,
+        name: 'Cadrage laser X ' + fmt3(plan.bounds.xMin) + ' → ' + fmt3(plan.bounds.xMax) + ', Y ' + fmt3(plan.bounds.yMin) + ' → ' + fmt3(plan.bounds.yMax) + ' mm à ' + fmt3(plan.feed) + ' mm/min (M5 d’abord, sans émission)',
+        operation: 'frame',
+        expiresIn: TICKET_LIFETIME_MS / 1000,
+        generation: r.generation,
+        frame: { kind: 'laser', lines: plan.lines.slice(), bounds: plan.bounds, feed: plan.feed }
+      };
+    }
+    const t = r.ticket;
+    r.ticket = null;
+    if (!t || t.operation !== 'frame' || t.nonce !== body.nonce || clock() > t.expires || t.transportId !== body.transportId) {
+      throw machineRefusal('ETOUCH_LASER_FRAME_EXPIRED');
+    }
+    // The same program (revision and fingerprint), the same lines, re-checked
+    // after the file on disk was read again (A5).
+    const again = () => {
+      const plan = planFor(c, r, t.feed);
+      if ((plan.kind || 'laser') !== t.kind || plan.job.revision !== t.revision || plan.job.fingerprint !== t.fingerprint || plan.lines.join('\n') !== t.lines.join('\n')) {
+        throw machineRefusal('ETOUCH_LASER_FRAME_CHANGED');
+      }
+      return plan;
+    };
+    const first = again();
+    const pending = { cancelled: false, transportId: body.transportId };
+    r.frameStarting = pending;
+    changed();
+    return sameFileAsLoaded(first.job).then(() => {
+      if (disposed || pending.cancelled || r.frameStarting !== pending || !transports.has(body.transportId)) {
+        throw conflict(START_CANCELLED);
+      }
+      control.authorize(c.options.port, actor, 'machine');
+      // Release the reservation synchronously: the full guard and first write follow without an await.
+      r.frameStarting = null;
+      return moves.frame(c, r, again(), actor, body.transportId);
+    }).finally(() => {
+      if (r.frameStarting === pending) {
+        r.frameStarting = null;
+      }
+      changed();
+    });
+  };
+
   const perform = (body, actor) => {
     if (!body || typeof body.port !== 'string') {
       throw conflict('Choisissez une machine.');
@@ -1143,6 +2246,10 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     const c = get(body.port);
     const r = record(c);
     const a = body.action;
+    // Any guarded operation of ours between a $H of the PC and its end: that cycle teaches nothing.
+    if (guarded(body)) {
+      r.foreignHome = null;
+    }
 
     // Attribution of control (F5): a port owned by someone else refuses every
     // operation that moves or prepares the machine; Pause, Stop and M5 never
@@ -1157,11 +2264,38 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       if (op === 'claim') {
         return control.claim(c.options.port, actor);
       }
-      if (op === 'release') {
-        return control.release(c.options.port, actor);
-      }
-      if (op === 'takeover') {
-        return control.takeover(c.options.port, actor, body.reason);
+      if (op === 'release' || op === 'takeover') {
+        const keyOf = (owner) => (owner ? owner.kind + ':' + owner.id : '');
+        // F4: the hand is not given back during a job (running or paused); only its holder is told so,
+        // anybody else gets the control refusal from the lease itself.
+        if (op === 'release' && c.workflow.state !== 'idle' && control.inspect(c.options.port, actor).role !== 'observer') {
+          throw controlJobRefusal();
+        }
+        const before = keyOf(control.inspect(c.options.port).owner);
+        const out = op === 'release' ? control.release(c.options.port, actor) : control.takeover(c.options.port, actor, body.reason);
+        // The device that lost the lease loses its sequence in the same synchronous step, before any
+        // other command can be read (C-12): the supervisor's checks of the block probe and of the
+        // plate probe run now, not at their next tick.
+        if (keyOf(control.inspect(c.options.port).owner) !== before) {
+          if (r.frameStarting) {
+            r.frameStarting.cancelled = true;
+          }
+          if (r.starting) {
+            r.starting.cancelled = true;
+          }
+          blockProbe.supervise(c, r);
+          plateProbe.supervise(c, r);
+          // A CNC framing (lot F1) as well: ended first, with its own code (the hand lost) and its jog cancel.
+          const framingEnded = moves.supervise(c, r);
+          // A takeover is seen by the jog's own watch; a release leaves the port free, which that watch
+          // takes for nobody's business: the move of the device that gave the hand back ends here (F4),
+          // unless it was the CNC framing just ended above (a single jog cancel) or all that is left is a
+          // framing ended at a banner (F1, nothing written to the new session).
+          if (op === 'release' && !framingEnded && !moves.bannerLeftover(r)) {
+            moves.stop(c, r, 'released');
+          }
+        }
+        return out;
       }
       throw conflict('Opération de pilotage inconnue.');
     }
@@ -1174,7 +2308,11 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       control.authorize(c.options.port, actor, a, { safe: true });
     }
 
-    if (['prepare', 'start', 'resume', 'macro', 'override', 'unlock', 'home', 'spindle', 'zeroZ', 'readSettings', 'set-origin'].includes(a) ||
+    if (a === 'machine') {
+      return machineAction(c, r, body, actor);
+    }
+
+    if (['prepare', 'start', 'resume', 'macro', 'override', 'unlock', 'home', 'spindle', 'zeroZ', 'blockProbe', 'readSettings', 'set-origin', 'verifyOffset'].includes(a) ||
         (guarded(body) && a === 'motion')) {
       if (typeof body.generation !== 'string' || body.generation !== r.generation) {
         throw conflict('Le contrôleur a changé ou son identité manque. Choisissez-le à nouveau.');
@@ -1184,6 +2322,18 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       }
     }
     const stopping = ['pause', 'stop', 'spindleStop'].includes(a) || (a === 'motion' && body.operation === 'jog-stop');
+    // A stop ends the D2 transaction where it is: nothing more is written by it.
+    if (stopping) {
+      r.offset.cancel();
+      if (r.frameStarting) {
+        r.frameStarting.cancelled = true;
+        r.ticket = null;
+        // Nothing was sent yet. A stop/pause ends this pending sequence synchronously.
+        if (a !== 'spindleStop') {
+          return { message: START_CANCELLED };
+        }
+      }
+    }
     if (body.generation !== undefined && body.generation !== r.generation && !stopping) {
       throw conflict('Le contrôleur a changé. Choisissez-le à nouveau.');
     }
@@ -1211,19 +2361,30 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       return { firmware: r.firmware || firmwareOf(c), settings: allSettings(c) };
     }
 
+    if (a === 'verifyOffset') {
+      available(c, true);
+      r.offset.verify();
+      return { message: 'Vérification de l’origine de la pièce relancée.', workOffset: r.offset.snapshot() };
+    }
+
     if (a === 'readSettings') {
-      idle(c);
-      noJob(c);
-      c.command('gcode', record(c).firmware ? '$$' : ['$I', '$$']);
+      readSettingsReady(c);
+      beginSettingsRead(c, r, (r.firmware || firmwareOf(c)) ? ['$$'] : ['$I', '$$']);
       return { message: 'Lecture des réglages ($$) demandée.' };
     }
 
     if (a === 'prepare') {
-      if (!['start', 'resume', 'macro', 'unlock', 'home', 'spindle', 'zeroZ', 'set-origin'].includes(body.operation)) {
+      if (!['start', 'resume', 'macro', 'unlock', 'home', 'spindle', 'zeroZ', 'blockProbe', 'set-origin'].includes(body.operation)) {
+        throw conflict('Action invalide.');
+      }
+      // D1: the second, deliberate gesture of a start proven outside the travel, for a start only.
+      if (body.override !== undefined && (body.operation !== 'start' || body.override !== 'travel')) {
         throw conflict('Action invalide.');
       }
       const nonce = crypto.randomBytes(24).toString('hex');
       let name;
+      // What an operation adds to its confirmation (block probe: the plan).
+      let extra = {};
       if (COMMISSIONING[body.operation]) {
         const op = COMMISSIONING[body.operation];
         let params = op.params ? op.params(body) : undefined;
@@ -1231,6 +2392,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         // What the confirmation is bound to, read once the guard passed.
         params = op.bind ? op.bind(c, params) : params;
         name = op.name(c, params);
+        extra = op.ticket ? op.ticket(c, params, { actor, transportId: body.transportId }) : {};
         r.ticket = {
           nonce,
           operation: body.operation,
@@ -1254,21 +2416,34 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         programCheck: programCheck || null
       });
       if (COMMISSIONING[body.operation] || body.operation === 'macro') {
-        return ticketOf(null);
+        return { ...ticketOf(null), ...extra };
       }
-      const j = readyFor(c, body.operation, body.revision);
+      const travel = body.override === 'travel' ? { request: true } : null;
+      const j = readyFor(c, body.operation, body.revision, travel);
       name = j.originalName;
       if (body.operation === 'resume') {
         r.ticket = { nonce, revision: j.revision, operation: body.operation, expires: clock() + TICKET_LIFETIME_MS, transportId: body.transportId };
         return ticketOf(null);
       }
       // A start confirmation is issued only for the file as loaded (A5), and
-      // carries the travel pre-check (F2) as a warning: `unknown` is never a
-      // green light, and the operator is told why.
+      // carries the travel pre-check (F2): `unknown` is a warning, never a
+      // green light, and the operator is told why; a proven overrun refuses it
+      // (D1) unless this is the override, bound to what it overrides.
       return sameFileAsLoaded(j).then(() => {
-        readyFor(c, 'start', body.revision);
-        r.ticket = { nonce, revision: j.revision, operation: 'start', expires: clock() + TICKET_LIFETIME_MS, transportId: body.transportId };
-        return ticketOf(j.analysis ? checkProgram(j.analysis, machineForCheck(c, r)) : null);
+        readyFor(c, 'start', body.revision, travel);
+        // The stream closed meanwhile (rotation, Wi-Fi lost): its confirmations
+        // were revoked, none is issued to it afterwards (bug hunt E-5).
+        if (!transports.has(body.transportId)) {
+          throw conflict('Connexion de suivi interrompue. Confirmez à nouveau.');
+        }
+        const { check, signature } = travelOf(c, r, j);
+        const override = travel && check && check.blocking.length ? signature : null;
+        r.ticket = { nonce, revision: j.revision, operation: 'start', expires: clock() + TICKET_LIFETIME_MS, transportId: body.transportId, override };
+        if (!override) {
+          return ticketOf(check);
+        }
+        log({ event: 'override', kind: 'travel', stage: 'confirmed', ...jobInfo(j), controller: controllerInfo(c, r), overruns: check.blocking, actor: actor || null });
+        return { ...ticketOf(check), override: { blocking: check.blocking } };
       });
     }
 
@@ -1301,7 +2476,21 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
 
     if (a === 'spindleStop') {
+      // During a block probe: the same stop as Arrêter, without an M5 that
+      // would join the queue (its ok would be taken for the cycle's line).
+      if (r.probing && r.probing.kind === 'block') {
+        r.ticket = null;
+        return blockProbe.stop(c, r, 'spindle');
+      }
+      // During a framing: the same stop as Arrêter, without an M5 that Grbl would refuse in Jog.
+      if (moves.framing(r)) {
+        r.ticket = null;
+        return moves.stop(c, r, 'spindle');
+      }
       spindleStopReady(c);
+      if (/^Alarm/.test(controllerStatus(c).activeState || '')) {
+        return { message: 'La broche est arrêtée par l’alarme.' };
+      }
       c.command('gcode', 'M5');
       return { message: 'Arrêt broche (M5) envoyé.' };
     }
@@ -1333,7 +2522,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       if (!t || t.nonce !== body.nonce || t.operation !== a || clock() > t.expires || t.transportId !== body.transportId) {
         throw conflict('Confirmation expirée ou déjà utilisée.');
       }
-      const j = readyFor(c, a, t.revision);
+      // D1: a ticket that overrides a proven overrun starts only on the very overruns confirmed.
+      const travel = a === 'start' && t.override ? { signature: t.override } : null;
+      const j = readyFor(c, a, t.revision, travel);
       if (a === 'resume') {
         // The program already sits in CNCjs's sender: a resume from a pause
         // stays synchronous (the stop/M6 sequences and their tests rely on it).
@@ -1349,17 +2540,57 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       // A start sends the loaded program: the file on disk is read again
       // (cached fingerprint) first, and the machine re-checked after that
       // asynchronous step (A5).
+      const pending = { cancelled: false };
+      r.starting = pending;
+      const ownerKey = (owner) => (owner ? owner.kind + ':' + owner.id : '');
+      const owner = ownerKey(control.inspect(c.options.port).owner);
+      changed();
       return sameFileAsLoaded(j).then(() => {
-        readyFor(c, a, t.revision);
+        if (pending.cancelled || r.starting !== pending) {
+          throw conflict(START_CANCELLED);
+        }
+        if (!transports.has(body.transportId)) {
+          throw conflict('Connexion de suivi interrompue. Confirmez à nouveau.');
+        }
+        control.authorize(c.options.port, actor, a);
+        if (ownerKey(control.inspect(c.options.port).owner) !== owner) {
+          throw conflict(START_CANCELLED);
+        }
+        readyFor(c, a, t.revision, travel);
+        // Still outside now (the override was needed): logged before anything is sent.
+        const { check } = travel ? travelOf(c, r, j) : { check: null };
+        const overriding = !!(check && check.blocking.length);
+        if (overriding) {
+          log({ event: 'override', kind: 'travel', stage: 'started', ...jobInfo(j), controller: controllerInfo(c, r), overruns: check.blocking, actor: actor || null });
+        }
         j.wcsAtStart = modalWcs(r);
         j.started = true;
+        j.external = false;
+        j.ownStart = true;
+        j.overrideStart = overriding;
         j.startActor = actor || null;
         c.command('gcode:start');
         return { message: 'Démarrage demandé.' };
+      }).finally(() => {
+        if (r.starting === pending) {
+          r.starting = null;
+        }
+        changed();
       });
     }
 
     if (a === 'pause') {
+      // A block probe cannot be resumed: Pause interrupts it like Arrêter.
+      if (r.probing && r.probing.kind === 'block') {
+        r.ticket = null;
+        return blockProbe.stop(c, r, 'pause');
+      }
+      // A plate probe is a server sequence too: Pause ends it, including between lines.
+      if (r.probing) {
+        r.ticket = null;
+        plateStop(c, r);
+        return { message: 'Palpage interrompu. Vérifiez l’immobilisation ; le zéro Z n’est pas réglé.' };
+      }
       // Grbl cannot hold a jog: a Pause during one of ours cancels it (0x85) and says so.
       if (c.workflow.state === 'idle' && moves.moving(c, r)) {
         r.ticket = null;
@@ -1376,6 +2607,16 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
 
     if (a === 'stop') {
       const activeState = controllerStatus(c).activeState;
+      const starting = r.starting;
+      if (starting) {
+        starting.cancelled = true;
+        r.ticket = null;
+      }
+      // A block probe: feed hold then reset (block-probe.js), whatever the state.
+      if (r.probing && r.probing.kind === 'block') {
+        r.ticket = null;
+        return blockProbe.stop(c, r, 'stop');
+      }
       // A jog of ours, even one Grbl has not reported yet (report still Idle).
       if (c.workflow.state === 'idle' && moves.moving(c, r)) {
         r.ticket = null;
@@ -1388,12 +2629,17 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       }
       // CNCjs's stop only acts in Run or Hold; a homing cycle needs a soft reset
       // (Grbl then asks for a new homing or $X). Grbl reports nothing during
-      // the cycle, so the $H sent is enough to know it runs.
+      // the cycle, so the $H sent is enough to know it runs. The cycle stays
+      // known (and Arrêter offered) until the banner or an Idle / Alarm report
+      // shows the reset arrived: a lost 0x18 leaves the axes homing (E2 / N6).
       if (c.workflow.state === 'idle' && (activeState === 'Home' || homingActive(r))) {
         r.ticket = null;
-        r.homing = null;
+        if (r.homing) {
+          // Never taken for a completed homing afterwards.
+          r.homing.interrupted = true;
+        }
         c.command('reset');
-        return { message: 'Prise d’origine interrompue (réinitialisation). La carte demandera $H ou $X.' };
+        return { message: 'Réinitialisation envoyée pour interrompre la prise d’origine. Vérifiez l’immobilisation ; la carte demandera $H ou $X.' };
       }
       // Door open: CNCjs's stop sends neither feed hold nor reset in that
       // state, so Grbl would keep its planned moves for the next cycle start.
@@ -1407,34 +2653,29 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       // stopped (also when the stop interrupts a probe during a pause).
       const markStopped = () => {
         if (c.workflow.state !== 'idle' && r.job) {
-          const k = Number(c.sender.state.received) || 0;
-          const res = r.job.resume;
-          let line = k;
-          if (res) {
-            // Preamble lines are not lines of the file.
-            line = k <= res.preambleLength ? res.from - 1 : res.from + (k - res.preambleLength - 1);
-          }
+          const line = stopLine(c, r);
           r.lastStop = { file: r.job.name, line };
           r.job.started = true;
           r.job.stopped = true;
           r.job.finishedAt = null;
           log({ event: 'stop', ...jobInfo(r.job), controller: controllerInfo(c, r), result: 'stopped', line, probing: !!r.probing, actor: actor || null });
+          // The program may have changed the system or the offset (D2).
+          r.offset.invalidate('stop');
         }
       };
-      // A plate probe in progress: feed hold then reset, and the sequence gives
-      // up at its next step.
+      // A plate probe in progress: feed hold then reset, a line just sent included (C-08), and
+      // the sequence gives up at its next step (plate-probe.js).
       if (r.probing) {
         r.ticket = null;
-        r.probing.cancelled = true;
         markStopped();
-        const plan = haltPlan(c);
-        c.command('feeder:stop');
-        c.command('gcode:stop');
-        halt(c, plan);
+        plateStop(c, r);
         return { message: 'Palpage interrompu. Vérifiez l’immobilisation ; le zéro Z n’est pas réglé.' };
       }
       const feeder = c.feeder.toJSON();
       if (c.workflow.state === 'idle' && !['Run', 'Hold'].includes(activeState) && !feeder.queue && !feeder.pending) {
+        if (starting) {
+          return { message: START_CANCELLED };
+        }
         throw conflict('Aucun travail à arrêter.');
       }
       r.ticket = null;
@@ -1457,11 +2698,24 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     throw conflict('Action inconnue.');
   };
 
+  // An operation refused for a failed proof of the work offset (D2): touching the button
+  // again a few seconds later proves it again.
+  const offsetRetry = (body, err) => {
+    if (err && /^ETOUCH_OFFSET_(UNCONFIRMED|MISMATCH)$/.test(err.code || '') && body && typeof body.port === 'string') {
+      const c = controllers()[body.port];
+      const r = c && records.get(c);
+      if (r) {
+        r.offset.retry();
+      }
+    }
+    throw err;
+  };
+
   // perform() starts synchronously, so a pending load is visible to the very
   // next snapshot; every refusal still reaches the caller as a rejection.
   const action = (body, actor) => {
     try {
-      return Promise.resolve(perform(body, actor)).then((result) => {
+      return Promise.resolve(perform(body, actor)).catch((err) => offsetRetry(body, err)).then((result) => {
         // A refused or failed operation never changes the owner: a touch
         // client claims a free port only once its guarded operation succeeded.
         // A keepalive only extends a jog its start already claimed for: it never claims.
@@ -1476,6 +2730,11 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         return result;
       });
     } catch (err) {
+      try {
+        offsetRetry(body, err);
+      } catch (_) {
+        // offsetRetry always rethrows the refusal.
+      }
       return Promise.reject(err);
     }
   };
@@ -1501,6 +2760,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
     const open = Object.values(registry).filter((c) => c && !c.isClose() && c.type === 'Grbl');
     open.forEach(record);
+    open.forEach(autoReadSettings);
     // The probe-input observer forgets closed controllers here too (counter-review 2).
     probeInput.sync();
     // Leases whose grace delay is over end here, every heartbeat (F5), and so
@@ -1521,7 +2781,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       const state = controllerStatus(c).activeState || '';
       return !!((c.workflow && c.workflow.state !== 'idle') || feeder.queue || feeder.pending ||
         /^(Run|Hold|Home|Jog|Door)/.test(state) ||
-        (r && (r.loading || r.probing || homingActive(r) || (r.ticket && clock() <= r.ticket.expires) || moves.moving(c, r))));
+        (r && (r.loading || r.probing || r.frameStarting || homingActive(r) || (r.ticket && clock() <= r.ticket.expires) || moves.moving(c, r))));
     };
     if (control.tick({ busy }).length) {
       changed();
@@ -1559,7 +2819,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       return '';
     }
     const registry = controllers();
-    return (systemCommands.current() ? systemCommands.current().since + '#' : '') + control.signature() + '#' + Object.keys(registry).map((port) => {
+    return (systemCommands.current() ? systemCommands.current().since + '#' : '') + control.signature() + '#' + profiles.revision() + '#' + Object.keys(registry).map((port) => {
       const c = registry[port];
       if (!c) {
         return port;
@@ -1576,7 +2836,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         s.name, s.total, s.sent, s.received, s.hold, idOf(s.holdReason), idOf(s.context),
         feeder.queue, feeder.pending,
         r ? [r.loading, r.seen === null, r.modalSeen === null, r.wcs, r.ticket && r.ticket.nonce, r.firmware, r.startups, r.alarm, r.stall && r.stall.since,
-          idOf(r.toolChange), r.lastStop && r.lastStop.line, idOf(r.probing), idOf(r.zeroZ), r.homing && r.homing.since, moves.signature(r)].join(',') : '',
+          idOf(r.toolChange), r.lastStop && r.lastStop.line, idOf(r.probing), idOf(r.zeroZ), idOf(r.blockProbe), r.homing && r.homing.since, moves.signature(r),
+          idOf(r.lastAlarm), idOf(r.frameStarting), r.frameStarting && r.frameStarting.cancelled, r.offset.signature()].join(',') : '',
         j ? [idOf(j), j.started, j.stopped, j.finishedAt, j.errors].join(',') : ''
       ].join(';');
     }).join('|');
@@ -1603,7 +2864,12 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
 
   const ticketPending = (id) => {
     const jogging = moves.holds(id);
+    const probing = blockProbe.holds(id);
+    const plate = plateProbe.holds(id);
     for (const r of records.values()) {
+      if (r.frameStarting && r.frameStarting.transportId === id) {
+        return true;
+      }
       if (r.ticket && r.ticket.transportId === id && clock() <= r.ticket.expires) {
         return true;
       }
@@ -1611,12 +2877,21 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       if (jogging(r)) {
         return true;
       }
+      // A block probe of this stream's device: the rotation waits for its end.
+      if (probing(r)) {
+        return true;
+      }
+      // A plate probe of this stream's device too (C-17).
+      if (plate(r)) {
+        return true;
+      }
     }
     return false;
   };
 
-  // Closing a transport revokes every confirmation it was issued.
-  const closeTransport = (id) => {
+  // Closing a transport revokes every confirmation it was issued. `rotated`:
+  // closed by the stream itself to renew it (touch-stream.js), not lost.
+  const closeTransport = (id, rotated = false) => {
     transports.delete(id);
     const actor = transportActors.get(id);
     if (actor) {
@@ -1624,13 +2899,122 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       control.detach(actor, id);
     }
     records.forEach((r, c) => {
+      if (r.frameStarting && r.frameStarting.transportId === id) {
+        r.frameStarting.cancelled = true;
+      }
       if (r.ticket && r.ticket.transportId === id) {
         r.ticket = null;
       }
-      // The owner's stream closing stops its continuous jog (0x85).
-      moves.transportClosed(c, r, id);
+      // The owner's stream closing stops its continuous jog (0x85); a CNC framing keeps a rotation's grace.
+      moves.transportClosed(c, r, id, rotated === true);
+      // Its block probe stops at once, unless the stream is only renewed.
+      blockProbe.transportClosed(c, r, actor, rotated === true);
+      // Its plate probe as well (C-17).
+      plateProbe.transportClosed(c, r, actor, rotated === true);
     });
     changed();
+  };
+
+  // A socket command that needs the lease, allowed on `port` (index.js refuseSocket): `full`
+  // when it is a full homing cycle (`homing`, or `writeln` of the single line $H, both written at once). Any other one ($HX,
+  // a macro, a jog…) cancels a full cycle announced before.
+  const socketCommand = (port, full) => {
+    if (disposed) {
+      return;
+    }
+    const c = controllers()[port];
+    if (!c || c.isClose() || c.type !== 'Grbl') {
+      return;
+    }
+    const r = record(c);
+    r.foreignHome = full && (controllerStatus(c).activeState || '') !== 'Home' ? clock() : null;
+    if (full) {
+      // A Home state seen before this command belongs to another cycle.
+      r.sawHome = false;
+    }
+    // Its content is not read: a G10, a G92, a system change or a $H may follow (D2).
+    r.offset.invalidate('socket');
+  };
+
+  // index.js refuseSocket: a command that is not safe waits, whoever owns the port, while a
+  // sequence of the server runs (plate or block probe, C-12), the D2 transaction writes its lines,
+  // or a host command holds the machine (C-60). Null when allowed, else the refusal.
+  const socketRefusal = (port) => {
+    if (disposed) {
+      return null;
+    }
+    if (systemCommands.current()) {
+      return conflict(SOCKET_SYSTEM_BUSY);
+    }
+    const c = controllers()[port];
+    const r = c && records.get(c);
+    if (r && r.settingsRead) {
+      return settingsReading();
+    }
+    if (r && (r.originChecking || r.frameStarting)) {
+      return conflict('Des commandes sont en attente.');
+    }
+    if (r && moves.framing(r)) {
+      return conflict(SOCKET_FRAME_BUSY);
+    }
+    if (r && r.probing) {
+      return conflict(SOCKET_PROBE_BUSY);
+    }
+    return r && (r.offset.checking() || r.offset.restoring()) ? r.offset.refusal() : null;
+  };
+
+  // index.js refuseSocket: a stop from a socket (gcode:stop, stop, feeder:stop, feedhold, pause,
+  // reset, `!`, 0x18) first ends, synchronously, the sequence of the server in progress: the block
+  // probe and the plate probe (feed hold then reset, PLAN-CORRECTIONS § 1.6, C-09), the D2
+  // transaction. The command then goes its own way.
+  const socketStop = (port) => {
+    const c = !disposed && controllers()[port];
+    const r = c && records.get(c);
+    if (!r) {
+      return;
+    }
+    r.offset.cancel();
+    if (r.frameStarting) {
+      r.frameStarting.cancelled = true;
+    }
+    if (r.starting) {
+      r.starting.cancelled = true;
+    }
+    // A framing in progress ends before the command passes (lot F1, P1): 0x85, nothing after it.
+    if (moves.framing(r)) {
+      moves.stop(c, r, 'socket');
+    }
+    if (r.probing && r.probing.kind === 'block') {
+      blockProbe.stop(c, r, 'stop');
+    } else if (r.probing) {
+      plateStop(c, r);
+    }
+  };
+
+  // index.js refuseSocket: a jog cancel from a socket (`jogCancel`, 0x85) ends a framing of the
+  // server, synchronously, before it passes (lot F1, review D4): a framing is a sequence of jogs,
+  // and the operator who cancels one does not want the next. The probes are not jogs: they keep
+  // their own stops (socketStop).
+  const socketJogCancel = (port) => {
+    const c = !disposed && controllers()[port];
+    const r = c && records.get(c);
+    if (!r) {
+      return;
+    }
+    if (r.frameStarting) {
+      r.frameStarting.cancelled = true;
+    }
+    if (moves.framing(r)) {
+      moves.stop(c, r, 'socket');
+    }
+  };
+
+  // api.gcode.js upload (POST /api/gcode, CNCjs's own loading): refused while a framing runs or
+  // waits to start (lot F1, review C3). Null when allowed.
+  const uploadRefusal = (port) => {
+    const c = !disposed && controllers()[port];
+    const r = c && records.get(c);
+    return r && (r.frameStarting || moves.framing(r)) ? conflict(SOCKET_FRAME_BUSY) : null;
   };
 
   const dispose = () => {
@@ -1658,6 +3042,11 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     ticketPending,
     reserveSystemCommand: systemCommands.reserve,
     systemCommand: systemCommands.view,
+    socketCommand,
+    socketRefusal,
+    socketStop,
+    socketJogCancel,
+    uploadRefusal,
     control,
     dispose
   };

@@ -10,7 +10,7 @@
   var t=uiLocale.t;
   var section=document.getElementById('ks-system'),panel=document.getElementById('screen-settings');
   if(!section||!panel)return;
-  var CONFIRM_MS=8000,CHECK_MS=600000;
+  var CONFIRM_MS=8000,CHECK_MS=600000,VERSION_MS=30000;
 
   function el(tag,cls,text){var n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}
   function set(n,value){if(n.textContent!==value)n.textContent=value;}
@@ -25,7 +25,11 @@
   box.appendChild(help);
   var foot=section.lastChild;section.insertBefore(box,foot||null);
 
-  var disposed=false,commands=[],buttons=[],armed=null,armTimer=null,busy=false,listXhr=null,info=null,checkedAt=-Infinity,remote=null;
+  var installedVersion=el('p','ks-tablet-installed',''),reload=el('button','ks-tablet-reload ks-secondary',t('Recharger'));
+  var reloadNote=el('p','ks-system-note','');reload.type='button';
+  installedVersion.hidden=reload.hidden=reloadNote.hidden=true;
+  box.appendChild(installedVersion);box.appendChild(reload);box.appendChild(reloadNote);
+  var disposed=false,commands=[],buttons=[],armed=null,armTimer=null,busy=false,listXhr=null,info=null,installed=null,versionXhr=null,opened=false,checkedAt=-Infinity,remote=null;
   function token(){try{return JSON.parse(localStorage.getItem('cnc')).state.session.token||'';}catch(_){return '';}}
   function apiBase(){try{return window.cncState.get().apiBase;}catch(_){return '/api';}}
   function machine(){try{return window.cncState.get().machine;}catch(_){return null;}}
@@ -35,9 +39,10 @@
   function shown(){return !disposed&&!document.hidden&&panel.classList.contains('active')&&panel.getAttribute('data-settings-tab')==='system';}
   function request(method,url,body,auth,done){
     var x=new XMLHttpRequest();x.open(method,url,true);x.timeout=8000;
+    if(url.indexOf('VERSION.json?')===0)x.setRequestHeader('Cache-Control','no-cache');
     if(auth){var c=token();if(!c){done(401,null);return null;}x.setRequestHeader('Authorization','Bearer '+c);}
     if(body!==undefined)x.setRequestHeader('Content-Type','application/json');
-    x.onload=function(){var data=null;try{data=JSON.parse(x.responseText);}catch(_){}done(x.status,data);};
+    x.onload=function(){var data=null;try{data=JSON.parse(x.responseText);}catch(_){/* Keep the existing fallback when storage or parsing fails. */}done(x.status,data);};
     x.onerror=x.ontimeout=function(){done(0,null);};
     x.send(body===undefined?null:JSON.stringify(body));return x;
   }
@@ -54,7 +59,31 @@
     if(blocked&&buttons.length)set(status,t('Indisponible pendant un travail en cours ou en pause.'));
     else if(running&&buttons.length)set(status,t('Commande système en cours : ')+running.title);
     else if(armed)set(status,t('Touchez à nouveau pour confirmer (8 s).'));
+    var why=reloadReason();reload.disabled=busy||!!why;
+    set(reloadNote,why||t('Le rechargement efface le journal de cette page et les saisies non enregistrées. Exportez ou enregistrez-les avant de continuer.'));
   }
+  function reloadReason(){
+    var d;try{d=window.cncState.get();}catch(_){return t('Rechargement indisponible : attendez le retour au repos.');}
+    var m=d&&d.machine,s=window.cncScreenSaver&&window.cncScreenSaver.status();
+    if(!d||d.busy||d.halt||d.systemCommand||s&&s.blocked||m&&(!m.fresh||m.workflow!=='idle'||m.activeState!=='Idle'||m.spindleSpeed!==0||
+      m.canStop||m.loading||m.homing||m.probing||m.probeBusy||m.motion&&(m.motion.jog||m.motion.cancelling)))return t('Rechargement indisponible : attendez le retour au repos.');
+    var dialogs=document.querySelectorAll('[role="dialog"]');
+    for(var i=0;i<dialogs.length;i++)if(!dialogs[i].hidden&&dialogs[i].getClientRects().length)return t('Fermez la confirmation ouverte avant de recharger.');
+    return '';
+  }
+  reload.addEventListener('click',function(){
+    if(disposed||!shown()||reload.hidden||busy||reloadReason())return;
+    busy=true;paint();
+    // Reload removes Pause/Stop: recheck every controller just before doing it.
+    request('GET',apiBase()+'/touch-job',undefined,true,function(code,data){
+      busy=false;if(disposed)return;
+      var controllers=data&&data.controllers,why=reloadReason();
+      if(code!==200||!Array.isArray(controllers)||data.systemCommand||controllers.some(function(c){return !c||!c.fresh||c.workflow!=='idle'||c.activeState!=='Idle'||c.spindleSpeed!==0||
+        c.canStop||c.loading||c.homing||c.probing||c.probeBusy||c.motion&&(c.motion.jog||c.motion.cancelling);}))why=t('Rechargement indisponible : attendez le retour au repos.');
+      if(why||!shown()){paint();if(why)set(reloadNote,why);return;}
+      window.location.reload();
+    });
+  });
   function run(command){
     if(busy||jobActive()||systemCommand())return;
     if(armed!==command.id){armed=command.id;clearTimeout(armTimer);armTimer=setTimeout(disarm,CONFIRM_MS);paint();return;}
@@ -63,7 +92,7 @@
     // simulation page does not see a real job, and a homing or a jog is not a
     // job for CNCjs. Every connected controller must be fresh and at rest.
     request('GET',apiBase()+'/touch-job',undefined,true,function(code,data){
-      var reason=code!==200||!data||!Array.isArray(data.controllers)?t('État de la machine illisible : commande non lancée.'):restless(data.controllers);
+      var reason=code===401||(code===403&&!data)?t('Session CNCjs requise : ouvrez CNCjs et connectez-vous.'):code!==200||!data||!Array.isArray(data.controllers)?t('État de la machine illisible : commande non lancée.'):restless(data.controllers);
       if(reason){busy=false;set(status,reason);paint();return;}
       send(command);
     });
@@ -81,10 +110,14 @@
   }
   function send(command){
     set(status,t('Envoi de « ')+command.title+t(' »…'));
-    request('POST',apiBase()+'/commands/run/'+encodeURIComponent(command.id),{},true,function(code,data){
+    // This device's identity (job-controls.js, F5): the server compares it with who pilots the machine.
+    var c=window.cncJobControls,body={},id=c&&typeof c.clientId==='function'?c.clientId():'';
+    if(id){body.clientId=id;body.clientLabel=typeof c.clientLabel==='function'?c.clientLabel():'';}
+    request('POST',apiBase()+'/commands/run/'+encodeURIComponent(command.id),body,true,function(code,data){
       busy=false;
       if(code===200&&data&&data.taskId)set(status,t('« ')+command.title+t(' » lancée sur l’ordinateur du serveur.'));
-      else if(code===401)set(status,t('Session CNCjs requise : ouvrez CNCjs et connectez-vous.'));
+      // 401, or CNCjs' plain-text 403 (« Forbidden Access »): the session is refused, not the command.
+      else if(code===401||(code===403&&!data))set(status,t('Session CNCjs requise : ouvrez CNCjs et connectez-vous.'));
       // 403: disabled in CNCjs; 409: refused by the server's own machine check (its message says why).
       else if((code===403||code===409)&&data&&typeof data.message==='string'&&data.message)set(status,data.message);
       else if(code===403)set(status,t('Commande désactivée dans CNCjs.'));
@@ -119,12 +152,16 @@
   function short(sha){return typeof sha==='string'?sha.slice(0,7):'';}
   function renderVersion(){
     if(!info){set(version,t('Version de l’interface inconnue (déploiement manuel).'));set(update,'');return;}
-    set(version,t('Interface ')+short(info.commit)+(info.branch?' · '+info.branch:'')+(info.deployedAt?' · '+t('installée le ')+date(info.deployedAt):''));
+    set(version,t('Interface chargée : ')+short(info.commit)+(info.branch?' · '+info.branch:'')+(info.deployedAt?' · '+t('installée le ')+date(info.deployedAt):''));
+    var different=!!(installed&&installed.commit!==info.commit);
+    installedVersion.hidden=reload.hidden=reloadNote.hidden=!different;
+    set(installedVersion,different?t('Version installée : ')+short(installed.commit):'');
+    var current=installed||info;
     if(!remote)set(update,info.repo?t('Recherche de mise à jour…'):'');
     else if(remote.error)set(update,t('Vérification de mise à jour impossible (pas d’accès à GitHub).'));
-    else if(remote.sha===info.commit)set(update,t('À jour.'));
+    else if(remote.sha===current.commit)set(update,t('À jour.'));
     else set(update,t('Mise à jour disponible : ')+short(remote.sha)+(remote.message?' — '+remote.message:''));
-    var state=!remote||remote.error?'unknown':remote.sha===info.commit?'current':'available';
+    var state=!remote||remote.error?'unknown':remote.sha===current.commit?'current':'available';
     if(update.getAttribute('data-state')!==state)update.setAttribute('data-state',state);
   }
   function checkRemote(){
@@ -135,18 +172,112 @@
       renderVersion();
     });
   }
-  function loadVersion(){
-    request('GET','VERSION.json?'+Date.now(),undefined,false,function(code,data){
-      info=code===200&&data&&typeof data.commit==='string'&&/^[0-9a-f]{7,40}$/.test(data.commit)?{commit:data.commit,branch:typeof data.branch==='string'?data.branch:'',repo:typeof data.repo==='string'&&/^[\w.-]+\/[\w.-]+$/.test(data.repo)?data.repo:'',deployedAt:data.deployedAt}:null;
-      renderVersion();checkRemote();
+  function loadVersion(initial){
+    if(disposed||versionXhr)return;
+    versionXhr=request('GET','VERSION.json?'+(initial?'':'installed=')+Date.now(),undefined,false,function(code,data){
+      versionXhr=null;if(disposed)return;
+      var read=code===200&&data&&typeof data.commit==='string'&&/^[0-9a-f]{7,40}$/.test(data.commit)?{commit:data.commit,branch:typeof data.branch==='string'?data.branch:'',repo:typeof data.repo==='string'&&/^[\w.-]+\/[\w.-]+$/.test(data.repo)?data.repo:'',deployedAt:data.deployedAt}:null;
+      if(initial)info=read;
+      installed=read;
+      renderVersion();if(shown())checkRemote();paint();autoEvaluate();
     });
   }
 
-  function refresh(){if(!shown()){if(armed)disarm();return;}loadList();if(info)checkRemote();else loadVersion();paint();}
+  // F10: only static metadata is polled off-tab. No machine command is replayed
+  // after a server restart; FIGE owns stream/session recovery as before.
+  var autoBanner=null,autoText=null,autoLater=null,autoTimer=null,versionTimer=null;
+  var deadline=0,deferredUntil=0,retryAfter=0,autoPending=false,autoGeneration=0,navigating=false;
+  var elapsed=window.performance&&typeof window.performance.now==='function'?function(){return window.performance.now();}:Date.now;
+  var lastTransport=!!(window.cncState&&window.cncState.get().transportConnected);
+  function detail(){try{return window.cncJobControls?window.cncJobControls.state():window.cncState.get();}catch(_){return null;}}
+  function controllerBusy(c){return !c||!c.fresh||c.workflow!=='idle'||c.activeState!=='Idle'||c.spindleSpeed!==0||
+    c.canStop||c.loading||c.homing||c.probing||c.probeBusy||c.workOffset&&c.workOffset.state==='checking'||
+    c.refusals&&c.refusals.readSettings&&c.refusals.readSettings.code==='ETOUCH_SETTINGS_READING'||
+    c.motion&&(c.motion.jog||c.motion.cancelling||c.motion.cancelUnconfirmed||c.motion.frame);}
+  function localAction(){
+    // Connection confirmations are inline cards, not dialogs. Host updates and
+    // Wi-Fi forms also own requests independently of the job controls.
+    return [['cncConnectCnc',['busy','open']],['cncSystemUpdates',['busy','armed','running']],['cncWifiSettings',['busy','formOpen']]].some(function(entry){
+      var owner=window[entry[0]],state=owner&&owner.state();
+      return state&&entry[1].some(function(key){return !!state[key];});
+    });
+  }
+  function autoBlocked(){
+    var d=detail(),s=window.cncScreenSaver&&window.cncScreenSaver.status(),a=document.activeElement;
+    if(disposed||navigating||document.hidden||busy||armed||localAction()||!d||!d.transportConnected||d.busy||d.halt||d.systemCommand||
+      s&&s.blocked||d.machine&&controllerBusy(d.machine))return true;
+    if(a&&(a.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)))return true;
+    var dialogs=document.querySelectorAll('[role="dialog"]');
+    for(var i=0;i<dialogs.length;i++)if(!dialogs[i].hidden&&dialogs[i].getClientRects().length)return true;
+    return false;
+  }
+  function cancelAuto(){
+    autoGeneration++;deadline=0;autoPending=false;clearTimeout(autoTimer);autoTimer=null;
+    if(autoBanner&&!autoBanner.hidden)autoBanner.hidden=true;
+  }
+  function autoCandidate(){return !!(info&&installed&&info.commit!==installed.commit&&elapsed()>=deferredUntil);}
+  function serverRest(done){
+    var own=++autoGeneration,started=elapsed();autoPending=true;
+    request('GET',apiBase()+'/touch-job',undefined,true,function(code,data){
+      if(disposed||own!==autoGeneration)return;
+      autoPending=false;
+      done(code===200&&data&&Array.isArray(data.controllers)&&!data.systemCommand&&
+        !data.controllers.some(controllerBusy)&&elapsed()-started<2500&&!autoBlocked()&&autoCandidate());
+    });
+  }
+  function makeBanner(){
+    if(autoBanner)return;
+    autoBanner=el('div','ks-auto-reload');autoBanner.hidden=true;
+    autoText=el('span');autoText.setAttribute('role','status');autoBanner.appendChild(autoText);
+    autoLater=el('button','ks-secondary',t('Plus tard'));autoLater.type='button';autoBanner.appendChild(autoLater);
+    autoLater.addEventListener('click',function(){deferredUntil=elapsed()+CHECK_MS;cancelAuto();});
+    document.body.appendChild(autoBanner);
+  }
+  function countAuto(){
+    if(!autoCandidate()||autoBlocked()){cancelAuto();return;}
+    var left=Math.ceil((deadline-elapsed())/1000);
+    if(left<=0){
+      deadline=0;retryAfter=elapsed()+VERSION_MS;
+      serverRest(function(ready){
+        if(!ready){cancelAuto();return;}
+        // Chromium ignores reload(true). Bypass the cached document with a unique
+        // URL; Touch assets have maxAge=0 (bundles also have content-hashed names).
+        var url=new URL(window.location.href);url.searchParams.set('touchReload',String(Date.now()));
+        navigating=true;window.location.replace(url.href);
+      });return;
+    }
+    set(autoText,t('Nouvelle version : rechargement dans {seconds} s').replace('{seconds}',String(left)));
+    if(autoBanner.hidden)autoBanner.hidden=false;
+    autoTimer=setTimeout(countAuto,1000);
+  }
+  function autoEvaluate(){
+    if(!autoCandidate()||autoBlocked()){cancelAuto();return;}
+    if(deadline||autoPending||elapsed()<retryAfter)return;
+    retryAfter=elapsed()+VERSION_MS;
+    serverRest(function(ready){if(!ready){cancelAuto();return;}makeBanner();deadline=elapsed()+10000;countAuto();});
+  }
+  function pollVersion(){
+    if(disposed)return;
+    if(!document.hidden)loadVersion(false);
+    autoEvaluate();versionTimer=setTimeout(pollVersion,VERSION_MS);
+  }
+  function interaction(event){if(autoBanner&&event&&autoBanner.contains(event.target))return;retryAfter=elapsed()+10000;cancelAuto();}
+  ['pointerdown','keydown','input','focusin'].forEach(function(name){document.addEventListener(name,interaction,true);});
+  document.addEventListener('visibilitychange',function(){cancelAuto();if(!document.hidden)loadVersion(false);});
+  function observeAuto(){
+    var d=detail(),connected=!!(d&&d.transportConnected);
+    if(connected&&!lastTransport)loadVersion(false);
+    lastTransport=connected;autoEvaluate();
+  }
+
+  function refresh(){if(!shown()){opened=false;if(armed)disarm();return;}loadList();if(!opened)loadVersion(false);opened=true;if(info)checkRemote();paint();}
   window.addEventListener('cnc-settings-tab',refresh);
   window.addEventListener('cnc-screen-change',refresh);
-  window.addEventListener('cnc-job-status',function(){if(shown()&&buttons.length)paint();});
-  window.addEventListener('pagehide',function(e){if(e&&e.persisted)return;disposed=true;clearTimeout(armTimer);});
-  renderVersion();
-  window.cncTabletActions={state:function(){return {commands:commands.length,armed:armed,busy:busy};}};
+  window.addEventListener('cnc-job-status',function(){if(shown())paint();observeAuto();});
+  window.addEventListener('cnc-screen-saver-status',function(){if(shown())paint();autoEvaluate();});
+  window.addEventListener('pagehide',function(e){cancelAuto();if(e&&e.persisted)return;disposed=true;clearTimeout(armTimer);clearTimeout(versionTimer);});
+  window.addEventListener('pageshow',function(e){if(e&&e.persisted&&!disposed)loadVersion(false);});
+  renderVersion();loadVersion(true);
+  versionTimer=setTimeout(pollVersion,VERSION_MS);
+  window.cncTabletActions={loadedVersion:function(){return info?Object.assign({},info):null;},state:function(){return {commands:commands.length,armed:armed,busy:busy};}};
 })();

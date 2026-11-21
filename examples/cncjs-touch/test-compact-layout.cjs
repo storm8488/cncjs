@@ -21,12 +21,12 @@ const css=strip(read('ui-2027.css')),shell=read('touch-shell.js'),fit=read('view
  const ctx={window:win,document:{body},CustomEvent:function(type,o){this.type=type;this.detail=o.detail;}};
  vm.runInNewContext(src,ctx);
  assert(!classes.has('t-compact'),'1366 x 768 is not compact');
- assert.deepEqual(dispatched.map(e=>e.type+':'+e.detail),['cnc-library-page-size:5','cnc-history-page-size:8']);
+ assert.deepEqual(dispatched.map(e=>e.type+':'+e.detail),['cnc-library-page-size:4','cnc-history-page-size:6']);
  win.innerWidth=1024;win.innerHeight=600;events.resize();
  assert(classes.has('t-compact'),'1024 x 600 is compact');assert.deepEqual(dispatched.slice(-2).map(e=>e.detail),[3,4]);
  win.innerWidth=1366;win.innerHeight=640;events.resize();assert(classes.has('t-compact'),'a short window is compact');
  win.innerWidth=1000;win.innerHeight=768;events.resize();assert(classes.has('t-compact'),'a narrow window is compact');
- win.innerWidth=1366;win.innerHeight=768;events.resize();assert(!classes.has('t-compact'));assert.equal(dispatched.at(-2).detail,5);
+ win.innerWidth=1366;win.innerHeight=768;events.resize();assert(!classes.has('t-compact'));assert.equal(dispatched.at(-2).detail,4);win.innerHeight=911;events.resize();assert.equal(dispatched.at(-2).detail,6);
 }
 // The library accepts the compact page size.
 assert(/size!==2&&size!==3&&size!==4&&size!==5/.test(read('shared-library.js')),'shared-library accepts 3 rows per page');
@@ -36,7 +36,7 @@ const find=(sel)=>rules.filter(r=>r.sel.split(/,(?![^(]*\))/).map(s=>s.trim()).i
 const has=(sel,prop)=>find(sel).some(r=>r.body.includes(prop));
 // Compact screens: shorter main padding and screen heights, the kept screens positioned accordingly.
 assert(has('.ks-ui.t-compact main','padding:8px 16px!important'),'compact main padding');
-for(const s of ['menu','jog','files','home','machine','history']){
+for(const s of ['more','jog','files','home','machine','history']){
  assert(has('.ks-ui.t-compact main>#screen-'+s,'top:8px'),s+' kept screen at 8 px');
  assert(has('.ks-ui.t-compact #screen-'+s+'.active','height:calc(var(--view-height) - 16px)')&&has('.ks-ui.t-compact #screen-'+s+'.kept','height:calc(var(--view-height) - 16px)'),s+' compact height (active and kept)');
 }
@@ -48,10 +48,10 @@ assert(has('.ks-ui.t-compact .t-coords-card .t-coords','grid-template-columns:au
 // The preview note lies over the bottom of the image instead of a 44 px column beside it.
 assert(has('.ks-ui.t-compact .job-art #home-image-status:not(:only-child)','position:absolute'),'compact preview note over the image');
 // 12 px between Charger la sélection and Démarrer / Pause (6 px column gap + 6 px).
-assert(has('.ks-ui .job-metrics>.home-load','margin-bottom:6px'),'12 px under Charger la sélection');
+assert(!css.includes('.job-metrics>.home-load'),'removed loading row has no stale compact stylesheet');
 assert(has('.ks-ui.t-compact #screen-jog.active','grid-template-columns:minmax(0,1fr) auto')&&has('.ks-ui.t-compact #screen-jog.kept','grid-template-columns:minmax(0,1fr) auto'),'Préparer: the cross card takes its own width');
 assert(has('.ks-ui.t-compact .ks-coordinate-table tbody tr','height:48px'),'48 px table rows in compact');
-assert(has('.ks-ui.t-compact #screen-machine .ks-machine-commands','grid-template-columns:repeat(3,minmax(0,1fr))'),'Machine commands on one row');
+assert(read('responsive.css').includes('.ks-ui #machine-layout[data-incident=true]{grid-template-columns:minmax(0,1fr)}'),'Machine reflows in compact view');
 assert(has('.ks-ui.t-compact #screen-files.active','grid-template-columns:minmax(0,1fr) 400px'),'Fichiers detail column 400 px');
 // Layout audit 31: no command lies under another at 1024 x 600. Préparer and Machine give the
 // full height to their main card (the intro moves to the right column); the Fichiers detail never
@@ -95,9 +95,10 @@ assert(!/\['status-bar','simulation-banner','real-banner','notice'\]/.test(fit)&
 assert(has('.t-system-command','position:fixed'),'system command status line (fallback without the strip)');
 assert(has('.ks-ui .t-messages>.t-system-command','border-left-color:var(--info)'),'system command line in the strip cell');
 // Dark-theme failure marks drawn with the readable text red (the --danger fill is 1.86:1 on --surface-2).
-assert(has('.t-sent[data-state="failed"]::before','background:var(--danger-text)')&&has('.ks-prep-step[data-state="blocking"] .ks-prep-mark','background:var(--danger-text)'),'failure marks in --danger-text');
+assert(has('.t-sent[data-state="failed"]::before','background:var(--danger-text)'),'failure marks in --danger-text');
+assert(!css.includes('.ks-prep-step'),'retired preparation checklist has no stale styles');
 for(const s of ['sent','confirmed','failed','uncertain'])assert(find('.t-sent[data-state="'+s+'"]').length,'feedback state '+s);
 // The freshness details live with the coordinates on the real page.
-assert(read('index.html').includes('class="card ks-machine-coordinates"'),'coordinates card marked');
-assert(read('connection-status.js').includes("querySelector('#screen-machine .ks-machine-coordinates')"),'freshness panel moves to the coordinates card');
+assert(read('index.html').includes('class="ks-machine-coordinates"'),'coordinates card marked');
+assert(read('connection-status.js').includes("querySelector('#ks-machine-details .ks-machine-coordinates')"),'freshness panel moves to the coordinates card');
 console.log('PASS compact layout: body.t-compact from the window, 3-row pages, compact heights for the six kept screens, targets kept at 48/64/96 px, 48 px segments, 16 px strip labels, large-text tokens without scale, notice and system line in the strip cell, feedback states.');

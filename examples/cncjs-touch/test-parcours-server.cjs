@@ -1,0 +1,36 @@
+'use strict';
+const assert=require('assert').strict,{createBench}=require('./parcours-server.cjs');
+(async()=>{const b=createBench();try{
+ await new Promise(r=>b.server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+b.server.address().port;
+ const post=async(url,body)=>{const r=await fetch(base+url,{method:'POST',body:JSON.stringify(body)});const data=await r.json();assert.equal(r.status,200,JSON.stringify(data));return data;};
+ assert.equal((await post('/parcours/open',{})).controllers.length,1);assert.equal(b.sim.profile.name,'lunyee');
+ // P1/P8 through the real service and parser, with no browser or physical machine.
+ const until=async(check)=>{const end=Date.now()+10000;while(Date.now()<end){const m=b.service.list()[0];if(check(m))return m;await new Promise(r=>setTimeout(r,25));}throw Error('Timed out waiting for machine: '+JSON.stringify(b.service.list()[0]));};
+ const who={kind:'touch',id:'local-page',label:'Tablet'};b.service.openTransport('recovery-test',who);
+ const home=async function(){const m=await until(m=>m.canHome);const body={port:'SIM',generation:m.generation,transportId:'recovery-test',clientId:'local-page'};const ticket=await post('/api/touch-job',{...body,action:'prepare',operation:'home'});assert(ticket.nonce);await post('/api/touch-job',{...body,action:'home',nonce:ticket.nonce});return until(m=>m.homed&&m.workOffset.state==='proven');}
+ let ready=await home();assert.equal(ready.referenceLost,null);assert.equal(ready.workOffset.state,'proven');
+ // P6 writes through the same prepare/nonce owner; the service proves D2 after every zero.
+ for(const params of [{axes:['X']},{axes:['X','Y','Z']},{axes:['X'],at:'machine'}]){
+   const m=await until(m=>m.homed&&m.workOffset.state==='proven'&&m.motion.canSetOrigin);
+   const before={...m.coordinates.mpos},body={port:'SIM',generation:m.generation,transportId:'recovery-test',clientId:'local-page'};
+   const ticket=await post('/api/touch-job',{...body,action:'prepare',operation:'set-origin',...params});assert(ticket.nonce);
+   const result=await post('/api/touch-job',{...body,action:'set-origin',nonce:ticket.nonce});assert(result.message);
+   const after=await until(m=>m.workOffset.state==='proven'&&m.motion.canSetOrigin);assert.deepEqual(after.coordinates.mpos,before,'zero does not move an axis');
+   for(const axis of params.axes)assert.equal(Number(after.coordinates.wpos[axis.toLowerCase()]),params.at==='machine'?Number(before[axis.toLowerCase()]):0);
+ }
+ await post('/parcours/sim',{input:'job',clientId:'local-page',transportId:'recovery-test'});assert.equal(b.service.list()[0].workflow,'running');
+ await post('/parcours/sim',{input:'limit',axis:'x',on:true});await post('/parcours/sim',{input:'limit',axis:'x',on:false});
+ const incident=await until(m=>m.lastAlarm&&m.lastAlarm.code===1);assert.equal(incident.homed,false);assert(incident.referenceLost);
+ await post('/api/touch-job',{action:'stop',port:'SIM',clientId:'local-page',transportId:'recovery-test'});await until(m=>m.jobStopped&&m.workflow==='idle');assert.equal(b.service.list()[0].stoppedFile,'recovery.nc');assert.equal(b.service.list()[0].stoppedAtLine,20);
+ ready=await home();assert.equal(ready.lastAlarm,null);assert.equal(ready.workOffset.state,'proven');
+ const baseResume={port:'SIM',generation:ready.generation,transportId:'recovery-test',clientId:'local-page'};
+ const plan=await post('/api/touch-job',{...baseResume,action:'resumePlan',file:ready.stoppedFile,line:5});assert.equal(plan.from,5);assert(plan.programCheck);
+ await post('/api/touch-job',{...baseResume,action:'load',file:ready.stoppedFile,fromLine:5});ready=await until(m=>m.canStart);assert.equal(ready.resume.from,5);
+ const start=await post('/api/touch-job',{...baseResume,revision:ready.revision,action:'prepare',operation:'start'});await post('/api/touch-job',{...baseResume,revision:ready.revision,action:'start',nonce:start.nonce});assert.equal(b.service.list()[0].workflow,'running');
+ await post('/api/touch-job',{...baseResume,action:'pause'});assert.equal(b.service.list()[0].workflow,'paused');
+ await post('/api/touch-job',{...baseResume,action:'stop'});await until(m=>m.workflow==='idle');await post('/api/touch-job',{action:'control',operation:'release',port:'SIM',clientId:'local-page'});b.service.closeTransport('recovery-test');
+ await post('/parcours/sim',{input:'probe',state:'permanent'});assert(b.sim.probeStuck);await post('/parcours/sim',{input:'probe',state:'free'});assert(!b.sim.probeStuck);
+ await post('/parcours/sim',{input:'pilot'});const snapshot=await (await fetch(base+'/api/touch-job')).json();assert.equal(snapshot.controllers[0].control.owner.label,'PC atelier');
+ const result=await post('/api/touch-job',{action:'control',port:'SIM',operation:'takeover',reason:'Operator at machine',clientId:'local-page',clientLabel:'Tablet'});assert.equal(result.snapshot.controllers[0].control.owner.id,'local-page');
+ assert.equal((await fetch(base+'/connection-fixture.js')).status,200);
+ }finally{await b.close();}console.log('PASS parcours bench: loopback, real service and LUNYEE bridge, physical inputs, other pilot and takeover snapshot.');})().catch(e=>{console.error(e);process.exitCode=1;});

@@ -9,12 +9,12 @@
     uiLocale.html('<button id="library-refresh" type="button">↻ Actualiser</button></div>') +
     uiLocale.html('<div class="card library-list-panel"><div class="library-list-title"><h2>Fichiers sur le serveur</h2><span id="library-count" class="tag">0</span></div>') +
     uiLocale.html('<label class="library-label" for="library-search">Rechercher un fichier</label>') +
-    uiLocale.html('<input id="library-search" type="search" placeholder="Nom, matière, outil, notes…">') +
+    uiLocale.html('<input id="library-search" type="search" placeholder="Rechercher…">') +
     uiLocale.html('<button id="library-favorites" type="button" aria-pressed="false">★ Favoris seulement</button>') +
     uiLocale.html('<p id="library-status" role="status">Connexion à la bibliothèque…</p>') +
     uiLocale.html('<div id="library-list" aria-label="Fichiers disponibles"></div>') +
     uiLocale.html('<div class="library-pages"><button id="library-prev" type="button" hidden>← Précédent</button><span id="library-page"></span><button id="library-more" type="button" hidden>Suivant →</button></div>') +
-    uiLocale.html('<details id="library-upload"><summary>＋ Envoyer depuis ce PC</summary>') +
+    uiLocale.html('<details id="library-upload"><summary>+ Envoyer depuis ce PC</summary>') +
     uiLocale.html('<p>Le fichier et son image 2D seront enregistrés sur le serveur.</p>') +
     uiLocale.html('<label for="library-input">Fichier G-code — 20 Mo maximum</label>') +
     uiLocale.html('<input id="library-input" type="file" accept=".nc,.gcode,.tap,.ngc,.cnc,.txt">') +
@@ -161,13 +161,14 @@
   // shown, with the fingerprint of the program it was drawn from (the 3D views are kept per
   // fingerprint; without one they are not drawn).
   function describe(file, preview, fingerprint) {
-    $('library-image').cncPreview = preview ? { file: file, fingerprint: typeof fingerprint === 'string' ? fingerprint : '', projection: preview.projection, zBounds: preview.zBounds, path3d: preview.path3d || null } : null;
+    $('library-image').cncPreview = preview ? { file: file, fingerprint: typeof fingerprint === 'string' ? fingerprint : '', projection: preview.projection, zBounds: preview.zBounds, path3d: preview.path3d || null, estimate: preview.estimate || null, laser: preview.laser || null } : null;
   }
   // Row thumbnails and XY extents come from each file's stored preview, read one
   // at a time in idle time after the list is drawn (never before the selected
   // file's own detail), and cached per file version. Without requestIdleCallback
   // (tests, very old browsers) rows simply show no thumbnail.
-  var thumbs = Object.create(null), thumbBusy = false, thumbIdle = null;
+  // thumbIdle: a requestIdleCallback id; thumbRetry: the 500 ms retry's setTimeout id (both cancelled by unmount()).
+  var thumbs = Object.create(null), thumbBusy = false, thumbIdle = null, thumbRetry = null;
   function thumbKey(f) { return f.name + ':' + (f.previewMtime || ''); }
   function rowInfo(f, bounds) {
     var valid = Array.isArray(bounds) && bounds.length === 4 && bounds.every(function (n) { return typeof n === 'number' && isFinite(n); }) && bounds[2] >= bounds[0] && bounds[3] >= bounds[1];
@@ -175,7 +176,7 @@
     return extent + size(f.size) + ' · ' + new Date(f.mtime).toLocaleString(window.cncI18n ? window.cncI18n.locale : 'fr-FR');
   }
   function scheduleThumbs() {
-    if (typeof requestIdleCallback !== 'function' || thumbIdle !== null) return;
+    if (typeof requestIdleCallback !== 'function' || !mounted || !visible() || thumbIdle !== null || thumbRetry !== null) return;
     // Only in a real idle period (parsing a stored preview can take a few hundred ms on
     // the tablet): never with a timeout, so a screen opening is never delayed by it.
     // A short idle period is retried half a second later (never in a loop of idle callbacks),
@@ -184,7 +185,7 @@
       thumbIdle = null;
       if (!visible()) return;
       if (deadline && typeof deadline.timeRemaining === 'function' && deadline.timeRemaining() < 45) {
-        thumbIdle = setTimeout(function () { thumbIdle = null; scheduleThumbs(); }, 500); return;
+        thumbRetry = setTimeout(function () { thumbRetry = null; scheduleThumbs(); }, 500); return;
       }
       nextThumb();
     });
@@ -252,7 +253,7 @@
     if (machine && machine.fresh && machine.name === name) {
       labels.push(/^Alarm/.test(machine.activeState || '') ? uiLocale.t('! Alarme · chargé') :
         machine.workflow === 'paused' || /^Hold/.test(machine.activeState || '') ? uiLocale.t('Ⅱ En pause') :
-        machine.workflow === 'running' || /^Run/.test(machine.activeState || '') ? uiLocale.t('▶ En cours') : uiLocale.t('● Chargé'));
+        machine.workflow === 'running' || (/^Run/.test(machine.activeState || '') && !machine.probing) ? uiLocale.t('▶ En cours') : uiLocale.t('● Chargé'));
     }
     var P = projects(), project = P ? P.label(name) : '';
     if (project) labels.push(project);
@@ -352,6 +353,7 @@
     $('library-image').hidden = true; $('library-image').removeAttribute('src'); describe(f.name, null);
     $('library-image-status').hidden = false; $('library-image-status').textContent = uiLocale.t('Chargement de l’image…');
     $('library-preview-note').textContent = '';
+    v2Selected({ file: f.name, name: displayName(f.name), mtime: f.mtime, bounds: null, zBounds: null, fingerprint: '', verdict: 'loading' });
     request('POST', 'file', { file: f.name + suffix }, 'detail').then(function (response) {
       if (id !== requestId) return;
       var meta = JSON.parse(response.data);
@@ -362,6 +364,8 @@
       // The server's verdict on the sidecar: a stale preview (program replaced under the same
       // name, older sidecar without fingerprint) shows a notice instead of the old image.
       var v = verdict(response, meta), usable = v.state !== 'stale', note = v.state === 'unverified' ? previewNotice(v) : '';
+      v2Selected({ file: f.name, name: meta.originalName, mtime: f.mtime, bounds: usable && meta.preview ? meta.preview.bounds : null, zBounds: usable && meta.preview ? meta.preview.zBounds : null,
+        fingerprint: typeof meta.fingerprint === 'string' ? meta.fingerprint : '', verdict: v.state });
       dimensions(usable && meta.preview && meta.preview.bounds, usable ? null : previewNotice(v), usable && meta.preview && meta.preview.zBounds, note);
       var image = usable && meta.preview && meta.preview.image;
       if (!usable) { detailLoading = false; $('library-image-status').textContent = previewNotice(v); }
@@ -386,6 +390,7 @@
       if (id !== requestId) return;
       detailLoading = false;
       detailVersion = ''; // Retry a sidecar still being uploaded at the next refresh.
+      v2Selected({ file: f.name, name: displayName(f.name), mtime: f.mtime, bounds: null, zBounds: null, fingerprint: '', verdict: 'unavailable' });
       dimensions(null);
       $('library-image-status').textContent = uiLocale.t('Aucune image disponible pour ce fichier. Envoyez-le depuis cette interface pour créer son aperçu.');
     });
@@ -433,7 +438,7 @@
         selected = ''; detailVersion = ''; detailLoading = false; requestId++;
         selectedRow();
         cancelRequest('detail');
-        publishSelection(null);
+        publishSelection(null); v2Selected(null);
         $('library-regenerate').disabled = true;
         $('library-name').textContent = uiLocale.t('Sélectionnez un fichier'); $('library-meta').textContent = '';
         $('library-dimensions-file').textContent = '';
@@ -508,7 +513,7 @@
     return read(file).then(function (data) {
       if (cancelled()) throw new Error(uiLocale.t('Annulé'));
       text = data.text; legacy = data.legacy;
-      if (/\x00/.test(text)) throw new Error(uiLocale.t('Ce fichier semble binaire. Un G-code texte est attendu.'));
+      if (text.indexOf(String.fromCharCode(0))>=0) throw new Error(uiLocale.t('Ce fichier semble binaire. Un G-code texte est attendu.'));
       return window.CNCLibraryPreview.render(text, document.createElement('canvas'), cancelled, status).then(function (preview) {
         if (preview.image.length > 2500000) { meta.previewError = uiLocale.t('image trop volumineuse'); return undefined; }
         meta.preview = preview;
@@ -541,6 +546,8 @@
       $('library-name').textContent = file.name; $('library-dimensions-file').textContent = file.name;
       $('library-meta').textContent = size(file.size) + ' · ' + new Date().toLocaleString(window.cncI18n?window.cncI18n.locale:'fr-FR');
       dimensions(meta.preview && meta.preview.bounds, null, meta.preview && meta.preview.zBounds);
+      // Just written: the server has not checked this sidecar against the file yet, so its fingerprint stays unverified.
+      v2Selected({ file: stored, name: file.name, mtime: new Date().toISOString(), bounds: meta.preview && meta.preview.bounds, zBounds: meta.preview && meta.preview.zBounds, fingerprint: meta.fingerprint || '', verdict: 'unverified' });
       var uploadedImage = meta.preview && meta.preview.image;
       $('library-image').onload = $('library-image').onerror = null;
       if (typeof uploadedImage === 'string' && uploadedImage) { describe(stored, meta.preview, meta.fingerprint); $('library-image').src = uploadedImage; $('library-image').hidden = false; $('library-image-status').hidden = true; }
@@ -550,7 +557,7 @@
       previewChanged(stored);
       // CNCjs's watch list sees a new file a few seconds after it is written
       // (measured: about 4 s on the tablet): look again a few times.
-      [2000, 5000, 9000].forEach(function (delay) { setTimeout(function () { refresh(true); }, delay); });
+      againAt = [2000, 5000, 9000].map(function (delay) { return Date.now() + delay; }); armAgain();
       refresh(true);
       return stored;
     }).catch(function (error) {
@@ -576,7 +583,7 @@
     status(uiLocale.t('Lecture du fichier enregistré…'));
     request('POST', 'file', {file: name + suffix}, 'regenerate', cancelled).then(function (result) {
       check();
-      try {meta = JSON.parse(result.data);} catch (_) {}
+      try {meta = JSON.parse(result.data);} catch (_) {/* A missing sidecar is regenerated from the program. */}
     }).catch(function (error) { if (cancelled()) throw error; }).then(function () {
       check();
       if (!meta || meta.file !== name) meta = {version:1, file:name, originalName:displayName(name), bytes:file.size};
@@ -609,24 +616,41 @@
     }).catch(function (error) { status(uiLocale.t('Aperçu non modifié : ') + error.message); }).then(function () { if (current === regenerationId) regenerating = false; });
   });
   $('library-search').addEventListener('input', function () { page = 0; renderList(); });
+  // The kiosk has no system keyboard: the shared text keyboard (text-keyboard.js).
+  if (window.CNCTextKeyboard) window.CNCTextKeyboard.bind($('library-search'), { label: uiLocale.t('Rechercher un fichier') });
   $('library-more').addEventListener('click', function () { page++; renderList(); });
   $('library-prev').addEventListener('click', function () { page=Math.max(0,page-1); renderList(); });
   window.addEventListener('cnc-job-status', function (event) {
     machine = event.detail && event.detail.machine || null;
     var key = JSON.stringify(machine ? [machine.name, !!machine.fresh, machine.workflow, machine.activeState] : null);
     if (key !== fileStateKey) { fileStateKey = key; selectedRow(); }
+    v2FilesSchedule();
   });
   window.addEventListener('cnc-library-page-size',function(e){
     var size=Number(e.detail);
-    if(size!==2&&size!==3&&size!==4&&size!==5)return;
+    if(size!==2&&size!==3&&size!==4&&size!==5&&size!==6)return;
     pageLimit=size;rowHeight=0;selectedHeight=0;
     if(size!==pageSize){page=Math.floor(page*pageSize/size);pageSize=size;renderList();}else schedulePageFit();
   });
+  // The looks after an upload (2, 5 and 9 s): their deadlines are kept, their timers run only while Fichiers
+  // is shown. A deadline passed while hidden makes the next refresh a manual one, as its refresh(true) did.
+  var againAt = [], againTimers = [];
+  function armAgain() {
+    againTimers.forEach(function (id) { clearTimeout(id); }); againTimers = [];
+    if (!visible()) return false;
+    var now = Date.now(), due = againAt.some(function (at) { return at <= now; });
+    againAt = againAt.filter(function (at) { return at > now; });
+    againAt.forEach(function (at) {
+      againTimers.push(setTimeout(function () { againAt = againAt.filter(function (x) { return x !== at; }); refresh(true); }, at - now));
+    });
+    return due;
+  }
   function mount() {
     if (mounted || !visible()) return;
     mounted = true;
     Object.keys(deferredText).forEach(function (id) { setText(id, deferredText[id]); }); deferredText = {};
-    renderList(); applyThumbs(); scheduleThumbs();
+    renderList(); applyThumbs(); scheduleThumbs(); v2FilesSchedule();
+    if (armAgain()) refreshAgain = 2;
     var manual = refreshAgain === 2; refreshAgain = 0;
     refresh(manual);
   }
@@ -637,6 +661,11 @@
     detailLoading = false; $('library-image').onload = null; $('library-image').onerror = null;
     cancelRequest('list'); cancelRequest('detail'); cancelRequest('thumb'); thumbBusy = false;
     refreshing = false; refreshPromise = null;
+    // No wake-up left once Fichiers is hidden: idle thumbnail work, its retry, the looks after an upload.
+    if (thumbIdle !== null && typeof cancelIdleCallback === 'function') cancelIdleCallback(thumbIdle);
+    if (thumbRetry !== null) clearTimeout(thumbRetry);
+    thumbIdle = thumbRetry = null;
+    againTimers.forEach(function (id) { clearTimeout(id); }); againTimers = [];
   }
   window.addEventListener('cnc-screen-change', function (e) { if (e.detail === 'files') mount(); else unmount(); });
   document.addEventListener('visibilitychange', function () { if (visible()) mount(); else unmount(); });
@@ -645,11 +674,173 @@
     $('library-favorites').setAttribute('aria-pressed', favoritesOnly ? 'true' : 'false');
     renderList();
   });
-  window.addEventListener('cnc-projects-updated', function () { renderList(); });
+  window.addEventListener('cnc-projects-updated', function () { renderList(); v2FilesSchedule(); });
+
+  // ---- Performance v2 · Fichiers (lot L5; REFLEXION.md proposition 7, §5 « Fichiers ») ----
+  // Its lines live in V2_FILES_MESSAGES (registered when the band is built), not in the static catalogues.
+  function tv2(s) { return uiLocale.t(s); }
+  // Only while cncV2's layout holds (body.perf-v2), in the files mount (#perf-v2-files): a band that
+  // tells « Sélection » from « Chargé dans la machine », and a short comparison of name/version,
+  // dimensions, declared tool and material, and fingerprint. A match needs both fingerprints: a name
+  // alone never makes the selection « the loaded program ». Nothing here loads, starts or reads: the
+  // selection's values come from its detail already read, the loaded program's from its report and the
+  // preview Suivi already shows. Every DOM write happens in requestAnimationFrame.
+  var V2_FILES_MESSAGES = [
+    ['Sélection et programme chargé', 'Selection and loaded program', 'Selección y programa cargado'],
+    ['Sélection', 'Selection', 'Selección'],
+    ['Chargé dans la machine', 'Loaded in the machine', 'Cargado en la máquina'],
+    ['Version (date · révision)', 'Version (date · revision)', 'Versión (fecha · revisión)'],
+    ['Dimensions (aperçu)', 'Dimensions (preview)', 'Dimensiones (vista previa)'],
+    ['Outil · matière déclarés', 'Declared tool · material', 'Herramienta · material declarados'],
+    ['Empreinte', 'Fingerprint', 'Huella'],
+    ['valide', 'valid', 'válida'],
+    ['périmée', 'stale', 'caducada'],
+    ['connue', 'known', 'conocida'],
+    ['inconnus', 'unknown', 'desconocidos'],
+    ['non déclarés', 'not declared', 'no declarados'],
+    ['aucune fiche', 'no sheet', 'ninguna ficha'],
+    ['fiche d’une autre version', 'sheet of another version', 'ficha de otra versión'],
+    ['révision', 'revision', 'revisión'],
+    ['Aucun programme chargé', 'No program loaded', 'Ningún programa cargado'],
+    ['État machine indisponible', 'Machine state unavailable', 'Estado de la máquina no disponible'],
+    ['Aucune sélection', 'No selection', 'Ninguna selección'],
+    ['✓ La sélection est le programme chargé (même empreinte).', '✓ The selection is the loaded program (same fingerprint).', '✓ La selección es el programa cargado (misma huella).'],
+    ['La sélection n’est pas le programme chargé.', 'The selection is not the loaded program.', 'La selección no es el programa cargado.'],
+    ['Correspondance inconnue : empreinte absente ou non vérifiée.', 'Match unknown: fingerprint missing or not verified.', 'Correspondencia desconocida: huella ausente o no verificada.'],
+    ['Programme chargé inconnu : état machine indisponible.', 'Loaded program unknown: machine state unavailable.', 'Programa cargado desconocido: estado de la máquina no disponible.'],
+    ['Rien n’est chargé dans la machine.', 'Nothing is loaded in the machine.', 'No hay nada cargado en la máquina.'],
+    ['non suivi', 'not followed', 'no seguido'],
+    ['Sélection et programme chargé non suivis : l’interface v2 est arrêtée pour cette session. L’état à jour reste dans le bandeau et dans Suivi.', 'Selection and loaded program not followed: the v2 interface is stopped for this session. The current state stays in the status bar and in Monitor.', 'Selección y programa cargado no seguidos: la interfaz v2 está detenida en esta sesión. El estado actual sigue en la barra de estado y en Seguimiento.']
+  ];
+  var v2k = { built: false, frame: 0, nodes: null, sel: null, catalogue: false };
+  function v2FilesMount() { var v = window.cncV2; try { return v && typeof v.state === 'function' && v.state().layout === true && v.mounts ? v.mounts.get('files') : null; } catch (_) { return null; } }
+  // Outside perf-v2 this returns at once: no frame, no DOM.
+  // A frame only while it can draw: v2 mount present, gate open, document visible, page not ended. The
+  // one exception is a single frame that hides a band still shown after the v2 layout has gone.
+  function v2FilesOpen() { var v = window.cncV2; try { return !!v2FilesMount() && v.gate() === true; } catch (_) { return false; } }
+  function v2FilesCancel() { if (v2k.frame && typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(v2k.frame); v2k.frame = 0; }
+  function v2FilesSchedule() {
+    // Fichiers not shown (or document hidden): no frame; mount() asks again when Fichiers is shown, and the
+    // pending transitions (hide, « non suivi ») are drawn then.
+    if (typeof window.requestAnimationFrame !== 'function' || v2k.ended || !visible()) { v2FilesCancel(); return; }
+    var hide = !!v2k.content && !v2k.content.hidden && !v2FilesMount();
+    var unfollow = v2k.built && !v2k.stale && !!v2FilesMount() && !v2FilesOpen();
+    if (!hide && !unfollow && !v2FilesOpen()) { v2FilesCancel(); return; }
+    if (!v2k.frame) v2k.frame = window.requestAnimationFrame(v2FilesRender);
+  }
+  function v2Selected(info) { v2k.sel = info; v2FilesSchedule(); }
+  function v2Dims(bounds, zBounds) {
+    var b = bounds, z = zBounds;
+    if (!Array.isArray(b) || b.length !== 4 || !b.every(function (n) { return typeof n === 'number' && isFinite(n); }) || b[2] < b[0] || b[3] < b[1]) return '—';
+    var f = function (n) { return (Math.abs(n) < 0.05 ? 0 : n).toLocaleString(uiLocale.locale || 'fr-FR', { maximumFractionDigits: 1 }); };
+    var parts = [f(b[2] - b[0]), f(b[3] - b[1])];
+    if (Array.isArray(z) && z.length === 2 && z.every(function (n) { return typeof n === 'number' && isFinite(n); }) && z[1] >= z[0]) parts.push(f(z[1] - z[0]));
+    return parts.join(' × ') + ' mm';
+  }
+  // The sheet's values only for the program shown: same file AND the sheet read for the same bytes as
+  // that program's fingerprint (selection: its verified preview; loaded: its report). A sheet without
+  // a fingerprint, or a program without one, is not bound: « inconnus ».
+  function v2Declared(file, fingerprint) {
+    var P = projects(), d = null, key = function (s) { return String(s || '').toLowerCase().replace(/^sha256:/, ''); };
+    try { d = P && typeof P.declared === 'function' ? P.declared(file) : null; } catch (_) {/* Optional project metadata unavailable. */}
+    if (!d) return tv2('aucune fiche');
+    if (d.version !== 'current') return tv2('fiche d’une autre version');
+    if (!d.fingerprint || !fingerprint) return tv2('inconnus');
+    if (key(d.fingerprint) !== key(fingerprint)) return tv2('fiche d’une autre version');
+    return [d.tool, d.material].filter(Boolean).join(' · ') || tv2('non déclarés');
+  }
+  function v2FilesBuild(mount) {
+    if (v2k.built) return;
+    v2k.built = true; v2k.content = mount.content;
+    if (uiLocale.registerCatalog) { try { uiLocale.registerCatalog('performance-v2-files', V2_FILES_MESSAGES); } catch (_) { /* French text stays readable. */ } }
+    var n = {}, root = mount.content;
+    function el(tag, cls, text, parent) { var e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; parent.appendChild(e); return e; }
+    var box = el('section', 'lv2', '', root); box.setAttribute('aria-label', tv2('Sélection et programme chargé'));
+    // One compact table: its header row is the band (« Sélection » / « Chargé dans la machine »), so the
+    // detail keeps its preview and « Charger et ouvrir le Suivi » in the frame (D3).
+    var table = el('table', 'lv2-compare', '', box), head = el('thead', '', '', table), headRow = el('tr', '', '', head), body = el('tbody', '', '', table);
+    el('td', '', '', headRow);
+    [['sel', tv2('Sélection')], ['load', tv2('Chargé dans la machine')]].forEach(function (c) {
+      var col = el('th', 'lv2-col', '', headRow); col.setAttribute('scope', 'col'); col.setAttribute('data-role', c[0] === 'sel' ? 'selection' : 'loaded');
+      el('span', 'lv2-eyebrow', c[1], col);
+      n[c[0] + 'Name'] = el('b', 'lv2-name', '', col); n[c[0] + 'Name'].id = 'lv2-' + c[0] + '-name';
+      if (c[0] === 'load') { n.loadState = el('span', 'lv2-state', '', col); n.loadState.id = 'lv2-load-state'; }
+    });
+    n.cells = {};
+    [['version', tv2('Version (date · révision)')], ['dims', tv2('Dimensions (aperçu)')], ['tool', tv2('Outil · matière déclarés')], ['print', tv2('Empreinte')]].forEach(function (r) {
+      var tr = el('tr', '', '', body), th = el('th', '', r[1], tr); th.setAttribute('scope', 'row');
+      ['sel', 'load'].forEach(function (c) { var td = el('td', '', '', tr); td.id = 'lv2-' + r[0] + '-' + c; n.cells[r[0] + '-' + c] = td; });
+    });
+    n.match = el('p', 'lv2-match', '', box); n.match.id = 'lv2-match'; n.match.setAttribute('role', 'status');
+    var fileSheet=document.getElementById('ks-file-info'),fileDetails=fileSheet&&fileSheet.getAttribute&&fileSheet.getAttribute('role')==='dialog'&&fileSheet.querySelector('.ks-sheet-content');
+    if(fileDetails){
+      // The main card keeps the names; technical comparison rows stay readable in Details.
+      var detailTable=document.createElement('table');detailTable.className='ks-dimensions-table';
+      var detailHead=document.createElement('thead'),detailRow=document.createElement('tr');
+      ['',tv2('Sélection'),tv2('Chargé dans la machine')].forEach(function(label){var cell=document.createElement('th');cell.setAttribute('scope','col');cell.textContent=label;detailRow.appendChild(cell);});
+      detailHead.appendChild(detailRow);detailTable.appendChild(detailHead);detailTable.appendChild(body);fileDetails.appendChild(detailTable);fileDetails.appendChild(n.match);
+    }
+    v2k.nodes = n;
+  }
+  // v2 freshness has one source, the L0 contract (monotone age; never fresh without an observed report).
+  // Absent, throwing or unknown: the loaded program is « État machine indisponible », never fresh.
+  function v2Fresh(m) {
+    var v = window.cncV2, r = null;
+    if (!m) return false;
+    try { r = v && typeof v.reportAge === 'function' ? v.reportAge(m) : null; } catch (_) { r = null; }
+    return !!r && r.known === true && r.fresh === true;
+  }
+  function v2FilesUnfollowed() {
+    var n = v2k.nodes;
+    v2k.stale = true;
+    property(n.selName, 'textContent', tv2('non suivi')); property(n.loadName, 'textContent', tv2('non suivi')); property(n.loadState, 'textContent', '');
+    Object.keys(n.cells).forEach(function (k) { property(n.cells[k], 'textContent', '—'); });
+    property(n.match, 'textContent', tv2('Sélection et programme chargé non suivis : l’interface v2 est arrêtée pour cette session. L’état à jour reste dans le bandeau et dans Suivi.'));
+    attribute(n.match, 'data-tone', 'neutral'); property(n.match, 'hidden', false);
+  }
+  function v2FilesRender() {
+    v2k.frame = 0;
+    var mount = v2FilesMount();
+    if (!mount) { if (v2k.content) property(v2k.content, 'hidden', true); return; }
+    if (v2k.ended || !visible()) return; // Drawn again when Fichiers is shown (mount() schedules it).
+    // Gate closed with the layout still held (Éco during a job): one last frame keeps the rectangle and
+    // marks every value « non suivi » (none is followed any more), then no further frame.
+    if (!v2FilesOpen()) { if (v2k.built && !v2k.stale) v2FilesUnfollowed(); return; }
+    v2FilesBuild(mount);
+    var n = v2k.nodes, sel = v2k.sel, m = machine, put = function (node, text) { property(node, 'textContent', String(text)); };
+    property(mount.content, 'hidden', false);
+    // Selection: the detail already read (name, version, extents, fingerprint verdict of its preview).
+    put(n.selName, sel ? sel.name : tv2('Aucune sélection'));
+    put(n.cells['version-sel'], sel ? new Date(sel.mtime).toLocaleString(uiLocale.locale || 'fr-FR') : '—');
+    put(n.cells['dims-sel'], sel ? v2Dims(sel.bounds, sel.zBounds) : '—');
+    put(n.cells['tool-sel'], sel ? v2Declared(sel.file, sel.verdict === 'ok' ? sel.fingerprint : '') : '—');
+    put(n.cells['print-sel'], !sel ? '—' : sel.verdict === 'ok' && sel.fingerprint ? tv2('valide') : sel.verdict === 'stale' ? tv2('périmée') : tv2('inconnue'));
+    // Loaded: its report only; an unavailable state is « unknown », never « nothing loaded ».
+    var fresh = v2Fresh(m), loaded = fresh && !!m.name;
+    put(n.loadName, !fresh ? tv2('État machine indisponible') : loaded ? m.originalName || m.name : tv2('Aucun programme chargé'));
+    put(n.loadState, !loaded ? '' : /^Alarm/.test(m.activeState || '') ? tv2('! Alarme · chargé') : m.workflow === 'paused' || /^Hold/.test(m.activeState || '') ? tv2('Ⅱ En pause') :
+      m.workflow === 'running' || (/^Run/.test(m.activeState || '') && !m.probing) ? tv2('▶ En cours') : tv2('● Chargé'));
+    // Match: different names are different files; the same name needs both fingerprints.
+    var selPrint = sel && sel.verdict === 'ok' && sel.fingerprint || '', match = !sel || !loaded ? '' : sel.file !== m.name ? 'different' : !selPrint || !m.fingerprint ? 'unknown' : selPrint === m.fingerprint ? 'same' : 'different';
+    var shown = document.getElementById('home-job-image'), pv = shown && shown.cncPreview;
+    var loadedPreview = loaded && pv && pv.file === m.name && pv.fingerprint && pv.fingerprint === m.fingerprint ? pv : null;
+    put(n.cells['version-load'], loaded ? (m.revision !== undefined && m.revision !== null ? tv2('révision') + ' ' + m.revision : '—') : '—');
+    put(n.cells['dims-load'], match === 'same' ? v2Dims(sel.bounds, sel.zBounds) : loadedPreview && loadedPreview.projection ? v2Dims(loadedPreview.projection.bounds, loadedPreview.zBounds) : '—');
+    put(n.cells['tool-load'], match === 'same' ? v2Declared(m.name, m.fingerprint) : loaded ? tv2('inconnus') : '—');
+    put(n.cells['print-load'], loaded ? (m.fingerprint ? tv2('connue') : tv2('inconnue')) : '—');
+    var text = !fresh ? tv2('Programme chargé inconnu : état machine indisponible.') : !loaded ? tv2('Rien n’est chargé dans la machine.') : !sel ? '' :
+      match === 'same' ? tv2('✓ La sélection est le programme chargé (même empreinte).') : match === 'different' ? tv2('La sélection n’est pas le programme chargé.') : tv2('Correspondance inconnue : empreinte absente ou non vérifiée.');
+    put(n.match, text); attribute(n.match, 'data-tone', match === 'same' ? 'ok' : match === 'different' ? 'warn' : 'neutral'); property(n.match, 'hidden', !text);
+  }
+  window.addEventListener('cnc-v2-change', v2FilesSchedule);
+  // Hidden: a pending frame is dropped (drawn again when visible); pagehide ends the band's frames.
+  document.addEventListener('visibilitychange', v2FilesSchedule);
+  window.addEventListener('pagehide', function () { v2k.ended = true; v2FilesCancel(); });
   window.cncLibraryView = {
     mount: mount, unmount: unmount,
     // For projects.js: the programs listed, and the selection of an associated file.
     files: function () { return files.map(function (f) { return { name: f.name, display: displayName(f.name) }; }); },
+    v2Messages: V2_FILES_MESSAGES,
     selectName: function (name) { var f = files.filter(function (x) { return x.name === name; })[0]; if (f) select(f, false); return !!f; }
   };
   mount();

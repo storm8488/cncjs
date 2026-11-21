@@ -8,7 +8,7 @@ const {createDOM}=require('./dom-fixture.cjs');
 const source=fs.readFileSync(__dirname+'/touch/commissioning.js','utf8');
 
 function fixture(saved){
- const dom=createDOM(['menu']),handlers={},store=new Map(saved?[['cncjs-touch-commissioning-v1',saved]]:[]),screens=[],calls=[];
+ const dom=createDOM(['more']),handlers={},store=new Map(saved?[['cncjs-touch-commissioning-v1',saved]]:[]),screens=[],calls=[];
  dom.document.body.getAttribute=()=>null;
  const controls={cancel:()=>calls.push(['cancel']),prepareCommand:op=>calls.push(['prepare',op]),spindleStop:()=>{calls.push(['spindleStop']);return Promise.resolve({message:'M5'});},
   readSettings:()=>{calls.push(['readSettings']);return Promise.resolve({});},settings:()=>Promise.resolve({firmware:'Grbl 1.1h',settings:{$31:6000,$1:25}})};
@@ -20,14 +20,19 @@ function fixture(saved){
  function all(node){return node.children.flatMap(c=>[c,...all(c)]);}
  const find=(pred)=>all(screen).find(pred);
  const byText=(text)=>find(n=>n.tagName==='BUTTON'&&n.textContent.indexOf(text)===0);
- return {dom,window,handlers,store,screens,calls,screen,find,byText,
+ return {dom,window,controls,handlers,store,screens,calls,screen,find,byText,
   data:()=>JSON.parse(store.get('cncjs-touch-commissioning-v1')||'{}'),
   send(machine){handlers['cnc-job-status']({detail:{machine,simulation:false}});},
   title:()=>find(n=>n.tagName==='H2').textContent,
   next:()=>find(n=>n.className==='ks-wiz-next'&&/Suivant|Terminer/.test(n.textContent)),
   tick(index){const boxes=all(find(n=>n.className==='ks-wiz-content')).filter(n=>n.tagName==='INPUT');const i=boxes[index];i.checked=true;i.handlers.change();}};
 }
-const M=(extra)=>Object.assign({port:'/dev/ttyUSB0',fresh:true,workflow:'idle',activeState:'Idle',probeInput:{fresh:true,pins:''},canUnlock:false,canHome:true,canSpindleTest:true,canSpindleStop:true,spindleTestSpeed:6000,spindleSpeed:0,settingsCount:34,firmware:'Grbl 1.1h'},extra);
+const M=(extra)=>Object.assign({port:'/dev/ttyUSB0',fresh:true,workflow:'idle',activeState:'Idle',probeInput:{fresh:true,pins:''},canUnlock:false,canReadSettings:true,canHome:true,canSpindleTest:true,canSpindleStop:true,spindleTestSpeed:6000,spindleSpeed:0,settingsCount:34,firmware:'Grbl 1.1h'},extra);
+// The probe step delegates the diagnostic to the same sheet as Work zero.
+{
+ const f=fixture(JSON.stringify({machines:{'/dev/ttyUSB0':{status:'progress',step:4,results:{}}}}));let opened=0;
+ f.window.cncZeroPiece={test(){opened++;}};f.send(M());f.window.cncCommissioning.open();assert.equal(f.title(),'Sonde');f.byText('Tester la sonde').click();assert.equal(opened,1);assert(!f.calls.some(c=>c[0]==='prepare'));
+}
 
 // ---- Model ----
 {
@@ -90,7 +95,7 @@ const M=(extra)=>Object.assign({port:'/dev/ttyUSB0',fresh:true,workflow:'idle',a
  const f=fixture();
  f.send(M({port:'/home/pi/ttyGRBL-sim'}));assert.deepEqual(f.screens,[],'simulator port: no auto-open');
  f.send(M({fresh:false}));assert.deepEqual(f.screens,[]);
- f.send(M());assert.deepEqual(f.screens,['commissioning'],'first real controller: opened once');
+ f.send(M());assert.deepEqual(f.screens,[],'L1: the assistant never opens itself');f.window.cncCommissioning.open();
  assert.equal(f.data().machines['/dev/ttyUSB0'].status,'progress');
  assert.equal(f.title(),'Avant de commencer');assert(f.next().disabled);
  f.tick(0);f.tick(1);assert(f.next().disabled);f.tick(2);assert(!f.next().disabled);
@@ -99,8 +104,13 @@ const M=(extra)=>Object.assign({port:'/dev/ttyUSB0',fresh:true,workflow:'idle',a
  f.byText('Relire').click();assert.deepEqual(f.calls,[['readSettings']]);
  f.byText('Passer cette étape').click();assert.equal(f.title(),'Arrêt d’urgence');
  assert.equal(f.data().machines['/dev/ttyUSB0'].results.backup,'skipped');
+ // E-stop: a greyed Déverrouiller says why (critical alarm, no fresh report: UI-1 of the rehearsal).
+ f.send(M({activeState:'Alarm',canUnlock:false,unlockReason:'État machine trop ancien : attendre un rapport récent.'}));
+ assert(f.find(n=>n.textContent==='État machine trop ancien : attendre un rapport récent.'),'the lamp gives the unlock reason');
+ assert(!f.find(n=>n.textContent==='Touchez Déverrouiller ($X)'),'no instruction the greyed button cannot follow');
  // E-stop: alarm, unlock through the confirmation, back to Idle.
  f.send(M({activeState:'Alarm',canUnlock:true,canHome:true}));
+ assert(f.find(n=>n.textContent==='Touchez Déverrouiller ($X)'));
  const unlock=f.byText('Déverrouiller');assert(!unlock.disabled);unlock.click();assert.deepEqual(f.calls.at(-1),['prepare','unlock']);
  assert(f.next().disabled);f.send(M());assert(!f.next().disabled);f.next().click();
  assert.equal(f.title(),'Fins de course');
@@ -124,7 +134,7 @@ const M=(extra)=>Object.assign({port:'/dev/ttyUSB0',fresh:true,workflow:'idle',a
  f.byText('Démarrer à').click();f.byText('Passer cette étape').click();assert.deepEqual(f.calls.slice(-2),[['cancel'],['spindleStop']]);
  assert.equal(f.title(),'Fichier « en l’air »');
  // Leaving the screen and resuming later: back on the same step.
- f.window.cncShell.go('menu');
+ f.window.cncShell.go('more');
  const g=fixture(f.store.get('cncjs-touch-commissioning-v1'));
  g.send(M());assert.deepEqual(g.screens,[],'known port: no auto-open');
  g.window.cncCommissioning.open();assert.equal(g.title(),'Fichier « en l’air »');
@@ -132,17 +142,32 @@ const M=(extra)=>Object.assign({port:'/dev/ttyUSB0',fresh:true,workflow:'idle',a
  g.next().click();
  const saved=g.data().machines['/dev/ttyUSB0'];assert.equal(saved.status,'done');assert(saved.date);assert.equal(saved.firmware,'Grbl 1.1h');
  assert.deepEqual(saved.results,{prepare:'ok',backup:'skipped',estop:'ok',limits:'ok',probe:'skipped',homing:'ok',spindle:'skipped',aircut:'skipped'});
- assert.equal(g.screens.at(-1),'menu');
+ assert.equal(g.screens.at(-1),'machine');
 }
 {
  // Skip the whole assistant: only after ticking the responsibility box.
- const f=fixture();f.send(M());
+ const f=fixture();f.send(M());f.window.cncCommissioning.open();
  f.byText('Passer l’assistant…').click();
  const confirm=f.find(n=>n.tagName==='BUTTON'&&n.textContent==='Passer l’assistant');assert(confirm.disabled);
  confirm.click();assert.equal(f.data().machines['/dev/ttyUSB0'].status,'progress');
  const boxes=f.find(n=>n.className==='card wide ks-wiz-warning');const check=boxes.children.find(c=>c.tagName==='LABEL').children[0];
  check.checked=true;check.handlers.change();assert(!confirm.disabled);confirm.click();
- assert.equal(f.data().machines['/dev/ttyUSB0'].status,'skipped');assert.equal(f.screens.at(-1),'menu');
+ assert.equal(f.data().machines['/dev/ttyUSB0'].status,'skipped');assert.equal(f.screens.at(-1),'machine');
+}
+// Réglages card on the Machine tab: after the laser Z card, else after the machine kind card, else after the tabs (older layouts).
+{
+ const place=function(names){
+  const dom=createDOM(['more']);dom.document.body.getAttribute=()=>null;
+  const p=dom.node('screen-settings'),made={};
+  names.forEach(n=>{const e=dom.element('div');e.name=n;made[n]=e;p.appendChild(e);Object.defineProperty(e,'nextSibling',{get:()=>p.children[p.children.indexOf(e)+1]||null});});
+  p.querySelector=sel=>made[{'#ks-laser-z-card':'laser','#ks-machine-kind-card':'kind','.ks-settings-tabs':'tabs','.ks-panel-intro':'intro'}[sel]]||null;
+  vm.runInNewContext(source,{window:{addEventListener(){},cncJobControls:{},cncShell:{go(){}}},document:dom.document,localStorage:{getItem:()=>null,setItem(){}},JSON,Object,Math,Date,String,Number,Promise});
+  return p.children.map(c=>c.name||(/ks-commissioning-card/.test(c.className)?'commissioning':'?'));
+ }
+ assert.deepEqual(place(['intro','tabs','perf','kind','laser','theme']),['intro','tabs','perf','kind','laser','commissioning','theme']);
+ assert.deepEqual(place(['intro','tabs','perf','kind','theme']),['intro','tabs','perf','kind','commissioning','theme'],'no laser Z card: after the machine kind');
+ assert.deepEqual(place(['intro','tabs','theme']),['intro','tabs','commissioning','theme'],'older layout: after the tabs');
+ assert.deepEqual(place(['intro','theme']),['intro','commissioning','theme'],'older layout: after the intro');
 }
 for(const name of ['index.html','simulation.html']){
  const html=fs.readFileSync(__dirname+'/touch/'+name,'utf8');
@@ -151,4 +176,24 @@ for(const name of ['index.html','simulation.html']){
  ['touch-shell.js','job-controls.js','system-monitor.js','download-file.js','shared-library.js'].forEach(dep=>assert(html.indexOf(dep)<html.indexOf('commissioning.js'),dep+' loads first'));
  assert(html.indexOf('commissioning.js')<html.indexOf('viewport-fit.js'),'the screen exists before viewport-fit scans it');
 }
-console.log('PASS commissioning: step model, auto-open on the first real controller, persistence and resume, guarded commands, spindle stop on leave, skip under confirmation.');
+{
+ // Durable A2-6 moved to the checklist projection: no commissioning-owned Machine buttons.
+ const {pure,machine}=require('./session-fixture.cjs');
+ for(const activeState of ['Idle','Alarm'])for(const canReadSettings of [true,false,undefined]){
+  const r=pure().evaluate({machine:machine({activeState,firmware:'',settingsCount:0,homed:false,canReadSettings}),transportConnected:true,pilot:{state:'free'}});
+  assert.equal(r.lignes.find(x=>x.id==='reglages').boutons[0].actif,canReadSettings===true,'server read permission in '+activeState);
+ }
+ assert(!source.includes('ks-machine-commands'),'commissioning no longer owns Machine commands');
+}
+console.log('PASS commissioning: step model, explicit opening only, machine return, persistence and resume, guarded commands, spindle stop on leave, skip under confirmation.');
+
+// A2-8: a preparation resolves its refusal instead of rejecting it.
+(async()=>{
+ for(const [step,op,label,checks] of [[5,'home','Lancer la prise d’origine ($H)…',1],[5,'unlock','Déverrouiller ($X)…',0],[6,'spindle','Démarrer à ',2]]){
+  const f=fixture(JSON.stringify({machines:{'/dev/ttyUSB0':{status:'progress',step,results:{}}}}));
+  f.send(M({canUnlock:true}));f.window.cncCommissioning.open();for(let i=0;i<checks;i++)f.tick(i);
+  const why='Opération en cours…';let asked='';f.controls.prepareCommand=operation=>{asked=operation;return Promise.resolve({opened:false,error:new Error(why)});};
+  const button=f.byText(label);assert(button,'fixture: '+label);button.click();await new Promise(setImmediate);
+  assert.equal(asked,op);assert(f.find(n=>n.textContent===why),'C-31: assistant refusal '+op);
+ }
+})().catch(e=>{console.error(e);process.exitCode=1;});

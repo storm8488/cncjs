@@ -2,12 +2,12 @@
 // Affichage → Luminosité: status on display, one request at a time with the last
 // slider position winning, ±10 steps, minimum 5 %, read-only and missing panels.
 const fs=require('fs'),vm=require('vm'),assert=require('assert');
-const {document,node,element,activeScreens}=require('./dom-fixture.cjs').createDOM(['menu']);
+const {document,node,element,activeScreens}=require('./dom-fixture.cjs').createDOM(['more']);
 const panel=node('screen-settings'),footer=element('div');footer.className='wide ks-display-footer';panel.appendChild(footer);
 panel.querySelector=sel=>sel==='.ks-display-footer'?footer:null;
-let requests=[],token='jwt';
+let requests=[],token='jwt',now=0;
 const handlers={};
-const window={addEventListener:(n,f)=>handlers[n]=f,cncState:{get:()=>({apiBase:'/api'})}};
+const window={performance:{now:()=>now},addEventListener:(n,f)=>handlers[n]=f,cncState:{get:()=>({apiBase:'/api'})}};
 function XHR(){this.headers={};requests.push(this);}
 XHR.prototype.open=function(m,u){this.method=m;this.url=u;};
 XHR.prototype.setRequestHeader=function(k,v){this.headers[k]=v;};
@@ -16,9 +16,11 @@ const storage=new Map();
 const timers=[];
 const context={window,document,XMLHttpRequest:XHR,setTimeout:(f,ms)=>{timers.push({f,ms,live:true});return timers.length;},clearTimeout:id=>{if(timers[id-1])timers[id-1].live=false;},localStorage:{getItem:k=>k==='cnc'?(token?JSON.stringify({state:{session:{token}}}):null):(storage.has(k)?storage.get(k):null),setItem:(k,v)=>storage.set(k,String(v))}};
 vm.runInNewContext(fs.readFileSync(__dirname+'/touch/backlight.js','utf8'),context);
-// A page loaded while the panel may be off asks the server to wake it, once.
-assert.equal(requests.length,1);assert.equal(requests[0].method,'POST');assert.deepEqual(JSON.parse(requests[0].body),{wake:true});
-requests[0].status=200;requests[0].responseText='{}';requests[0].onload();requests.length=0;
+// Locality is read even outside Settings; only the kiosk wakes at load.
+assert.equal(requests.length,1);assert.equal(requests[0].method,'GET');
+requests[0].status=200;requests[0].responseText=JSON.stringify({local:true});requests[0].onload();
+assert.equal(requests.length,2);assert.deepEqual(JSON.parse(requests[1].body),{wake:true});
+requests[1].status=200;requests[1].responseText=JSON.stringify({local:true});requests[1].onload();requests.length=0;
 const card=panel.children[0];
 assert.equal(card.id,'ks-backlight');assert.equal(panel.children[1],footer,'the card goes before the footer');
 const row=card.children[2],[down,slider,up,value]=row.children,sleepRow=card.children[3],select=sleepRow.children[1],status=card.children[4];
@@ -47,6 +49,55 @@ up.click();answer(200,{available:true,writable:true,percent:100});up.click();ass
 slider.value='10';slider.handlers.input();answer(200,{available:true,writable:true,percent:10});
 down.click();assert.deepEqual(JSON.parse(posts().at(-1).body),{percent:5},'never below 5 %');answer(200,{available:true,writable:true,percent:5});
 down.click();assert.deepEqual(JSON.parse(posts().at(-1).body),{percent:5});answer(200,{available:true,writable:true,percent:5});
+// A touch on the slider is settled on release: a swipe the browser hands over to the scroll
+// (pointercancel) sends no level and puts the previous one back, in either order of the events.
+{
+  const pointer=(type,pointerType='touch',pointerId=7)=>slider.handlers[type]({type,pointerId,pointerType});
+  const flushTimers=(ms)=>{for(const x of timers)if(x.live&&x.ms===ms){x.live=false;x.f();}};
+  const move=(v)=>{slider.value=v;slider.handlers.input();};
+  let n=posts().length;
+  pointer('pointerdown');move('60');assert.equal(value.textContent,'60 %','the thumb follows the finger');assert.equal(posts().length,n,'nothing sent while the finger is down');
+  move('65');pointer('pointercancel');assert.equal(slider.value,'5');assert.equal(value.textContent,'5 %','vertical swipe: the level is put back');
+  move('40');assert.equal(slider.value,'5','a late input of the cancelled gesture is undone');
+  pointer('pointerup');flushTimers(0);assert.equal(posts().length,n,'a vertical swipe sends no level');
+  flushTimers(500);
+  // The other order: the late input first, then the cancel.
+  pointer('pointerdown');move('30');move('35');pointer('pointercancel');flushTimers(0);flushTimers(500);assert.equal(slider.value,'5');assert.equal(posts().length,n);
+  // Horizontal drag or a deliberate tap: one level, sent once on release.
+  pointer('pointerdown');move('20');move('30');move('45');assert.equal(posts().length,n);
+  pointer('pointerup');assert.equal(posts().length,n,'settled after the release events');flushTimers(0);
+  assert.equal(posts().length,n+1);assert.deepEqual(JSON.parse(posts().at(-1).body),{percent:45});answer(200,{available:true,writable:true,percent:45});
+  pointer('pointerdown');pointer('pointerup');flushTimers(0);assert.equal(posts().length,n+1,'a tap on the current level sends nothing');
+  // An answer arriving during the gesture never moves the thumb under the finger.
+  up.click();n=posts().length;pointer('pointerdown');move('70');answer(200,{available:true,writable:true,percent:55});
+  assert.equal(slider.value,'70');pointer('pointerup');flushTimers(0);assert.deepEqual(JSON.parse(posts().at(-1).body),{percent:70});answer(200,{available:true,writable:true,percent:70});
+  // A gesture interrupted by a tab change is not a setting.
+  n=posts().length;pointer('pointerdown');move('90');handlers['cnc-settings-tab']({detail:'machine'});assert.equal(slider.value,'70');
+  pointer('pointerup');flushTimers(0);assert.equal(posts().length,n,'nothing sent after leaving the tab');
+  // Mouse and keyboard keep the live setting.
+  pointer('pointerdown','mouse',1);move('75');assert.equal(posts().length,n+1,'mouse: sent at once');answer(200,{available:true,writable:true,percent:75});
+  pointer('pointerdown');pointer('pointercancel');slider.handlers.keydown();move('80');assert.equal(posts().length,n+2,'keyboard right after a cancelled touch: sent');answer(200,{available:true,writable:true,percent:80});
+  slider.value='5';slider.handlers.input();answer(200,{available:true,writable:true,percent:5});
+  // A screen change or a hidden page also ends the gesture: nothing sent on the release.
+  for(const leave of [()=>handlers['cnc-screen-change'](),()=>document.handlers.visibilitychange()]){
+    n=posts().length;pointer('pointerdown');move('90');leave();assert.equal(slider.value,'5','the gesture is dropped');
+    answer(200,{available:true,writable:true,percent:5});pointer('pointerup');flushTimers(0);assert.equal(posts().length,n,'nothing sent after leaving');
+  }
+  // A cancelled gesture while a request is refused: once the gesture ends the confirmed level is shown
+  // again, so the next + starts from it (50 → 60, not 70).
+  slider.value='50';slider.handlers.input();answer(200,{available:true,writable:true,percent:50});
+  up.click();assert.deepEqual(JSON.parse(posts().at(-1).body),{percent:60});
+  pointer('pointerdown');pointer('pointercancel');answer(409,{message:'refusé'});
+  assert.equal(requests.at(-1).method,'GET');answer(200,{available:true,writable:true,percent:50});
+  assert.equal(slider.value,'60','held back while the gesture is absorbed');
+  flushTimers(500);assert.equal(slider.value,'50','the confirmed level once the gesture ends');assert.equal(value.textContent,'50 %');
+  up.click();assert.deepEqual(JSON.parse(posts().at(-1).body),{percent:60},'the next + starts from the confirmed level');answer(200,{available:true,writable:true,percent:60});
+  // Same for a tap without change.
+  up.click();pointer('pointerdown');pointer('pointerup');answer(409,{message:'refusé'});answer(200,{available:true,writable:true,percent:60});
+  flushTimers(0);assert.equal(slider.value,'60','a tap without change shows the confirmed level');
+  up.click();assert.deepEqual(JSON.parse(posts().at(-1).body),{percent:70});answer(200,{available:true,writable:true,percent:70});
+  slider.value='5';slider.handlers.input();answer(200,{available:true,writable:true,percent:5});
+}
 
 // A refusal shows the reason and re-reads the status.
 up.click();const before=requests.length;answer(409,{message:'Réglage refusé : le système ne permet pas à CNCjs de modifier la luminosité.'});
@@ -92,9 +143,73 @@ select.value='bogus';select.handlers.change();assert.deepEqual(JSON.parse(storag
 // A read-only panel is left alone.
 select.value='off';select.handlers.change();handlers['cnc-screen-change']();answer(200,{available:true,writable:false,percent:60});
 mark=requests.length;saver(true);assert.equal(requests.length,mark);
+// Affichage tab: the card goes just before the screen sleep card (the footer is only the fallback above).
+{
+  const d=require('./dom-fixture.cjs').createDOM(['more']),p=d.node('screen-settings'),sleep=d.element('div'),foot=d.element('div');
+  sleep.className='card ks-display-sleep';foot.className='wide ks-display-footer';p.appendChild(sleep);p.appendChild(foot);
+  p.querySelector=sel=>sel==='.ks-display-sleep'?sleep:sel==='.ks-display-footer'?foot:null;
+  vm.runInNewContext(fs.readFileSync(__dirname+'/touch/backlight.js','utf8'),{...context,document:d.document,window:{addEventListener(){},cncState:window.cncState}});
+  assert.deepEqual(p.children.map(c=>c.id||c.className),['ks-backlight','card ks-display-sleep','wide ks-display-footer'],'brightness before the screen sleep card');
+}
+// D3: independent pages and a monotone clock; every request is intercepted.
+function kiosk(locality,failedRead=false){
+  const dom=require('./dom-fixture.cjs').createDOM(['more']),events={},req=[],clock={now:0};
+  dom.node('screen-settings').querySelector=()=>null;
+  const win={performance:{now:()=>clock.now},addEventListener:(n,f)=>events[n]=f,cncState:window.cncState};
+  function Request(){req.push(this);}
+  Request.prototype.open=function(method,url){this.method=method;this.url=url;};
+  Request.prototype.setRequestHeader=function(){};
+  Request.prototype.send=function(body){this.body=body?JSON.parse(body):null;};
+  vm.runInNewContext(fs.readFileSync(__dirname+'/touch/backlight.js','utf8'),{...context,window:win,document:dom.document,XMLHttpRequest:Request});
+  const reply=(code,data)=>{const r=req.at(-1);r.status=code;r.responseText=JSON.stringify(data);r.onload();};
+  assert.equal(req[0].method,'GET','load-time locality discovery outside Settings');
+  reply(failedRead?0:200,failedRead?null:{local:locality,available:true,writable:true,percent:60});
+  return {dom,events,req,reply,clock,touch:()=>dom.document.handlers.pointerdown({type:'pointerdown'}),sleep:v=>events['cnc-screen-saver-sleep']({detail:v})};
+}
+{
+  const remote=kiosk(false),select=remote.dom.node('screen-settings').children[0].children[3].children[1];
+  assert(select.disabled,'remote sleep selector is disabled');
+  const remoteCard=remote.dom.node('screen-settings').children[0];
+  assert(remoteCard.children[5],'remote page explains the disabled sleep choice');
+  assert.equal(remoteCard.children[5].textContent,'Réglable seulement sur la tablette de la machine.');
+  assert.equal(remoteCard.children[5].hidden,false,'remote reason remains visible');
+  assert(remoteCard.children[3].className.includes('is-unavailable'),'remote choice is hatched');
+  remote.sleep(true);remote.sleep(false);remote.clock.now=6000;remote.touch();
+  assert.equal(remote.req.length,1,'remote page never dims or wakes, including at load');
+  const unknown=kiosk(null,true);unknown.sleep(true);
+  assert.deepEqual(unknown.req.at(-1).body,{percent:0,temporary:true});
+  unknown.reply(409,{code:'ETOUCH_BACKLIGHT_REMOTE',local:false,message:'remote'});
+  unknown.sleep(false);unknown.sleep(true);unknown.sleep(false);unknown.clock.now=6000;unknown.touch();
+  assert.equal(unknown.req.length,2,'a remote refusal permanently disables automatic writes');
+  const c=unknown.dom.node('screen-settings').children[0];assert.equal(c.children[4].textContent,'Luminosité indisponible.','a remote refusal adds no machine error');
+  unknown.events['cnc-screen-change']();assert.equal(unknown.req.length,2,'hidden Settings does not poll');
+  // A later read cannot undo a remote refusal during this page lifetime.
+  unknown.dom.activeScreens.add('settings');unknown.events['cnc-screen-change']();unknown.reply(200,{local:true,available:true,writable:true});
+  const before=unknown.req.length;unknown.sleep(true);unknown.sleep(false);unknown.touch();assert.equal(unknown.req.length,before);
+}
+{
+  const local=kiosk(true);assert.deepEqual(local.req.at(-1).body,{wake:true},'reload wakes a local dark panel');local.reply(200,{local:true});
+  local.touch();local.clock.now=5000;local.touch();assert.equal(local.req.length,2,'at most one awake wake per five seconds');
+  local.clock.now=5001;local.touch();assert.equal(local.req.length,3,'an awake kiosk wakes a panel dimmed by another local page');
+  local.clock.now=15000;local.touch();local.touch();assert.equal(local.req.length,3,'only one automatic request in flight');
+  local.reply(200,{local:true});assert.equal(local.req.length,3,'touches do not queue extra wakes');
+  local.touch();assert.equal(local.req.length,4);local.reply(200,{local:true});
+  local.sleep(true);local.sleep(false);assert.equal(local.req.at(-1).body.temporary,true,'wake waits for a pending dim');
+  local.reply(200,{local:true});assert.deepEqual(local.req.at(-1).body,{wake:true});local.reply(200,{local:true});
+  local.clock.now+=6000;local.events.pagehide({});local.touch();assert.equal(local.req.length,6,'disposed page does not wake');
+}
 for(const name of ['index.html','simulation.html']){
   const html=fs.readFileSync(__dirname+'/touch/'+name,'utf8');
   assert.equal((html.match(/src="backlight\.js/g)||[]).length,1);
   assert(html.indexOf('display-settings.js')<html.indexOf('backlight.js'),'the settings cards exist before the brightness card');
+}
+// Settings scroll guards (Surface 2026-11): a vertical swipe that starts on the slider scrolls the list
+// (pan-y, never none), the native main scrollbar is moved by the compositor (the WebKit one was repainted
+// at every scroll update, measured before/after with a 4x CPU slowdown), and the tablet diagnostic spans its card.
+{
+  const shell=fs.readFileSync(__dirname+'/touch/touch-shell.css','utf8'),list=fs.readFileSync(__dirname+'/touch/settings-list.css','utf8');
+  assert.match(shell,/\.ks-backlight-slider\{[^}]*touch-action:pan-y/,'the slider lets a vertical swipe scroll');
+  assert.match(list,/(^|\n)main\{scrollbar-width:thin;scrollbar-color:var\(--line-strong\) transparent\}/,'native thin scrollbar on main');
+  assert.match(list,/#ks-performance-card>\.ks-diagnostic\{grid-column:1\/-1\}/,'the diagnostic spans the performance card');
 }
 console.log('PASS backlight: shown-only reads, one request at a time with the last value winning, steps and minimum, read-only and missing panels.');

@@ -17,7 +17,66 @@ const machine = ({ settings, ...over } = {}) => ({
 
 const SQUARE = ['G21 G90 G54', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-3 F100', 'G1 X40 F500', 'G1 Y30', 'G1 X0', 'G1 Y0', 'G0 Z5', 'M30'].join('\n');
 
+describe('CNC spindle setpoint above the board maximum', () => {
+  test('S18000 against $30=1000 is coded information, with no effect on any travel verdict', () => {
+    const plain = programCheck(SQUARE, machine({ settings: { $30: 1000 } }));
+    const check = programCheck('M3 S18000\n' + SQUARE, machine({ settings: { $30: 1000 } }));
+    const info = check.info.find((item) => item.code === 'ETOUCH_CHECK_S_ABOVE_MAX');
+    expect(info).toEqual({ code: 'ETOUCH_CHECK_S_ABOVE_MAX',
+      params: { s: '18000', line: 1, max: '1000' },
+      message: 'Consigne S18000 (ligne 1) au-dessus du maximum de la carte (1000) : la broche tournera au maximum.' });
+    expectCatalogMatch(info);
+    expect(check.verdict).toBe(plain.verdict);
+    expect(check.axes).toEqual(plain.axes);
+    expect(check.codedReasons).toEqual(plain.codedReasons);
+    expect(check.blocking).toEqual(plain.blocking);
+    expect(check.overridable).toBe(plain.overridable);
+    expect(plain.info.some((item) => item.code === 'ETOUCH_CHECK_S_ABOVE_MAX')).toBe(false);
+  });
+
+  test.each([undefined, 0, -1, 18000, 24000])('$30=%s does not add the CNC information when no excess is known', (max) => {
+    const check = programCheck('M3 S18000\n' + SQUARE, machine({ settings: { $30: max } }));
+    expect(check.info.some((item) => item.code === 'ETOUCH_CHECK_S_ABOVE_MAX')).toBe(false);
+  });
+
+  test('a laser retains its own coded warning and never gets the CNC information', () => {
+    const check = programCheck('M3 S18000\n' + SQUARE, machine({ settings: { $30: 1000 }, laser: { sMax: 1000 } }));
+    expect(check.info.some((item) => item.code === 'ETOUCH_CHECK_S_ABOVE_MAX')).toBe(false);
+    expect(check.laser.codedReasons.some((item) => item.code === 'ETOUCH_LASER_CHECK_S_ABOVE_MAX')).toBe(true);
+  });
+});
+
 describe('program check (F2): analysis', () => {
+  test('SURETE C-03: opaque syntax invalidates the units of subsequent G53 targets until explicit units restore knowledge', () => {
+    const prefix = 'G20 G90\nG 2 1\n';
+    const check = programCheck(prefix + 'G53 G0 Z-10', machine());
+    expect(check.verdict).toBe('unknown');
+    expect(check.blocking).toEqual([]);
+    expect(check.codedReasons.map((item) => item.code)).toContain('ETOUCH_CHECK_SYNTAX');
+    const restored = programCheck(prefix + 'G21\nG53 G0 Z-100', machine());
+    expect(restored.axes.Z).toMatchObject({ verdict: 'outside', machineMin: -100 });
+    expect(restored.blocking).toHaveLength(1);
+    // An earlier independent, proven G53 overrun is still blocking.
+    const earlier = programCheck('G21 G90\nG53 G0 Z-100\nG 2 0\nG53 G0 Z-1', machine());
+    expect(earlier.axes.Z.verdict).toBe('outside');
+    expect(earlier.blocking).toHaveLength(1);
+    // A skipped opaque target must not make later explicit mm targets inherit G20 again.
+    const lateUnits = programCheck('G 2 0\nG53 G0 Z-1\nG21 G90\nG53 G0 Z-10', machine({ modal: { units: 'G20', distance: 'G90', wcs: 'G54' } }));
+    expect(lateUnits.axes.Z.machineMin).toBe(-10);
+    expect(lateUnits.blocking).toEqual([]);
+  });
+
+  test('SURETE C-03: opaque units cannot create a blocking G53 extent; reliable later units restore tracking', () => {
+    const check = programCheck('G20 G90\nG 2 1\nG53 G0 Z-10', machine());
+    expect(check.verdict).toBe('unknown');
+    expect(check.blocking).toEqual([]);
+    expect(check.axes.Z.machineMin).toBeUndefined();
+    const restored = programCheck('G20 G90\nG 2 1\nG21\nG53 G0 Z-100', machine());
+    expect(restored.verdict).toBe('outside');
+    expect(restored.axes.Z.machineMin).toBe(-100);
+    expect(restored.blocking).toHaveLength(1);
+  });
+
   test('a plain square is followed: units, mode, offset, XYZ extent, Z depth and clearance', () => {
     const a = analyzeProgram(SQUARE);
     expect(a).toMatchObject({ units: 'G21', distance: 'G90', wcs: 'G54', rawUnits: false, relativeStart: false, moves: 8 });
@@ -160,11 +219,23 @@ describe('program check (F2): comparison with the machine', () => {
     expect(up.axes.Z.machineMax).toBe(5);
   });
 
-  test('the homing direction mask flips an axis to [0, travel]', () => {
+  // Bug hunt D-1 / E-1: this test used to expect [0, travel] for an axis whose $23
+  // bit is set. Stock Grbl 1.1 keeps [-travel, 0] whatever $23 says (limits.c);
+  // only a HOMING_FORCE_SET_ORIGIN build or Grbl_ESP32 gives [0, travel], and the
+  // report does not tell them apart: such an axis is not checked (unknown), as the
+  // tablet's travel-check.js and motion.js already do.
+  test('the homing direction mask leaves an axis unchecked: never validated, never outside', () => {
     const r = programCheck(SQUARE, machine({ settings: { $23: '1' }, mpos: { x: 50, y: -150, z: -40 } }));
-    expect(r.axes.X).toMatchObject({ verdict: 'validated', low: 0, high: 300, machineMin: 50, machineMax: 90 });
-    const out = programCheck(SQUARE, machine({ settings: { $23: '1' }, mpos: { x: 280, y: -150, z: -40 } }));
-    expect(out.axes.X.verdict).toBe('outside');
+    expect(r.axes.X).toMatchObject({ verdict: 'unknown', low: null, high: null });
+    expect(r.axes.X.machineMin).toBeUndefined();
+    expect(r.axes.X.codedReasons.map((c) => c.code)).toEqual(['ETOUCH_CHECK_HOMING_DIRECTION']);
+    expectCatalogMatch(r.axes.X.codedReasons[0]);
+    expect(r.axes.X.reasons[0]).toBe('Sens de prise d’origine inversé ($23) en X : selon la compilation du firmware, la course va de −$130 à 0 ou de 0 à $130 ; axe non vérifié.');
+    expect(r.verdict).toBe('unknown');
+    expect(r.axes.Y.verdict).toBe('validated');
+    // X machine +280 (a HOMING_FORCE_SET_ORIGIN build) or -280 (stock Grbl): unknown both ways.
+    expect(programCheck(SQUARE, machine({ settings: { $23: '1' }, mpos: { x: 280, y: -150, z: -40 } })).axes.X.verdict).toBe('unknown');
+    expect(programCheck(SQUARE, machine({ settings: { $23: '1' }, mpos: { x: -280, y: -150, z: -40 } })).axes.X.verdict).toBe('unknown');
   });
 
   test('homing enabled is not homing done: without an observed homing cycle, the verdict is unknown, never validated', () => {
@@ -240,8 +311,9 @@ describe('program check (F2), cross-check 3: dépassements détectés', () => {
     const down = programCheck('G21 G90\nG0 Z5\nG1 Z-41 F100\nM30', machine());
     expect(down.axes.Z).toMatchObject({ verdict: 'outside', machineMin: -81 });
     expect(down.axes.Z.reasons[0]).toMatch(/Hors course Z : -81 → -35 mm machine \(course -80 → 0\)/);
-    // À la limite exacte : accepté (tolérance 1 µm).
-    expect(programCheck('G21 G90\nG0 Z40\nG1 Z-40 F100', machine()).axes.Z.verdict).toBe('validated');
+    // C-06: the far end (Z −80) keeps 0.5 mm, compared strictly; the homing end (Z 0) stays exact.
+    expect(programCheck('G21 G90\nG0 Z40\nG1 Z-39.5 F100', machine()).axes.Z.verdict).toBe('validated');
+    expect(programCheck('G21 G90\nG0 Z40\nG1 Z-40 F100', machine()).axes.Z.verdict).toBe('outside');
   });
 
   test('X avec repère G55 décalé lu dans $# : dépassement détecté là où G54 l’aurait validé', () => {
@@ -265,13 +337,18 @@ describe('program check (F2), cross-check 3: dépassements détectés', () => {
     expect(out.axes.X).toMatchObject({ verdict: 'outside' });
   });
 
-  test('direction de homing $23 : bit X (1) → espace X [0, +300] ; un programme à X machine négatif devient hors course', () => {
-    const m = machine({ settings: { $23: '1' }, mpos: { x: 50, y: -150, z: -40 } }); // X travail 0 = X machine +50
+  // Bug hunt D-1 / E-1 (see above): an axis whose $23 bit is set has no known
+  // envelope; the other axes are still checked, each from its own bit.
+  test('direction de homing $23 : bit X (1) → X non vérifié, Y toujours comparé ; bit Z (4) → Z non vérifié', () => {
+    const m = machine({ settings: { $23: '1' }, mpos: { x: 50, y: -150, z: -40 } });
     const r = programCheck('G21 G90\nG0 X-60 Y-10\nG0 X200', m);
-    expect(r.axes.X).toMatchObject({ low: 0, high: 300, machineMin: -10, machineMax: 250, verdict: 'outside' });
-    expect(r.axes.Y).toMatchObject({ low: -200, high: 0 });
+    expect(r.axes.X).toMatchObject({ low: null, high: null, verdict: 'unknown' });
+    expect(r.axes.X.codedReasons[0]).toMatchObject({ code: 'ETOUCH_CHECK_HOMING_DIRECTION', params: { axis: 'X', setting: 130 } });
+    expect(r.axes.Y).toMatchObject({ low: -200, high: 0, verdict: 'validated' });
     const z = programCheck('G21 G90\nG0 Z1', machine({ settings: { $23: '4' }, mpos: { x: -250, y: -150, z: 40 } }));
-    expect(z.axes.Z).toMatchObject({ low: 0, high: 80, verdict: 'validated' });
+    expect(z.axes.Z).toMatchObject({ low: null, high: null, verdict: 'unknown' });
+    expect(z.axes.Z.codedReasons[0]).toMatchObject({ code: 'ETOUCH_CHECK_HOMING_DIRECTION', params: { axis: 'Z', setting: 132 } });
+    expect(z.axes.X.verdict).toBe('validated');
   });
 });
 
@@ -345,7 +422,8 @@ describe('program check (F2), cross-check 3: « axe non sollicité = validé »'
     const fusion = programCheck('G90 G94 G17\nG21\nG53 G0 Z0\nG0 X10 Y10\nG0 Z5\nG1 Z-1 F100\nG53 G0 Z0\nM30', machine());
     expect(fusion.axes.Z).toMatchObject({ verdict: 'validated', machineMin: -41, machineMax: 0 });
     expect(fusion.verdict).toBe('validated');
-    expect(programCheck('G21 G90\nG53 G0 Z0', machine({ settings: { $23: '4' }, mpos: { x: -250, y: -150, z: 40 } })).axes.Z.verdict).toBe('validated');
+    // Bug hunt D-1 / E-1: Z homed the other way ($23 bit 2) has no known envelope, G53 included.
+    expect(programCheck('G21 G90\nG53 G0 Z0', machine({ settings: { $23: '4' }, mpos: { x: -250, y: -150, z: 40 } })).axes.Z.verdict).toBe('unknown');
     // Pouces : G20 G53 X-12 = -304,8 mm machine.
     const inch = programCheck('G20 G90\nG53 G0 X-12', machine()).axes.X;
     expect(inch.verdict).toBe('outside');
@@ -413,14 +491,15 @@ describe('program check (F2), cross-check 3: arcs', () => {
   // L1 (corrigé) : enveloppe exacte de l'arc ; un quart d'arc dans la course
   // près du bord n'est plus un faux « outside ».
   test('quart d’arc entièrement dans la course près du bord → validé (enveloppe exacte) ; le cercle complet au même endroit sort', () => {
-    const m = machine({ mpos: { x: -250, y: -200, z: -40 } });
+    // Origine à Y machine −199,5 : la borne utilisable du bout opposé à la prise d'origine (C-06).
+    const m = machine({ mpos: { x: -250, y: -199.5, z: -40 } });
     // Quart d'arc G2 de (0,0) à (10,10), centre (10,0) : y ∈ [0,10] réellement.
     const r = programCheck('G21 G90\nG0 X0 Y0\nG2 X10 Y10 I10 J0 F300', m);
-    expect(r.axes.Y).toMatchObject({ verdict: 'validated', machineMin: -200, machineMax: -190 });
+    expect(r.axes.Y).toMatchObject({ verdict: 'validated', machineMin: -199.5, machineMax: -189.5 });
     expect(r.verdict).toBe('validated');
     expect(programCheck('G21 G90\nG0 X0 Y0\nG1 X2.93 Y7.07 F300\nG1 X10 Y10', m).verdict).toBe('validated');
-    // Le même cercle parcouru en entier descend à y = -10 → Y machine -210.
-    expect(programCheck('G21 G90\nG0 X0 Y0\nG2 X0 Y0 I10 J0 F300', m).axes.Y).toMatchObject({ verdict: 'outside', machineMin: -210 });
+    // Le même cercle parcouru en entier descend à y = -10 → Y machine -209,5.
+    expect(programCheck('G21 G90\nG0 X0 Y0\nG2 X0 Y0 I10 J0 F300', m).axes.Y).toMatchObject({ verdict: 'outside', machineMin: -209.5 });
   });
 
   test('arc en G18/G19 ou en G90.1 : inconnu, jamais validé', () => {
@@ -460,6 +539,7 @@ describe('program check (F2): coded reasons (ETOUCH_CHECK_*)', () => {
     ['ETOUCH_CHECK_ACTIVE_WCS_UNKNOWN', P('G21 G90 G55', 'G0 X10'), { modal: noWcs }, { wcs: 'G55' }],
     ['ETOUCH_CHECK_AXIS_IDLE', P('G21 G90', 'G0 X10 Y10'), {}, { axis: 'Z' }],
     ['ETOUCH_CHECK_TRAVEL_UNKNOWN', SQUARE, { settings: { $131: undefined } }, { setting: 131 }],
+    ['ETOUCH_CHECK_HOMING_DIRECTION', SQUARE, { settings: { $23: '2' } }, { axis: 'Y', setting: 131 }],
     ['ETOUCH_CHECK_POSITION_UNKNOWN', P('G21 G90', 'G0 X10'), { mpos: {} }, { axis: 'X' }],
     ['ETOUCH_CHECK_OUTSIDE', P('G21 G90', 'G0 X300.0004'), {}, { axis: 'X', min: '50', max: '50', low: '-300', high: '0' }],
     ['ETOUCH_CHECK_OUTSIDE_G53', P('G21 G90', 'G53 G0 X10'), {}, { axis: 'X', min: '10', max: '10', low: '-300', high: '0' }],
@@ -475,7 +555,12 @@ describe('program check (F2): coded reasons (ETOUCH_CHECK_*)', () => {
     ['ETOUCH_CHECK_RELATIVE_FROM_UNKNOWN', P('G21 G90', 'G0 X0', 'G91', 'G0 Y5'), {}, { line: 4, axis: 'Y' }],
     ['ETOUCH_CHECK_ARC_PLANE', P('G21 G90 G18', 'G0 X0 Z0', 'G2 X10 Z0 I5 K0 F100'), {}, { line: 3 }],
     ['ETOUCH_CHECK_ARC_FROM_UNKNOWN', P('G21 G90', 'G0 X0', 'G2 X10 Y0 I5 J0 F100'), {}, { line: 3 }],
-    ['ETOUCH_CHECK_ARC_RADIUS', P('G21 G90', 'G0 X0 Y0', 'G2 X10 Y0 R1 F100'), {}, { line: 3 }]
+    ['ETOUCH_CHECK_ARC_RADIUS', P('G21 G90', 'G0 X0 Y0', 'G2 X10 Y0 R1 F100'), {}, { line: 3 }],
+    // D2: the work offset not proven against $# yet (work-offset.js).
+    ['ETOUCH_CHECK_OFFSET_UNPROVEN', SQUARE, { offsetProven: false }, {}],
+    // C-57, C-61: a line Grbl reads otherwise; C-58: G49 with an inherited tool length offset.
+    ['ETOUCH_CHECK_SYNTAX', P('G21 G90', 'G0 Z5', 'G1 Z-1 40 F100'), {}, { line: 3 }],
+    ['ETOUCH_CHECK_TLO_CANCEL', P('G21 G90 G49', 'G0 Z5'), { parameters: { G92: { x: 0, y: 0, z: 0 }, TLO: 2 } }, { line: 1 }]
   ];
   // Every list of reasons has its coded twin: same length, same order, same text.
   const expectParallel = (r) => {
@@ -498,8 +583,9 @@ describe('program check (F2): coded reasons (ETOUCH_CHECK_*)', () => {
 
   test('every ETOUCH_CHECK_* row of the client catalog is emitted by one case above', () => {
     const catalog = catalogCodes().filter((code) => /^ETOUCH_CHECK_/.test(code)).sort();
-    expect(cases.map(([code]) => code).sort()).toEqual(catalog);
-    expect(catalog).toHaveLength(28);
+    // The additional code is informational, exercised above rather than a blocking reason.
+    expect(cases.map(([code]) => code).concat(['ETOUCH_CHECK_S_ABOVE_MAX']).sort()).toEqual(catalog);
+    expect(catalog).toHaveLength(33);
   });
 
   test('French reasons and verdicts are those of the uncoded check; a validated program has none', () => {
@@ -540,5 +626,113 @@ describe('program check (F2): coded reasons (ETOUCH_CHECK_*)', () => {
     expect(r.verdict).toBe('unknown');
     expect(r.codedReasons).toEqual([{ code: null, params: {}, message: 'Code G5 (ligne 3) non interprété.' }]);
     expect(r.reasons).toEqual(['Code G5 (ligne 3) non interprété.']);
+  });
+});
+
+// The LUNYEE 4040 (Grbl_Esp32, $23=3): X and Y home towards their negative end and the board
+// forces the origin there ([0, +$130], [0, +$131]); Z homes towards + ([−$132, 0]). Work origin
+// at machine (100, 100, −115).
+const LUNYEE = { $13: '0', $20: '1', $22: '1', $23: '3', $130: '408', $131: '396', $132: '130' };
+const lunyee = (over = {}) => machine({
+  settings: LUNYEE,
+  mpos: { x: 150, y: 120, z: -100 },
+  wpos: { x: 50, y: 20, z: 15 },
+  ...over
+});
+// Our own full homing cycle, seen in Home, ended at MPos 0,0,0 under $23=3 (job-service.js homeMpos).
+const LEARNT = { X: 0, Y: 0, Z: 0, mask: 3 };
+
+describe('program check: homing convention learnt (C-04) and margin before the far limit (C-06)', () => {
+  test('convention learnt by our homing (X, Y at 0 under the same $23): X and Y are checked in [0, travel]', () => {
+    const r = programCheck(SQUARE, lunyee({ homeAt: LEARNT }));
+    // X machine 100 → 140, Y 100 → 130, Z −118 → −110.
+    expect(r.axes.X).toMatchObject({ verdict: 'validated', low: 0, high: 408, usable: { low: 0, high: 407.5 }, machineMin: 100, machineMax: 140 });
+    expect(r.axes.Y).toMatchObject({ verdict: 'validated', low: 0, high: 396, usable: { low: 0, high: 395.5 } });
+    expect(r.axes.Z).toMatchObject({ verdict: 'validated', low: -130, high: 0, usable: { low: -129.5, high: 0 } });
+    expect(r.verdict).toBe('validated');
+    // 400 mm wide from X machine 100: X machine up to 500 for 408 of travel.
+    const wide = programCheck('G21 G90 G54\nG0 Z5\nG0 X0 Y0\nG1 Z-3 F100\nG1 X400 F500\nG0 Z5', lunyee({ homeAt: LEARNT }));
+    expect(wide.axes.X).toMatchObject({ verdict: 'outside', machineMax: 500 });
+    expect(wide.verdict).toBe('outside');
+  });
+
+  test('without that lesson X and Y stay unknown: no homing of ours, another $23, an end away from 0', () => {
+    [null, { ...LEARNT, mask: 1 }, { ...LEARNT, X: -405, Y: -393 }].forEach((homeAt) => {
+      const r = programCheck(SQUARE, lunyee({ homeAt }));
+      ['X', 'Y'].forEach((axis) => {
+        expect(r.axes[axis]).toMatchObject({ verdict: 'unknown', low: null, high: null, usable: null });
+        expect(r.axes[axis].codedReasons.map((c) => c.code)).toEqual(['ETOUCH_CHECK_HOMING_DIRECTION']);
+      });
+      // Z (bit clear) has a single convention either way.
+      expect(r.axes.Z.verdict).toBe('validated');
+    });
+  });
+
+  test('a Z target at −129.945 machine (ALARM:2 on the real board) is outside; −129.5 is the last one inside', () => {
+    // A1-5: origin at Z machine −115; the program goes down to Z −14.945, i.e. −129.945 machine.
+    const deep = programCheck('G21 G90\nG0 Z5\nG1 Z-14.945 F300\nG0 Z5\n', lunyee());
+    expect(deep.axes.Z.machineMin).toBeCloseTo(-129.945, 3);
+    expect(deep.axes.Z.verdict).toBe('outside');
+    expect(programCheck('G21 G90\nG0 Z5\nG1 Z-14.5 F300\nG0 Z5\n', lunyee()).axes.Z.verdict).toBe('validated');
+    expect(programCheck('G21 G90\nG0 Z5\nG1 Z-14.501 F300\nG0 Z5\n', lunyee()).axes.Z.verdict).toBe('outside');
+    // The homing end stays exact: G53 G0 Z0 and a work Z reaching machine 0.
+    expect(programCheck('G21 G90\nG53 G0 Z0\nG0 Z115', lunyee()).axes.Z.verdict).toBe('validated');
+    // X and Y, convention learnt: 407.5 and 395.5 are the last usable positions.
+    expect(programCheck('G21 G90\nG0 X307.5 Y295.5', lunyee({ homeAt: LEARNT })).verdict).toBe('validated');
+    expect(programCheck('G21 G90\nG0 X307.6', lunyee({ homeAt: LEARNT })).axes.X.verdict).toBe('outside');
+    expect(programCheck('G21 G90\nG53 G0 X408', lunyee({ homeAt: LEARNT })).axes.X.verdict).toBe('outside');
+    expect(programCheck('G21 G90\nG0 X-100 Y-100', lunyee({ homeAt: LEARNT })).verdict).toBe('validated');
+  });
+});
+
+// C-57, C-61 (V4-N3, V4-N7): Grbl drops every space before reading a line, so `Z-1 40` is
+// Z−140 for the board; and a `$` line is a system command (a setting written, a homing…).
+// C-58 (V4-N4): G49 cancels an inherited tool length offset, which the reported WCO includes.
+describe('program check: lines Grbl reads otherwise (C-57, C-61) and G49 over an inherited TLO (C-58)', () => {
+  const codesOf = (r, axis) => r.axes[axis].codedReasons.map((c) => c.code);
+
+  test('a number split by spaces is read without them by Grbl: every axis unknown, the line listed', () => {
+    const r = programCheck('G21 G90\nG0 Z5\nG1 Z-1 40 F100\nG1 X10', machine());
+    // Followed as Z−1, the check would have validated it; Grbl reads Z−140 (machine −180).
+    expect(r.verdict).toBe('unknown');
+    ['X', 'Y', 'Z'].forEach((axis) => {
+      expect(r.axes[axis].verdict).toBe('unknown');
+      expect(codesOf(r, axis)).toContain('ETOUCH_CHECK_SYNTAX');
+    });
+    expect(r.uninterpreted).toEqual([{ line: 3, code: 'G1 Z-1 40 F100', impact: true }]);
+    expect(r.blocking).toEqual([]);
+    // A sign or a decimal point set apart is read otherwise as well.
+    expect(programCheck('G21 G90\nG0 X - 5', machine()).codedReasons.map((c) => c.code)).toContain('ETOUCH_CHECK_SYNTAX');
+    expect(programCheck('G21 G90\nG0 X1 .5', machine()).codedReasons.map((c) => c.code)).toContain('ETOUCH_CHECK_SYNTAX');
+  });
+
+  test('spaces that change nothing, and spaces in comments, are not a syntax issue', () => {
+    expect(programCheck('G21 G90\nG0 X10 Y10\nG1 Z-1 F100\nG1 X 20 F 300 (Z-1 40)\nG1X0Y0 ; X - 5', machine()).verdict).toBe('validated');
+  });
+
+  test('a `$` line in a program (a setting, a homing) leaves every axis unknown', () => {
+    ['$20=0', '$H', '$X'].forEach((line) => {
+      const r = programCheck('G21 G90\nG0 X10 Y10 Z5\n' + line + '\nG1 Z-1 F100', machine());
+      expect(r.verdict).toBe('unknown');
+      expect(r.axes.Z.codedReasons.find((c) => c.code === 'ETOUCH_CHECK_SYNTAX')).toMatchObject({ params: { line: 3 } });
+      expect(r.uninterpreted).toEqual([{ line: 3, code: line, impact: true }]);
+    });
+  });
+
+  test('G49 with an inherited tool length offset leaves Z unknown; with none, or none known, as before; G53 still compared', () => {
+    const params = (TLO) => ({ parameters: { G54: { x: -250, y: -150, z: -42 }, G92: { x: 0, y: 0, z: 0 }, TLO } });
+    const prog = 'G21 G90 G54 G49\nG0 Z5\nG0 X0 Y0\nG1 Z-3 F100\nG1 X40 F500';
+    const withTlo = programCheck(prog, machine(params(2)));
+    expect(withTlo.axes.Z).toMatchObject({ verdict: 'unknown' });
+    expect(codesOf(withTlo, 'Z')).toEqual(['ETOUCH_CHECK_TLO_CANCEL']);
+    expect(withTlo.axes.X.verdict).toBe('validated');
+    expect(programCheck(prog, machine(params(0))).verdict).toBe('validated');
+    expect(programCheck(prog, machine(params('0.000'))).verdict).toBe('validated');
+    expect(programCheck(prog, machine()).verdict).toBe('validated');
+    // Without G49 the inherited offset is the one reported: nothing to say.
+    expect(programCheck(prog.replace(' G49', ''), machine(params(2))).verdict).toBe('validated');
+    // A G53 target does not depend on any offset: still outside.
+    const g53 = programCheck('G21 G90 G49\nG53 G0 Z10', machine(params(2)));
+    expect(g53.axes.Z.verdict).toBe('outside');
   });
 });

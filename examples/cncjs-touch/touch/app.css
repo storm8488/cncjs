@@ -165,11 +165,6 @@ button:focus-visible{
 }
 
 /* Préparation origine et palpage */
-.origin-actions{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:12px;
-}
 .origin-actions button,.probe-action{
   min-height:72px;
   padding:12px;
@@ -228,7 +223,7 @@ input {
   font-size: 28px;
 }
 #tabbar {
-  overflow-x: auto;
+  overflow: hidden;
 }
 #tabbar .tab {
   flex-shrink: 0;
@@ -296,15 +291,16 @@ body {
 .coords.small b {
   font-size: 32px;
 }
+/* Theme colours (design-tokens.css), so a plain button follows the light theme too. */
 button {
-  background: #263747;
+  background: var(--surface-2);
   color: var(--fg);
-  border: 1px solid #486077;
+  border: 1px solid var(--line-strong);
   border-radius: 10px;
   min-height: 60px;
 }
 button:active:not(:disabled) {
-  background: #355773;
+  background: var(--line);
 }
 button:disabled {
   opacity: 0.4;
@@ -522,31 +518,6 @@ main {
 #screen-settings p {
   margin: 8px 0;
 }
-#display-size {
-  display: block;
-  width: 100%;
-  min-height: 52px;
-  margin-top: 8px;
-  padding: 10px;
-  background: var(--bg);
-  color: var(--txt);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  font: inherit;
-}
-.display-check {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 52px;
-  cursor: pointer;
-}
-#display-machine {
-  width: 26px;
-  height: 26px;
-  min-height: 0;
-  flex: 0 0 26px;
-}
 .display-hide-machine #screen-home .home-machine-coordinates {
   display: none;
 }
@@ -559,3 +530,5 @@ body.display-large main .card h2 {
 body.display-large main .coords b {
   font-size: clamp(24px, 3vw, 38px);
 }
+
+/* Current content hosts retain the existing card rules. */

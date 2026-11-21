@@ -7,6 +7,7 @@
 import { EventEmitter } from 'events';
 import { createService } from '../job-service';
 import { createControl } from '../control';
+import { provenOffset } from './support/proven-offset';
 
 const fakeController = (port = 'TEST') => {
   const c = {
@@ -38,6 +39,7 @@ const fakeController = (port = 'TEST') => {
   c.command = (name, ...args) => {
     c.commands.push([name, ...args]);
   };
+  c.writeln = jest.fn(() => c.runner.emit('ok'));
   return c;
 };
 
@@ -58,7 +60,7 @@ const setup = () => {
     { get: () => ctx.controllers },
     { get: (key) => ({ 'touch.motion.enabled': true, events: [], macros: [{ id: 'm1', name: 'M', content: 'G0 X0' }] }[key]) },
     () => ctx.now,
-    { control: ctx.control, history: { record: () => {} } }
+    { workOffset: provenOffset, control: ctx.control, history: { record: () => {} } }
   );
   services.push(ctx.service);
   ctx.generation = ctx.service.list()[0].generation;
@@ -99,6 +101,11 @@ const tryAll = async (ctx) => {
   await tryIt('prepare home', () => ctx.req('prepare', { operation: 'home' }));
   await tryIt('prepare unlock', () => ctx.req('prepare', { operation: 'unlock' }));
   await tryIt('prepare macro', () => ctx.req('prepare', { operation: 'macro', macroId: 'm1' }));
+  // These probes issue tickets; a settings read deliberately excludes an outstanding confirmation.
+  if (out['prepare macro'] === 'ACCEPTÉ') {
+    ctx.service.closeTransport('tA', true);
+    ctx.service.openTransport('tA', A);
+  }
   await tryIt('readSettings', () => ctx.req('readSettings'));
   await tryIt('second jog', () => ctx.req('motion', { operation: 'jog', ...STEP }));
   return out;

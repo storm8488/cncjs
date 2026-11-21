@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
 const { createDOM } = require('./dom-fixture.cjs');
 function fixture(options = {}) {
-  const dom = createDOM(['menu']), handlers = {}, frames = [], intervals = new Map(), saved = [], observers = [];
+  const dom = createDOM(['more']), handlers = {}, frames = [], intervals = new Map(), saved = [], observers = [];
   let clock = 1000, next = 0;
   const originalCreate = dom.document.createElement;
   dom.document.createElement = function (tag) {

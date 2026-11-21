@@ -31,3 +31,5 @@
 #screen-files .library-selection-state{font-size:13px;color:var(--ok-text);margin:3px 0 6px}
 #screen-files .library-selection-state:empty{display:none}
 @media(max-height:520px) and (min-width:650px){.coordinate-keypad{grid-template-columns:repeat(4,1fr)}.coordinate-card{padding:8px}.coordinate-editor{padding:8px}.coordinate-card #coordinate-result{min-height:32px}.coordinate-card .coordinate-note{font-size:12px}}
+
+/* Current content hosts retain the existing card rules. */

@@ -4,8 +4,8 @@
  * Stop while a job runs, Stop during homing or a jog, Resume in a pause, Unlock
  * in an alarm (both through their usual confirmation). It only
  * projects the `cnc-job-status` detail already published by job-controls.js
- * (no timer, no request); Pause and Stop relay to the existing #job-pause and
- * #job-stop buttons, so every guard and confirmation stays where it is. */
+ * (no timer, no request); Pause and Stop call the command owner directly,
+ * which retains every permission and confirmation guard. */
 (function () {
   'use strict';
   var uiLocale=window.cncI18n||{t:function(s){return s;},html:function(s){return s;},locale:'fr-FR'};
@@ -17,8 +17,10 @@
   function text(node,value){if(!node||node.textContent===value)return;var n=node.firstChild;if(n&&n.nodeType===3&&!n.nextSibling)n.data=value;else node.textContent=value;}
   function attr(node,name,value){if(node.getAttribute(name)!==value)node.setAttribute(name,value);}
   function prop(node,key,value){if(node[key]!==value)node[key]=value;}
-  // Icons: one shape per tone, so the state is never carried by colour alone.
-  var icons={ok:'M4 12l5 5L20 6',run:'M7 5l12 7-12 7z',warn:'M8 5h3v14H8z M13 5h3v14h-3z',danger:'M12 3L2 21h20z M12 9v5 M12 17v1',off:'M5 5l14 14M19 5L5 19',info:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M12 11v5 M12 8v.5'};
+  // Icons: one shape per tone, so the state is never carried by colour alone. Among the amber states, a
+  // hold (Pause, Porte ouverte) keeps the two bars and an old report or a lost state shows a clock (lot
+  // Transverses M4: « Rapport ancien » drew the pause bars while the job was running).
+  var icons={ok:'M4 12l5 5L20 6',run:'M7 5l12 7-12 7z',hold:'M8 5h3v14H8z M13 5h3v14h-3z',warn:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M12 7v5l3 3',danger:'M12 3L2 21h20z M12 9v5 M12 17v1',off:'M5 5l14 14M19 5L5 19',info:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M12 11v5 M12 8v.5'};
   var state=el('div','t-state','t-state');state.setAttribute('data-tone','off');state.setAttribute('role','status');state.setAttribute('aria-live','polite');
   state.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="'+icons.off+'"/></svg>';
   // The word, and under it a short note (« déduite » for a deduced alarm code, V6).
@@ -28,22 +30,27 @@
   var freshText=el('span','','t-fresh-text');fresh.appendChild(freshText);fresh.title=uiLocale.t('Âge du dernier rapport machine');
   var vitals=el('div','t-vitals');
   function vital(label,id,extra){var box=el('div','t-vital'+(extra||''));var l=el('span');l.textContent=label;var b=el('b','',id);b.textContent='—';box.appendChild(l);box.appendChild(b);vitals.appendChild(box);return b;}
-  var spindle=vital(uiLocale.t('Broche'),'t-spindle'),feed=vital(uiLocale.t('Avance'),'t-feed'),file=vital(uiLocale.t('Fichier'),'t-file',' t-vital--file');
+  var spindle=vital(uiLocale.t('Broche'),'t-spindle',' t-vital--spindle'),feed=vital(uiLocale.t('Vitesse'),'t-feed',' t-vital--feed');
+  // The target machine as the server names it (label · CNC / Laser), PROFILES-CONTRACT.md §2.
+  var target=vital(uiLocale.t('Machine'),'t-machine',' t-vital--machine'),file=vital(uiLocale.t('Fichier'),'t-file',' t-vital--file');
+  var spindleLabel=spindle.previousSibling;
+  // The simulation has no machine record: the cell is not shown there.
+  if(simulation&&target.parentNode)target.parentNode.hidden=true;
   var actions=el('div','t-strip-actions');
   var pause=el('button','t-btn t-btn--warn','t-pause');pause.type='button';pause.textContent=uiLocale.t('Pause');pause.hidden=true;
   var stop=el('button','t-btn t-btn--danger','t-stop');stop.type='button';stop.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>';
   var stopText=el('span');stopText.textContent=uiLocale.t('Arrêter');stop.appendChild(stopText);stop.hidden=true;
   var resume=el('button','t-btn t-btn--primary','t-resume');resume.type='button';resume.textContent=uiLocale.t('Reprendre…');resume.hidden=true;
-  var unlock=el('button','t-btn t-btn--primary','t-unlock');unlock.type='button';unlock.textContent=uiLocale.t('Déverrouiller…');unlock.hidden=true;
+  var recover=el('button','t-btn','t-recover');recover.type='button';recover.textContent=uiLocale.t('Remise en route');recover.hidden=true;
   // Who pilots the machine (F5), always shown, never hidden to make room: this device, another
   // one (named), free, or unknown. A tap opens the pilot dialog (details, explicit takeover).
   // It sits in the actions cell, which a message never covers; Pause and Stop stay on its right.
   var pilot=el('button','t-pilot','t-pilot');pilot.type='button';pilot.setAttribute('data-state','unknown');
-  var pilotLabel=el('span');pilotLabel.textContent=uiLocale.t('Pilote');var pilotValue=el('b','','t-pilot-value');pilotValue.textContent='—';
+  var pilotLabel=el('span');pilotLabel.textContent=uiLocale.t('La main :');var pilotValue=el('b','','t-pilot-value');pilotValue.textContent='—';
   pilot.appendChild(pilotLabel);pilot.appendChild(pilotValue);
   pilot.addEventListener('click',function(){var c=window.cncJobControls;if(c&&typeof c.openPilot==='function')c.openPilot();});
   actions.appendChild(pilot);
-  actions.appendChild(unlock);actions.appendChild(resume);actions.appendChild(pause);actions.appendChild(stop);
+  actions.appendChild(recover);actions.appendChild(resume);actions.appendChild(pause);actions.appendChild(stop);
   // Messages (what to do next, a system command running): one cell of the strip laid over the
   // report age and the live values, never over the state, the actions or the right-hand group.
   // Showing a message therefore moves no command and covers none, on the strip or on the screen.
@@ -98,16 +105,16 @@
   var messageObserver=typeof window.MutationObserver==='function'?new window.MutationObserver(syncMessages):null;
   if(messageObserver)messageObserver.observe(messages,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['hidden']});
   syncMessages();
-  function relay(id){var source=$(id);if(source&&!source.disabled)source.click();}
+  function relay(action){var c=window.cncJobControls;if(c&&typeof c[action]==='function')c[action]();}
   // A tap on Pause, Resume or Unlock freezes those three for 600 ms: a double tap
   // cannot reach the button that replaces the first one (Pause becoming Resume).
   // Stop is never delayed.
   var coolUntil=0;
   function guarded(fn){return function(){var now=Date.now();if(now<coolUntil)return;coolUntil=now+600;fn();};}
-  pause.addEventListener('click',guarded(function(){relay('job-pause');}));
-  stop.addEventListener('click',function(){relay('job-stop');});
-  resume.addEventListener('click',guarded(function(){relay('job-resume');}));
-  unlock.addEventListener('click',guarded(function(){var c=window.cncJobControls;if(c&&typeof c.prepareCommand==='function')c.prepareCommand('unlock');}));
+  pause.addEventListener('click',guarded(function(){if(!pause.disabled)relay('pause');}));
+  stop.addEventListener('click',function(){if(!stop.disabled)relay('stop');});
+  resume.addEventListener('click',guarded(function(){var c=window.cncJobControls;if(c&&c.resume)c.resume();}));
+  recover.addEventListener('click',guarded(function(){if(window.cncShell)window.cncShell.go('machine');}));
   var screenLocked=false;
   window.addEventListener('cnc-screen-lock',function(e){screenLocked=!!(e&&e.detail);if(lastDetail)render(lastDetail);});
   function number(v){try{return Math.round(v).toLocaleString(uiLocale.locale||'fr-FR');}catch(_){return String(Math.round(v));}}
@@ -123,8 +130,10 @@
     // Grbl sends no report during a homing cycle: the server knows it from the $H sent.
     if(m.homing)return {word:uiLocale.t('Prise d’origine'),tone:'run'};
     if(!m.fresh)return {word:uiLocale.t('Rapport ancien'),tone:'warn'};
-    if(/^hold/i.test(a))return {word:uiLocale.t('Pause'),tone:'warn'};
-    if(/^door/i.test(a))return {word:uiLocale.t('Porte ouverte'),tone:'warn'};
+    if(/^hold/i.test(a))return {word:uiLocale.t('Pause'),tone:'warn',icon:'hold'};
+    if(/^door/i.test(a))return {word:uiLocale.t('Porte ouverte'),tone:'warn',icon:'hold'};
+    // A probe cycle reports Run: it is not « En cours » (no job runs; lot Transverses M3).
+    if(m.probing)return {word:uiLocale.t('Palpage'),tone:'run'};
     if(/^run/i.test(a))return {word:uiLocale.t('En cours'),tone:'run'};
     if(/^home/i.test(a))return {word:uiLocale.t('Prise d’origine'),tone:'run'};
     if(/^jog/i.test(a))return {word:uiLocale.t('Déplacement'),tone:'run'};
@@ -134,56 +143,84 @@
     return {word:a||uiLocale.t('Inconnu'),tone:'info'};
   }
   var tone='',lastDetail=null;
+  var shape='';
   function render(detail){
     lastDetail=detail;
-    var m=detail.machine,connected=simulation?!!m:!!detail.transportConnected&&!!m;
+    var m=detail.machine,connected=simulation?!!m:!!(detail.streamConnected===undefined?detail.transportConnected:detail.streamConnected)&&!!m;
     // State lost (stream muted, HTTP read failing): the last busy controller stays the target
     // of Pause and Arrêter (job-controls.js, detail.halt); the word says the state is lost.
     var h=!m&&!simulation&&detail.halt&&typeof detail.halt==='object'?detail.halt:null;
-    // A machine state is only published while recent (job-controls.js): read by HTTP while the
-    // stream is down, it is shown at once rather than « Hors ligne » until the stream returns
-    // (N3); only Resume and Unlock still wait for the stream (usable, below).
-    var d=h?{word:uiLocale.t('État perdu'),tone:'warn'}:describe(m,!!m);
+    // HTTP fallback can retain a stop target, but never certifies the tactile stream.
+    // This also applies to the journal's continuity grace during a planned rotation.
+    var lostFlow=!simulation&&!connected&&(!!m||!!h);
+    var d=lostFlow?{word:uiLocale.t(h?'État perdu':'Reconnexion…'),tone:'warn'}:describe(m,!!m);
     text(stateText,d.word);text(stateNote,d.note||'');prop(stateNote,'hidden',!d.note);
-    if(d.tone!==tone){tone=d.tone;attr(state,'data-tone',tone);state.querySelector('path').setAttribute('d',icons[tone]);}
+    if(d.tone!==tone){tone=d.tone;attr(state,'data-tone',tone);}
+    if((d.icon||d.tone)!==shape){shape=d.icon||d.tone;state.querySelector('path').setAttribute('d',icons[shape]);}
     var age=m&&m.statusAgeMs,known=finite(age)&&age>=0;
     // Whole seconds only: a text that changed at every report (4 per second) would repaint the
     // strip continuously, which costs measurable CPU on the tablet at rest.
-    text(freshText,simulation&&m?uiLocale.t('simulé'):!known?'—':age<1000?'< 1 s':age<60000?Math.ceil(age/1000)+' s':Math.ceil(age/60000)+' min');
-    attr(fresh,'data-stale',String(!m||(!simulation&&(!known||age>2500||!m.fresh))));
-    var live=!!(m&&m.fresh);
-    text(spindle,live&&finite(m.spindleSpeed)?number(m.spindleSpeed)+uiLocale.t(' tr/min'):'—');
+    text(freshText,simulation&&m?uiLocale.t('simulé'):lostFlow?uiLocale.t('suivi perdu'):!known?'—':age<=2500?uiLocale.t(m.fresh?'à jour':'Rapport ancien'):uiLocale.t('ancienne · ')+Math.ceil(age/1000)+' s');
+    attr(fresh,'data-stale',String(!m||(!simulation&&(!connected||!known||age>2500||!m.fresh))));
+    var live=!!(m&&m.fresh&&(simulation||connected));
+    // Laser: the S value is a set point (« consigne S »), never a measured power.
+    var p=m&&m.machineProfile&&typeof m.machineProfile==='object'?m.machineProfile:null,laser=!!(p&&p.kind==='laser');
+    text(spindleLabel,laser?uiLocale.t('Consigne S'):uiLocale.t('Broche'));
+    text(spindle,live&&finite(m.spindleSpeed)?(laser?'S '+number(m.spindleSpeed):number(m.spindleSpeed)+uiLocale.t(' tr/min')):'—');
+    text(target,!m?'—':p?(p.label||uiLocale.t('sans nom'))+' · '+(laser?uiLocale.t('Laser'):p.kind==='cnc'?uiLocale.t('CNC'):uiLocale.t('non confirmé')):uiLocale.t('non indiqué'));
+    attr(target.parentNode,'data-kind',p&&p.kind?p.kind:'unknown');
     text(feed,live&&finite(m.feedrate)?number(m.feedrate)+' mm/min':'—');
     text(file,m&&m.name?(m.originalName||m.name):'—');
     // Stop and Pause need a recent machine state only: the server accepts them without the
     // event stream, so they stay offered while the page reads the state by HTTP. Resume and
     // Unlock need confirmations bound to the stream.
     var running=!!(m&&m.workflow&&m.workflow!=='idle'),usable=!!(m&&connected),reachable=!!m;
-    // Stop also covers a homing cycle or a jog (the server ends them); Pause only a running job.
+    // Stop also covers a homing cycle or a jog (the server ends them); Pause a running job, or whatever the
+    // server says it pauses (canPause: a block probe, where Pause interrupts the cycle for good).
     // In a pause, Resume takes the place of Pause (which is then inactive anyway).
     // A real jog of the server's (F1) is stoppable before Grbl reports Jog too.
     var jogging=!!(m&&m.motion&&typeof m.motion==='object'&&(m.motion.jog||m.motion.cancelling));
-    var stopShown=reachable?(running||!!m.canStop||jogging):!!(h&&h.canStop),pauseShown=reachable?m.workflow==='running':!!(h&&h.workflow==='running');
+    var stopShown=reachable?(running||!!m.canStop||jogging):!!(h&&h.canStop);
     var resumeShown=usable&&!screenLocked&&m.workflow==='paused'&&!!m.canResume;
-    var unlockShown=usable&&!screenLocked&&!running&&/^alarm/i.test(String(m.activeState||''))&&!!m.canUnlock;
-    prop(pause,'hidden',!pauseShown);prop(stop,'hidden',!stopShown);prop(resume,'hidden',!resumeShown);prop(unlock,'hidden',!unlockShown);
+    var recoverShown=usable&&!screenLocked&&(!running&&/^alarm/i.test(String(m.activeState||''))||m.jobStopped&&m.homed===false);
+    prop(pause,'hidden',resumeShown||recoverShown);prop(stop,'hidden',false);prop(resume,'hidden',!resumeShown);prop(recover,'hidden',!recoverShown);
+    text(pause,m&&m.probing&&m.canPause?uiLocale.t('Arrêter le palpage'):uiLocale.t('Pause'));
     // During a job the page switch link gives its room to the file name (and is not to be tapped then).
-    attr(banner,'data-job',String(running||stopShown));attr(banner,'data-confirm',String(unlockShown||resumeShown));attr(banner,'data-lost',String(!!h));
+    attr(banner,'data-job',String(running||stopShown));attr(banner,'data-confirm',String(recoverShown||resumeShown));attr(banner,'data-lost',String(!!h));
     prop(pause,'disabled',m?!m.canPause:!(h&&h.canPause));prop(stop,'disabled',m?!(m.canStop||jogging):!(h&&h.canStop));
     var lostTitle=h?uiLocale.t('État machine perdu : Pause et Arrêter sont envoyés quand même (sans confirmation) ; les autres commandes attendent le retour du suivi.'):'';
-    attr(pause,'title',lostTitle);attr(stop,'title',lostTitle);attr(state,'title',lostTitle);
-    prop(resume,'disabled',!m||!m.canResume);prop(unlock,'disabled',!m||!m.canUnlock);
+    attr(pause,'title',lostTitle||(!m||!m.canPause?uiLocale.t('Aucun usinage en cours.'):''));attr(stop,'title',lostTitle||(!m||!m.canStop&&!jogging?uiLocale.t('Rien à arrêter.'):''));attr(state,'title',lostTitle);
+    prop(resume,'disabled',!m||!m.canResume);prop(recover,'disabled',false);
     // The pilot never changes what Pause and Stop accept: the server takes them from everyone.
-    var p=!simulation&&detail.pilot&&typeof detail.pilot==='object'?detail.pilot:null,pilotState=p?p.state:'unknown';
-    text(pilotValue,p&&p.value?p.value:'—');attr(pilot,'data-state',pilotState);
-    var pilotTitle=p&&p.sentence?p.sentence:uiLocale.t('Pilotage : état machine indisponible.');attr(pilot,'title',pilotTitle);attr(pilot,'aria-label',uiLocale.t('Pilote : ')+pilotTitle);
-    prop(pilot,'hidden',simulation);
+    var pilotDetail=!simulation&&detail.pilot&&typeof detail.pilot==='object'?detail.pilot:null,pilotState=pilotDetail?pilotDetail.state:'unknown';
+    text(pilotValue,uiLocale.t(pilotState==='mine'?'ici':pilotState==='free'?'libre':pilotState==='other'?'autre':'—'));attr(pilot,'data-state',pilotState);
+    // Read by the stylesheet only (lot Menu M1): another device's name takes the machine name's room.
+    attr(banner,'data-pilot',pilotState);
+    var pilotTitle=pilotDetail&&pilotDetail.sentence?pilotDetail.sentence:uiLocale.t('Pilotage : état machine indisponible.');attr(pilot,'title',pilotTitle);attr(pilot,'aria-label',uiLocale.t('La main : ')+pilotTitle);
+    prop(pilot,'hidden',false);
   }
   var disposed=false;
+  var v2MessageFrame=0,v2PendingMessage=null;
+  function v2PreferenceChanged(){
+    var v=window.cncV2,s=v&&v.state();
+    if(!s||(!v2PendingMessage&&!(s.pending&&(s.enabled!==s.sessionEnabled||s.reason==='preference')))||v2MessageFrame||!window.requestAnimationFrame)return;
+    v2MessageFrame=window.requestAnimationFrame(function(){
+      v2MessageFrame=0;if(disposed)return;
+      var v=window.cncV2,s=v&&v.state(),show=!!(s&&s.pending&&(s.enabled!==s.sessionEnabled||s.reason==='preference'));
+      if(!show&&!v2PendingMessage)return;
+      if(!v2PendingMessage){v2PendingMessage=el('p','','t-v2-pending');v2PendingMessage.setAttribute('role','status');messages.appendChild(v2PendingMessage);}
+      text(v2PendingMessage,v.message());prop(v2PendingMessage,'hidden',!show);syncMessages();
+    });
+  }
+  window.addEventListener('cnc-v2-change',v2PreferenceChanged);
   function onStatus(e){if(disposed||!e.detail||!!e.detail.simulation!==simulation)return;render(e.detail);}
   window.addEventListener('cnc-job-status',onStatus);
-  function leave(e){if(e&&e.persisted)return;disposed=true;close();if(messageObserver)messageObserver.disconnect();window.removeEventListener('cnc-job-status',onStatus);window.removeEventListener('pagehide',leave);}
+  function leave(e){if(e&&e.persisted)return;disposed=true;close();if(messageObserver)messageObserver.disconnect();if(v2MessageFrame&&window.cancelAnimationFrame)window.cancelAnimationFrame(v2MessageFrame);window.removeEventListener('cnc-v2-change',v2PreferenceChanged);window.removeEventListener('cnc-job-status',onStatus);window.removeEventListener('pagehide',leave);}
   window.addEventListener('pagehide',leave);
   render({machine:null,transportConnected:false});
-  window.cncStatusStrip={render:render,describe:describe,syncMessages:syncMessages,toggleMessages:toggle};
+  // V2 presenters borrow the existing context/messages cells only. No new cell,
+  // reparenting or access to the action relays is introduced by the mount contract.
+  var v2MountPoints=Object.freeze({context:vitals,messages:messages});
+  window.cncStatusStrip={render:render,describe:describe,syncMessages:syncMessages,toggleMessages:toggle,
+    v2Mounts:function(){return v2MountPoints;}};
 })();

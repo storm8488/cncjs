@@ -162,7 +162,7 @@ describe('shared G-code corpus', () => {
         close(result.trailZ[result.trailZ.length - 1], truth.final[2], 1e-3, 'preview final Z');
       }
       const projection = { version: 1, units: 'mm', wcs: 'G54', bounds: result.bounds, relativeStart: result.relativeStart };
-      expect(travel.check({ projection }, TRAVEL_MACHINE).state).toBe(expected.travel);
+      expect(travel.place({ projection }, TRAVEL_MACHINE).state).toBe(expected.travel);
     });
 
     test('F2 program check', () => {
@@ -258,7 +258,7 @@ describe('shared G-code corpus', () => {
   // Generated programs (not stored): a very long one, and the Latin-1 file
   // read as UTF-8, the way the server reads uploads.
   test('a 60 000-line generated program gives the same box everywhere', async () => {
-    const lines = ['G21 G90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F1000'];
+    const lines = ['G21 G90 G94', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F1000'];
     for (let i = 0; i < 60000; i++) {
       lines.push('G1 X' + (i % 2 ? 100 : 0) + ' Y' + (i / 1000).toFixed(3));
     }

@@ -1,6 +1,6 @@
 /* eslint-env jest */
 // Test helper (not a test file): the Touch client's catalog of coded server
-// refusals (examples/cncjs-touch/touch/i18n-messages.js, window.CNCTouchCodes)
+// refusals (examples/cncjs-touch/touch/i18n-messages.js and i18n-messages-machine.js, window.CNCTouchCodes)
 // and its formatter (i18n.js, cncI18n.format), loaded in a vm per language, so
 // server tests can check that the French template of a stable ETOUCH_* code,
 // filled with the emitted params, is exactly the server's French message.
@@ -18,7 +18,8 @@ const load = (language) => {
     document: { documentElement: {}, title: '' },
     localStorage: { getItem: (k) => saved.get(k) || null, setItem() {} }
   };
-  ['i18n-messages.js', 'i18n.js'].forEach((name) => vm.runInNewContext(fs.readFileSync(path.join(TOUCH, name), 'utf8'), context));
+  // i18n-messages-machine.js: the machine type and laser codes (lot A of PROFILES-CONTRACT.md).
+  ['i18n-messages.js', 'i18n-messages-machine.js', 'i18n.js'].forEach((name) => vm.runInNewContext(fs.readFileSync(path.join(TOUCH, name), 'utf8'), context));
   return window;
 };
 
@@ -31,6 +32,13 @@ const of = (language) => {
 };
 
 export const catalogCodes = () => of('fr').CNCTouchCodes.map((row) => row[0]);
+
+// Plain server replies use the same load order as the page (base catalog, then machine rows).
+export const expectMessageTranslation = (message, en, es) => {
+  expect(of('fr').cncI18n.t(message)).toBe(message);
+  expect(of('en').cncI18n.t(message)).toBe(en);
+  expect(of('es').cncI18n.t(message)).toBe(es);
+};
 
 // Checks one coded refusal or reason ({ code, params, message }): a catalog
 // row exists, its French template filled with params is the message itself,

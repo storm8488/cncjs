@@ -1,3 +1,4 @@
+/* global io */
 (function () {
   'use strict';
   var uiLocale=window.cncI18n||{t:function(s){return s;},html:function(s){return s;}};
@@ -27,23 +28,117 @@
     latestState = null;
     coordinateSignature='';
     if (droTimer !== null) { clearTimeout(droTimer); droTimer = null; }
+    if(document.hidden||window.cncShell&&['home','jog'].indexOf(window.cncShell.screen())<0)return;
     ['wx','wy','wz','mx','my','mz'].forEach(function (id) { setText($(id), '–'); });
   }
 
   var saved = {};
   try {
     saved = JSON.parse(localStorage.getItem('cnc') || '{}');
-  } catch (e) {}
+  } catch (e) { /* Optional browser facility unavailable. */ }
 
   var token = saved.state && saved.state.session &&
               saved.state.session.token;
+
+  // CNCjs tokens expire after 30 days (accessTokenLifetime). Without CNCjs users the server
+  // hands out a fresh one on /api/signin, so a kiosk renews it here instead of needing the
+  // main app opened again. With users, the server only returns the same token: nothing changes.
+  function storedToken() { try { return JSON.parse(localStorage.getItem('cnc')).state.session.token || ''; } catch (_) { return ''; } }
+  // done: a new token was stored. refused(users): no new token from this answer; users is true when
+  // /signin refused it (only CNCjs with user accounts does): the operator must sign in again.
+  function renewSession(done, refused) {
+    var x = new XMLHttpRequest(), sent = storedToken();
+    x.open('POST', (store ? store.get().apiBase : '/api') + '/signin');
+    x.timeout = 15000;
+    x.setRequestHeader('Content-Type', 'application/json');
+    x.onload = function () {
+      var r = null; try { r = JSON.parse(x.responseText); } catch (_) { /* Optional browser facility unavailable. */ }
+      // Another tab changed the session meanwhile (D-7): this older answer must not replace it.
+      if (storedToken() !== sent) { if (refused) refused(false); return; }
+      if (x.status !== 200 || !r || !r.token || r.token === sent) { if (refused) refused(x.status !== 200); return; }
+      try {
+        var d = JSON.parse(localStorage.getItem('cnc') || '{}');
+        d.state = d.state || {};
+        d.state.session = { enabled: !!r.enabled, token: r.token, name: r.name || '' };
+        localStorage.setItem('cnc', JSON.stringify(d));
+      } catch (_) { if (refused) refused(false); return; }
+      if (done) done();
+    };
+    // No answer (error, timeout, abort): the caller is always released.
+    x.onerror = x.ontimeout = x.onabort = function () { if (refused) refused(false); };
+    x.send(JSON.stringify(sent ? { token: sent } : {}));
+  }
+  // Change credentials without reloading the kiosk or replaying an operator action.
+  function activateSession() {
+    var wasStarted=started;
+    token=storedToken();
+    if(!token)return;
+    recoveryNeeded=false;
+    if(renewTimer!==null){clearTimeout(renewTimer);renewTimer=null;}
+    if(!started)init();
+    var socket=window.cncSocket;
+    if(wasStarted&&socket&&socket.io&&socket.io.opts){
+      socket.io.opts.query='token='+encodeURIComponent(token);
+      socket.query=socket.io.opts.query;
+      socket.disconnect();socket.connect();
+    }
+    if(typeof CustomEvent==='function'&&window.dispatchEvent)window.dispatchEvent(new CustomEvent('cnc-session-renewed',{detail:null}));
+  }
+  var started = false, renewing = false, lastRenewal = null, sessionNotice = '', renewTimer=null, recoveryNeeded=false;
+  function retrySession(delay){if(renewTimer!==null)return;renewTimer=setTimeout(function(){renewTimer=null;recoverSession();},delay);}
+  function recoverSession(){recoveryNeeded=true;var left=renew(null);if(left>0)retrySession(left);}
+  function elapsed() { var p = window.performance; return p && typeof p.now === 'function' ? p.now() : Date.now(); }
+  // One renewal attempt a minute at most, for the whole page (load, refused socket, refused
+  // requests): with CNCjs users and an expired session, every refusal would otherwise ask again.
+  // The time of the last attempt is also kept for the tab (sessionStorage), so a manually
+  // reloaded page does not ask again at once. Returns milliseconds left to wait (0: sent).
+  function wait() {
+    var now = elapsed(), left = lastRenewal !== null && now - lastRenewal >= 0 && now - lastRenewal < 60000 ? 60000 - (now - lastRenewal) : 0;
+    var last = 0; try { last = Number(sessionStorage.getItem('cnc-touch-signin')) || 0; } catch (_) { /* Optional browser facility unavailable. */ }
+    if (last && Date.now() - last >= 0 && Date.now() - last < 60000) left = Math.max(left, 60000 - (Date.now() - last));
+    return left;
+  }
+  function renew(done) {
+    var left = wait();
+    if (renewing) return 0;
+    if (left > 0) return left;
+    renewing = true; lastRenewal = elapsed();
+    try { sessionStorage.setItem('cnc-touch-signin', String(Date.now())); } catch (_) { /* Optional browser facility unavailable. */ }
+    renewSession(function () { renewing = false; activateSession(); if (done) done(); }, function (users) {
+      renewing = false;
+      // Another tab stored a session meanwhile (D-7), or none was needed: a page still waiting for
+      // a token starts with the stored one.
+      if (storedToken()&&(!started||storedToken()!==token))activateSession();
+      if(recoveryNeeded||!storedToken())retrySession(60000);
+      if (!users) return;
+      sessionNotice = uiLocale.t('Session CNCjs refusée : ouvrez CNCjs à la racine du même serveur, reconnectez-vous, puis rechargez /touch/.');
+      notice(sessionNotice);
+    });
+    return 0;
+  }
+  // A page with a token simply waits for the next renewal; one without a token (reloaded within the
+  // minute after an attempt) tries again once the minute has passed.
+  function first() {
+    var left = renew(null);
+    if (left > 0 && !token) setTimeout(first, left);
+  }
+  first();
+  setInterval(function () { renew(null); }, 12 * 3600 * 1000);
+
+  // A request refused for its session (job-stream.js, job-controls.js: HTTP 401, or 403 without a
+  // JSON body): renewed in place, or the operator must sign in again (CNCjs users).
+  window.addEventListener('cnc-session-refused', recoverSession);
+  window.addEventListener('storage',function(e){if(e&&e.key==='cnc'&&storedToken()&&storedToken()!==token)activateSession();});
 
   if (!token) {
     badge('st-server', uiLocale.t('Serveur : authentification requise'), 'warn');
     notice(uiLocale.t("Ouvrez CNCjs à la racine du même serveur, connectez-vous, puis rechargez /touch/."));
     return;
   }
-
+  init();
+  function init() {
+  started = true;
+  notice('');
   var socket = compact ? null : io.connect(location.origin, {
     reconnection: true,
     query: 'token=' + encodeURIComponent(token)
@@ -51,6 +146,9 @@
   function on(name,fn){if(!socket)return;socket.on(name,fn);disposers.push(function(){if(socket.off)socket.off(name,fn);else if(socket.removeListener)socket.removeListener(name,fn);});}
 
   function authError(err) {
+    // The socket keeps the token it was opened with: an expired one is refused on reconnect.
+    var text = err && (err.message || err.description || err.type) || String(err);
+    if (/jwt|token|unauthori/i.test(text)) recoverSession();
     badge('st-server', uiLocale.t('Serveur : connexion refusée'), 'err');
     notice(uiLocale.t('Erreur CNCjs : ') + (
       err && (err.message || err.description) || String(err)
@@ -59,17 +157,6 @@
   on('error', authError);
   on('connect_error', authError);
   window.cncSocket = socket;
-
-  var bar = document.getElementById('status-bar');
-  if (bar) {
-    var reloadButton = document.createElement('button');
-    reloadButton.type = 'button';
-    reloadButton.textContent = uiLocale.t('↻ Actualiser');
-    bind(reloadButton,'click', function () {
-      location.reload();
-    });
-    bar.appendChild(reloadButton);
-  }
 
   on('connect', function () {
     badge('st-server', uiLocale.t('Serveur : connecté'), 'ok');
@@ -85,11 +172,13 @@
 
   function paintCoordinates() {
     droTimer = null;
-    if (!latestState) return;
+    if (!latestState || document.hidden || window.cncShell && ['home','jog'].indexOf(window.cncShell.screen())<0) return;
     lastPaint = Date.now();
     var w = latestState.wpos || {}, m = latestState.mpos || {};
     ['x','y','z'].forEach(function (axis) { setText($('w'+axis), num(w[axis])); setText($('m'+axis), num(m[axis])); });
   }
+  bind(window,'cnc-screen-change',function(e){if(e.detail==='home'||e.detail==='jog'){if(latestState)paintCoordinates();else clearCoords();}else if(droTimer!==null){clearTimeout(droTimer);droTimer=null;}});
+  bind(document,'visibilitychange',function(){if(!document.hidden)paintCoordinates();});
   function receive(type, state, port) {
     badge('st-ctrl', uiLocale.t('Contrôleur : ') + (port || type), 'ok');
     var s = state && state.status;
@@ -101,21 +190,23 @@
     if(signature===coordinateSignature)return;
     coordinateSignature=signature;
     latestState = s;
+    if (document.hidden || window.cncShell && ['home','jog'].indexOf(window.cncShell.screen())<0) return;
     if (Date.now() - lastPaint >= 150) paintCoordinates();
     else if (droTimer === null) droTimer = setTimeout(paintCoordinates, 150 - (Date.now() - lastPaint));
   }
   if (store) disposers.push(store.subscribe(function (state) {
     if(compact)badge('st-server',state.transportConnected?uiLocale.t('Serveur : suivi connecté'):uiLocale.t('Serveur : suivi indisponible'),state.transportConnected?'ok':'warn');
+    if(state.transportConnected)sessionNotice='';
     var machine = state.machine;
     if (!machine || !machine.fresh) {
       clearCoords();
       badge('st-ctrl', machine ? uiLocale.t('Contrôleur : ')+machine.port : uiLocale.t('Contrôleur : aucun sélectionné'), 'warn');
       badge('st-state', uiLocale.t('État : données indisponibles'), 'warn');
-      notice(state.transportReason || (machine ? uiLocale.t('Rapport machine périmé.') : uiLocale.t('Choisissez le contrôleur dans Fichiers.')));
+      notice(sessionNotice || state.transportReason || (machine ? uiLocale.t('Rapport machine périmé.') : uiLocale.t('Aucun contrôleur suivi : ouvrez le port dans CNCjs au PC ou choisissez le contrôleur dans Fichiers. Port fermé, Arrêter n’atteint pas la machine.')));
       return;
     }
     receive(machine.type, {status:{activeState:machine.activeState,wpos:machine.coordinates&&machine.coordinates.wpos,mpos:machine.coordinates&&machine.coordinates.mpos}},machine.port);
-    notice(state.transportReason||'');
+    notice(sessionNotice||state.transportReason||'');
   }));
   window.cncConnection = {dispose:function(){
     clearCoords();
@@ -141,6 +232,7 @@
     bind(tabs[k],'click', function () {
       showScreen(this.getAttribute('data-screen'));
     });
+  }
   }
 })();
 

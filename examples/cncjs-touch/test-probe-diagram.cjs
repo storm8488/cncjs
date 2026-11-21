@@ -33,10 +33,11 @@ assert.equal(view.update({...profile,corner:'++'},'XYZ',6),true);
 assert.equal(view.update({...profile,corner:'++'},'Z',6),true);
 assert.equal(view.update({...profile,corner:'++'},'Z',8),true);
 assert.deepEqual(profile,{corner:'--',directionX:1,directionY:1,thickness:10});
+function svgPart(){return {attrs:{},text:'',setAttribute(k,v){this.attrs[k]=String(v);},set textContent(v){this.text=v;}};}
 // The drawing written to the SVG parts: paths, corner marker, Z view and labels.
 {
- const parts={};function part(){return {attrs:{},text:'',setAttribute(k,v){this.attrs[k]=String(v);},set textContent(v){this.text=v;}};}
- const svg=part(),host={set innerHTML(v){},querySelector(s){return s==='svg'?svg:(parts[s]||(parts[s]=part()));}};
+ const parts={};
+ const svg=svgPart(),host={set innerHTML(v){},querySelector(s){return s==='svg'?svg:(parts[s]||(parts[s]=svgPart()));}};
  const at=name=>parts['[data-part="'+name+'"]'];
  const v=diagram.attach(host);v.update({corner:'++',directionX:-1,directionY:1,thickness:2},'XYZ',3);
  assert.equal(at('edge-x').attrs.d,'M210 50V125');assert.equal(at('edge-y').attrs.d,'M70 50H210');
@@ -54,4 +55,14 @@ assert.deepEqual(profile,{corner:'--',directionX:1,directionY:1,thickness:10});
  const d=window.CNCProbeDiagram.describe({},'Y',3);
  assert.equal(d.labelX,'[X non sélectionné]');assert.equal(d.cornerLabel,'[Coin : à définir]');
 }
-console.log('PASS: diagram four corners/all XY signs/operations, unknown values, labels, immutable inputs, zero DOM redraw on 100 unchanged updates; no trajectory or commands.');
+// Real card/confirmation: directions from the corner; dimensions exclusively from the server ticket.
+{
+ const {fixture}=require('./probe-page-fixture.cjs');const q=fixture(),host=q.document.createElement('div');
+ const v=q.window.CNCProbeDiagram.attach(host,{mode:'plan'}),p={corner:'++'};
+ v.update(p,'XYZ',6,{window:28,lateral:12,depth:4,reach:22});
+ assert(host.textContent.includes('28'));assert(host.textContent.includes('12'));assert(host.textContent.includes('4'));assert(host.textContent.includes('22'));
+ assert(host.textContent.includes('Il ne voit pas le bloc.'));assert.equal(host.querySelector('[data-probe-drawing]').getAttribute('transform'),'translate(340 180) scale(-1 -1)');
+ const before=q.stats.writes;for(let i=0;i<100;i++)assert.equal(v.update(p,'XYZ',6,{window:28,lateral:12,depth:4,reach:22}),false);assert.equal(q.stats.writes,before);
+ v.update({corner:'--'},'Z',null,{});assert.equal(host.querySelector('[data-draw-x]').getAttribute('visibility'),'hidden');assert.equal(host.querySelector('[data-draw-z]').getAttribute('visibility'),'visible');assert(!host.textContent.includes('28'));
+}
+console.log('PASS: diagram four corners/all XY signs/operations, unknown values, labels, immutable inputs, zero redraw, real card/plan modes and server-only clearances; no trajectory or commands.');

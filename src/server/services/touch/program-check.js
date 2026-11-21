@@ -12,8 +12,15 @@
 // stable ETOUCH_CHECK_* code and the values of its French message, so a client
 // can show it in its own language; the French text is unchanged.
 
+// The homing convention per axis and the usable travel (C-04, C-06), shared with the moves.
+// Explicit extension: examples/cncjs-touch loads this module with Node's native ES module loader.
+// eslint-disable-next-line import/extensions
+import { envelopeOf, usableOf } from './motion.js';
+
 const MM_PER_INCH = 25.4;
+// Arc geometry only; travel comparisons are strict (float rounding guard only).
 const TOLERANCE_MM = 0.001;
+const ROUNDING_MM = 1e-9;
 const AXES = ['X', 'Y', 'Z'];
 const TWO_PI = 2 * Math.PI;
 
@@ -67,6 +74,15 @@ const words = (code) => {
   return out;
 };
 
+// Grbl drops every space of a line before reading it (protocol.c) and CNCjs sends the line as
+// written: a line whose words change once its spaces are gone (`Z-1 40` is Z−140, `X - 5` is
+// X−5) is read otherwise by the board (C-57).
+const sameWithoutSpaces = (code) => {
+  const spaced = words(code);
+  const packed = words(code.replace(/\s+/g, ''));
+  return spaced.length === packed.length && spaced.every(([letter, value], i) => letter === packed[i][0] && value === packed[i][1]);
+};
+
 const fmt = (n) => String(Math.round(n * 1000) / 1000);
 
 // A reason: the French text (unchanged) with its stable code and its values.
@@ -95,6 +111,8 @@ export const analyzeProgram = (gcode) => {
   const a = {
     lines: lines.length,
     moves: 0,
+    // Display-only timing model. Never participates in a travel verdict or a command guard.
+    timing: { supported: true, dwell: 0, moves: [] },
     units: null,
     unitsChanges: [],
     rawUnits: false,
@@ -104,8 +122,12 @@ export const analyzeProgram = (gcode) => {
     wcs: null,
     wcsChanges: [],
     offsetChanges: [],
+    // First line with G49 (tool length offset cancelled), or null.
+    tloCancel: null,
     machineMoves: [],
     uninterpreted: [],
+    // System writes and server expressions can invalidate the board protections used by D1.
+    unsafeOverride: false,
     extent: { X: null, Y: null, Z: null },
     // G53 targets, in machine coordinates (program units when rawUnits).
     machineExtent: { X: null, Y: null, Z: null },
@@ -113,7 +135,9 @@ export const analyzeProgram = (gcode) => {
     // The same first reason per axis, coded ({ code, params, message }).
     unknownCodes: { X: null, Y: null, Z: null },
     zMin: null,
-    zMax: null
+    zMax: null,
+    // Spindle / laser commands (laser check): highest S and its line, first M3, first M4.
+    spindle: { sMax: null, sMaxLine: null, m3Line: null, m4Line: null }
   };
   const pos = { X: null, Y: null, Z: null };
   // Modal state while walking (one object, so the per-line closures below
@@ -121,6 +145,7 @@ export const analyzeProgram = (gcode) => {
   const st = {
     scale: 1, // mm per program unit
     unitsKnown: false, // the program chose G20/G21 before moving
+    machineUnitsKnown: true, // inherited units are usable until an opaque line may change them
     distance: 'G90',
     distanceSet: false,
     motion: null,
@@ -128,6 +153,9 @@ export const analyzeProgram = (gcode) => {
     arcMode: 'G91.1',
     moved: false
   };
+  let timingFeed = null;
+  let timingMode = null;
+  let timingEnded = false;
   const unknown = (axis, r) => {
     if (!a.unknownAxes[axis]) {
       a.unknownAxes[axis] = r.message;
@@ -147,11 +175,25 @@ export const analyzeProgram = (gcode) => {
     if (!code || code === '%') {
       continue;
     }
+    const timed = !timingEnded;
     // CNCjs directives and expressions execute on the server, G-code words
     // depend on variables: nothing can be followed after them.
     if (/^%/.test(code) || /[[\]#]/.test(code)) {
+      a.timing.supported = false;
+      a.unsafeOverride = true;
+      st.machineUnitsKnown = false;
       listed(lineNo, raw.trim().slice(0, 40), true);
       AXES.forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_MACRO', { line: lineNo }, 'Macro ou expression CNCjs à la ligne ' + lineNo + ' : contenu non prévisible.')));
+      continue;
+    }
+    // A line the board reads otherwise (C-57), or a system command ($20=0, $H…, C-61): what
+    // follows cannot be judged from what was read here.
+    if (/^\$/.test(code) || !sameWithoutSpaces(code)) {
+      a.timing.supported = false;
+      a.unsafeOverride = a.unsafeOverride || /^\$/.test(code);
+      st.machineUnitsKnown = false;
+      listed(lineNo, raw.trim().slice(0, 40), true);
+      AXES.forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_SYNTAX', { line: lineNo }, 'Ligne ' + lineNo + ' lue autrement par la carte (espace dans un nombre, ou commande $) : non interprétée.')));
       continue;
     }
     const w = words(code);
@@ -161,6 +203,33 @@ export const analyzeProgram = (gcode) => {
       const found = w.find(([l]) => l === letter);
       return found ? found[1] : null;
     };
+    if (timed) {
+      // Only fully understood lines contribute a duration. Pauses, probing, frame changes,
+      // machine-coordinate moves and opaque syntax deliberately yield no numeric progress.
+      const rest = code.replace(/([A-Z])\s*([-+]?(?:\d+\.?\d*|\.\d+))/g, '').trim();
+      if (rest || w.some(([l]) => !'NGMXYZIJKRPFST'.includes(l)) ||
+          g.some((v) => ![0, 1, 2, 3, 4, 17, 20, 21, 40, 49, 54, 61, 80, 90, 91, 91.1, 93, 94].includes(v)) ||
+          m.some((v) => ![2, 3, 4, 5, 7, 8, 9, 30].includes(v))) {
+        a.timing.supported = false;
+      }
+      if (g.includes(93)) {
+        timingMode = 'G93';
+      }
+      if (g.includes(94)) {
+        timingMode = 'G94';
+      }
+      if (g.includes(4)) {
+        const seconds = at('P');
+        if (seconds === null || seconds < 0 || ['X', 'Y', 'Z'].some((axis) => at(axis) !== null)) {
+          a.timing.supported = false;
+        } else {
+          a.timing.dwell += seconds;
+        }
+      }
+      if (m.includes(2) || m.includes(30)) {
+        timingEnded = true;
+      }
+    }
     g.forEach((v) => {
       if (!KNOWN_G.includes(v)) {
         listed(lineNo, 'G' + v, true);
@@ -171,11 +240,22 @@ export const analyzeProgram = (gcode) => {
       if (!KNOWN_M.includes(v)) {
         listed(lineNo, 'M' + v, false);
       }
+      if (v === 3 && a.spindle.m3Line === null) {
+        a.spindle.m3Line = lineNo;
+      } else if (v === 4 && a.spindle.m4Line === null) {
+        a.spindle.m4Line = lineNo;
+      }
     });
+    const speed = at('S');
+    if (speed !== null && (a.spindle.sMax === null || speed > a.spindle.sMax)) {
+      a.spindle.sMax = speed;
+      a.spindle.sMaxLine = lineNo;
+    }
 
     // Modal words first (G90 G1 X10 on one line is absolute).
     g.forEach((v) => {
       if (v === 20 || v === 21) {
+        st.machineUnitsKnown = true;
         const next = v === 20 ? MM_PER_INCH : 1;
         if (!st.unitsKnown) {
           if (st.moved) {
@@ -213,6 +293,11 @@ export const analyzeProgram = (gcode) => {
         } else if (a.wcs !== next) {
           a.wcsChanges.push(lineNo);
         }
+      } else if (v === 49) {
+        // Cancels the tool length offset (C-58): judged against the inherited one (checkProgram).
+        if (a.tloCancel === null) {
+          a.tloCancel = lineNo;
+        }
       } else if (v === 92 || v === 92.1 || v === 10) {
         a.offsetChanges.push({ line: lineNo, code: 'G' + v });
       } else if ([0, 1, 2, 3].includes(v)) {
@@ -222,11 +307,15 @@ export const analyzeProgram = (gcode) => {
       }
     });
     if (a.wcsChanges.length) {
+      a.timing.supported = false;
       AXES.forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_WCS_CHANGE', { line: a.wcsChanges[0] }, 'Le programme change de repère (ligne ' + a.wcsChanges[0] + ') : une seule origine de travail peut être vérifiée.')));
     }
     if (a.offsetChanges.length) {
       const first = a.offsetChanges[0];
       AXES.forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_ORIGIN_CHANGE', { code: first.code, line: first.line }, 'Le programme modifie l’origine (' + first.code + ' ligne ' + first.line + ') : position de travail non prévisible.')));
+    }
+    if (at('F') !== null) {
+      timingFeed = at('F') * (timingMode === 'G93' ? 1 : st.scale);
     }
 
     const axes = AXES.filter((axis) => at(axis) !== null);
@@ -251,14 +340,16 @@ export const analyzeProgram = (gcode) => {
       if (g.includes(53)) {
         // Explicit machine coordinates (absolute even under G91): compared
         // with the travel directly, without any work offset.
-        if (axes.length && !st.moved) {
+        if (st.machineUnitsKnown && axes.length && !st.moved) {
           st.moved = true;
           if (!st.unitsKnown) {
             a.rawUnits = true;
           }
         }
         axes.forEach((axis) => {
-          extend(a.machineExtent, axis, at(axis) * st.scale);
+          if (st.machineUnitsKnown) {
+            extend(a.machineExtent, axis, at(axis) * st.scale);
+          }
           pos[axis] = null;
         });
         continue;
@@ -276,6 +367,9 @@ export const analyzeProgram = (gcode) => {
       continue;
     }
     if (!axes.length) {
+      if ((st.motion === 'G2' || st.motion === 'G3') && ['I', 'J', 'K', 'R'].some((axis) => at(axis) !== null)) {
+        a.timing.supported = false;
+      }
       continue;
     }
     if (!(st.motion || g.some((v) => [0, 1, 2, 3].includes(v)))) {
@@ -315,6 +409,7 @@ export const analyzeProgram = (gcode) => {
       }
     });
     const arc = st.motion === 'G2' || st.motion === 'G3';
+    let arcLength = null;
     if (arc) {
       if (st.plane !== 'G17' || st.arcMode !== 'G91.1') {
         listed(lineNo, st.motion + ' ' + (st.plane !== 'G17' ? st.plane : st.arcMode), true);
@@ -363,6 +458,7 @@ export const analyzeProgram = (gcode) => {
           const cw = st.motion === 'G2';
           const closed = Math.abs(pos.X - start.X) < TOLERANCE_MM && Math.abs(pos.Y - start.Y) < TOLERANCE_MM;
           const sweep = closed ? TWO_PI : turn(cw ? a0 - a1 : a1 - a0);
+          arcLength = radius * sweep;
           [0, 0.5, 1, 1.5].forEach((k) => {
             const angle = k * Math.PI;
             if (turn(cw ? a0 - angle : angle - a0) <= sweep + 1e-9) {
@@ -371,6 +467,14 @@ export const analyzeProgram = (gcode) => {
             }
           });
         }
+      }
+    }
+    if (timed && a.timing.supported) {
+      if (a.timing.moves.length >= 20000 || (arc && arcLength === null)) {
+        a.timing.supported = false;
+        a.timing.moves = [];
+      } else {
+        a.timing.moves.push({ start, end: { ...pos }, rapid: st.motion === 'G0', feed: timingFeed, mode: timingMode, arcLength });
       }
     }
     AXES.forEach((axis) => {
@@ -395,17 +499,101 @@ const number = (v) => {
   return typeof n === 'number' && Number.isFinite(n) ? n : null;
 };
 
+// Laser additions (machine declared laser): the highest S setpoint against $30
+// (Grbl clamps it there), and M3 (constant) vs M4 (dynamic) reported. Wording:
+// "consigne S", never a power.
+const laserCheck = (analysis, laser) => {
+  const sp = analysis.spindle || { sMax: null, sMaxLine: null, m3Line: null, m4Line: null };
+  const max = number(laser && laser.sMax);
+  const reasons = [];
+  if (sp.m3Line !== null) {
+    reasons.push(reason('ETOUCH_LASER_CHECK_M3', { line: sp.m3Line }, 'Laser en M3 (consigne S constante) à partir de la ligne ' + sp.m3Line + '.'));
+  }
+  if (sp.m4Line !== null) {
+    reasons.push(reason('ETOUCH_LASER_CHECK_M4', { line: sp.m4Line }, 'Laser en M4 (consigne S dynamique, ajustée à la vitesse) à partir de la ligne ' + sp.m4Line + '.'));
+  }
+  if (sp.m3Line === null && sp.m4Line === null) {
+    reasons.push(reason('ETOUCH_LASER_CHECK_NO_M3_M4', {}, 'Aucun M3 ni M4 dans le programme : le laser n’est pas commandé par ce programme.'));
+  }
+  const aboveMax = sp.sMax !== null && max !== null && sp.sMax > max;
+  if (sp.sMax !== null && max === null) {
+    reasons.push(reason('ETOUCH_LASER_CHECK_MAX_UNKNOWN', {}, 'Réglage $30 inconnu : consignes S non comparées au maximum de la carte.'));
+  } else if (aboveMax) {
+    const text = 'Consigne S' + fmt(sp.sMax) + ' (ligne ' + sp.sMaxLine + ') au-dessus de $30=' + fmt(max) + ' : la carte la ramènera à $30.';
+    reasons.push(reason('ETOUCH_LASER_CHECK_S_ABOVE_MAX', { s: fmt(sp.sMax), line: sp.sMaxLine, max: fmt(max) }, text));
+  }
+  let mode = null;
+  if (sp.m3Line !== null && sp.m4Line !== null) {
+    mode = 'M3+M4';
+  } else if (sp.m3Line !== null || sp.m4Line !== null) {
+    mode = sp.m3Line !== null ? 'M3' : 'M4';
+  }
+  return {
+    mode,
+    m3Line: sp.m3Line,
+    m4Line: sp.m4Line,
+    sMax: sp.sMax,
+    sMaxLine: sp.sMaxLine,
+    settingMax: max,
+    aboveMax,
+    reasons: reasons.map((r) => r.message),
+    codedReasons: reasons
+  };
+};
+
+// How far past the usable bound, in mm, rounded up to the tenth: raising the stock (or moving the
+// origin) by that much is enough.
+const overOf = (distance) => Math.ceil(distance * 10 - ROUNDING_MM) / 10;
+
+// D1: the overruns of an axis judged outside, one per side, in the operator's terms. `limit` is
+// the usable bound; Z says too low or too high, X and Y the side (+ or −) past the travel.
+const overruns = (axis, entry) => {
+  const out = [];
+  const { usable, machineMin: min, machineMax: max } = entry;
+  if (min < usable.low - ROUNDING_MM) {
+    const over = fmt(overOf(usable.low - min));
+    const limit = fmt(usable.low);
+    const beyond = 'Le programme dépasse la course de ' + over + ' mm en ' + axis + '− (' + axis + ' machine ' + fmt(min) + ', limite ' + limit + ').';
+    out.push(axis === 'Z'
+      ? reason('ETOUCH_TRAVEL_TOO_LOW', { over, min: fmt(min), limit }, 'Le programme descend ' + over + ' mm trop bas (Z machine ' + fmt(min) + ', limite ' + limit + ').')
+      : reason('ETOUCH_TRAVEL_BEYOND', { axis, sign: '−', over, value: fmt(min), limit }, beyond));
+  }
+  if (max > usable.high + ROUNDING_MM) {
+    const over = fmt(overOf(max - usable.high));
+    const limit = fmt(usable.high);
+    const beyond = 'Le programme dépasse la course de ' + over + ' mm en ' + axis + '+ (' + axis + ' machine ' + fmt(max) + ', limite ' + limit + ').';
+    out.push(axis === 'Z'
+      ? reason('ETOUCH_TRAVEL_TOO_HIGH', { over, max: fmt(max), limit }, 'Le programme monte ' + over + ' mm trop haut (Z machine ' + fmt(max) + ', limite ' + limit + ').')
+      : reason('ETOUCH_TRAVEL_BEYOND', { axis, sign: '+', over, value: fmt(max), limit }, beyond));
+  }
+  return out;
+};
+
 // Compares an analysis with the machine:
 //   machine = { settings: {$20,$22,$23,$130,$131,$132}, mpos: {x,y,z}, wpos: {x,y,z},
 //               modal: {units, distance, wcs} (fresh $G only, else null),
 //               parameters: {G54: {x,y,z}, …, G92: {…}, TLO: n} ($# if known, else null),
 //               homed: true when a homing cycle was seen complete since the last board restart,
-//               reportUnits: 'mm' | 'in' | null }
+//               homeAt: where our last full homing cycle left the machine, with its $23
+//                 ({ X, Y, Z, mask }, job-service.js homeMpos) or null: an axis homed towards its
+//                 negative end found at 0 has the travel [0, $13x] (motion.js envelopeOf),
+//               reportUnits: 'mm' | 'in' | null,
+//               offsetProven: false while the work offset the board applies is not proven equal to
+//                 `$#` (D2, work-offset.js): no work extent is compared then (G53 targets still are);
+//                 absent, the reported offset is taken as it is,
+//               laser: { sMax } only for a machine declared laser (adds `laser` to the result) }
 export const checkProgram = (analysis, machine = {}) => {
   const s = machine.settings || {};
   const modal = machine.modal || null;
   const global = [];
   const info = [];
+  // As elsewhere in the service, a machine without a laser declaration uses
+  // CNC semantics. This is information only: it changes no travel verdict.
+  const spindle = analysis.spindle || {};
+  const sMax = number(s.$30);
+  if (!machine.laser && sMax !== null && sMax > 0 && spindle.sMax > sMax) {
+    info.push(reason('ETOUCH_CHECK_S_ABOVE_MAX', { s: fmt(spindle.sMax), line: spindle.sMaxLine, max: fmt(sMax) }, 'Consigne S' + fmt(spindle.sMax) + ' (ligne ' + spindle.sMaxLine + ') au-dessus du maximum de la carte (' + fmt(sMax) + ') : la broche tournera au maximum.'));
+  }
   const axesOut = {};
   const homingSetting = number(s.$22);
   if (homingSetting === null) {
@@ -470,12 +658,21 @@ export const checkProgram = (analysis, machine = {}) => {
     });
   }
   const mask = number(s.$23) || 0;
+  // The convention of each axis (motion.js envelopeOf): one candidate envelope, or two for an
+  // axis homed towards its negative end until our own homing found it at 0. Only the convention
+  // is taken from it: the reference and the positions are judged above.
+  const conventions = envelopeOf({ ...s, $22: 1, $23: mask }, true, { wcoSeen: true, homeAt: machine.homeAt || null });
   const softLimits = number(s.$20);
   if (softLimits === 1) {
     info.push('Limites logicielles Grbl actives ($20=1) : la carte refuserait elle-même un dépassement (alarme 2).');
   } else if (softLimits === 0) {
     info.push('Limites logicielles Grbl inactives ($20=0) : aucune protection de la carte.');
   }
+  // D1: every proven overrun, in the operator's terms (job-service.js refuses the start on them).
+  const blocking = [];
+  // C-58: an inherited tool length offset, known from `$#` (D2 reads it), cancelled by the program.
+  const inheritedTlo = number(machine.parameters && machine.parameters.TLO);
+  const tloCancelled = Number.isInteger(analysis.tloCancel) && inheritedTlo !== null && inheritedTlo !== 0;
 
   AXES.forEach((axis, i) => {
     const reasons = global.slice();
@@ -485,7 +682,7 @@ export const checkProgram = (analysis, machine = {}) => {
     if (!extent && !machineExtent && !analysis.unknownAxes[axis]) {
       // The program never moves this axis: it stays where the operator left it.
       const idle = reason('ETOUCH_CHECK_AXIS_IDLE', { axis }, 'Axe ' + axis + ' non sollicité par le programme.');
-      axesOut[axis] = { axis, verdict: 'validated', min: null, max: null, low: null, high: null, reasons: [idle.message], codedReasons: [idle] };
+      axesOut[axis] = { axis, verdict: 'validated', min: null, max: null, low: null, high: null, usable: null, reasons: [idle.message], codedReasons: [idle] };
       return;
     }
     if (analysis.unknownAxes[axis]) {
@@ -500,28 +697,55 @@ export const checkProgram = (analysis, machine = {}) => {
     if (offset[axis] === null && (extent || analysis.unknownAxes[axis])) {
       reasons.push(reason('ETOUCH_CHECK_POSITION_UNKNOWN', { axis }, 'Position machine ou de travail ' + axis + ' inconnue.'));
     }
-    const entry = { axis, verdict: 'unknown', min: null, max: null, low: null, high: null, reasons: [], codedReasons: [] };
+    // D2: a work extent means nothing in machine coordinates until the offset is proven.
+    const unproven = machine.offsetProven === false && !!extent;
+    if (unproven) {
+      reasons.push(reason('ETOUCH_CHECK_OFFSET_UNPROVEN', {}, 'Origine de la pièce pas encore vérifiée auprès de la carte : course non vérifiable.'));
+    }
+    // C-58: the reported WCO includes the inherited tool length offset; G49 in the program drops it
+    // from some line on: the work Z extent is not followed (G53 targets still are).
+    const tloDropped = axis === 'Z' && !!extent && tloCancelled;
+    if (tloDropped) {
+      reasons.push(reason('ETOUCH_CHECK_TLO_CANCEL', { line: analysis.tloCancel }, 'Le programme annule le décalage d’outil (G49 ligne ' + analysis.tloCancel + ') alors qu’un décalage d’outil est actif : position Z non prévisible.'));
+    }
+    const entry = { axis, verdict: 'unknown', min: null, max: null, low: null, high: null, usable: null, reasons: [], codedReasons: [] };
     if (extent) {
       entry.min = extent.min * scale;
       entry.max = extent.max * scale;
     }
+    // Stock Grbl 1.1 keeps machine positions in [-travel, 0] whatever $23 says
+    // (limits.c); a build with HOMING_FORCE_SET_ORIGIN, or Grbl_ESP32, gives
+    // [0, travel] to an axis homed towards its negative end ($23 bit set). The
+    // report does not tell them apart: such an axis is not checked, never
+    // "inside" or "outside" from a guessed envelope, until our own homing cycle
+    // found it at 0 under the same $23 (homeAt, C-04): then [0, travel] only.
+    // The bound away from the homing end keeps SOFT_LIMIT_MARGIN_MM (`usable`, C-06).
     if (travel !== null && travel > 0) {
-      entry.low = Math.floor(mask / (2 ** i)) % 2 === 1 ? 0 : -travel;
-      entry.high = entry.low + travel;
+      const candidates = conventions[axis].candidates;
+      if (!candidates || candidates.length !== 1) {
+        const setting = '$' + (130 + i);
+        const text = 'Sens de prise d’origine inversé ($23) en ' + axis + ' : selon la compilation du firmware, la course va de −' + setting + ' à 0 ou de 0 à ' + setting + ' ; axe non vérifié.';
+        reasons.push(reason('ETOUCH_CHECK_HOMING_DIRECTION', { axis, setting: 130 + i }, text));
+      } else {
+        entry.low = candidates[0].low;
+        entry.high = candidates[0].high;
+        entry.usable = usableOf(candidates[0]);
+      }
     }
     // With a doubtful reference (global), machine coordinates mean nothing:
     // no comparison at all, no false alarm. Otherwise what was followed is
-    // compared, even when another part of the program could not be.
+    // compared, even when another part of the program could not be: strictly
+    // with the usable bounds (no tolerance outwards).
     const outside = [];
     const compare = (min, max, code, label, unit) => {
       entry.machineMin = entry.machineMin === undefined ? min : Math.min(entry.machineMin, min);
       entry.machineMax = entry.machineMax === undefined ? max : Math.max(entry.machineMax, max);
-      if (min < entry.low - TOLERANCE_MM || max > entry.high + TOLERANCE_MM) {
+      if (min < entry.usable.low - ROUNDING_MM || max > entry.usable.high + ROUNDING_MM) {
         outside.push(reason(code, { axis, min: fmt(min), max: fmt(max), low: fmt(entry.low), high: fmt(entry.high) }, label + fmt(min) + ' → ' + fmt(max) + unit + ' (course ' + fmt(entry.low) + ' → ' + fmt(entry.high) + ').'));
       }
     };
     if (entry.low !== null && !global.length) {
-      if (extent && offset[axis] !== null) {
+      if (extent && offset[axis] !== null && !unproven && !tloDropped) {
         compare(entry.min + offset[axis], entry.max + offset[axis], 'ETOUCH_CHECK_OUTSIDE', 'Hors course ' + axis + ' : ', ' mm machine');
       }
       if (machineExtent) {
@@ -531,6 +755,7 @@ export const checkProgram = (analysis, machine = {}) => {
     const listed = outside.concat(reasons);
     if (outside.length) {
       entry.verdict = 'outside';
+      blocking.push(...overruns(axis, entry));
     } else if (!reasons.length) {
       entry.verdict = 'validated';
     }
@@ -557,7 +782,7 @@ export const checkProgram = (analysis, machine = {}) => {
       }
     });
   });
-  return {
+  const out = {
     verdict,
     axes: axesOut,
     reasons,
@@ -576,8 +801,16 @@ export const checkProgram = (analysis, machine = {}) => {
     uninterpreted: analysis.uninterpreted,
     moves: analysis.moves,
     lines: analysis.lines,
-    scope: 'Course machine X/Y/Z et profondeur Z du programme, dans le repère de travail : ni brides, ni outil, ni matière.'
+    scope: 'Course machine X/Y/Z et profondeur Z du programme, dans le repère de travail : ni brides, ni outil, ni matière.',
+    // D1: the proven overruns ({ code, params, message }), empty when there is none; whether the
+    // start may still be confirmed deliberately (the board's soft limits on, $20=1).
+    blocking,
+    overridable: softLimits === 1 && !analysis.unsafeOverride
   };
+  if (machine.laser) {
+    out.laser = laserCheck(analysis, machine.laser);
+  }
+  return out;
 };
 
 export const programCheck = (gcode, machine) => checkProgram(analyzeProgram(gcode), machine);

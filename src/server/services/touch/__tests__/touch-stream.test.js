@@ -6,6 +6,7 @@ import path from 'path';
 import vm from 'vm';
 import { createService } from '../job-service';
 import { createStream } from '../touch-stream';
+import { provenOffset } from './support/proven-offset';
 
 // Deterministic replacements for the stream's timers.
 const fakeTimers = () => {
@@ -106,7 +107,7 @@ afterAll(() => {
 
 const setup = () => {
   const ctx = { now: 10000, registry: { A: fakeController() }, timers: fakeTimers() };
-  ctx.service = createService({ get: () => ctx.registry }, { get: (key) => (key === 'watchDirectory' ? dir : []) }, () => ctx.now);
+  ctx.service = createService({ get: () => ctx.registry }, { get: (key) => (key === 'watchDirectory' ? dir : []) }, () => ctx.now, { workOffset: provenOffset });
   ctx.stream = createStream(ctx.service, { clock: () => ctx.now, timers: ctx.timers });
   // Opens an event stream and returns its request and response.
   ctx.connect = () => {

@@ -18,6 +18,23 @@
     if(history.length>100)history.length=100;
   }
   log('session',uiLocale.t('Session de simulation ouverte.'));
+  // Simulated machine type (CNC / Laser), for trying both interfaces without a machine: this page
+  // and this browser only (cncjs-touch-sim-kind-v1); nothing reaches the CNCjs server or .cncrc.
+  var SIM_KIND_KEY='cncjs-touch-sim-kind-v1',simKind=null;
+  try{var savedKind=JSON.parse(window.localStorage.getItem(SIM_KIND_KEY));if(savedKind&&savedKind.version===1&&(savedKind.kind==='cnc'||savedKind.kind==='laser'))simKind=savedKind.kind;}catch(_){simKind=null;}
+  function cap(ok,reason){return {supported:ok,reason:ok?'':reason,code:''};}
+  function machineProfile(){
+    var laser=simKind==='laser',notLaser=uiLocale.t('Profil laser simulé : opération de fraisage indisponible.'),notCnc=uiLocale.t('Profil CNC simulé : opération laser indisponible.');
+    var unknown=uiLocale.t('Type de machine simulé non choisi.');
+    return {version:1,id:simKind?'simulation':null,label:simKind?uiLocale.t('Machine simulée'):'',kind:simKind,match:simKind?'signature':'none',
+      signature:null,portHint:'SIMULATION',simulated:true,laser:{mode:laser?1:0,sMax:1000,sMin:0},coherent:true,issues:[],
+      canChange:workflow==='idle'&&!alarm&&!probeLocked,changeReason:workflow!=='idle'?uiLocale.t('Arrêtez la simulation avant de changer le type de machine simulé.'):alarm?uiLocale.t('Alarme simulée : voir l’onglet Machine.'):probeLocked?uiLocale.t('Palpage simulé en cours : autres commandes bloquées.'):'',
+      capabilities:{
+        spindleTest:cap(!laser,laser?notLaser:unknown),plateProbe:cap(!laser,laser?notLaser:unknown),toolChange:cap(!laser,laser?notLaser:unknown),resume:cap(!laser,laser?notLaser:unknown),
+        laserResume:cap(false,laser?uiLocale.t('Simulation : reprise laser non simulée.'):notCnc),
+        laserFrame:cap(false,laser?uiLocale.t('Simulation : cadrage non simulé, aucun mouvement.'):notCnc),
+        focus:cap(laser,notCnc)}};
+  }
   function update() {
     var now=elapsedClock(),elapsed=now-last;
     // A backward fallback-clock jump must neither reverse progress nor extend a ticket.
@@ -30,10 +47,10 @@
   }
   function snapshot() {
     return {port:'SIMULATION',type:'Virtuel',activeState:alarm?'Alarm':workflow==='running'?'Run':workflow==='paused'?'Hold':'Idle',
-      workflow:workflow,fresh:true,name:file,originalName:name,revision:revision,total:100,received:progress,
+      workflow:workflow,fresh:true,homed:true,firmware:'Simulation',settingsCount:1,workOffset:{state:'proven'},programCheck:{verdict:'unknown',axes:{X:{verdict:'unknown'},Y:{verdict:'unknown'},Z:{verdict:'unknown'}}},name:file,originalName:name,revision:revision,total:100,received:progress,
       remainingSeconds:file?Math.max(0,(100-progress)*0.6):null,
       history:history.map(function(e){return {id:e.id,time:e.time,action:e.action,message:e.message,file:e.file,percent:e.percent};}),
-      wcs:wcs,motionRevision:motionRevision,
+      wcs:wcs,motionRevision:motionRevision,machineProfile:machineProfile(),
       machinePosition:{x:position.x,y:position.y,z:position.z},
       workPosition:{x:position.x-offset.x,y:position.y-offset.y,z:position.z-offset.z},
       probeBusy:probeLocked,canJog:!probeLocked&&!alarm&&workflow==='idle',
@@ -53,12 +70,22 @@
         if(method==='GET') {resolve({controllers:[snapshot()]});return;}
         var a=body.action, state=snapshot();
         if(body.port!=='SIMULATION') throw new Error(uiLocale.t('Contrôleur virtuel uniquement.'));
+        if(a==='check'){resolve({file:body.file,programCheck:state.programCheck});return;}
         if(a==='simulate-alarm'||a==='clear-simulated-alarm') {
           alarm=a==='simulate-alarm';ticket=null;
           if(alarm&&workflow==='running')workflow='paused';
           var alarmMessage=alarm?uiLocale.t('Alarme fictive déclenchée. ')+(workflow==='paused'?uiLocale.t('Travail suspendu. '):'')+uiLocale.t('Commandes bloquées.'):uiLocale.t('Alarme fictive effacée. Aucun démarrage automatique ; confirmez la reprise si le travail est en pause.');
           if(alarm&&probeLocked)window.dispatchEvent(new CustomEvent('cnc-probe-interrupt'));
           log(a,alarmMessage);resolve({message:alarmMessage});return;
+        } else if(a==='machine') {
+          // Simulated type only: kept in this browser, never sent to the server.
+          if(body.operation!=='set-kind'&&body.operation!=='forget')throw new Error(uiLocale.t('Action simulée inconnue.'));
+          if(!state.machineProfile.canChange)throw new Error(state.machineProfile.changeReason);
+          if(body.operation==='set-kind'&&body.kind!=='cnc'&&body.kind!=='laser')throw new Error(uiLocale.t('Type de machine inconnu.'));
+          simKind=body.operation==='forget'?null:body.kind;
+          try{if(simKind)window.localStorage.setItem(SIM_KIND_KEY,JSON.stringify({version:1,kind:simKind}));else window.localStorage.removeItem(SIM_KIND_KEY);}catch(_){/* Optional browser storage unavailable. */}
+          var kindMessage=simKind?uiLocale.t('Type simulé : ')+(simKind==='laser'?'Laser':'CNC')+uiLocale.t('. Affichage de cette page seulement, rien envoyé au serveur CNCjs.'):uiLocale.t('Type simulé effacé : interface CNC par défaut.');
+          log(a,kindMessage);resolve({message:uiLocale.t('SIMULATION — ')+kindMessage});return;
         } else if(a==='coordinate'||a==='select-wcs') {
           if(!state.canJog)throw new Error(uiLocale.t('Travail, alarme ou palpage : coordonnées bloquées.'));
           if(body.motionRevision!==motionRevision)throw new Error(uiLocale.t('Les coordonnées ont changé. Recalculez la préparation.'));
@@ -82,8 +109,8 @@
             if(['x','y','z'].indexOf(body.axis)<0||[0.1,1,10].indexOf(body.step)<0||[1,-1].indexOf(body.direction)<0)throw new Error(uiLocale.t('Déplacement simulé invalide.'));
             position[body.axis]=Math.round((position[body.axis]+body.step*body.direction)*1000)/1000;
           } else if(a==='zero') {
-            if(['x','y','z','xyz'].indexOf(body.axis)<0)throw new Error(uiLocale.t('Axe invalide.'));
-            ['x','y','z'].forEach(function(axis){if(body.axis==='xyz'||body.axis===axis)offset[axis]=position[axis];});
+            if(['x','y','z','xy','xyz'].indexOf(body.axis)<0)throw new Error(uiLocale.t('Axe invalide.'));
+            ['x','y','z'].forEach(function(axis){if(body.axis==='xyz'||body.axis===axis||(body.axis==='xy'&&axis!=='z'))offset[axis]=position[axis];});
           } else {position={x:0,y:0,z:0};offset={x:0,y:0,z:0};workFrames={G54:offset};wcs='G54';}
           motionRevision++;
           ticket=null;
@@ -131,7 +158,7 @@
         } else if(a==='stop') {
           workflow='idle';ticket=null;started=true;resetOverrides();
         } else throw new Error(uiLocale.t('Action simulée inconnue.'));
-        var message=({load:uiLocale.t('Fichier sélectionné pour le test ; aucun G-code exécuté.'),start:uiLocale.t('Démarrage fictif.'),resume:uiLocale.t('Reprise fictive.'),pause:uiLocale.t('Pause fictive.'),stop:uiLocale.t('Travail fictif arrêté.')}[a]);
+        message=({load:uiLocale.t('Fichier sélectionné pour le test ; aucun G-code exécuté.'),start:uiLocale.t('Démarrage fictif.'),resume:uiLocale.t('Reprise fictive.'),pause:uiLocale.t('Pause fictive.'),stop:uiLocale.t('Travail fictif arrêté.')}[a]);
         log(a,message);resolve({message:uiLocale.t('SIMULATION — ')+message});
       } catch(e) {if(method!=='GET')log('rejected',uiLocale.t('Action refusée : ')+e.message);reject(e);}
     });

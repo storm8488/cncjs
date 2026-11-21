@@ -24,8 +24,8 @@
     var sources={};
     for(var i=0;i<copies.length;i++){
       var parent=copies[i];
-      while(parent&&!(parent.classList&&parent.classList.contains('screen')))parent=parent.parentElement;
-      if(parent&&parent.classList.contains('active')){
+      while(parent&&!(parent.classList&&(parent.classList.contains('screen')||parent.classList.contains('ks-sheet'))))parent=parent.parentElement;
+      if(parent&&(parent.classList.contains('ks-sheet')?!parent.hidden:parent.classList.contains('active'))){
         activeCopies.push(copies[i]);sources[copies[i].getAttribute('data-machine-copy')]=true;
       }
     }
@@ -36,10 +36,12 @@
     if(event&&event.persisted)return;
     disposed=true;observer.disconnect();activeCopies=[];
     window.removeEventListener('cnc-screen-change',mount);
+    window.removeEventListener('cnc-sheet-change',mount);
     document.removeEventListener('visibilitychange',mount);
     window.removeEventListener('pagehide',dispose);
   }
   window.addEventListener('cnc-screen-change',mount);
+  window.addEventListener('cnc-sheet-change',mount);
   document.addEventListener('visibilitychange',mount);
   window.addEventListener('pagehide',dispose);
   mount();

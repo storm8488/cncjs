@@ -13,10 +13,15 @@
 .ks-ui #screen-settings .language-settings{display:flex;align-items:center;gap:12px;font-size:16px;color:var(--mute)}
 .ks-ui #screen-settings .language-settings select{min-width:200px;min-height:56px;font-size:19px}
 .ks-ui #screen-settings .ks-readonly{font-size:15px}
+.ks-ui #screen-settings .ks-system-status{font-size:16px}
 
-/* Tabs stay at the top while the list scrolls. */
-.ks-ui #screen-settings .ks-settings-tabs{position:sticky;top:-8px;z-index:5;display:flex;gap:10px;padding:10px 0;margin:0 0 6px;background:var(--bg);box-shadow:0 8px 12px -10px #000}
+/* Tabs stay at the top while the list scrolls; the offset equals main's top padding (16 px, 8 px
+ * compact) so nothing scrolled shows in the band above them. */
+.ks-ui #screen-settings .ks-settings-tabs{position:sticky;top:-16px;z-index:5;display:flex;gap:10px;padding:10px 0;margin:0 0 6px;background:var(--bg);box-shadow:0 8px 12px -10px #000}
 .ks-ui #screen-settings .ks-settings-tab{flex:1 1 0;max-width:none;min-height:62px;font-size:21px;border-radius:10px}
+.ks-ui.t-compact #screen-settings .ks-settings-tabs{top:-8px}
+/* Light theme: the selected tab gets an accent fill, not the grey of a disabled control. */
+:root[data-theme=light] .ks-ui #screen-settings .ks-settings-tab[aria-selected=true]{color:var(--info-text);background:var(--info-soft);border-color:var(--accent)}
 
 /* Rows. */
 .ks-ui #screen-settings .card{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:28px;row-gap:6px;align-items:center;
@@ -24,6 +29,8 @@
 .ks-ui #screen-settings .card>h2{grid-column:1;margin:0!important;font-size:22px;font-weight:500;color:var(--fg)}
 .ks-ui #screen-settings .card>p,.ks-ui #screen-settings .card>label{grid-column:1;margin:0;font-size:16px;color:var(--mute)}
 .ks-ui #screen-settings .card>.ks-help{font-size:14px!important;color:var(--mute)}
+/* The tablet diagnostic (tablet-diagnostic.js) spans the card: in the auto column it widened it and squeezed the title. */
+.ks-ui #screen-settings #ks-performance-card>.ks-diagnostic{grid-column:1/-1}
 .ks-ui #screen-settings button,.ks-ui #screen-settings select{min-height:60px;font-size:19px}
 .ks-ui #screen-settings .ks-secondary{font-size:18px;min-height:60px;padding:10px 22px}
 
@@ -96,8 +103,144 @@
   .ks-ui #screen-settings .card>*{grid-column:1!important;grid-row:auto!important}
   .ks-ui #screen-settings .ks-system-grid{grid-template-columns:minmax(0,1fr)}
 }
-/* A thin, visible scrollbar on the scrolling main area. */
+/* A thin, visible scrollbar on the scrolling main area. The standard properties (ignored before Chromium 121,
+ * which keeps the WebKit rules below) give a native bar the compositor moves: the custom one was repainted on
+ * every scroll update. */
+main{scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent}
 main::-webkit-scrollbar{width:10px}main::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:5px}main::-webkit-scrollbar-track{background:transparent}
 .ks-ui #screen-settings .language-settings label{white-space:nowrap}
 .ks-ui #screen-settings .language-settings{flex:0 1 auto;min-width:0;max-width:100%}.ks-ui #screen-settings .language-settings select{width:auto;max-width:260px}
 .ks-ui #screen-settings .ks-panel-intro .language-settings{flex:0 0 auto}
+/* Wi-Fi of the CNCjs host (wifi-settings.js). */
+.ks-ui #screen-settings .ks-wifi-current{margin:4px 0 8px;font-size:var(--fs-16,16px)}
+.ks-ui #screen-settings .ks-wifi-list{display:flex;flex-direction:column;gap:8px;margin:8px 0}
+.ks-ui #screen-settings .ks-wifi-network{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:48px;padding:0 12px;text-align:left;font-size:var(--fs-16,16px)}
+.ks-ui #screen-settings .ks-wifi-network.is-current{border-color:var(--ok,#2f9e44)}
+.ks-ui #screen-settings .ks-wifi-ssid{overflow-wrap:anywhere}
+.ks-ui #screen-settings .ks-wifi-meta{color:var(--mute);white-space:nowrap}
+.ks-ui #screen-settings .ks-wifi-form{display:flex;flex-direction:column;gap:8px;margin:8px 0}
+.ks-ui #screen-settings .ks-wifi-form[hidden]{display:none}
+.ks-ui #screen-settings .ks-wifi-password{display:flex;gap:8px}
+.ks-ui #screen-settings .ks-wifi-password input{flex:1 1 auto;min-width:0;min-height:48px;font-size:var(--fs-16,16px)}
+.ks-ui #screen-settings .ks-wifi-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.ks-ui #screen-settings .ks-wifi-actions button,.ks-ui #screen-settings .ks-wifi-scan{min-height:48px}
+.ks-ui #screen-settings .ks-wifi-tools{display:flex;gap:8px;flex-wrap:wrap}
+.ks-ui #screen-settings .ks-wifi-hidden{min-height:48px}
+.ks-ui #screen-settings .ks-wifi-form [hidden]{display:none}
+.ks-ui #screen-settings #wifi-ssid{min-height:48px;font-size:var(--fs-16,16px)}
+.ks-ui #screen-settings .ks-wifi-form input.is-target{outline:2px solid var(--accent);outline-offset:1px}
+/* On-screen keyboard (the kiosk has no system keyboard). */
+.ks-ui #screen-settings .ks-wifi-keys{display:flex;flex-direction:column;gap:4px;user-select:none}
+.ks-ui #screen-settings .ks-wifi-keyrow{display:flex;gap:4px}
+.ks-ui #screen-settings .ks-wifi-key{flex:1 1 0;min-width:0;min-height:48px;padding:0;font-size:var(--fs-18,18px)}
+.ks-ui #screen-settings .ks-wifi-key--wide{flex-grow:1.6;font-size:var(--fs-16,16px)}
+.ks-ui #screen-settings .ks-wifi-key--space{flex-grow:6;font-size:var(--fs-16,16px)}
+.ks-ui #screen-settings .ks-wifi-key[aria-pressed="true"]{background:var(--info);color:var(--on-info);border-color:var(--info)}
+/* « Interface Performance v2 » entry (display-settings.js): created only where v2 is eligible. */
+.ks-ui #screen-settings #ks-v2-card[hidden]{display:none}
+/* System updates of the CNCjs host (system-updates.js); tools reuse .ks-wifi-tools. */
+.ks-ui #screen-settings .ks-updates-summary{margin:4px 0 8px;font-size:var(--fs-16,16px)}
+.ks-ui #screen-settings .ks-updates-list{overflow-wrap:anywhere}
+.ks-ui #screen-settings .ks-updates-reboot{margin:4px 0 8px;padding:8px 12px;border-radius:8px;background:var(--warn-soft);color:var(--warn-text);font-weight:600}
+.ks-ui #screen-settings .ks-updates-reboot[hidden],.ks-ui #screen-settings .ks-updates-list[hidden]{display:none}
+.ks-ui #screen-settings .ks-updates-check,.ks-ui #screen-settings .ks-updates-install{min-height:48px}
+/* Armed install (second tap pending): the warning look of the armed Tablette commands. */
+.ks-ui #screen-settings .ks-updates-install[data-state=armed]{background:var(--warn);color:var(--on-warn);border-color:transparent}
+/* Primary commands of Système (install, Wi-Fi connect): the 64 px of primary targets. */
+.ks-ui #screen-settings .ks-updates-install,.ks-ui #screen-settings .ks-wifi-actions .t-btn--primary{min-height:64px}
+/* Language confirmation inside the intro (visible on every tab), on its own line. */
+.ks-ui #screen-settings .ks-panel-intro>.language-confirm{flex:1 1 100%}
+/* « Actions système » (system-monitor.js): sets Tablette and Mises à jour apart from the read-only blocks. */
+.ks-ui #screen-settings .ks-system-actions-head{margin:24px 0 4px;padding-left:12px;border-left:4px solid var(--warn-text);font-size:22px;font-weight:600;color:var(--fg)}
+.ks-ui #screen-settings .ks-system>.ks-system-actions-note{margin:0 0 8px;padding-left:16px;font-size:16px}
+/* Performance v2 (L6): every rule below is scoped to body.perf-v2; outside it the L6 mounts
+ * never show. Réglages: rendering quality and diagnostic, read on demand. */
+body:not(.perf-v2) #perf-v2-settings,body:not(.perf-v2) #perf-v2-history,body:not(.perf-v2) #perf-v2-machine{display:none!important}
+body.perf-v2 #perf-v2-settings{display:block;margin:0 0 12px}
+body.perf-v2 #perf-v2-settings[hidden]{display:none}
+body.perf-v2 #screen-settings .ks-v2-quality>.ks-v2-diagnostic-tools,body.perf-v2 #screen-settings .ks-v2-quality>.ks-diagnostic-list,body.perf-v2 #screen-settings .ks-v2-quality>.ks-v2-status{grid-column:1/-1}
+body.perf-v2 #screen-settings .ks-v2-diagnostic-tools{display:flex;flex-wrap:wrap;gap:12px}
+body.perf-v2 #screen-settings .ks-v2-diagnostic-tools button{min-height:64px}
+body.perf-v2 #screen-settings .ks-v2-quality .ks-diagnostic-list{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 18px;margin:0;font-size:16px}
+body.perf-v2 #screen-settings .ks-v2-quality .ks-diagnostic-list dt{color:var(--mute)}
+body.perf-v2 #screen-settings .ks-v2-quality .ks-diagnostic-list dd{margin:0;font-variant-numeric:tabular-nums}
+body.perf-v2 #screen-settings .ks-v2-quality .ks-v2-status{font-size:16px}
+/* Journal (real-history.js): wide chronological list, touch filters, detail on the right. The v1
+ * list and filters give way to it once the presenter is drawn; export stays in the header. */
+body.perf-v2 #screen-history[data-v2-presenter=on]>.ks-history-card,body.perf-v2 #screen-history[data-v2-presenter=on] .ks-history-filters{display:none!important}
+body.perf-v2 #perf-v2-history{display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;gap:12px;min-height:0}
+body.perf-v2 #perf-v2-history[hidden]{display:none}
+body.perf-v2 #perf-v2-history .v2k-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px}
+body.perf-v2 #perf-v2-history .v2k-titles{flex:1 1 320px;min-width:0}
+body.perf-v2 #perf-v2-history .v2k-titles h2{margin:0;font-size:calc(var(--fs-20) + 2px)}
+body.perf-v2 #perf-v2-history .ks-readonly{font-size:var(--fs-16)!important;padding:0!important;border:0!important;color:var(--mute)}
+body.perf-v2 #perf-v2-history .v2k-context{margin:4px 0 0;font-size:var(--fs-16);color:var(--mute);overflow-wrap:anywhere}
+body.perf-v2 #perf-v2-history .v2k-head button,body.perf-v2 #perf-v2-history .v2k-filters button,body.perf-v2 #perf-v2-history .v2k-pages button{min-height:56px;font-size:var(--fs-18)}
+/* The pressed segment shows (over .ks-secondary, ui-2027.css), and a disabled one looks disabled (ui-2027.css .t-seg button:disabled),
+ * at full opacity over app.css button:disabled (0.4, about 1.6 to 2:1): its text keeps >= 4.5:1, paging included. */
+body.perf-v2 #perf-v2-history .t-seg button[aria-pressed=true]{background:var(--accent);color:var(--bg)}
+body.perf-v2 #perf-v2-history .t-seg button:disabled,body.perf-v2 #perf-v2-history .v2k-pages button:disabled{opacity:1;color:var(--disabled-fg);background:var(--disabled-bg);border-color:var(--line);cursor:not-allowed;background-image:repeating-linear-gradient(135deg,var(--disabled-stripe) 0 6px,transparent 6px 14px)}
+/* « Cette session » / « Esta sesión » on one line, like the v1 source switch. */
+body.perf-v2 #perf-v2-history .v2k-sources button{min-width:140px}
+/* The v1 subtitle (100 events, this device) repeats the v2 title and contradicts the server source. */
+body.perf-v2 #screen-history[data-v2-presenter=on] .ks-panel-intro p{display:none}
+body.perf-v2 #perf-v2-history .v2k-filters{display:flex;gap:8px}
+body.perf-v2 #perf-v2-history .v2k-filters button{flex:1 1 0;min-width:120px}
+body.perf-v2 #perf-v2-history .v2k-body{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(300px,1fr);gap:16px;min-height:0}
+body.perf-v2 #perf-v2-history .v2k-list{display:flex;flex-direction:column;gap:6px;min-height:0;overflow:auto;margin:0;padding:0;list-style:none}
+body.perf-v2 #perf-v2-history .v2k-list>li{display:block;flex:0 0 auto;min-height:0;padding:0;border-left-width:6px}
+body.perf-v2 #perf-v2-history .v2k-row{display:grid;grid-template-columns:96px minmax(0,1fr) auto;align-items:center;gap:12px;width:100%;min-height:56px;padding:6px 12px;font-size:calc(var(--fs-16) + 1px);text-align:left;background:transparent;border:0}
+/* A server time is a date and a time (toLocaleString): its column widens rather than wrapping. */
+body.perf-v2 #perf-v2-history li[data-source=server] .v2k-row{grid-template-columns:minmax(96px,max-content) minmax(0,1fr) auto}
+body.perf-v2 #perf-v2-history .v2k-row[aria-pressed=true]{outline:3px solid var(--accent);outline-offset:-3px}
+body.perf-v2 #perf-v2-history .v2k-time{font-variant-numeric:tabular-nums;color:var(--mute)}
+body.perf-v2 #perf-v2-history .v2k-message{overflow-wrap:anywhere}
+body.perf-v2 #perf-v2-history .v2k-badge{padding:4px 10px;border-radius:999px;background:var(--surface-2);font-size:var(--fs-16);font-weight:600}
+body.perf-v2 #perf-v2-history li[data-category=command][data-state=refused] .v2k-badge{color:var(--danger-text)}
+body.perf-v2 #perf-v2-history li[data-category=command][data-state=uncertain] .v2k-badge{color:var(--warn-text)}
+body.perf-v2 #perf-v2-history li[data-category=command][data-state=confirmed] .v2k-badge{color:var(--ok-text)}
+body.perf-v2 #perf-v2-history li[data-category=command]{border-left-color:var(--accent)}
+/* An alarm (state of this session, failed server entry, unreachable server): red bar and red badge text.
+ * The bar is --danger-text: --danger is 1.86:1 on --surface-2 in the dark theme, under the 3:1 of a mark. */
+body.perf-v2 #perf-v2-history li[data-tone=alarm]{border-left-color:var(--danger-text)}
+body.perf-v2 #perf-v2-history li[data-tone=alarm][data-source] .v2k-badge{color:var(--danger-text)}
+body.perf-v2 #perf-v2-history .v2k-list>li.v2k-empty{padding:16px;font-size:var(--fs-18);color:var(--mute)}
+body.perf-v2 #perf-v2-history .v2k-detail{min-height:0;overflow:auto;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-size:calc(var(--fs-16) + 1px)}
+body.perf-v2 #perf-v2-history .v2k-detail dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 14px;margin:0}
+body.perf-v2 #perf-v2-history .v2k-detail dt{color:var(--mute)}
+body.perf-v2 #perf-v2-history .v2k-detail dd{margin:0;overflow-wrap:anywhere}
+body.perf-v2 #perf-v2-history .v2k-note,body.perf-v2 #perf-v2-history .v2k-readonly,body.perf-v2 #perf-v2-history .v2k-hint{margin:12px 0 0;font-size:var(--fs-16)}
+body.perf-v2 #perf-v2-history .v2k-readonly{color:var(--mute)}
+body.perf-v2 #perf-v2-history .v2k-pages{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:var(--fs-16)}
+body.perf-v2 #perf-v2-history .v2k-pages[hidden],body.perf-v2 #perf-v2-history [hidden]{display:none}
+/* Machine (machine-limits.js): a third row across the screen, condition left, parameters right.
+ * The v1 alarm notice stays at the top (cause and what to do without scrolling); the v2 block adds the
+ * code's origin. To give that row its height back: Serveur | Contrôleur on one row, the four shortcuts on one row. */
+body.perf-v2 #screen-machine[data-v2-presenter=on]{grid-template-rows:auto auto minmax(0,1fr)!important}
+body.perf-v2:not(.t-compact) #screen-machine[data-v2-presenter=on] .ks-machine-overview{grid-template-columns:repeat(4,minmax(0,1fr))}
+body.perf-v2:not(.t-compact) #screen-machine[data-v2-presenter=on] .ks-machine-overview>p[data-machine-copy]{grid-column:span 2}
+body.perf-v2 #perf-v2-machine{grid-column:1/-1;min-height:0;overflow:auto}
+body.perf-v2 #perf-v2-machine[hidden]{display:none}
+body.perf-v2 #perf-v2-machine .v2m-zones{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:16px}
+body.perf-v2 #perf-v2-machine .v2m-zone{padding:14px 18px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-size:17px}
+body.perf-v2 #perf-v2-machine .v2m-zone h2{margin:0 0 8px;font-size:22px}
+body.perf-v2 #perf-v2-machine .v2m-zone p{margin:6px 0 0;font-size:17px}
+body.perf-v2 #perf-v2-machine .v2m-alarm{margin:8px 0;padding:10px 14px;border-left:6px solid var(--danger);border-radius:8px;background:var(--surface-2)}
+body.perf-v2 #perf-v2-machine .v2m-origin,body.perf-v2 #perf-v2-machine .v2m-note,body.perf-v2 #perf-v2-machine .v2m-count{color:var(--mute);font-size:16px!important}
+body.perf-v2 #perf-v2-machine .v2m-next{font-weight:600}
+body.perf-v2 #perf-v2-machine .v2m-freshness[data-freshness=stale],body.perf-v2 #perf-v2-machine .v2m-freshness[data-freshness=unknown]{color:var(--warn)}
+body.perf-v2 #perf-v2-machine .v2m-table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+body.perf-v2 #perf-v2-machine .v2m-table th,body.perf-v2 #perf-v2-machine .v2m-table td{padding:6px 8px;text-align:left;font-size:16px;border-bottom:1px solid var(--line)}
+body.perf-v2 #perf-v2-machine .v2m-table td b{display:block;font-size:17px}
+body.perf-v2 #perf-v2-machine .v2m-table td small{color:var(--mute);font-size:16px}
+body.perf-v2 #perf-v2-machine .v2m-table td[data-known=false] b{color:var(--mute);font-weight:400}
+body.perf-v2 #perf-v2-machine .v2m-flags{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 14px;margin:10px 0 0;font-size:16px}
+body.perf-v2 #perf-v2-machine .v2m-flags dd{margin:0}
+/* Machine on the RT (v1 Éco, 1366 x 768): the $X / $H reason line costs one row, given back by Serveur |
+ * Contrôleur side by side; in large text also the alarm notice at 18 px and the four shortcuts on one row. */
+body:not(.perf-v2):not(.t-compact).ks-ui #screen-machine .ks-machine-overview>p[data-machine-copy]{grid-column:auto}
+body:not(.perf-v2):not(.t-compact):not([data-simulation=true]).ks-ui.display-large #ks-machine-alarm{font-size:var(--fs-16)}
+body:not(.perf-v2):not(.t-compact):not([data-simulation=true]).ks-ui.display-large #screen-machine .ks-machine-overview{grid-template-columns:repeat(4,minmax(0,1fr))}
+body:not(.perf-v2):not(.t-compact):not([data-simulation=true]).ks-ui.display-large #screen-machine .ks-machine-overview>p[data-machine-copy]{grid-column:span 2}
+
+/* Current content hosts retain the existing card rules. */

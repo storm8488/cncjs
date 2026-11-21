@@ -15,7 +15,7 @@ emit([event(5),{...initial[0],message:'Précision reçue'},...initial.slice(1)])
 assert.equal(node('sim-history-list').children[1]._title.textContent.endsWith('Précision reçue'),true);
 document.hidden=true;const hidden=stats.writes;emit([event(6),event(5),...initial]);assert.equal(stats.writes,hidden);
 document.hidden=false;document.handlers.visibilitychange();assert.match(node('sim-history-list').children[0]._title.textContent,/Événement 6/);
-activeScreens.clear();handlers['cnc-screen-change']({detail:'menu'});const hiddenAgain=stats.writes;
+activeScreens.clear();handlers['cnc-screen-change']({detail:'more'});const hiddenAgain=stats.writes;
 emit(Array.from({length:220},(_,i)=>event(300-i)));assert.equal(stats.writes,hiddenAgain);
 activeScreens.add('history');handlers['cnc-screen-change']({detail:'history'});assert.match(node('sim-history-page').textContent,/200 événements/);
 // The Errors filter finds rejected actions in any language (their message is translated).

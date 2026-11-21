@@ -33,6 +33,23 @@ for(const invalid of ['{',JSON.stringify({version:2,profiles:[model.empty()]}),J
  assert.match(screen.node('probe-profile-status').textContent,/illisible/);
 }
 for(const name of ['index.html','simulation.html']){
- const html=fs.readFileSync(__dirname+'/touch/'+name,'utf8');assert(html.indexOf('profile-storage.js')>=0);assert(html.indexOf('profile-storage.js')<html.indexOf('probe-ui.js'));
+ const owner=name==='index.html'?'zero-piece.js':'probe-ui.js';const html=fs.readFileSync(__dirname+'/touch/'+name,'utf8');assert(html.indexOf('profile-storage.js')>=0);assert(html.indexOf('profile-storage.js')<html.indexOf(owner));
 }
 console.log('PASS: stale-tab writes rejected, own writes advance baseline, readback/permission/quota failures, actual UI save guard and invalid storage preserved.');
+// The probe measures take the shared numeric pad: the kiosk has no system keyboard.
+{
+ const dom=require('./dom-fixture.cjs').createDOM([]),bound=[];
+ dom.document.body.setAttribute('data-simulation','true');dom.node('probe-confirm').parentElement=dom.document.body;
+ // The fixture does not parse innerHTML: the profile editor's fields as probe-ui.js writes them (inputs and one select).
+ const fieldNodes=[...Object.keys(model.fields).map((k)=>({tagName:'INPUT',value:'',k})),{tagName:'SELECT',value:'',k:'corner'}].map((n)=>Object.assign(n,{getAttribute:(a)=>(a==='data-probe-field'?n.k:null),parentElement:{textContent:'Champ '+n.k},addEventListener(){}}));
+ const qsa=dom.document.querySelectorAll;dom.document.querySelectorAll=(sel)=>(sel==='[data-probe-field]'?fieldNodes:qsa.call(dom.document,sel));
+ const window={CNCProbe:model,CNCProbeTransfer:transfer,CNCProbeProfiles:manager,CNCProfileStorage:store,CNCNumeric:{bind(el,rules){bound.push([el,rules]);}},addEventListener(){},dispatchEvent(){}};
+ vm.runInNewContext(fs.readFileSync(__dirname+'/touch/probe-ui.js','utf8'),{window,document:dom.document,localStorage:memory(valid),Date,CustomEvent:class{constructor(type,o){this.type=type;this.detail=o.detail;}},setInterval(){throw Error('No cycle allowed');}});
+ const fields=bound.map(([el])=>el.getAttribute('data-probe-field')||el.id);
+ for(const k of Object.keys(model.fields))assert(fields.includes(k),'numeric pad on probe field '+k+' ('+fields+')');
+ assert(fields.includes('probe-diameter'),'numeric pad on the tool diameter');
+ assert(!fields.includes('corner'),'selects keep their list');
+ const rules=Object.fromEntries(bound.map(([el,r])=>[el.getAttribute('data-probe-field')||el.id,r]));
+ assert.equal(rules.thickness.min,0.001);assert.equal(rules.faceX.negative,true);assert.equal(rules.fast.unit,'mm/min');
+ console.log('PASS: probe measures and tool diameter open the numeric pad, with their limits and units.');
+}

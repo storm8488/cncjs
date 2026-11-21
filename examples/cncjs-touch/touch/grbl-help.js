@@ -5,8 +5,8 @@
   // same on Grbl_ESP32) and errors 1-38 of Grbl 1.1. Written for this interface; other
   // codes (another firmware's) get a generic line.
   var ALARMS={
-    1:['Fin de course touchée','La position machine est perdue. Dégagez l’axe de la butée à la main ou au jog, déverrouillez ($X) puis refaites la prise d’origine ($H).'],
-    2:['Limite logicielle dépassée','Le programme ou le déplacement sortait de la course de la machine ($130–$132). Vérifiez l’origine de travail et le programme, puis déverrouillez ($X).'],
+    1:['Fin de course touchée','Si la machine ne répond plus du tout : éteignez-la, rallumez-la, puis reconnectez. Vérifiez le capteur, puis faites la prise d’origine dans Machine.'],
+    2:['Limite logicielle dépassée','Si la machine ne répond plus du tout : éteignez-la, rallumez-la, puis reconnectez. Vérifiez la position de la pièce et le programme, puis faites la prise d’origine dans Machine.'],
     3:['Réinitialisation pendant un mouvement','Un arrêt ou une réinitialisation a coupé un déplacement : la position peut être fausse. Refaites la prise d’origine ($H) avant de reprendre.'],
     4:['Sonde déjà en contact au départ','Vérifiez la sonde, son câble et l’entrée sonde avant de recommencer le palpage.'],
     5:['Palpage sans contact','La sonde n’a rien touché sur la distance prévue. Rapprochez l’outil de la pièce ou augmentez la distance de recherche.'],
@@ -59,14 +59,27 @@
     var n=typeof code==='number'&&isFinite(code)?code:null,row=n!==null&&Object.prototype.hasOwnProperty.call(table,n)?table[n]:null;
     var label=kind==='alarm'?(n===null?uiLocale.t('Alarme'):uiLocale.t('Alarme ')+n+(inferred?uiLocale.t(' (code effacé au redémarrage de la carte, déduit de l’état précédent)'):'')):uiLocale.t('Erreur ')+(n===null?'?':n);
     if(row)return {code:n,title:label+' : '+uiLocale.t(row[0]),action:uiLocale.t(row[1])};
-    if(kind==='alarm'&&n===null)return {code:null,title:label,action:uiLocale.t('Code non reçu. Si la carte demande la prise d’origine ou le déverrouillage, faites $H (ou $X) ; sinon consultez CNCjs.')};
+    if(kind==='alarm'&&n===null)return {code:null,title:label,action:uiLocale.t('Code non reçu. Faites la prise d’origine dans Machine. Si la machine ne répond plus du tout : éteignez-la, rallumez-la, puis reconnectez.')};
     return {code:n,title:label,action:uiLocale.t('Code propre à la carte : consultez sa documentation.')};
   }
   function text(help){return help.title+'. '+help.action;}
+  // Facts received from the server only; the work-zero proof is rendered by seance.js.
+  function incident(m){
+    if(!m)return [];
+    var lines=[],a=m.lastAlarm,alarmed=/^alarm/i.test(m.activeState||''),code=a&&a.code||m.alarmCode;
+    if(a||alarmed){
+      if(code===2)lines.push(uiLocale.t('Alarme 2 : la machine a dépassé sa course.'));
+      else lines.push(entry(ALARMS,code,'alarm',!!m.alarmCodeInferred).title+'.');
+    }else if(m.jobStopped&&typeof m.stoppedAtLine==='number')lines.push(uiLocale.t('Usinage arrêté à la ligne {n}.').replace('{n}',m.stoppedAtLine));
+    if(a&&a.restarted||m.referenceLost==='restart')lines.push(uiLocale.t('La machine a redémarré.'));
+    if(m.homed!==true||m.referenceLost)lines.push(uiLocale.t('Perdu : la position de la machine.'));
+    return lines;
+  }
   var api={
     alarm:function(code,inferred){return entry(ALARMS,code,'alarm',!!inferred);},
     error:function(code){return entry(ERRORS,code,'error');},
     text:text,
+    incident:incident,
     codes:{alarms:Object.keys(ALARMS).map(Number),errors:Object.keys(ERRORS).map(Number)},
     rows:function(){var out=[];[ALARMS,ERRORS].forEach(function(t){Object.keys(t).forEach(function(k){out.push(t[k][0],t[k][1]);});});return out;}
   };

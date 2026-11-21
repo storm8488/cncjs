@@ -10,7 +10,7 @@
 //   - the overlay starts below the strip and its card fits in the window (own scroll);
 //   - Tab from the overlay reaches Pause and Arrêter and never leaves overlay + strip stops;
 // then, on the real page: stacked layers (pad over the project sheet: Escape, Tab, Enter on
-// Pause / Arrêter), the screen lock (real move panel closed, Pilote and the content out of
+// Pause / Arrêter), the screen lock (origin confirmation of Préparer closed, Pilote and the content out of
 // reach); a module failing at load leaves « Chargement incomplet » shown
 // below a usable strip (D-B1), and the browser's offline flag keeps Pause / Arrêter shown
 // and sent (R-S2). Used by browser-run.cjs (step « strip »), or on its own:
@@ -21,8 +21,7 @@ const path = require('path');
 const RELAY = `(function(){
   if(window.__strip)return true;
   window.__strip={relay:[],posts:[],block:true};
-  ['job-pause','job-stop'].forEach(function(id){var b=document.getElementById(id);if(!b)return;
-    b.addEventListener('click',function(e){if(!window.__strip.block)return;window.__strip.relay.push({id:id,t:performance.now()});e.stopImmediatePropagation();},true);});
+  ['pause','stop'].forEach(function(action){var owner=window.cncJobControls,original=owner[action];owner[action]=function(){if(window.__strip.block){window.__strip.relay.push({id:'job-'+action,t:performance.now()});return Promise.resolve();}return original.apply(owner,arguments);};});
   var F=window.XMLHttpRequest;window.XMLHttpRequest=function(){var x=new F();var o=x.open,s=x.send;x.open=function(m,u){x.__m=m;x.__u=u;return o.apply(x,arguments);};x.send=function(b){if(x.__m==='POST'&&/touch-job/.test(x.__u||''))window.__strip.posts.push(b);return s.apply(x,arguments);};return x;};
   return true;})()`;
 
@@ -39,22 +38,29 @@ const PROBE = `(function(){
     return {id:id,shown:!b.hidden&&r.width>0,disabled:b.disabled,cx:cx,cy:cy,hit:d(hit),hitOk:!!hit&&(hit===b||b.contains(hit)),inert:d(b.closest('[inert]'))};})};})()`;
 
 const OVERLAYS = [
-  ['sheet: origin help', 'jog', 'document.getElementById("ks-origin-info")'],
-  ['sheet: macros', 'jog', 'document.querySelector(".ks-macros-open")'],
-  ['sheet: preview details', 'files', 'Array.prototype.filter.call(document.querySelectorAll(".ks-file-tools button"),function(b){return b.textContent===window.cncI18n.t("Détails de l’aperçu");})[0]'],
-  ['sheet: dimensions', 'files', 'Array.prototype.filter.call(document.querySelectorAll(".ks-file-tools button"),function(b){return b.textContent===window.cncI18n.t("Dimensions XY");})[0]'],
+  ['sheet: macros', 'more', 'document.getElementById("ks-macros-open")'],
+  ['sheet: file details', 'files', 'Array.prototype.filter.call(document.querySelectorAll(".ks-file-tools button"),function(b){return b.textContent===window.cncI18n.t("Détails du fichier");})[0]'],
+  ['sheet: control details', 'check', 'document.getElementById("check-details-open")'],
   ['project sheet', 'files', 'document.getElementById("project-open")'],
-  ['coordinate editor', 'jog', 'document.getElementById("coordinate-open")'],
   ['numeric pad', 'home', '(function(){var i=document.getElementById("strip-run-input");if(!i){i=document.createElement("input");i.id="strip-run-input";document.getElementById("screen-home").appendChild(i);}return {disabled:false,click:function(){window.CNCNumeric.open(i,{label:"Test",unit:"mm",min:0,max:50});}};})()'],
   ['preview viewer', 'home', 'document.querySelector("#screen-home .preview-open")'],
 ];
-const REAL_ONLY = [['sheet: job preparation', 'files', 'document.getElementById("ks-preparation-open")'], ['pilot dialog', 'home', 'document.getElementById("t-pilot")'],
-  // The real move panel keeps the whole strip active (real-motion.js) and has no Tab trap of its own.
-  ['real move panel', 'jog', 'document.getElementById("real-motion-open")', { tab: false }]];
+// The coordinate editor stays on simulation.html only (the real page has no local coordinate preparation).
+const SIMULATION_ONLY = [['sheet: origin help', 'jog', 'document.getElementById("ks-origin-info")'], ['coordinate editor', 'jog', 'document.getElementById("coordinate-open")']];
+// The origin confirmation of Préparer (real-motion.js, Zéro X): opened by ORIGIN_OPEN; the padlock stays in its
+// Tab cycle with Pause / Arrêter (locking closes it, V3).
+const REAL_ONLY = [['sheet: other zeros', 'jog', 'document.getElementById("zero-more-open")'], ['sheet: machine details', 'machine', 'document.getElementById("machine-details-open")'], ['pilot dialog', 'home', 'document.getElementById("t-pilot")'],
+  ['origin confirmation', 'jog', 'ORIGIN_OPEN', { wait: 1800, keep: ['t-lock'] }]];
+// Zéro X is offered at rest only, and the strip offers Pause / Arrêter during a job: the reports are shown at rest
+// (window.__stripIdle, CAPABILITIES) just long enough to tap Zéro X, whose ticket the harness answers itself
+// (cncJobControls.origin wrapped: nothing reaches the fixture), then the job shows again under the open dialog.
+const ORIGIN_OPEN = '{disabled:false,click:function(){var c=window.cncJobControls;if(!c.__stripOrigin){var o=c.origin;c.origin=function(x){if(x&&x.axes)return Promise.resolve({nonce:"strip-origin",name:"Origine "+x.axes.join(" ")+" du repère G54 à la position actuelle (G10 L20 P1 X0)",expiresIn:15,generation:(window.cncState.get().machine||{}).generation});return o.call(c,x);};c.__stripOrigin=true;}'+
+  'window.__stripIdle=true;var n=0,t=setInterval(function(){var b=document.getElementById("jog-zero-x");if(b&&!b.disabled){clearInterval(t);b.click();setTimeout(function(){window.__stripIdle=false;},300);}else if(++n>40){clearInterval(t);window.__stripIdle=false;}},50);}}';
 // Real move capabilities injected into the replayed reports (the panel opens; nothing moves).
 const CAPABILITIES = `(function(){var o=window.dispatchEvent.bind(window);window.dispatchEvent=function(e){if(e&&e.type==="cnc-job-status"&&e.detail&&e.detail.machine&&!e.detail.machine.capabilities){var m={};Object.keys(e.detail.machine).forEach(function(k){m[k]=e.detail.machine[k];});
-  var c={supported:true,enabled:true,experimental:true,reason:""};m.capabilities={jog:Object.assign({steps:[0.01,0.1,1,10]},c),jogContinuous:c,jogCancel:c,setOrigin:c};
+  var c={supported:true,enabled:true,experimental:true,reason:""};m.capabilities={jog:Object.assign({steps:[0.01,0.1,1,10,25,50,100]},c),jogContinuous:c,jogCancel:c,setOrigin:c};
   m.motion={canJog:false,jogReason:"Travail en cours.",continuousReason:{X:"",Y:"",Z:""},canSetOrigin:false,setOriginReason:"Travail en cours.",maxFeed:{},jog:null,cancelling:false,cancelUnconfirmed:false,lastJog:null,lastOrigin:null};
+  if(window.__stripIdle){m.workflow="idle";m.activeState="Idle";m.fresh=true;m.operator={reportUnits:"mm",wcs:"G54"};m.motion.canSetOrigin=true;m.motion.setOriginReason="";m.control={owner:null,lastChange:null};}
   var d={};Object.keys(e.detail).forEach(function(k){d[k]=e.detail[k];});d.machine=m;e=new CustomEvent("cnc-job-status",{detail:d});}return o(e);};return true;})()`;
 
 async function key(cdp, k, shift) {
@@ -71,7 +77,7 @@ async function click(cdp, x, y) {
 async function closeAll(cdp, H) {
   await key(cdp, 'Escape'); await H.sleep(120);
   await cdp.evaluate(`(function(){try{window.cncShell.closeSheet();}catch(e){}try{window.CNCNumeric.close();}catch(e){}
-    [['real-motion-close','real-motion'],['coordinate-close','coordinate-editor'],['preview-viewer-close','preview-viewer'],['project-dialog-close','project-dialog'],['pilot-dismiss','pilot-dialog']].forEach(function(p){var b=document.getElementById(p[0]),o=document.getElementById(p[1]);if(b&&o&&!o.hidden)b.click();});return true;})()`);
+    [['real-motion-origin-cancel','real-motion-ticket'],['coordinate-close','coordinate-editor'],['preview-viewer-close','preview-viewer'],['project-dialog-close','project-dialog'],['pilot-dismiss','pilot-dialog']].forEach(function(p){var b=document.getElementById(p[0]),o=document.getElementById(p[1]);if(b&&o&&!o.hidden)b.click();});return true;})()`);
   await H.sleep(150);
 }
 
@@ -107,7 +113,7 @@ async function probe(cdp, H, ctx, label, fail, rows, opts) {
     for (let i = 0; i < 40; i++) {
       await key(cdp, 'Tab');
       const at = await cdp.evaluate(`(function(){var a=document.activeElement,o=document.querySelector(${JSON.stringify(m.overlays[m.overlays.length - 1].id)});return {id:a&&a.id||'',inside:!!(o&&o.contains(a)),stop:!!(a&&/^t-(pause|stop)$/.test(a.id))};})()`);
-      if (at.stop) seen.add(at.id); else if (!at.inside && !escaped) escaped = at.id || 'body';
+      if (at.stop) seen.add(at.id); else if (!at.inside && !escaped && !((opts && opts.keep) || []).includes(at.id)) escaped = at.id || 'body';
     }
     row.tab = { reached: Array.from(seen), escaped };
     const offered = m.buttons.filter((b) => b.shown && !b.disabled).map((b) => b.id);
@@ -123,13 +129,13 @@ async function startJob(cdp, H, page) {
   if (page === 'simulation') {
     await H.goScreen(cdp, 'files');
     await cdp.evaluate('document.querySelector(".library-file").click();true');
-    await cdp.waitFor('(function(){var b=document.getElementById("job-load");return !!b&&!b.disabled;})()', 15000, 'load enabled');
-    await cdp.evaluate('document.getElementById("job-load").click();true');
+    await cdp.waitFor('(function(){var b=document.getElementById("step-files-main");return !!b&&!b.disabled;})()', 15000, 'load enabled');
+    await H.clickSessionAction(cdp, 'step-files-main', 'charger');
     await cdp.waitFor('(function(){var m=window.cncState.get().machine;return !!(m&&m.name);})()', 15000, 'loaded');
-    await H.goScreen(cdp, 'home');
-    await cdp.evaluate('document.getElementById("home-job-start").click();true');
+    await H.goScreen(cdp, 'check');
+    await H.clickSessionAction(cdp, 'step-check-main', 'demarrer');
     await cdp.waitFor('!document.getElementById("job-dialog").hidden', 15000, 'dialog');
-    await cdp.evaluate('(function(){var c=document.getElementById("job-check");c.checked=true;c.dispatchEvent(new Event("change",{bubbles:true}));document.getElementById("job-confirm").click();return true;})()');
+    await H.confirmJob(cdp);
     await cdp.waitFor('(window.cncState.get().machine||{}).workflow==="running"', 15000, 'running');
   } else {
     if (page === 'index') await cdp.evaluate(CAPABILITIES);
@@ -152,20 +158,46 @@ async function variant(cdp, H, base, page, w, h, lang, large, fail, rows, log) {
   await startJob(cdp, H, page);
   await H.sleep(800);
   await cdp.evaluate(RELAY);
-  for (const [label, screen, opener, opts] of OVERLAYS.concat(page === 'index' ? REAL_ONLY : [])) {
+  for (const [label, screen, opener, opts] of OVERLAYS.concat(page === 'index' ? REAL_ONLY : SIMULATION_ONLY)) {
     try {
       await H.goScreen(cdp, screen);
-      const r = await cdp.evaluate('(function(){var b=' + opener + ';if(!b)return "absent";if(b.disabled)return "disabled";b.click();return "ok";})()');
+      const r = await cdp.evaluate('(function(){var b=' + (opener === 'ORIGIN_OPEN' ? ORIGIN_OPEN : opener) + ';if(!b)return "absent";if(b.disabled)return "disabled";b.click();return "ok";})()');
       if (r !== 'ok') {
         // No macro on the replay page (Macros disabled): the sheet code is the same, measured on the simulation.
         if (!(page === 'index' && label === 'sheet: macros')) fail(ctx + ' · ' + label + ': not opened (' + r + ')');
         continue;
       }
-      await H.sleep(450);
+      await H.sleep(opts && opts.wait || 450);
       log(ctx + ' · ' + await probe(cdp, H, ctx, label, fail, rows, opts));
     } catch (e) { fail(ctx + ' · ' + label + ': ' + e.message); }
     await closeAll(cdp, H);
   }
+  if (page === 'index') await stepsRow(cdp, H, ctx, fail, log);
+}
+
+// Finitions (revue P2-4): the row of 7 steps of Préparer (0.1 / 1 / 10 / 25 / 50 / 100 / Continu) on the real page,
+// at every format of VARIANTS (1366 x 768 and the compact 1024 x 600, FR / ES large / EN): the reports shown at rest
+// with the move capabilities (CAPABILITIES, window.__stripIdle), the seven buttons visible, ≥ 48 px, text whole, hit.
+const STEPS_ROW = `(function(){return Array.prototype.map.call(document.querySelectorAll("#steps .step"),function(b){b.scrollIntoView({block:"nearest"});
+  var r=b.getBoundingClientRect(),h=r.width?document.elementFromPoint(r.left+r.width/2,r.top+r.height/2):null;
+  return {step:b.getAttribute("data-step"),text:b.textContent.trim(),shown:!b.hidden&&r.width>0,w:Math.round(r.width*10)/10,h:Math.round(r.height*10)/10,
+    cut:b.scrollWidth>b.clientWidth+1||b.scrollHeight>b.clientHeight+1,inside:r.left>=0&&r.right<=innerWidth+0.5,hit:!!h&&(h===b||b.contains(h))};});})()`;
+async function stepsRow(cdp, H, ctx, fail, log) {
+  try {
+    await H.goScreen(cdp, 'jog');
+    await cdp.evaluate('window.__stripIdle=true;true');
+    await cdp.waitFor('(function(){var b=document.querySelector("#steps [data-step=hold]");return !!b&&!b.hidden&&b.getClientRects().length>0;})()', 10000, '« Continu » offered');
+    await H.sleep(300);
+    const row = await cdp.evaluate(STEPS_ROW);
+    const want = ['0.1', '1', '10', '25', '50', '100', 'hold'];
+    const shown = row.filter((b) => b.shown).map((b) => b.step);
+    if (shown.join() !== want.join()) fail(ctx + ' · steps row: buttons shown ' + shown.join(',') + ', expected ' + want.join(','));
+    const bad = row.filter((b) => b.shown && (b.w < 48 || b.h < 48 || b.cut || !b.inside || !b.hit));
+    if (bad.length) fail(ctx + ' · steps row: ' + JSON.stringify(bad));
+    H.jogChoiceChecks(await cdp.evaluate(H.JOG_CHOICES)).forEach(error=>fail(ctx+' · jog choices: '+error));
+    log(ctx + ' · steps row: ' + row.filter((b) => b.shown).map((b) => b.text + ' ' + b.w + 'x' + b.h).join(' | '));
+  } catch (e) { fail(ctx + ' · steps row: ' + e.message); }
+  finally { await cdp.evaluate('window.__stripIdle=false;true').catch(() => {}); }
 }
 
 // A module that throws while the page loads: the boot message stays, below a usable strip.
@@ -249,7 +281,7 @@ async function pressKey(cdp, k, code, vk, text) {
   await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: k, code, windowsVirtualKeyCode: vk });
 }
 const LIVE = '(function(){return {main:document.querySelector("main").inert,tabbar:document.getElementById("tabbar").inert,lock:!!document.getElementById("t-lock").closest("[inert]")};})()';
-async function stackAndLock(cdp, H, base, w, h, lang, large, fail, log) {
+async function stackAndLock(cdp, H, base, w, h, lang, large, fail, log, pilotBase) {
   const ctx = 'layers ' + w + 'x' + h + ' ' + lang + (large ? ' large' : '');
   // V1 / V1b: the pad over the project sheet (stock field of the sheet's editor).
   await openReal(cdp, H, base, w, h, lang, large);
@@ -272,10 +304,47 @@ async function stackAndLock(cdp, H, base, w, h, lang, large, fail, log) {
   await key(cdp, 'Escape'); await H.sleep(300);
   let st = await cdp.evaluate('({pad:!document.getElementById("t-numpad").hidden,sheet:!document.getElementById("project-dialog").hidden})');
   if (st.pad || !st.sheet) fail(ctx + ': one Escape must close the pad only (V1): pad ' + st.pad + ', sheet ' + st.sheet);
+  // Finitions (chantier 3): the text keyboard over the same sheet (« Matière »): Pause / Arrêter in its Tab cycle, one
+  // Escape closes the keyboard only, the field unchanged.
+  await clickSel(cdp, '#project-material'); await H.sleep(300);
+  if (!(await cdp.evaluate('!!document.getElementById("t-textpad")&&!document.getElementById("t-textpad").hidden&&!document.getElementById("project-dialog").hidden'))) { fail(ctx + ': text keyboard over the project sheet not opened'); return; }
+  const textTabs = [];
+  for (let i = 0; i < 60; i++) { await key(cdp, 'Tab'); textTabs.push(await cdp.evaluate('(function(){var a=document.activeElement;return a?(a.id||(a.closest("#t-textpad")?"pad":a.tagName)):"";})()')); }
+  if (!textTabs.includes('pad') || !textTabs.includes('t-stop') || textTabs.some((t) => !/^(pad|t-stop|t-pause)$/.test(t))) fail(ctx + ': Tab in the text keyboard does not cycle through it and Pause / Arrêter only: ' + Array.from(new Set(textTabs)).join(','));
+  await key(cdp, 'Escape'); await H.sleep(300);
+  st = await cdp.evaluate('({pad:!document.getElementById("t-textpad").hidden,sheet:!document.getElementById("project-dialog").hidden})');
+  if (st.pad || !st.sheet) fail(ctx + ': one Escape must close the text keyboard only: keyboard ' + st.pad + ', sheet ' + st.sheet);
+  log(ctx + ' · text keyboard over project sheet: Tab reaches ' + Array.from(new Set(textTabs)).join(',') + ' ; Escape closes it, the sheet stays');
   await key(cdp, 'Escape'); await H.sleep(300);
   st = await cdp.evaluate('({sheet:!document.getElementById("project-dialog").hidden,live:' + LIVE + '})');
   if (st.sheet || st.live.main || st.live.tabbar || st.live.lock) fail(ctx + ': after closing both layers the page stays inert (V1): ' + JSON.stringify(st));
   log(ctx + ' · pad over project sheet: Tab reaches ' + Array.from(new Set(tabs)).filter((t) => !/^pad:/.test(t)).join(',') + ' and the pad keys' + ' ; Escape closes the pad, then the sheet ; page live again ' + JSON.stringify(st.live));
+  // Finitions (revue P1-2): the text keyboard over the pilot dialog (« Motif », shown when another device pilots;
+  // supplied by its own replay): the keyboard lies on top, one Escape closes it only, then the dialog.
+  await openReal(cdp, H, pilotBase, w, h, lang, large);
+  await H.goScreen(cdp, 'home');
+  await clickSel(cdp, '#t-pilot'); await H.sleep(300);
+  if (!(await cdp.evaluate('!document.getElementById("pilot-dialog").hidden'))) fail(ctx + ': pilot dialog not opened');
+  else {
+    // Another owner is a fixture fact, never a takeover sent by this test.
+    await cdp.waitFor('window.cncJobControls.pilot().state==="other"', 10000, 'another tablet pilots');
+    await cdp.evaluate('document.getElementById("pilot-other").click();true');
+    await cdp.waitFor('!document.getElementById("pilot-custom").hidden', 3000, 'custom takeover reason');
+    await clickSel(cdp, '#pilot-reason'); await H.sleep(300);
+    const over = await cdp.evaluate('(function(){var p=document.getElementById("t-textpad");if(!p||p.hidden)return {open:false};' +
+      'var probe=[p.querySelector(".ks-wifi-key"),Array.prototype.filter.call(p.querySelectorAll(".t-textpad-actions button"),function(b){return b.textContent===window.cncI18n.t("Valider");})[0]];' +
+      // Inert layers are skipped by hit-testing: the painting order is checked too (both are fixed children of body).
+      'var d=document.getElementById("pilot-dialog"),zp=Number(getComputedStyle(p).zIndex),zd=Number(getComputedStyle(d).zIndex);' +
+      'return {open:true,dialog:!d.hidden,above:p.parentNode===d.parentNode&&zp>zd,z:[zp,zd],hits:probe.map(function(b){if(!b)return false;b.scrollIntoView({block:"nearest"});var r=b.getBoundingClientRect(),h=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);return !!h&&(h===b||b.contains(h));})};})()');
+    if (!over.open || !over.dialog || !over.above || over.hits.some((x) => !x)) fail(ctx + ': text keyboard over the pilot dialog not on top (P1-2): ' + JSON.stringify(over));
+    await key(cdp, 'Escape'); await H.sleep(300);
+    st = await cdp.evaluate('({pad:!document.getElementById("t-textpad").hidden,dialog:!document.getElementById("pilot-dialog").hidden})');
+    if (st.pad || !st.dialog) fail(ctx + ': one Escape must close the text keyboard over the pilot dialog only: keyboard ' + st.pad + ', dialog ' + st.dialog);
+    await key(cdp, 'Escape'); await H.sleep(300);
+    st = await cdp.evaluate('({dialog:!document.getElementById("pilot-dialog").hidden,live:' + LIVE + '})');
+    if (st.dialog || st.live.main || st.live.tabbar) fail(ctx + ': after the text keyboard and the pilot dialog the page stays inert: ' + JSON.stringify(st));
+    log(ctx + ' · text keyboard over pilot dialog: painted above (z ' + (over.z || []).join(' > ') + '), hits ' + JSON.stringify(over.hits) + ' ; Escape closes it, then the dialog');
+  }
   // V2: Enter (and Space) on the strip's Pause / Arrêter under the pad.
   await H.goScreen(cdp, 'home');
   await cdp.evaluate(RELAY);
@@ -295,14 +364,14 @@ async function stackAndLock(cdp, H, base, w, h, lang, large, fail, log) {
     }
   }
   log(ctx + ' · keys under the pad: ' + keys.join(' ; '));
-  // V3: lock with the real move panel open: the panel closes.
+  // V3: lock with the origin confirmation of Préparer open: it closes, nothing is set.
   await openReal(cdp, H, base, w, h, lang, large);
   await H.goScreen(cdp, 'jog');
-  await clickSel(cdp, '#real-motion-open'); await H.sleep(400);
-  if (!(await cdp.evaluate('!document.getElementById("real-motion").hidden'))) fail(ctx + ': real move panel not opened');
+  await cdp.evaluate('(function(){var b=' + ORIGIN_OPEN + ';b.click();return true;})()'); await H.sleep(1800);
+  if (!(await cdp.evaluate('(function(){var d=document.getElementById("real-motion-ticket");return !!(d&&!d.hidden);})()'))) fail(ctx + ': origin confirmation not opened');
   await clickSel(cdp, '#t-lock'); await H.sleep(300);
-  st = await cdp.evaluate('({locked:window.cncScreenLock.locked(),panel:!document.getElementById("real-motion").hidden})');
-  if (!st.locked || st.panel) fail(ctx + ': locking with the real move panel open (V3): ' + JSON.stringify(st));
+  st = await cdp.evaluate('({locked:window.cncScreenLock.locked(),panel:!document.getElementById("real-motion-ticket").hidden})');
+  if (!st.locked || st.panel) fail(ctx + ': locking with the origin confirmation open (V3): ' + JSON.stringify(st));
   // V4: the Pilote chip does nothing under the lock; V5: Tab reaches only Pause, Arrêter, padlock.
   const chip = await clickSel(cdp, '#t-pilot'); await H.sleep(300);
   const pilotOpen = await cdp.evaluate('!document.getElementById("pilot-dialog").hidden');
@@ -337,8 +406,8 @@ async function saverLock(cdp, H, simBase, w, h, lang, large, fail, log) {
   await H.navigate(cdp, simBase + 'simulation.html?saver=' + Date.now()); await H.waitReady(cdp);
   await H.goScreen(cdp, 'files');
   await cdp.evaluate('document.querySelector(".library-file").click();true');
-  await cdp.waitFor('(function(){var b=document.getElementById("job-load");return !!b&&!b.disabled;})()', 15000, 'load enabled');
-  await cdp.evaluate('document.getElementById("job-load").click();true');
+  await cdp.waitFor('(function(){var b=document.getElementById("step-files-main");return !!b&&!b.disabled;})()', 15000, 'load enabled');
+  await H.clickSessionAction(cdp, 'step-files-main', 'charger');
   await cdp.waitFor('(function(){var m=window.cncState.get().machine;return !!(m&&m.name);})()', 15000, 'loaded');
   await H.goScreen(cdp, 'home'); await H.sleep(500);
   if (!(await cdp.evaluate('window.cncScreenSaver.preview()'))) { fail(ctx + ': the screen saver did not start'); return; }
@@ -378,16 +447,19 @@ async function run(cdp, H, options) {
       try { await degraded(cdp, H, replay.base, w, h, fail, log); } catch (e) { fail('degraded ' + w + 'x' + h + ': ' + e.message); }
       try { await offline(cdp, H, replay.base, w, h, fail, log); } catch (e) { fail('offline ' + w + 'x' + h + ': ' + e.message); }
     }
-    for (const [w, h, lang, large] of options.quick ? [[1024, 600, 'fr', false]] : [[1366, 768, 'fr', false], [1024, 600, 'es', true]]) {
-      try { await stackAndLock(cdp, H, replay.base, w, h, lang, large, fail, log); } catch (e) { fail('layers ' + w + 'x' + h + ': ' + e.message); }
-      try { await saverLock(cdp, H, options.simBase, w, h, lang, large, fail, log); } catch (e) { fail('saver ' + w + 'x' + h + ': ' + e.message); }
-    }
+    const otherPilot = await H.startFixture(['--replay', '--other-pilot']);
+    try {
+      for (const [w, h, lang, large] of options.quick ? [[1024, 600, 'fr', false]] : [[1366, 768, 'fr', false], [1024, 600, 'es', true]]) {
+        try { await stackAndLock(cdp, H, replay.base, w, h, lang, large, fail, log, otherPilot.base); } catch (e) { fail('layers ' + w + 'x' + h + ': ' + e.message); }
+        try { await saverLock(cdp, H, options.simBase, w, h, lang, large, fail, log); } catch (e) { fail('saver ' + w + 'x' + h + ': ' + e.message); }
+      }
+    } finally { otherPilot.child.kill(); }
     await cdp.evaluate('localStorage.removeItem("cncjs-touch-language-v1");localStorage.removeItem("cncjs-touch-display-v1");true').catch(() => {});
   } finally { replay.child.kill(); }
   if (options.out) { fs.mkdirSync(options.out, { recursive: true }); fs.writeFileSync(path.join(options.out, 'strip.json'), JSON.stringify({ rows, failures }, null, 1)); }
   return failures;
 }
-module.exports = { run };
+module.exports = { run, OVERLAYS, REAL_ONLY, SIMULATION_ONLY };
 
 if (require.main === module) {
   (async () => {
@@ -397,7 +469,7 @@ if (require.main === module) {
     const sim = await H.startFixture([]), browser = await H.launchBrowser(1366, 768);
     let failures = [];
     try { failures = await run(browser.cdp, H, { simBase: sim.base, out, quick: process.argv.includes('--quick') }); }
-    finally { browser.cdp.close(); try { browser.child.kill(); } catch (_) { /* gone */ } sim.child.kill(); await H.sleep(300); try { fs.rmSync(browser.profile, { recursive: true, force: true }); } catch (_) { /* busy */ } }
+    finally { try { await browser.cdp.send('Browser.close', {}, 3000); } catch (_) { /* closed */ } browser.cdp.close(); try { browser.child.kill(); } catch (_) { /* gone */ } sim.child.kill(); await H.sleep(300); try { fs.rmSync(browser.profile, { recursive: true, force: true }); } catch (_) { /* busy */ } }
     if (failures.length) { console.error('FAILED:\n- ' + failures.join('\n- ')); process.exit(1); }
     console.log('browser-strip: PASS');
   })().catch((e) => { console.error(e); process.exit(2); });

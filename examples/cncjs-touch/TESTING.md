@@ -1,5 +1,281 @@
 # Validation scope
 
+## Program progress without a preview (PROG, 2026-11-16)
+
+`test-program-progress.cjs` is registered in verify-project. A synthetic 56-line
+program has 52, then all 56 lines acknowledged immediately and no sidecar. It
+must show the server execution estimate, advancing independently of the buffer,
+then elapsed time with unavailable progress if the estimate is exhausted. It
+also checks reload, new execution, pause/resume, rebuilt resume, stale preview,
+malformed percentages and FR/EN/ES. No controller command or network request.
+
+`program-time.test.js` checks the shared travel walk's timing model (initial
+approach, linear/XY arc/helical length, units, feeds, dwells, axis limits,
+overrides), unsupported inputs and bounded memory. Its execution clock tests
+holds, discontinuities, override changes, stopping and exhausted estimates.
+The added `job-service.test.js` case loads a real temporary program through the
+service and checks snapshots across start/pause/resume/end/new start and a gap.
+
+`test-dashboard` migrates the old buffer-rhythm ETA/relearning expectations to
+unavailable progress or explicit server time. It keeps strict counter/staleness,
+clock, pause, simulation, rounding, identity and completion assertions. Its
+gauge source/secondary estimate expectations now reject the buffer fallback.
+C-53 expects unavailable instead of 80%/99% from a foreign preview's counters.
+`test-home-suivi` expects unavailable after an alarm instead of relearning time
+from acknowledgements. No existing assertion is removed; no command guard is
+weakened. P3's historical “rhythm remains covered” below is superseded here.
+
+Browser acceptance: `browser-run --strict --only screens`, explicit Edge and
+ignored `output/codex-PROG`. Local tests do not establish timing accuracy or
+rendering on the CNC tablet, RT or physical machine.
+
+## Control labels and rail words (CTRL, 2026-11-16)
+
+`test-control-labels.cjs` is registered in verify-project. It checks FR/EN/ES
+rail words at initial mount and after CNC/laser status updates, the shipped
+128px desktop rail cascade (16/18px text, targets at least 64px), plot/caption
+separation, ten drawing cases and twelve negative geometry controls. The
+intentional soft-hyphen assertion in `test-vert2-layout` becomes a whole-word
+assertion; `test-harn-page` checks the separate zero-Z caption instead of x=15.
+`test-fil` expects the whole laser word Gravure after live repaint.
+
+`browser-run --strict --only screens,v2` runs an additional CTRL matrix inside
+`screens`: v1 1366x768 / v2 1366x911, FR/EN/ES, standard/large, dark/light,
+240 drawing cases. Text Range boxes must be disjoint from other captions and
+all plotted geometry, stay inside their frames, and be fully reachable by
+actual scrolling. Rail words cannot span lines internally or leave their
+64px targets. All six overrun directions, coincident tool/work zero, distant
+markers, unknown axes and no file are included. `control-labels/geometry.json`
+and screenshots are written only to the ignored output directory. The sandbox
+attempt fails at the initial Edge WebSocket connection before these scenarios;
+no rendered or hardware validation is claimed.
+
+## Refit strict harness (HARN, 2026-11-16)
+
+The harness follows File → Control → Machining, including simulation. Footer
+actions and confirmations wait for the existing 600ms protection; the checkbox,
+countdown, start/resume workflow and stop checks remain. Strip tests visit file
+details, control details, other zeros and machine details. Origin help remains
+simulation-only. The pilot keyboard test receives another owner and opens
+Other reason through its actual button; it never sends a takeover.
+
+`browser-surface.cjs` scopes geometry and text overlaps to the foreground modal
+and the strip stops. Without a modal, covered controls still fail. Disabled
+controls are paint-probed without enabling them, restoring their exact inline
+pointer policy. A clipped target is accepted only after scrolling its actual
+ancestor, hit-testing its centre and restoring all scroll positions; the screen
+being scrollable alone no longer excuses it. Size/text/position thresholds and
+`layout-exceptions.json` are unchanged.
+
+The persistent `home-notice` replaces the old dismissible summary. The stopped
+check requires its notice and opens Details for the detailed summary; the
+independent frozen counter, original-file line scale and renderer command
+positions remain checked. The stopped notice is now strict before acknowledgement.
+An idle stopped alarm keeps its line/lost-position notice and recovery link.
+
+`test-harn-page.cjs`, `test-harn-surface.cjs`, `test-harn-flows.cjs` cover these
+contracts and are registered in verify-project. CSS/DOM tests do not render CSS.
+Targeted attempts for measure, responsive, sim, settings, strip, v2, screens and
+e2e all fail before scenarios with WebSocket error in this sandbox; the ws
+fallback also fails with ECONNRESET. No full harness was run. Browser geometry
+and the disappearance of the recorded 838 violations remain unverified.
+
+## Live viewport stability (GLITCH, 2026-11-16)
+
+`test-viewport-stability.cjs`, registered in `verify-project.cjs`, models a
+17px classic scrollbar on seven responsive screens, v1/v2 classes and windows
+1665 x 764, 1366 x 911 and 1366 x 768. Ten text mutations one second apart must
+produce zero fit attribute/style writes and keep the initial layout key. It
+also checks reopening, resizing, growing content and leaving scrolling.
+The pre-fix source and `3049a0e4` fail this test; those two viewport-fit files
+are identical. In the same synthetic 10s window, the original makes 40 writes
+(10 overflow removals, 10 restorations, 20 overflowY writes); the fix makes 0.
+This is a layout model, not a claim about browser painting or hardware.
+
+`test-layout-stability-probe.cjs` tests the read-only MutationObserver probe in
+`browser-stability.cjs`. Chained oldValue records expose sub-frame resets even
+when an attribute has already been restored at delivery. Style properties are
+compared separately. Legitimate live child transforms and hidden screens are
+covered, as are repeated visible resets, final queued records and teardown.
+
+The `v2` harness step records `layout-stability.json`: 10s idle and 10s running
+on each of the seven screens at all three sizes, with Eco and Performance
+requested. The existing wide gate stays intact: Performance below 880px high
+renders v1; actual v2 is checked at 1366 x 911. Every sample requires ongoing
+machine packets and an unchanged workflow/screen, rejects any active-screen
+data-fit-overflow or transform change, and rejects visible attribute/style
+removal/restoration repeated at least twice. It exceeds the required 5s running
+window. About 14 minutes of observation are added to this focused step.
+
+Run `browser-run.cjs --strict --only v2 --browser <Edge path> --out
+examples/cncjs-touch/output/codex-GLITCH`. Sandbox attempts fail with
+`WebSocket error`, then `timeout Page.enable`, before any scenario. Browser mutations, real CSS geometry,
+Chromium 106 and the operator's doubled-frame symptom remain unverified here.
+No machine command, permission, layout exception or visible text changes.
+
+## Fixed rail (RAIL, 2026-11-16)
+
+`test-rail-fixed.cjs`, registered in `verify-project.cjs`, checks the border-box
+width, hidden overflow on both axes, 64px minimum targets and the source height
+budget at 768/911px. It loads the actual shell in FR/EN/ES and requires the same
+six entries when History, Settings or Guide shows its own Back button. Large
+rail labels are 18px. These source/DOM assertions do not measure CSS rendering.
+
+The test executes the actual generic `MEASURE` function with an empty DOM and
+rail metrics, including the previously missed one-pixel horizontal overflow.
+Seventeen negative controls cover both axes, scrollbar policy, displaced or
+missing entries, clipping, hit testing, target sizes, text size and spacing.
+`railScroll` in browser JSON now holds dimensions, overflow policy and offsets;
+the strict `rail-scroll` rule rejects any overflow, including one pixel.
+
+Run `browser-run.cjs --strict --only rail --browser <Edge path> --out
+examples/cncjs-touch/output/codex-RAIL`. This focused step covers 24 variants:
+v1 Eco laser 1366 x 768 / v2 CNC 1366 x 911, FR/EN/ES, standard/large, dark/light.
+It checks nine screens per variant (216 measurements), fixed positions with
+subscreen Back, all six targets, text bounds and programmatic scroll attempts.
+Captures/metrics remain in the ignored output directory. No layout exception
+is added. The sandbox attempt failed with `WebSocket error` before scenarios;
+the browser matrix must be rerun by the driver. No hardware result is claimed.
+
+## JOG direct choices (2026-11-16)
+
+`test-jog-choices.cjs`, registered in `verify-project.cjs`, parses the real page
+and loads the actual shell, session and motion owners in FR/EN/ES. It requires
+permanent step/feed groups, exclusive active states, no motion on selection,
+the continuous refusal text and its accessible association, retained faster
+choices/slow-axis fallback, maximum feeds in Details and a working speed remedy.
+Focusing that remedy on the current screen must not dispatch a screen change.
+`test-real-motion.cjs` also checks the exact jog payload at 100/250/500 mm/min,
+busy feed controls and the unchanged second-press stop using a direct feed target.
+
+`test-real-interface.cjs` permits accessible attributes on the same Continu and
+empty feed container. `test-preparer-style.cjs` checks both shared grid selectors.
+`test-v2-preparer-layout.cjs` replaces four columns/two step rows with two equal
+groups, three numeric columns and a full-width Continuous row. Its source-only
+budget keeps the six 96 px arrows, 48 px choices and 12 px control gaps, including
+large text at 768 px. Actual rectangles remain a browser check.
+
+`browser-run --strict --only screens` checks direct feed taps without motion,
+active states, equal numeric targets, 48 px sizes, 16 px text, 12 px gaps and hit
+testing. `browser-strip` reuses those checks and raises its old 44 px step floor
+to 48 px. Negative controls exercise the exported browser assertions offline.
+The local Edge attempt failed with `WebSocket error` before scenarios. No layout
+exception was added, and no hardware, Chromium 106 or touch rendering is certified.
+
+## FINAL review regressions (2026-11-16)
+
+- `plate-probe.test.js` prepares a plate ticket with a proven offset, invalidates
+  D2 through `socketCommand`, then requires an offset refusal and no command at
+  execution. The fixture deliberately makes no automatic D2 proof.
+- `machine-profile.test.js` suspends the frame fingerprint read and exercises
+  Stop, jog-stop, Pause, spindle stop, socket stop, release, takeover, transport
+  loss and disposal. Nothing from the frame may leave after cancellation.
+  A second case checks `canStop`, stream rotation reservation, guarded/socket/
+  maintenance/type-change exclusion and the normal first M5 after the read.
+- `test-check-screen.cjs` covers an Eco laser with explicit `$22=0`, unknown
+  travel, proven D2 and server `canStart`; no unavailable homing remedy blocks
+  it. The existing no-reference refusal remains. A validated check with
+  `ETOUCH_START_FEED_MODE` must show the refusal and Restart from the beginning.
+- `test-zero-piece.cjs` issues Start, then a refused block/plate preparation.
+  Retry must prepare the exact refused operation and parameters, including two
+  different operations returning the same code; it must not execute old Start.
+- New registered `test-confirmation-labels.cjs` uses actual server operation
+  names in FR/EN/ES, requires localized subtitles, exact technical Details,
+  unchanged user filenames/macros and a required checkbox.
+- New registered `test-placement-loading.cjs` checks translated failure/retry,
+  one pending load and late success/failure ignored after closing. Its fixture
+  now accepts a language, without changing existing scenarios.
+
+All seven review findings were reproduced; none was rejected. The previous
+zero-child assertion in `test-v2-preparer.cjs` now requires exactly the two
+hidden loading elements. `test-performance-v2-safety.cjs` permits only that
+hidden retry button and still requires zero machine relays. These are the only
+existing assertions replaced by FINAL; none of the motion/stop assertions is
+removed. No other lot's `bughunt-*` proof is changed or deleted.
+
+Run the two required suites from the repository root (on Windows, `npx.cmd`
+is the local executable equivalent, avoiding the PowerShell script policy):
+
+```text
+node examples/cncjs-touch/verify-project.cjs
+npx.cmd jest src/server/services/touch src/server/services/cncengine src/server/api grbl-simulator --coverage=false --testPathIgnorePatterns="bughunt-[AV][0-9]"
+```
+
+FINAL runs only `browser-run.cjs --strict --only screens,e2e,parcours` with Edge.
+Its local fixture started on 127.0.0.1 but the DevTools WebSocket failed before
+any scenario. The full browser harness, layout/touch counts, physical stop and
+installation are separate checks. `design/refonte/PROTOCOLE-ESSAI.md` gives the
+ordered real-machine protocol and the exact 15 production Babel sources from
+the `3049a0e4..HEAD` server diff. Exact final suite results belong to the FINAL
+report/audit, with a fresh rerun required after the driver's commits.
+
+## L6 More, languages and final cleanup (2026-11-16)
+
+- `test-textes-regles.cjs`, registered in `verify-project.cjs`, checks operator
+  text in the stage/dialog modules and the static page. Only the exact Details
+  phrases and the timing/resume Details functions are exempt. Dynamic resume
+  confirmations cannot leak the source line, modal words or technical notes;
+  the complete plan and notes remain in Details.
+- `test-i18n.cjs` also parses authored HTML text and accessible attributes and
+  every guide data row, requiring nonempty FR/EN/ES columns. The shared
+  `page-text-fixture.cjs` treats script bodies and protocol values separately.
+  Host messages translate fixed envelopes while preserving SSIDs, counts and
+  OS diagnostics as data. `test-refus-table.cjs` exercises every server/catalogue
+  code in all languages, checks remedies, unresolved placeholders, technical
+  words and the French 90-character limit.
+- `test-more-screen.cjs` checks the shared headers, More rail selection and an
+  actual assistant opening from its tile. `test-interface-guide.cjs` and the
+  no-simulation test cover seven topics, incident shortcuts and Back to More.
+- `test-server-history.cjs` covers block-probe values, uncertainty and the
+  finite-XYZ whitelist without raw commands or secrets. `test-real-history.cjs`
+  covers one retained Eco command outcome and zero hidden repaint. The v2
+  journal keeps outcomes observed before its renderer opened.
+- Wi-Fi/update tests count zero hidden writes on ten job packets, a late HTTP
+  answer and document hiding; reopening reapplies current guards. Leaving the
+  update screen cancels polls and the installation's second tap. Backlight tests
+  check the remote explanation and hatch without changing the D3 write policy.
+
+`browser-run --only screens` now measures all seven guide pages; existing EN
+variants remain enabled. Run only `screens,e2e,settings` for this lot; the full
+harness belongs to the orchestrator. The local Edge attempt and the full
+`measure-refonte.cjs --out .../apres` fail before scenarios with `WebSocket error`.
+The static `dead,cache` measurements run separately; they prove byte/reference
+counts, not layout or tablet speed. C9 is not delivered without EN/ES browser
+validation. The final exact suite results are in the L6 report and audit.
+
+## P3 independent page fixes (2026-11-15)
+
+- A2-10 is converted into test-dashboard-pause-guard.cjs: refused resume reason in FR/EN/ES, warning tone, unchanged cooldown, direct Pause/Stop with inert source buttons.
+- A2-9 is converted into test-job-resume.cjs: stopped file as default, different selection named, CNC/laser plans prefixed with the target name; late plans cannot bypass an edited line or the current loading refusal.
+- A2-8 is converted into test-commissioning.cjs: refused home, unlock and spindle preparations are shown on the assistant step. Busy preparation feedback is checked by test-control-attribution.cjs and test-feedback-states.cjs.
+- V2-1 is converted into test-dashboard.cjs: progress at most 99 while running; run timer reset on entry into running, including a PC restart of the same revision; foreign preview fingerprint rejected. The existing paused-time rhythm estimate remains covered.
+- A2-5 part (c) moves into test-control-attribution.cjs; parts (a)/(b) remain for L1/L2. Only a displayed ECONTROL refusal clears when the pilot state changes. A refused takeover keeps the server message.
+- test-status-strip.cjs, test-v2-mounts.cjs and test-v2-suivi.cjs count direct actions instead of hidden-button clicks. Integration checks retain confirmation cancellation, disabled guards and the last busy target on state loss.
+- test-real-motion.cjs covers Grbl refusal after HTTP acceptance and the inverse response order. test-probe-real.cjs verifies structured HTTP outcomes in three languages, preserving the error code.
+- test-numeric-pad.cjs and test-probe-real-ui.cjs cover clearing optional probe values without admitting out-of-range zero. test-macros.cjs covers hiding an empty entry and showing it again with macros.
+
+All tests extend existing registered files; no new page test name is needed. Browser and hardware validation remain separate.
+
+## P2 kiosk page (2026-11-15)
+
+- `test-backlight.cjs`: load-time locality discovery outside Settings, local reload wake, no remote automatic writes, permanent remote refusal, awake touch wake after more than five seconds, serialized requests, pending dim/wake and disposal. Existing slider, retry and gesture checks remain. A3-1 scenarios 1/2 are converted to these page tests; the real server startup/wake behavior is covered by the S5 Jest tests. The rejected blind-touch shield assertion is the documented D3 limit, not a removed page guard.
+- `test-screen-saver.cjs`: A3-1 reload shortcut converted; Ctrl/Alt/Meta/F5 keep the browser default and stop propagation. Ordinary keys, pointers, release and synthetic clicks retain their shield.
+- `test-tablet-actions.cjs`: one cache-busted loaded-version read, later installed version kept separate, no automatic reload, local guards and a final server check for explicit reload (including stale/moving/paused, spindle and host maintenance refusals). The browser harness off-tab assertion allows only one timestamped version GET during startup; offline negative tests still reject duplicates, late reads, POST and other system APIs.
+- `test-v2-gate.cjs`: V3-1 converted using the existing shared fixture; disconnected/Alarm/Home then fresh Idle opens v2, while observed work keeps v1. Existing Eco/software/laser exclusions, report-age and bootstrap cancellation checks remain.
+- `test-startup.cjs`: all five bootstrap strings equal the FR/EN/ES catalogue before deferred modules exist; invalid/blocked storage falls back to French, and late DOM arrival preserves failure text. Without JavaScript the static `noscript` fallback remains French.
+
+No new page test file; these five durable tests are already in `verify-project.cjs`. The loaded version is the metadata read at opening, not an integrity hash of the scripts in browser memory. No hardware outcome follows from these mocked checks.
+
+## P1 page contract (2026-11-15)
+
+- `test-start-override.cjs`: quantified D1 snapshot/409 refusals in FR/EN/ES, all six possible axis/side reasons, ticket and live checks, checked-ticket invalidation, no direct-handler bypass; unknown stays confirmable with the checkbox. Converts A2-1.
+- `test-work-offset.cjs`: all four offset codes on Files, Follow, Probe and Prepare in FR/EN/ES, including Follow when loading is also refused; coded HTTP refusals and settings-reading refusal. The existing real-motion fixture is exported without running its tests when required; its language option now loads the real catalogues.
+- `test-probe-defaults.cjs`: defaults compared with the server's real `LIMITS`, no physical dimensions invented, saved choices preserved, explicit invalid/null data remains unconfigured, Z alone needs no corner.
+- `test-commissioning.cjs` converts A2-6: Relire follows `canReadSettings` in Idle and Alarm; absent/false flags refuse. `test-real-motion.cjs` and `test-machine-screen.cjs` replace their old unlock-first expectations with this server contract; their existing assertions remain.
+- `test-server-messages.cjs` converts A2-7 using real S6 errors, optional null alarm/WCS values and 409s in three languages. It rejects the two unused resume templates. The temporary A2-1/A2-6/A2-7 files are removed after conversion.
+- The three fake-controller benches inject a local proven offset and inert `writeln`; they do not validate D2. `test-page-benches.cjs`, registered in the offline verifier, captures their service options before any listener, timer or browser starts. `test-essai-xy-reel.cjs` remains outside the offline verifier because it starts a loopback server.
+- Standalone page ESLint uses the local `.eslintrc.cjs` (`eslint:recommended`); `touch/*.js` is parsed as ES2017 script, without Babel. This replaces inherited React application style rules for this subtree; no repository-wide configuration is changed. Empty optional browser catch blocks are documented, without changing their behavior.
+
 ## Reproduce the offline checks
 
 From this directory, run:
@@ -25,6 +301,22 @@ An optional report can be written outside the source tree:
 ```sh
 node verify-project.cjs --report /absolute/path/to/offline-report.json
 ```
+
+## Final interface without the simulation mode (2026-11-11)
+
+`index.html` no longer links to `simulation.html` (header « Simulation ↗ », library link) and its guide and probing screens no longer mention that mode (FR/EN/ES); `simulation.html` stays in the repository as the harness test bench but is not deployed on the tablet: the six files of [tablet-exclude.txt](tablet-exclude.txt) are removed from every copy the CNC tablet serves (`/touch`, `/touch-next`, and the copy embedded in an installed package, which `/touch` falls back to file by file); `scripts/copy-touch-assets.sh` and `scripts/test-installed-package.sh` still ship and expect `simulation.html` in the npm package. Checked offline by `test-no-simulation-access.cjs` (including the list) and in `browser-run.cjs` (`NO_SIMULATION`: every real-page screen of `measure` and `screens`, now with a v2 English variant `v2-911-en-sombre-cnc`, and every screenful of the real Réglages tabs and forms; a link counts only when it points to `simulation*.html` or its scripts, a program named `simulation.nc` does not); cache v2q.
+
+## Performance UI on a hardware GPU (2026-11-06)
+
+Branch `perf-ui/integration` (lots V, D, O of [PERFORMANCE-UI-BRIEF.md](PERFORMANCE-UI-BRIEF.md), merged and reviewed). On the development PC (Node 26.13): `node verify-project.cjs` 121/121, `npx jest src/server/services/touch` 857/857, `node browser-run.cjs --strict --browser "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"` 0 violation (windows 1366 × 768, 1366 × 911 Éco and wide, 1728 × 1152 wide, and the earlier list). New tests: `test-preview-3d-gpu.cjs`, `test-preview-3d-live.cjs` (marker never past the last report nor the last acknowledged line, 1 000 generated report sequences), `test-preview-3d-overlays.cjs`, `test-responsive-wide.cjs`, `test-origin-preview.cjs`, and the reviewer's `test-scenario-perf-safety.cjs` (nothing sent through a whole live view, no drawing in the status handler, release in Éco) and `test-scenario-perf-defects.cjs` (full-geometry read cancelled when a job starts; kept geometry released for another program).
+
+`browser-run.cjs` on Windows: Edge with an update pending hands the session to a new process and exits 0; the harness now waits for its DevTools port instead of failing with « browser exited early ». Each run may still leave headless Edge processes (profiles `cnc-browser-run-*` in `%TEMP%`): stop them afterwards.
+
+Device figures (Surface Pro 3, no controller) are in [PROFILES.md](PROFILES.md), « Performance on a hardware GPU ». To measure again: publish the pages under `/touch-next/`, open a second Chromium with `--remote-debugging-port` on the tablet's display (not `--headless`, which falls back to SwiftShader), open Suivi or Fichiers on a program, then `node measure-preview-gl-tablet.cjs --port <port> --seconds 10 --paint 100 --out m.json` on the tablet (Node 22). Its gesture (M1) now generates one move per animation frame in the page; the previous version sent one CDP event per round trip and could not show more than about 20 frames/s.
+
+## Machine type and tablet performance (2026-11)
+
+Commands, results and PC measurements are in [PROFILES.md](PROFILES.md), "What was tested"; the device and machine procedure is in its last section. Nothing was run on a machine, a laser, the Surface RT or a Surface Pro 3.
 
 ## Audit 2026-10 (2026-10-29/30)
 
@@ -269,7 +561,7 @@ Not tested on the real machine: a real contact (steps 2 to 5 ran only against th
 **Resume from a line** (`src/server/services/touch/resume.js`, Suivi → "Reprendre à une ligne…", `touch/job-resume.js`). The server replays the program's state up to the chosen line and loads a rebuilt program:
 - State replayed: units, plane, work offset, motion mode, feed, plunge feed (feed of the last cutting move down in Z), spindle and speed, coolant, tool, and the work position. `G91` sections are followed.
 - Preamble: modes with `G90`, rapid to the clearance height (highest Z seen before the line), rapid over the XY start, spindle back on with a 3 s dwell, coolant, plunge at the plunge feed, then the cutting feed. A first line that relies on the modal motion (`X10 Y5` after `G1`) gets it back.
-- Refused instead of guessed: `G10`/`G92` before the line, `G93`, a resume inside `G91`, a position unknown since a `G53`/`G28`/`G30` move, unknown clearance, feed or spindle speed.
+- Refused instead of guessed: `G10`/`G92` before the line, `G93`, a resume inside `G91`, a position unknown since a `G53`/`G28`/`G30` move or a probe, unknown clearance, feed or spindle speed; any CNCjs `[expression]` or `/` in the file; `G43.1`, `M2`/`M30` or a `G49` with an axis word before the line; a program that does not choose `G90`/`G91` before its first move, or its plane before an arc. A program that never chooses `G94` is resumed like one that never chooses its units or its work offset: the board keeps its own feed mode (`G94` after power-up, a reset, `M2` or `M30`) and the plan says so (FreeCAD's grbl post and many hand-written files omit `G94`). A `G49` seen before the line is repeated by the preamble; the program's `S` and coolant (`M9`, then `M7`/`M8`) are restored even when the spindle is stopped at the line.
 - Lines are numbered like the CNCjs sender (non-empty lines, comment lines included). After a stop, the suggested line is the last acknowledged one minus 15, since Grbl plans moves ahead of execution. The line is checked first (`resumePlan`, nothing loaded), then loaded (`load` with `fromLine`), and the normal start confirmation says it is a resume and which tool is expected.
 
 **Program pauses.** CNCjs comments `M6` out and pauses; `M0`/`M1` pause too. Such a pause could only be resumed in CNCjs before; it can now be resumed from the touch screen once the machine has stopped (Idle or Hold, nothing queued).
@@ -410,7 +702,7 @@ Not changed, with the reason:
 
 Three ideas taken from a review of ncSender (GPL-3.0: ideas only, our own code), chosen because they help as soon as the machine runs:
 - **Alarm and error help** (`grbl-help.js`): alarms 1-9 (Grbl 1.1, same on Grbl_ESP32) and the common Grbl errors get a title and what to do, in FR/EN/ES. The server reports the `ALARM:n` code while the controller is in alarm (`alarmCode`, forgotten after a board restart; `null` for the homing lock, which sends no code) and the job's last error (`jobLastError`). Suivi and the job panel show it; other codes get a generic line.
-- **Off-travel warning before a start** (`travel-check.js`): the start confirmation places the program's XY extent (from the stored preview) at the current work offset (`mpos - wpos`) and compares it with the machine space after homing, `[-$13x, 0]`, or `[0, $13x]` for an axis whose `$23` bit is set. It warns, it does not block. It says when it cannot be trusted: homing disabled (`$22=0`), positions in inches, unknown travel, position or preview. Z is not checked (the preview is 2D), and the check assumes the program runs in the active work offset.
+- **Travel check before a start**: the server's `programCheck` takes precedence over the preview's XY estimate. D1 refuses a proven overrun, including Z depth; `blocking` supplies translated figures against usable travel. The page never enables confirmation for an ordinary ticket with an outside axis, even if `canStart` is inconsistent. Unknown remains a warning and still requires the checkbox. The older `travel-check.js` XY estimate is used only without a server check; its scope remains a warning, not a collision check. P1 adds no override button; L5 owns the deliberate override flow.
 - **Stalled job notice**: the 3-hour run showed CNCjs waiting forever for replies while Grbl stayed idle (lines lost inside the simulator). The server reports `stalledMs` once a running job has waited 30 s with Grbl idle and no acknowledgement, and Suivi asks the operator to stop the job if nothing moves.
 
 Tests: `test-grbl-help.cjs` (codes, generic cases, every phrase in the catalog), `test-travel-check.cjs` (both homing directions, work offsets, every untrusted case), `test-dashboard.cjs`, `test-job-dialog.cjs`, `job-service.test.js`. Checked on the tablet against the Grbl 1.1h simulator: a `G38.2` without contact gave `ALARM:5` and Suivi showed "Alarme 5 : Palpage sans contact…"; with `$22=0` the confirmation said the travel could not be checked; with `$22=1` set for the test (put back to 0) it warned "Hors course machine : X 0,0 → 60,0 mm (course -400,0 → 0,0)…". Not tested on the real machine.
@@ -641,3 +933,198 @@ First attempt, before the asset ordering change: the ~60 scripts of the page, lo
 - Feed/spindle overrides and `macro:run` against a real Grbl controller, and the accuracy of the acknowledged-line progress trail against the actual tool position.
 
 Keep initial evaluation in the mock demo. Any later hardware validation needs an operator who knows the machine and can verify each action independently.
+
+## L1 session frame (2026-11-15)
+
+The rail now contains Machine, File, Work zero, Check, Machining (Engraving for laser), and More. The initial screen is Machine; the first received state can choose the next stage once, unless the operator has interacted. No last-screen preference or resume bar is read. More replaces Menu and includes a permanently visible macro tile with an empty-list reason.
+
+New registered checks: test-seance, test-fil, test-refus, test-refus-table, test-confirmation-classes, test-direct-calls, test-cache-version, test-commandes-migration, test-more-screen, test-v2-idle-frames and test-parcours-server. The DOM fixture parses the actual pages and mounts the real shell; it does not measure pixels. The loopback parcours server connects the real service to the LUNYEE simulator through the shared bridge, using the installed Babel transform with caching disabled.
+
+The obsolete test-menu-screen is replaced by test-more-screen/test-fil. Its resume-bar/last-screen assertions and six-tile Menu layout cease to describe the product; strip and alarm assertions remain in the normal strip/machine tests. Confirmations retain their checkbox, nonce, expiry and server guards, add 600 ms arming, and name their effect. Existing confirmation tests now wait explicitly; technical identity is asserted in data-details, while the visible title is shorter. Load/start/resume owners are called directly with their original disabled guards.
+
+Use browser-run.cjs --strict --only screens,e2e,parcours,strip,v2 with the specified Edge binary. The parcours step runs P9 against parcours-server.cjs and requires exactly two control touches. The e2e step loads in File, starts in Check, and follows Machining. The complete browser run remains the orchestrator's responsibility. No layout exception was added.
+
+The old P3 statement about hiding the empty macro entry is superseded by the visible refused More tile. The P2 opening latch is superseded by SPEC-REFONTE section 3.1: only a running/paused workflow latches the opening in Eco; other activity still delays bootstrap until every safe-idle guard passes.
+
+## L2 machine readiness and recovery (2026-11-15)
+
+Machine uses CNCSeance.evaluate for its ordered checklist, stage word and primary action. test-remise-en-route.cjs covers the section 4.1 state table, all D2 rows, settings reads after a CNCjs restart in alarm, line-zero stops, same-file resume ownership, incident reconstruction after page reload, seven-row limit, literal owner names, immediate Stop and unchanged/hidden DOM writes. It is registered in verify-project.cjs. The A2-5(a,b) proof was already converted in L1; the remaining A2-2/A2-4 proofs are unchanged.
+
+Machine details replaces screen-limits. job-port, version, settings read, coordinate copies and travel parameters live in ks-machine-details. Opening/closing emits cnc-sheet-change with {id,open}. Coordinate observers, report details and the v2 Machine presenter run only while that sheet is visible. test-hidden-views and the three v2-machine tests cover re-entry, closure, retained nodes and freshness. test-machine-screen covers the migrated owners/guards and a refusal inside the details sheet. No layout exception was added.
+
+The old commissioning-owned command paragraph, its raw $X/$H labels, source-string assertions, local feedback capture and help paragraph were replaced by checklist/owner/refusal tests; simulation assertions remain. The commissioning A2-6 matrix now evaluates the checklist rather than constructing old buttons. Single-port connection expectations now require an explicit Open for any sole listed port, and search is initiated only from the stage bar. test-grbl-help follows the specified recovery wording instead of Reset at the PC. Pilot tests explicitly open Other reason before editing; both presets still send once and share the in-flight guard. See ECARTS-PLAN.md, L2, for the complete assertion inventory.
+
+The local parcours bench adds an in-memory program and sender pause/stop transitions around the shared bridge. The real service test covers homing, D2, an open sender job, a physical limit input, stop with stopped file/line, then homing and D2 again. Sender program lines are not streamed into the planner by this bridge. Browser parcours checks P1=5, P8 through homing=5 and P9=2; its P8 input is ALARM:1, while ALARM:2/restart is covered by the recovery snapshot test. Run only screens,e2e,parcours for L2, with the specified Edge executable. A browser startup failure is not a passed layout or E2E result.
+## L3a manual moves and zeros (2026-11-15)
+
+New registered test-zero-machine.cjs covers the actual origin transport (at, axis, generation, stream and bound nonce), the real page markup and shared refusal component in FR/EN/ES, distinct here/machine-origin confirmation text, absent/failed D2, homing and per-axis temporary-offset refusals, coordinate Details, permanently visible forbidden steps, the active cross, delayed Grbl error visibility, elapsed freshness, the physical-stop warning, laser XY and current-state header traces. test-real-motion retains the complete step/hold/stop safety matrix and adds release after control loss. Internal motion-status/motion-feedback nodes in that transport fixture capture the owner-to-session projection; they are not shipped page identifiers.
+
+The existing test-v2-preparer and test-v2-preparer-layout are rewritten for permanent Zero piece controls and the common layout budget; the comparison/mode/cotes/relay assertions cease to describe a shipped presenter. The rest/reopen tests retain their safety assertions at Control. test-v2-origin, test-origin-preview, test-v2-mounts and the prepare lifecycle map are migrated to check. The independent v2 safety matrix retains M1-M6 and now requires zero comparison-presenter relay buttons instead of at least five. No V2_NODE or v2m-/v2n- identifier is renamed. test-preparer-style preserves contrast and probe checks and replaces obsolete comparison/header/step-mode assertions with the common cross/zero/spacing contracts. test-real-interface expects Continu visible; test-job-preparation removes only the deleted dynamic catalogue checks. test-work-offset's removed local read-button checks are covered by L2's shared remedy/permission matrix. No bughunt proof belongs to L3a; A2-2 and A2-4 remain unchanged for L3b.
+
+The loopback parcours bench explicitly enables simulated touch motion. test-parcours-server uses the real service/parser/LUNYEE bridge to prepare and confirm X here, XYZ here and X at machine origin, asserts unchanged machine coordinates and expected work coordinates, then waits for real D2 proof. Existing recovery/control cases remain. Sender lines are still not streamed into the motion planner by this bridge.
+
+Run browser-run.cjs --strict --only screens,e2e,v2,responsive,parcours with the prescribed Edge executable and output/codex-L3a. The real jog captures measure the six arrows without opening a panel, 12 px between zeros, and the five existing states in both renderers. The v2 pass is Zero piece; responsive placement is on Control, and sheet tests open Other zeros. P6 counts rail plus zero/confirmation: 3, 3 and 4 touches. A failed CDP connection is not a passed visual test. No layout exception is added.
+## L3b shared probe card and sheets (2026-11-15)
+
+`test-zero-piece`, `test-probe-assistant` and `test-probe-diagnostic` are durable verify-project entries. They use parsed page markup in FR/EN/ES and received server states. The assistant also passes the four derived corner profiles to production `blockParams`. The migrated `test-probe-real-ui` covers plate parsing/storage, pause/completion entry points, profile management/backup and storage conflicts. `test-block-probe-dialog` retains the real transport/nonce/checkbox/stop matrix and adds the immediate three-field HTTP failure outcome. No physical motion is tested.
+
+The former real probe-screen/result/WCS-selector and Suivi plate assertions are replaced, not silently retained against nonexistent markup. Their exact removals and replacements are listed in `design/refonte/audit/ECARTS-PLAN.md`, L3b points 9–10. A2-2 and A2-4 are converted; other bughunt files are unaffected. No layout exception is added.
+
+Run `browser-run.cjs --strict --only screens,e2e,parcours` with Edge and `output/codex-L3b`. Block states are measured on jog, setup/diagnostic are sheets. Probe parcours use synthetic tickets/outcomes on a loopback fixture, while the existing recovery parcours retain the real service/LUNYEE bridge. Expected counts: P3 14 plus four numeric entries, P4 4, P5 3 from either origin or completion, P10 2. A failed CDP connection proves none of these browser counts or pixel budgets. The right-docked pad retains modal isolation and the strip stops; the drawing is checked for intersection in the probe parcours.
+## Refonte L4: File and Control
+
+Run `test-files-verdict.cjs`, `test-check-drawing.cjs`, `test-check-screen.cjs` and
+`test-derogation.cjs` through `verify-project.cjs`. They use the real page markup,
+session presenter and command owner with recorded transports only. Selection
+checks are independent of loading; late responses and an invalidated work zero
+cannot preserve a previous green verdict. The deliberate travel override lives
+only in Control details and retains the server ticket, checkbox and nonce.
+
+The retired preparation sheet and its manual ticks have no replacement test:
+`test-job-preparation.cjs` and `test-preparation-keys.cjs` are removed. Geometry
+corpus tests use `CNCTravelCheck.place`; only the server decides travel permission.
+See `design/refonte/audit/ECARTS-PLAN.md`, L4, for every migrated assertion.
+
+Use the browser harness with `--only screens,e2e,v2,parcours`. File loading stays
+on File, start is on Control, and placement is opened explicitly in its dialog.
+The three added visual states are `outside`, `unknown` and `offset-failed`.
+P2 expects three touches; P7 through start expects four. These are harness
+expectations until a successful browser run, not hardware validation.
+
+## L5 — Machining and resume sheet (2026-11-15)
+
+The three override rows share their DOM and CSS in Eco and Performance. Stop stays
+under the preview; `step-home-main` is the only Pause/Resume primary slot.
+`home-notice` replaces the scrolling feedback and the separate completion card.
+The plate buttons retain the shared `cncZeroPiece` owner and confirmation.
+
+`test-usinage-ecran.cjs` covers the screen state matrix, permanent controls,
+spindle-stop permission, refused resume and the pilot remedy. `test-reprise-volet.cjs`
+uses the real shell, proves the stopped-file target, automatic planning, late-answer
+rejection and load completion when its snapshot arrives before its promise.
+`test-controller-state.cjs` proves no hidden coordinate writes or timer (C4).
+Both new page tests are registered in `verify-project.cjs`.
+
+The removed command nodes have no replacement DOM proxies in production.
+`cncJobControls.state()` is read-only; the test adapter observes its published
+feedback and permissions. The command functions retain their server permissions,
+last busy controller for lost-state stopping, checkbox, nonce and expiry rules.
+
+Use `browser-run.cjs --strict --only screens,e2e,strip,v2,parcours` with Edge.
+The v2 step now compares the centres of all thirteen override buttons, Stop and
+the primary slot at 1366 x 911 within one pixel. P7 expects nine touches from
+Control, and P8 ten from the incident to the resumed start. The loopback LUNYEE
+bench covers the recovery service path; browser counts and layout remain
+unverified until a successful CDP connection. No hardware validation is implied.
+
+### HFIX — Session geometry regressions
+
+`test-session-geometry.cjs` is registered in `verify-project.cjs`. It checks the
+CSS source contracts for the rail font, compact content scrolling independently
+of its footer, search-column precedence, coordinate-card visibility and widths,
+segmented target gaps, and the horizontal rail in a short zoomed viewport.
+Running it against the incoming HEAD stylesheet fails twenty-four assertions.
+These source checks do not measure rendered rectangles.
+
+The targeted browser command is `browser-run.cjs --strict --only
+measure,responsive,sim,settings,strip,v2,screens` with the Edge path and output
+directory from the mission. HFIX cannot certify a strict pass: the sandbox
+connection fails with `WebSocket error` before a scenario. A diagnostic using
+the already installed `ws` client also times out at `Page.enable`.
+
+Several incoming failures require harness migration, independently of CSS:
+legacy `job-load` / `home-job-start` controls and sheets are retired; ordinary
+confirmation scenarios must wait for the existing 600 ms guard; the completion
+summary is now `home-notice`; custom takeover reasons require `pilot-other`
+first. The visual fixture must answer POST `touch-job` checks when file
+selection requests a travel verdict. Do not recreate retired controls or remove
+machine guards to satisfy these old scenarios. See the HFIX entry in
+`design/refonte/audit/ECARTS-PLAN.md` for the remaining validation scope.
+
+### VERT — Origin transport and remaining strict harness failures
+
+`test-vert-harness.cjs` passes the actual zero page's prepare payload through
+the served XHR proxy and loopback HTTP fixture, then verifies that the real
+page driver opens its confirmation in FR/EN/ES. The fixture still refuses
+execution. It also checks snapshot-based pilot ownership, the simulation-only
+origin-help entry, and rail-only report rows without losing strict violations.
+`test-vert-layout.cjs` resolves CSS importance, selector specificity and media
+conditions for compact session heights and the desktop Stop slot. Both are
+registered in `verify-project.cjs`; cascade tests do not measure rectangles.
+
+`test-zero-machine.cjs` retains the same focused remedy across coordinate
+updates. Only this continuously recomputed refusal uses the presenter's live
+option; request-only refusals still expire when their inputs change.
+`test-harn-surface.cjs` also proves a real scroll/hit for a target behind sticky
+tabs. A target that remains covered still fails; no size or exception changes.
+
+Run targeted steps with `--strict --only responsive,sim,settings,strip,v2,screens,rail`.
+The full run remains reserved for the orchestrator. VERT's sandbox attempts fail
+before scenarios (`timeout Page.enable`, then `WebSocket error`); the supplied
+319 violations are not replaced by an inferred zero. See RAPPORT section 5.2.
+
+### VERT2 — Current session targets and intrinsic card heights
+
+`test-vert2-harness.cjs` exercises the injected expressions on the actual
+FR/EN/ES session DOM. Stale text, its localized prefix and its cause are read
+atomically; active arrows or zeros still fail. The retired Cotes target is
+replaced by the current four zeros, Other zeros and the cross. The wide-layout
+exit compares all fifteen permanent command identities, order and owners;
+optional read-only instruments may remain mounted. One-pixel geometry checks
+remain unchanged. Responsive confirmation geometry waits for fresh consent and
+the 600 ms guard, then unchecks through `change` before the final confirmation.
+
+`test-vert2-layout.cjs` uses the shared cascade resolver, including padding
+shorthands, for the bottom rail border budget, natural compact Machine and
+simulation cards, definite desktop machining frame, five override columns and
+reserved alarm curve slot. Both tests are in `verify-project.cjs`. Fourteen
+isolated in-memory reversions fail; these are not rendered pixel measurements.
+
+Run `--strict --only responsive,sim,v2,screens,rail` with Edge. VERT2's attempt
+fails before scenarios (`WebSocket error`, then `timeout Page.enable` on the
+final rerun), so the supplied harnais4 count of
+104 violations remains a pre-correction measurement. See RAPPORT section 5.3
+and ECARTS-PLAN's VERT2 entry for assertion migrations and browser handoff.
+## LIB: readable file comparison (2026-11-17)
+
+`test-library-comparison.cjs` runs the actual File owners and the stylesheet
+cascade in HTML order (specificity and media queries included). It requires the
+nested v2 mount to span the detail card, whole-word wrapping, columns that can
+stack, automatic height and no internal scrolling. It covers active/parked
+screens, FR/EN/ES, standard/large text and seven viewport sizes from 540 to
+1920 px. Fresh, unavailable and unfollowed identities retain their existing
+meaning; technical rows and fingerprint diagnostics remain in File Details.
+
+`browser-library.cjs`, called by `browser-run.cjs --strict --only screens`,
+measures text `Range` rectangles, including non-actionable labels: every letter
+sequence must stay on one line. It also rejects clipping, narrow side-column
+placement, column overlap and internal scrollbars. It uses the reported
+`surfacage-400x80-24mm-2passes.nc` label, unavailable state and the real held-layout
+transition to `non suivi`. Small v2 viewports are reached by resizing that held
+layout; initial v1 Eco is separately checked at 1366 × 768. All three languages
+and both text sizes are included. Name injection is a geometry fixture only;
+it never changes a permission or executes a command. Reports are saved in
+`library-comparison.json` with screenshots under the chosen ignored output path.
+
+Negative in-memory CSS substitutions (HEAD, arbitrary word breaks, disabled
+stacking and nested scrolling) must fail the page test. Edge currently fails
+before scenarios on `timeout Page.enable` in this sandbox: these checks do not
+constitute rendered acceptance or Chromium 106/hardware validation.
+
+## FIGE: stream and session recovery (2026-11-16)
+
+`test-flow-recovery.cjs` runs the real stream, session and command owners with
+controllable XHR and clocks. It cuts the stream, rejects the old credential when
+the server returns, adopts a new session without reload, then accepts sequence 1
+from a new epoch and the new machine coordinates. It checks exact increasing
+retry deadlines, source-sheet refusal without machine POST, discarded callbacks,
+revoked confirmation and no action replay. Separate cases cover a missing initial
+session, the legacy Socket.IO handshake and real DOM arrows/zeros in FR/EN/ES.
+`test-status-strip` and `test-seance` require warning/reconnection while the event
+stream is missing, even with a fresh HTTP fallback or planned-rotation grace.
+The existing session race, refusal and throttling tests remain required.
+
+The requested `browser-run.cjs --strict --only e2e,strip` with Edge failed before
+scenarios on `timeout Page.enable` in this sandbox. This is not browser reception.
+No machine, tablet or Chromium 106 result is claimed. Logs and eight negative
+HEAD-substitution proofs are under ignored `output/codex-FIGE`.

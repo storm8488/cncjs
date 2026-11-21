@@ -37,6 +37,9 @@ const fs = require('fs'), vm = require('vm'), assert = require('assert');
   list.clientHeight = 2000; // a tall list never exceeds the shell's bound
   handlers['cnc-library-page-size']({ detail: 5 }); await settle();
   assert.equal(rows(), 5, 'the shell bound (5) is kept when more would fit');
+  handlers['cnc-library-page-size']({ detail: 6 }); await settle();
+  assert.equal(rows(),6,'six rows are accepted for a 911 px window');
+  assert.equal(node('library-page').textContent,'Page 1 / 2');
   list.clientHeight = 40; // a list too short for two rows still lists two (it scrolls)
   handlers['cnc-library-page-size']({ detail: 3 }); await settle();
   assert.equal(rows(), 2, 'never fewer than two rows per page');

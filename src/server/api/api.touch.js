@@ -1,4 +1,5 @@
 import logger from '../lib/logger';
+import { localRequest } from '../lib/local-request';
 import touch from '../services/touch';
 import { list as listProjects, read as readProjectSheet, write as writeProjectSheet } from '../services/touch/projects';
 import {
@@ -47,7 +48,8 @@ export const getJob = authorized((req, res) => {
 // (`clientId`, kept in its localStorage) and its label. Never the body alone.
 const text = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 export const actorOf = (req) => {
-  const user = text(req.user.name, 60) || text(req.user.id, 60);
+  const session = req.user && typeof req.user === 'object' ? req.user : {};
+  const user = text(session.name, 60) || (session.id === undefined || session.id === null ? '' : text(String(session.id), 60));
   const body = req.body || {};
   const query = req.query || {};
   const clientId = text(body.clientId, 80) || text(query.clientId, 80);
@@ -77,7 +79,12 @@ export const postJob = authorized((req, res) => {
       // message, so a client can translate it; the French message is unchanged.
       const coded = typeof err.code === 'string' && /^ETOUCH_[A-Z0-9_]+$/.test(err.code)
         ? { code: err.code, ...(err.params && typeof err.params === 'object' ? { params: err.params } : {}) } : {};
-      res.status(err.status || ERR_BAD_REQUEST).send({ message: err.message, ...control, ...coded });
+      // Coded reasons behind a refusal ({code, params, message}, like a program check's codedReasons).
+      const reasons = Array.isArray(err.reasons) ? { reasons: err.reasons } : {};
+      const block = err.blockProbe && typeof err.blockProbe === 'object' ? {
+        blockProbe: { failure: err.blockProbe.failure, written: err.blockProbe.written, needsHoming: err.blockProbe.needsHoming }
+      } : {};
+      res.status(err.status || ERR_BAD_REQUEST).send({ message: err.message, ...control, ...coded, ...reasons, ...block });
     });
 });
 
@@ -130,12 +137,15 @@ export const getSystem = authorized((req, res) => {
 });
 
 // Screen backlight of the computer running CNCjs (settings screen).
+// Trust only the TCP peer, never Express's proxy-aware req.ip or a forwarded header.
+export { localRequest };
+
 export const getBacklight = authorized((req, res) => {
   try {
     res.set('Cache-Control', 'no-store');
-    res.send(touch.backlightStatus());
+    res.send({ ...touch.backlightStatus(), local: localRequest(req) });
   } catch (err) {
-    res.status(ERR_INTERNAL_SERVER_ERROR).send({ message: 'Luminosité indisponible.' });
+    res.status(ERR_INTERNAL_SERVER_ERROR).send({ message: 'Luminosité indisponible.', local: localRequest(req) });
   }
 });
 
@@ -143,20 +153,73 @@ export const getBacklight = authorized((req, res) => {
 // screen saver dimming (never stored); { wake: true } puts the operator's level back.
 export const postBacklight = authorized((req, res) => {
   const body = req.body || {};
+  const local = localRequest(req);
   try {
     if (body.wake === true) {
-      res.send(touch.wakeBacklight());
+      res.send({ ...touch.wakeBacklight(), local });
     } else if (body.temporary === true) {
-      res.send(touch.dimBacklight(body.percent));
+      if (!local) {
+        res.status(ERR_CONFLICT).send({ message: 'La veille distante ne peut pas modifier l’écran du kiosque.', code: 'ETOUCH_BACKLIGHT_REMOTE', local });
+        return;
+      }
+      res.send({ ...touch.dimBacklight(body.percent), local });
     } else {
-      res.send(touch.setBacklight(body.percent));
+      res.send({ ...touch.setBacklight(body.percent), local });
     }
   } catch (err) {
     if (err.status) {
-      res.status(err.status).send({ message: err.message });
+      res.status(err.status).send({ message: err.message, local });
     } else {
-      res.status(ERR_INTERNAL_SERVER_ERROR).send({ message: 'Luminosité non modifiée.' });
+      res.status(ERR_INTERNAL_SERVER_ERROR).send({ message: 'Luminosité non modifiée.', local });
     }
+  }
+});
+
+// Wi-Fi of the computer running CNCjs (Réglages → Système). The password goes
+// to nmcli only: it is never logged nor sent back.
+export const getWifi = authorized((req, res) => {
+  res.set('Cache-Control', 'no-store');
+  touch.wifiStatus()
+    .then((data) => res.send(data))
+    .catch((err) => res.status(err.status || ERR_INTERNAL_SERVER_ERROR).send({ message: err.status ? err.message : 'Wi-Fi indisponible.' }));
+});
+
+export const postWifi = authorized((req, res) => {
+  const body = req.body || {};
+  res.set('Cache-Control', 'no-store');
+  touch.wifiAction({ action: body.action, ssid: body.ssid, password: body.password, hidden: body.hidden === true }, actorOf(req))
+    .then((data) => {
+      log.info(`wifi ${body.action}${body.action === 'connect' || body.action === 'forget' ? ': ' + String(body.ssid || '').slice(0, 32) : ''}`);
+      res.send(data);
+    })
+    .catch((err) => {
+      log.warn(`wifi ${body.action} refused: ${err.message}`);
+      res.status(err.status || ERR_INTERNAL_SERVER_ERROR).send({ message: err.status ? err.message : 'Action Wi-Fi impossible.' });
+    });
+});
+
+// System updates of the computer running CNCjs (Réglages → Système): apt in the
+// background; POST answers at once with the status, GET follows the task.
+export const getUpdates = authorized((req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    res.send(touch.updatesStatus());
+  } catch (err) {
+    log.error(`updates status failed: ${err && err.stack}`);
+    res.status(ERR_INTERNAL_SERVER_ERROR).send({ message: 'Mises à jour indisponibles.' });
+  }
+});
+
+export const postUpdates = authorized((req, res) => {
+  const body = req.body || {};
+  res.set('Cache-Control', 'no-store');
+  try {
+    const data = touch.updatesAction({ action: body.action }, actorOf(req));
+    log.info(`updates ${body.action} started`);
+    res.send(data);
+  } catch (err) {
+    log.warn(`updates ${body.action} refused: ${err.message}`);
+    res.status(err.status || ERR_INTERNAL_SERVER_ERROR).send({ message: err.status ? err.message : 'Mise à jour impossible.' });
   }
 });
 

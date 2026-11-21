@@ -4,11 +4,14 @@
 import settings from '../../config/settings';
 import logger from '../../lib/logger';
 import store from '../../store';
+import { localRequest } from '../../lib/local-request';
 import config from '../configstore';
 import { createService } from './job-service';
 import { createStream, VERSION } from './touch-stream';
 import { createSystemStats } from './system-stats';
 import { createBacklight } from './backlight';
+import { createWifi } from './wifi';
+import { createUpdates } from './updates';
 import { createHistory } from './history';
 import { createControl, describeOwner, safeCommand, safeWrite } from './control';
 
@@ -104,13 +107,82 @@ const socketActor = (socket) => {
   };
 };
 
+// F5: recheck the actual Socket.IO HTTP peer and all leases at the open boundary.
+// A closed port normally has no lease; refusing every remaining lease is conservative.
+const refuseAutoConnect = (socket) => {
+  if (!control || !localRequest(socket && socket.request)) {
+    return { message: 'Reconnexion automatique réservée à la tablette de la machine.' };
+  }
+  if (Object.keys(control.owners()).length) {
+    return { message: 'Un appareil a la main. Connectez la machine manuellement.' };
+  }
+  return null;
+};
+
+// A full homing cycle sent by a socket and written to the port at once: the `homing` command or
+// the single line $H by `writeln` (GrblController writes both directly). A $H by the `gcode`
+// command goes through the feeder, which may drop it (feeder:stop, Alarm) after the cycle of an
+// earlier $HX: it is not one. $HX/$HY/$HZ home some axes only and are not one either.
+const fullHoming = (kind, cmdOrData) => {
+  if (kind === 'command') {
+    return cmdOrData === 'homing';
+  }
+  // ASCII spaces only: a character ≥ 0x80 makes writeln send the data without its newline (realtime).
+  return kind === 'writeln' && typeof cmdOrData === 'string' && /^[ \t]*\$h[ \t]*$/i.test(cmdOrData);
+};
+
+// What a safe socket command or raw write (control.js SAFE_COMMANDS, SAFE_WRITES: the only ones
+// that pass while a sequence of the server runs) does to that sequence (PLAN-CORRECTIONS § 1.6,
+// lot F1 second review): 'query' only asks (a status, the probe state); 'jog-cancel' only cancels
+// a jog (`jogCancel`, 0x85 alone or with queries); everything else is a 'stop' (a hold, a reset,
+// autolevel:stop which resets, the safety door 0x84, a feeder stop…), including a safe command
+// added later to control.js and not named here.
+const SOCKET_QUERY_COMMANDS = ['statusreport', 'autolevel:getProbeState'];
+const socketEffect = (kind, cmdOrData) => {
+  if (kind === 'command') {
+    if (SOCKET_QUERY_COMMANDS.includes(cmdOrData)) {
+      return 'query';
+    }
+    return cmdOrData === 'jogCancel' ? 'jog-cancel' : 'stop';
+  }
+  // Read as safeWrite reads it.
+  const line = String(cmdOrData === undefined || cmdOrData === null ? '' : cmdOrData).replace(/[\r\n]/g, '').trim();
+  const acts = Array.from(line).filter((ch) => ch !== '?');
+  if (!acts.length) {
+    return 'query';
+  }
+  return acts.every((ch) => ch === '\x85') ? 'jog-cancel' : 'stop';
+};
+
 const refuseSocket = (socket, port, kind, cmdOrData) => {
   if (!control) {
     return null;
   }
   const safe = kind === 'command' ? safeCommand(cmdOrData) : safeWrite(cmdOrData);
+  // The one passage of a safe command or write that is not a query: it first ends, synchronously,
+  // a framing of the server (either way), and a stop also the probes and the work offset check D2;
+  // then it goes its own way.
+  const effect = safe ? socketEffect(kind, cmdOrData) : '';
+  if (effect === 'stop') {
+    service.socketStop(port);
+  } else if (effect === 'jog-cancel') {
+    service.socketJogCancel(port);
+  }
   try {
+    // Nothing that moves or writes passes, whoever owns the port, while a sequence of the server
+    // runs or a host command holds the machine (C-12, C-60).
+    if (!safe) {
+      const busy = service.socketRefusal(port);
+      if (busy) {
+        return { message: busy.message, code: busy.code };
+      }
+    }
     control.authorize(port, socketActor(socket), kind === 'command' ? cmdOrData : kind, { safe });
+    // Allowed: what it sends decides whether a homing cycle seen next may teach the
+    // travel convention (job-service socketCommand). Stops and status queries change nothing.
+    if (!safe) {
+      service.socketCommand(port, fullHoming(kind, cmdOrData));
+    }
     return null;
   } catch (err) {
     if (err.code !== 'ECONTROL') {
@@ -118,6 +190,17 @@ const refuseSocket = (socket, port, kind, cmdOrData) => {
     }
     return { message: err.message, owner: err.owner };
   }
+};
+
+// CNCjs's own upload (api.gcode.js, POST /api/gcode) replaces the program of the sender: refused
+// while a framing of the server runs or waits to start (lot F1, review C3). Null when allowed,
+// else { message }.
+const refuseUpload = (port) => {
+  if (!service) {
+    return null;
+  }
+  const busy = service.uploadRefusal(port);
+  return busy ? { message: busy.message } : null;
 };
 
 const attachSocket = (socket) => {
@@ -165,6 +248,63 @@ const dimBacklight = (percent) => backlight.dim(percent);
 
 const wakeBacklight = () => backlight.wake();
 
+// Wi-Fi of the CNCjs host (Réglages → Système). Joining a network or scanning
+// cuts the link for a moment: taken like a host command, refused while a job,
+// a pause, a move, a homing, a probe or a load is in progress, or while
+// another device pilots a port, and machine actions wait while it runs.
+const wifi = createWifi();
+const wifiStatus = () => wifi.status();
+const wifiAction = async (body, actor) => {
+  const action = body && body.action;
+  if (action !== 'scan' && action !== 'connect' && action !== 'forget') {
+    throw Object.assign(new Error('Action Wi-Fi inconnue.'), { status: 400 });
+  }
+  const refused = refuseSystemCommand(actor);
+  if (refused) {
+    throw Object.assign(new Error(refused.message), { status: 409 });
+  }
+  const titles = { scan: 'Recherche des réseaux Wi-Fi', forget: 'Oubli d’un réseau Wi-Fi', connect: 'Changement de réseau Wi-Fi' };
+  const reservation = service.reserveSystemCommand({ id: 'touch-wifi', title: titles[action] });
+  try {
+    if (action === 'scan') {
+      return await wifi.scan();
+    }
+    if (action === 'forget') {
+      return await wifi.forget({ ssid: body.ssid });
+    }
+    return await wifi.connect({ ssid: body.ssid, password: body.password, hidden: body.hidden === true });
+  } finally {
+    reservation.release();
+  }
+};
+
+// System updates of the CNCjs host (Réglages → Système). Taken like a host
+// command for the whole task (minutes for an install): refused while a job, a
+// pause, a move, a homing, a probe or a load is in progress, or while another
+// device pilots a port; machine actions wait until it ends. The API answers at
+// once; the page follows updatesStatus().
+const updates = createUpdates();
+const updatesStatus = () => updates.status();
+const updatesAction = (body, actor) => {
+  const action = body && body.action;
+  if (action !== 'check' && action !== 'install') {
+    throw Object.assign(new Error('Action de mise à jour inconnue.'), { status: 400 });
+  }
+  const refused = refuseSystemCommand(actor);
+  if (refused) {
+    throw Object.assign(new Error(refused.message), { status: 409 });
+  }
+  const titles = { check: 'Recherche des mises à jour du système', install: 'Installation des mises à jour du système' };
+  const reservation = service.reserveSystemCommand({ id: 'touch-updates', title: titles[action] });
+  try {
+    updates.start(action).then(() => reservation.release());
+  } catch (err) {
+    reservation.release();
+    throw err;
+  }
+  return updates.status();
+};
+
 export default {
   VERSION,
   start,
@@ -178,6 +318,8 @@ export default {
   reserveSystemCommand,
   readHistory,
   refuseSocket,
+  refuseAutoConnect,
+  refuseUpload,
   attachSocket,
   detachSocket,
   refuseSystemCommand,
@@ -185,5 +327,9 @@ export default {
   backlightStatus,
   setBacklight,
   dimBacklight,
-  wakeBacklight
+  wakeBacklight,
+  wifiStatus,
+  wifiAction,
+  updatesStatus,
+  updatesAction
 };

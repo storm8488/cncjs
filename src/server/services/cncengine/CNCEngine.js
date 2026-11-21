@@ -54,6 +54,11 @@ const isValidController = (controller) => (
 class CNCEngine {
     controllerClass = {};
 
+    // Include openings not yet published in the controller store (F5 race guard).
+    openingPorts = new Set();
+
+    autoOpening = false;
+
     listener = {
       taskStart: (...args) => {
         if (this.io) {
@@ -190,7 +195,7 @@ class CNCEngine {
           // event lets a newer client show the owner.
           socket.emit('serialport:read', 'error: ' + refusal.message);
           socket.emit('touch:control:refused', { port, kind, message: refusal.message, owner: refusal.owner });
-          return true;
+          return refusal;
         };
 
         socket.emit('startup', {
@@ -256,6 +261,15 @@ class CNCEngine {
 
           log.debug(`socket.open("${port}", ${JSON.stringify(options)}): id=${socket.id}`);
 
+          const automatic = !!(options && options.touchAutoConnect === true);
+          const opened = Object.values(store.get('controllers', {})).some(c => c && c.isOpen());
+          const refusal = automatic ? touch.refuseAutoConnect(socket) : null;
+          if (this.autoOpening || (automatic && (opened || this.openingPorts.size || refusal))) {
+            // Error.message is not enumerable: send a plain refusal through Socket.IO's JSON.
+            callback({ message: refusal ? refusal.message : 'Un port est déjà ouvert ou en cours d’ouverture. Connectez la machine manuellement.' });
+            return;
+          }
+
           let controller = store.get(`controllers["${port}"]`);
           if (!controller) {
             let { controllerType = GRBL, baudrate, rtscts, pin } = { ...options };
@@ -292,25 +306,42 @@ class CNCEngine {
             return;
           }
 
-          controller.open((err = null) => {
-            if (err) {
-              callback(err);
-              return;
+          const opening = {};
+          this.openingPorts.add(opening);
+          if (automatic) {
+            this.autoOpening = true;
+          }
+          const finishOpening = () => {
+            this.openingPorts.delete(opening);
+            if (automatic) {
+              this.autoOpening = false;
             }
+          };
+          try {
+            controller.open((err = null) => {
+              finishOpening();
+              if (err) {
+                callback(automatic ? { message: err.message || String(err) } : err);
+                return;
+              }
 
-            // System Trigger: Open a serial port
-            this.event.trigger('port:open');
+              // System Trigger: Open a serial port
+              this.event.trigger('port:open');
 
-            if (store.get(`controllers["${port}"]`)) {
-              log.error(`Serial port "${port}" was not properly closed`);
-            }
-            store.set(`controllers[${JSON.stringify(port)}]`, controller);
+              if (store.get(`controllers["${port}"]`)) {
+                log.error(`Serial port "${port}" was not properly closed`);
+              }
+              store.set(`controllers[${JSON.stringify(port)}]`, controller);
 
-            // Join the room
-            socket.join(port);
+              // Join the room
+              socket.join(port);
 
-            callback(null);
-          });
+              callback(null);
+            });
+          } catch (err) {
+            finishOpening();
+            callback(automatic ? { message: err.message || String(err) } : err);
+          }
         });
 
         // Close serial port
@@ -330,6 +361,11 @@ class CNCEngine {
           }
 
           // System Trigger: Close a serial port
+          const refusal = refused(port, 'command', 'close');
+          if (refusal) {
+            callback(new Error(refusal.message));
+            return;
+          }
           this.event.trigger('port:close');
 
           // Leave the room

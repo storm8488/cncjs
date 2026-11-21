@@ -6,20 +6,41 @@ const crypto = require('crypto');
 const {spawnSync} = require('child_process');
 const root = __dirname;
 const tests = [
- 'arcs','dashboard','dry-motion','home-actions','job-dialog','job-display',
- 'library-transitions','library-file-state','machine-limits',
+ 'harn-page','harn-surface','harn-flows','vert-harness','vert-layout','vert2-layout','vert2-harness','program-progress',
+ 'textes-regles','confirmation-labels','placement-loading','session-geometry','jog-choices','rail-fixed','control-labels',
+ 'usinage-ecran','reprise-volet','check-screen','check-drawing','files-verdict','derogation','arcs','dashboard','real-interface','home-actions','job-dialog','start-override','work-offset','probe-defaults','page-benches','job-display',
+ 'library-transitions','library-file-state','library-comparison','machine-limits',
  'preview-dimensions','preview-viewer','preview','probe-diagram',
- 'probe-lock','probe-model','probe-preparation','probe-profiles','probe-transfer',
+ 'probe-lock','probe-model','probe-preparation','probe-profiles','probe-transfer','probe-real','probe-real-ui','block-probe-dialog',
  'real-history','screen-saver','simulation-alarm','simulation-history',
  'simulation-motion','simulation-report','simulation-ui','simulation',
- 'transition-performance','viewport-fit','startup','display-settings','download-file',
+ 'transition-performance','viewport-fit','viewport-stability','layout-stability-probe','startup','display-settings','download-file',
  'viewport-phases','hidden-views','preview-worker','library-payload',
  'library-lifecycle','library-upload-payload','library-regeneration-cancel','history-view',
- 'job-stream-client','stream-protocol','library-identity','api-prefix','controller-state','connection-status','operator-tools','i18n','journal-languages','profile-storage','perf-harness','viewport-recall','viewport-warmup','macros','system-monitor','tablet-actions','header-clock','backlight','viewport-scroll','commissioning','kept-screens','viewport-mutation','dom-fixture','interface-guide','grbl-help','travel-check','job-resume','status-strip','screen-lock','job-follow','viewport-throttle','tool-position','preview-depth','preview-3d',
- 'numeric-pad','job-preparation','compact-layout','action-feedback','library-context','bundle',
- 'feedback-states','numeric-rules','preparation-keys','strip-messages','job-dialog-strip','real-motion','gcode-corpus','library-page-fit','layout-exceptions',
+ 'job-stream-client','flow-recovery','stream-protocol','library-identity','api-prefix','controller-state','connection-status','operator-tools','i18n','journal-languages','profile-storage','perf-harness','viewport-recall','viewport-warmup','macros','system-monitor','tablet-actions','header-clock','backlight','viewport-scroll','commissioning','kept-screens','viewport-mutation','dom-fixture','interface-guide','grbl-help','travel-check','job-resume','status-strip','screen-lock','job-follow','viewport-throttle','tool-position','preview-depth','preview-3d',
+ 'numeric-pad','text-keyboard','compact-layout','action-feedback','library-context','bundle',
+ 'feedback-states','numeric-rules','strip-messages','job-dialog-strip','real-motion','zero-machine','origin-sheet','zero-piece','probe-assistant','probe-diagnostic','gcode-corpus','library-page-fit','layout-exceptions',
  'control-attribution','program-check-view','preview-identity','server-history','projects','server-messages',
- 'strip-guard','strip-continuity','preview-notes'
+ 'strip-guard','strip-continuity','preview-notes','no-simulation-access','connect-cnc',
+ 'motion-estimate','preview-inspect','laser-view','preview-gl','preview-sidecar','job-motion','viz-i18n',
+ 'tablet-profile','tablet-diagnostic','scenario-profiles','simulated-kind','laser-z','wifi-settings','system-updates',
+ 'preview-3d-gpu','preview-3d-live','preview-3d-overlays','responsive-wide','origin-preview','session-renew','job-stream-no-session','scenario-perf-safety','scenario-perf-defects',
+ 'network-hint','session-backoff','session-refused','settings-identity','session-race','plain-403','monotonic-delays','report-age-clock','dashboard-pause-guard','frame-refusal-reasons',
+ 'bughunt-c-1','bughunt-f3',
+ 'v2-idle-frames','v2-gate','v2-contract','v2-i18n','v2-mounts','v2-review-fixes',
+ 'v2-inspect','v2-inspect-index','v2-inspect-contract','v2-inspect-scene','v2-inspect-lifecycle','v2-inspect-measure','v2-inspect-style',
+ 'v2-sequences','v2-sequences-provider','v2-sequences-geometry','v2-origin',
+ 'v2-observation','v2-observation-history','v2-observation-lifecycle',
+ 'v2-journal-context',
+ 'v2-suivi','v2-suivi-style','v2-suivi-preview','home-suivi',
+ 'v2-preparer','v2-preparer-reopen','v2-preparer-rest','v2-preparer-layout','preparer-style','v2-files','v2-files-frames','files-screen','machine-screen','remise-en-route','more-screen','seance','parcours-server','fil','refus','refus-table','confirmation-classes','direct-calls','cache-version','commandes-migration','transverse-screen',
+ 'v2-settings','v2-journal','v2-machine','v2-machine-release','v2-machine-frames',
+ 'performance-v2-safety',
+ 'auto-connect','auto-reload','auto-reload-recovery',
+ 'small-screens',
+ 'cnc-frame',
+ // Merge of the lots: F5 and F10 in the same page load.
+ 'f5-f10'
 ].map(name=>'test-'+name+'.cjs');
 // The backend (job service, event stream, motion preflight, probe input) lives in
 // src/server/services/touch and is covered by the root Jest suite (`yarn test`).
@@ -61,7 +82,7 @@ if(fs.existsSync(manifestPath)) check('Intégrité de la sauvegarde',()=>{
 if(!results.some(result=>!result.ok)) {
  check('Syntaxe des scripts',()=>{
   const scripts=fs.readdirSync(path.join(root,'touch')).filter(name=>name.endsWith('.js')).map(name=>'touch/'+name);
-  scripts.push('preview-server.cjs','dom-fixture.cjs','verify-project.cjs','browser-strip.cjs','build-bundle.cjs');
+  scripts.push('preview-server.cjs','dom-fixture.cjs','verify-project.cjs','browser-strip.cjs','build-bundle.cjs','browser-run.cjs','measure-performance-v2.cjs');
   scripts.concat(tests).forEach(file=>run(file,true));
  });
  check('Ressources locales des deux pages',()=>{

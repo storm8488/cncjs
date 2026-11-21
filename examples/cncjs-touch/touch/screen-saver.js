@@ -34,7 +34,7 @@
     if (window.CNCStripGuard && typeof window.CNCStripGuard.isolate === 'function') background = window.CNCStripGuard.isolate(overlay, [], { cover: true });
     else background = Array.prototype.filter.call(document.body.children, function (el) { return el !== overlay && !/^(SCRIPT|STYLE|LINK)$/.test(el.tagName); })
       .map(function (el) { var entry = { el: el, inert: el.inert }; el.inert = true; return entry; });
-    held = {}; asleep = true; overlay.hidden = false; overlay.focus({ preventScroll: true }); announce(true); return true;
+    held = {}; asleep = true; scrollBlocking(true); overlay.hidden = false; overlay.focus({ preventScroll: true }); announce(true); return true;
   }
   function check() {
     var now=elapsedClock();if(now<lastActivity)lastActivity=now;
@@ -44,7 +44,7 @@
   function restore() {
     clearTimeout(wakeTimer); wakeTimer = null;
     if (!asleep && !waking) return;
-    asleep = false; waking = false; held = {}; overlay.hidden = true; announce(false);
+    asleep = false; waking = false; held = {}; scrollBlocking(false); overlay.hidden = true; announce(false);
     if (typeof background === 'function') background(); else background.forEach(function (entry) { entry.el.inert = entry.inert; });
     background = [];
     if (previousFocus && previousFocus.isConnected) previousFocus.focus({ preventScroll: true });
@@ -65,7 +65,11 @@
   }
   function activity(e) {
     if (asleep || waking) {
-      e.preventDefault(); e.stopImmediatePropagation(); track(e); announce(false);
+      // Preserve browser shortcuts (including the first reload during sleep),
+      // while stopping propagation to every machine control below the shield.
+      var shortcut=/^key/.test(e.type)&&(e.ctrlKey||e.altKey||e.metaKey||e.key==='F5'||e.code==='F5');
+      if(!shortcut)e.preventDefault();
+      e.stopImmediatePropagation(); track(e); announce(false);
       // Keep the shield through release and the following synthetic/double click.
       if (e.type === 'click' || e.type === 'pointerup' || e.type === 'mouseup' || e.type === 'touchend' || e.type === 'keyup') {
         asleep = false; waking = true;
@@ -74,9 +78,21 @@
     }
     lastActivity = elapsedClock();
   }
-  ['pointerdown','pointerup','pointercancel','mousedown','mouseup','touchstart','touchend','touchcancel','keydown','keyup','click','dblclick','wheel'].forEach(function (event) {
+  ['pointerdown','pointerup','pointercancel','mousedown','mouseup','keydown','keyup','click','dblclick'].forEach(function (event) {
     window.addEventListener(event, activity, { capture: true, passive: false });
   });
+  // Touch and wheel listeners that may cancel make every scroll start wait for the main thread. Awake,
+  // they only note the activity (passive); asleep and until the end of the wake (restore), the blocking
+  // ones shield the page exactly as before.
+  var SCROLL_EVENTS = ['touchstart','touchend','touchcancel','wheel'];
+  function awakeActivity() { if (!asleep && !waking) lastActivity = elapsedClock(); }
+  function scrollBlocking(on) {
+    SCROLL_EVENTS.forEach(function (event) {
+      if (on) window.addEventListener(event, activity, { capture: true, passive: false });
+      else window.removeEventListener(event, activity, true);
+    });
+  }
+  SCROLL_EVENTS.forEach(function (event) { window.addEventListener(event, awakeActivity, { capture: true, passive: true }); });
   window.addEventListener('blur', function () { held = {}; finishWake(); });
   function status() { return { blocked: !!activeController, reason: policyReason }; }
   function jobStatus(event) {

@@ -51,6 +51,82 @@ const REPORT_WCO_REFRESH_IDLE_COUNT = 10; // WCO refresh when machine is idle
 const REPORT_OVR_REFRESH_BUSY_COUNT = 20; // Override refresh when machine is busy
 const REPORT_OVR_REFRESH_IDLE_COUNT = 10; // Override refresh when machine is idle
 
+// Profile 'lunyee': the operator's LUNYEE 4040 (Grbl_Esp32 binary "1.1f.20231030"), with the
+// behaviours seen on the real board that the upstream code does not explain
+// (examples/cncjs-touch/design/refonte/PLAN-CORRECTIONS.md § 2.1, FIRMWARE.md § 2).
+const LUNYEE_SETTINGS = {
+    [SETTINGS.PROBE_PIN_INVERT]: 1,
+    [SETTINGS.STATUS_REPORT_MASK]: 1,
+    [SETTINGS.REPORT_INCHES]: 0,
+    [SETTINGS.SOFT_LIMITS_ENABLE]: 1,
+    [SETTINGS.HARD_LIMITS_ENABLE]: 1,
+    [SETTINGS.HOMING_ENABLE]: 1,
+    [SETTINGS.HOMING_DIR_INVERT]: 3,
+    [SETTINGS.HOMING_PULLOFF]: 2,
+    [SETTINGS.SPINDLE_RPM_MAX]: 1000,
+    [SETTINGS.X_MAX_RATE]: 4000,
+    [SETTINGS.Y_MAX_RATE]: 4000,
+    [SETTINGS.Z_MAX_RATE]: 800,
+    [SETTINGS.X_MAX_TRAVEL]: 408,
+    [SETTINGS.Y_MAX_TRAVEL]: 396,
+    [SETTINGS.Z_MAX_TRAVEL]: 130
+};
+
+const oneOf = (name, value, allowed) => {
+    const v = value === undefined ? allowed[0] : value;
+    if (!allowed.includes(v)) {
+        throw new Error(`${name}: expected ${allowed.join('|')}`);
+    }
+    return v;
+};
+
+/**
+ * Options of a profile, or null for the standard Grbl 1.1h simulator (unchanged).
+ *   executedAfterHoming 'zero' (default) | 'stored': the offset the moves use after a homing,
+ *                       while WCO:0,0,0 is reported either way (open question E-B)
+ *   resetAtRest         'keep' (default, upstream) | 'restart': a reset at rest (question E-1)
+ *   homeReports         false: no status report during the homing cycle (question Q-05)
+ *   homingMs            duration of the simulated homing cycle (default 1500 ms)
+ *   softLimitInset      the far end of each axis refused this much early (default 0.2 mm)
+ * @param {object} options - Constructor options
+ * @returns {object|null} Profile
+ */
+const profileOf = (options) => {
+    if (options.profile === undefined || options.profile === null) {
+        return null;
+    }
+    if (options.profile !== 'lunyee') {
+        throw new Error(`unknown profile: ${options.profile}`);
+    }
+    const homingMs = options.homingMs === undefined ? 1500 : Number(options.homingMs);
+    const softLimitInset = options.softLimitInset === undefined ? 0.2 : Number(options.softLimitInset);
+    if (!(homingMs >= 0) || !(softLimitInset >= 0)) {
+        throw new Error('homingMs and softLimitInset: expected numbers >= 0');
+    }
+    return {
+        name: 'lunyee',
+        executedAfterHoming: oneOf('executedAfterHoming', options.executedAfterHoming, ['zero', 'stored']),
+        resetAtRest: oneOf('resetAtRest', options.resetAtRest, ['keep', 'restart']),
+        homeReports: options.homeReports !== false,
+        homingMs,
+        softLimitInset
+    };
+};
+
+const defaultParserState = () => ({
+    motion: 'G0',
+    coordinate: 'G54',
+    plane: 'G17',
+    distance: 'G90',
+    feedRate: 'G94',
+    units: 'G21',
+    cutterComp: 'G40',
+    toolLength: 'G49',
+    program: 'M0',
+    spindle: 'M5',
+    coolant: 'M9',
+});
+
 /**
  * Get default motion state
  * @returns {object} New motion state object
@@ -96,10 +172,28 @@ class GrblSimulator {
     };
 
     #waitingQueue = [];
+    // Bumped by a reset or a critical alarm: a deferred 'ok' (G4) from before is dropped.
+    #epoch = 0;
 
-    constructor() {
+    // Feed hold (Grbl 1.1): the time the motion was frozen at, or null.
+    #hold = null;
+
+    /**
+     * @param {object} [options] - { profile: 'lunyee', ... } (see profileOf), probeStuck
+     */
+    constructor(options = {}) {
+        // Field profile, or null (standard Grbl 1.1h).
+        this.profile = profileOf(options);
+        this.version = this.profile ? '1.1f' : GrblSimulator.VERSION;
+        this.buildDate = this.profile ? '20231030' : GrblSimulator.BUILD_DATE;
+
         // System state
         this.alarmCode = 0;
+        // A homing cycle has completed since the last restart.
+        this.homed = false;
+        // LUNYEE (L5): after a homing, the active offset is void until reloaded:
+        // { executed, reported } (true = zero), or null (the stored offset of `$#`).
+        this.offsetVoid = null;
 
         // Machine position (absolute machine coordinates)
         this.machinePosition = { x: 0, y: 0, z: 0 };
@@ -207,6 +301,21 @@ class GrblSimulator {
         this.probeSuccess = false;
         this.probeTriggered = false; // Simulated probe pin state (can be set for testing)
 
+        // Fault injection (tests): 'contact' = G38.x touches the simulated surface,
+        // 'miss' = no contact over the whole programmed move.
+        this.probeMode = 'contact';
+        // Permanent probe contact (the spindle grounds the tool): Pn:P in every report,
+        // G38.2 / G38.3 raise ALARM:4 before moving, G38.4 / G38.5 never lose the contact.
+        this.probeStuck = options.probeStuck === true;
+        // Hard limit hit (Grbl 1.1 critical event): only Ctrl-X is heard until a reset.
+        this.criticalAlarm = false;
+
+        if (this.profile) {
+            Object.assign(this.settings, LUNYEE_SETTINGS);
+            // L2: the board starts locked in Alarm by $22=1, MPos 0,0,0, not homed.
+            this.machineState = 'Alarm';
+        }
+
         // Start planner executor
         this.startPlannerExecutor();
     }
@@ -225,6 +334,10 @@ class GrblSimulator {
      */
     set machineState(state) {
         this.#machineState = state;
+        // Leaving Hold by any other path (reset, alarm) drops the frozen motion's resume point.
+        if (state !== 'Hold') {
+            this.#hold = null;
+        }
 
         // Update laser power when machine state changes (for Hold/Door safety shutoff)
         this.updateLaserPower();
@@ -370,12 +483,15 @@ class GrblSimulator {
         // Debug logging (can be enabled with DEBUG_PLANNER env var)
         const debug = process.env.DEBUG_PLANNER === '1';
 
+        // Feed hold: the motion stays frozen and no queued block starts until '~' (lines are still accepted below).
+        const held = this.#hold !== null;
+
         // Update current motion state
-        if (this.#motionState.active) {
+        if (!held && this.#motionState.active) {
             const now = Date.now();
 
-            // Check soft limits during execution (only if enabled)
-            if (this.settings[SETTINGS.SOFT_LIMITS_ENABLE] === 1) {
+            // Check soft limits during execution (only if enabled; LUNYEE: at parse, see outsideSoftLimits)
+            if (!this.profile && this.settings[SETTINGS.SOFT_LIMITS_ENABLE] === 1) {
                 const currentPos = this.getCurrentPosition();
                 const softLimitCheck = this.checkSoftLimits(currentPos);
 
@@ -417,7 +533,7 @@ class GrblSimulator {
         }
 
         // Start next command if nothing is executing
-        if (!this.#motionState.active && this.#plannerBuffer.queue.length > 0) {
+        if (!held && !this.#motionState.active && this.#plannerBuffer.queue.length > 0) {
             const nextCommand = this.#plannerBuffer.queue.shift();
             this.#plannerBuffer.executing = nextCommand;
 
@@ -442,11 +558,15 @@ class GrblSimulator {
                 if (typeof result === 'string') {
                     waiting.callback(result);
                 } else if (result && result.waitForPlannerEmpty) {
-                    // Handle dwell
+                    // Handle dwell (never answered after a reset or a critical alarm)
+                    const epoch = this.#epoch;
                     const waitForPlannerEmpty = () => {
+                        if (epoch !== this.#epoch) {
+                            return;
+                        }
                         const plannerEmpty = this.#plannerBuffer.queue.length === 0 && !this.#motionState.active;
                         if (plannerEmpty) {
-                            setTimeout(() => waiting.callback('ok\r\n'), result.duration);
+                            setTimeout(() => epoch === this.#epoch && waiting.callback('ok\r\n'), result.duration);
                         } else {
                             setTimeout(waitForPlannerEmpty, 10);
                         }
@@ -473,6 +593,12 @@ class GrblSimulator {
      * @param {function} callback - Called with response (must be string)
      */
     processLineAsync(line, callback) {
+        // Critical event (hard limit): Grbl 1.1 executes nothing and answers nothing until
+        // Ctrl-X; the reset then flushes what was received meanwhile.
+        if (this.criticalAlarm) {
+            return;
+        }
+
         // Detect if this is a motion command that uses planner buffer
         // From Grbl source (motion_control.c), only these call mc_line() and use planner:
         // - G0, G1, G2, G3 WITH axis words (X, Y, or Z)
@@ -515,12 +641,19 @@ class GrblSimulator {
             callback(result);
         } else if (result && result.isDwell) {
             // G4 Dwell: Wait for planner to empty, then delay, then send ok
+            // (never after a reset or a critical alarm that came meanwhile).
+            const epoch = this.#epoch;
             const waitForPlannerEmpty = () => {
+                if (epoch !== this.#epoch) {
+                    return;
+                }
                 const plannerEmpty = this.#plannerBuffer.queue.length === 0 && !this.#motionState.active;
                 if (plannerEmpty) {
                     // Planner empty - now dwell for specified duration
                     setTimeout(() => {
-                        callback('ok\r\n');
+                        if (epoch === this.#epoch) {
+                            callback('ok\r\n');
+                        }
                     }, result.duration);
                 } else {
                     // Planner still has commands - wait and check again
@@ -643,22 +776,48 @@ class GrblSimulator {
     processRealtimeCommand(char) {
         const code = char.charCodeAt(0);
 
+        // Critical event (hard limit): protocol.c blocks everything but the reset,
+        // status reports included.
+        if (this.criticalAlarm && char !== '\x18') {
+            return '';
+        }
+
         switch (char) {
             case '?':
-                // Status report query
+                // Status report query (LUNYEE, homeReports false: none during the homing cycle)
+                if (this.profile && !this.profile.homeReports && this.machineState === 'Home') {
+                    return '';
+                }
                 return this.generateStatusReport();
 
             case '!':
-                // Feed hold
-                if (this.machineState === 'Run' || this.machineState === 'Jog') {
+                // Feed hold: as Grbl 1.1, the machine stays in Hold (motion frozen, queued
+                // blocks not started) until '~'. From Idle too, so a block queued between
+                // two lines is not started either. During a jog, Grbl 1.1 cancels the jog
+                // instead (protocol.c, SUSPEND_JOG_CANCEL): back to Idle, '~' does nothing.
+                if (this.machineState === 'Jog') {
+                    this.cancelJog();
+                } else if (this.machineState === 'Run' || this.machineState === 'Idle') {
                     this.machineState = 'Hold';
+                    this.#hold = { at: Date.now() };
                 }
                 return '';
 
             case '~':
-                // Cycle start / resume
+                // Cycle start / resume: the frozen motion continues where it stopped.
                 if (this.machineState === 'Hold') {
-                    this.machineState = 'Idle';
+                    const hold = this.#hold;
+                    if (hold && this.#motionState.active) {
+                        const shift = Date.now() - hold.at;
+                        this.setMotionState({
+                            startTime: this.#motionState.startTime + shift,
+                            endTime: this.#motionState.endTime + shift
+                        });
+                        this.machineState = 'Run';
+                    } else {
+                        // Nothing in motion: the next queued block (if any) starts on the next tick.
+                        this.machineState = 'Idle';
+                    }
                 }
                 return '';
 
@@ -750,6 +909,20 @@ class GrblSimulator {
      * @returns {string} Response
      */
     processSystemCommand(line) {
+        if (this.profile) {
+            // L13: `$#`, `$I`, `$N` answer in Idle and Alarm, not while moving; `$$` not in Run or Hold.
+            if (['$#', '$I', '$N'].includes(line) && ['Run', 'Hold', 'Jog'].includes(this.machineState)) {
+                return 'error:8\r\n';
+            }
+            if (line === '$$' && ['Run', 'Hold'].includes(this.machineState)) {
+                return 'error:8\r\n';
+            }
+            // L4: $HX, $HY and $HZ run the whole cycle on this board.
+            if (/^\$H[XYZ]$/.test(line)) {
+                return this.runHomingCycle();
+            }
+        }
+
         // View Grbl settings
         if (line === '$$') {
             return this.listSettings();
@@ -884,8 +1057,15 @@ class GrblSimulator {
 
                     // Update active WCS if coordinate system changed
                     if (group === 'coordinate') {
+                        // LUNYEE (L5): only another system loads a stored offset; the active one again does nothing.
+                        const other = cmd !== this.activeWCS;
                         this.activeWCS = cmd;
-                        this.reportWcoCounter = 0; // Report WCO immediately on next status report
+                        if (other) {
+                            this.offsetVoid = null;
+                        }
+                        if (!this.profile || other) {
+                            this.reportWcoCounter = 0; // Report WCO immediately on next status report
+                        }
                     }
                 }
             }
@@ -919,6 +1099,13 @@ class GrblSimulator {
                 this.parserState.coolant = 'M8'; // Flood only
             }
             // If neither M7 nor M8 in this command and neither already active, keep current state
+        }
+
+        if (this.profile) {
+            const handled = this.lunyeeGCode(parsed, upperLine);
+            if (handled) {
+                return handled;
+            }
         }
 
         // Handle G10 L2 (Set Work Coordinate System)
@@ -956,7 +1143,7 @@ class GrblSimulator {
         if (parsed.commands.includes('G92')) {
             // G92: Sets G92 offset so that current position becomes the specified value
             // Formula: G92_offset = MPos - WCS - WPos_desired
-            const wcsOffset = this.workCoordinateOffsets[this.activeWCS];
+            const wcsOffset = this.executedOffset();
 
             for (const axis of ['x', 'y', 'z']) {
                 if (parsed.coords[axis] !== null) {
@@ -1036,8 +1223,9 @@ class GrblSimulator {
                 // Return the result with wait information
                 return result;
             } else {
-                // Linear motion (G0, G1)
-                const result = this.executeLinearMotion(parsed.coords, line);
+                // Linear motion (G0, G1); LUNYEE: G53 targets machine coordinates for this line
+                const machine = this.profile !== null && parsed.commands.includes('G53');
+                const result = this.executeLinearMotion(parsed.coords, line, machine);
 
                 if (result.error) {
                     return result.error;
@@ -1071,16 +1259,44 @@ class GrblSimulator {
         const startPosition = this.getPlannedEndPosition();
         const endPosition = this.calculateMachinePosition(coords, startPosition);
 
+        // LUNYEE (L6): the probe target is checked against the soft limits like any move.
+        if (this.outsideSoftLimits(endPosition)) {
+            return this.softLimitAlarm();
+        }
+
         // Check initial probe state
-        const initialProbeState = this.probeTriggered;
+        const initialProbeState = this.probeTriggered || this.probeStuck;
 
         // For "toward" probes (G38.2/G38.3), pin should NOT be triggered initially
         // For "away" probes (G38.4/G38.5), pin SHOULD be triggered initially
         const expectedInitialState = !isToward;
 
-        if (initialProbeState !== expectedInitialState) {
+        // Grbl 1.1 (mc_probe_cycle) checks the pin only once the moves queued before
+        // have ended (protocol_buffer_synchronize): with moves pending, the check waits
+        // in the planner queue, in order; a failure then raises ALARM:4 and flushes.
+        const busy = this.#plannerBuffer.queue.length > 0 || this.#motionState.active || !!this.#plannerBuffer.executing;
+        if (busy) {
+            this.#plannerBuffer.queue.push({
+                endPosition: startPosition,
+                execute: () => {
+                    if ((this.probeTriggered || this.probeStuck) !== expectedInitialState) {
+                        this.probeSuccess = false;
+                        this.#plannerBuffer.executing = null;
+                        this.emit('data', this.triggerAlarm(4));
+                    }
+                }
+            });
+        } else if (initialProbeState !== expectedInitialState) {
+            // Grbl 1.1 (mc_probe_cycle): ALARM:4 "probe fail initial", no move, no PRB,
+            // then the line's 'ok'.
             this.probeSuccess = false;
-            return { error: 'error:4\r\n' }; // Probe fail initial
+            return { error: this.triggerAlarm(4) + 'ok\r\n' };
+        }
+
+        // Injected miss: the probe travels the whole programmed move without contact.
+        // A permanent contact is never lost either (G38.4 / G38.5).
+        if (this.probeMode === 'miss' || (!isToward && this.probeStuck)) {
+            return this.queueProbeMiss(startPosition, endPosition, signalError);
         }
 
         // Simulate realistic probe contact with surface warpage
@@ -1097,11 +1313,25 @@ class GrblSimulator {
 
         // Calculate where probe will contact (in machine coordinates)
         const contactZ = simulateProbeContact(endPosition.x, endPosition.y);
-        const probeContactPosition = {
+        let probeContactPosition = {
             x: endPosition.x,
             y: endPosition.y,
             z: Math.max(contactZ, endPosition.z) // Don't go below target depth
         };
+
+        // LUNYEE (L10): a probe touches only when its move crosses the surface going down;
+        // otherwise no contact (G38.3: [PRB:<end>:0], no alarm; G38.2: ALARM:5).
+        if (this.profile && isToward) {
+            if (!(startPosition.z > contactZ && endPosition.z <= contactZ)) {
+                return this.queueProbeMiss(startPosition, endPosition, signalError);
+            }
+            const k = (startPosition.z - contactZ) / (startPosition.z - endPosition.z);
+            probeContactPosition = {
+                x: startPosition.x + (endPosition.x - startPosition.x) * k,
+                y: startPosition.y + (endPosition.y - startPosition.y) * k,
+                z: contactZ
+            };
+        }
 
         // Calculate distance to contact point
         const dx = probeContactPosition.x - startPosition.x;
@@ -1132,19 +1362,99 @@ class GrblSimulator {
                 this.probeSuccess = true;
             },
             onComplete: () => {
-                // Emit PRB response when probe motion completes (simulates real Grbl behavior)
-                const wcsOffset = this.workCoordinateOffsets[this.activeWCS];
-                const workPos = {
-                    x: this.probePosition.x - wcsOffset.x - this.g92Offset.x,
-                    y: this.probePosition.y - wcsOffset.y - this.g92Offset.y,
-                    z: this.probePosition.z - wcsOffset.z - this.g92Offset.z
-                };
-                const prbResponse = `[PRB:${workPos.x.toFixed(3)},${workPos.y.toFixed(3)},${workPos.z.toFixed(3)}:1]\r\n`;
+                // Emit PRB response when probe motion completes; Grbl reports machine
+                // coordinates (report.c, report_probe_parameters).
+                const p = this.probePosition;
+                const prbResponse = `[PRB:${p.x.toFixed(3)},${p.y.toFixed(3)},${p.z.toFixed(3)}:1]\r\n`;
                 this.emit && this.emit('data', prbResponse);
             }
         });
 
         return { error: null, waitForCompletion: true, duration: probeTime };
+    }
+
+    /**
+     * Queue a probe move that never touches (fault injection, probeMode 'miss').
+     * Grbl 1.1: G38.2/G38.4 end in ALARM:5 then [PRB:...:0] with the previous probe
+     * position; G38.3/G38.5 end without alarm, [PRB:<end>:0].
+     */
+    queueProbeMiss(startPosition, endPosition, signalError) {
+        const distance = Math.hypot(endPosition.x - startPosition.x, endPosition.y - startPosition.y, endPosition.z - startPosition.z);
+        const probeFeedRate = this.feedRate * (this.feedOverride / 100);
+        const probeTime = (distance / probeFeedRate) * 60 * 1000;
+
+        this.#plannerBuffer.queue.push({
+            endPosition,
+            execute: () => {
+                this.machineState = 'Run';
+                this.setMotionState({
+                    active: true,
+                    type: 'linear',
+                    startTime: Date.now(),
+                    endTime: Date.now() + probeTime,
+                    startPosition,
+                    endPosition,
+                    currentFeedRate: probeFeedRate,
+                    data: {},
+                });
+                this.probeSuccess = false;
+            },
+            onComplete: () => {
+                let alarm = '';
+                if (signalError) {
+                    alarm = this.triggerAlarm(5);
+                } else {
+                    this.probePosition = { ...endPosition };
+                }
+                // Machine coordinates, as Grbl reports them.
+                const p = this.probePosition;
+                const prb = `[PRB:${p.x.toFixed(3)},${p.y.toFixed(3)},${p.z.toFixed(3)}:0]\r\n`;
+                this.emit('data', alarm + prb);
+            }
+        });
+
+        return { error: null, waitForCompletion: true, duration: probeTime };
+    }
+
+    /**
+     * Set a limit switch (fault injection). With hard limits on ($21=1), outside the
+     * homing cycle and outside Alarm, any pin change - press or release, as Grbl 1.1's
+     * pin-change interrupt without software debounce - kills the motion, flushes the
+     * buffers and reports ALARM:1; then only Ctrl-X is heard (critical event).
+     * @param {string} axis - 'x', 'y' or 'z'
+     * @param {boolean} on - switch pressed
+     * @returns {boolean} true if ALARM:1 was raised
+     */
+    setLimitPin(axis, on) {
+        const pin = String(axis).toLowerCase();
+        if (!['x', 'y', 'z'].includes(pin)) {
+            throw new Error(`unknown limit pin: ${axis}`);
+        }
+        const pressed = !!on;
+        if (this.pinState[pin] === pressed) {
+            return false;
+        }
+        this.pinState[pin] = pressed;
+        if (this.settings[SETTINGS.HARD_LIMITS_ENABLE] !== 1 || this.machineState === 'Alarm' || this.machineState === 'Home') {
+            return false;
+        }
+        if (this.profile) {
+            // L8: ALARM:1, then the board restarts (position lost).
+            this.emit('data', `ALARM:1\r\n${this.restart()}`);
+            return true;
+        }
+        // The steppers stop where they are: Grbl keeps that position (homing is then needed).
+        if (this.#motionState.active) {
+            this.machinePosition = this.getCurrentPosition();
+            this.updateWorkPosition();
+        }
+        const alarm = this.triggerAlarm(1);
+        this.#plannerBuffer.executing = null;
+        this.#waitingQueue = [];
+        this.#epoch++;
+        this.criticalAlarm = true;
+        this.emit('data', alarm + '[MSG:Reset to continue]\r\n');
+        return true;
     }
 
     /**
@@ -1199,13 +1509,19 @@ class GrblSimulator {
         this.parserState.motion = 'G1'; // Jogging is always linear
         this.feedRate = parsed.words.F;
 
-        // Get the expected start position and end position
+        // Get the expected start position and end position (LUNYEE: $J=G53 in machine coordinates)
         const startPosition = { ...this.machinePosition };
-        const endPosition = this.calculateMachinePosition(parsed.coords, startPosition);
+        const machine = this.profile !== null && parsed.commands.includes('G53');
+        const endPosition = this.calculateMachinePosition(parsed.coords, startPosition, machine);
 
         // Restore parser state immediately (jogging doesn't modify it!)
         this.parserState = savedParserState;
         this.feedRate = savedFeedRate;
+
+        // LUNYEE (L6): a jog beyond the soft limits is refused, without alarm (upstream Jog.cpp).
+        if (this.outsideSoftLimits(endPosition)) {
+            return 'error:15\r\n';
+        }
 
         // Calculate distance and motion time
         const dx = endPosition.x - startPosition.x;
@@ -1248,10 +1564,14 @@ class GrblSimulator {
      * @param {object} coords - Target coordinates
      * @returns {object} Result with error if any
      */
-    executeLinearMotion(coords) {
+    executeLinearMotion(coords, line, machine = false) {
         // Get the expected start position (end of last queued command or current position) and end position
         const startPosition = this.getPlannedEndPosition();
-        const endPosition = this.calculateMachinePosition(coords, startPosition);
+        const endPosition = this.calculateMachinePosition(coords, startPosition, machine);
+
+        if (this.outsideSoftLimits(endPosition)) {
+            return this.softLimitAlarm();
+        }
 
         // Calculate distance from planned start to end
         const dx = endPosition.x - startPosition.x;
@@ -1449,6 +1769,23 @@ class GrblSimulator {
             z: startPosition.z + centerOffset.z
         };
 
+        // LUNYEE (L6): the board checks every segment of the arc; here points 0.5 mm apart at most.
+        if (this.profile) {
+            const n = Math.min(10000, Math.max(8, Math.ceil(totalDistance / 0.5)));
+            for (let i = 1; i <= n; i++) {
+                const k = i / n;
+                const point = i === n ? endPosition : { ...startPosition };
+                if (i < n) {
+                    point[axis0] = center[axis0] + radius * Math.cos(startAngle + angularTravel * k);
+                    point[axis1] = center[axis1] + radius * Math.sin(startAngle + angularTravel * k);
+                    point[linearAxis] = startPosition[linearAxis] + (endPosition[linearAxis] - startPosition[linearAxis]) * k;
+                }
+                if (this.outsideSoftLimits(point)) {
+                    return this.softLimitAlarm();
+                }
+            }
+        }
+
         // Capture plane for closure
         const currentPlane = this.parserState.plane;
 
@@ -1584,7 +1921,7 @@ class GrblSimulator {
      * @param {object} [referencePosition] - Reference position for incremental mode and defaults
      * @returns {object} Machine position (after applying units, distance mode, WCS offsets)
      */
-    calculateMachinePosition(coords, referencePosition = this.machinePosition) {
+    calculateMachinePosition(coords, referencePosition = this.machinePosition, machine = false) {
         const target = { ...referencePosition };
 
         // Apply coordinate system based on distance mode (G90/G91)
@@ -1592,8 +1929,8 @@ class GrblSimulator {
         const isInches = this.parserState.units === 'G20';
         const MM_PER_INCH = 25.4;
 
-        // Get work coordinate system offset
-        const wcsOffset = this.workCoordinateOffsets[this.activeWCS];
+        // Get work coordinate system offset (the one the moves use)
+        const wcsOffset = this.executedOffset();
 
         for (const axis of ['x', 'y', 'z']) {
             if (coords[axis] !== null) {
@@ -1604,7 +1941,10 @@ class GrblSimulator {
                     value *= MM_PER_INCH;
                 }
 
-                if (isAbsolute) {
+                if (machine) {
+                    // G53: absolute machine coordinates, whatever G90/G91
+                    target[axis] = value;
+                } else if (isAbsolute) {
                     // Absolute mode: MPos = WPos + WCS + G92
                     target[axis] = value + wcsOffset[axis] + this.g92Offset[axis];
                 } else {
@@ -1622,7 +1962,7 @@ class GrblSimulator {
      * Formula: WPos = MPos - WCS - G92
      */
     updateWorkPosition() {
-        const wcsOffset = this.workCoordinateOffsets[this.activeWCS];
+        const wcsOffset = this.reportedOffset();
 
         this.workPosition = {
             x: this.machinePosition.x - wcsOffset.x - this.g92Offset.x,
@@ -1640,7 +1980,8 @@ class GrblSimulator {
             return { ...this.machinePosition };
         }
 
-        const now = Date.now();
+        // In feed hold the position stays where the motion was frozen.
+        const now = this.#hold ? this.#hold.at : Date.now();
         if (now >= this.#motionState.endTime) {
             return { ...this.#motionState.endPosition };
         }
@@ -1696,7 +2037,7 @@ class GrblSimulator {
     generateStatusReport() {
         // Get current position (interpolated if in motion)
         const currentMPos = this.getCurrentPosition();
-        const wcsOffset = this.workCoordinateOffsets[this.activeWCS];
+        const wcsOffset = this.reportedOffset();
         const currentWPos = {
             x: currentMPos.x - wcsOffset.x - this.g92Offset.x,
             y: currentMPos.y - wcsOffset.y - this.g92Offset.y,
@@ -1720,7 +2061,15 @@ class GrblSimulator {
             reportedFeedRate = this.#motionState.currentFeedRate;
         }
 
-        let report = `<${this.machineState}|${posType}:${posValue}|FS:${reportedFeedRate.toFixed(1)},${this.spindleSpeed.toFixed(0)}`;
+        // Grbl 1.1 always reports a hold with its sub-state; the simulator freezes at once, so the hold is complete (0).
+        const reportedState = this.machineState === 'Hold' ? 'Hold:0' : this.machineState;
+        // LUNYEE (L12): FS gives the speed the spindle runs at, override applied then capped at $30.
+        let reportedSpindle = this.spindleSpeed;
+        if (this.profile) {
+            const on = this.parserState.spindle === 'M3' || this.parserState.spindle === 'M4';
+            reportedSpindle = on ? Math.min(this.spindleSpeed * this.spindleOverride / 100, this.settings[SETTINGS.SPINDLE_RPM_MAX]) : 0;
+        }
+        let report = `<${reportedState}|${posType}:${posValue}|FS:${reportedFeedRate.toFixed(1)},${reportedSpindle.toFixed(0)}`;
 
         // Add line number if available (Ln:)
         // $10 bit 2 controls line number reporting (BITFLAG_RT_STATUS_LINE_NUMBERS)
@@ -1754,7 +2103,8 @@ class GrblSimulator {
             this.reportWcoCounter--;
         } else {
             // Check if machine is in a busy state
-            const isBusy = ['Run', 'Hold', 'Jog', 'Home', 'Door'].includes(this.machineState);
+            // (LUNYEE, L11: the board's report.c misses a `break`, so 10 in every state)
+            const isBusy = !this.profile && ['Run', 'Hold', 'Jog', 'Home', 'Door'].includes(this.machineState);
             // Reset counter based on machine state
             this.reportWcoCounter = isBusy
                 ? (REPORT_WCO_REFRESH_BUSY_COUNT - 1)
@@ -1818,7 +2168,7 @@ class GrblSimulator {
         if (this.pinState.z) {
             pins += 'Z';
         }
-        if (this.pinState.probe || this.probeTriggered) {
+        if (this.pinState.probe || this.probeTriggered || this.probeStuck) {
             pins += 'P';
         }
         if (this.pinState.door) {
@@ -1917,6 +2267,10 @@ class GrblSimulator {
      * @returns {string} Build info
      */
     getBuildInfo() {
+        if (this.profile) {
+            // L1: as the board answers (no name, options letters only).
+            return `[VER:${this.version}.${this.buildDate}:]\r\n[OPT:PHSW]\r\nok\r\n`;
+        }
         return `[VER:${GrblSimulator.VERSION}.${GrblSimulator.BUILD_DATE}:Grbl Simulator]\r\n[OPT:V,15,128]\r\nok\r\n`;
     }
 
@@ -1935,6 +2289,9 @@ class GrblSimulator {
     runHomingCycle() {
         if (this.settings[SETTINGS.HOMING_ENABLE] === 0) {
             return 'error:5\r\n'; // Homing disabled
+        }
+        if (this.profile) {
+            return this.runLunyeeHoming();
         }
 
         // Calculate homing motion duration
@@ -1984,12 +2341,21 @@ class GrblSimulator {
         // Check if reset during motion - triggers alarm
         const wasInMotion = this.#motionState.active || this.#plannerBuffer.queue.length > 0;
 
+        if (this.profile) {
+            // L9: in motion (Run, Jog, Home, a held motion), the board restarts and loses its position.
+            if (wasInMotion) {
+                return `ALARM:3\r\n${this.restart()}`;
+            }
+            return this.profile.resetAtRest === 'restart' ? this.restart() : this.resetAtRest();
+        }
+
         // Clear all buffers
         this.#receiveBuffer.queue = [];
         this.#receiveBuffer.used = 0;
         this.#plannerBuffer.queue = [];
         this.#plannerBuffer.executing = null;
         this.#waitingQueue = [];
+        this.#epoch++;
 
         // Stop current motion
         this.resetMotionState();
@@ -2012,6 +2378,13 @@ class GrblSimulator {
             spindle: 'M5',
             coolant: 'M9',
         };
+
+        // Reset after a hard limit: Grbl 1.1 restarts still in Alarm and asks for an unlock.
+        if (this.criticalAlarm) {
+            this.criticalAlarm = false;
+            this.machineState = 'Alarm';
+            return `${this.getStartupMessage()}[MSG:'$H'|'$X' to unlock]\r\n`;
+        }
 
         // If reset during motion, trigger alarm 3
         if (wasInMotion) {
@@ -2070,7 +2443,202 @@ class GrblSimulator {
      * @returns {string} Startup message
      */
     getStartupMessage() {
-        return `\r\nGrbl ${GrblSimulator.VERSION} ['$' for help]\r\n`;
+        return `\r\nGrbl ${this.version} ['$' for help]\r\n`;
+    }
+
+    // Work offset the moves use (MPos = WPos + this + G92). LUNYEE (L5): zero after a homing
+    // until reloaded (executedAfterHoming 'zero'); `$#` keeps the stored one.
+    executedOffset() {
+        return this.offsetVoid && this.offsetVoid.executed ? { x: 0, y: 0, z: 0 } : this.workCoordinateOffsets[this.activeWCS];
+    }
+
+    // Work offset the reports give (WCO:, WPos). LUNYEE (L5): zero after a homing until reloaded.
+    reportedOffset() {
+        return this.offsetVoid && this.offsetVoid.reported ? { x: 0, y: 0, z: 0 } : this.workCoordinateOffsets[this.activeWCS];
+    }
+
+    /**
+     * LUNYEE (L6): envelope of the soft limits of an axis, in machine coordinates. A $23 bit set
+     * homes the axis to 0 with its travel towards +, otherwise towards -; the far end is refused
+     * softLimitInset early (Z -129.735 passes, -129.945 raises ALARM:2 with $132=130).
+     * @param {number} i - 0, 1, 2 for X, Y, Z
+     * @returns {object} { low, high }
+     */
+    softLimitEnvelope(i) {
+        const travel = this.settings[SETTINGS.X_MAX_TRAVEL + i];
+        const inset = this.profile.softLimitInset;
+        return ((this.settings[SETTINGS.HOMING_DIR_INVERT] >> i) & 1)
+            ? { low: 0, high: travel - inset }
+            : { low: -travel + inset, high: 0 };
+    }
+
+    /**
+     * LUNYEE (L6): the axis whose machine target is outside the soft limits ($20=1), or null.
+     * Standard profile: always null (checked during the motion instead).
+     * @param {object} position - Machine target
+     * @returns {string|null} Axis
+     */
+    outsideSoftLimits(position) {
+        if (!this.profile || this.settings[SETTINGS.SOFT_LIMITS_ENABLE] !== 1) {
+            return null;
+        }
+        const axis = ['x', 'y', 'z'].find((a, i) => {
+            const e = this.softLimitEnvelope(i);
+            return position[a] < e.low || position[a] > e.high;
+        });
+        return axis || null;
+    }
+
+    // LUNYEE (L7): a line beyond the soft limits raises ALARM:2 before any move, then the board restarts.
+    softLimitAlarm() {
+        return { error: `ALARM:2\r\n${this.restart()}` };
+    }
+
+    /**
+     * LUNYEE (L2, L7-L9): the board restarts (the field fact; upstream Grbl_Esp32 only resets).
+     * Buffers and motion dropped, MPos 0,0,0, not homed, offsets loaded from `$#`, G92 cleared,
+     * overrides back to 100 %, locked in Alarm by $22=1.
+     * @returns {string} Startup banner (and the unlock request when locked)
+     */
+    restart() {
+        this.#receiveBuffer.queue = [];
+        this.#receiveBuffer.used = 0;
+        this.#plannerBuffer.queue = [];
+        this.#plannerBuffer.executing = null;
+        this.#waitingQueue = [];
+        this.#epoch++;
+        this.criticalAlarm = false;
+        this.resetMotionState();
+        this.machinePosition = { x: 0, y: 0, z: 0 };
+        this.feedRate = 0;
+        this.spindleSpeed = 0;
+        this.parserState = defaultParserState();
+        this.activeWCS = 'G54';
+        this.g92Offset = { x: 0, y: 0, z: 0 };
+        this.offsetVoid = null;
+        this.homed = false;
+        this.feedOverride = 100;
+        this.rapidOverride = 100;
+        this.spindleOverride = 100;
+        this.reportWcoCounter = 0;
+        this.reportOvrCounter = 0;
+        this.alarmCode = 0;
+        const locked = this.settings[SETTINGS.HOMING_ENABLE] === 1;
+        this.machineState = locked ? 'Alarm' : 'Idle';
+        this.updateWorkPosition();
+        return this.getStartupMessage() + (locked ? '[MSG:\'$H\'|\'$X\' to unlock]\r\n' : '');
+    }
+
+    /**
+     * LUNYEE: a reset at rest, as upstream: position and reference kept, an Alarm (or Sleep)
+     * stays locked, parser state and G92 cleared, the stored offset loaded again.
+     * @returns {string} Startup banner
+     */
+    resetAtRest() {
+        const locked = this.machineState === 'Alarm' || this.machineState === 'Sleep';
+        this.#receiveBuffer.queue = [];
+        this.#receiveBuffer.used = 0;
+        this.#plannerBuffer.queue = [];
+        this.#plannerBuffer.executing = null;
+        this.#waitingQueue = [];
+        this.#epoch++;
+        this.resetMotionState();
+        this.feedRate = 0;
+        this.spindleSpeed = 0;
+        this.parserState = defaultParserState();
+        this.activeWCS = 'G54';
+        this.g92Offset = { x: 0, y: 0, z: 0 };
+        this.offsetVoid = null;
+        this.feedOverride = 100;
+        this.rapidOverride = 100;
+        this.spindleOverride = 100;
+        this.reportWcoCounter = 0;
+        this.machineState = locked ? 'Alarm' : 'Idle';
+        this.updateWorkPosition();
+        return this.getStartupMessage() + (locked ? '[MSG:\'$H\'|\'$X\' to unlock]\r\n' : '');
+    }
+
+    /**
+     * LUNYEE (L3, L5, L15): the homing cycle, `ok` once it is over (homingMs). State Home while
+     * it runs, MPos 0,0,0 at the end (origin forced to 0 on this board), then WCO:0,0,0 reported
+     * while `$#` keeps the stored offset.
+     * @returns {object} Deferred `ok` (as a dwell: dropped by a reset or a restart)
+     */
+    runLunyeeHoming() {
+        const startPosition = { ...this.machinePosition };
+        const endPosition = { x: 0, y: 0, z: 0 };
+        const homingTime = this.profile.homingMs;
+        this.#plannerBuffer.queue.push({
+            endPosition,
+            execute: () => {
+                this.machineState = 'Home';
+                this.setMotionState({
+                    active: true,
+                    type: 'linear',
+                    startTime: Date.now(),
+                    endTime: Date.now() + homingTime,
+                    startPosition,
+                    endPosition,
+                    currentFeedRate: this.settings[SETTINGS.HOMING_SEEK],
+                    data: {},
+                });
+            },
+            onComplete: () => {
+                this.homed = true;
+                this.alarmCode = 0;
+                this.offsetVoid = { executed: this.profile.executedAfterHoming === 'zero', reported: true };
+                this.reportWcoCounter = 0;
+                this.updateWorkPosition();
+            }
+        });
+        return { isDwell: true, duration: 0 };
+    }
+
+    /**
+     * LUNYEE: G-code the profile handles itself, or null.
+     *   M2 / M30 (L5): program end, the modal state back to G1 G17 G90 G94 G54 M5 M9 and the stored offset loaded
+     *   G10 L2 / L20 P0-P6 (L5): writes the stored offset (L20: the current position becomes the value);
+     *                            on the active system it is loaded at once
+     * @param {object} parsed - Parsed line
+     * @param {string} upperLine - Line
+     * @returns {string|null} Response
+     */
+    lunyeeGCode(parsed, upperLine) {
+        if (parsed.commands.some((cmd) => /^M0*(2|30)$/.test(cmd))) {
+            Object.assign(this.parserState, { motion: 'G1', coordinate: 'G54', plane: 'G17', distance: 'G90', feedRate: 'G94', spindle: 'M5', coolant: 'M9' });
+            this.activeWCS = 'G54';
+            this.offsetVoid = null;
+            this.reportWcoCounter = 0;
+            this.updateWorkPosition();
+            this.updateLaserPower();
+            return 'ok\r\n';
+        }
+        if (!parsed.commands.includes('G10')) {
+            return null;
+        }
+        const l = /L(\d+)/.exec(upperLine);
+        const p = /P(\d+)/.exec(upperLine);
+        const level = l ? Number(l[1]) : NaN;
+        const index = p ? Number(p[1]) : NaN;
+        if ((level !== 2 && level !== 20) || !(index >= 0 && index <= 6)) {
+            return 'error:29\r\n'; // Unsupported or invalid coordinate system
+        }
+        const name = index === 0 ? this.activeWCS : ['G54', 'G55', 'G56', 'G57', 'G58', 'G59'][index - 1];
+        const offset = this.workCoordinateOffsets[name];
+        const at = this.getPlannedEndPosition();
+        const scale = this.parserState.units === 'G20' ? 25.4 : 1;
+        for (const axis of ['x', 'y', 'z']) {
+            if (parsed.coords[axis] !== null) {
+                const value = parsed.coords[axis] * scale;
+                offset[axis] = level === 2 ? value : at[axis] - this.g92Offset[axis] - value;
+            }
+        }
+        if (name === this.activeWCS) {
+            this.offsetVoid = null;
+        }
+        this.reportWcoCounter = 0;
+        this.updateWorkPosition();
+        return 'ok\r\n';
     }
 
     /**

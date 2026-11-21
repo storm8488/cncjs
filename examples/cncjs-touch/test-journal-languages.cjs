@@ -26,7 +26,7 @@ function runtime(language){
   const report=w.cncSimulationReport.build({...state,nonce:'SECRET',token:'SECRET'},0);
   assert.equal(report.language,language);assert.equal(report.format,'cnc-touch-simulation-report');
   assert.equal(report.finalState.file,filename);assert.equal(report.finalState.state,'Alarm');
-  assert(!JSON.stringify(report).includes('SECRET'));assert(!JSON.stringify(report).includes(ticket.nonce));
+  assert(!JSON.stringify(report).includes('SECRET'));assert(!JSON.stringify(report).includes(JSON.stringify(ticket.nonce)),'nonce as a whole JSON string (the simulated « 1-1 » also appears in dates)');
   const text=w.cncSimulationReport.text(report);
   assert(text.includes(w.cncI18n.t('CNC TOUCH — RAPPORT DE SIMULATION')));assert(text.includes(filename));
   assert(text.includes(w.cncI18n.t('Pause fictive.')));

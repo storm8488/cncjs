@@ -28,11 +28,20 @@ assert.match(el('home-job-ready').textContent,/^Dernière erreur : Erreur 24 : D
 // CNCjs waiting for replies while Grbl idles: the operator is told, with the duration.
 status({...c,activeState:'Idle',workflow:'running',stalledMs:42000},false);assert.match(el('home-job-ready').textContent,/^Travail bloqué \? Grbl est au repos depuis 42 s/);
 status({...c,activeState:'Run',workflow:'running',stalledMs:null},false);assert.equal(el('home-job-ready').textContent,'Travail en cours.');
+// Rehearsal (UI-5, N2): a start refused for another reason than a reload says so; an old report is not a lost connection.
+select('a.nc');
+status({...c,activeState:'Idle',received:0,workflow:'idle',canStart:false,canLoad:true,startReason:'Broche en marche : arrêtez-la (M5) avant de démarrer.'},false);
+assert.equal(el('home-job-ready').textContent,'Broche en marche : arrêtez-la (M5) avant de démarrer.');
+status({...c,activeState:'Idle',received:0,workflow:'idle',canStart:false,canLoad:true,startReason:'Rechargez le fichier avant un nouveau démarrage.'},false);
+assert.equal(el('home-job-ready').textContent,'Rechargez le fichier pour un nouveau départ.');
+status({...c,activeState:'Idle',workflow:'idle',fresh:false},false);assert.equal(el('home-job-ready').textContent,'État machine trop ancien : attendre un rapport récent.');
+status(null);assert.equal(el('home-job-ready').textContent,'État indisponible : attendre la connexion.');
+select('c.nc');
 // A program that reached its end with lines refused by Grbl is never shown as finished.
 status({...c,received:0,workflow:'idle',canStart:false,finished:false,finishedWithErrors:true,jobErrors:2},false);assert.equal(el('home-job-percent').textContent,'100 %');assert.doesNotMatch(el('home-job-eta').textContent,/Terminé/);assert.match(el('home-job-eta').textContent,/2 erreur/);
 status(null);assert.equal(el('home-job-percent').textContent,'—');assert.match(el('home-job-eta').textContent,/indisponible/);
 // Overrides block: hidden for snapshots without the field, values and gating otherwise.
-assert.equal(el('home-overrides').hidden,true);
+assert.equal(el('home-overrides').hidden,false);
 status({...c,canOverride:true,overrides:{feed:90,rapid:100,spindle:110}});
 assert.equal(el('home-overrides').hidden,false);assert.equal(el('home-override-feed').textContent,'90 %');assert.equal(el('home-override-spindle').textContent,'110 %');assert.match(el('home-override-note').textContent,/temps réel/);
 status({...c,workflow:'idle',canOverride:false,overrideReason:'Les corrections s’appliquent pendant un travail en cours ou en pause.',overrides:null});
@@ -42,24 +51,31 @@ status({...c,canOverride:true,overrides:{feed:'x',rapid:100,spindle:Infinity}});
 status({...c,workflow:'idle',canOverride:false,canRapidOverride:true,overrides:{feed:100,rapid:100,spindle:100}},false);
 assert.equal(el('home-override-rapid').textContent,'100 %');assert.match(el('home-rapid-note').textContent,/25 % conseillés pour le premier essai/);
 status({...c,workflow:'idle',canOverride:false,canRapidOverride:true,overrides:{feed:100,rapid:25,spindle:100}},false);
-assert.equal(el('home-override-rapid').textContent,'25 %');assert.match(el('home-rapid-note').textContent,/Grbl revient à 100 %/);
+assert.equal(el('home-override-rapid').textContent,'25 %');assert.match(el('home-rapid-note').textContent,/Les rapides reviennent à 100 %/);
 status({...c,workflow:'idle',canOverride:false,canRapidOverride:false,overrides:{feed:100,rapid:25,spindle:100}},false);assert.equal(el('home-rapid-note').textContent,'');
 // Real feed and spindle speed from Grbl; a pause with the spindle on is flagged.
 status({...c,canOverride:true,feedrate:400,spindleSpeed:12000});assert.match(el('home-live').textContent,/Avance réelle 400 mm\/min · Broche 12.000 tr\/min/);assert.equal(el('home-spindle-warning').hidden,true);
-status({...c,canOverride:true,workflow:'paused',feedrate:0,spindleSpeed:12000});assert.equal(el('home-spindle-warning').hidden,false);assert.match(el('home-spindle-warning').textContent,/broche tourne toujours/);
+status({...c,canOverride:true,workflow:'paused',activeState:'Hold:0',feedrate:0,spindleSpeed:12000});assert.equal(el('home-spindle-warning').hidden,false);assert.match(el('home-spindle-warning').textContent,/les axes sont arrêtés mais la broche tourne toujours/);
+// Hold:1 as the server reports it (activeState Hold, subState 1): still decelerating, never said stopped (phase 7).
+status({...c,canOverride:true,workflow:'paused',activeState:'Hold',subState:1,feedrate:600,spindleSpeed:12000});assert.match(el('home-spindle-warning').textContent,/^Pause : les axes ralentissent/);assert.doesNotMatch(el('home-spindle-warning').textContent,/arrêtés/);
+status({...c,canOverride:true,workflow:'paused',activeState:'Hold',subState:0,feedrate:0,spindleSpeed:12000});assert.match(el('home-spindle-warning').textContent,/les axes sont arrêtés mais la broche tourne toujours/);
+// M0 / M6 pause once the board is at rest (Idle): the axes are stopped.
+status({...c,canOverride:true,workflow:'paused',activeState:'Idle',feedrate:0,spindleSpeed:12000});assert.match(el('home-spindle-warning').textContent,/les axes sont arrêtés mais la broche tourne toujours/);
+// Paused on a Grbl error (no feed hold): Grbl still runs, the axes are not said stopped (rehearsal, x06).
+status({...c,canOverride:true,workflow:'paused',activeState:'Run',feedrate:600,spindleSpeed:12000});assert.match(el('home-spindle-warning').textContent,/^Envoi suspendu : Grbl peut encore exécuter/);assert.doesNotMatch(el('home-spindle-warning').textContent,/arrêtés/);
 status({...c,canOverride:true,workflow:'paused',feedrate:0,spindleSpeed:0});assert.equal(el('home-spindle-warning').hidden,true);
 status({...c,fresh:false,canOverride:true,workflow:'paused',spindleSpeed:12000});assert.equal(el('home-live').textContent,'');assert.equal(el('home-spindle-warning').hidden,true,'stale data never claims anything');
 status({...c,canOverride:true});assert.equal(el('home-live').textContent,'','simulation snapshots without the fields show nothing');
 let real={...c,port:'REAL',remainingSeconds:undefined,received:10};status(real,false);
 for(let i=0;i<11;i++){now+=1000;real={...real,received:real.received+1};status(real,false);}
-assert.match(el('home-job-eta').textContent,/estimé/);assert.match(el('home-job-note').textContent,/indicative/);
+assert.match(el('home-job-eta').textContent,/Progression indisponible/);assert.match(el('home-job-note').textContent,/durée des mouvements/);
 const navigate=name=>{activeScreens.clear();activeScreens.add(name);listeners['cnc-screen-change']({detail:name});};
-navigate('menu');const count=requests.length,writes=stats.writes;
+navigate('more');const count=requests.length,writes=stats.writes;
 for(let i=0;i<50;i++)status(real,false);
 assert.equal(stats.writes,writes);assert.equal(requests.length,count);
 listeners['cnc-library-preview-updated']({detail:{file:'a.nc'}});assert.equal(requests.length,count);
 navigate('home');assert.equal(requests.length,count+1);assert.equal(requests.at(-1).file,'a.nc.cnctouch.json');
-const pending=requests.at(-1).xhr;navigate('menu');assert(pending.aborted);
+const pending=requests.at(-1).xhr;navigate('more');assert(pending.aborted);
 const stable=stats.writes;pending.status=200;pending.responseText=JSON.stringify({data:JSON.stringify({file:'a.nc',preview:{image:'data:image/png;base64,AAAA'}})});pending.onload();assert.equal(stats.writes,stable);
 navigate('home');assert.equal(requests.length,count+2);
 console.log('PASS: loaded-file image, stale response, progress/estimate, zero hidden repaint/request, same-file invalidation, view abort and immediate reentry.');
@@ -84,7 +100,7 @@ function estimateFixture(monotonic=false){
     progress:()=>dom.node('home-job-progress').value
   };
 }
-function learn(f){f.send({received:10});for(let i=1;i<=10;i++){f.advance(1000);f.send({received:10+i});}assert.match(f.eta(),/1 min 20 s/);}
+function learn(f){f.send({received:10});for(let i=1;i<=10;i++){f.advance(1000);f.send({received:10+i});}assert.match(f.eta(),/Progression indisponible/);}
 for(const changes of [
   {total:Infinity},{total:NaN},{total:'100'},{total:0},{total:-1},
   {received:Infinity},{received:NaN},{received:null},{received:'25'},
@@ -93,25 +109,27 @@ for(const changes of [
   const f=estimateFixture();learn(f);f.send(changes);
   assert.equal(f.percent(),'—',JSON.stringify(changes));assert.equal(f.progress(),0);
   assert.match(f.eta(),/état indisponible/);assert.doesNotMatch(f.eta(),/chargez|NaN|Infinity/);
-  f.send({fresh:true,total:100,received:21});assert.match(f.eta(),/calcul en cours/);
+  f.send({fresh:true,total:100,received:21});assert.match(f.eta(),/Progression indisponible/);
 }
 for(const gap of [-1000,4000,3600000]){
   const f=estimateFixture();learn(f);f.advance(gap);f.send({received:21});
-  assert.match(f.eta(),/calcul en cours/,'Discard an estimate across a discontinuity');
+  assert.match(f.eta(),/Progression indisponible/,'No estimate from acknowledgements across a discontinuity');
   for(let i=1;i<=10;i++){f.advance(1000);f.send({received:21+i});}
-  assert.match(f.eta(),/1 min 9 s/);
+  assert.match(f.eta(),/Progression indisponible/);
 }
 {
-  const f=estimateFixture(true);learn(f);f.jumpWall(-3600000);f.advance(1000);f.send({received:21});
-  assert.match(f.eta(),/1 min 19 s/,'Elapsed clock must ignore wall-clock changes');
+  const f=estimateFixture(true);learn(f);
+  const jp={durationSeconds:100,percent:20,remainingSeconds:80,elapsedSeconds:20};
+  f.send({jobProgress:jp});f.jumpWall(-3600000);f.advance(1000);f.send({received:21});
+  assert.match(f.eta(),/1 min 20 s/,'Server elapsed time must ignore page wall-clock changes');
   f.send({workflow:'paused'});
   for(let i=0;i<20;i++){f.advance(1000);f.send();}
-  assert.match(f.eta(),/En pause.*1 min 19 s/);
+  assert.match(f.eta(),/En pause.*1 min 20 s/);
   f.send({workflow:'running'});f.advance(1000);f.send({received:22});
-  assert.match(f.eta(),/1 min 18 s/,'Paused time must not increase the estimate');
+  assert.match(f.eta(),/1 min 20 s/,'Paused time must not increase the estimate without new server facts');
   for(let i=0;i<20;i++)f.send();
-  assert.match(f.eta(),/1 min 18 s/,'Repeated paints must not change the estimate');
-  f.send({received:100});assert.match(f.eta(),/attendre la fin des mouvements/);
+  assert.match(f.eta(),/1 min 20 s/,'Repeated paints must not change the estimate');
+  f.send({received:100});assert.match(f.eta(),/1 min 20 s/);
   assert.doesNotMatch(f.eta(),/Terminé/);
 }
 for(const remainingSeconds of [null,undefined,NaN,Infinity,-1,'60']){
@@ -121,7 +139,7 @@ for(const remainingSeconds of [null,undefined,NaN,Infinity,-1,'60']){
   f.send({workflow:'paused'},true);assert.match(f.eta(),/estimation suspendue/);
 }
 for(const changes of [{revision:2},{total:200},{received:5},{name:'other.nc'}]){
-  const f=estimateFixture();learn(f);f.send(changes);assert.match(f.eta(),/calcul en cours/);
+  const f=estimateFixture();learn(f);f.send(changes);assert.match(f.eta(),/Progression indisponible/);
 }
 {
   const f=estimateFixture();f.send({name:'',total:0,received:0});assert.match(f.eta(),/chargez un fichier/);
@@ -131,11 +149,126 @@ for(const changes of [{revision:2},{total:200},{received:5},{name:'other.nc'}]){
 // Above 2 minutes the remaining time is shown to the (next) minute: the text does not change
 // at every report (each change lays Suivi out on the tablet); seconds come back under 2 min.
 {
-  const f=estimateFixture();f.send({total:1000,received:10});for(let i=1;i<=10;i++){f.advance(1000);f.send({received:10+i});}
+  const f=estimateFixture();f.send({total:1000,received:10,jobProgress:{durationSeconds:1100,percent:10,remainingSeconds:1010}});for(let i=1;i<=10;i++){f.advance(1000);f.send({received:10+i});}
   const shown=f.eta();assert.match(shown,/Temps restant estimé : 17 min$/,shown);
   for(let i=1;i<=4;i++){f.advance(250);f.send({received:20+i/4});}assert.equal(f.eta(),shown,'unchanged over a second of reports at the same pace');
-  const g=estimateFixture();g.send({total:100,received:10});for(let i=1;i<=10;i++){g.advance(1000);g.send({received:10+i});}assert.match(g.eta(),/1 min 20 s/);
+  const g=estimateFixture();g.send({total:100,received:10,jobProgress:{durationSeconds:100,percent:20,remainingSeconds:80}});for(let i=1;i<=10;i++){g.advance(1000);g.send({received:10+i});}assert.match(g.eta(),/1 min 20 s/);
 }
 console.log('PASS: strict finite counters, stale status, clock jumps, pause, sleep/relearning, job identity, malformed simulation duration and acknowledged-lines completion.');
 
+// Wide workstation (body.perf-wide, PERFORMANCE-UI-SPEC.md 5.2, 6): Suivi in zones and its instruments.
+// The fixture gets the sibling links a browser has; the Suivi elements are placed as job-dashboard.js
+// and tool-position.js build them (the fixture does not parse insertAdjacentHTML).
+{
+  const ME = require('./touch/motion-estimate.js');
+  let clock = 10000, wide = false;
+  const events = {}, frames = [], dom = require('./dom-fixture.cjs').createDOM(['home']), { node } = dom;
+  const link = (e) => {
+    if (e._linked) return e; e._linked = true;
+    Object.defineProperty(e, 'nextSibling', { get() { const p = this.parentNode, i = p && p.children ? p.children.indexOf(this) : -1; return i >= 0 ? p.children[i + 1] || null : null; } });
+    Object.defineProperty(e, 'firstChild', { get() { return this.children[0] || null; } });
+    return e;
+  };
+  const make = dom.document.createElement;
+  // An id given after creation registers the element, as getElementById finds it in a browser.
+  dom.document.createElement = (tag) => { const e = link(make(tag)); let own = ''; Object.defineProperty(e, 'id', { get: () => own, set(v) { own = v; dom.nodes[v] = e; } }); return e; };
+  dom.document.createTextNode = (text) => { const t = link(make('#text')); t.textContent = text; return t; };
+  dom.document.createElementNS = (ns, tag) => link(make(tag));
+  const el = (id) => link(node(id)), box = (cls) => { const e = dom.document.createElement('div'); e.className = cls; return e; };
+  const board = box('job-dashboard'), left = el('home-left'), metrics = box('job-metrics'), art = box('job-art');
+  board.appendChild(left); board.appendChild(metrics);
+  left.appendChild(art); art.appendChild(el('home-job-image')); left.appendChild(el('tool-position-note')); left.appendChild(el('home-overrides'));
+  const progress = box('t-card home-progress'), head = box('home-progress-head'), coords = el('home-coords'), tiles = box('home-live-tiles'), feedCard = box('t-card'), stop = box('home-stop');
+  head.appendChild(el('home-job-percent')); progress.appendChild(head); progress.appendChild(el('home-job-progress'));
+  feedCard.appendChild(el('home-live-feed')); tiles.appendChild(feedCard);
+  stop.appendChild(el('home-job-stop'));
+  [el('home-job-title'), progress, coords, tiles, el('home-job-note'), el('home-job-ready'), el('home-program-pause'), el('home-job-selection'), el('home-job-load'), el('home-job-primary-row'), el('home-job-resume-row'), el('home-job-feedback'), stop].forEach((n) => metrics.appendChild(n));
+  const shape = () => JSON.stringify([board, left, metrics].map((p) => p.children.map((c) => c.id || c.className)));
+  const before = shape();
+  const window = { CNCMotionEstimate: ME, innerWidth: 1366, addEventListener: (n, f) => { events[n] = f; },
+    cncLayout: { wide: () => wide }, requestAnimationFrame: (f) => { frames.push(f); return frames.length; }, performance: { now: () => clock } };
+  vm.runInNewContext(fs.readFileSync(__dirname + '/touch/job-dashboard.js', 'utf8'), { window, document: dom.document, Date: { now: () => clock },
+    localStorage: { getItem: () => JSON.stringify({ state: { session: { token: 'fake' } } }) },
+    XMLHttpRequest: function () { this.open = () => {}; this.setRequestHeader = () => {}; this.abort = () => {}; this.send = () => {}; } });
+  const send = (machine, simulation = false) => events['cnc-job-status']({ detail: { machine, simulation } });
+  const layout = (on, width) => { wide = on; if (width) window.innerWidth = width; events['cnc-layout-change']({ detail: { wide: on } }); };
+  const text = (id) => node(id).textContent;
+  // Out of the wide layout nothing is built and the DOM is the one of today (the RT never changes).
+  send({ port: 'P', name: 'part.nc', revision: 1, fresh: true, total: 100, received: 0, workflow: 'idle', canStart: true });
+  assert.notEqual(shape(),before,'fixed layout replaces the old zones even in Eco');let fixed=shape();
+  assert.equal(board.getAttribute('data-zones'),'2');assert(!dom.nodes['home-zone-gauges']);
+  assert.equal(node('home-overrides').parentNode,metrics);assert.equal(node('home-job-stop').parentNode.parentNode,left);
+  layout(true,1366);fixed=shape();assert.equal(shape().includes('home-zone-controls'),false);window.innerWidth=1728;events.resize();assert.equal(board.getAttribute('data-zones'),'2');
+  layout(false,1366);assert.equal(shape(),fixed,'same command columns at every width');layout(true,1366);
+  // Remaining time: from the moves (corrected) when the rapids are known, its source written, the
+  // observed rhythm as the second estimate; acknowledged line by CNCToolPosition when present.
+  const lines = ['G21 G90', 'G0 Z5', 'G0 X0 Y0'];
+  for (let i = 0; i < 100; i++) lines.push('G1 X' + (i % 2 ? 0 : 100) + ' Y' + i + ' F3000');
+  lines.splice(50, 0, 'M0'); lines.push('T2 M6', 'G1 X50 Y50', 'M30');
+  const est = JSON.parse(JSON.stringify(ME.estimate(lines.join('\n'))));
+  node('home-job-image').cncPreview = { file: 'part.nc', lines: est.lines, estimate: est }; node('home-job-image').hidden = false;
+  const rates = { $110: '6000', $111: '6000', $112: '1000' };
+  const run = { port: 'P', name: 'part.nc', revision: 1, fresh: true, total: est.lines, received: 20, workflow: 'running', canStart: false, activeState: 'Run', settings: rates, overrides: { feed: 110, spindle: 100, rapid: 25 }, feedrate: 1800 };
+  send(run);
+  assert.match(text('home-gauge-eta-title'), /^Temps restant estimé/); assert.equal(text('home-gauge-eta-source'), 'Durée calculée depuis le programme chargé');
+  for (let r = 21; r <= 50; r++) { clock += 1000; send({ ...run, received: r }); }
+  assert.match(text('home-gauge-eta-title'), /^Temps restant estimé : \d/); assert.equal(text('home-gauge-eta-source'), 'Durée calculée depuis le programme chargé');
+  assert.equal(text('home-gauge-eta-second'), ''); assert.equal(node('home-gauge-eta-second').hidden, true);
+  assert.match(text('home-gauge-eta-unknown'), /^Durées inconnues à venir : pause M0 \(l\. 51\), changement d’outil M6/);
+  assert.equal(text('home-gauge-ack-value'), '50 / ' + est.lines, 'fallback rule: the received lines');
+  window.CNCToolPosition = { acknowledged: () => 8412.7 };
+  send({ ...run, received: 50 });
+  assert.match(text('home-gauge-ack-value'), /^8\s412 \/ \d/u, 'acknowledged line by CNCToolPosition.acknowledged');
+  assert.doesNotMatch(text('home-gauge-ack-label'), /usin/);
+  // Overrides as read: a value off 100 % with its sign, flagged for the amber colour.
+  assert.equal(text('home-gauge-ov-feed'), '110 % (+10 %)'); assert.equal(node('home-gauge-ov-feed').getAttribute('data-off'), 'true');
+  assert.equal(text('home-gauge-ov-spindle'), '100 %'); assert.equal(node('home-gauge-ov-spindle').getAttribute('data-off'), 'false');
+  assert.equal(text('home-gauge-ov-rapid'), '25 % (−75 %)');
+  // Rapids unknown: the observed rhythm is the title, the moves the second estimate.
+  delete window.CNCToolPosition;
+  send({ ...run, settings: null, received: 51 }); clock += 1000; send({ ...run, settings: null, received: 52 });
+  assert.equal(text('home-gauge-eta-source'), ''); assert.equal(text('home-gauge-eta-second'), '');
+  // Paused: the existing wording, nothing invented; stale: no override value.
+  send({ ...run, received: 52, workflow: 'paused' }); assert.match(text('home-gauge-eta-title'), /^En pause — /);
+  send({ ...run, jobProgress: { durationSeconds: null, percent: null, remainingSeconds: null, elapsedSeconds: 150 } });
+  assert.equal(text('home-gauge-eta-title'), 'Progression indisponible');
+  assert.equal(text('home-gauge-eta-second'), 'Temps écoulé : 2 min 30 s');
+  assert.equal(node('home-gauge-eta-second').hidden, false, 'elapsed time remains visible outside the single-line v2 title');
+  assert.equal(text('home-gauge-eta-source'), '');
+  send({ ...run, received: 52, fresh: false }); assert.equal(text('home-gauge-ov-feed'), '—'); assert.equal(text('home-gauge-ack-value'), '—');
+  // Simulation: the simulated duration, said so.
+  send({ ...run, received: 20, remainingSeconds: 40 }, true); assert.equal(text('home-gauge-eta-title'), 'Reste 40 s'); assert.match(text('home-gauge-eta-source'), /simulée/);
+  while(frames.length)frames.shift()();send({...run,received:53});assert.equal(frames.length,0,'Eco builds no v2 curve');
+  window.innerWidth=1728;events.resize();assert.equal(frames.length,0,'Eco keeps the same columns without animation');
+  console.log('PASS wide Suivi: zones built only under perf-wide and undone in order, IDs kept, Arrêter alone at the bottom, remaining time with its source and second estimate, acknowledged line, overrides read, curve in an animation frame at most once a second and never while hidden.');
+}
 
+
+// P3: real progress and preview identity.
+function progressFixture() {
+  const ME=require('./touch/motion-estimate.js');
+  let clock = 10000;
+  const events = {}, dom = require('./dom-fixture.cjs').createDOM(['home']);
+  const window = { CNCMotionEstimate: ME, addEventListener: (n, f) => { events[n] = f; }, performance: { now: () => clock } };
+  vm.runInNewContext(fs.readFileSync(__dirname + '/touch/job-dashboard.js', 'utf8'), { window, document: dom.document, Date: { now: () => clock },
+    localStorage: { getItem: () => null }, XMLHttpRequest: function () { throw Error('Unexpected network request'); } });
+  let machine = { port: 'P', name: 'part.nc', revision: 'r1', fingerprint: 'sha256:aa', fresh: true, total: 50, received: 5, workflow: 'running', activeState: 'Run' };
+  const send = (changes) => { machine = { ...machine, ...changes }; events['cnc-job-status']({ detail: { machine, simulation: false } }); };
+  return { send, advance: (ms) => { clock += ms; }, percent: () => dom.node('home-job-percent').textContent,
+    preview: (p) => { dom.node('home-job-image').cncPreview = p; } };
+}
+
+{
+ const est={version:1,feedSeconds:100},f=progressFixture();f.send({});f.preview({file:'part.nc',fingerprint:'sha256:aa',estimate:est});
+ for(let i=1;i<=10;i++){f.advance(1000);f.send({received:5+2*i});}
+ f.send({received:50});assert.notEqual(f.percent(),'100 %','C-34: Run is not completion');
+ f.send({workflow:'idle',activeState:'Idle',finished:true,received:0});assert.equal(f.percent(),'100 %');
+ f.advance(5000);f.send({});f.send({finished:false,workflow:'running',activeState:'Run',received:0});
+ f.advance(1000);f.send({received:10});assert.equal(f.percent(),'1 %','C-52: new run starts its clock at zero');
+ f.send({workflow:'paused'});f.advance(2000);f.send({workflow:'running',received:10});
+ f.advance(1000);f.send({received:12});assert.equal(f.percent(),'1 %','each entry in running resets the clock');
+ const g=progressFixture();g.send({fingerprint:'sha256:bb'});g.preview({file:'part.nc',fingerprint:'sha256:aa',estimate:{version:1,feedSeconds:10}});
+ for(let i=1;i<=5;i++){g.advance(1000);g.send({received:5+7*i});}
+ assert.equal(g.percent(),'—','C-53: previous version estimate ignored, without a buffer fallback');
+ g.send({received:50});assert.equal(g.percent(),'—','no matching estimate: unavailable even with all lines buffered');
+}

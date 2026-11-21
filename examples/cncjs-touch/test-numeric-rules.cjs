@@ -23,7 +23,7 @@ assert.equal(N.press('±','',{}),'-');assert.equal(N.parse('-',{}).state,'invali
 const big='123456789012345678';assert.equal(N.parse(big,{integer:true,min:2}).state,'ok');
 if(String(N.parse(big,{}).value)!==big)notes.push('18-digit draft '+big+' is written as '+String(N.parse(big,{}).value)+' (double precision; only the line field has no max)');
 // --- Modal pad on a DOM.
-const {document,element}=require('./dom-fixture.cjs').createDOM(['home']);
+const {document}=require('./dom-fixture.cjs').createDOM(['home']);
 const listeners={};const window={cncI18n:{t:s=>s},addEventListener:(n,f)=>listeners[n]=f};
 document.body.children=[];document.body.appendChild=function(c){this.children.push(c);c.parentNode=this;};
 const realCreate=document.createElement;document.createElement=tag=>{const e=realCreate(tag);e.isConnected=true;e.dispatchEvent=ev=>{(e._listeners&&e._listeners[ev.type]||[]).forEach(f=>f.call(e,ev));};return e;};
@@ -59,37 +59,26 @@ function resumeFixture(withPad){
  const ready=dom.node('home-job-ready'),parent=dom.element('div','home-actions');parent.appendChild(ready);d.body.getAttribute=()=>null;
  const ls={},calls=[];const win={cncLibrarySelection:{file:'a.nc',name:'a.nc'},addEventListener:(n,f)=>(ls[n]=ls[n]||[]).push(f),cncI18n:{t:s=>s},
   cncJobControls:{resumePlan:(f,l)=>{calls.push(['plan',f,l]);return Promise.resolve({from:l,total:9,line:'G1',safeZ:5,position:{X:0,Y:0,Z:-1}});},loadFrom:()=>Promise.resolve({}),spindleStop:()=>Promise.resolve({}),prepareCommand:(op,extra)=>{calls.push(['prepare',op,extra]);}}};
+ win.cncShell={sheet(){return {content:parent,open(){}};},closeSheet(){}};
  const ctx={window:win,document:d,localStorage:{getItem:()=>null,setItem(){}},Event:function(type){this.type=type;}};
  if(withPad)vm.runInNewContext(fs.readFileSync(__dirname+'/touch/numeric-pad.js','utf8'),ctx);
  vm.runInNewContext(fs.readFileSync(__dirname+'/touch/job-resume.js','utf8'),ctx);
  const byId=id=>parent.querySelectorAll('*').find(c=>c.id===id);
  ls['cnc-job-status'].forEach(f=>f({detail:{machine:{fresh:true,workflow:'idle',canLoad:true,canZeroZ:true,stoppedAtLine:200,stoppedFile:'a.nc',programPause:null},simulation:false}}));
- return {byId,calls,win};
+ byId('home-resume-line').click();return {byId,calls,win};
 }
 for(const withPad of [true,false]){
  const r=resumeFixture(withPad),input=r.byId('home-resume-input'),plan=r.byId('home-resume-plan');
  r.byId('home-resume-line').click();assert.equal(input.value,'185');
  assert.equal(input.getAttribute('type'),'text');assert.equal(input.getAttribute('inputmode'),withPad?'none':'numeric');
- const tryLine=v=>{input.value=v;input.handlers.input();r.byId('home-resume-check').click();return plan.textContent;};
+ const tryLine=v=>{input.value=v;input.handlers.input();return plan.textContent;};
  const n0=r.calls.length;
  assert.match(tryLine('0'),/^Indiquez une ligne \(2 ou plus\)\./);assert.match(tryLine(''),/^Indiquez une ligne/);assert.match(tryLine('abc'),/^Indiquez une ligne/);assert.match(tryLine('2.5'),/^Indiquez une ligne/);assert.match(tryLine('-3'),/^Indiquez une ligne/);
  assert.equal(r.calls.length,n0,'no plan asked for an unusable line');
  if(withPad){assert.match(tryLine('0'),/Hors limites : au moins 2 ligne\./);assert.match(tryLine('abc'),/illisible/);assert.match(tryLine(''),/Aucune valeur/);}
  else assert.equal(tryLine('0'),'Indiquez une ligne (2 ou plus).','fallback: generic message only');
  tryLine('12');assert.equal(JSON.stringify(r.calls.at(-1)),JSON.stringify(['plan','a.nc',12]));
- // Plate fields: the probe reads them through the same parser.
- const thick=r.byId('home-plate-thickness'),search=r.byId('home-plate-search'),probe=r.byId('home-plate-probe'),status=r.byId('home-plate-status');
- assert.equal(search.value,'10');probe.disabled=false;
- const tryPlate=(t,s)=>{thick.value=t;search.value=s;const n=r.calls.length;probe.click();return {text:status.textContent,sent:r.calls.length>n?r.calls.at(-1):null};};
- let p=tryPlate('','10');assert.match(p.text,/^Indiquez l’épaisseur/);assert.equal(p.sent,null);
- p=tryPlate('0','10');assert.match(p.text,/^Indiquez l’épaisseur/);assert.equal(p.sent,null);
- p=tryPlate('abc','10');assert.match(p.text,/^Indiquez l’épaisseur/);assert.equal(p.sent,null);
- p=tryPlate('10,5','0');assert.match(p.text,/^Descente maximale invalide/);assert.equal(p.sent,null);
- p=tryPlate('10,5','abc');assert.match(p.text,/^Descente maximale invalide/);assert.equal(p.sent,null);
- p=tryPlate('0,5','10');assert.equal(JSON.stringify(p.sent),JSON.stringify(['prepare','zeroZ',{thickness:0.5,search:10}]));
- p=tryPlate('.5','1,0');assert.equal(JSON.stringify(p.sent),JSON.stringify(['prepare','zeroZ',{thickness:0.5,search:1}]));
- const unitText=thick.parentNode.children[1].textContent;
- if(!withPad&&/·\s*$/.test(unitText))notes.push('without CNCNumeric the plate unit text ends with a dangling separator: "'+unitText+'"');
+ // Plate parser and pad bindings now run in the real work-zero sheet (test-zero-piece).
  console.log('ok     job-resume '+(withPad?'with':'without')+' CNCNumeric: line and plate fields never turn empty/zero/unreadable into a number');
 }
 console.log('NOTES:\n- '+notes.join('\n- '));

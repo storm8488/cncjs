@@ -11,12 +11,15 @@
   function set(el, key, value) { if (el[key] !== value) el[key] = value; }
   // Filters (UI 2027): errors = lost connection or unavailable state; jobs = files and workflow; alarms = an alarm state.
   function matches(e) {
-    if (filter === 'errors') return e.kind === 'connection' && /indisponible|unavailable|no disponible/i.test(e.message) || e.kind === 'availability';
+    // A lost connection or controller, not « Suivi … disponible » nor a new instance (same availability kind).
+    if (filter === 'errors') return (e.kind === 'connection' || e.kind === 'availability') && /indisponible|unavailable|no disponible/i.test(e.message);
     if (filter === 'jobs') return e.kind === 'workflow' || e.kind === 'file';
     if (filter === 'alarms') return e.kind === 'state' && /alarm/i.test(e.message);
     return true;
   }
+  function tone(e) { return e.kind === 'state' && /alarm/i.test(e.message) ? 'alarm' : ''; }
   function render() {
+    v2Queue();
     if (!mounted || document.hidden || !$('screen-history').classList.contains('active') || !dirty) return;
     dirty = false;
     if (source === 'server') { renderServer(); return; }
@@ -31,6 +34,8 @@
       }
       set(row._title, 'textContent', new Date(e.time).toLocaleTimeString(window.cncI18n?window.cncI18n.locale:'fr-FR') + ' — ' + e.message);
       if (typeof row.setAttribute === 'function' && row.getAttribute('data-kind') !== e.kind) row.setAttribute('data-kind', e.kind);
+      // Display only: an alarm state is drawn red (same test as the Alarmes filter); the journal model is unchanged.
+      if (typeof row.setAttribute === 'function' && row.getAttribute('data-tone') !== tone(e)) row.setAttribute('data-tone', tone(e));
       set(row._detail, 'textContent', (e.port || '') + (e.file ? ' · ' + e.file : ''));
       set(row._detail, 'hidden', !row._detail.textContent); desired.push(row); keep[e.id] = true;
     });
@@ -51,16 +56,17 @@
       render();
     });
   });
+  function serverNewer() { if (server.index > 0 && !server.loading) { server.index--; fetchServer(); } }
+  function serverOlder() {
+    var d = server.data, last = d && d.entries.length ? d.entries[d.entries.length - 1].seq : null;
+    if (d && d.more && typeof last === 'number' && !server.loading) { server.pages[server.index + 1] = last; server.pages.length = server.index + 2; server.index++; fetchServer(); }
+  }
   $('real-history-prev').addEventListener('click', function () {
-    if (source === 'server') { if (server.index > 0 && !server.loading) { server.index--; fetchServer(); } return; }
+    if (source === 'server') { serverNewer(); return; }
     page = Math.max(0, page - 1); dirty = true; render();
   });
   $('real-history-next').addEventListener('click', function () {
-    if (source === 'server') {
-      var d = server.data, last = d && d.entries.length ? d.entries[d.entries.length - 1].seq : null;
-      if (d && d.more && typeof last === 'number' && !server.loading) { server.pages[server.index + 1] = last; server.pages.length = server.index + 2; server.index++; fetchServer(); }
-      return;
-    }
+    if (source === 'server') { serverOlder(); return; }
     page++; dirty = true; render();
   });
   // Source switch at the top of the journal card: Cette session | Serveur, and what each one holds.
@@ -90,6 +96,8 @@
     Array.prototype.forEach.call(filters, function (b) { set(b, 'disabled', source === 'server'); });
   }
   function choose(next) {
+    // « touchez Serveur à nouveau »: a second tap on Serveur after a failed read reads it again (same GET).
+    if (next === 'server' && source === 'server' && server.error && !server.loading && mounted) { fetchServer(); return; }
     if ((next !== 'session' && next !== 'server') || next === source) return;
     source = next; dirty = true;
     Object.keys(sources).forEach(function (k) { sources[k].setAttribute('aria-pressed', String(k === source)); });
@@ -117,7 +125,8 @@
       if (xhr.status >= 200 && xhr.status < 300 && data && Array.isArray(data.entries)) {
         finish({ entries: data.entries.filter(function (e) { return e && typeof e === 'object'; }), total: Number(data.total) || 0, skipped: Number(data.skipped) || 0, more: data.more === true }, '');
       } else {
-        finish(null, xhr.status === 401 ? uiLocale.t('Session CNCjs requise.') : uiLocale.t('Historique serveur indisponible') + (xhr.status ? ' (HTTP ' + xhr.status + ')' : '') +
+        // 401, or CNCjs' plain-text 403 (« Forbidden Access »): the session is refused.
+        finish(null, xhr.status === 401 || (xhr.status === 403 && !data) ? uiLocale.t('Session CNCjs requise.') : uiLocale.t('Historique serveur indisponible') + (xhr.status ? ' (HTTP ' + xhr.status + ')' : '') +
           (data && typeof data.message === 'string' ? ' : ' + uiLocale.t(data.message.slice(0, 200)) : '.'));
       }
     };
@@ -127,9 +136,32 @@
   }
   // One server entry → title, detail and tone. Only listed fields are shown, never a raw entry
   // (the server already drops tickets and tokens; nothing here prints an unknown field).
-  var EVENTS = { load: 'Fichier chargé', start: 'Travail démarré', pause: 'Pause', resume: 'Reprise', stop: 'Travail arrêté', error: 'Ligne refusée par Grbl', alarm: 'Alarme', aborted: 'Carte redémarrée pendant le travail' };
+  var EVENTS = { load: 'Fichier chargé', start: 'Travail démarré', pause: 'Pause', resume: 'Reprise', stop: 'Travail arrêté', error: 'Ligne refusée par Grbl', alarm: 'Alarme', aborted: 'Carte redémarrée pendant le travail',
+    origin: 'Définition d’origine', probe: 'Palpage au bloc', jog: 'Déplacement manuel', 'jog-cancel-unconfirmed': 'Arrêt de déplacement non confirmé', frame: 'Cadrage', machine: 'Fiche machine modifiée' };
   var CHANGES = { claim: 'Pilotage pris', release: 'Pilotage libéré', takeover: 'Pilotage repris', expired: 'Pilotage libéré (appareil absent)', absent: 'Pilote absent', restored: 'Pilote revenu' };
   function str(v, max) { return typeof v === 'string' ? v.slice(0, max || 120) : typeof v === 'number' && isFinite(v) ? String(v) : ''; }
+  // Reasons outside control (src/server/services/touch/motion.js): a failed origin carries the server's French
+  // sentence, whose fixed part is translated and values kept; jog/frame carry a stop code, shown as its phrase
+  // (STOP_REASONS) or as the Grbl error; an unknown code is not shown.
+  var REASONS = { operator: 'relâchement ou arrêt demandé', stop: 'bouton Arrêter', keepalive: 'maintien non confirmé à temps (connexion lente ou perdue)',
+    transport: 'flux de suivi du client fermé', control: 'pilotage pris par un autre client', released: 'pilotage rendu', stale: 'rapport machine trop ancien', alarm: 'alarme machine',
+    disabled: 'déplacements réels désactivés', late: 'maintien reçu après l’échéance', pause: 'bouton Pause', state: 'machine sortie du repos (Idle) pendant le cadrage',
+    dispose: 'service arrêté', connection: 'connexion au contrôleur perdue', bound: 'fin de la course autorisée atteinte' };
+  var ORIGIN_FAILURES = [
+    [/^Grbl a refusé la définition d’origine \((error:\d+)\)$/, 'Grbl a refusé la définition d’origine'],
+    [/^La machine a bougé pendant la définition d’origine \(([^()]*)\) : arrêtez et vérifiez le contrôleur$/, 'La machine a bougé pendant la définition d’origine : arrêtez et vérifiez le contrôleur'],
+    [/^Le repère n’a pas pris la valeur attendue \(([^()]*) au lieu de 0\)$/, 'Le repère n’a pas pris la valeur 0 attendue']
+  ];
+  function reasonOf(e) {
+    var r = str(e.reason, 200).replace(/[.\s]+$/, ''), m, i;
+    if (!r) return '';
+    if (e.result === 'failed') {
+      for (i = 0; i < ORIGIN_FAILURES.length; i++) if ((m = ORIGIN_FAILURES[i][0].exec(r))) return uiLocale.t(ORIGIN_FAILURES[i][1]) + ' (' + m[1] + ')';
+      return uiLocale.t(r);
+    }
+    if (REASONS[r]) return uiLocale.t(REASONS[r]);
+    return /^error:\d+$/.test(r) ? uiLocale.t('Grbl a refusé la ligne') + ' (' + r + ')' : '';
+  }
   function who(actor) { return actor && typeof actor === 'object' ? str(actor.label, 60) || str(actor.user, 60) || str(actor.kind, 20) : ''; }
   function describeEntry(e) {
     var what;
@@ -138,6 +170,17 @@
     else what = EVENTS[e.event] ? uiLocale.t(EVENTS[e.event]) : str(e.event, 40) || '?';
     var when = new Date(e.at), time = isFinite(when.getTime()) ? when.toLocaleString(window.cncI18n ? window.cncI18n.locale : 'fr-FR') : str(e.at, 40);
     var program = str(e.program, 120) || str(e.file, 120), parts = [];
+    if(e.event==='probe'){
+      parts.push(uiLocale.t(e.result==='set'?'Zéro pièce posé.':'Palpage échoué. Vérifiez le zéro pièce.'));
+      if(/^(XYZ|X|Y|Z)$/.test(e.axes))parts.push(e.axes);
+      [['contacts','Contacts : '],['origin','Origine machine mesurée : '],['values','Position pièce écrite : ']].forEach(function(pair){
+        var values=e[pair[0]],axes=[];
+        if(!values||typeof values!=='object'||Array.isArray(values))return;
+        ['X','Y','Z'].forEach(function(axis){var v=values[axis];if(typeof v==='number'&&isFinite(v))axes.push(axis+' '+v.toLocaleString(uiLocale.locale||'fr-FR',{maximumFractionDigits:6})+' mm');});
+        if(axes.length)parts.push(uiLocale.t(pair[1])+axes.join(' · '));
+      });
+      if(['no','yes','possible'].indexOf(e.written)>=0)parts.push(uiLocale.t(e.written==='no'?'Le zéro pièce n’a pas changé.':e.written==='yes'?'Le zéro pièce a été écrit.':'Le zéro pièce a peut-être changé. Vérifiez-le.'));
+    }
     if (str(e.fromLine)) parts.push(uiLocale.t('depuis la ligne ') + str(e.fromLine));
     if (str(e.line)) parts.push(uiLocale.t('ligne ') + str(e.line));
     if (str(e.code, 20)) parts.push(uiLocale.t('code ') + str(e.code, 20));
@@ -146,10 +189,10 @@
       if (who(e.previous)) parts.push(uiLocale.t('avant : ') + who(e.previous));
       if (who(e.owner)) parts.push(uiLocale.t('après : ') + who(e.owner));
       if (str(e.reason, 200)) parts.push(uiLocale.t('motif : ') + str(e.reason, 200));
-    }
+    } else if (reasonOf(e)) parts.push(uiLocale.t('motif : ') + reasonOf(e));
     if (who(e.actor)) parts.push(uiLocale.t('par ') + who(e.actor));
     if (e.controller && typeof e.controller === 'object' && str(e.controller.port, 60)) parts.push(str(e.controller.port, 60));
-    var alarm = e.event === 'alarm' || e.event === 'error' || e.event === 'aborted' || (e.event === 'finish' && e.result === 'error');
+    var alarm = e.event === 'alarm' || e.event === 'error' || e.event === 'aborted' || (e.event === 'finish' && e.result === 'error') || e.result === 'failed';
     return { title: time + ' — ' + what + (program ? ' · ' + program : ''), detail: parts.join(' · '), kind: alarm ? 'alarm' : e.event === 'control' ? 'connection' : 'workflow' };
   }
   function renderServer() {
@@ -176,12 +219,17 @@
     // The server history is read again each time the journal is opened on it.
     if (source === 'server' && (!was || !server.data && !server.loading && !server.error)) fetchServer(); else render();
   }
-  function unmount() { mounted = false; if (source === 'server') cancelServer(); }
+  function unmount() {
+    mounted = false; if (source === 'server') cancelServer();
+    if (v2.frame && window.cancelAnimationFrame) window.cancelAnimationFrame(v2.frame);
+    // a1: reopened, the v2 list opens again at its newest event.
+    v2.frame = 0; v2.drawn = '';
+  }
   window.addEventListener('cnc-screen-change', function (e) { if (e.detail === 'history') mount(); else unmount(); });
   document.addEventListener('visibilitychange', function () { if (document.hidden) unmount(); else mount(); });
   window.cncRealHistoryView = { mount: mount, unmount: unmount, source: function () { return source; }, choose: choose };
   window.addEventListener('cnc-history-page-size', function (e) {
-    var next = Number(e.detail); if ((next !== 3 && next !== 4 && next !== 5 && next !== 8) || next === size) return;
+    var next = Number(e.detail); if ((next !== 3 && next !== 4 && next !== 5 && next !== 6 && next !== 8) || next === size) return;
     page = Math.floor(page * size / next); size = next; dirty = true;
     if (source === 'server') { server.pages = [null]; server.index = 0; if (mounted) fetchServer(); } else render();
   });
@@ -189,6 +237,7 @@
     if (!e.detail.simulation) {
       if(window.cncState&&window.CNCJobStream)changed(journal.connection(window.cncState.get().transportConnected));
       changed(journal.observe(e.detail.machine));
+      v2Feedback(e.detail);
     }
   });
   if (window.cncSocket&&!(window.cncState&&window.CNCJobStream)) {
@@ -209,6 +258,217 @@
       $('real-export-status').textContent = uiLocale.t('Téléchargement demandé : ') + name;
     } catch (e) { $('real-export-status').textContent = uiLocale.t('Téléchargement indisponible dans ce navigateur.'); }
   }
+  // ---- Performance v2 (L6): contextual journal, read only, under body.perf-v2 only. ----
+  // Same sources and retention: this page's 100 local events and the server history read page
+  // by page on demand. A curve marker (cnc-v2-journal-open, detail {marker:{identity,interval},
+  // view}) opens the program and interval through the L3 model (cncV2.use('journal'));
+  // « Retour à Suivi » hands the view back (cnc-v2-journal-return, detail {view}). Handlers only
+  // queue a frame; nothing here can send or replay a command. FR/EN/ES rows are embedded.
+  var V2TEXT = {
+    'Journal de cette session': ['This session’s journal', 'Registro de esta sesión'], 'Historique serveur': ['Server history', 'Historial del servidor'],
+    'Cette session': ['This session', 'Esta sesión'], 'Serveur': ['Server', 'Servidor'],
+    '← Retour à Suivi': ['← Back to Monitoring', '← Volver a Seguimiento'], 'Tout le journal': ['Whole journal', 'Todo el registro'],
+    'Programme : ': ['Program: ', 'Programa: '], 'programme inconnu': ['unknown program', 'programa desconocido'],
+    ' · intervalle de ': [' · interval of ', ' · intervalo de '],
+    ' s autour de l’événement de la courbe (horloge de cette tablette).': [' s around the chart event (this tablet’s clock).', ' s alrededor del evento de la curva (reloj de esta tableta).'],
+    'Contexte indisponible : programme ou intervalle inconnu.': ['Context unavailable: unknown program or interval.', 'Contexto no disponible: programa o intervalo desconocido.'],
+    'Appareil (cette tablette)': ['Device (this tablet)', 'Dispositivo (esta tableta)'], 'Rapport du contrôleur': ['Controller report', 'Informe del controlador'],
+    'Serveur CNCjs': ['CNCjs server', 'Servidor CNCjs'], 'Déduit par l’interface': ['Deduced by the interface', 'Deducido por la interfaz'],
+    'Heure': ['Time', 'Hora'], 'Origine': ['Origin', 'Origen'], 'Catégorie': ['Category', 'Categoría'], 'Demande': ['Request', 'Solicitud'],
+    'Programme': ['Program', 'Programa'], 'Contrôleur': ['Controller', 'Controlador'], 'Événement': ['Event', 'Evento'], 'Détail': ['Details', 'Detalle'],
+    'Touchez un événement pour afficher son détail.': ['Tap an event to show its details.', 'Toque un evento para ver su detalle.'],
+    'Lecture seule : aucune commande ne peut être rejouée depuis le journal.': ['Read only: no command can be replayed from the journal.', 'Solo lectura: ninguna orden puede repetirse desde el registro.'],
+    'Envoyée : aucune réponse reçue à ce moment.': ['Sent: no answer received at that time.', 'Enviada: ninguna respuesta recibida en ese momento.'],
+    'Confirmée par le serveur CNCjs : cela ne prouve pas que la machine l’a exécutée.': ['Confirmed by the CNCjs server: this does not prove the machine executed it.', 'Confirmada por el servidor CNCjs: no prueba que la máquina la haya ejecutado.'],
+    'Refusée : le motif est indiqué ci-dessus.': ['Refused: the reason is shown above.', 'Rechazada: el motivo se indica arriba.'],
+    'Incertaine : réponse perdue. Vérifiez l’état de la machine avant toute nouvelle action.': ['Uncertain: answer lost. Check the machine state before any new action.', 'Incierta: respuesta perdida. Compruebe el estado de la máquina antes de cualquier nueva acción.'],
+    'Enregistré par le serveur CNCjs : ce n’est pas une preuve d’usinage.': ['Recorded by the CNCjs server: this is not proof of machining.', 'Registrado por el servidor CNCjs: no es una prueba de mecanizado.'],
+    '← Plus récent': ['← Newer', '← Más reciente'], 'Plus ancien →': ['Older →', 'Más antiguo →']
+  };
+  function vt(s) { var l = window.cncI18n && window.cncI18n.language, row = V2TEXT[s]; return row && l === 'en' ? row[0] : row && l === 'es' ? row[1] : s; }
+  var FEEDBACK = { sent: 'sent', confirmed: 'confirmed', failed: 'refused', uncertain: 'uncertain' };
+  var SOURCES = { device: 'Appareil (cette tablette)', report: 'Rapport du contrôleur', server: 'Serveur CNCjs', inferred: 'Déduit par l’interface' };
+  var STATE_NOTES = { sent: 'Envoyée : aucune réponse reçue à ce moment.', confirmed: 'Confirmée par le serveur CNCjs : cela ne prouve pas que la machine l’a exécutée.',
+    refused: 'Refusée : le motif est indiqué ci-dessus.', uncertain: 'Incertaine : réponse perdue. Vérifiez l’état de la machine avant toute nouvelle action.' };
+  var v2 = { registered: false, disposed: false, frame: 0, drawn: '', filter: 'all', selected: null, context: null, view: null, nodes: null, feedback: '', rows: Object.create(null) };
+  function v2Api() { var a = window.cncV2; return a && typeof a.use === 'function' && typeof a.gate === 'function' ? a : null; }
+  function v2Layout() { return !!(document.body && document.body.classList && document.body.classList.contains('perf-v2')); }
+  function v2Model() { var a = v2Api(), m = a && !v2.disposed && a.gate() ? a.use('journal') : null; return m && typeof m.presentation === 'function' ? m : null; }
+  function v2Queue() {
+    if (!v2 || !v2.registered || v2.disposed || v2.frame || !window.requestAnimationFrame) return;
+    // Nothing to draw on a hidden page or another screen: mount() queues again when the Journal is shown.
+    if (document.hidden || !$('screen-history').classList.contains('active')) return;
+    v2.frame = window.requestAnimationFrame(v2Render);
+  }
+  // Keep command outcomes in the session journal in both renderers. The v2
+  // adapter also attaches these same entries to its contextual chart markers.
+  function v2Feedback(detail) {
+    var state = detail && detail.feedbackState, signature = state ? state + '|' + (detail.feedback || '') : '';
+    if (signature === v2.feedback) return;
+    v2.feedback = signature;
+    if (FEEDBACK[state]) changed(journal.command(FEEDBACK[state], String(detail.feedback || '')));
+  }
+  var CATEGORIES = { command: 'command', connection: 'connection', session: 'connection', availability: 'connection' };
+  // Local entry -> L0 journal event, with the identity and stamps captured at the event.
+  function adaptSession(e) {
+    var category = CATEGORIES[e.kind] || 'state', at = Date.parse(e.time);
+    var origin = e.kind === 'command' || e.kind === 'connection' || e.kind === 'session' ? 'device' : e.lost ? 'inferred' : 'report';
+    return { id: e.id, identity: e.job ? { role: 'loaded', file: e.job.file, fingerprint: e.job.fingerprint, controller: e.job.controller, generation: e.job.generation, revision: e.job.revision } : null,
+      time: { arrivalMonoMs: e.mono, civilMs: isFinite(at) ? at : null, server: { value: null, source: null } },
+      source: origin, state: e.command || (e.lost ? 'uncertain' : 'confirmed'), code: category + '.' + (e.command || e.kind),
+      params: { category: category, message: e.message, file: e.job ? e.job.file : e.file, port: e.port || (e.job ? e.job.controller : null), tone: tone(e) } };
+  }
+  // Server entry -> event of the server's own clock; never placed on the local monotone clock.
+  function adaptServer(e, i) {
+    var x = describeEntry(e), at = Date.parse(e.at);
+    var category = e.event === 'control' ? 'connection' : ['alarm', 'error', 'aborted', 'finish'].indexOf(e.event) >= 0 ? 'state' : 'command';
+    return { id: 'server-' + (typeof e.seq === 'number' ? e.seq : i), identity: null,
+      time: { arrivalMonoMs: null, civilMs: null, server: { value: isFinite(at) ? at : null, source: 'server-history' } },
+      source: 'server', state: 'confirmed', code: category + '.' + str(e.event, 40),
+      params: { category: category, message: x.title.slice(x.title.indexOf(' — ') + 3), detail: x.detail,
+        file: str(e.program, 120) || str(e.file, 120) || null, port: e.controller && typeof e.controller === 'object' ? str(e.controller.port, 60) || null : null, tone: x.kind === 'alarm' ? 'alarm' : '' } };
+  }
+  function v2Events(model) {
+    if (source === 'server') return server.data ? server.data.entries.map(adaptServer).reverse() : [];
+    var local = journal.entries().map(adaptSession).reverse();
+    if (!v2.context) return local.filter(function (e) { return v2.filter === 'all' || e.params.category === v2.filter; });
+    model.update({ identity: v2.context.identity, interval: v2.context.interval, civilInterval: null, events: local, retained: true });
+    return model.filter(v2.filter).events.slice();
+  }
+  function node(tag, cls, value) { var n = document.createElement(tag); if (cls) n.className = cls; if (value !== undefined) n.textContent = value; return n; }
+  function button(id, label, cls) { var b = node('button', cls || 'ks-secondary', label); b.type = 'button'; if (id) b.id = id; return b; }
+  function v2Build(content) {
+    var n = {}, head = node('div', 'v2k-head'), titles = node('div', 'v2k-titles'), seg = node('div', 't-seg v2k-sources');
+    n.title = node('h2'); n.context = node('p', 'v2k-context'); n.context.id = 'v2k-context';
+    titles.appendChild(n.title); titles.appendChild(n.context); head.appendChild(titles);
+    n.readOnly = node('span', 'ks-readonly'); head.appendChild(n.readOnly);
+    seg.setAttribute('role', 'group'); n.sources = {};
+    ['session', 'server'].forEach(function (k) {
+      var b = button('v2k-source-' + k, vt(k === 'session' ? 'Cette session' : 'Serveur'), ''); b.setAttribute('aria-pressed', 'false');
+      // The filters sort the session journal only (disabled on the server): reset on switching.
+      b.addEventListener('click', function () { if (v2.context) return; v2.selected = null; if (k === 'server') v2.filter = 'all'; choose(k); v2Queue(); });
+      n.sources[k] = b; seg.appendChild(b);
+    });
+    head.appendChild(seg);
+    n.all = button('v2k-all', vt('Tout le journal')); n.back = button('v2k-back', vt('← Retour à Suivi'));
+    n.all.addEventListener('click', function () { v2.context = null; v2.view = null; v2.selected = null; v2Queue(); });
+    n.back.addEventListener('click', function () {
+      var view = v2.view; v2.context = null; v2.view = null; v2.selected = null; v2Queue();
+      window.dispatchEvent(new CustomEvent('cnc-v2-journal-return', { detail: { view: view } }));
+      window.dispatchEvent(new CustomEvent('cnc-navigate', { detail: 'home' }));
+    });
+    head.appendChild(n.all); head.appendChild(n.back);
+    n.filters = node('div', 't-seg v2k-filters'); n.filters.setAttribute('role', 'group'); n.filterButtons = [];
+    ['all', 'command', 'state', 'connection'].forEach(function (k) {
+      var b = button(null, k, ''); b.setAttribute('data-v2k-filter', k); b.setAttribute('aria-pressed', String(k === 'all'));
+      b.addEventListener('click', function () { v2.filter = k; v2.selected = null; v2Queue(); });
+      n.filterButtons.push(b); n.filters.appendChild(b);
+    });
+    var body = node('div', 'v2k-body');
+    n.list = node('ol', 'v2k-list'); n.list.id = 'v2k-list'; n.detail = node('aside', 'v2k-detail'); n.detail.id = 'v2k-detail';
+    body.appendChild(n.list); body.appendChild(n.detail);
+    n.pages = node('div', 'v2k-pages'); n.newer = button('v2k-newer', vt('← Plus récent')); n.page = node('span'); n.older = button('v2k-older', vt('Plus ancien →'));
+    n.newer.addEventListener('click', serverNewer); n.older.addEventListener('click', serverOlder);
+    n.pages.appendChild(n.newer); n.pages.appendChild(n.page); n.pages.appendChild(n.older);
+    content.appendChild(head); content.appendChild(n.filters); content.appendChild(body); content.appendChild(n.pages);
+    return n;
+  }
+  function clock(e) {
+    var value = e.time.civilMs !== null ? e.time.civilMs : e.time.server.value, at = new Date(value);
+    if (value === null || !isFinite(at.getTime())) return '—';
+    var locale = window.cncI18n ? window.cncI18n.locale : 'fr-FR';
+    return e.source === 'server' ? at.toLocaleString(locale) : at.toLocaleTimeString(locale);
+  }
+  function v2Row(e, labels) {
+    var key = String(e.id), row = v2.rows[key];
+    var tone = e.params.tone || '';
+    var badge = e.params.category === 'command' && e.source !== 'server' ? labels.states[e.state] : tone && e.source !== 'server' ? uiLocale.t('Alarme') : vt(SOURCES[e.source]);
+    var sig = JSON.stringify([clock(e), e.params.message, badge, v2.selected === key, tone]);
+    if (!row) { row = node('li'); row._button = button(null, '', 'v2k-row'); row.appendChild(row._button);
+      row._button.addEventListener('click', function () { v2.selected = key; v2Queue(); }); v2.rows[key] = row; }
+    if (row._sig !== sig) {
+      row._sig = sig; var b = row._button; b.textContent = '';
+      b.appendChild(node('span', 'v2k-time', clock(e))); b.appendChild(node('span', 'v2k-message', e.params.message || ''));
+      b.appendChild(node('b', 'v2k-badge', badge || ''));
+      b.setAttribute('aria-pressed', String(v2.selected === key));
+      row.setAttribute('data-id', key); row.setAttribute('data-kind', e.params.category); row.setAttribute('data-category', e.params.category);
+      row.setAttribute('data-state', e.state); row.setAttribute('data-source', e.source); row.setAttribute('data-tone', tone);
+      row.setAttribute('data-at', String(e.time.arrivalMonoMs !== null ? e.time.arrivalMonoMs : e.time.server.value));
+    }
+    return row;
+  }
+  function v2Detail(n, e, labels) {
+    while (n.detail.children.length) n.detail.removeChild(n.detail.lastChild);
+    if (!e) { n.detail.appendChild(node('p', 'v2k-hint', vt('Touchez un événement pour afficher son détail.'))); return; }
+    var dl = node('dl');
+    function line(label, value) { if (!value) return; dl.appendChild(node('dt', null, vt(label))); dl.appendChild(node('dd', null, value)); }
+    line('Événement', e.params.message); line('Heure', clock(e)); line('Origine', vt(SOURCES[e.source]));
+    line('Catégorie', labels.filters[e.params.category]);
+    if (e.params.category === 'command' && e.source !== 'server') line('Demande', labels.states[e.state]);
+    line('Programme', e.params.file); line('Contrôleur', e.params.port); if (e.params.detail) line('Détail', e.params.detail);
+    n.detail.appendChild(dl);
+    var note = e.source === 'server' ? 'Enregistré par le serveur CNCjs : ce n’est pas une preuve d’usinage.' : e.params.category === 'command' ? STATE_NOTES[e.state] : '';
+    if (note) n.detail.appendChild(node('p', 'v2k-note', vt(note)));
+    n.detail.appendChild(node('p', 'v2k-readonly', vt('Lecture seule : aucune commande ne peut être rejouée depuis le journal.')));
+  }
+  function drawKey() { return source + '|' + (v2.context ? 'context' : 'all') + '|' + v2.filter; }
+  function v2Render() {
+    v2.frame = 0;
+    var model = v2Model(), mounts = v2Api() && v2Api().mounts, mountPoint = mounts && mounts.get('history');
+    if (!model || !v2Layout() || !mountPoint || !mountPoint.content || document.hidden || !$('screen-history').classList.contains('active')) return;
+    var n = v2.nodes || (v2.nodes = v2Build(mountPoint.content)), lang = window.cncI18n && window.cncI18n.language;
+    if (mountPoint.content.hidden) mountPoint.content.hidden = false;
+    if (mountPoint.root.getAttribute('data-v2-presenter') !== 'on') mountPoint.root.setAttribute('data-v2-presenter', 'on');
+    var events = v2Events(model), labels = model.presentation({ retained: events.length > 0, events: events }, lang), ctx = v2.context;
+    set(n.title, 'textContent', ctx ? labels.title : vt(source === 'server' ? 'Historique serveur' : 'Journal de cette session'));
+    set(n.readOnly, 'textContent', labels.readOnlyLabel);
+    set(n.context, 'textContent', !ctx ? '' : ctx.identity && ctx.interval ? vt('Programme : ') + (ctx.identity.file || vt('programme inconnu')) + vt(' · intervalle de ') +
+      Math.round((ctx.interval.toMonoMs - ctx.interval.fromMonoMs) / 1000) + vt(' s autour de l’événement de la courbe (horloge de cette tablette).') : vt('Contexte indisponible : programme ou intervalle inconnu.'));
+    set(n.context, 'hidden', !ctx); set(n.back, 'hidden', !ctx); set(n.all, 'hidden', !ctx);
+    Object.keys(n.sources).forEach(function (k) { n.sources[k].setAttribute('aria-pressed', String(k === source)); set(n.sources[k], 'disabled', !!ctx); });
+    n.filterButtons.forEach(function (b) { var k = b.getAttribute('data-v2k-filter'); set(b, 'textContent', labels.filters[k]); b.setAttribute('aria-pressed', String(k === v2.filter)); set(b, 'disabled', source === 'server'); });
+    if (source === 'server') events = events.filter(function (e) { return v2.filter === 'all' || e.params.category === v2.filter; });
+    // Chronological list (oldest first, L3 contract) kept at its newest end: at the first drawing, after a
+    // change of source, context or filter, and when rows arrive while the reader was at the bottom (8 px).
+    var list = n.list, key = drawKey(), bottom = v2.drawn !== key || list.scrollHeight - list.scrollTop - list.clientHeight <= 8;
+    var desired = [], keep = Object.create(null), selected = null;
+    events.forEach(function (e) { desired.push(v2Row(e, labels)); keep[String(e.id)] = true; if (String(e.id) === v2.selected) selected = e; });
+    if (!events.length) {
+      var empty = n.list._empty || (n.list._empty = node('li', 'v2k-empty'));
+      set(empty, 'textContent', source === 'server' && server.loading ? uiLocale.t('Lecture de l’historique serveur…') : source === 'server' && server.error ? server.error : labels.emptyMessage);
+      var emptyTone = source === 'server' && !server.loading && server.error ? 'alarm' : '';
+      if (empty.getAttribute('data-tone') !== emptyTone) empty.setAttribute('data-tone', emptyTone);
+      desired.push(empty);
+    }
+    desired.forEach(function (row, i) { if (n.list.children[i] !== row) n.list.insertBefore(row, n.list.children[i] || null); });
+    while (n.list.children.length > desired.length) n.list.removeChild(n.list.lastChild);
+    Object.keys(v2.rows).forEach(function (id) { if (!keep[id]) delete v2.rows[id]; });
+    v2Detail(n, selected, labels);
+    if (bottom && list.scrollHeight > list.clientHeight) set(list, 'scrollTop', list.scrollHeight - list.clientHeight);
+    v2.drawn = key;
+    set(n.pages, 'hidden', source !== 'server');
+    set(n.page, 'textContent', uiLocale.t('Serveur · page ') + (server.index + 1));
+    set(n.newer, 'disabled', server.loading || server.index === 0); set(n.older, 'disabled', server.loading || !(server.data && server.data.more));
+  }
+  window.addEventListener('cnc-v2-change', function () {
+    var a = v2Api(), s = a && a.state();
+    if (!v2.registered && a && typeof a.register === 'function' && a.gate() && s.ready && s.layout) {
+      v2.registered = true;
+      var snap = { version: 1, available: true, screen: 'history', model: null };
+      a.register('history', { snapshot: function () { return snap; }, update: function () { return snap; }, cancel: function () {},
+        dispose: function () { v2.disposed = true; if (v2.frame && window.cancelAnimationFrame) window.cancelAnimationFrame(v2.frame); v2.frame = 0; } });
+    }
+    v2Queue();
+  });
+  window.addEventListener('cnc-v2-journal-open', function (e) {
+    var model = v2Model(), d = e && e.detail || {};
+    if (!model || !v2Layout()) return;
+    v2.context = model.contextFor(d.marker || null, 30000); v2.view = d.view === undefined ? null : d.view;
+    v2.filter = 'all'; v2.selected = null;
+    if (source !== 'session') choose('session');
+    window.dispatchEvent(new CustomEvent('cnc-navigate', { detail: 'history' }));
+    v2Queue();
+  });
   $('real-export-text').addEventListener('click', function () { download('txt'); });
   $('real-export-json').addEventListener('click', function () { download('json'); });
   mount();

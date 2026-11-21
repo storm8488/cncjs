@@ -8,7 +8,7 @@ const fs=require('fs'),vm=require('vm'),assert=require('assert');
   // Never used any more: an upload that still went through the JSON encoder would fail here.
   CNCLibraryPayload:{encodeFile(){throw new Error('JSON encoding of the program');}}
  };
- const ctx={document,window,Blob,Date:FakeDate,setTimeout:()=>0,CustomEvent:function(type,o){this.type=type;this.detail=o.detail;},localStorage:{getItem:()=>JSON.stringify({state:{session:{token:'fake'}}})},
+ const ctx={document,window,Blob,Date:FakeDate,setTimeout:()=>0,clearTimeout:()=>{},CustomEvent:function(type,o){this.type=type;this.detail=o.detail;},localStorage:{getItem:()=>JSON.stringify({state:{session:{token:'fake'}}})},
   // A file flagged latin1 holds Windows-1252 bytes: read as UTF-8, its accents become U+FFFD.
   FileReader:function(){this.readAsText=(file,encoding)=>{reads.push(encoding||'utf-8');this.result=file.latin1?(encoding==='windows-1252'?'G0 X0 (pièce)':'G0 X0 (pi�ce)'):file.genuine?(encoding==='windows-1252'?'G0 X0 (ï¿½)':'G0 X0 (�)'):'G0 X0\nG1 X1';Promise.resolve().then(()=>this.onload());};},
   XMLHttpRequest:function(){this.open=(method,url)=>{this.method=method;this.url=url;};this.headers={};this.setRequestHeader=(k,v)=>{this.headers[k]=v;};this.send=body=>{if(this.method==='PUT')puts.push({url:this.url,body,type:this.headers['Content-Type']});this.status=200;this.responseText=JSON.stringify(this.url.endsWith('/status')?{configured:true}:this.url.endsWith('/files')?{files:listed}:{});Promise.resolve().then(()=>this.onload());};}

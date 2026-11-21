@@ -28,10 +28,12 @@ const fs=require('fs'),vm=require('vm'),assert=require('assert');
  await reply({data:JSON.stringify({version:1,file:'b.nc',originalName:'B',previewError:'fixture'})});
  state({workflow:'paused',activeState:'Hold'});assert.match(b._state.textContent,/En pause/);
  state({workflow:'paused',activeState:'Alarm'});assert.match(b._state.textContent,/Alarme/);
+ // Lot Transverses (review): a probe cycle reports Run with no job running: the file is loaded, not « En cours » (the strip says « Palpage »).
+ state({workflow:'idle',activeState:'Run',probing:true});assert.match(b._state.textContent,/Chargé/);assert(!/En cours/.test(b._state.textContent),'probing: not « En cours »');
  state({fresh:false});assert.equal(b._state.textContent,'✓ Sélectionné');assert.match(node('library-selection-state').textContent,/indisponible/);
  state(null);assert.equal(b._state.textContent,'✓ Sélectionné');
  // Hidden state is retained without repaint; pagination derives current badges.
- activeScreens.clear();handlers['cnc-screen-change']({detail:'menu'});const hiddenWrites=stats.writes;
+ activeScreens.clear();handlers['cnc-screen-change']({detail:'more'});const hiddenWrites=stats.writes;
  state({name:'e.nc',workflow:'running',activeState:'Run'});assert.equal(stats.writes,hiddenWrites);
  activeScreens.add('files');handlers['cnc-screen-change']({detail:'files'});
  await reply({configured:true});await reply({files});

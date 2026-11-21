@@ -39,6 +39,8 @@
     return Math.min(totalLines,Math.max(0,s.received/s.total*totalLines));
   }
   if(typeof module!=='undefined'&&module.exports){module.exports={project:project,trailCount:trailCount,acknowledged:acknowledged};return;}
+  // Same functions in the page (PERFORMANCE-UI-SPEC.md 8.4): one rule for the acknowledged lines, read by the live 3D view and the gauges.
+  root.CNCToolPosition={project:project,trailCount:trailCount,acknowledged:acknowledged};
   var img=document.getElementById('home-job-image');if(!img)return;
   var marker=document.createElement('span');marker.className='tool-position-marker';marker.hidden=true;marker.setAttribute('aria-hidden','true');img.parentNode.appendChild(marker);
   // Progress trail: the acknowledged part of the toolpath, drawn from the
@@ -51,7 +53,18 @@
   var note=document.createElement('p');note.className='tool-position-note';note.id='tool-position-note';
   if(img.parentNode&&typeof img.parentNode.insertAdjacentElement==='function')img.parentNode.insertAdjacentElement('afterend',note);else document.getElementById('home-job-note').insertAdjacentElement('afterend',note);
   var t=(root.cncI18n&&root.cncI18n.t)||function(s){return s;};
-  var state=null,simulation=false,received=0,frame=null,expiry=null,disposed=false;
+  var state=null,simulation=false,received=0,receivedMono=null,frame=null,expiry=null,disposed=false,v2Seen=false;
+  function v2(){if(root.cncV2&&typeof root.cncV2.gate==='function'&&root.cncV2.gate())v2Seen=true;return v2Seen;}
+  function mono(){return root.performance&&typeof root.performance.now==='function'?root.performance.now():null;}
+  function reportAge(){
+    var age=state&&state.statusAgeMs,n=mono();
+    if(typeof age!=='number'||!isFinite(age)||age<0||receivedMono===null||typeof n!=='number'||!isFinite(n)||n<receivedMono)return null;
+    return age+n-receivedMono;
+  }
+  function sameContent(meta,s){
+    var a=meta&&meta.fingerprint,b=s&&s.fingerprint;
+    return typeof a==='string'&&!!a&&typeof b==='string'&&!!b&&a.toLowerCase().replace(/^sha256:/,'')===b.toLowerCase().replace(/^sha256:/,'');
+  }
   // The image box is read at most once a second (and at once after a screen change, a resize
   // or a new image): reading it forces a layout of the screen, and reports come 4 times a
   // second during a job. The marker then moves with a transform, which needs no layout.
@@ -82,7 +95,14 @@
     var screen=document.getElementById('screen-home');
     if(document.hidden||!screen.classList.contains('active')){hide('');return;}
     var meta=img.cncPreview,s=state;
-    if(!s||!s.fresh||Date.now()-received>2500||img.hidden||!meta||!s.name||meta.file!==s.name){hide(t('Position outil : données ou aperçu indisponibles.'));return;}
+    // The live 3D view (preview-gl.js under the GPU gate) draws its own marker and progress: the DOM
+    // marker and the trail stay hidden, and during a job or a pause the note describes the live view.
+    var lv=img.cncLiveView,ls=null;
+    try{ls=lv&&typeof lv.state==='function'?lv.state():null;}catch(_){ls=null;}
+    if(ls&&(ls.closed||!ls.gpu||!ls.live))ls=null;
+    if(ls){var text=liveNote(ls);if(text!==null){marker.hidden=true;trail.hidden=true;if(note.textContent!==text)note.textContent=text;return;}}
+    var ageV2=v2()&&!simulation?reportAge():null;
+    if(!s||!s.fresh||(v2()&&!simulation?ageV2===null||ageV2>2500||!sameContent(meta,s):Date.now()-received>2500)||img.hidden||!meta||!s.name||meta.file!==s.name){hide(t('Position outil : données ou aperçu indisponibles.'));return;}
     if(!meta.projection){hide(t('Position outil : régénérez cet ancien aperçu dans Fichiers.'));return;}
     // The chosen 3D view, when it is the image shown; otherwise the stored 2D image.
     var view=img.cncView&&img.cncView.src===img.getAttribute('src')?img.cncView:null,projection=view?view.projection:meta.projection;
@@ -99,8 +119,13 @@
     // The trail only needs the acknowledged lines and the preview, not the tool
     // position: it stays visible when the position cannot be projected.
     drawTrail(meta,s,box,projection);
-    var trailLabel=trail.hidden?'':simulation?t(' Tracé orange : avancement fictif.'):t(' Tracé orange : lignes acquittées, indicatif.');
+    if(ls)trail.hidden=true;
+    // Three things, never mixed up: the planned path (the preview), the lines Grbl acknowledged
+    // ("acquittées": accepted into its buffer, not necessarily cut yet) and the reported position.
+    var trailLabel=trail.hidden?'':simulation?t(' Tracé orange : avancement fictif.'):t(' Tracé orange : lignes acquittées par Grbl (acceptées, pas forcément usinées), indicatif.');
     function noMarker(message){marker.hidden=true;var text=message+trailLabel;if(note.textContent!==text)note.textContent=text;}
+    // In an alarm Grbl may have lost the position: no blue point, the note says so (display only).
+    if(!simulation&&/^alarm/i.test(String(s.activeState||''))){noMarker(t('Alarme : position non garantie.'));return;}
     var point;
     if(simulation){
       if(s.wcs!=='G54'){noMarker(t('Position fictive : aperçu limité au repère G54.'));return;}
@@ -115,20 +140,46 @@
     if(!pixel){noMarker(t('Position outil hors aperçu ou projection invalide.'));return;}
     var left=(box.left+(box.width-width)/2)+'px',top=(box.top+(box.height-height)/2)+'px',move='translate('+(pixel.x*width)+'px,'+(pixel.y*height)+'px) translate(-50%,-50%)';
     if(marker.style.left!==left)marker.style.left=left;if(marker.style.top!==top)marker.style.top=top;
-    if(marker.style.transform!==move)marker.style.transform=move;marker.hidden=false;
-    var label=(simulation?t('Point rose : position fictive G54. Le travail simulé ne déplace pas ce point.'):t('Point rose : position de travail rapportée, G54 · projection indicative.'))+trailLabel;
+    if(marker.style.transform!==move)marker.style.transform=move;marker.hidden=!!ls;
+    // Age of the reported position: the server's age of the status report plus its time in transit here.
+    var age=v2()&&!simulation?ageV2:(typeof s.statusAgeMs==='number'&&isFinite(s.statusAgeMs)&&s.statusAgeMs>=0?s.statusAgeMs:0)+Math.max(0,Date.now()-received);
+    // In whole seconds: a tenth would rewrite the note (and lay Suivi out) at every report.
+    var ageText=age<1000?t('moins d’une seconde'):Math.floor(age/1000)+' s';
+    var label=(simulation?t('Point bleu : position fictive G54. Le travail simulé ne déplace pas ce point.'):t('Image : parcours prévu.')+' '+t('Point bleu : position de travail rapportée par Grbl il y a ')+ageText+t(', G54 · projection indicative.'))+trailLabel;
     if(note.textContent!==label)note.textContent=label;
+  }
+  // Note of the live 3D view during a job or a pause (PERFORMANCE-UI-SPEC.md 3.6), or null at rest
+  // (the note above is kept). One sentence per state, whole seconds: rewritten only when it changes.
+  function seconds(ms){return ms<1000?t('moins d’une seconde'):Math.floor(ms/1000)+' s';}
+  function liveNote(ls){
+    var v=ls.live,m=v.marker;
+    if(v.workflow!=='running'&&v.workflow!=='paused')return null;
+    var text;
+    if(v.simulation)text=t('Tracé orange : avancement fictif.')+' '+t('Point bleu : position fictive G54. Le travail simulé ne déplace pas ce point.');
+    else if(m.shown&&m.alarm)text=t('Alarme : position non garantie. Repère et avancement figés.');
+    else if(m.shown&&m.stale)text=t('Position périmée : dernier rapport il y a ')+Math.floor((m.ageMs||0)/1000)+t(' s. Repère et avancement figés.');
+    else{
+      var head=t('Parcours prévu · orange : lignes acquittées par Grbl (acceptées, pas forcément usinées) · blanc : passe en cours');
+      if(!m.shown)text=head+'. '+(v.reason||t('Position outil inconnue.'));
+      else text=head+t(' · repère : position de travail rapportée par Grbl il y a ')+seconds(m.ageMs||0)+(v.workflow==='paused'?t(', G54.'):m.snapped?t(', G54, interpolée entre deux rapports.'):t(', G54 (hors du parcours dessiné : non interpolée).'));
+    }
+    if(ls.geometry==='simplified')text+=' '+(ls.geometryReason==='too-long'?t('Géométrie simplifiée : programme trop long pour la géométrie complète (')+ls.geometryTotal+t(' segments).'):t('Géométrie simplifiée (')+(ls.segments+1)+t(' points).'));
+    return text;
   }
   function schedule(){
     if(disposed)return;
     if(document.hidden||!document.getElementById('screen-home').classList.contains('active')){if(!marker.hidden)marker.hidden=true;return;}
     if(frame===null)frame=requestAnimationFrame(paint);
   }
-  function expire(){clearTimeout(expiry);expiry=null;if(!document.hidden&&document.getElementById('screen-home').classList.contains('active'))expiry=setTimeout(schedule,2600);}
-  root.addEventListener('cnc-job-status',function(e){state=e.detail.machine;simulation=!!e.detail.simulation;received=Date.now();schedule();expire();});
+  function expire(){
+    clearTimeout(expiry);expiry=null;if(disposed||document.hidden||!document.getElementById('screen-home').classList.contains('active'))return;
+    if(v2()&&!simulation){var age=reportAge();if(age!==null&&age<=2500)expiry=setTimeout(schedule,2501-age);}
+    else expiry=setTimeout(schedule,2600);
+  }
+  root.addEventListener('cnc-job-status',function(e){if(disposed)return;state=e.detail.machine;simulation=!!e.detail.simulation;received=Date.now();receivedMono=mono();schedule();expire();});
   root.addEventListener('cnc-screen-change',function(){invalidate();schedule();expire();});
   root.addEventListener('resize',function(){invalidate();schedule();});img.addEventListener('load',function(){invalidate();schedule();});
   document.addEventListener('visibilitychange',function(){schedule();expire();});
-  root.addEventListener('pagehide',function(e){if(e.persisted)return;disposed=true;if(frame!==null)cancelAnimationFrame(frame);clearTimeout(expiry);});
+  root.addEventListener('pagehide',function(e){if(e.persisted&&!v2())return;disposed=true;if(frame!==null)cancelAnimationFrame(frame);frame=null;clearTimeout(expiry);expiry=null;state=null;drawnTrail={source:null,points:-1};});
   schedule();
 })(typeof window==='undefined'?globalThis:window);

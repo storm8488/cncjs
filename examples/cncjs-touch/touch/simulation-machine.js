@@ -3,9 +3,11 @@
   var uiLocale=window.cncI18n||{t:function(s){return s;},html:function(s){return s;}};
   var $=function(id){return document.getElementById(id);},state=null,busy=false,currentScreen='machine',feedback='';
   function value(id,key,next){if(id==='sim-machine-feedback'&&window.cncI18n)next=window.cncI18n.message(next);var el=$(id);if(el[key]!==next)el[key]=next;}
+  // The state in the interface's words (status-strip.js, loaded after this file), « déduite » included; Grbl's word otherwise.
+  function stateWord(m){var w=null;try{w=window.cncStatusStrip&&window.cncStatusStrip.describe(m,true);}catch(_){w=null;}return w&&w.word?w.word+(w.note?' '+w.note:''):m.activeState;}
   function render(){
     if(currentScreen!=='machine'||document.hidden)return;
-    value('sim-machine-state','textContent',state?uiLocale.t('État fictif : ')+state.activeState:uiLocale.t('Simulateur indisponible'));
+    value('sim-machine-state','textContent',state?uiLocale.t('État fictif : ')+stateWord(state):uiLocale.t('Simulateur indisponible'));
     value('sim-machine-state','className','badge '+(state&&state.activeState==='Alarm'?'err':'ok'));
     value('sim-machine-file','textContent',state&&state.name?uiLocale.t('Fichier : ')+(state.originalName||state.name):uiLocale.t('Aucun fichier chargé dans le simulateur.'));
     value('sim-machine-workflow','textContent',state?uiLocale.t('Travail : ')+({idle:uiLocale.t('au repos'),running:uiLocale.t('en cours'),paused:uiLocale.t('suspendu')}[state.workflow]||state.workflow):'');

@@ -12,14 +12,15 @@
   if(!panel)return;
   var MIN=5,STEP=5,KEY='cncjs-touch-backlight-v1',MODES=['off','min','keep'];
   var mode='off';
-  try{var saved=JSON.parse(localStorage.getItem(KEY)||'null');if(saved&&MODES.indexOf(saved.sleep)>=0)mode=saved.sleep;}catch(_){}
+  try{var saved=JSON.parse(localStorage.getItem(KEY)||'null');if(saved&&MODES.indexOf(saved.sleep)>=0)mode=saved.sleep;}catch(_){/* Keep the existing fallback when storage or parsing fails. */}
 
   function el(tag,cls,text){var n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}
   function set(n,value){if(n.textContent!==value)n.textContent=value;}
 
   var card=el('div','card ks-display-card ks-backlight');card.id='ks-backlight';
-  card.appendChild(el('h2','',t('Luminosité')));
-  card.appendChild(el('p','',t('Rétroéclairage de l’écran branché sur l’ordinateur qui exécute CNCjs.')));
+  // Scope (PROFILES-CONTRACT.md §1): the screen of the CNCjs host, not necessarily this tablet.
+  var heading=el('h2','',t('Luminosité')+' ');heading.appendChild(el('span','ks-scope',t('Serveur CNCjs')));heading.lastChild.setAttribute('data-scope','server');card.appendChild(heading);
+  card.appendChild(el('p','',t('Rétroéclairage de l’écran branché sur l’ordinateur qui exécute CNCjs (serveur CNCjs). Ce n’est l’écran de cette tablette que si CNCjs tourne sur elle.')));
   var row=el('div','ks-backlight-row');
   var down=el('button','ks-secondary ks-backlight-step','−'),up=el('button','ks-secondary ks-backlight-step','+');
   down.type=up.type='button';down.setAttribute('aria-label',t('Moins lumineux'));up.setAttribute('aria-label',t('Plus lumineux'));
@@ -32,18 +33,27 @@
   [['off',t('Écran éteint')],['min',t('Luminosité minimale')],['keep',t('Inchangée')]].forEach(function(o){var opt=el('option','',o[1]);opt.value=o[0];sleepSelect.appendChild(opt);});
   sleepSelect.value=mode;sleepRow.appendChild(sleepSelect);card.appendChild(sleepRow);
   var status=el('p','ks-help ks-backlight-status','');status.setAttribute('role','status');card.appendChild(status);
-  var footer=panel.querySelector('.ks-display-footer');panel.insertBefore(card,footer||null);
+  var sleepReason=el('p','ks-help ks-backlight-local',t('Réglable seulement sur la tablette de la machine.'));sleepReason.hidden=true;card.appendChild(sleepReason);
+  // Just before the screen sleep card (Affichage tab); older layouts: before the footer.
+  var anchor=panel.querySelector('.ks-display-sleep')||panel.querySelector('.ks-display-footer');panel.insertBefore(card,anchor||null);
 
-  var state=null,inflight=null,pending=null,loading=null,disposed=false;
+  var state=null,inflight=null,pending=null,loading=null,disposed=false,local=null;
+  function locality(code,data){
+    // Once refused, this page never attempts automatic backlight changes again.
+    if(local===false)return;
+    if(data&&(data.local===false||data.code==='ETOUCH_BACKLIGHT_REMOTE'))local=false;
+    else if(data&&data.local===true)local=true;
+    if(local===false){saverNext=null;wakePending=false;clearTimeout(wakeTimer);wakeTimer=null;}
+  }
   function token(){try{return JSON.parse(localStorage.getItem('cnc')).state.session.token||'';}catch(_){return '';}}
   function apiBase(){try{return window.cncState.get().apiBase;}catch(_){return '/api';}}
-  function shown(){return !disposed&&!document.hidden&&panel.classList.contains('active');}
+  function shown(){var tab=panel.getAttribute('data-settings-tab');return !disposed&&!document.hidden&&panel.classList.contains('active')&&(!tab||tab==='display');}
   function request(method,body,done){
     var credential=token();if(!credential){done(401,null);return null;}
     var x=new XMLHttpRequest();x.open(method,apiBase()+'/touch-backlight',true);x.timeout=5000;
     x.setRequestHeader('Authorization','Bearer '+credential);
     if(body)x.setRequestHeader('Content-Type','application/json');
-    x.onload=function(){var data=null;try{data=JSON.parse(x.responseText);}catch(_){}done(x.status,data);};
+    x.onload=function(){var data=null;try{data=JSON.parse(x.responseText);}catch(_){/* Keep the existing fallback when storage or parsing fails. */}locality(x.status,data);done(x.status,data);};
     x.onerror=x.ontimeout=function(){done(0,null);};
     x.send(body?JSON.stringify(body):null);return x;
   }
@@ -51,21 +61,25 @@
   function paint(){
     var on=usable();
     [down,up,slider].forEach(function(n){if(n.disabled===on)n.disabled=!on;});
-    if(state&&typeof state.percent==='number'&&!inflight&&pending===null){slider.value=String(state.percent);}
+    if(state&&typeof state.percent==='number'&&!inflight&&pending===null&&!drag){slider.value=String(state.percent);}
     set(value,state&&typeof state.percent==='number'?Number(slider.value)+' %':'—');
     var why=!state?'':!state.available?t('Aucun rétroéclairage réglable sur cet ordinateur.'):!state.writable?t('Réglage bloqué : CNCjs n’a pas le droit de modifier la luminosité (règle udev à installer, voir README).'):'';
     if(why)set(status,why);
+    sleepSelect.disabled=local===false;
+    sleepReason.hidden=local!==false;
+    sleepRow.className='ks-backlight-sleep'+(local===false?' is-unavailable':'');
   }
   function message(code,data){
     return code===401||code===403?t('Session CNCjs requise : ouvrez CNCjs et connectez-vous.'):code===404?t('Ce serveur CNCjs ne gère pas la luminosité.'):(data&&data.message)||t('Luminosité indisponible.');
   }
-  function load(){
-    if(loading||inflight||!shown())return;
+  function load(initial){
+    if(disposed||loading||inflight||(!initial&&!shown()))return;
     loading=request('GET',null,function(code,data){
       loading=null;if(disposed)return;
       if(code===200&&data&&typeof data==='object'){state=data;if(typeof data.userPercent==='number')state.percent=data.userPercent;set(status,'');}
       else{state=null;set(status,message(code,data));}
       paint();
+      if(initial&&local===true)saver({wake:true});
     });
   }
   function send(percent){
@@ -86,13 +100,16 @@
   // Screen saver: one request at a time, the latest wish (dim or wake) wins.
   // A wake that fails (server busy, timeout) would leave the panel dark: it is
   // retried a few times, then again on the next touch, until the server confirms.
-  var dimmed=false,saverBusy=false,saverNext=null,wakePending=false,wakeTries=0,wakeTimer=null;
+  var dimmed=false,saverBusy=false,saverNext=null,wakePending=false,wakeTries=0,wakeTimer=null,lastWake=-Infinity;
+  function clock(){return window.performance&&typeof window.performance.now==='function'?window.performance.now():Date.now();}
   function saver(body){
+    if(disposed||local===false)return;
     if(saverBusy){saverNext=body;return;}
     saverBusy=true;
-    if(body.wake){wakePending=true;clearTimeout(wakeTimer);wakeTimer=null;}
+    if(body.wake){lastWake=clock();wakePending=true;clearTimeout(wakeTimer);wakeTimer=null;}
     var x=request('POST',body,function(code){
       saverBusy=false;
+      if(disposed||local===false){saverNext=null;paint();return;}
       if(body.wake){
         // No controllable backlight here (404/409) or no session (401/403): a retry on every touch would not help.
         if(code===200||code===401||code===403||code===404||code===409){wakePending=false;wakeTries=0;}
@@ -102,29 +119,67 @@
     });
     if(!x){saverBusy=false;saverNext=null;}
   }
-  function retryWake(){if(wakePending&&!dimmed&&!saverBusy&&!wakeTimer){wakeTries=0;saver({wake:true});}}
+  function retryWake(e){
+    if(disposed||local===false||dimmed||saverBusy||wakeTimer)return;
+    if(wakePending){wakeTries=0;saver({wake:true});}
+    else if(local===true&&(!e||e.type==='pointerdown')&&clock()-lastWake>5000)saver({wake:true});
+  }
   document.addEventListener('pointerdown',retryWake,true);document.addEventListener('keydown',retryWake,true);
   window.addEventListener('cnc-screen-saver-sleep',function(e){
     var asleep=!!(e&&e.detail);
+    if(local===false)return;
     if(asleep){
       if(mode==='keep'||(state&&!usable()))return;
       dimmed=true;wakePending=false;clearTimeout(wakeTimer);wakeTimer=null;saver({percent:mode==='off'?0:MIN,temporary:true});
     }else if(dimmed){dimmed=false;saver({wake:true});}
   });
   sleepSelect.addEventListener('change',function(){
-    if(MODES.indexOf(sleepSelect.value)<0)return;
+    if(local===false||MODES.indexOf(sleepSelect.value)<0)return;
     mode=sleepSelect.value;
     try{localStorage.setItem(KEY,JSON.stringify({sleep:mode}));}catch(_){set(status,t('Choix appliqué ; mémorisation indisponible dans ce navigateur.'));}
   });
-  slider.addEventListener('input',function(){choose(Number(slider.value));});
+  // A touch on the slider is settled on release. A vertical swipe that starts on it scrolls the
+  // list (touch-action:pan-y), and Chromium may move the thumb before it takes the gesture over
+  // (pointercancel): the thumb follows the finger, nothing is sent before the release, and a
+  // cancelled or interrupted gesture puts the previous level back. Mouse, keyboard and ± unchanged.
+  // A gesture that ends without a setting shows the server's confirmed level again (an answer that
+  // came meanwhile was held back so the thumb stays under the finger).
+  var drag=null;
+  function show(){set(value,Number(slider.value)+' %');}
+  function dropDrag(){
+    if(drag&&!drag.cancelled){slider.value=drag.before;show();}
+    if(drag){clearTimeout(drag.timer);drag=null;paint();}
+  }
+  slider.addEventListener('pointerdown',function(e){
+    dropDrag();
+    if(e&&e.pointerType==='touch')drag={id:e.pointerId,before:slider.value,cancelled:false,timer:null};
+  });
+  slider.addEventListener('pointercancel',function(e){
+    if(!drag||e.pointerId!==drag.id||drag.cancelled)return;
+    var d=drag;d.cancelled=true;slider.value=d.before;show();
+    // Kept a moment to absorb the browser's late input/change events of this gesture.
+    d.timer=setTimeout(function(){if(drag===d){drag=null;paint();}},500);
+  });
+  slider.addEventListener('pointerup',function(e){
+    if(!drag||e.pointerId!==drag.id||drag.cancelled)return;
+    var d=drag;
+    d.timer=setTimeout(function(){
+      if(drag!==d||d.cancelled)return;
+      drag=null;
+      if(slider.value!==d.before)choose(Number(slider.value));else paint();
+    },0);
+  });
+  slider.addEventListener('keydown',dropDrag);
+  slider.addEventListener('input',function(){
+    if(drag){if(drag.cancelled)slider.value=drag.before;show();return;}
+    choose(Number(slider.value));
+  });
   down.addEventListener('click',function(){choose(Number(slider.value)-10);});
   up.addEventListener('click',function(){choose(Number(slider.value)+10);});
-  window.addEventListener('cnc-screen-change',load);
-  window.addEventListener('cnc-settings-tab',function(e){if(e&&e.detail==='display')load();});
-  document.addEventListener('visibilitychange',load);
-  window.addEventListener('pagehide',function(e){if(e&&e.persisted)return;disposed=true;});
-  paint();load();
-  // A page reloaded while the screen saver had the panel off (an update, a crash) wakes it.
-  if(token())saver({wake:true});
+  window.addEventListener('cnc-screen-change',function(){dropDrag();load();});
+  window.addEventListener('cnc-settings-tab',function(e){dropDrag();if(e&&e.detail==='display')load();});
+  document.addEventListener('visibilitychange',function(){dropDrag();load();});
+  window.addEventListener('pagehide',function(e){if(e&&e.persisted)return;disposed=true;clearTimeout(wakeTimer);wakeTimer=null;});
+  paint();load(true);
   window.cncBacklight={state:function(){return {state:state,inflight:!!inflight,pending:pending};}};
 })();

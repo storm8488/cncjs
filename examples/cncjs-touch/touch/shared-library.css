@@ -11,9 +11,52 @@
 #home-job-name{overflow-wrap:anywhere}#job-progress-summary{font-weight:700;color:var(--info-text)}
 @media(max-width:780px){.job-dashboard{grid-template-columns:1fr}}
 /* Realtime overrides on the follow-up screen: one row per kind, Grbl step buttons. */
-#home-job-stop{background:var(--danger-soft);border-color:var(--danger-text)}
+/* Active only: the soft red with its own text colour (white on it was 1.25:1 in the light theme); a disabled
+   Arrêter keeps the shared .t-btn:disabled look, never one that resembles the active button. */
+#home-job-stop:not(:disabled){background:var(--danger-soft);border-color:var(--danger-text);color:var(--danger-text)}
 #home-job-resume{background:var(--ok);border-color:var(--ok-text)}
 #home-job-feedback{color:var(--mute);overflow-wrap:anywhere}
 .job-travel{font-size:.95em}.job-travel.outside{color:var(--warn-text);font-weight:700}.job-travel.unknown{opacity:.75}
 
 .job-dialog[hidden]{display:none!important}
+
+/* Performance v2 · Files. check-screen.js puts the comparison INSIDE the detail card.
+   Share L4's layout in both renderers; the old standalone-band grid rules put this
+   nested mount in the 190 px facts column. It spans the card and grows with its text.
+   Only the card scrolls. The technical rows already live in the Details sheet. */
+body.ks-ui.perf-v2 #screen-files #perf-v2-files{grid-column:1/-1;grid-row:3;min-width:0;height:auto;max-height:none;overflow:visible;flex:none}
+body.ks-ui.perf-v2 #screen-files #library-selection-state,body.ks-ui.perf-v2 #screen-files #library-meta{display:none}
+body.ks-ui.perf-v2 #screen-files #perf-v2-files[hidden]{display:none}
+body.perf-v2 #screen-files .lv2{display:flex;flex-direction:column;gap:var(--sp-2);padding:var(--sp-2) var(--sp-3);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m)}
+body.perf-v2 #screen-files .lv2-compare{width:100%;border-collapse:collapse;table-layout:fixed;font-size:var(--fs-16);line-height:1.3;font-variant-numeric:tabular-nums}
+body.perf-v2 #screen-files .lv2-compare th,body.perf-v2 #screen-files .lv2-compare td{padding:var(--sp-1) var(--sp-2);border-bottom:1px solid var(--line);text-align:left;vertical-align:top;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg)}
+body.perf-v2 #screen-files .lv2-compare tbody th{width:30%;font-weight:400;color:var(--mute);white-space:normal;overflow-wrap:break-word}
+/* Drop the empty row-label spacer in the summary, then wrap whole columns when
+   their combined preferred widths no longer fit (including enlarged text). */
+body.perf-v2 #screen-files .lv2-compare,body.perf-v2 #screen-files .lv2-compare thead{display:block}
+body.perf-v2 #screen-files .lv2-compare thead tr{display:flex;flex-wrap:wrap;gap:var(--sp-2)}
+body.perf-v2 #screen-files .lv2-compare thead td{display:none}
+body.perf-v2 #screen-files .lv2-compare thead .lv2-col{display:block;flex:1 1 18em;min-width:0;max-width:100%;box-sizing:border-box;overflow:visible;white-space:normal}
+body.perf-v2 #screen-files .lv2-col{border-bottom:0;border-left:6px solid var(--accent);background:var(--surface-2)}
+body.perf-v2 #screen-files .lv2-col[data-role="loaded"]{border-left-color:var(--info)}
+body.perf-v2 #screen-files .lv2-eyebrow{display:block;font:600 var(--fs-16)/1.2 var(--font);color:var(--mute);letter-spacing:.06em;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis}
+body.perf-v2 #screen-files .lv2-name{display:inline;font:600 var(--fs-18)/1.2 var(--font);color:var(--fg)}
+/* Wrap at word boundaries only; headings and states never split letter by letter. */
+body.perf-v2 #screen-files .lv2-col,body.perf-v2 #screen-files .lv2-col .lv2-eyebrow,body.perf-v2 #screen-files .lv2-col .lv2-name,body.perf-v2 #screen-files .lv2-col .lv2-state{white-space:normal;text-overflow:clip;overflow:visible;overflow-wrap:normal;word-break:normal;hyphens:none}
+/* Ligne de fichier : le badge « Sélectionné · Chargé » passe sous le texte, qui garde toute la largeur. */
+body.ks-ui.perf-v2 #screen-files .library-file{grid-template-columns:96px minmax(0,1fr)}
+body.ks-ui.perf-v2 #screen-files .library-file .library-thumb{grid-row:span 2}
+body.ks-ui.perf-v2 #screen-files .library-file .library-file-state{grid-column:2;justify-self:start}
+/* Un badge long (« ✓ Seleccionado · ! Alarma · cargado », texte agrandi) passe à la ligne au lieu de sortir de la carte. */
+body.ks-ui.perf-v2 #screen-files .library-file .library-file-state{white-space:normal;line-height:1.3;max-width:100%}
+/* « Charger et ouvrir le Suivi » en tête de l'exécution (ordre visuel seulement, même DOM) : désactivé, il ne colle plus
+   (responsive.css) et passait sous le pli du détail en texte agrandi avec une aide d'alarme longue ; il reste dans le
+   cadre et l'aide qui dit pourquoi se lit dessous, en faisant défiler le détail. */
+body.ks-ui.perf-v2 #screen-files .library-execution #job-load{order:-1}
+body.perf-v2 #screen-files .lv2-state{display:inline;margin-left:var(--sp-2);font:600 var(--fs-16)/1.2 var(--font);color:var(--info-text)}
+body.perf-v2 #screen-files .lv2-match{margin:0;padding:var(--sp-1) var(--sp-3);border-left:6px solid var(--faint);border-radius:var(--r-m);background:var(--surface-2);font-size:var(--fs-16);line-height:1.3;color:var(--fg)}
+body.perf-v2 #screen-files .lv2-match[data-tone="ok"]{border-left-color:var(--ok);background:var(--ok-soft)}
+body.perf-v2 #screen-files .lv2-match[data-tone="warn"]{border-left-color:var(--warn);background:var(--warn-soft)}
+body.perf-v2 #screen-files .lv2-match[hidden]{display:none}
+
+/* Current content hosts retain the existing card rules. */

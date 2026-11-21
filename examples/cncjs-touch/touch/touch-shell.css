@@ -1,7 +1,6 @@
 body.ks-ui{--card:var(--surface);--txt:var(--fg);--ks-rail:88px;background:var(--bg);color:var(--fg);font-size:18px}
 .ks-ui #screen-limits.active{grid-template-columns:minmax(0,1fr)}
 .ks-readonly{color:var(--mute);font-size:14px;white-space:nowrap;border:1px solid var(--line-strong);border-radius:5px;padding:8px 12px}
-.ks-limits-link{border-bottom:3px solid var(--ok-text)}
 .ks-limits-table{width:100%;border-collapse:collapse;table-layout:fixed;font-variant-numeric:tabular-nums}
 .ks-limits-table th,.ks-limits-table td{padding:20px 12px;border-bottom:1px solid var(--line);text-align:center}
 .ks-limits-table th:first-child{width:36%;text-align:left;font-weight:400}
@@ -21,7 +20,6 @@ body.ks-real.display-large{font-size:20px}.ks-real.display-large .screen p,.ks-r
 .ks-real #status-bar button{min-height:30px;padding:4px 12px}
 .ks-sheet a{display:block;margin-top:16px;color:var(--info-text)}
 .ks-real #screen-settings select,.ks-real #screen-settings button{font:inherit;min-height:52px}
-.ks-real #screen-settings .display-check{align-items:center}
 @media(max-width:650px){.ks-ui #real-banner{gap:8px;padding:6px 10px}}
 .ks-ui main{left:var(--ks-rail)!important;width:calc(100% - var(--ks-rail))!important;bottom:0!important;padding:16px!important}
 .ks-ui #tabbar{top:64px;left:0;bottom:0;right:auto;width:var(--ks-rail);height:auto;flex-direction:column;justify-content:flex-start;gap:8px;border-top:0;padding:12px 8px!important}
@@ -40,7 +38,6 @@ body.ks-real.display-large{font-size:20px}.ks-real.display-large .screen p,.ks-r
 .ks-dimensions-table th,.ks-dimensions-table td{padding:14px 8px;border-bottom:1px solid var(--line);text-align:right;overflow-wrap:anywhere}
 .ks-dimensions-table th:first-child{width:56px;text-align:left;color:var(--ok-text);white-space:nowrap}
 .ks-dimensions-table thead th{font-size:14px;font-weight:400;color:var(--mute)}.ks-dimensions-table tbody{font-size:22px}
-#ks-dimensions #library-dimensions-file{font-size:17px;color:var(--fg);line-height:1.25;margin:8px 0}
 @media(max-height:650px){.ks-dimensions-table th,.ks-dimensions-table td{padding:9px 6px}.ks-dimensions-table tbody{font-size:20px}}
 .ks-sheet[hidden]{display:none!important}.ks-sheet{position:fixed;inset:0;z-index:600;background:#000b;display:flex;align-items:center;justify-content:center;padding:20px}
 .ks-sheet-card{width:min(700px,95vw);background:var(--surface);border:1px solid var(--line-strong);border-radius:12px;padding:24px;box-shadow:0 20px 80px #0008}
@@ -134,9 +131,9 @@ body.ks-real.display-large{font-size:20px}.ks-real.display-large .screen p,.ks-r
  .ks-text-sample{font-size:24px}.ks-text-sample.ks-text-large{font-size:30px}
 }
 /* Final shared menu and concise secondary guide. No animations or background work. */
-.ks-guide-tabs{display:flex;gap:12px}.ks-guide-tabs button{flex:1;min-height:52px;background:var(--surface-2);color:var(--fg);border:1px solid var(--line-strong);border-radius:6px;font:inherit;padding:12px;cursor:pointer}.ks-guide-tabs [aria-pressed=true]{background:var(--surface-2);border-color:var(--line-strong)}
-.ks-ui #screen-guide.active{grid-template-columns:repeat(2,minmax(0,1fr))}.ks-ui #screen-guide .card p{font-size:18px;padding:12px 0;border-bottom:1px solid var(--line);margin:0;line-height:1.45}.ks-ui #screen-guide .ks-panel-intro p{font-size:14px;border:0;padding:0;margin:8px 0}.ks-ui #screen-settings .ks-panel-intro{flex-wrap:wrap;gap:12px}.ks-ui #screen-settings .ks-panel-intro>div{flex:1}
-@media(max-height:650px){.ks-ui #screen-guide .card{padding:12px!important}.ks-ui #screen-guide .card p{font-size:15px;padding:9px 0}.ks-guide-tabs button{min-height:44px;padding:8px}}
+.ks-guide-tabs{display:flex;gap:12px}.ks-guide-tabs button{flex:1;min-height:52px;background:var(--surface-2);color:var(--fg);border:1px solid var(--line-strong);border-radius:6px;font:inherit;padding:12px;cursor:pointer}.ks-guide-tabs [aria-pressed=true]{background:var(--surface-2);border-color:var(--faint);box-shadow:inset 0 -4px 0 var(--accent)}
+.ks-ui #screen-guide.active{grid-template-columns:repeat(2,minmax(0,1fr))}.ks-ui #screen-guide .card p{font-size:18px;padding:12px 0;border-bottom:1px solid var(--line);margin:0;line-height:1.45}.ks-ui #screen-guide .ks-panel-intro p{font-size:16px;border:0;padding:0;margin:8px 0}.ks-ui #screen-settings .ks-panel-intro{flex-wrap:wrap;gap:12px}.ks-ui #screen-settings .ks-panel-intro>div{flex:1}
+@media(max-height:650px){.ks-ui #screen-guide .card{padding:12px!important}.ks-ui #screen-guide .card p{font-size:16px;padding:6px 0;line-height:1.35}.ks-guide-tabs button{min-height:48px;padding:8px}}
 .ks-guide-tabs{grid-column:1/-1}
 .ks-ui #screen-guide .ks-guide-shortcut{margin:12px 8px 0 0;min-height:48px}
 .ks-ui #screen-settings .language-settings{flex:0 1 220px;min-width:180px}.language-settings label{display:block;font-size:14px;margin-bottom:6px}.language-settings select{width:100%;min-height:48px;background:var(--surface-2);color:var(--fg);border:1px solid var(--line-strong);border-radius:6px;padding:8px;font:inherit}.language-confirm{padding:12px;border:1px solid var(--warn-text);border-radius:6px}.language-confirm p{margin:0 0 8px}.language-confirm[hidden]{display:none!important}
@@ -145,6 +142,8 @@ body.ks-real.display-large{font-size:20px}.ks-real.display-large .screen p,.ks-r
 .ks-settings-tab{flex:0 1 220px;min-height:52px;font:inherit;font-size:18px;color:var(--mute);background:var(--surface);border:1px solid var(--line);border-bottom:3px solid transparent;border-radius:8px;cursor:pointer;touch-action:manipulation}
 .ks-settings-tab[aria-selected=true]{color:var(--fg);background:var(--surface-2);border-bottom-color:var(--accent)}
 #screen-settings[data-settings-tab=system]>:not(.ks-panel-intro):not(.ks-settings-tabs):not(#ks-system){display:none!important}
+#screen-settings[data-settings-tab=machine]>:not(.ks-panel-intro):not(.ks-settings-tabs):not(#ks-performance-card):not(#perf-v2-settings):not(#ks-v2-card):not(#ks-machine-kind-card):not(#ks-laser-z-card):not(.ks-commissioning-card):not(#ks-auto-connect){display:none!important}
+#screen-settings[data-settings-tab=display]>#ks-performance-card,#screen-settings[data-settings-tab=display]>#perf-v2-settings,#screen-settings[data-settings-tab=display]>#ks-v2-card,#screen-settings[data-settings-tab=display]>#ks-machine-kind-card,#screen-settings[data-settings-tab=display]>#ks-laser-z-card,#screen-settings[data-settings-tab=display]>.ks-commissioning-card,#screen-settings[data-settings-tab=display]>#ks-auto-connect{display:none!important}
 #screen-settings:not([data-settings-tab=system]) #ks-system{display:none}
 .ks-system-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
 .ks-system-head h2{margin:0!important}.ks-system-status{min-height:20px;color:var(--warn-text);font-size:15px}
@@ -186,9 +185,31 @@ body.ks-real.display-large{font-size:20px}.ks-real.display-large .screen p,.ks-r
 /* Affichage → Luminosité (backlight.js). */
 .ks-backlight-row{display:grid;grid-template-columns:56px 1fr 56px 64px;align-items:center;gap:10px;margin-top:10px}
 .ks-backlight-step{min-height:52px;font-size:24px!important;padding:0!important}
-.ks-backlight-slider{width:100%;height:44px;accent-color:var(--warn-text);touch-action:none}
+.ks-backlight-slider{width:100%;height:44px;accent-color:var(--warn-text);touch-action:pan-y}
 .ks-backlight-value{text-align:right;font-size:20px;font-weight:400;font-variant-numeric:tabular-nums}
 .ks-backlight-status:empty{display:none}
 /* Luminosité pendant la veille. */
 .ks-backlight-sleep{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;font-size:15px;color:var(--mute)}
 .ks-backlight-mode{min-height:48px;padding:6px 10px;font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--line-strong);border-radius:8px}
+
+/* Current content hosts retain the existing card rules. */
+.ks-ui .ks-sub-head{grid-column:1/-1;display:flex;align-items:center;gap:12px;min-height:48px}
+.ks-ui .ks-sub-head .ks-back{width:160px;min-height:48px;flex:none;font:inherit;font-size:16px;background:var(--surface);color:var(--fg);border:1px solid var(--line-strong);border-radius:6px}
+.ks-ui .ks-sub-head h2{margin:0;color:var(--fg);font-size:20px}
+body.ks-ui main>#screen-history.active,body.ks-ui main>#screen-history.kept{grid-template-rows:48px auto minmax(0,1fr)}
+.ks-ui .ks-guide-tabs{flex-wrap:wrap}
+.ks-ui .ks-guide-tabs button{min-width:120px;min-height:48px;font-size:16px;padding:8px}
+.ks-ui .ks-backlight-sleep.is-unavailable{background:repeating-linear-gradient(135deg,transparent,transparent 6px,var(--line) 6px,var(--line) 8px)}
+#screen-more .ks-tile small:before{content:"";display:inline-block;width:10px;height:10px;margin-right:8px;border-radius:50%;background:var(--mute)}
+#screen-more .ks-tile[data-state=done] small:before{background:var(--ok-text)}
+#screen-more .ks-tile[data-state=progress] small:before{background:var(--warn-text)}
+.ks-ui #screen-more .ks-tile:disabled{opacity:1;color:var(--disabled-fg);background:var(--disabled-bg);background-image:repeating-linear-gradient(135deg,var(--disabled-stripe) 0 6px,transparent 6px 14px)}
+.ks-ui #screen-more .ks-tile:disabled small{color:var(--disabled-fg)}
+
+.ks-ui #screen-home .ks-step-body>.card>h2,.ks-ui #file{display:none}
+/* F10: transient notice; the safety strip and dialogs keep their own layer. */
+.ks-auto-reload[hidden]{display:none!important}
+.ks-auto-reload{position:fixed;z-index:400;bottom:16px;left:16px;right:16px;width:max-content;max-width:calc(100% - 32px);margin:auto;display:flex;align-items:center;gap:12px;padding:12px 16px;border:2px solid var(--warn);border-radius:12px;background:var(--surface);color:var(--fg);font-size:var(--fs-16);box-shadow:0 4px 20px #0006}
+.ks-auto-reload span{min-width:0;overflow-wrap:break-word}
+.ks-auto-reload button{min-height:48px;flex-shrink:0}
+@media(max-width:600px){.ks-auto-reload{width:auto;flex-wrap:wrap}.ks-auto-reload button{width:100%}}

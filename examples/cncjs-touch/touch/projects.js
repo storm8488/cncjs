@@ -402,6 +402,8 @@
   $('project-open-original').addEventListener('click', function () { var c = current && current.entry && current.entry.compensation; if (c) { try { root.cncLibraryView.selectName(c.original); } catch (_) {} } });
   // Stock fields take the shared numeric pad (window.CNCNumeric), like every other value on the tablet.
   if (root.CNCNumeric && typeof root.CNCNumeric.bind === 'function') ['x', 'y', 'z'].forEach(function (a) { root.CNCNumeric.bind($('project-stock-' + a), { min: 0.001, max: 10000, unit: 'mm', negative: false, label: t('Brut ') + a.toUpperCase() + ' (mm)' }); });
+  // Text fields take the shared text keyboard (text-keyboard.js).
+  if (root.CNCTextKeyboard) [['project-material', t('Matière')], ['project-tool', t('Outil')], ['project-notes', t('Notes')], ['project-comp-tool', t('Outil')]].forEach(function (f) { root.CNCTextKeyboard.bind($(f[0]), { label: f[1] }); });
 
   root.addEventListener('cnc-library-select', function (e) {
     var sel = e && e.detail, file = sel && sel.file || null;
@@ -431,6 +433,24 @@
       return parts.join(' · ');
     },
     revision: function () { return indexRevision; },
+    // For the previews (preview-gl.js, the resume preview): the stock of the selected file's sheet,
+    // only for the current version of that file. Indicative: its placement on the machine is not known.
+    stock: function (file) {
+      var e = current && current.version === 'current' && current.entry;
+      if (!e || !e.stock || (file && file !== selected)) return null;
+      var s = e.stock, out = {};
+      ['x', 'y', 'z'].forEach(function (a) { out[a] = typeof s[a] === 'number' && isFinite(s[a]) && s[a] > 0 ? s[a] : null; });
+      return out.x && out.y ? out : null;
+    },
+    // For the Performance v2 comparisons (Fichiers, Préparer): what the selected file's sheet declares,
+    // with the fingerprint of the file it was read for. A sheet of another version declares nothing.
+    // Declarations only: never a measurement, never a check of the real set-up.
+    declared: function (file) {
+      if (!current || !file || current.file !== file || file !== selected) return null;
+      var e = current.version === 'current' && current.entry || null;
+      return { file: current.file, fingerprint: typeof current.fingerprint === 'string' && current.fingerprint ? current.fingerprint : null, version: current.version,
+        material: e && e.material || null, tool: e && e.tool || null, stock: e ? this.stock(file) : null };
+    },
     refresh: refreshIndex,
     reload: function () { return load(selected); }
   };

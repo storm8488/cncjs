@@ -1,10 +1,23 @@
 (function () {
   'use strict';
   var key='cncjs-touch-language-v1', language='fr', messages=Object.create(null);
-  try { var saved=localStorage.getItem(key); if(saved==='en'||saved==='es')language=saved; } catch (_) {}
+  try { var saved=localStorage.getItem(key); if(saved==='en'||saved==='es')language=saved; } catch (_) { /* Use French when storage is unavailable. */ }
   // Rows are found by their trimmed text: a phrase written with its outer
   // spaces (' tr/min', 'Confirmer : ') keeps the caller's spaces around it.
   (window.CNCTouchMessages||[]).forEach(function(row){messages[row[0].trim().replace(/\s+/g,' ')]=row;});
+  // Deferred DATA catalogues. The caller parses JSON; no script, eval, DOM scan or
+  // network work here. Validate the entire batch before changing any translation.
+  function registerCatalog(name,rows){
+    if(typeof name!=='string'||!name||!Array.isArray(rows))throw new Error('Invalid catalogue');
+    var batch=Object.create(null);
+    rows.forEach(function(row){
+      if(!Array.isArray(row)||row.length!==3||row.some(function(s){return typeof s!=='string'||!s.trim();}))throw new Error('Invalid catalogue row');
+      var k=row[0].trim().replace(/\s+/g,' '),previous=batch[k]||messages[k];
+      if(previous&&JSON.stringify(previous)!==JSON.stringify(row))throw new Error('Conflicting catalogue row');
+      batch[k]=row.slice();
+    });
+    Object.keys(batch).forEach(function(k){messages[k]=batch[k];});return true;
+  }
   function text(value) {
     if(typeof value!=='string'||language==='fr')return value;
     var parts=/^(\s*)([\s\S]*?)(\s*)$/.exec(value), row=messages[parts[2].replace(/\s+/g,' ')];
@@ -17,7 +30,21 @@
   function message(value){
     if(typeof value!=='string')return value;
     var prefix='SIMULATION — ';
-    return value.indexOf(prefix)===0?text(prefix)+text(value.slice(prefix.length)):text(value);
+    if(value.indexOf(prefix)===0)return text(prefix)+text(value.slice(prefix.length));
+    var translated=text(value);
+    if(language==='fr'||translated!==value)return translated;
+    // Legacy host responses have no code. Translate only their fixed envelope;
+    // SSIDs, counts and OS diagnostics remain data, inserted exactly once.
+    var patterns=[
+      [/^Connecté au réseau Wi-Fi « (.*) »\.$/,'Connecté au réseau Wi-Fi « {value} ».'],
+      [/^Réseau « (.*) » oublié\.$/,'Réseau « {value} » oublié.'],
+      [/^(\d+) mise\(s\) à jour disponible\(s\)\.$/,'{value} mise(s) à jour disponible(s).'],
+      [/^(\d+) paquet\(s\) mis à jour\.$/,'{value} paquet(s) mis à jour.'],
+      [/^(\d+) paquet\(s\) mis à jour\. Redémarrage de la tablette nécessaire\.$/,'{value} paquet(s) mis à jour. Redémarrage de la tablette nécessaire.'],
+      [/^Mise à jour impossible : (.*)$/,'Mise à jour impossible : {value}']
+    ],out=value;
+    patterns.some(function(pair){var match=pair[0].exec(value);if(!match)return false;out=text(pair[1]).replace(/\{value\}/g,function(){return match[1];});return true;});
+    return out;
   }
   function escape(value){return value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
   // Server refusals with a stable code (ETOUCH_*): [code, fr, en, es] templates with {name}
@@ -31,7 +58,7 @@
   function value(params,name){
     var v=params&&typeof params==='object'&&Object.prototype.hasOwnProperty.call(params,name)?params[name]:undefined;
     if(typeof v==='number')return isFinite(v)?String(v):undefined;
-    if(typeof v==='string'){v=v.replace(/[\u0000-\u001f\u007f]/g,'').trim().slice(0,64);return v?v:undefined;}
+    if(typeof v==='string'){v=v.split('').filter(function(ch){var code=ch.charCodeAt(0);return code>=32&&code!==127;}).join('').trim().slice(0,64);return v?v:undefined;}
     return v===null?null:undefined;
   }
   function format(code,params,fallback){
@@ -65,7 +92,7 @@
     for(var child=node.firstChild;child;child=child.nextSibling)staticText(child);
   }
   function save(value){if(['fr','en','es'].indexOf(value)<0)return false;try{localStorage.setItem(key,value);return localStorage.getItem(key)===value;}catch(_){return false;}}
-  window.cncI18n={t:text,message:message,format:format,html:html,language:language,locale:{fr:'fr-FR',en:'en-GB',es:'es-ES'}[language],save:save};
+  window.cncI18n={t:text,message:message,format:format,html:html,language:language,locale:{fr:'fr-FR',en:'en-GB',es:'es-ES'}[language],save:save,registerCatalog:registerCatalog};
   document.documentElement.lang=language;
   document.title=text(document.title);
   if(document.body)staticText(document.body);

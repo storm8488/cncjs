@@ -20,7 +20,7 @@ async function fixture(){
   querySelector:()=>node('panel'),querySelectorAll:()=>[node('job-dialog')],getElementById:node,createElement:tag=>{const n=node('created-'+created.length+'-'+tag);n.tagName=tag.toUpperCase();return n;},
   addEventListener:on,removeEventListener(n,f){events[n]=(events[n]||[]).filter(x=>x!==f);}});
  node('job-dialog').hidden=true;
- const machine={port:'A',type:'Grbl',generation:'g1',revision:1,name:'leaf.nc',fresh:true,statusAgeMs:0,activeState:'Idle',workflow:'idle',canLoad:true,canStart:true,canResume:false,canPause:false,canStop:true,canOverride:true};
+ const machine={port:'A',type:'Grbl',generation:'g1',revision:1,name:'leaf.nc',fresh:true,statusAgeMs:0,activeState:'Idle',workflow:'idle',canLoad:true,workOffset:{state:'proven'},canStart:true,canResume:false,canPause:false,canStop:true,canOverride:true};
  const snapshot=extra=>Object.assign({controllers:[Object.assign({},machine)]},extra||{});
  const sim={request(method,body){if(method==='GET')return getFails?Promise.reject(new Error('Flux coupé.')):Promise.resolve(snapshot());calls.push(body);return new Promise((resolve,reject)=>{answer={resolve,reject};});}};
  const statuses=[];
@@ -33,11 +33,11 @@ async function fixture(){
 const findings=[];
 function expect(cond,label){if(!cond)findings.push(label);console.log((cond?'ok    ':'DEFECT')+' '+label);}
 (async()=>{
- const f=await fixture(),fb=f.node('job-feedback');
+ const f=await fixture(),fb=require('./command-state-fixture.cjs')(f.win,'job-feedback');
  const state=()=>fb.getAttribute('data-state');
  // 1. Start: prepare answered, dialog open, state "confirmed"; then the stream drops while the ticket
  //    is open: the text says the confirmation was cancelled, the dot must not stay "confirmed".
- f.node('job-start').click();await f.flush();
+ f.win.cncJobControls.start();await f.flush();
  assert.equal(fb.textContent,'Demande envoyée…');assert.equal(state(),'sent');
  f.answer().resolve({nonce:'n1',expiresIn:15,name:'leaf.nc',message:'Confirmation prête.'});await f.flush();
  assert.equal(state(),'confirmed');assert.equal(f.node('job-dialog').hidden,false,'dialog opened');
@@ -48,7 +48,7 @@ function expect(cond,label){if(!cond)findings.push(label);console.log((cond?'ok 
  expect(f.statuses.at(-1).feedbackState===state(),'the published detail carries the same state after the drop ('+f.statuses.at(-1).feedbackState+')');
  f.failGet(false);f.win.cncJobControls.refresh();await f.flush();
  // 2. Expired confirmation: prepare answered after the ticket window, the text says expired.
- f.node('job-start').click();await f.flush();assert.equal(state(),'sent');
+ f.win.cncJobControls.start();await f.flush();assert.equal(state(),'sent');
  const pending=f.answer();f.advance(16000);
  // The machine must still look fresh for the prepare callback: refresh the snapshot first.
  f.win.cncJobControls.refresh();await f.flush();
@@ -63,24 +63,24 @@ function expect(cond,label){if(!cond)findings.push(label);console.log((cond?'ok 
  f.win.cncJobControls.refresh();await f.flush();
  // 4. Lost answer on Start's confirmation: "uncertain", the ticket is consumed, nothing is replayed,
  //    the next Start needs a new prepare.
- f.node('job-start').click();await f.flush();f.answer().resolve({nonce:'n3',expiresIn:15,name:'leaf.nc',message:''});await f.flush();
- f.node('job-check').checked=true;f.node('job-check').handlers.change.call(f.node('job-check'),{});f.node('job-confirm').click();await f.flush();
+ f.win.cncJobControls.start();await f.flush();f.answer().resolve({nonce:'n3',expiresIn:15,name:'leaf.nc',message:''});await f.flush();
+ f.advance(600);f.node('job-check').checked=true;f.node('job-check').handlers.change.call(f.node('job-check'),{});f.node('job-confirm').click();await f.flush();
  assert.equal(f.calls.at(-1).action,'start');assert.equal(state(),'sent');
  const before=f.calls.length;const lost=new Error('Connexion perdue ou réponse incertaine.');lost.uncertain=true;f.answer().reject(lost);await f.flush();
  f.advance(1000);f.win.cncJobControls.refresh();await f.flush();f.advance(1000);f.win.cncJobControls.refresh();await f.flush();
  expect(state()==='uncertain'&&f.calls.length===before,'lost answer to Start -> uncertain, no replay after two polls (calls +'+(f.calls.length-before)+')');
  expect(f.node('job-dialog').hidden===true,'the consumed ticket does not reopen the dialog');
  // 5. Stop goes out while a prepare is pending (busy): never delayed, never refused by busy.
- f.node('job-start').click();await f.flush();const prep=f.answer();
+ f.win.cncJobControls.start();await f.flush();const prep=f.answer();
  assert.equal(f.node('job-start').disabled,true,'Start disabled while busy');
- f.node('job-stop').click();await f.flush();
+ require('./command-state-fixture.cjs')(f.win,'job-stop').click();await f.flush();
  expect(f.calls.at(-1).action==='stop','Stop sent while a prepare is pending');
  f.answer().resolve({message:'Arrêt demandé.'});await f.flush();prep.reject(new Error('Refusé.'));await f.flush();
  expect(fb.textContent==='Arrêt demandé.'&&state()==='confirmed','the older prepare refusal does not overwrite the newer Stop answer');
- // 6. Second tap on Start during busy: no call, no text change.
- f.node('job-start').click();await f.flush();const n=f.calls.length,text=fb.textContent;
- f.node('job-start').click();f.node('job-start').handlers.click.call(f.node('job-start'),{});await f.flush();
- expect(f.calls.length===n&&fb.textContent===text,'second tap on Start while busy: no call, no text');
+ // 6. Busy preparation sends nothing else and now explains the refusal (P3).
+ f.win.cncJobControls.start();await f.flush();const n=f.calls.length;
+ f.win.cncJobControls.start();f.win.cncJobControls.start();await f.flush();
+ expect(f.calls.length===n&&fb.textContent==='Opération en cours…','second tap on Start while busy: no call, explicit refusal');
  f.answer().reject(new Error('Refusé.'));await f.flush();
  if(findings.length){console.error('\nxv-ui-feedback: '+findings.length+' finding(s):\n- '+findings.join('\n- '));process.exit(1);}
  console.log('PASS feedback states: the dot follows the text after a cancelled or expired confirmation, immediate refusal, lost answer without replay, Stop during a pending prepare, second tap ignored.');

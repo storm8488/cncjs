@@ -1,8 +1,9 @@
 (function(){
   'use strict';
   var uiLocale=(typeof window!=='undefined'&&window.cncI18n)||{t:function(s){return s;},html:function(s){return s;}};
+  var contactSeen=-1e9,contactTimer=null;
   var model=window.CNCProbe,simulation=document.body.getAttribute('data-simulation')==='true';
-  if(!model)return;
+  if(!model||!simulation)return;
   var engine=model.create(simulation?'simulation':'disabled'),main=document.querySelector('main');
   var key='cnc-touch-probes-v1-'+(simulation?'simulation':'real'),profiles=[],selected=simulation?-1:0,diameter=null;
   var operation='Z',machine=null,busy=false,timer=null,locked=false,active='',page=0;
@@ -11,6 +12,8 @@
   var manager=window.CNCProbeProfiles,removed=null,pendingDelete=null,editorPage=0;
   var preparation=window.CNCProbePreparation,preparationPage=0,preparationKey='';
   var profileStore=null;
+  // The controller's state in the status strip's words (« Repos », « Alarme »…), Grbl's word without the strip. Text only.
+  function stateWord(m){var w=null;try{w=window.cncStatusStrip&&window.cncStatusStrip.describe(m,true);}catch(_){w=null;}return w&&w.word?w.word:m.activeState;}
   try{profileStore=window.CNCProfileStorage.open(localStorage,key);var saved=JSON.parse(profileStore.read()||'null');if(saved){if(saved.version!==1)throw Error('version');profiles=transfer.decode(transfer.encode(saved.profiles,simulation?'simulation':'real'),simulation?'simulation':'real');selected=typeof saved.selected==='number'?saved.selected:selected;diameter=typeof saved.diameter==='number'&&saved.diameter>0&&saved.diameter<=100?saved.diameter:null;}}catch(_){profileStore=null;storageWarning=uiLocale.t('Profils locaux illisibles : paramètres à vérifier.');}
   if(!profiles.length)profiles=[model.empty()];
   if(!isFinite(selected)||Math.floor(selected)!==selected||selected<0&&!simulation||selected>=profiles.length||selected< -1)selected=0;
@@ -29,7 +32,7 @@
     uiLocale.html('<div class="card probe-follow"><div class="probe-status"><span id="probe-signal" class="badge">Sonde : inconnu</span><span id="probe-machine"></span></div><p id="probe-availability"></p>')+
     uiLocale.html('<div class="probe-fields"><label>Outil / pige · diamètre mm<input id="probe-diameter" inputmode="decimal" placeholder="À mesurer" maxlength="10"></label><label id="probe-scenario-label">Scénario fictif<select id="probe-scenario"><option value="success">Réussite</option><option value="initial-contact">Contact actif au départ</option><option value="no-contact">Absence de contact</option><option value="stuck">Contact après retrait</option><option value="disconnect">Déconnexion</option><option value="xyz-failure">Échec au milieu de XYZ</option><option value="timeout">Délai dépassé</option><option value="partial-apply">Application partielle</option></select></label></div>')+
     uiLocale.html('<h2 id="probe-phase">En attente</h2><progress id="probe-progress" max="100" value="0" aria-label="Progression du palpage simulé"></progress><p id="probe-message" role="status"></p>')+
-    uiLocale.html('<label class="probe-confirm"><input id="probe-confirm" type="checkbox"> Je confirme la position initiale fictive et le test de contact.</label><div class="probe-actions">')+button('probe-test',uiLocale.t('Tester le contact'))+button('probe-start',simulation?uiLocale.t('Lancer la simulation'):uiLocale.t('Palpage réel non activé'),'probe-start')+button('probe-stop',uiLocale.t('Arrêter le palpage'),'probe-stop')+button('probe-result',uiLocale.t('Résultats / journal'))+uiLocale.html('</div></div>'));
+    uiLocale.html('<label class="probe-confirm"><input id="probe-confirm" type="checkbox"> Je confirme la position initiale fictive et le test de contact.</label><div class="probe-actions">')+button('probe-test',uiLocale.t('Tester le contact'))+button('probe-start',simulation?uiLocale.t('Lancer la simulation'):uiLocale.t('Palper ')+'Z…','probe-start')+button('probe-stop',uiLocale.t('Arrêter le palpage'),'probe-stop')+button('probe-result',uiLocale.t('Résultats / journal'))+uiLocale.html('</div></div>'));
   function input(name,label){return uiLocale.html('<label>')+label+uiLocale.html('<input data-probe-field="')+name+uiLocale.html('" inputmode="decimal" placeholder="Non configuré" maxlength="12"></label>');}
   screen('probe-profile',intro(uiLocale.t('Profils de sonde'),uiLocale.t('Valeurs locales à ce navigateur · millimètres et mm/min'),button('probe-profile-back',uiLocale.t('Retour au palpage')))+
     uiLocale.html('<div class="card wide"><div class="probe-profile-tools"><label>Nom du profil<input id="probe-profile-name" maxlength="60"></label>')+button('probe-new',uiLocale.t('Nouveau profil'))+button('probe-restore',uiLocale.t('Restaurer le dernier supprimé'))+uiLocale.html('</div><div class="probe-tabs" id="probe-editor-tabs">')+[uiLocale.t('Géométrie'),uiLocale.t('Directions'),uiLocale.t('Recherche')].map(function(t,i){return uiLocale.html('<button type="button" data-probe-page="')+i+'">'+t+uiLocale.html('</button>');}).join('')+uiLocale.html('</div>')+
@@ -37,7 +40,7 @@
     uiLocale.html('<div data-probe-pane="1" class="probe-fields"><label>Coin de montage<select data-probe-field="corner"><option value="">Non configuré</option><option value="--">X− / Y−</option><option value="+-">X+ / Y−</option><option value="-+">X− / Y+</option><option value="++">X+ / Y+</option></select></label>')+['X','Y'].map(function(a){return uiLocale.html('<label>Recherche ')+a+uiLocale.html('<select data-probe-field="direction')+a+uiLocale.html('"><option value="">Non configurée</option><option value="1">')+a+uiLocale.html('+</option><option value="-1">')+a+uiLocale.html('−</option></select></label>');}).join('')+uiLocale.html('<p>Z : recherche vers le bas sur une plaque posée sur le dessus. Aucun ordre XYZ réel ni dégagement automatique déduit de ce coin.</p></div>')+
     uiLocale.html('<div data-probe-pane="2" class="probe-fields">')+input('fast',uiLocale.t('Première approche · mm/min'))+input('slow',uiLocale.t('Seconde touche · mm/min'))+input('search',uiLocale.t('Recherche maximale par touche · mm'))+input('retract',uiLocale.t('Retrait entre touches · mm'))+input('clearance',uiLocale.t('Dégagement prévu · mm'))+uiLocale.html('<p>Bornes de saisie du logiciel, pas des limites machine certifiées. Aucune valeur réelle inventée.</p></div>')+
     uiLocale.html('<div id="probe-delete-confirm" hidden><h2>Supprimer ce profil ?</h2><p id="probe-delete-name"></p><p>Seul ce profil enregistré sera retiré. La dernière suppression reste récupérable jusqu’à la suppression suivante.</p><div class="probe-actions">')+button('probe-delete-cancel',uiLocale.t('Annuler'))+button('probe-delete-yes',uiLocale.t('Confirmer la suppression'),'probe-stop')+uiLocale.html('</div></div>')+
-    uiLocale.html('<p id="probe-profile-status" role="status"></p><div class="probe-actions" id="probe-editor-actions">')+button('probe-save',uiLocale.t('Enregistrer le profil'))+button('probe-duplicate',uiLocale.t('Dupliquer le profil'))+button('probe-delete','Supprimer…','probe-stop')+uiLocale.html('</div></div>'));
+    uiLocale.html('<p id="probe-profile-status" role="status"></p><div class="probe-actions" id="probe-editor-actions">')+button('probe-save',uiLocale.t('Enregistrer le profil'))+button('probe-duplicate',uiLocale.t('Dupliquer le profil'))+button('probe-delete',uiLocale.t('Supprimer…'),'probe-stop')+uiLocale.html('</div></div>'));
   screen('probe-contact',intro(uiLocale.t('Tester le contact'),uiLocale.t('Vérification guidée sans déplacement automatique'),button('probe-contact-back',uiLocale.t('Retour au palpage')))+
     uiLocale.html('<div class="card wide"><h2 id="probe-contact-title"></h2><p id="probe-contact-instruction"></p><div class="probe-contact-steps"><p>1 · Contact libre</p><p>2 · Contact établi</p><p>3 · Contact libéré</p></div><div class="probe-actions">')+button('probe-free',uiLocale.t('Simuler libre'))+button('probe-touch',uiLocale.t('Simuler contact'))+uiLocale.html('</div><p id="probe-contact-status" role="status"></p><p class="probe-note">Le mode réel attend un adaptateur d’entrée sonde validé. Un état inconnu ne vaut jamais « libre ».</p></div>'));
   screen('probe-report',intro(uiLocale.t('Résultats du palpage'),uiLocale.t('Banc fictif · journal de cette page, 100 événements maximum'),button('probe-report-back',uiLocale.t('Retour au palpage')))+
@@ -91,7 +94,7 @@
       var plan=transfer.merge(profiles,imported);if(!plan.added)return;
       writeProfiles({version:1,profiles:plan.profiles,selected:selected,diameter:diameter,removed:removed});
       profiles=plan.profiles;storageWarning='';clearImport();list();invalidate();
-      text('probe-transfer-count',profiles.length+uiLocale.t(' / 8 profils enregistrés · ')+(simulation?'simulation':'préparation réelle'));
+      text('probe-transfer-count',profiles.length+uiLocale.t(' / 8 profils enregistrés · ')+(simulation?'simulation':uiLocale.t('préparation réelle')));
       text('probe-import-status',plan.added+uiLocale.t(' profil(s) ajouté(s) et enregistré(s). Sélectionnez le profil dans Palpage avant utilisation.'));
     }catch(error){text('probe-import-status',uiLocale.t('Import non enregistré : ')+error.message+uiLocale.t(' Les profils actuels sont conservés.'));}
   });
@@ -124,8 +127,7 @@
   function liveInput(){
     var p=machine&&machine.probeInput,elapsed=Date.now()-machineReceived;
     if(!machine||!p)return {state:'unknown',reason:uiLocale.t('Diagnostic indisponible : connectez un contrôleur Grbl dans CNCjs.')};
-    if(!p.fresh||typeof p.ageMs!=='number'||p.ageMs<0||elapsed<0||p.ageMs+elapsed>2500)return {state:'unknown',reason:p.fresh?uiLocale.t('Rapport trop ancien : entrée sonde inconnue.'):p.reason||uiLocale.t('Attendre un nouveau rapport Grbl.')};
-    return {state:p.state==='free'||p.state==='contact'?p.state:'unknown',reason:p.reason||uiLocale.t('Rapport sonde non reconnu.')};
+    return model.liveInput(p,elapsed);
   }
   function release(){if(locked&&window.cncJobSimulation){window.cncJobSimulation.releaseProbe();locked=false;}if(timer){clearInterval(timer);timer=null;}}
   function renderPreparation(){
@@ -162,19 +164,22 @@
     if(active==='probe-report'){renderReport();return;}
     if(active==='probe'&&diagram)diagram.update(p,operation,diameter);
     var live=liveInput(),signal=simulation?s.probe:live.state;
+    // A brief real contact stays visible 1.5 s; the badge colour follows the state.
+    if(!simulation){var held=model.heldSignal(signal,contactSeen,Date.now());contactSeen=held.seen;signal=held.signal;if(held.recheck){clearTimeout(contactTimer);contactTimer=setTimeout(render,held.recheck+50);}}
+    if($('probe-signal').getAttribute('data-signal')!==signal)$('probe-signal').setAttribute('data-signal',signal);
     text('probe-signal',uiLocale.t('Sonde : ')+(signal==='free'?uiLocale.t('libre')+(simulation?uiLocale.t(' (fictive)'):uiLocale.t(' · signal reçu')):signal==='contact'?uiLocale.t('contact')+(simulation?uiLocale.t(' (fictif)'):uiLocale.t(' · signal reçu')):uiLocale.t('inconnu')));
-    text('probe-machine',simulation?uiLocale.t('Contrôleur virtuel · ')+(machine?machine.activeState:uiLocale.t('indisponible')):uiLocale.t('Contrôleur réel · ')+(machine?machine.activeState:uiLocale.t('déconnecté')));
+    text('probe-machine',simulation?uiLocale.t('Contrôleur virtuel · ')+(machine?stateWord(machine):uiLocale.t('indisponible')):uiLocale.t('Contrôleur réel · ')+(machine?stateWord(machine):uiLocale.t('déconnecté')));
     text('probe-summary',(selected===-1?uiLocale.t('Valeurs de démonstration · '):uiLocale.t('Profil : '))+p.name+uiLocale.t(' · coin ')+(p.corner||uiLocale.t('à définir'))+' · X '+(p.directionX===1?'+':p.directionX===-1?'−':'?')+' / Y '+(p.directionY===1?'+':p.directionY===-1?'−':'?'));
-    text('probe-availability',!simulation?live.reason:storageWarning||errors[0]||(!available()&&!s.running?uiLocale.t('Simulateur occupé, en alarme ou indisponible.'):uiLocale.t('Banc fictif : aucune trajectoire physique simulée.')));
+    text('probe-availability',!simulation?(uiLocale.message||uiLocale.t)(live.reason):storageWarning||errors[0]||(!available()&&!s.running?uiLocale.t('Simulateur occupé, en alarme ou indisponible.'):uiLocale.t('Banc fictif : aucune trajectoire physique simulée.')));
     text('probe-phase',s.running?s.message:s.phase==='done'?uiLocale.t('Palpage simulé terminé'):s.phase==='failed'?uiLocale.t('Cycle interrompu'):uiLocale.t('En attente'));
-    text('probe-message',simulation?(message||s.message):uiLocale.t('Préparation uniquement. Palpage réel désactivé.'));if($('probe-progress').value!==s.progress)$('probe-progress').value=s.progress;
+    text('probe-message',simulation?(message||s.message):'');if($('probe-progress').value!==s.progress)$('probe-progress').value=s.progress;
     $('probe-start').disabled=!simulation||s.running||s.uncertain||!available()||errors.length>0||!s.contactVerified||!$('probe-confirm').checked;
     $('probe-stop').disabled=!s.running;$('probe-test').disabled=s.running;$('probe-profiles').disabled=s.running;$('probe-transfer-open').disabled=s.running||!transfer;$('probe-preparation-open').disabled=s.running||!preparation;
     ['probe-profile','probe-wcs','probe-diameter','probe-scenario','probe-confirm'].forEach(function(id){$(id).disabled=s.running;});
     document.querySelectorAll('[data-probe-operation]').forEach(function(b){b.disabled=s.running;b.setAttribute('aria-pressed',String(b.getAttribute('data-probe-operation')===operation));});
-    text('probe-contact-title',simulation?uiLocale.t('Entrée de sonde fictive'):uiLocale.t('Entrée réelle : ')+(signal==='free'?uiLocale.t('libre signalé'):signal==='contact'?uiLocale.t('contact signalé'):'inconnue'));
+    text('probe-contact-title',simulation?uiLocale.t('Entrée de sonde fictive'):uiLocale.t('Entrée réelle : ')+(signal==='free'?uiLocale.t('libre signalé'):signal==='contact'?uiLocale.t('contact signalé'):uiLocale.t('état inconnu')));
     text('probe-contact-instruction',simulation?uiLocale.t('Utilisez les boutons pour simuler libre → contact → libre. Aucun mouvement.'):uiLocale.t('Lecture seule des rapports CNCjs existants. Ce diagnostic ne valide ni le câblage ni un cycle de palpage.'));
-    text('probe-contact-status',simulation?s.message:live.reason);$('probe-free').disabled=$('probe-touch').disabled=!simulation||s.running;
+    text('probe-contact-status',simulation?s.message:(uiLocale.message||uiLocale.t)(live.reason));$('probe-free').disabled=$('probe-touch').disabled=!simulation||s.running;
   }
   function invalidate(){engine.resetContact();$('probe-confirm').checked=false;message='';render();}
   function showEditor(){
@@ -249,21 +254,21 @@
   $('probe-profile').addEventListener('change',function(){selected=Number(this.value);persist();invalidate();});
   $('probe-diameter').value=diameter===null?'':String(diameter);
   $('probe-diameter').addEventListener('change',function(){var value=parse(this.value);diameter=typeof value==='number'&&isFinite(value)&&value>0&&value<=100?value:null;persist();invalidate();});
+  // The kiosk has no system keyboard: every measured value takes the shared numeric pad (numeric-pad.js).
+  if(window.CNCNumeric&&typeof window.CNCNumeric.bind==='function'){
+    document.querySelectorAll('[data-probe-field]').forEach(function(el){var k=el.getAttribute('data-probe-field'),b=model.fields[k];if(el.tagName!=='INPUT'||!b)return;window.CNCNumeric.bind(el,{optional:true,min:b[0],max:b[1],negative:b[0]<0,unit:k==='fast'||k==='slow'?'mm/min':'mm',label:(el.parentElement&&el.parentElement.textContent||k).trim()});});
+    window.CNCNumeric.bind($('probe-diameter'),{optional:true,min:0.001,max:100,negative:false,unit:'mm',label:uiLocale.t('Outil / pige · diamètre mm')});
+  }
+  // The profile name takes the shared text keyboard (text-keyboard.js).
+  if(window.CNCTextKeyboard)window.CNCTextKeyboard.bind($('probe-profile-name'),{label:uiLocale.t('Nom du profil')});
   ['probe-wcs','probe-scenario'].forEach(function(id){$(id).addEventListener('change',invalidate);});$('probe-confirm').addEventListener('change',render);
   $('probe-scenario-label').hidden=!simulation;$('probe-confirm').parentElement.hidden=!simulation;
-  if(!simulation){
-    text('probe-test',uiLocale.t('Diagnostic de l’entrée'));
-    $('probe-free').hidden=$('probe-touch').hidden=true;
-    document.querySelector('#screen-probe-contact .probe-contact-steps').hidden=true;
-    document.querySelector('#screen-probe-contact h2').textContent=uiLocale.t('Diagnostic de l’entrée sonde');
-    document.querySelector('#screen-probe-contact .ks-panel-intro p').textContent=uiLocale.t('Rapports reçus · lecture seule · aucune commande machine');
-    document.querySelector('#screen-probe-contact .probe-note').textContent=uiLocale.t('Un champ Pn absent reste inconnu. Le test guidé réel et le lancement restent désactivés jusqu’à validation du firmware et du montage.');
-  }
   $('probe-log-prev').addEventListener('click',function(){page--;renderReport();});$('probe-log-next').addEventListener('click',function(){page++;renderReport();});
-  $('probe-reset').addEventListener('click',function(){if(engine.snapshot().running)return;engine=model.create(simulation?'simulation':'disabled');message=uiLocale.t('Banc fictif réinitialisé. Aucun repère réel modifié.');renderReport();});
-  $('probe-export').addEventListener('click',function(){try{var data=JSON.stringify(engine.report(),null,2);window.CNCDownload.save(new Blob([data],{type:'application/json'}),'cnc-palpage-simulation-'+new Date().toISOString().replace(/[:.]/g,'-')+'.json');text('probe-export-status',uiLocale.t('Sauvegarde proposée au téléchargement.'));}catch(error){text('probe-export-status',uiLocale.t('Export impossible : ')+error.message);}});
+  $('probe-reset').addEventListener('click',function(){if(engine.snapshot().running)return;engine=model.create(simulation?'simulation':'disabled');message=simulation?uiLocale.t('Banc fictif réinitialisé. Aucun repère réel modifié.'):uiLocale.t('Banc réinitialisé. Aucun repère réel modifié.');renderReport();});
+  $('probe-export').addEventListener('click',function(){try{var data=JSON.stringify(engine.report(),null,2);window.CNCDownload.save(new Blob([data],{type:'application/json'}),'cnc-palpage-'+(simulation?'simulation':'preparation')+'-'+new Date().toISOString().replace(/[:.]/g,'-')+'.json');text('probe-export-status',uiLocale.t('Sauvegarde proposée au téléchargement.'));}catch(error){text('probe-export-status',uiLocale.t('Export impossible : ')+error.message);}});
   window.addEventListener('cnc-screen-change',function(e){active=e.detail;if(active!=='probe-profile'&&pendingDelete){showPage(editorPage);text('probe-profile-status',uiLocale.t('Suppression annulée à la sortie du panneau.'));}if(active!=='probe-transfer')clearImport();if(engine.snapshot().running&&active!=='probe'&&active!=='probe-report')interrupt(uiLocale.t('Sortie du panneau de palpage : simulation arrêtée. Aucun retrait automatique.'));render();});
-  window.addEventListener('cnc-job-status',function(e){if(!!e.detail.simulation!==simulation)return;if(machine!==e.detail.machine)machineReceived=Date.now();machine=e.detail.machine;busy=!!e.detail.busy;if(engine.snapshot().running&&!available())interrupt(uiLocale.t('État du simulateur incompatible. Cycle interrompu, aucune reprise automatique.'));var signature=JSON.stringify([machine&&machine.port,machine&&machine.activeState,machine&&machine.fresh,busy,simulation?null:liveInput()]);if(signature!==lastState){lastState=signature;render();}});
+  window.addEventListener('cnc-job-status',function(e){if(!!e.detail.simulation!==simulation)return;if(machine!==e.detail.machine)machineReceived=Date.now();machine=e.detail.machine;busy=!!e.detail.busy;if(engine.snapshot().running&&!available())interrupt(uiLocale.t('État du simulateur incompatible. Cycle interrompu, aucune reprise automatique.'));
+    var signature=JSON.stringify([machine&&machine.port,machine&&machine.activeState,machine&&machine.fresh,busy,liveInput()]);if(signature!==lastState){lastState=signature;render();}});
   window.addEventListener('cnc-probe-interrupt',function(){interrupt(uiLocale.t('Alarme fictive. Cycle interrompu ; aucune origine supplémentaire appliquée.'));});
   document.addEventListener('visibilitychange',function(){if(document.hidden)interrupt(uiLocale.t('Page masquée : simulation interrompue, aucune reprise automatique.'));});
   window.addEventListener('beforeunload',function(){release();});

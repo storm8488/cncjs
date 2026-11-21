@@ -4,7 +4,7 @@
 // that styles them through .active also lists .kept; modules keep looking at .active only.
 const fs=require('fs'),assert=require('assert');
 const dir=__dirname+'/touch/';
-const kept=['menu','jog','files','home','machine','history'];
+const kept=['more','jog','files','check','home','machine','history'];
 const css=fs.readdirSync(dir).filter(f=>f.endsWith('.css'));
 const strip=s=>s.replace(/\/\*[\s\S]*?\*\//g,'');
 let checked=0;

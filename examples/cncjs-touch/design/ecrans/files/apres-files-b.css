@@ -1,0 +1,5 @@
+/* Maquette lot Fichiers, point 2, variante B (à charger après apres-files.css).
+ * Mesuré : avec le seul #job-load:not(:disabled){position:sticky}, le bouton reste borné par son parent
+ * .job-buttons (display:block, hauteur du bouton) : le collant ne colle plus. display:contents rend
+ * .library-execution (flex colonne) bloc conteneur du bouton ; sans :has() ni JS. */
+body.ks-ui #screen-files .library-execution>.job-buttons{display:contents}

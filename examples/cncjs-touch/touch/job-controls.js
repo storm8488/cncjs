@@ -4,28 +4,29 @@
   var panel = document.querySelector('.library-execution');
   if (!panel) return;
   var simulation=window.cncJobSimulation;
-  var networkOffline=!simulation&&!!(window.navigator&&window.navigator.onLine===false);
+  // The browser's offline flag is only a hint (B-4): it never stops a request nor disables Pause /
+  // Arrêter (the kiosk on localhost, a misread link); real request failures decide. Shown as a warning.
+  var browserOffline=!simulation&&!!(window.navigator&&window.navigator.onLine===false);
+  // While the session is refused, the fallback state read waits a minute between attempts (B-3).
+  var refusedUntil=0;
   panel.innerHTML = uiLocale.html('<h2>Exécution sur la machine</h2>') +
     uiLocale.html('<label for="job-port">Contrôleur CNCjs</label><select id="job-port"><option value="">Aucune machine connectée</option></select>') +
     uiLocale.html('<p id="job-state" role="status">Lecture de l’état…</p>') +
-    uiLocale.html('<p id="job-selected"></p><p id="job-loaded">Aucun fichier chargé.</p><p id="job-reason" role="status"></p><progress id="job-progress" max="100" value="0"></progress>') +
-    uiLocale.html('<div class="job-buttons"><button id="job-load" disabled>Charger le fichier sélectionné</button>') +
-    uiLocale.html('<button id="job-start" class="job-start" disabled>Démarrer…</button><button id="job-pause" disabled>Pause</button>') +
-    uiLocale.html('<button id="job-resume" disabled>Reprendre…</button><button id="job-stop" class="job-stop" disabled>Arrêter le travail</button></div>') +
-    uiLocale.html('<p id="job-feedback" role="status">Le chargement ne démarre pas le travail.</p>') +
-    uiLocale.html('<p class="mute">L’arrêt logiciel ne remplace pas l’arrêt physique de la machine.</p>') +
+    uiLocale.html('<p id="job-selected"></p><p id="job-state-reason"></p><p id="job-loaded">Aucun fichier chargé.</p><progress id="job-progress" max="100" value="0"></progress>') +
     uiLocale.html('<div id="job-dialog" class="job-dialog" role="dialog" aria-modal="true" aria-labelledby="job-dialog-title" hidden>') +
-    uiLocale.html('<div class="job-dialog-card"><h2 id="job-dialog-title">Confirmer le démarrage</h2><p id="job-dialog-file"></p><p id="job-travel" class="job-travel" hidden></p><div id="job-program-check" class="t-pcheck" hidden></div><p id="job-note" class="job-note" hidden></p>') +
-    uiLocale.html('<p id="job-warning">')+(simulation?uiLocale.t('Test des boutons uniquement. Aucun mouvement ni activation du laser.'):uiLocale.t('Cette action met la machine en mouvement et peut activer l’outil. Vérifiez la machine, l’origine et la zone de travail.'))+uiLocale.html('</p>') +
+    uiLocale.html('<div class="job-dialog-card"><h2 id="job-dialog-title">Confirmer le démarrage</h2><p id="job-dialog-file"></p><p id="job-note" class="job-note" hidden></p>') +
+    uiLocale.html('<p id="job-warning">')+(simulation?uiLocale.t('Test des boutons uniquement. Aucun mouvement ni activation du laser.'):uiLocale.t('Cette action met la machine en mouvement et peut activer l’outil. Vérifiez la machine, l’origine et la zone de travail.'))+uiLocale.html('</p><button type="button" id="job-dialog-modify" hidden>Modifier…</button>') +
     uiLocale.html('<label class="job-confirm-label t-check"><input id="job-check" type="checkbox"><span id="job-check-text">')+(simulation?uiLocale.t('Je souhaite lancer cette simulation.'):uiLocale.t('Je suis devant la machine et prêt à lancer ce fichier.'))+uiLocale.html('</span></label>') +
     // The confirmation window is visible: a countdown in words and a bar that empties.
     uiLocale.html('<div class="t-countdown"><p id="job-countdown"></p><div class="t-bar"><i id="job-countdown-bar"></i></div></div><div class="job-dialog-actions"><button id="job-dismiss" class="t-btn t-btn--ghost t-btn--lg">Annuler</button><button id="job-confirm" class="t-btn t-btn--primary" disabled>Confirmer</button></div></div></div>') +
     // Who pilots the machine (F5), opened from the strip: details, and an explicit takeover with a reason.
     uiLocale.html('<div id="pilot-dialog" class="job-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-dialog-title" aria-describedby="pilot-dialog-text" hidden>') +
-    uiLocale.html('<div class="job-dialog-card"><h2 id="pilot-dialog-title">Pilotage de la machine</h2><p id="pilot-dialog-text"></p>') +
-    uiLocale.html('<div id="pilot-form" class="pilot-form" hidden><label for="pilot-reason">Motif de la prise de pilotage (3 caractères au moins, enregistré et montré à l’autre appareil)</label><input id="pilot-reason" type="text" maxlength="200" autocomplete="off">') +
-    uiLocale.html('<div class="pilot-reasons"><button type="button" id="pilot-reason-a" class="t-btn">Opérateur devant la machine</button><button type="button" id="pilot-reason-b" class="t-btn">Autre appareil hors service</button></div></div>') +
-    uiLocale.html('<p id="pilot-feedback" role="status"></p><div class="job-dialog-actions"><button id="pilot-dismiss" class="t-btn t-btn--ghost t-btn--lg">Fermer</button><button id="pilot-takeover" class="t-btn t-btn--warn t-btn--lg" hidden disabled>Prendre le pilotage</button></div></div></div>');
+    uiLocale.html('<div class="job-dialog-card"><h2 id="pilot-dialog-title">La main</h2><p id="pilot-dialog-text"></p>') +
+    uiLocale.html('<div id="pilot-form" class="pilot-form" hidden><div id="pilot-custom" hidden><label for="pilot-reason">Motif de la prise de pilotage (3 caractères au moins, enregistré et montré à l’autre appareil)</label><input id="pilot-reason" type="text" maxlength="200" autocomplete="off"></div>') +
+    uiLocale.html('<div class="pilot-reasons"><button type="button" id="pilot-reason-a" class="t-btn">Prendre la main — je suis devant la machine</button><button type="button" id="pilot-reason-b" class="t-btn">Prendre la main — l’autre appareil est hors service</button><button type="button" id="pilot-other" class="t-btn">Autre motif…</button></div></div>') +
+    // Giving the hand back (F4): only when this device has it; the refusal during a job is written here with its remedy.
+    uiLocale.html('<div id="pilot-mine" class="pilot-form" hidden><p id="pilot-release-note"></p><p id="pilot-release-reason" hidden></p><div class="pilot-reasons"><button type="button" id="pilot-release" class="t-btn">Rendre la main</button><button type="button" id="pilot-release-see" class="t-btn" hidden>Voir l’usinage</button></div></div>') +
+    uiLocale.html('<p id="pilot-feedback" role="status"></p><div class="job-dialog-actions"><button id="pilot-dismiss" class="t-btn t-btn--ghost t-btn--lg">Fermer</button><button id="pilot-takeover" class="t-btn t-btn--warn t-btn--lg" hidden disabled>Prendre la main</button></div></div></div>');
   var $ = function(id) {return document.getElementById(id);};
   // Status line for a host command running on the server (fixed under the strip, ui-2027.css).
   var systemLine=document.createElement('p');systemLine.id='t-system-command';systemLine.className='t-system-command';systemLine.setAttribute('role','status');systemLine.hidden=true;
@@ -40,14 +41,14 @@
     var id='';try{id=localStorage.getItem(CLIENT_KEY)||'';}catch(_){id='';}
     if(typeof id==='string'&&/^t-[a-z0-9]{1,12}-[a-z0-9]{4,16}$/.test(id))return id;
     id='t-'+Date.now().toString(36)+'-'+(Math.random().toString(36).slice(2,10)||'0000');
-    try{localStorage.setItem(CLIENT_KEY,id);}catch(_){}
+    try{localStorage.setItem(CLIENT_KEY,id);}catch(_){/* Optional browser facility unavailable. */}
     return id;
   }
   var clientId=simulation?'':loadClientId();
   // Name shown to the other devices: the kind of device and the end of its identity.
   var touchDevice=!!(window.navigator&&window.navigator.maxTouchPoints>0);
   var clientLabel=clientId?(touchDevice?uiLocale.t('Tablette'):uiLocale.t('Poste'))+' '+clientId.slice(-4):'';
-  var selection=window.cncLibrarySelection||null, machines=[], current=null, busy=false, polling=false, lastSeen=0, ticket=null, until=0, portSignature='';
+  var selection=window.cncLibrarySelection||null, machines=[], current=null, busy=false, polling=false, lastSeen=0, seenAt=0, ticket=null, until=0, portSignature='';
   var store=window.cncState, compact=!!(store&&window.CNCJobStream), stream=null, transportId=null, epoch='', serverSequence=0;
   var generation=0, mutation=0, confirmation=0, pending=0, commandSequence=0, feedbackSequence=0, nextPoll=0, disposed=false, stateSignature='', streamReason='';
   var latestMachine=null, lastTransit=0, appliedRequest=0, requestSequence=0, requests=[], bindings=[], explicitPort=false, protocolReady=false;
@@ -56,7 +57,7 @@
   var pilot={state:'unknown',value:'—',sentence:''},takeoverSeen=null,pilotReturn=null,pilotBackground=[],pilotSending=false;
   // Host command (shutdown, restart…) holding the machine on the server: {title, since} or null,
   // carried by every snapshot (stream packet and HTTP read); shown in a status line under the strip.
-  var systemCommand=null,feedbackState='';
+  var systemCommand=null,feedbackState='',controlFeedback=null,dialogShownAt=0;
   // Pause / Arrêter during a loss of the state (stream muted, HTTP read failing, offline flag):
   // the last controller seen busy (a job, a jog, anything Stop can end) stays the target of
   // these two commands, which the server accepts without the stream (relayed by HTTP). Every
@@ -65,18 +66,24 @@
   // Action feedback (D5): what the confirmed command was to lead to, and whether it was seen.
   // When the observed workflow later leaves it (another device paused, stopped or resumed),
   // the line « Démarrage demandé. » no longer describes the machine and is cleared.
-  var feedbackExpect=null,feedbackReached=false;
+  var feedbackExpect=null,feedbackReached=false,feedbackRaw='';
   // Last alarm code per port (D6): Grbl's restart banner after ALARM:3 makes the server forget
   // the code; the alarm's help stays shown while the controller remains in Alarm.
   var alarmMemory=null;
+  // Port of a confirmed block probe whose answer is awaited (up to 240 s): the server may move before the first
+  // state of the cycle reaches this page, so Pause and Arrêter target it at once (also when the state is lost).
+  var probeRun=null;
   // Action feedback state (ui-2027.css .t-sent): sent → confirmed | failed | uncertain (no answer).
-  function setFeedbackState(state){feedbackState=state;if(state!=='confirmed'){feedbackExpect=null;feedbackReached=false;}var node=$('job-feedback');if(node&&typeof node.setAttribute==='function'&&typeof node.getAttribute==='function'&&node.getAttribute('data-state')!==state)node.setAttribute('data-state',state);}
+  function setFeedbackState(state){controlFeedback=null;feedbackState=state;if(state!=='confirmed'){feedbackExpect=null;feedbackReached=false;}}
   // A planned stream renewal (every minute) is not a disconnection: for up to 3 s
   // the transport still counts as connected and no notice is shown, while the
   // confirmations bound to the old stream are void as before.
-  function renewalGrace(){return renewing>0&&Date.now()-renewing>=0&&Date.now()-renewing<3000&&Date.now()-lastSeen<3000;}
+  function renewalGrace(){return renewing>0&&elapsedClock()-renewing>=0&&elapsedClock()-renewing<3000&&sinceSeen()<3000;}
+  // Time since the last report on the monotone clock (a civil clock set back renews nothing).
+  function sinceSeen(){return lastSeen?elapsedClock()-seenAt:Infinity;}
   function bind(target,name,fn){target.addEventListener(name,fn);bindings.push(function(){if(target.removeEventListener)target.removeEventListener(name,fn);});}
-  function text(id,value){if(window.cncI18n&&(id==='job-feedback'||id==='job-reason'||id==='job-state'))value=window.cncI18n.message(value);var node=$(id);if(node&&node.textContent!==String(value))node.textContent=String(value);}
+  var actionFeedback='',publishedState={};
+  function text(id,value){if(id==='job-feedback'){actionFeedback=window.cncI18n?window.cncI18n.message(value):value;return;}if(window.cncI18n&&(id==='job-feedback'||id==='job-reason'||id==='job-state'))value=window.cncI18n.message(value);var node=$(id);if(node&&node.textContent!==String(value))node.textContent=String(value);}
   function prop(id,name,value){var node=$(id);if(node&&node[name]!==value)node[name]=value;}
   function token(){try{return JSON.parse(localStorage.getItem('cnc')).state.session.token||'';}catch(_){return '';}}
   function elapsedClock(){return window.performance&&typeof window.performance.now==='function'?window.performance.now():Date.now();}
@@ -99,6 +106,9 @@
         p.sentence=p.released+' '+p.sentence;
         if(change.previous&&change.previous.kind==='touch'&&change.previous.id===clientId){p.idleNotice=uiLocale.t('Pilotage de cet appareil libéré après ')+minutes+uiLocale.t(' min d’inactivité.');p.changeAt=change.at;}
       }
+      // The lease ended because this device was away (control.js 'expired', E5 of the rehearsal): said once.
+      if(change&&change.type==='expired'&&change.previous&&change.previous.kind==='touch'&&change.previous.id===clientId){
+        p.idleNotice=uiLocale.t('Pilotage de cet appareil libéré : appareil absent trop longtemps. La première action réussie le reprend.');p.changeAt=change.at;}
     }
     else if(owner.kind==='touch'&&owner.id===clientId)p={state:'mine',value:uiLocale.t('Cet appareil'),sentence:uiLocale.t('Piloté par cet appareil (')+clientLabel+').'};
     else{
@@ -113,39 +123,51 @@
     }
     return p;
   }
+  // The machine the commands go to, as the server names it: label and kind (unknown kind: CNC).
+  function targetText(m){
+    var p=m&&m.machineProfile&&typeof m.machineProfile==='object'?m.machineProfile:null;
+    var kind=p&&p.kind==='laser'?uiLocale.t('Laser'):p&&p.kind==='cnc'?uiLocale.t('CNC'):uiLocale.t('type non confirmé');
+    return uiLocale.t('Machine : ')+(p&&p.label?'« '+p.label+' »':uiLocale.t('sans nom'))+' ('+kind+')';
+  }
   // A refusal because another device pilots the port (HTTP 409, code ECONTROL): who, and what to do next.
   function controlRefusal(data){
     var e=new Error(data.owner?uiLocale.t('Refusé : pilotage attribué à « ')+ownerName(data.owner)+uiLocale.t(' ». Pause et Arrêter restent possibles. Pour agir ici, touchez Pilote dans le bandeau et prenez le pilotage avec un motif, ou attendez sa libération.'):String(data.message||uiLocale.t('Refusé : la machine est pilotée par un autre appareil.')));
-    e.control=true;e.owner=data.owner||null;return e;
+    e.control=true;e.code='ECONTROL';e.owner=data.owner||null;return e;
   }
   // Any other refusal: a stable code (ETOUCH_*) is shown in the interface language with its
   // values; otherwise the server's French message (translated when it is a catalog phrase).
   function serverRefusal(data,status){
     var fallback=data&&typeof data.message==='string'&&data.message?data.message:uiLocale.t('Commandes indisponibles (HTTP ')+status+').';
-    var e=new Error(data&&data.code&&uiLocale.format?uiLocale.format(data.code,data.params,fallback):fallback);
-    if(data&&typeof data.code==='string'){e.code=data.code;e.params=data.params||null;}
+    // Coded reasons behind the refusal (laser framing refused by the travel check: {code, params,
+    // message}, like a program check's codedReasons), 3 at most for framing; D1 keeps
+    // all six possible axis/side overruns, in the interface language.
+    var why=data&&Array.isArray(data.reasons)?data.reasons.filter(function(r){return r&&typeof r==='object'&&typeof r.message==='string'&&r.message;}).slice(0,data.code==='ETOUCH_START_OUTSIDE'?6:3).map(function(r){
+      var m=r.message.slice(0,300);return uiLocale.format?uiLocale.format(r.code,r.params,m):m;}):[];
+    var e=new Error((data&&data.code&&uiLocale.format?uiLocale.format(data.code,data.params,fallback):fallback)+(why.length?' '+why.join(' '):''));
+    if(data&&typeof data.code==='string'){e.code=data.code;e.params=data.params||null;e.reasons=data.reasons||[];}
+    if(data&&data.blockProbe&&window.CNCProbeReal&&typeof window.CNCProbeReal.failureText==='function'){
+      var b=data.blockProbe;e.blockProbe=b;e.message=window.CNCProbeReal.failureText(b.failure,b.written,b.needsHoming);
+    }
     return e;
   }
-  function jogStop(body){return !!(body&&body.action==='motion'&&body.operation==='jog-stop');}
-  // Commands that only bring the machine to rest: attempted even without a recent state.
-  function halting(body){return jogStop(body)||!!(body&&(body.action==='pause'||body.action==='stop'));}
   function api(method,body) {
     if(simulation) return simulation.request(method,body);
-    // A jog stop (F1), Pause and Stop are always attempted: the browser's offline flag may be
-    // wrong, and they cost nothing.
-    if(networkOffline&&!halting(body))return Promise.reject(new Error(uiLocale.t('Réseau indisponible. Suivi suspendu ; aucune commande ne sera relancée automatiquement.')));
     if(document.body && document.body.getAttribute('data-simulation')==='true') return Promise.reject(new Error(uiLocale.t('Simulateur indisponible. Rechargez la page.')));
     return new Promise(function(resolve,reject) {
       var credential=token();
       if (!credential) {reject(new Error(uiLocale.t('Session CNCjs requise.')));return;}
-      // The plate probe is answered once its whole sequence is over (up to about 3 min).
-      var xhr=new XMLHttpRequest(); requests.push(xhr); xhr.open(method,(store?store.get().apiBase:'/api')+'/touch-job',true); xhr.timeout=body&&body.action==='zeroZ'?180000:30000;
+      // The plate probe is answered once its whole sequence is over (up to about 3 min), the block probe
+      // once its cycle and its stop are over (240 s at most on the server).
+      var xhr=new XMLHttpRequest(); requests.push(xhr); xhr.open(method,(store?store.get().apiBase:'/api')+'/touch-job',true); xhr.timeout=body&&body.action==='zeroZ'?180000:body&&body.action==='blockProbe'?270000:30000;
       xhr.setRequestHeader('Authorization','Bearer '+credential);
       function done(){var i=requests.indexOf(xhr);if(i>=0)requests.splice(i,1);}
       if(body) xhr.setRequestHeader('Content-Type','application/json');
-      xhr.onload=function(){done();var data;try{data=JSON.parse(xhr.responseText);}catch(_){data={};}
+      xhr.onload=function(){done();var data,raw=false;try{data=JSON.parse(xhr.responseText);}catch(_){data={};raw=true;}
         if(xhr.status>=200&&xhr.status<300) resolve(data);
-        else if(data&&data.code==='ECONTROL')reject(controlRefusal(data));
+        // Session refused (401, or CNCjs' plain-text 403 « Forbidden Access »): not a refusal of the
+        // command; app.js renews the session (or asks to sign in again) and the stream rechecks it.
+        else if(xhr.status===401||(xhr.status===403&&(raw||!data||typeof data!=='object'))){sessionRefused();reject(raw||!data||typeof data.message!=='string'||!data.message?new Error(uiLocale.t('Session CNCjs expirée.')):serverRefusal(data,xhr.status));}
+        else if(data&&data.code==='ECONTROL')reject(body&&body.action==='control'?serverRefusal(data,xhr.status):controlRefusal(data));
         else reject(serverRefusal(data,xhr.status));};
       // No answer is not a refusal: the command may have been applied (the next state says).
       xhr.onerror=xhr.ontimeout=function(){done();var e=new Error(uiLocale.t('Connexion perdue ou réponse incertaine. Vérifiez l’état avant toute nouvelle action.'));e.uncertain=true;reject(e);};
@@ -155,6 +177,7 @@
       xhr.send(payload?JSON.stringify(payload):null);
     });
   }
+  function sessionRefused(){refusedUntil=elapsedClock()+60000;if(stream&&stream.refused)stream.refused();window.dispatchEvent(new CustomEvent('cnc-session-refused',{detail:null}));}
   function dismiss(restore) {
     confirmation++;ticket=null;prop('job-dialog','hidden',true);prop('job-check','checked',false);prop('job-confirm','disabled',true);
     dialogBackground.forEach(function(entry){if(entry.restore)entry.restore();else entry.node.inert=entry.inert;});dialogBackground=[];
@@ -173,7 +196,10 @@
     unlock:[uiLocale.t('Le déverrouillage ($X) lève l’alarme sans aucun mouvement. La position peut être fausse : refaites la prise d’origine avant de travailler.'),uiLocale.t('Je suis devant la machine et la cause de l’alarme est réglée.')],
     home:[uiLocale.t('La prise d’origine ($H) déplace chaque axe jusqu’à ses capteurs. Dégagez la zone de travail.'),uiLocale.t('Je suis devant la machine et la zone est dégagée.')],
     spindle:[uiLocale.t('Le test fait tourner la broche. Tenez mains et objets à distance de l’outil.'),uiLocale.t('Je suis devant la machine et l’outil peut tourner.')],
-    zeroZ:[uiLocale.t('Le palpage descend Z jusqu’au contact avec la plaque. Vérifiez la plaque et la pince.'),uiLocale.t('Je suis devant la machine, la plaque et la pince sont en place.')]
+    zeroZ:[uiLocale.t('Le palpage descend Z jusqu’au contact avec la plaque. Vérifiez la plaque et la pince.'),uiLocale.t('Je suis devant la machine, la plaque et la pince sont en place.')],
+    blockProbe:[uiLocale.t('Le palpage déplace l’outil jusqu’au contact avec le bloc. Dégagez la zone autour du bloc.'),uiLocale.t('Je suis devant la machine, le bloc et la pince sont en place.')],
+    // Laser framing (PROFILES-CONTRACT.md §4): XY moves around the program, M5 first, never emits.
+    frame:[uiLocale.t('Le cadrage fait le tour du fichier à la hauteur actuelle, laser éteint. Dégagez la zone.'),uiLocale.t('Je suis devant la machine et la zone est dégagée.')]
   };
   function inStrip(node){return !!(node&&typeof node.closest==='function'&&node.closest('#real-banner,#simulation-banner'));}
   function stripKept(){return STRIP_STOPS.map($).filter(inStrip);}
@@ -193,12 +219,23 @@
   // Pilot dialog (F5): who pilots, and for another owner an explicit takeover with a reason of
   // 3 characters at least. Never automatic: only the Take control button sends it.
   function pilotReason(){return String($('pilot-reason').value||'').trim();}
+  var pilotCustom=false;
+  // The server's own phrase for a refusal of the release during a job (ETOUCH_CONTROL_JOB), shown before the tap.
+  var controlJobMessage='Un usinage est en cours : la main ne se rend pas pendant l’usinage. Pause et Arrêter restent possibles.';
   function renderPilotDialog(){
     if($('pilot-dialog').hidden)return;
-    text('pilot-dialog-text',(pilot.sentence||uiLocale.t('Pilotage : état machine indisponible.'))+(pilot.takenOver?' '+pilot.takenOver:''));
-    var other=pilot.state==='other';
-    prop('pilot-form','hidden',!other);prop('pilot-takeover','hidden',!other);
+    var owner=current&&current.control&&current.control.owner,sentence=pilot.state==='mine'?uiLocale.t('Cet appareil a la main.'):pilot.state==='free'?uiLocale.t('Personne n’a la main : la première commande la prend.'):pilot.sentence||uiLocale.t('Pilotage : état machine indisponible.');
+    if(pilot.state==='other'&&owner)sentence=uiLocale.t('C’est « {appareil} » qui a la main depuis {heure}.').replace('{appareil}',function(){return ownerName(owner);}).replace('{heure}',typeof owner.since==='number'?hourOf(owner.since):'—')+' '+uiLocale.t('Pause et Arrêter restent possibles ici.');
+    text('pilot-dialog-text',sentence+(pilot.takenOver?' '+pilot.takenOver:'')+(pilot.state==='other'&&current?(current.probing?uiLocale.t(' Un palpage est en cours : prendre la main l’arrête.'):current.motion&&current.motion.frame?' '+uiLocale.t('Un cadrage est en cours : prendre la main l’arrête.'):jogging(current)?uiLocale.t(' Un déplacement est en cours : prendre la main l’arrête.'):current.workflow!=='idle'?uiLocale.t(' L’usinage continue.'):''):pilot.state==='mine'&&current&&current.workflow==='idle'?(current.probing?uiLocale.t(' Un palpage est en cours : rendre la main l’arrête.'):current.motion&&current.motion.frame?' '+uiLocale.t('Un cadrage est en cours : rendre la main l’arrête.'):jogging(current)?uiLocale.t(' Un déplacement est en cours : rendre la main l’arrête.'):''):''));
+    var other=pilot.state==='other',mine=pilot.state==='mine',busyJob=!!(mine&&current&&current.workflow!=='idle');
+    // What giving the hand back stops (F4), as for a takeover: a probing, a framing, a move.
+    prop('pilot-mine','hidden',!mine);text('pilot-release-note',mine?uiLocale.t('Un autre appareil pourra alors prendre la main, sans motif.'):'');
+    // Refused during a job (machining running or paused): the catalog phrase of the server's refusal, and its remedy.
+    text('pilot-release-reason',busyJob?(uiLocale.format?uiLocale.format('ETOUCH_CONTROL_JOB',null,controlJobMessage):controlJobMessage):'');prop('pilot-release-reason','hidden',!busyJob);prop('pilot-release-see','hidden',!busyJob);
+    prop('pilot-release','disabled',!mine||busyJob||pilotSending);
+    prop('pilot-form','hidden',!other);prop('pilot-custom','hidden',!other||!pilotCustom);prop('pilot-takeover','hidden',!other||!pilotCustom);
     prop('pilot-takeover','disabled',!other||pilotSending||pilotReason().length<3);
+    ['pilot-reason-a','pilot-reason-b'].forEach(function(id){prop(id,'disabled',!other||pilotSending);});
   }
   function openPilot(){
     if(simulation||disposed||!$('pilot-dialog').hidden||otherDialog('pilot-dialog'))return false;
@@ -211,8 +248,8 @@
     // confirmation; otherwise the whole strip.
     if(window.CNCStripGuard&&typeof window.CNCStripGuard.isolate==='function'){var restore=window.CNCStripGuard.isolate($('pilot-dialog'));pilotBackground=[{restore:restore}];}
     else pilotBackground=Array.prototype.filter.call(document.body.children||[],function(node){return node!==$('pilot-dialog')&&node.id!=='real-banner'&&!/^(SCRIPT|LINK|STYLE)$/.test(node.tagName);}).map(function(node){var entry={node:node,inert:node.inert};node.inert=true;return entry;});
-    $('pilot-reason').value='';text('pilot-feedback','');$('pilot-dialog').hidden=false;renderPilotDialog();
-    (pilot.state==='other'?$('pilot-reason'):$('pilot-dismiss')).focus();
+    pilotCustom=false;$('pilot-reason').value='';text('pilot-feedback','');$('pilot-dialog').hidden=false;renderPilotDialog();
+    (pilot.state==='other'?$('pilot-reason-a'):$('pilot-dismiss')).focus();
     return true;
   }
   function closePilot(restore){
@@ -230,6 +267,17 @@
     run('control',{operation:'takeover',reason:reason}).then(function(data){
       pilotSending=false;if(disposed)return;
       text('job-feedback',uiLocale.t('Pilotage pris par cet appareil.'));setFeedbackState('confirmed');
+      closePilot();if(data&&data.snapshot)apply(data.snapshot,Date.now()-started);else render();
+    },function(e){pilotSending=false;if(disposed)return;text('pilot-feedback',e.message);renderPilotDialog();});
+  }
+  // Rendre la main (F4): the owner gives the lease back; the server refuses it during a job and ends our own sequences.
+  function releaseHand(){
+    if(pilotSending||pilot.state!=='mine'||(current&&current.workflow!=='idle'))return;
+    pilotSending=true;text('pilot-feedback',uiLocale.t('Demande envoyée…'));renderPilotDialog();
+    var started=Date.now();
+    run('control',{operation:'release'}).then(function(data){
+      pilotSending=false;if(disposed)return;
+      text('job-feedback',uiLocale.t('Main rendue : un autre appareil peut la prendre.'));setFeedbackState('confirmed');
       closePilot();if(data&&data.snapshot)apply(data.snapshot,Date.now()-started);else render();
     },function(e){pilotSending=false;if(disposed)return;text('pilot-feedback',e.message);renderPilotDialog();});
   }
@@ -251,90 +299,112 @@
   }
   // Whether the machine state still allows what a ticket was issued for.
   // Commissioning commands confirmed through the same dialog (no loaded program involved).
-  var COMMANDS={unlock:'canUnlock',home:'canHome',spindle:'canSpindleTest',zeroZ:'canZeroZ'};
-  function standalone(operation){return operation==='macro'||Object.prototype.hasOwnProperty.call(COMMANDS,operation);}
+  var COMMANDS={unlock:'canUnlock',home:'canHome',spindle:'canSpindleTest',zeroZ:'canZeroZ',blockProbe:'canBlockProbe'};
+  // Framing: a ticket of the machine action (frame-prepare, then frame with its nonce). A laser frames
+  // at its height (laserFrame), a CNC in the air (cncFrame, lot F1); the server chooses by the kind.
+  function laserFrame(state){var p=state&&state.machineProfile,c=p&&p.capabilities;return !!(c&&(p.kind==='laser'?c.laserFrame&&c.laserFrame.supported===true:c.cncFrame&&c.cncFrame.supported===true));}
+  function standalone(operation){return operation==='macro'||operation==='frame'||Object.prototype.hasOwnProperty.call(COMMANDS,operation);}
   function ticketAllowed(t,state){
     if(t.operation==='macro')return !!state.canMacro;
+    if(t.operation==='frame')return laserFrame(state)&&state.revision===t.revision&&(t.frameKind!=='cnc'||state.canFrame===true);
     if(Object.prototype.hasOwnProperty.call(COMMANDS,t.operation))return !!state[COMMANDS[t.operation]];
     if(state.revision!==t.revision)return false;
-    return t.operation==='start'?!!state.canStart:!!state.canResume;
+    return t.operation==='start'?!!(simulation||state.workOffset&&state.workOffset.state==='proven')&&(t.override?!!(state.homed&&!state.referenceLost&&state.programCheck&&state.programCheck.overridable&&outside(state.programCheck)):!!state.canStart):!!state.canResume;
   }
-  function confirmable(){
+  function outside(check){return !!(check&&(check.verdict==='outside'||['X','Y','Z'].some(function(a){return check.axes&&check.axes[a]&&check.axes[a].verdict==='outside';})));}
+  function confirmable(displayOnly){
     var state=projected();
-    return !!ticket&&!document.hidden&&elapsedClock()>=ticket.started&&elapsedClock()<until&&Date.now()-lastSeen>=0&&Date.now()-lastSeen<3000&&
-      ticket.generation===generation&&state&&state.fresh&&state.port===ticket.port&&ticketAllowed(ticket,state);
+    return !!ticket&&!document.hidden&&elapsedClock()>=ticket.started&&elapsedClock()<until&&sinceSeen()>=0&&sinceSeen()<3000&&
+      ticket.generation===generation&&state&&state.fresh&&state.port===ticket.port&&ticketAllowed(ticket,state)&&
+      (displayOnly||elapsedClock()-dialogShownAt>=600)&&
+      (displayOnly||ticket.operation!=='start'||ticket.override||(!outside(ticket.programCheck)&&!outside(state.programCheck)));
   }
   function otherDialog(own){
     var self=$(own||'job-dialog');
-    return document.querySelectorAll&&Array.prototype.some.call(document.querySelectorAll('[role="dialog"]'),function(node){return node!==self&&!node.hidden&&node.getClientRects().length;});
+    return document.querySelectorAll&&Array.prototype.some.call(document.querySelectorAll('[role="dialog"]'),function(node){return node!==self&&!(node.classList&&node.classList.contains('ks-sheet'))&&!node.hidden&&node.getClientRects().length;});
   }
   // rotating: the server renews the event stream (every minute); the machine
   // state stays shown, but confirmations bound to the old stream are void.
   function unavailable(reason,rotating){
     var dropped=!!ticket||preparing>0;generation++;mutation++;dismiss();transportId=null;
-    renewing=rotating?Date.now():0;
+    renewing=rotating?elapsedClock():0;
     if(!rotating){current=null;latestMachine=null;lastSeen=0;systemCommand=null;}
     streamReason=reason||'';
     if(dropped){text('job-feedback',uiLocale.t('Confirmation annulée : le suivi a été renouvelé. Touchez à nouveau le bouton.'));setFeedbackState('failed');}
     render();
     // The state by HTTP at once rather than at the next tick of the 1 s loop (Pause / Arrêter
     // stay offered meanwhile through `halt`).
-    if(!rotating&&!simulation&&!networkOffline&&!disposed){nextPoll=0;poll(true);}
+    if(!rotating&&!simulation&&!disposed){nextPoll=0;poll(true);}
   }
   function projected(){
     if(!latestMachine)return null;
-    var elapsed=Math.max(0,Date.now()-lastSeen), next={};
+    var elapsed=Math.max(0,sinceSeen()), next={};
     Object.keys(latestMachine).forEach(function(key){next[key]=latestMachine[key];});
     if(compact&&!simulation&&!protocolReady){next.fresh=false;next.canLoad=next.canStart=next.canResume=next.canPreviewMotion=false;next.loadReason=next.startReason=next.resumeReason=uiLocale.t('Module de suivi absent ou incompatible. Installez la version attendue avant de charger ou démarrer.');}
-    else if(compact&&!simulation&&(!transportId||!stream||!stream.alive())){next.canLoad=next.canStart=next.canResume=next.canPreviewMotion=false;next.loadReason=next.startReason=next.resumeReason=uiLocale.t('Suivi continu interrompu. Lecture de secours ; attendez le rétablissement avant de charger ou confirmer.');}
+    else if(flowLost()){
+      Object.keys(next).forEach(function(key){if(/^can[A-Z]/.test(key)&&['canPause','canStop','canSpindleStop'].indexOf(key)<0)next[key]=false;});
+      next.loadReason=next.startReason=next.resumeReason=next.homeReason=next.unlockReason=next.zeroZReason=next.blockProbeReason=next.readSettingsReason=next.macroReason=next.overrideReason=next.rapidOverrideReason=streamError().message;
+    }
     if(typeof next.statusAgeMs==='number'){
       next.statusAgeMs+=elapsed+lastTransit;
       if(next.statusAgeMs>2500){next.fresh=false;next.canLoad=next.canStart=next.canResume=next.canPreviewMotion=false;next.loadReason=next.startReason=next.resumeReason=uiLocale.t('État machine trop ancien : attendre un rapport récent.');}
     }
+    if(probeRun&&next.port===probeRun){next.canStop=true;next.canPause=true;}
     if(next.probeInput){var p={};Object.keys(next.probeInput).forEach(function(key){p[key]=next.probeInput[key];});if(typeof p.ageMs==='number')p.ageMs+=elapsed+lastTransit;if(p.ageMs===null||p.ageMs>2500){p.fresh=false;p.state='unknown';}next.probeInput=p;}
     return next;
   }
+  function flowLost(){return compact&&!simulation&&(!transportId||!stream||!stream.alive());}
+  function streamError(){var e=new Error(uiLocale.t('Suivi interrompu : reconnexion en cours…'));e.code='CNC_TOUCH_STREAM_LOST';return e;}
+  function refuseLostFlow(){if(!flowLost())return null;var e=streamError();text('job-feedback',e.message);setFeedbackState('failed');showRefusal(e,refusalHost());render();return e;}
   function render() {
     current=projected();
-    var online=current && Date.now()-lastSeen<3000;
+    var online=current && sinceSeen()<3000;
     var grace=compact&&!simulation&&!transportId&&renewalGrace();
-    var transportConnected=compact&&!simulation?(!!transportId&&!!stream&&stream.alive())||grace:!!lastSeen&&Date.now()-lastSeen<3000;
+    var transportConnected=compact&&!simulation?(!!transportId&&!!stream&&stream.alive())||grace:sinceSeen()<3000;
     var command=online?systemCommand:null;
-    pilot=pilotOf(online?current:null);
+    var previousPilot=pilot.state;pilot=pilotOf(online?current:null);
+    if(controlFeedback&&previousPilot!==pilot.state){text('job-feedback','');text('pilot-feedback','');setFeedbackState('');}
     if(pilot.takenOver&&pilot.changeAt!==takeoverSeen){takeoverSeen=pilot.changeAt;text('job-feedback',pilot.takenOver);setFeedbackState('failed');}
     else if(pilot.idleNotice&&pilot.changeAt!==takeoverSeen){takeoverSeen=pilot.changeAt;text('job-feedback',pilot.idleNotice);setFeedbackState('');}
     renderPilotDialog();previewIdentity(online?current:null);
     if(online&&current.fresh!==false)halt=haltOf(current);
     var lost=!online&&halt&&!simulation?halt:null;
-    var detail={machine:online?current:null,observedAt:lastSeen,transportConnected:transportConnected,simulation:!!simulation,busy:busy,feedback:$('job-feedback').textContent,feedbackState:feedbackState,systemCommand:command,pilot:pilot,halt:lost};
-    if(store)store.set({machine:detail.machine,controllerId:detail.machine?detail.machine.port:null,transportConnected:transportConnected,transportReason:grace?'':streamReason,systemCommand:command});
+    var detail={machine:online?current:null,observedAt:lastSeen,transportConnected:transportConnected,streamConnected:transportConnected&&!flowLost(),simulation:!!simulation,busy:busy,feedback:actionFeedback,feedbackState:feedbackState,systemCommand:command,pilot:pilot,halt:lost,probeRun:probeRun};
+    publishedState=detail;
+    if(store)store.set({machine:detail.machine,controllerId:detail.machine?detail.machine.port:null,transportConnected:transportConnected,transportReason:grace?'':(streamReason||(browserOffline?uiLocale.t('Le navigateur signale le réseau coupé : le suivi continue tant que CNCjs répond.'):'')),systemCommand:command});
     var line=command?uiLocale.t('Commande système en cours : ')+command.title:'';
     if(systemLine.textContent!==line)systemLine.textContent=line;if(systemLine.hidden!==!line)systemLine.hidden=!line;
     var signature=JSON.stringify(detail);
     if(signature!==stateSignature){stateSignature=signature;window.dispatchEvent(new CustomEvent('cnc-job-status',{detail:detail}));}
     var selectedText=selection?uiLocale.t('Sélectionné dans la bibliothèque : ')+selection.name:uiLocale.t('Aucun fichier sélectionné dans la bibliothèque.');
-    var loadedText=online?(current.name?uiLocale.t('Chargé dans CNCjs : ')+(current.originalName||current.name):uiLocale.t('Aucun fichier chargé dans CNCjs.')):uiLocale.t('Fichier chargé : état indisponible.');
+    // A report too old (fresh false) does not tell what CNCjs holds now: same words as offline.
+    var loadedText=online&&current.fresh!==false?(current.name?uiLocale.t('Chargé dans CNCjs : ')+(current.originalName||current.name):uiLocale.t('Aucun fichier chargé dans CNCjs.')):uiLocale.t('Fichier chargé : état indisponible.');
     var reason='';
-    if(!online) reason=(streamReason||uiLocale.t('Connectez le contrôleur dans CNCjs et attendez un état récent.'))+(lost?' '+uiLocale.t('Pause et Arrêter restent disponibles ; les autres commandes attendent un état récent.'):'');
+    // Text only: it names the commands the lost state still allows (lost.canPause / lost.canStop, as below).
+    var still=!lost?'':lost.canPause&&lost.canStop?uiLocale.t('Pause et Arrêter restent disponibles ; les autres commandes attendent un état récent.'):lost.canStop?uiLocale.t('Arrêter reste disponible ; les autres commandes attendent un état récent.'):lost.canPause?uiLocale.t('Pause reste disponible ; les autres commandes attendent un état récent.'):'';
+    var filesReason='';
+    // The server's load / start / resume reasons are French catalogue phrases: shown in the interface language
+    // (« Palpage en cours. » stayed French in Spanish, lot Transverses M5). Text only, the guards below are unchanged.
+    if(flowLost())reason=streamError().message+(still?' '+still:'');
+    else if(!online) reason=(streamReason||uiLocale.t('Connectez le contrôleur dans CNCjs et attendez un état récent.'))+(still?' '+still:'');
     else if(/^alarm/i.test(current.activeState)) reason=simulation?uiLocale.t('Alarme fictive : ouvrez Machine pour terminer le test d’alarme. La reprise devra être confirmée.'):(window.CNCGrblHelp?window.CNCGrblHelp.text(window.CNCGrblHelp.alarm(current.alarmCode,current.alarmCodeInferred))+' ':'')+uiLocale.t('Chargement et démarrage bloqués : le contrôleur est en ALARM. Consultez le message d’alarme dans CNCjs et résolvez sa cause. Quand la machine sera prête (Idle), chargez le fichier puis touchez Démarrer.');
     else if(!current.fresh) reason=uiLocale.t('En attente d’un état récent du contrôleur.');
-    else if(!current.name) reason=current.canLoad?(selection?uiLocale.t('Étape suivante : Charger le fichier sélectionné, puis Démarrer.'):uiLocale.t('Sélectionnez un fichier dans la bibliothèque.')):(current.loadReason||uiLocale.t('Chargement indisponible.'));
-    else if(current.workflow==='paused') reason=current.canResume?uiLocale.t('Travail en pause. Touchez Reprendre pour confirmer la reprise.'):current.resumeReason;
-    else if(current.workflow==='running') reason=uiLocale.t('Travail en cours.');
-    else reason=current.canStart?uiLocale.t('Fichier chargé. Touchez Démarrer pour confirmer.'):current.startReason;
+    else if(!current.name) reason=current.canLoad?(selection?uiLocale.t('Étape suivante : Charger le fichier sélectionné, puis Démarrer.'):uiLocale.t('Sélectionnez un fichier dans la bibliothèque.')):((window.CNCProgramCheckView?window.CNCProgramCheckView.refusal(current,'load'):uiLocale.t(current.loadReason))||uiLocale.t('Chargement indisponible.'));
+    else if(current.workflow==='paused') reason=current.canResume?uiLocale.t('Travail en pause. Touchez Reprendre pour confirmer la reprise.'):(window.CNCProgramCheckView?window.CNCProgramCheckView.refusal(current,'resume'):uiLocale.t(current.resumeReason));
+    // A feed hold given from the PC leaves CNCjs's workflow running: the server's reason says what to touch (N1). Text only.
+    else if(current.workflow==='running') reason=/^hold/i.test(current.activeState||'')&&current.resumeReason?(window.CNCProgramCheckView?window.CNCProgramCheckView.refusal(current,'resume'):uiLocale.t(current.resumeReason)):uiLocale.t('Travail en cours.');
+    // Fichiers has no Démarrer (it lives in Suivi): its reason line says where to start; #file (Suivi) keeps reason.
+    else {reason=current.canStart?uiLocale.t('Fichier chargé. Touchez Démarrer pour confirmer.'):(window.CNCProgramCheckView?window.CNCProgramCheckView.refusal(current,'start'):uiLocale.t(current.startReason));if(current.canStart)filesReason=uiLocale.t('Fichier chargé : ouvrez le Suivi pour démarrer.');}
     text('job-selected',selectedText);
     text('job-loaded',loadedText);
-    text('job-reason',reason);
+    text('job-state-reason',filesReason||reason);
     var homeFile=$('file');
     if(simulation) {loadedText=loadedText.replace(uiLocale.t('dans CNCjs'),uiLocale.t('dans le simulateur'));text('job-loaded',loadedText);}
     if(homeFile) text('file',(simulation?uiLocale.t('SIMULATION — '):'')+selectedText+' — '+loadedText+' '+reason);
     prop('job-port','disabled',busy);
-    prop('job-load','disabled',busy || !online || !selection || !current.canLoad);
-    prop('job-start','disabled',busy || !online || !current.canStart);
-    prop('job-resume','disabled',busy || !online || !current.canResume);
+    prop('job-load','disabled',busy || !online || pilot.state==='other' || !selection || !current.canLoad);
+    prop('job-start','disabled',busy || !online || pilot.state==='other' || !current.canStart);
     // Pause and stop stay available while another request is pending.
-    prop('job-pause','disabled',online?!current.canPause:!(lost&&lost.canPause));
-    prop('job-stop','disabled',online?!(current.canStop||jogging(current)):!(lost&&lost.canStop));
     if(!online){text('job-state',uiLocale.t('Machine non connectée ou état indisponible.'));prop('job-progress','value',0);if(ticket)dismiss();return;}
     text('job-state',current.port+' · '+current.activeState+' · '+({idle:uiLocale.t('au repos'),running:uiLocale.t('travail en cours'),paused:uiLocale.t('en pause')}[current.workflow]||current.workflow));
     prop('job-progress','value',current.total?Math.min(100,Math.round(current.received/current.total*100)):0);
@@ -342,7 +412,12 @@
     if(!$('job-progress').getAttribute||$('job-progress').getAttribute('aria-label')!==label)$('job-progress').setAttribute('aria-label',label);
     // Unchanged titles are not written again (an attribute write at every report, also while Fichiers is parked).
     prop('job-start','title',current.canStart?'':uiLocale.t(reason));prop('job-load','title',uiLocale.t(current.loadReason||''));
-    if(ticket && (ticket.port!==current.port || !ticketAllowed(ticket,current))) dismiss();
+    if(ticket)prop('job-confirm','disabled',!$('job-check').checked||!confirmable());
+    if(ticket && (ticket.port!==current.port || !ticketAllowed(ticket,current))){
+      // A plate probe confirmation closed by the server's refusal (probe already in contact...) says why (UI-6).
+      var why=ticket.port!==current.port?'':ticket.operation==='zeroZ'&&current.zeroZReason?(uiLocale.message||uiLocale.t)(current.zeroZReason):ticket.operation==='blockProbe'&&current.blockProbeReason?(uiLocale.message||uiLocale.t)(current.blockProbeReason):'';
+      dismiss();if(why){text('job-feedback',uiLocale.t('Confirmation annulée : ')+why);setFeedbackState('failed');}
+    }
   }
   // A real jog of the server's (F1) can be stopped even before Grbl reports Jog.
   function jogging(m){return !!(m&&m.motion&&typeof m.motion==='object'&&(m.motion.jog||m.motion.cancelling));}
@@ -366,7 +441,15 @@
     else if(/^(idle|hold:0)/i.test(a))motionSeen=null;
     if(!/^alarm/i.test(a)){alarmMemory=null;return m;}
     var code=typeof m.alarmCode==='number'&&isFinite(m.alarmCode)?m.alarmCode:null;
-    if(code!==null){alarmMemory={port:m.port,code:code};return m;}
+    if(code!==null){alarmMemory={port:m.port,code:code,startups:m.startups,generation:m.generation};return m;}
+    // A board restart cleared a hard/soft limit (ALARM:1/2): its « Reset in CNCjs » advice no longer
+    // applies, and the move seen before it is not a reset during a move either. Proven restart only:
+    // the server's startups count rose in the same generation, or a new generation (port reopened,
+    // CNCjs restarted: its count starts at 0) already counted a restart banner. A reconnection
+    // without banner keeps the code. Codes 3/6 may arrive just before the banner that explains them: kept.
+    if(alarmMemory&&alarmMemory.port===m.port&&(alarmMemory.code===1||alarmMemory.code===2)&&
+       typeof m.startups==='number'&&isFinite(m.startups)&&typeof alarmMemory.startups==='number'&&isFinite(alarmMemory.startups)&&
+       (typeof m.generation==='string'&&typeof alarmMemory.generation==='string'&&m.generation!==alarmMemory.generation?m.startups>=1:m.startups>alarmMemory.startups)){alarmMemory=null;motionSeen=null;}
     var known=alarmMemory&&alarmMemory.port===m.port?alarmMemory.code:null,inferred=!!(known!==null&&alarmMemory.inferred);
     if(known===null&&motionSeen&&motionSeen.port===m.port&&Date.now()-motionSeen.at>=0&&Date.now()-motionSeen.at<=INFER_MS){
       known=motionSeen.code;inferred=true;alarmMemory={port:m.port,code:known,inferred:true};
@@ -379,13 +462,20 @@
   // D5: the confirmed action's line stays while the workflow it led to is observed; once the
   // workflow leaves it (another device acted), the line is cleared rather than kept beside a
   // state it no longer describes.
+  var PAUSE_WAIT='Pause demandée. Attendre l’état Hold.';
   function followFeedback(m){
     if(feedbackState!=='confirmed'||!feedbackExpect||!m)return;
-    if(m.workflow===feedbackExpect){feedbackReached=true;return;}
+    if(m.workflow===feedbackExpect){
+      feedbackReached=true;
+      // The server's pause answer asks to wait for Hold: once a recent report (< 1 s) says Hold, that wait is over
+      // (text only). An old Hold kept by the server (reports lost) does not confirm this pause.
+      if(feedbackExpect==='paused'&&feedbackRaw===PAUSE_WAIT&&/^hold/i.test(String(m.activeState||''))&&m.fresh===true&&typeof m.statusAgeMs==='number'&&m.statusAgeMs<1000){feedbackRaw='';text('job-feedback',uiLocale.t('Pause confirmée : les axes sont arrêtés.'));}
+      return;
+    }
     if(feedbackReached){feedbackExpect=null;feedbackReached=false;text('job-feedback','');setFeedbackState('');}
   }
   function apply(data,transit) {
-      if(disposed||networkOffline)return;
+      if(disposed)return;
       if(!data||!Array.isArray(data.controllers)||(!simulation&&compact&&
         (data.version!==undefined||data.epoch!==undefined)&&!window.CNCJobStream.validSnapshot(data,false))){
         var invalid=uiLocale.t('Réponse de suivi invalide.');
@@ -399,7 +489,7 @@
         if(data.epoch===epoch&&data.sequence<=serverSequence)return;
         epoch=data.epoch;serverSequence=data.sequence;
       }
-      machines=data.controllers||[];lastSeen=Date.now();lastTransit=transit||0;
+      machines=data.controllers||[];lastSeen=Date.now();seenAt=elapsedClock();lastTransit=transit||0;
       var sc=data.systemCommand;systemCommand=sc&&typeof sc==='object'&&typeof sc.title==='string'&&sc.title?{title:sc.title,since:sc.since}:null;
       var old=$('job-port').value, signature=machines.map(function(m){return m.port;}).join('|');
       if(signature!==portSignature){
@@ -419,18 +509,19 @@
       render();
   }
   function poll(force) {
-    if(disposed||networkOffline||polling)return;
-    if(!force&&!simulation&&(stream&&stream.alive()||Date.now()<nextPoll))return;
+    if(disposed||polling)return;
+    if(!force&&!simulation&&elapsedClock()<refusedUntil&&elapsedClock()>=refusedUntil-60000)return;
+    if(!force&&!simulation&&(stream&&stream.alive()||elapsedClock()<nextPoll))return;
     // Without the stream, a job (or anything Stop can end) is read every 2 s, so Stop and
     // Pause, which need a state younger than 3 s, stay usable between two reads.
     var active=!!(latestMachine&&(latestMachine.workflow!=='idle'||latestMachine.canStop));
     // With a server that has the event stream (protocol seen), these reads are the fallback while
     // it is down: every 2 s too (a legacy server stays at 10 s at rest), so the state stays shown (younger than 3 s) until the stream returns (N3).
-    polling=true;nextPoll=Date.now()+(active||(compact&&!simulation&&protocolReady)?2000:10000);
-    var id=++requestSequence, ownGeneration=generation, ownMutation=mutation, started=Date.now();
+    polling=true;nextPoll=elapsedClock()+(active||(compact&&!simulation&&protocolReady)?2000:10000);
+    var id=++requestSequence, ownGeneration=generation, ownMutation=mutation, started=elapsedClock();
     api('GET').then(function(data){
       if(disposed||ownGeneration!==generation||ownMutation!==mutation||id<appliedRequest)return;
-      appliedRequest=id;apply(data,Date.now()-started);
+      refusedUntil=0;appliedRequest=id;apply(data,elapsedClock()-started);
     }).catch(function(e){if(ownGeneration===generation&&ownMutation===mutation){unavailable(e.message);text('job-state',e.message);}}).then(function(){
       polling=false;
       // The answer may be the first to show a job: the next read comes 2 s after this one.
@@ -438,19 +529,23 @@
     });
   }
   function run(action,extra) {
-    if((!current || Date.now()-lastSeen>=3000)&&halt&&!simulation&&(action==='pause'||action==='stop')){
+    if((!current || sinceSeen()>=3000)&&halt&&!simulation&&(action==='pause'||action==='stop')){
       var target={action:action,port:halt.port};if(halt.generation)target.generation=halt.generation;
       return api('POST',target);
     }
-    if(!current || Date.now()-lastSeen>=3000)return Promise.reject(new Error('État indisponible.'));
-    if(!simulation&&(['prepare','start','resume','macro','override','unlock','home','spindle','readSettings','set-origin'].indexOf(action)>=0||(action==='motion'&&!(extra&&extra.operation==='jog-stop')))&&(!current.generation||!transportId||!stream||!stream.alive()))return Promise.reject(new Error(uiLocale.t('Suivi continu interrompu. Nouvelle confirmation requise.')));
+    if(flowLost()&&['pause','stop','spindleStop','check','settings','resumePlan'].indexOf(action)<0&&!(action==='motion'&&extra&&extra.operation==='jog-stop'))return Promise.reject(streamError());
+    if(!current || sinceSeen()>=3000)return Promise.reject(new Error(uiLocale.t('État indisponible.')));
+    if(!simulation&&(['prepare','start','resume','macro','override','unlock','home','spindle','readSettings','set-origin','machine','blockProbe'].indexOf(action)>=0||(action==='motion'&&!(extra&&extra.operation==='jog-stop')))&&(!current.generation||!transportId||!stream||!stream.alive()))return Promise.reject(new Error(uiLocale.t('Suivi continu interrompu. Nouvelle confirmation requise.')));
     var body={action:action,port:current.port};
     if(current.generation)body.generation=current.generation;
     if(transportId)body.transportId=transportId;
     Object.keys(extra||{}).forEach(function(k){body[k]=extra[k];});
     return api('POST',body);
   }
+  function refusalHost(){var node=document.activeElement;return node&&node.closest?node.closest('.job-dialog-card,.ks-sheet-content'):null;}
+  function showRefusal(e,host){if(window.cncRefus&&host)window.cncRefus.montrer(host,e);if(window.cncSeance)window.cncSeance.refuser(e);}
   function command(action,extra) {
+    var host=refusalHost();
     var id=++commandSequence, ownGeneration=generation, started=Date.now();mutation++;pending++;busy=true;
     // Sent, not yet answered: the text says so until the server's answer (or its absence) replaces it.
     if(id>=feedbackSequence){feedbackSequence=id;text('job-feedback',uiLocale.t('Demande envoyée…'));setFeedbackState('sent');}
@@ -459,28 +554,37 @@
     function finish(){pending--;busy=pending>0;render();if(!stream||!stream.alive())poll(true);}
     return run(action,extra).then(function(data){
       if(ownGeneration===generation){
-        if(id>=feedbackSequence){feedbackSequence=id;text('job-feedback',data.message||'');setFeedbackState('confirmed');feedbackExpect={start:'running',resume:'running',pause:'paused',stop:'idle'}[action]||null;feedbackReached=false;}
+        if(id>=feedbackSequence){feedbackSequence=id;feedbackRaw=data.message||'';text('job-feedback',feedbackRaw);setFeedbackState('confirmed');feedbackExpect={start:'running',resume:'running',pause:'paused',stop:'idle'}[action]||null;feedbackReached=false;}
         if(data.snapshot)apply(data.snapshot,Date.now()-started);
       }
       return data;
-    }).catch(function(e){if(ownGeneration===generation&&id>=feedbackSequence){feedbackSequence=id;text('job-feedback',e.message);setFeedbackState(e&&e.uncertain?'uncertain':'failed');}throw e;})
+    }).catch(function(e){if(e&&e.code==='ETOUCH_START_OVERRIDE_CHANGED'){dismiss();if(window.cncCheckScreen)window.cncCheckScreen.overrideChanged();}
+      showRefusal(e,host);if(ownGeneration===generation&&id>=feedbackSequence){feedbackSequence=id;text('job-feedback',e.message);setFeedbackState(e&&e.uncertain?'uncertain':'failed');if(e&&e.control)controlFeedback=e;if(action==='blockProbe'&&e.blockProbe&&window.cncZeroPiece)window.cncZeroPiece.failure(e.blockProbe,current);}throw e;})
       .then(function(data){finish();return data;},function(e){finish();throw e;});
   }
   // operation: 'start' | 'resume' (the loaded program) | 'macro' (extra.macroId).
+  // The promise never rejects: {opened: true} once the dialog is shown, else {opened: false, error}
+  // (error null when the confirmation was dropped silently: another dialog, a new stream, a hidden page).
   function prepare(operation,extra) {
-    if(busy||!current)return;
+    var lostFlow=refuseLostFlow();if(lostFlow)return Promise.resolve({opened:false,error:lostFlow});
+    if(busy||!current){var reason=busy?uiLocale.t('Opération en cours…'):uiLocale.t('État indisponible.');text('job-feedback',reason);setFeedbackState('failed');showRefusal(new Error(reason),refusalHost());render();return Promise.resolve({opened:false,error:new Error(reason)});}
     var port=current.port,revision=current.revision, ownGeneration=generation, ownConfirmation=++confirmation, started=elapsedClock(),origin=document.activeElement;
+    var sourceSheet=origin&&typeof origin.closest==='function'?origin.closest('.ks-sheet'):null;
     var request=operation==='macro'?{operation:'macro',macroId:extra&&extra.macroId}:standalone(operation)?{operation:operation}:{operation:operation,revision:revision};
     // Commands with parameters (the plate probe: thickness and search distance).
-    if(standalone(operation)&&operation!=='macro'&&extra)Object.keys(extra).forEach(function(k){request[k]=extra[k];});
+    if((standalone(operation)&&operation!=='macro'||operation==='start')&&extra)Object.keys(extra).forEach(function(k){request[k]=extra[k];});
     preparing++;
-    command('prepare',request).then(function(data){
+    return (operation==='frame'?command('machine',{operation:'frame-prepare'}):command('prepare',request)).then(function(data){
       preparing--;
-      if(ownGeneration!==generation||ownConfirmation!==confirmation||document.hidden||!current||current.port!==port||(!standalone(operation)&&current.revision!==revision))return;
+      if(ownGeneration!==generation||ownConfirmation!==confirmation||document.hidden||sourceSheet&&sourceSheet.hidden||!current||current.port!==port||(!standalone(operation)&&current.revision!==revision))return {opened:false,error:null};
       until=started+Math.min(15,Number(data.expiresIn)||0)*1000;
-      if(elapsedClock()<started||elapsedClock()>=until){text('job-feedback',uiLocale.t('Confirmation expirée. Préparez une nouvelle confirmation.'));setFeedbackState('failed');render();return;}
-      ticket={nonce:data.nonce,operation:operation,port:port,revision:revision,generation:generation,started:started};
-      if(!confirmable()||otherDialog()){dismiss(false);return;}
+      if(elapsedClock()<started||elapsedClock()>=until){var late=uiLocale.t('Confirmation expirée. Préparez une nouvelle confirmation.');text('job-feedback',late);setFeedbackState('failed');render();return {opened:false,error:new Error(late)};}
+      ticket={nonce:data.nonce,operation:operation,port:port,revision:revision,generation:generation,started:started,programCheck:data.programCheck||current.programCheck,override:!!(data.override&&Array.isArray(data.override.blocking)&&data.override.blocking.length),frameKind:operation==='frame'&&data.frame&&data.frame.kind||null};
+      if(operation==='start'&&!ticket.override&&outside(ticket.programCheck)){
+        var blocked=serverRefusal({code:'ETOUCH_START_OUTSIDE',params:{},reasons:ticket.programCheck.blocking||[],message:uiLocale.t('Le fichier dépasse la course de la machine.')},409);
+        dismiss(false);text('job-feedback',blocked.message);setFeedbackState('failed');showRefusal(blocked,refusalHost());render();return {opened:false,error:blocked};
+      }
+      if(!confirmable(true)||otherDialog()){dismiss(false);return {opened:false,error:null};}
       dialogReturn=origin;
       // One stack of layers with the other overlays (strip-guard.js): a confirmation opened from a
       // sheet (macros) and closed in any order gives back exactly the values it found.
@@ -492,58 +596,129 @@
       if(keep.length&&$('job-dialog').style){$('job-dialog').style.top='var(--statusbar-h,0px)';var card=$('job-dialog').querySelector&&$('job-dialog').querySelector('.job-dialog-card');if(card&&card.style)card.style.maxHeight='calc(100vh - var(--statusbar-h,0px) - 48px)';}
       // What this operation does, and what the operator confirms (N4: an unlock moves nothing).
       if(!simulation){var words=DIALOG_TEXT[operation]||DIALOG_TEXT.start;if($('job-warning'))$('job-warning').textContent=words[0];if($('job-check-text'))$('job-check-text').textContent=words[1];}
-      $('job-dialog-title').textContent=({start:uiLocale.t('Confirmer le démarrage'),macro:uiLocale.t('Exécuter la macro'),unlock:uiLocale.t('Déverrouiller la machine'),home:uiLocale.t('Lancer la prise d’origine'),spindle:uiLocale.t('Démarrer la broche'),zeroZ:uiLocale.t('Régler le zéro Z avec la plaque')})[operation]||uiLocale.t('Confirmer la reprise');
-      $('job-dialog-file').textContent=data.name+' · '+port;
-      // Start of a real job: the server's travel pre-check of this exact program (F2), joined to the
-      // ticket; unknown is never shown as a green light. Without it (older server), the client's
-      // XY estimate from the preview of this program version.
-      var checked=operation==='start'&&!simulation&&window.CNCProgramCheckView?window.CNCProgramCheckView.show($('job-program-check'),data.programCheck||current.programCheck||null):null;
-      if(!checked&&$('job-program-check'))$('job-program-check').hidden=true;
-      if(window.CNCTravelCheck){var img=$('home-job-image'),pv=img&&samePreview(img.cncPreview,current)?img.cncPreview:null;
-        window.CNCTravelCheck.show($('job-travel'),operation==='start'&&!simulation&&!checked?window.CNCTravelCheck.check(pv,current):null);}
+      var axes=String(data.blockProbe&&data.blockProbe.axes||request.axes||'');
+      var effect={start:uiLocale.t('Lancer l’usinage'),resume:uiLocale.t('Reprendre l’usinage'),macro:uiLocale.t('Lancer la macro'),unlock:uiLocale.t('Déverrouiller'),home:uiLocale.t('Lancer la prise d’origine'),spindle:uiLocale.t('Démarrer la broche'),zeroZ:uiLocale.t('Lancer le zéro Z'),frame:uiLocale.t('Lancer le cadrage'),blockProbe:uiLocale.t('Lancer le palpage {axes}').replace('{axes}',axes)};
+      var title={start:uiLocale.t('Démarrer l’usinage'),resume:uiLocale.t('Reprendre l’usinage'),macro:uiLocale.t('Lancer la macro {nom}').replace('{nom}',data.name||''),unlock:uiLocale.t('Déverrouiller sans prise d’origine'),home:uiLocale.t('Lancer la prise d’origine machine'),spindle:uiLocale.t('Démarrer la broche'),zeroZ:uiLocale.t('Zéro Z à la plaque'),frame:uiLocale.t('Cadrer le fichier'),blockProbe:uiLocale.t('Palper le bloc {axes}').replace('{axes}',axes)};
+      if(operation==='start'&&current.machineProfile&&current.machineProfile.kind==='laser'){effect.start=uiLocale.t('Lancer la gravure');title.start=uiLocale.t('Démarrer la gravure');}
+      $('job-dialog-title').textContent=title[operation];$('job-confirm').textContent=effect[operation];
+      if(operation==='home'){$('job-warning').textContent=uiLocale.t('Les trois axes vont jusqu’à leurs capteurs, Z d’abord. Dégagez la table.');$('job-check-text').textContent=uiLocale.t('Je suis devant la machine et la table est dégagée.');}
+      if(operation==='unlock')$('job-warning').textContent=uiLocale.t('Rien ne bouge. La position de la machine peut être fausse : faites ensuite la prise d’origine.');
+      prop('job-dialog-modify','hidden',operation!=='zeroZ');
+      if(operation==='zeroZ')$('job-warning').textContent=uiLocale.t('La fraise descend jusqu’à la plaque de {epaisseur} mm, de {descente} mm au plus.').replace('{epaisseur}',String(request.thickness===undefined?'—':request.thickness)).replace('{descente}',String(request.search===undefined?'—':request.search));
+      if(operation==='start'&&!simulation)$('job-warning').textContent=uiLocale.t(current.machineProfile&&current.machineProfile.kind==='laser'?'Le laser s’allume et la tête se déplace.':'La broche démarre et la machine se déplace.');
+      if(operation==='frame'){$('job-warning').textContent=uiLocale.t('La tête fait le tour du fichier, laser éteint.');$('job-check-text').textContent=uiLocale.t('Je suis devant la machine et la table est dégagée.');}
+      // Lot F1, framing in the air (CNC): what the server's ticket says it will do.
+      var airFrame=operation==='frame'&&ticket.frameKind==='cnc'?data.frame:null;
+      if(airFrame){title.frame=uiLocale.t('Cadrer à vide');$('job-dialog-title').textContent=title.frame;$('job-warning').textContent=uiLocale.t('La fraise monte tout en haut, puis fait le tour du fichier, broche arrêtée. Elle ne redescend pas.');$('job-check-text').textContent=uiLocale.t('Je suis devant la machine et rien de haut ne gêne la broche.');}
+      if(operation==='macro'){$('job-warning').textContent=uiLocale.t('Une macro peut déplacer la machine et faire tourner la broche.');$('job-check-text').textContent=uiLocale.t('Je suis devant la machine et je connais cette macro.');}
+      if(operation==='start'&&!simulation&&ticket.programCheck&&ticket.programCheck.verdict==='unknown')$('job-check-text').textContent=uiLocale.t('Je suis devant la machine et j’ai vérifié que le fichier tient dans la machine.');
+      // The target machine (label and kind, from the server's profile) and the piloting device.
+      var identity=(data.name||current.originalName||current.name||'')+' · '+port+(simulation?'':' · '+targetText(current)+' · '+uiLocale.t('Pilote : ')+(pilot.value||'—'));
+      var operationName={home:uiLocale.t('Prise d’origine machine…'),unlock:effect.unlock,spindle:effect.spindle,zeroZ:title.zeroZ,blockProbe:title.blockProbe,frame:title.frame};
+      $('job-dialog-file').setAttribute('data-details',identity);$('job-dialog-file').textContent=operationName[operation]||data.name||current.originalName||current.name||'';
+      if(!$('job-dialog-details')){var detailsButton=document.createElement('button');detailsButton.type='button';detailsButton.id='job-dialog-details';detailsButton.textContent=uiLocale.t('Détails');$('job-dialog-file').parentNode&&$('job-dialog-file').parentNode.insertBefore(detailsButton,$('job-warning'));}
+      var resumeDetails=current.resume,pauseDetails=current.programPause;
+      if($('job-dialog-details'))$('job-dialog-details').onclick=function(){
+        if(!window.cncShell)return;
+        var lines=[{libelle:uiLocale.t('Machine'),valeur:identity}];
+        if(operation==='blockProbe')lines.push({libelle:uiLocale.t('Sonde'),valeur:note});
+        if(operation==='start'&&resumeDetails){
+          if(resumeDetails.line)lines.push({libelle:uiLocale.t('Ligne'),valeur:resumeDetails.line});
+          if(Array.isArray(resumeDetails.notes))lines.push({libelle:uiLocale.t('Notes de reprise'),valeur:resumeDetails.notes.filter(function(s){return typeof s==='string';}).map(function(s){return (uiLocale.message||uiLocale.t)(s);}).join('\n')});
+        }
+        if(operation==='resume'&&pauseDetails&&pauseDetails.message)lines.push({libelle:uiLocale.t('Message du fichier'),valeur:pauseDetails.message});
+        if(airFrame){
+          var b=airFrame.bounds||{},sz=airFrame.safeZ||{};
+          lines.push({libelle:uiLocale.t('Lignes du cadrage'),valeur:(airFrame.lines||[]).join('\n')});
+          lines.push({libelle:uiLocale.t('Vitesse'),valeur:String(airFrame.feed)+' mm/min · Z '+String(airFrame.zFeed)+' mm/min'});
+          lines.push({libelle:uiLocale.t('Hauteur sûre (position machine)'),valeur:'Z '+String(sz.machine)+' mm · '+uiLocale.t('montée')+' '+String(sz.rise)+' mm'});
+          lines.push({libelle:uiLocale.t('Rectangle'),valeur:'X '+b.xMin+' → '+b.xMax+' · Y '+b.yMin+' → '+b.yMax+' mm'});
+          lines.push({libelle:uiLocale.t('Note'),valeur:uiLocale.t('Le cadrage suit le centre de la fraise. Il ne vérifie ni les brides ni la profondeur.')});
+        }
+        window.cncShell.details({lignes:lines,brut:operation==='blockProbe'?data.blockProbe:null});
+      };
+
+      if(ticket.override){
+        var view=window.CNCProgramCheckView, overs=data.override.blocking.map(function(r){return view?view.overText(r,false):uiLocale.t('dépasse');}).join(' · ');
+        $('job-dialog-title').textContent=uiLocale.t('Démarrer malgré le dépassement');
+        $('job-confirm').textContent=uiLocale.t('Démarrer malgré le dépassement');
+        $('job-warning').textContent=overs+'. '+uiLocale.t('La machine s’arrêtera en alarme et perdra sa position.');
+        var firstOver=data.override.blocking[0],over=(firstOver.params||firstOver).over;
+        $('job-check-text').textContent=uiLocale.t('Je suis devant la machine et je sais que le fichier dépasse de {n} mm.').replace('{n}',view?view.fmt(over):String(over));
+      }
+      prop('job-confirm','className',ticket.override?'t-btn t-btn--warn':'t-btn t-btn--primary');
+      var startStatus=$('job-start-status'),startDrawing=$('job-start-drawing');
+      if(!startStatus){startStatus=document.createElement('p');startStatus.id='job-start-status';$('job-warning').parentNode.insertBefore(startStatus,$('job-warning'));}
+      if(!startDrawing){startDrawing=document.createElement('div');startDrawing.id='job-start-drawing';startDrawing.className='check-drawing';$('job-warning').parentNode.insertBefore(startDrawing,$('job-warning'));}
+      startStatus.hidden=operation!=='start'||ticket.override;
+      if(operation==='start'&&!ticket.override)startStatus.textContent=uiLocale.t(ticket.programCheck&&ticket.programCheck.verdict==='validated'?'Tient dans la machine.':'Course non vérifiée.')+(ticket.programCheck&&ticket.programCheck.verdict!=='validated'&&window.CNCProgramCheckView?' '+window.CNCProgramCheckView.axisLines(ticket.programCheck).filter(function(a){return a.verdict==='unknown';}).map(function(a){return a.text;}).join(' · '):'');
+      startDrawing.hidden=!ticket.override;
+      if(ticket.override&&window.CNCProgramCheckView)startDrawing.innerHTML=window.CNCProgramCheckView.drawing(Object.assign({},ticket.programCheck,{blocking:data.override.blocking}),'side');
       // Tool change resume or a resume from a line: what will happen, in one line.
-      var note=window.CNCJobResume&&!simulation?window.CNCJobResume.dialogNote(operation,current,request):'';if($('job-note')){$('job-note').textContent=note;$('job-note').hidden=!note;}
+      // Block probe: the server's numbers of this ticket (search, lateral move, depth, reach).
+      var note=operation==='blockProbe'?(window.CNCProbeReal?window.CNCProbeReal.dialogNote(data.blockProbe):''):window.CNCJobResume&&!simulation?window.CNCJobResume.dialogNote(operation,current,request):'';
+      if(airFrame){var fb=airFrame.bounds||{},size=function(n){return String(Math.round(n*10)/10).replace('.',uiLocale.language==='en'?'.':',');};note=uiLocale.t('{L} × {l} mm · environ {N} min').replace('{L}',size(fb.xMax-fb.xMin)).replace('{l}',size(fb.yMax-fb.yMin)).replace('{N}',String(Math.max(1,Math.round((Number(airFrame.seconds)||0)/60))));}if($('job-note')){$('job-note').textContent=note;$('job-note').hidden=!note;}
+      var drawing=$('job-probe-diagram');if(!drawing&&$('job-note')){drawing=document.createElement('div');drawing.id='job-probe-diagram';$('job-note').parentNode.insertBefore(drawing,$('job-note'));}
+      if(drawing){drawing.hidden=operation!=='blockProbe';if(operation==='blockProbe'&&window.CNCProbeDiagram){var planDrawing=window.CNCProbeDiagram.attach(drawing,{mode:'plan'});planDrawing.update(request.profile,axes,request.diameter,data.blockProbe);$('job-note').hidden=true;}}
       countdown(Math.max(0,Math.ceil((until-elapsedClock())/1000)));
-      $('job-check').checked=false;$('job-confirm').disabled=true;$('job-dialog').hidden=false;$('job-dismiss').focus();
-    },function(){preparing--;});
+      dialogShownAt=elapsedClock();
+      $('job-check').checked=false;$('job-confirm').disabled=true;$('job-dialog').hidden=false;
+      var confirm=$('job-confirm');if(origin&&origin.getBoundingClientRect&&confirm.getBoundingClientRect){var o=origin.getBoundingClientRect(),r=confirm.getBoundingClientRect();if(o.left<r.right&&o.right>r.left&&o.top<r.bottom&&o.bottom>r.top){var actionRow=confirm.parentNode;if(actionRow)actionRow.setAttribute('data-avoid-origin','true');}}
+      $('job-dismiss').focus();
+      return {opened:true,error:null};
+    },function(e){preparing--;var stale=ownGeneration!==generation||ownConfirmation!==confirmation||!current||current.port!==port;return {opened:false,error:stale?null:e||null};});
   }
   bind(window,'cnc-library-select',function(event){selection=event.detail;if(store)store.set({selection:selection});render();});
   bind($('job-port'),'change',function(){generation++;explicitPort=!!$('job-port').value;halt=null;dismiss();latestMachine=machines.filter(function(m){return m.port===$('job-port').value;})[0]||null;render();});
-  bind($('job-load'),'click',function(){
-    if(!selection||busy)return;dismiss();
-    // Loading from Fichiers leads to the Suivi, where the start is confirmed.
-    var files=document.getElementById('screen-files'),fromFiles=!!(files&&files.classList&&files.classList.contains('active'));
-    command('load',{file:selection.file}).then(function(){if(fromFiles&&!disposed)window.dispatchEvent(new CustomEvent('cnc-navigate',{detail:'home'}));}).catch(function(){});
-  });
-  bind($('job-start'),'click',function(){prepare('start');});
-  bind($('job-resume'),'click',function(){prepare('resume');});
-  bind($('job-pause'),'click',function(){dismiss();command('pause').catch(function(){});});
-  bind($('job-stop'),'click',function(){dismiss();command('stop').catch(function(){});});
+  function sessionRefuses(){return !current||!current.fresh||pilot.state==='other'||!!systemCommand;}
+  function load(file){
+    if(refuseLostFlow())return;
+    file=typeof file==='string'?file:selection&&selection.file;
+    if(sessionRefuses()||!file||busy||!current||!current.canLoad)return;
+    dismiss();return command('load',{file:file}).catch(function(){/* Refusal is shown by command. */});
+  }
+  function start(){if(flowLost()||busy)return prepare('start');if(sessionRefuses()||!current.canStart||outside(current.programCheck)||!simulation&&(!current.workOffset||current.workOffset.state!=='proven'))return Promise.resolve({opened:false,error:null});return prepare('start');}
+  function startOverride(){if(flowLost())return prepare('start',{override:'travel'});if(sessionRefuses()||busy||!current.homed||current.referenceLost||!current.workOffset||current.workOffset.state!=='proven'||!outside(current.programCheck)||!current.programCheck.overridable)return Promise.resolve({opened:false,error:null});return prepare('start',{override:'travel'});}
+  function resume(){if(flowLost())return prepare('resume');if(sessionRefuses()||sinceSeen()>=3000||busy||!current||!current.canResume)return Promise.resolve({opened:false,error:null});return prepare('resume');}
+  function pause(){if(!(current&&sinceSeen()<3000?current.canPause:halt&&halt.canPause))return;dismiss();return command('pause').catch(function(){/* Refusal is shown by command. */});}
+  function stop(){if(!(current&&sinceSeen()<3000?current.canStop||jogging(current):halt&&halt.canStop))return;dismiss();return command('stop').catch(function(){/* Refusal is shown by command. */});}
   bind($('job-dismiss'),'click',dismiss);
+  bind($('job-dialog-modify'),'click',function(){if(!ticket||ticket.operation!=='zeroZ')return;dismiss();if(window.cncSeance)window.cncSeance.lancer('plaque');else if(window.cncZeroPiece)window.cncZeroPiece.plate(true);});
   bind($('job-check'),'change',function(){$('job-confirm').disabled=!this.checked||!confirmable();});
   bind($('job-confirm'),'click',function(){
+    if(ticket&&elapsedClock()-dialogShownAt<600)return;
     if(!confirmable()){dismiss();return;}
     if(!$('job-check').checked)return;
-    var t=ticket;dismiss();command(t.operation,{nonce:t.nonce}).then(function(){
+    var t=ticket;dismiss();if(t.operation==='blockProbe'){probeRun=t.port;halt={port:t.port,generation:current&&current.generation||null,workflow:'idle',canPause:true,canStop:true};}
+    var sent=t.operation==='frame'?command('machine',{operation:'frame',nonce:t.nonce}):command(t.operation,{nonce:t.nonce});
+    if(t.operation==='blockProbe')sent.then(function(){if(probeRun===t.port)probeRun=null;render();},function(){if(probeRun===t.port)probeRun=null;render();});
+    sent.then(function(){
       // Tells the commissioning assistant which confirmed command the server accepted.
+      if(t.operation==='start'&&window.cncShell)window.cncShell.go('home');
       if(Object.prototype.hasOwnProperty.call(COMMANDS,t.operation))window.dispatchEvent(new CustomEvent('cnc-command-sent',{detail:t.operation}));
-    }).catch(function(){});
+    }).catch(function(){/* Optional browser facility unavailable. */});
   });
   bind(document,'keydown',function(e){
     if(e.key==='Escape'){var visible=!$('job-dialog').hidden;dismiss();if(visible){e.preventDefault();e.stopImmediatePropagation();}return;}
     if($('job-dialog').hidden||e.key!=='Tab')return;
     // One cycle: the strip's Pause / Arrêter when offered, then the dialog's own controls
     // (Confirmer once enabled). Focus never leaves this list while the dialog is open.
-    var order=stripStops().concat(['job-check','job-dismiss','job-confirm'].map($).filter(function(n){return n&&!n.hidden&&!n.disabled;}));
+    var extras=['job-dialog-details','job-dialog-modify'].map($).filter(function(n){return n&&n.parentNode&&!n.hidden&&!n.disabled;});
+    var order=stripStops().concat(['job-check'].map($),extras,['job-dismiss','job-confirm'].map($).filter(function(n){return n&&!n.hidden&&!n.disabled;}));
     var at=order.indexOf(document.activeElement),next=order[at<0?(e.shiftKey?order.length-1:0):(at+(e.shiftKey?order.length-1:1))%order.length];
     e.preventDefault();if(next)next.focus();
     e.stopImmediatePropagation();
   });
-  bind(document,'focusin',function(e){if(!$('job-dialog').hidden&&!$('job-dialog').contains(e.target)&&stripStops().indexOf(e.target)<0)$('job-dismiss').focus();});
+  bind(document,'focusin',function(e){if(!$('job-dialog').hidden&&!(window.CNCStripGuard&&window.CNCStripGuard.covered($('job-dialog')))&&!$('job-dialog').contains(e.target)&&stripStops().indexOf(e.target)<0)$('job-dismiss').focus();});
   bind($('pilot-dismiss'),'click',function(){closePilot();});
   bind($('pilot-takeover'),'click',takeOver);
+  bind($('pilot-release'),'click',releaseHand);
+  bind($('pilot-release-see'),'click',function(){closePilot(false);if(window.cncSeance)window.cncSeance.lancer('voir-usinage');});
+  bind($('pilot-other'),'click',function(){if(pilotSending||pilot.state!=='other')return;pilotCustom=true;renderPilotDialog();if(window.CNCTextKeyboard&&window.CNCTextKeyboard.open)window.CNCTextKeyboard.open($('pilot-reason'),{label:uiLocale.t('Autre motif…')});else $('pilot-reason').focus();});
   bind($('pilot-reason'),'input',function(){text('pilot-feedback','');renderPilotDialog();});
-  ['pilot-reason-a','pilot-reason-b'].forEach(function(id){bind($(id),'click',function(){$('pilot-reason').value=this.textContent;renderPilotDialog();$('pilot-takeover').focus();});});
+  // A reason of one's own: the shared text keyboard (text-keyboard.js), the kiosk has no system one.
+  if(window.CNCTextKeyboard)window.CNCTextKeyboard.bind($('pilot-reason'),{label:uiLocale.t('Motif de la prise de pilotage (3 caractères au moins, enregistré et montré à l’autre appareil)')});
+  ['pilot-reason-a','pilot-reason-b'].forEach(function(id){bind($(id),'click',function(){if(pilotSending||pilot.state!=='other')return;$('pilot-reason').value=this.textContent;takeOver();});});
   // Escape closes, Tab stays inside the open pilot dialog.
   bind(document,'keydown',function(e){
     // The confirmation, when open, owns the keys (its handler comes first).
@@ -551,7 +726,7 @@
     if(window.CNCStripGuard&&typeof window.CNCStripGuard.covered==='function'&&window.CNCStripGuard.covered($('pilot-dialog')))return;
     if(e.key==='Escape'){closePilot();e.preventDefault();e.stopImmediatePropagation();return;}
     if(e.key!=='Tab')return;
-    var order=['pilot-reason','pilot-reason-a','pilot-reason-b','pilot-dismiss','pilot-takeover'].map($).filter(function(n){return n&&!n.hidden&&!n.disabled&&!(pilot.state!=='other'&&/^pilot-reason/.test(n.id));});
+    var order=['pilot-reason','pilot-reason-a','pilot-reason-b','pilot-other','pilot-release','pilot-release-see','pilot-dismiss','pilot-takeover'].map($).filter(function(n){return n&&!n.hidden&&!n.disabled&&!(n.id==='pilot-reason'&&!pilotCustom)&&!(pilot.state!=='other'&&/^pilot-reason|^pilot-other/.test(n.id))&&!(pilot.state!=='mine'&&/^pilot-release/.test(n.id));});
     // One cycle with the strip's Pause / Arrêter first, as for the confirmation (U5).
     order=stripStops().concat(order);
     if(order.length){var at=order.indexOf(document.activeElement),next=order[at<0?(e.shiftKey?order.length-1:0):(at+(e.shiftKey?order.length-1:1))%order.length];e.preventDefault();next.focus();e.stopImmediatePropagation();return;}
@@ -561,7 +736,7 @@
     e.stopImmediatePropagation();
   });
   // A preview image loaded for another version of the program is marked before it is painted.
-  function previewLoaded(e){if(e&&e.target&&e.target.id==='home-job-image')previewIdentity(current&&Date.now()-lastSeen<3000?current:null);}
+  function previewLoaded(e){if(e&&e.target&&e.target.id==='home-job-image')previewIdentity(current&&sinceSeen()<3000?current:null);}
   if(document.addEventListener){document.addEventListener('load',previewLoaded,true);bindings.push(function(){if(document.removeEventListener)document.removeEventListener('load',previewLoaded,true);});}
   bind(window,'cnc-screen-change',function(){dismiss(false);closePilot(false);});
   bind(window,'cnc-screen-lock',function(e){if(e&&e.detail){dismiss(false);closePilot(false);}});
@@ -577,12 +752,14 @@
   }
   bind(document,'visibilitychange',function(){if(document.hidden){observationSuspended=true;dismiss(false);closePilot(false);}else resumeObservation();});
   function network(online){
-    if(simulation||disposed||networkOffline===!online)return;
-    networkOffline=!online;
+    if(simulation||disposed)return;
+    browserOffline=!online;
     if(stream)stream.setOnline(online);
-    else unavailable(uiLocale.t(online?'Réseau rétabli. Vérification du suivi ; nouvelle confirmation requise.':'Réseau indisponible. Suivi suspendu ; aucune commande ne sera relancée automatiquement.'));
     if(online){nextPoll=0;poll(true);}
+    render();
   }
+  // New token stored without a reload (app.js, reload guard): the stream checks it at once.
+  bind(window,'cnc-session-renewed',function(){if(disposed||simulation)return;refusedUntil=0;if(stream)stream.reconnect(undefined,true);nextPoll=0;poll(true);});
   bind(window,'offline',function(){network(false);});
   bind(window,'online',function(){network(true);});
   // Seconds left in words, and the bar's remaining fraction of the ticket window (15 s at most).
@@ -595,7 +772,8 @@
   if(compact&&!simulation){
     stream=window.CNCJobStream.create({apiBase:store.get().apiBase,token:token,clientId:clientId,
       onSnapshot:function(data){transportId=data.transportId;streamReason='';renewing=0;apply(data,data.transitMs);},
-      onDisconnect:function(reason,rotating){unavailable(reason,rotating);},onStatus:function(reason){streamReason=reason;render();}});
+      onDisconnect:function(reason,rotating){unavailable(reason,rotating);},onStatus:function(reason){streamReason=reason;render();},
+      onRefused:function(){window.dispatchEvent(new CustomEvent('cnc-session-refused',{detail:null}));}});
   }
   if(!simulation&&!compact&&window.cncSocket){
     ['disconnect','connect_error','error'].forEach(function(name){var fn=function(){if(stream)stream.reconnect();else unavailable(uiLocale.t('Connexion interrompue. Nouvelle confirmation requise.'));};window.cncSocket.on(name,fn);bindings.push(function(){if(window.cncSocket.off)window.cncSocket.off(name,fn);});});
@@ -603,15 +781,30 @@
   function dispose(){if(disposed)return;dismiss(false);closePilot(false);disposed=true;if(typeof clearInterval==='function')clearInterval(interval);if(stream)stream.dispose();bindings.forEach(function(fn){fn();});requests.forEach(function(xhr){xhr.onload=xhr.onerror=xhr.ontimeout=null;xhr.abort();});requests=[];}
   bind(window,'pagehide',function(event){if(event&&event.persisted){observationSuspended=true;dismiss();if(stream)stream.reconnect();else unavailable(uiLocale.t('Retour à la page : attendre un nouvel état.'));}else dispose();});
   bind(window,'pageshow',function(event){if(event&&event.persisted)resumeObservation();});
-  window.cncJobControls={refresh:function(){poll(true);},dispose:dispose,
+  window.cncJobControls={state:function(){return Object.assign({},publishedState,{feedback:actionFeedback,feedbackState:feedbackState});},load:load,start:start,startOverride:startOverride,checkFile:function(file){return run('check',{file:file});},resume:resume,pause:pause,stop:stop,
+    verifyOffset:function(){if(busy||!current||!current.workOffset||!current.workOffset.canVerify)return Promise.resolve();return command('verifyOffset');},refresh:function(){poll(true);},dispose:dispose,
     // Realtime override step (kind: feed | spindle | rapid; value as accepted by the server).
     override:function(kind,value){if(busy||!current)return Promise.reject(new Error(uiLocale.t('Opération en cours…')));return command('override',{kind:kind,value:value});},
     // Opens the confirmation for a CNCjs macro; the macro runs only after the confirmed nonce.
-    prepareMacro:function(id){prepare('macro',{macroId:id});},
+    prepareMacro:function(id){return prepare('macro',{macroId:id});},
     // Commissioning: unlock ($X), home ($H) or spindle test (M3), each after the confirmation dialog.
     // Closes an open confirmation and drops a prepare still on its way.
     cancel:function(){dismiss(false);},
-    prepareCommand:function(operation,extra){if(Object.prototype.hasOwnProperty.call(COMMANDS,operation))prepare(operation,extra);},
+    prepareCommand:function(operation,extra){return Object.prototype.hasOwnProperty.call(COMMANDS,operation)?prepare(operation,extra):Promise.resolve({opened:false,error:new Error(uiLocale.t('Commande inconnue.'))});},
+    // Laser framing (frame-prepare → confirmation → frame); offered only when the server says so.
+    prepareFrame:function(){if(simulation||!current||!laserFrame(current))return false;prepare('frame');return true;},
+    // Machine kind (PROFILES-CONTRACT.md §2): written in .cncrc by the server, nothing sent to the
+    // controller. Same path as every machine action: pilot, generation, stream, refusals.
+    setMachineKind:function(kind,label){
+      if(busy||!current)return Promise.reject(new Error(uiLocale.t('Opération en cours…')));
+      if(kind!=='cnc'&&kind!=='laser')return Promise.reject(new Error(uiLocale.t('Type de machine inconnu.')));
+      return command('machine',{operation:'set-kind',kind:kind,label:String(label||'').slice(0,60)});
+    },
+    forgetMachine:function(){
+      if(busy||!current)return Promise.reject(new Error(uiLocale.t('Opération en cours…')));
+      return command('machine',{operation:'forget'});
+    },
+    targetText:function(){return targetText(current);},
     spindleStop:function(){if(!current)return Promise.reject(new Error(uiLocale.t('État indisponible.')));return command('spindleStop');},
     // Resume from a line: what would be sent (nothing loaded), then the load itself.
     resumePlan:function(file,line){if(!current)return Promise.reject(new Error(uiLocale.t('État indisponible.')));return run('resumePlan',{file:file,line:line});},
@@ -620,7 +813,7 @@
     // Full $$ list and firmware banner, read-only.
     settings:function(){if(!current)return Promise.reject(new Error(uiLocale.t('État indisponible.')));return run('settings');},
     // Attribution of control (F5): this device's identity, who pilots now, the pilot dialog.
-    clientId:function(){return clientId;},pilot:function(){return pilot;},openPilot:openPilot,closePilot:closePilot,
+    clientId:function(){return clientId;},clientLabel:function(){return clientLabel;},pilot:function(){return pilot;},openPilot:openPilot,
     // Real moves (F1, experimental; real-motion.js): jog, jog-start and jog-keepalive need a fresh
     // state, the open stream and the generation (run). jog-stop is never held back by the client:
     // it goes out even with a lost stream or an old state, to the port given or the last one shown.
@@ -635,15 +828,12 @@
     // Work origin (F1): {axes} asks the server for a ticket (prepare set-origin), {nonce} confirms it.
     origin:function(extra){
       if(simulation)return Promise.reject(new Error(uiLocale.t('Simulation : aucun déplacement réel.')));
-      return (extra&&extra.nonce?run('set-origin',{nonce:extra.nonce}):run('prepare',{operation:'set-origin',axes:extra&&extra.axes})).then(answered);
+      return (extra&&extra.nonce?run('set-origin',{nonce:extra.nonce}):run('prepare',Object.assign({operation:'set-origin',axes:extra&&extra.axes},extra&&extra.at==='machine'?{at:'machine'}:{}))).then(answered);
     }};
   // The snapshot joined to an answer is applied at once (the stream may bring it later).
   function answered(data){if(data&&data.snapshot&&!disposed)apply(data.snapshot,0);return data;}
   // Deferred subscribers can load after the first resolved local snapshot.
   bind(document,'DOMContentLoaded',function(){stateSignature='';render();});
   poll(true);
-  if(!simulation) {
-    var link=document.createElement('a');link.href='simulation.html';link.textContent=uiLocale.t('Ouvrir le mode SIMULATION (sans machine)');panel.insertBefore(link,panel.firstChild);
-  }
 })();
 

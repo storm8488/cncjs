@@ -114,9 +114,9 @@
   function apply() {
     if (!bound) return;
     var p = parse(draft, bound.rules);
-    if (p.state !== 'ok') { error.textContent = p.message; error.setAttribute('data-tone', 'danger'); return; }
+    if (p.state !== 'ok' && !(p.state === 'empty' && bound.rules.optional)) { error.textContent = p.message; error.setAttribute('data-tone', 'danger'); return; }
     // The accepted number is written with a point (what the server reads); the draft is not lost on error.
-    var input = bound.input, text = String(p.value);
+    var input = bound.input, text = p.state === 'empty' ? '' : String(p.value);
     if (input.value !== text) { input.value = text; input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true })); }
     hide();
   }
@@ -128,9 +128,11 @@
     if (target && target.isConnected && typeof target.focus === 'function') target.focus({ preventScroll: true });
   }
   function open(input, rules) {
+    rules = rules || {};
     if (!modal) build();
     if (input.disabled) return;
     bound = { input: input, rules: rules || {} }; draft = input.value || ''; returnTo = input;
+    modal.setAttribute('data-dock',rules.dock==='right'?'right':'');
     title.textContent = rules.label || input.getAttribute('aria-label') || '';
     bounds.textContent = limits(rules) ? t('Valeur attendue : ') + limits(rules) + (rules.integer ? t(' (entier)') : '') : (rules.integer ? t('Nombre entier') : '');
     unit.textContent = rules.unit || '';

@@ -1,0 +1,31 @@
+'use strict';
+const assert=require('assert'),{fixture,check}=require('./check-page-fixture.cjs');
+const q=fixture(),main=q.node('step-check-main'),cause=()=>q.node('step-check-cause').textContent;
+assert(!main.disabled);assert(cause().includes('Tout est prêt'));
+q.send({canStart:false,programCheck:check('outside',{overridable:true,blocking:[{code:'ETOUCH_TRAVEL_TOO_LOW',params:{over:'15'}}]})});assert(main.disabled);assert(cause().includes('15'));assert(!q.node('step-check-remedy').hidden);main.click();assert(!q.calls.some(c=>c.op==='start'));
+q.send({workOffset:{state:'checking'},programCheck:check('outside',{overridable:true})});assert(main.disabled);assert(cause().includes('Attendez'));assert(!q.node('check-override-open'));
+q.send({workOffset:{state:'failed',code:'ETOUCH_OFFSET_UNCONFIRMED'}});assert(main.disabled);assert.equal(q.node('step-check-remedy').getAttribute('data-action'),'verifier-zero');
+q.send({workOffset:null,programCheck:check('outside',{overridable:true})});assert(main.disabled);assert(!q.node('check-override-open'),'absent D2 is never an override');
+q.send({homed:false});assert(main.disabled);assert.equal(q.node('step-check-remedy').getAttribute('data-action'),'prise-origine');
+for(const language of ['fr','en','es']){
+ const laser=fixture(language),t=laser.window.cncI18n.t;
+ laser.send({homed:false,canHome:false,settings:{$22:'0'},machineProfile:{kind:'laser'},programCheck:check('unknown',{codedReasons:[{code:'ETOUCH_CHECK_HOMING_DISABLED'}]})});
+ assert(!laser.node('step-check-main').disabled,'homing disabled on the server permits a laser start');
+ assert(laser.node('step-check-cause').textContent.includes(laser.window.cncRefus.lire({code:'ETOUCH_CHECK_HOMING_DISABLED'}).phrase));
+ laser.window.cncShell.go('machine');assert(!laser.node('step-machine-main').disabled,'Machine has a way forward without homing');
+ laser.window.cncShell.go('check');
+ laser.send({canStart:false,refusals:{start:{code:'ETOUCH_START_FEED_MODE'}}});
+ assert(laser.node('step-check-main').disabled);
+ assert.equal(laser.node('step-check-cause').textContent,laser.window.cncRefus.lire({code:'ETOUCH_START_FEED_MODE'}).phrase);
+ assert.equal(laser.node('step-check-remedy').textContent,t('Reprendre au début'));
+ assert.equal(laser.node('step-check-remedy').getAttribute('data-action'),'reprendre-debut');
+}
+q.send({programCheck:check('outside',{codedReasons:[{code:'ETOUCH_CHECK_OUTSIDE_G53',params:{line:17}}]})});assert(main.disabled);assert(cause().includes('17'));assert(cause().includes('Refaire le zéro n’y change rien'));assert.equal(q.node('step-check-remedy').getAttribute('data-action'),'choisir-fichier');assert(q.node('step-check-remedy2').hidden);
+q.select('other.nc');q.send({finished:true});assert(main.disabled);q.node('step-check-remedy').click();assert.deepEqual(q.calls.at(-1),{op:'loadFrom',file:'loaded.nc',line:1});assert(cause().includes('Loaded.nc'));
+q.send({name:''});assert(main.disabled);assert(cause().includes('Aucun fichier'));q.send({workflow:'paused',canStart:false});assert(!main.disabled);assert(main.textContent.includes('Usinage'));q.advance(600);main.click();assert.equal(q.window.cncShell.screen(),'home');q.window.cncShell.go('check');
+q.send({}, {pilot:{state:'other',name:'PC'}});assert(main.disabled);assert.equal(q.node('step-check-remedy').getAttribute('data-action'),'prendre-la-main');
+q.send({programCheck:check('unknown')});assert(!main.disabled);assert(cause().includes('Vérifiez à la main'));
+q.send();const rows=q.document.querySelectorAll('button[data-kind="rapid"]');assert.equal(rows.length,6);assert(rows.filter(b=>b.getAttribute('aria-pressed')==='true').length===2);assert(rows.every(b=>!b.disabled));
+q.send({canRapidOverride:false,rapidOverrideReason:'Travail en cours.'});assert(rows.every(b=>b.disabled));assert(q.node('check-rapid-reason').textContent);q.send();rows[0].click();assert.deepEqual(q.calls.at(-1),{op:'rapid',kind:'rapid',value:25});
+q.send({machineProfile:{kind:'laser',capabilities:{laserFrame:{supported:false,reason:'Cadrage indisponible.'}}}});assert(!q.node('check-frame-start').hidden);assert(q.node('check-frame-start').disabled);assert(q.node('check-rapids').hidden);assert(main.textContent.includes('gravure'));
+console.log('PASS Control screen: priority, D2, D1, reload target, shared rapids and laser framing.');

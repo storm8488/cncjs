@@ -21,10 +21,9 @@
 .t-btn--warn{background:var(--warn);color:var(--on-warn);border-color:transparent}
 /* Arrêt / danger : 64 px, isolé, texte ≥ 24 px gras. */
 .t-btn--danger{min-height:var(--tap-primary);font-size:var(--fs-24);font-weight:700;background:var(--danger);color:var(--on-danger);border-color:transparent}
-.t-btn--info{background:var(--info);color:var(--on-info);border-color:transparent}
-.t-btn--ghost{background:transparent;border-color:var(--line)}
+/* Contour ≥ 3:1 sur --bg, --surface et --surface-2 (--line : 1,6 à 2,0:1 ; lot Transverses M8, verrou et corrections). */
+.t-btn--ghost{background:transparent;border-color:var(--faint)}
 .t-btn--lg{min-height:var(--tap-primary);font-size:var(--fs-24)}
-.t-btn--block{width:100%}
 /* Désactivé : contraste réduit mais ≥ 4,5, rayures, et cadenas ; la raison vient
  * d'un appui (data-reason → feuille d'aide), jamais d'un survol. */
 .t-btn:disabled,.t-seg button:disabled{color:var(--disabled-fg);background:var(--disabled-bg);border-color:var(--line);cursor:not-allowed;
@@ -51,30 +50,11 @@
   cursor:pointer;touch-action:manipulation}
 .t-seg button:active:not(:disabled){transform:scale(.96)}
 .t-seg button[aria-pressed="true"]{background:var(--accent);color:var(--bg)}
-.t-seg--lg button{min-height:calc(var(--tap-primary) - 6px);font-size:var(--fs-24)}
-.t-seg--block{display:flex;width:100%}
 
 /* --- Tuiles du menu --------------------------------------------------- */
-.t-tile{position:relative;display:flex;flex-direction:column;justify-content:space-between;gap:var(--sp-3);
-  min-height:160px;padding:var(--sp-5);text-align:left;
-  font:var(--fs-24)/var(--lh-tight) var(--font);color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);
-  cursor:pointer;touch-action:manipulation}
-.t-tile:active{transform:scale(.98)}
-.t-tile svg{width:40px;height:40px;fill:none;stroke:var(--mute);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-.t-tile strong{font-weight:600;display:block}
-.t-tile small{display:block;font-size:var(--fs-16);color:var(--mute);line-height:var(--lh)}
 /* Indicateur vivant : pastille et texte, forme + couleur + mot. */
-.t-tile .t-live{align-self:flex-start;display:inline-flex;align-items:center;gap:var(--sp-2);font:600 var(--fs-16)/var(--lh) var(--font);color:var(--mute);
-  padding:var(--sp-1) var(--sp-3);border-radius:var(--r-pill);background:var(--surface-2)}
-.t-live i{width:10px;height:10px;border-radius:50%;background:var(--faint);flex:none}
-.t-live[data-tone="ok"]{color:var(--ok-text);background:var(--ok-soft)}.t-live[data-tone="ok"] i{background:var(--ok)}
-.t-live[data-tone="warn"]{color:var(--warn-text);background:var(--warn-soft)}.t-live[data-tone="warn"] i{background:var(--warn);border-radius:2px}
-.t-live[data-tone="danger"]{color:var(--danger-text);background:var(--danger-soft)}.t-live[data-tone="danger"] i{background:var(--danger);border-radius:0;transform:rotate(45deg)}
-.t-live[data-tone="info"]{color:var(--info-text);background:var(--info-soft)}.t-live[data-tone="info"] i{background:var(--info)}
 
 /* --- Bandeau d'état fixe (tous les écrans) ----------------------------- */
-.t-statusbar{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;align-items:center;gap:var(--sp-4);
-  height:var(--statusbar-h);padding:0 var(--sp-4);background:var(--surface);border-bottom:1px solid var(--line)}
 .t-state{display:inline-flex;align-items:center;gap:var(--sp-3);min-width:200px;height:52px;padding:0 var(--sp-4);
   font:700 var(--fs-28)/1 var(--font);letter-spacing:.02em;border-radius:var(--r-m);color:var(--fg);background:var(--surface-2);border-left:6px solid var(--faint)}
 .t-state svg{width:28px;height:28px;flex:none;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
@@ -91,27 +71,13 @@
 .t-fresh{display:inline-flex;align-items:center;gap:var(--sp-2);font:var(--fs-16)/1 var(--font-num);color:var(--mute);font-variant-numeric:tabular-nums;white-space:nowrap}
 .t-fresh i{width:10px;height:10px;border-radius:50%;background:var(--ok)}
 .t-fresh[data-stale="true"]{color:var(--warn-text)}.t-fresh[data-stale="true"] i{background:var(--warn);border-radius:2px}
-.t-statusbar .t-actions{display:flex;gap:var(--tap-gap)}
-.t-statusbar .t-btn{min-height:52px}
 
 /* --- Rail de navigation ------------------------------------------------ */
-.t-rail{display:flex;flex-direction:column;gap:var(--sp-2);width:var(--rail-w);padding:var(--sp-2);background:var(--bg);border-right:1px solid var(--line)}
-.t-rail button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--sp-1);min-height:76px;padding:var(--sp-2) 2px;
-  font:600 var(--fs-14)/1 var(--font);color:var(--mute);background:transparent;border:0;border-radius:var(--r-m);cursor:pointer;touch-action:manipulation}
-.t-rail button:active:not(:disabled){transform:scale(.95)}
-.t-rail button svg{width:30px;height:30px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.t-rail button[aria-current]{background:var(--surface-2);color:var(--fg);box-shadow:inset 4px 0 0 var(--accent)}
-.t-rail button:disabled{color:var(--disabled-fg);cursor:default}
-.t-rail .t-rail-spacer{flex:1}
 
 /* --- Cartes, lignes, libellés ----------------------------------------- */
 .t-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-l);padding:var(--sp-4);min-width:0}
 .t-card h2{margin:0 0 var(--sp-3);font:600 var(--fs-18)/var(--lh-tight) var(--font);color:var(--mute);letter-spacing:.04em;text-transform:uppercase}
-.t-label{font:var(--fs-16)/1 var(--font);color:var(--mute);letter-spacing:.06em;text-transform:uppercase}
 .t-help{font:var(--fs-16)/var(--lh) var(--font);color:var(--mute);margin:0}
-.t-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:var(--sp-4);min-height:var(--tap-primary);padding:var(--sp-3) var(--sp-4);
-  background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);color:var(--fg);font:var(--fs-18)/var(--lh) var(--font);text-align:left;cursor:pointer;touch-action:manipulation;width:100%}
-.t-row[aria-pressed="true"]{border-color:var(--accent);box-shadow:inset 6px 0 0 var(--accent)}
 
 /* Coordonnées : 48 px minimum, chiffres tabulaires. */
 .t-coords{display:grid;grid-template-columns:auto minmax(0,1fr) auto;column-gap:var(--sp-4);row-gap:var(--sp-1);align-items:baseline}
@@ -121,10 +87,6 @@
 .t-coords--m .t-val{font-size:var(--fs-28);color:var(--mute);font-weight:400}
 
 /* Progression : barre haute, pourcentage géant, temps restant lisible à 1 m. */
-.t-progress{display:flex;flex-direction:column;gap:var(--sp-2)}
-.t-progress .t-pct{font:700 var(--fs-64)/1 var(--font-num);font-variant-numeric:tabular-nums;color:var(--fg);letter-spacing:-.02em}
-.t-progress .t-eta{font:500 var(--fs-28)/1.1 var(--font-num);color:var(--fg);font-variant-numeric:tabular-nums}
-.t-progress .t-eta small{font-size:var(--fs-18);color:var(--mute);font-weight:400}
 .t-bar{height:18px;border-radius:var(--r-pill);background:var(--surface-3);overflow:hidden}
 .t-bar i{display:block;height:100%;background:var(--info);transform-origin:0 50%;border-radius:var(--r-pill)}
 .t-bar[data-tone="warn"] i{background:var(--warn)}.t-bar[data-tone="ok"] i{background:var(--ok)}
@@ -133,16 +95,8 @@
 .t-override{display:grid;grid-template-columns:96px minmax(0,1fr);align-items:center;gap:var(--sp-3)}
 .t-override .t-ov-name{font:600 var(--fs-18)/1.1 var(--font);color:var(--mute)}
 .t-override .t-ov-name b{display:block;font:700 var(--fs-28)/1 var(--font-num);color:var(--fg);font-variant-numeric:tabular-nums;margin-top:2px}
-.t-override .t-ov-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--tap-gap)}
-.t-override .t-ov-steps .t-btn{min-height:56px;font-size:var(--fs-24)}
-.t-override .t-ov-fine{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--tap-gap);margin-top:var(--sp-2)}
-.t-override .t-ov-fine .t-btn{min-height:var(--tap);font-size:var(--fs-18);font-weight:500}
 
 /* Croix de déplacement 96 px. */
-.t-pad{display:grid;grid-template-columns:repeat(3,var(--tap-jog));grid-template-rows:repeat(3,var(--tap-jog));gap:var(--tap-gap);justify-content:center}
-.t-pad .t-btn,.t-zpad .t-btn{min-height:var(--tap-jog);min-width:var(--tap-jog);font-size:var(--fs-28);font-weight:700;border-radius:var(--r-l)}
-.t-pad .t-center{display:flex;align-items:center;justify-content:center;font:var(--fs-16)/1 var(--font);color:var(--mute);border:1px dashed var(--line);border-radius:var(--r-l)}
-.t-zpad{display:grid;grid-template-rows:repeat(2,var(--tap-jog));gap:var(--tap-gap)}
 
 /* Mise à zéro protégée : armer (1er appui) puis confirmer (2e appui) en 3 s. */
 .t-btn[data-armed="true"]{background:var(--warn);color:var(--on-warn);border-color:transparent}
@@ -157,7 +111,6 @@
 .t-check input{width:var(--tap);height:var(--tap);margin:0;flex:none;accent-color:var(--ok);cursor:pointer}
 .t-countdown{display:flex;align-items:center;gap:var(--sp-3);font:600 var(--fs-18)/1 var(--font-num);color:var(--warn-text);font-variant-numeric:tabular-nums}
 .t-countdown .t-bar{flex:1;height:10px}.t-countdown .t-bar i{background:var(--warn)}
-.t-dialog .t-dialog-actions{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:var(--tap-gap)}
 
 /* --- Messages courts (quoi faire ensuite) ------------------------------ */
 .t-notice{display:flex;align-items:flex-start;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);border-radius:var(--r-m);font:var(--fs-18)/var(--lh) var(--font);color:var(--fg);background:var(--surface-2);border-left:6px solid var(--faint)}
@@ -169,7 +122,6 @@
 .t-notice svg{width:28px;height:28px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 
 /* Aide en un appui : bouton « ? » de 48 px. */
-.t-why{display:inline-flex;align-items:center;justify-content:center;width:var(--tap);height:var(--tap);border-radius:50%;border:1px solid var(--line-strong);background:var(--surface-2);color:var(--fg);font:700 var(--fs-20)/1 var(--font);cursor:pointer;touch-action:manipulation;flex:none}
 
 /* === Coque : bandeau d'état en haut, rail à gauche (direction A) ============ */
 .ks-ui{font-family:var(--font)}
@@ -183,7 +135,7 @@
 .t-strip-right .ks-clock{font-size:var(--fs-20);color:var(--fg);margin:0}
 .ks-ui .ks-simulation{font:600 var(--fs-16)/1 var(--font);letter-spacing:.08em;color:var(--warn-text);border:1px solid var(--warn);border-radius:var(--r-s);padding:var(--sp-2) var(--sp-3)}
 .ks-ui .ks-real .ks-simulation,.ks-real .ks-simulation{color:var(--danger-text);border-color:var(--danger)}
-.ks-ui .ks-exit{display:inline-flex;align-items:center;min-height:var(--tap);padding:0 var(--sp-3);border:1px solid var(--line);border-radius:var(--r-m);color:var(--mute);font-size:var(--fs-16);text-decoration:none}
+.ks-ui .ks-exit{display:inline-flex;align-items:center;min-height:var(--tap);padding:0 var(--sp-3);border:1px solid var(--faint);border-radius:var(--r-m);color:var(--mute);font-size:var(--fs-16);text-decoration:none}
 /* The old badge bar of index.html is superseded by the strip; #notice stays (what to do next). */
 .ks-real #status-bar{display:none}
 .ks-ui #notice{margin:0;border-radius:0;border:0;border-bottom:1px solid var(--line);border-left:6px solid var(--warn);background:var(--warn-soft);color:var(--fg);font:var(--fs-18)/var(--lh) var(--font);padding:var(--sp-2) var(--sp-4)}
@@ -195,6 +147,10 @@
 .ks-ui .ks-nav:active:not(:disabled){transform:scale(.95)}
 .ks-ui .ks-nav:hover,.ks-ui .ks-tile:hover{background:transparent}.ks-ui .ks-nav.active:hover{background:var(--surface-2)}
 .ks-ui .ks-nav[hidden]{display:none}
+/* On a sub-screen (palpage, limites) « Retour » joins the seven entries: 76 + 7 × 72 px + 7 × 12 px gaps fit the
+   696 px under the 72 px strip (padding 2 × 8 px), where 8 × 76 px did not; the rail no longer gets a scroll bar
+   that narrowed it and cut « Preparar », « Máquina »… (still ≥ 48 px targets). */
+.ks-ui .ks-nav[data-ks-screen=back]:not([hidden])~.ks-nav{min-height:72px}
 .ks-ui .ks-nav:disabled{opacity:1;color:var(--disabled-fg)}
 .ks-ui{--ks-rail:var(--rail-w)}
 .ks-ui main{background:var(--bg)}
@@ -240,12 +196,10 @@
 .ks-ui #home-job-ready{margin:0;font-size:var(--fs-18);padding:5px var(--sp-3)}
 .ks-ui #home-job-ready:empty{display:none}
 .ks-ui #home-job-selection{margin:0}.ks-ui #home-job-selection:empty{display:none}
-.ks-ui .home-load{width:100%}
-.ks-ui .home-job-actions{display:grid;margin:0;gap:var(--tap-gap)}
-.ks-ui .home-job-primary{grid-template-columns:2fr 1fr}
-.ks-ui .home-job-actions .t-btn{min-height:var(--tap-primary);font-size:var(--fs-24);padding:var(--sp-2) var(--sp-3)}
-.ks-ui #home-job-feedback{margin:0;min-height:0;font-size:var(--fs-16);color:var(--mute)}
-.ks-ui #home-job-feedback:empty{display:none}
+/* During a job (data-run, written by job-dashboard.js render(), read by no handler) the active Pause takes the
+   large cell; Démarrer stays on the left, Arrêter does not move. */
+/* … where the disabled Démarrer… keeps its word whole in the small cell (1024 px: « Démarrer » / « … » at 24 px). */
+/* Laser framing: its help is not repeated while Cadrer… is disabled (#home-frame-why says why). */
 .home-stop{margin-top:auto;padding-top:var(--sp-2);border-top:1px dashed var(--line);display:grid;gap:2px;text-align:center}
 .home-stop .t-help{font-size:var(--fs-16)}
 .ks-ui .home-overrides{margin:0;padding:var(--sp-3) var(--sp-4)!important;border-top:1px solid var(--line);display:grid;gap:var(--sp-2)}
@@ -254,7 +208,6 @@
 .ks-ui .t-override{grid-template-columns:96px minmax(0,1fr)}
 .t-ov-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) var(--sp-4) repeat(2,minmax(0,.8fr));gap:var(--tap-gap)}
 .t-ov-row .t-btn{min-height:56px;font-size:var(--fs-24);padding:0 var(--sp-2);white-space:nowrap}
-.t-ov-row .t-fine{min-height:var(--tap);font-size:var(--fs-18);font-weight:500;align-self:center}
 .t-ov-row .t-btn:nth-child(4){grid-column:5}
 .ks-ui #home-override-note{margin:0}.ks-ui #home-override-note:empty{display:none}
 .ks-ui #home-spindle-warning{margin:0;font-size:var(--fs-18)}
@@ -284,7 +237,7 @@
 .ks-ui #screen-files .library-thumb img{width:100%;height:100%;object-fit:contain;display:block}
 .ks-ui #screen-files .library-thumb img[hidden]{display:none}
 .ks-ui #screen-files .library-row-text{min-width:0}
-.ks-ui #screen-files .library-file strong{font-size:var(--fs-20);font-weight:600;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ks-ui #screen-files .library-file strong{display:block;max-width:100%;font-size:var(--fs-20);font-weight:600;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ks-ui #screen-files .library-row-meta{display:block;margin-top:var(--sp-1)}
 .ks-ui #screen-files .library-file span{display:block;margin:0;font-size:var(--fs-16);color:var(--mute);line-height:1.3}
 .ks-ui #screen-files .library-file .library-file-state{display:inline-block;font:600 var(--fs-16)/1 var(--font);color:var(--ok-text);background:var(--ok-soft);border-radius:var(--r-pill);padding:var(--sp-2) var(--sp-3);white-space:nowrap}
@@ -306,7 +259,6 @@
 .ks-ui #screen-files #job-loaded{font-size:var(--fs-16);color:var(--mute)}
 .ks-ui #screen-files #job-reason{font-size:var(--fs-18);color:var(--fg);padding:var(--sp-2) var(--sp-3);background:var(--surface-2);border-left:6px solid var(--info);border-radius:var(--r-m)}
 .ks-ui #screen-files #job-reason:empty{display:none}
-.ks-ui #screen-files .job-buttons{display:block;margin:0}
 .ks-ui #screen-files #job-load{width:100%;min-height:var(--tap-primary);font:600 var(--fs-24)/1.1 var(--font);background:var(--ok);color:var(--on-ok);border:1px solid transparent;border-radius:var(--r-m);padding:var(--sp-2) var(--sp-4)}
 .ks-ui #screen-files #job-load:active:not(:disabled){transform:scale(.98)}
 .ks-ui #screen-files #job-load:disabled,.ks-ui #screen-files button:disabled{opacity:1;color:var(--disabled-fg);background:var(--disabled-bg);border-color:var(--line);background-image:repeating-linear-gradient(135deg,var(--disabled-stripe) 0 6px,transparent 6px 14px)}
@@ -315,13 +267,14 @@
 
 /* === Préparer (déplacer · origine · palpage) ================================ */
 .ks-ui #screen-jog.active,.ks-ui #screen-jog.kept{display:grid;grid-template-columns:560px minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);gap:var(--sp-3) var(--sp-4);height:calc(var(--view-height) - 32px)}
-.ks-ui #screen-jog .ks-panel-intro{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:var(--sp-4);padding:0 0 var(--sp-3)!important;border-bottom:1px solid var(--line);background:transparent}
-.ks-ui #screen-jog .ks-panel-intro>div:first-child{flex:1;min-width:0;display:flex;align-items:center;gap:var(--sp-4);flex-wrap:wrap}
+/* The actions go under the title when they leave it less than 20em (four of them with « Déplacement réel » in ES):
+   the title column was squeezed to ~150 px and the dry-run line ran over seven lines. */
+.ks-ui #screen-jog .ks-panel-intro{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--sp-3) var(--sp-4);padding:0 0 var(--sp-3)!important;border-bottom:1px solid var(--line);background:transparent}
+.ks-ui #screen-jog .ks-panel-intro>div:first-child{flex:1 1 20em;min-width:0;display:flex;align-items:center;gap:var(--sp-4);flex-wrap:wrap}
 .ks-ui #screen-jog .ks-panel-intro h2{margin:0!important;font:600 var(--fs-24)/1.1 var(--font);color:var(--fg);display:flex;align-items:center;gap:var(--sp-3)}
 .ks-ui #screen-jog .ks-panel-intro p{margin:0;font-size:var(--fs-18);color:var(--mute)}
-.ks-ui #screen-jog #dry-tag{font:600 var(--fs-16)/1 var(--font);color:var(--warn-text);background:var(--warn-soft);border:1px solid var(--warn);border-radius:var(--r-pill);padding:var(--sp-1) var(--sp-3);margin:0;letter-spacing:.04em;vertical-align:middle}
 .ks-preparation-actions{display:flex;gap:var(--tap-gap);flex-shrink:0}
-.ks-preparation-actions .ks-secondary,.ks-preparation-actions .probe-entry,.ks-preparation-actions .ks-macros-open{min-height:var(--tap);font-size:var(--fs-16);padding:var(--sp-2) var(--sp-3);background:transparent;border:1px solid var(--line-strong);border-bottom-width:1px;border-radius:var(--r-m);color:var(--fg);box-shadow:none}
+.ks-preparation-actions .ks-secondary,.ks-preparation-actions .probe-entry,.ks-preparation-actions .ks-macros-open{min-height:var(--tap);font-size:var(--fs-16);padding:var(--sp-2) var(--sp-3);background:transparent;border:1px solid var(--faint);border-bottom-width:1px;border-radius:var(--r-m);color:var(--fg);box-shadow:none}
 .ks-ui #screen-jog .card{padding:var(--sp-3) var(--sp-4)!important;min-height:0;display:flex;flex-direction:column;gap:var(--sp-2)}
 .ks-ui #screen-jog .ks-motion-coordinates>h2{margin:0;font:600 var(--fs-16)/1 var(--font);color:var(--mute);letter-spacing:.06em;text-transform:uppercase}
 .ks-ui #screen-jog .coordinate-frame{color:var(--info-text);margin-left:var(--sp-2)}
@@ -334,18 +287,22 @@
 .ks-ui .ks-coordinate-table td[data-coordinate=machine] b,.ks-ui .ks-coordinate-table td[data-sim-coordinate=machinePosition]{font-size:var(--fs-24);font-weight:400;color:var(--mute)}
 .ks-ui .ks-coordinate-table td[data-coordinate=machine],.ks-ui .ks-coordinate-table td[data-sim-coordinate=machinePosition]{width:150px}
 .ks-ui .ks-coordinate-table td:last-child{width:132px;padding-right:0}
-.ks-ui .ks-coordinate-table button{min-height:var(--tap);width:100%;font:600 var(--fs-18)/1 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m);padding:var(--sp-2);white-space:nowrap;cursor:pointer;touch-action:manipulation}
+.ks-ui .ks-coordinate-table button{min-height:var(--tap);width:100%;font:600 var(--fs-18)/1 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--faint);border-radius:var(--r-m);padding:var(--sp-2);white-space:nowrap;cursor:pointer;touch-action:manipulation}
 .ks-ui .ks-coordinate-table button:active:not(:disabled){transform:scale(.96)}
 .ks-ui .ks-coordinate-table button[data-armed=true],.ks-ui #screen-jog .ks-origin-zero[data-armed=true]{background:var(--warn);color:var(--on-warn);border-color:transparent}
 .ks-ui .ks-coordinate-table button:disabled,.ks-ui #screen-jog .ks-secondary:disabled{opacity:1;color:var(--disabled-fg);background:var(--disabled-bg);border-color:var(--line);background-image:repeating-linear-gradient(135deg,var(--disabled-stripe) 0 6px,transparent 6px 14px)}
 .ks-ui #screen-jog .ks-motion-step{margin:0;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:var(--sp-3)}
 .ks-ui #screen-jog .ks-motion-step h2{margin:0;font:600 var(--fs-16)/1 var(--font);color:var(--mute);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
-.ks-ui #screen-jog .steps{display:flex;gap:3px;margin:0;padding:3px;background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m)}
+.ks-ui #screen-jog .steps{display:flex;gap:var(--tap-gap);margin:0;padding:3px;background:var(--surface-2);border:1px solid var(--faint);border-radius:var(--r-m)}
 .ks-ui #screen-jog .step{flex:1 1 0;min-height:58px;font:600 var(--fs-24)/1 var(--font-num);color:var(--mute);background:transparent;border:0;border-radius:calc(var(--r-m) - 3px);cursor:pointer;touch-action:manipulation}
+/* Seven steps (0,1 / 1 / 10 / 25 / 50 / 100 / Continu): two rows of four, « Continu » on two columns. */
+.ks-ui #screen-jog #steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+/* Two rows: 48 px targets (not 58) so that Préparer still fits 1366 x 768 in large Spanish text. */
+.ks-ui #screen-jog #steps .step{min-height:var(--tap)}
 .ks-ui #screen-jog .step.active{background:var(--accent);color:var(--bg)}
 .ks-ui #screen-jog .step:active{transform:scale(.96)}
 .ks-ui #screen-jog .ks-motion-zero{display:grid;grid-template-columns:1fr 1fr;gap:var(--tap-gap)}
-.ks-ui #screen-jog .ks-secondary{min-height:var(--tap);font:600 var(--fs-18)/1 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m);padding:var(--sp-2) var(--sp-3);box-shadow:none}
+.ks-ui #screen-jog .ks-secondary{min-height:var(--tap);font:600 var(--fs-18)/1 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--faint);border-radius:var(--r-m);padding:var(--sp-2) var(--sp-3);box-shadow:none}
 .ks-ui #screen-jog .ks-origin-zero{display:flex;align-items:center;justify-content:center;gap:var(--sp-2);border-bottom-width:1px}
 .ks-ui #screen-jog .ks-origin-zero svg{width:22px;height:22px}
 .ks-ui #screen-jog .coordinate-entry{margin:0;width:100%}
@@ -355,31 +312,36 @@
 .ks-ui #screen-jog .ks-motion-arrows h2{display:none}
 .ks-ui #screen-jog .pad{display:grid;grid-template-columns:repeat(3,var(--tap-jog));grid-template-rows:repeat(3,var(--tap-jog));gap:var(--tap-gap);margin:0;min-height:0;flex:none}
 .ks-ui #screen-jog .zrow{display:grid;grid-template-rows:var(--tap-jog) var(--tap-jog);gap:var(--tap-gap);align-self:center}
-.ks-ui #screen-jog .jog{min-height:var(--tap-jog);min-width:var(--tap-jog);font:700 var(--fs-28)/1 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-l);touch-action:manipulation}
+.ks-ui #screen-jog .jog{min-height:var(--tap-jog);min-width:var(--tap-jog);font:700 var(--fs-28)/1 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--faint);border-radius:var(--r-l);touch-action:manipulation}
 .ks-ui #screen-jog .jog:active:not(:disabled){transform:scale(.95);background:var(--info);color:var(--on-info)}
 .ks-ui #screen-jog .jog:disabled{opacity:1;color:var(--disabled-fg);background:var(--disabled-bg);border-color:var(--line);background-image:repeating-linear-gradient(135deg,var(--disabled-stripe) 0 6px,transparent 6px 14px)}
-.ks-ui #screen-jog .pad-mid{display:flex;align-items:center;justify-content:center;font:600 var(--fs-20)/1 var(--font-num);color:var(--mute);border:1px dashed var(--line-strong);border-radius:var(--r-l)}
+.ks-ui #screen-jog .pad-mid{display:flex;align-items:center;justify-content:center;font:600 var(--fs-20)/1 var(--font-num);color:var(--mute);border:1px dashed var(--faint);border-radius:var(--r-l)}
 .ks-ui #screen-jog #jog-msg,.ks-ui #screen-jog .sim-motion-state{font-size:var(--fs-18);color:var(--mute)}
+/* Two lines kept for the status line (ES at rest takes two, a blocked state one): the cross no longer moves between states. */
+/* v1, large text: the line always under the title. With the actions wrapped a short blocked
+   line went up beside the title during a job and the cross rose by 50 px. */
+/* Real page, standard text too: the sentences of Préparer (what the arrows do, or what to do) differ in length
+   between rest and a job; the line stays under the title so that the cross keeps its place. */
 .ks-ui #screen-jog .card{align-self:stretch;height:100%}
 
 /* === Menu =================================================================== */
-.ks-ui #screen-menu.active,.ks-ui #screen-menu.kept{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);gap:var(--sp-4)!important;height:calc(var(--view-height) - 32px);min-height:0}
-.ks-resume{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:var(--sp-4);min-height:var(--tap-primary);padding:0 var(--sp-3) 0 var(--sp-5);background:var(--surface);border:1px solid var(--line);border-left:6px solid var(--info);border-radius:var(--r-l);color:var(--fg);font:var(--fs-20)/var(--lh-tight) var(--font);text-align:left;cursor:pointer;touch-action:manipulation}
-.ks-resume:active{transform:scale(.99)}
-.ks-resume svg{width:32px;height:32px;stroke:var(--info-text);transform:rotate(180deg)}
-.ks-resume-text{min-width:0}
-.ks-resume b{display:block;font-weight:700}
-.ks-resume small{display:block;color:var(--mute);font-size:var(--fs-16);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ks-resume-go{display:inline-flex;align-items:center;min-height:52px;padding:0 var(--sp-4);border:1px solid var(--line-strong);border-radius:var(--r-m);font:600 var(--fs-18)/1 var(--font)}
+.ks-ui #screen-more.active,.ks-ui #screen-more.kept{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);gap:var(--sp-4)!important;height:calc(var(--view-height) - 32px);min-height:0}
+/* Connecter la CNC (connect-cnc.js): in the resume bar's place while no controller is followed. */
+.ks-connect{grid-row:1;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:var(--sp-4);min-height:var(--tap-primary);padding:var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-5);background:var(--surface);border:1px solid var(--line);border-left:6px solid var(--warn);border-radius:var(--r-l);color:var(--fg);font:var(--fs-20)/var(--lh-tight) var(--font)}
+.ks-connect[hidden]{display:none}
+.ks-connect-text{min-width:0}
+.ks-connect b{display:block;font-weight:700}
+.ks-connect small{display:block;color:var(--mute);font-size:var(--fs-16)}
+.ks-connect-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:var(--sp-3)}
+.ks-connect-actions button{min-height:56px;padding:0 var(--sp-5);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m);color:var(--fg);font:600 var(--fs-18)/1 var(--font);touch-action:manipulation}
+.ks-connect-actions .ks-connect-go{background:var(--info-soft);border-color:var(--info)}
 .ks-ui .ks-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:var(--sp-4);padding:0;min-height:0}
 .ks-ui .ks-tile{position:relative;display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;gap:var(--sp-3);min-height:0;padding:var(--sp-5);text-align:left;font:var(--fs-28)/var(--lh-tight) var(--font);color:var(--fg);background:var(--surface);border:1px solid var(--line);border-bottom-width:1px;border-radius:var(--r-l)}
 .ks-ui .ks-tile:active{transform:scale(.98);background:var(--surface-2)}
-.ks-ui .ks-tile svg{width:48px;height:48px;stroke:var(--mute);stroke-width:1.6}
+.ks-ui .ks-tile svg{width:48px;height:48px;stroke:var(--mute);stroke-width:1.6;flex:none}
 .ks-ui .ks-tile-text{display:flex;flex-direction:column;gap:var(--sp-1)}
 .ks-ui .ks-tile span{font-weight:600}
 .ks-ui .ks-tile small{font-size:var(--fs-16);color:var(--mute);line-height:var(--lh)}
-.ks-ui .ks-tile .t-live{align-self:flex-start;max-width:100%}
-.ks-ui .ks-tile .t-live>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* === Machine ================================================================ */
 .ks-ui #screen-machine.active,.ks-ui #screen-machine.kept{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);gap:var(--sp-3) var(--sp-4);height:calc(var(--view-height) - 32px)}
@@ -404,11 +366,9 @@
 .ks-ui #screen-machine .ks-machine-overview>p>.badge.err{color:var(--danger-text);border-color:var(--danger);background:var(--danger-soft)}
 .ks-ui #screen-machine .ks-machine-overview>p>.badge.ok{color:var(--ok-text);border-color:var(--ok);background:var(--ok-soft)}
 .ks-ui #screen-machine .ks-real-state{border:0;padding:0;font-size:var(--fs-18)}
-.ks-ui #screen-machine .ks-machine-commands{order:4;display:grid;grid-template-columns:1fr 1fr;gap:var(--tap-gap);margin-top:var(--sp-2)}
-.ks-ui #screen-machine .ks-machine-commands button{min-height:var(--tap-primary);font-size:var(--fs-20)}
-.ks-ui #screen-machine .ks-machine-commands button:first-child{background:var(--info);color:var(--on-info);border-color:transparent}
-.ks-ui #screen-machine .ks-machine-commands button:last-child{grid-column:1/-1;min-height:var(--tap)}
 .ks-ui #screen-machine .ks-machine-overview>.ks-secondary{order:5;grid-column:auto;min-height:var(--tap);background:transparent;font-weight:500}
+/* Order (CSS only, DOM unchanged): state word, alarm notice, $X / $H and their reason, shortcuts, then Serveur / Contrôleur. */
+.ks-ui #screen-machine .ks-machine-overview>p[data-machine-copy]{order:6}
 .ks-ui #screen-machine .ks-machine-overview>.connection-details,.ks-ui #screen-machine .connection-details{order:6;border-top:1px solid var(--line);margin-top:var(--sp-2);padding-top:var(--sp-2)}
 .ks-ui #screen-machine .connection-details h3{font:600 var(--fs-16)/1 var(--font);color:var(--mute);letter-spacing:.06em;text-transform:uppercase;margin:0 0 var(--sp-1)}
 .ks-ui #screen-machine .connection-details p{font-size:var(--fs-16);margin:2px 0;color:var(--mute)}
@@ -440,7 +400,10 @@
 .ks-ui #screen-history li{display:grid;grid-template-columns:minmax(0,1fr);gap:2px;min-height:56px;padding:var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-4);border:0;border-left:6px solid var(--faint);border-radius:var(--r-s);background:var(--surface-2)}
 .ks-ui #screen-history li[data-kind=connection],.ks-ui #screen-history li[data-kind=availability]{border-left-color:var(--warn)}
 .ks-ui #screen-history li[data-kind=workflow],.ks-ui #screen-history li[data-kind=file]{border-left-color:var(--info)}
-.ks-ui #screen-history li[data-kind=alarm]{border-left-color:var(--danger)}
+/* Alarm bars in --danger-text: --danger is 1.86:1 on --surface-2 in the dark theme, under the 3:1 of a mark. */
+.ks-ui #screen-history li[data-kind=alarm]{border-left-color:var(--danger-text)}
+/* An alarm state of this session (real-history.js data-tone, display only), red like the server's alarms. */
+.ks-ui #screen-history li[data-tone=alarm]{border-left-color:var(--danger-text)}
 .ks-ui #screen-history li strong{font:500 var(--fs-20)/1.25 var(--font);color:var(--fg);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .ks-ui #screen-history li p{font-size:var(--fs-16);color:var(--mute);margin:0;overflow-wrap:anywhere}
 .ks-ui #screen-history li p:empty{display:none}
@@ -459,6 +422,8 @@
 .ks-ui #screen-settings .ks-panel-intro{border-bottom-color:var(--line)}
 .ks-ui #screen-settings .ks-panel-intro h2{color:var(--fg)}
 .ks-ui #screen-settings .ks-settings-tabs{background:var(--bg);box-shadow:none;border-bottom:1px solid var(--line)}
+/* A short fade under the sticky tabs: a card cut by them no longer reads as an empty card. */
+.ks-ui #screen-settings .ks-settings-tabs::after{content:"";position:absolute;left:0;right:0;top:100%;height:12px;background:linear-gradient(var(--bg),transparent);pointer-events:none}
 .ks-ui #screen-settings .ks-settings-tab{color:var(--mute);background:var(--surface);border:1px solid var(--line);border-bottom:3px solid transparent}
 .ks-ui #screen-settings .ks-settings-tab[aria-selected=true]{color:var(--fg);background:var(--surface-2);border-bottom-color:var(--accent)}
 .ks-ui #screen-settings button,.ks-ui #screen-settings select{color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m);font-family:var(--font)}
@@ -509,9 +474,6 @@
 .ks-ui .job-dialog-card h2{margin:0;font:700 var(--fs-28)/var(--lh-tight) var(--font);color:var(--fg)}
 .ks-ui .job-dialog-card p{margin:0;font-size:var(--fs-18);line-height:var(--lh);color:var(--mute);overflow-wrap:anywhere}
 .ks-ui #job-dialog-file{color:var(--fg);font-weight:600}
-.ks-ui .job-travel{font-size:var(--fs-18);padding:var(--sp-2) var(--sp-3);border-radius:var(--r-m);background:var(--surface-2);border-left:6px solid var(--ok);color:var(--fg)}
-.ks-ui .job-travel.outside{color:var(--warn-text);border-left-color:var(--warn);background:var(--warn-soft);font-weight:700}
-.ks-ui .job-travel.unknown{opacity:1;color:var(--mute);border-left-color:var(--faint)}
 .ks-ui .job-confirm-label{display:flex;align-items:center;gap:var(--sp-4);min-height:var(--tap-primary);padding:var(--sp-2) var(--sp-3);border:1px solid var(--line);border-radius:var(--r-m);font:600 var(--fs-18)/var(--lh) var(--font);color:var(--fg);cursor:pointer}
 .ks-ui #job-check{width:var(--tap);height:var(--tap);margin:0;flex:none;accent-color:var(--ok);cursor:pointer}
 .ks-ui .job-dialog-card .t-countdown{margin:0}
@@ -575,8 +537,6 @@
 .ks-ui .t-override{grid-template-columns:104px minmax(0,1fr)}
 .home-live-tiles .t-card{flex-wrap:wrap;row-gap:0}
 .home-live-tiles small{flex:1 0 auto}
-.ks-ui .ks-tile .t-live{font:600 var(--fs-16)/var(--lh) var(--font)}
-.ks-ui .ks-tile .t-live>span{font:inherit}
 .ks-ui #screen-jog .ks-panel-intro{flex-direction:row;align-items:center}
 .ks-ui #screen-jog .ks-panel-intro>div:first-child{justify-content:flex-start}
 .ks-ui #screen-machine .ks-machine-overview>.ks-machine-word{font:700 var(--fs-36)/1.1 var(--font);order:1}
@@ -588,8 +548,6 @@
 .ks-ui .home-overrides[data-on=true] #home-override-note{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 .ks-ui .preview-open{font-size:var(--fs-16);min-height:var(--tap)}
 .ks-ui #screen-settings .language-settings label{font-size:var(--fs-16)}
-.ks-ui .ks-tile .t-live>span{min-width:0}
-.ks-ui .ks-tile .t-live{max-width:100%;overflow:hidden}
 /* Suivi : la colonne de droite tient aussi après un arrêt avec une autre sélection (police large). */
 .ks-ui #home-job-eta{font-size:var(--fs-20);line-height:1.2}
 .ks-ui .home-progress-head{align-items:center}
@@ -604,6 +562,12 @@
 .ks-ui #screen-machine .ks-machine-overview{gap:6px var(--tap-gap)}
 /* Bandeau pendant un travail : le nom du fichier garde sa place. */
 .ks-ui [data-job=true] .ks-exit{display:none}
+/* Pause, Arrêter and Pilote take room from the information zone: during a job the machine name (shown
+ * in the start dialog) and the state box's resting width give way, so the file name stays readable
+ * (cut with its own ellipsis, never clipped by the zone). */
+.ks-ui [data-job=true] .t-vital--machine{display:none}
+.ks-ui [data-job=true] .t-vitals{gap:var(--sp-3)}
+.ks-ui [data-job=true]>.t-state{min-width:0}
 .t-vital--file{min-width:0}
 .t-vital--file span{overflow:visible}
 /* The information zone never runs under the buttons: it is clipped to its grid
@@ -619,7 +583,7 @@
  * qu'il est garé). Le rouvrir réutilise son style et sa mise en page (mesuré sur la tablette : layout
  * 20–55 → 2–6 ms, style 23–45 → 7–12 ms par ouverture). Ils sont placés en absolu exactement où l'écran
  * en flux se trouve (padding de main : 16 px) ; .kept reprend toutes les règles de .active. */
-.ks-ui main>#screen-menu,.ks-ui main>#screen-jog,.ks-ui main>#screen-files,.ks-ui main>#screen-home,.ks-ui main>#screen-machine,.ks-ui main>#screen-history{position:absolute;top:16px;left:16px;right:16px}
+.ks-ui main>#screen-more,.ks-ui main>#screen-jog,.ks-ui main>#screen-files,.ks-ui main>#screen-check,.ks-ui main>#screen-home,.ks-ui main>#screen-machine,.ks-ui main>#screen-history{position:absolute;top:16px;left:16px;right:16px}
 .ks-ui main>.screen.kept:not(.active){content-visibility:hidden;z-index:-1}
 /* Arrêter : un liseré clair détache l'aplat rouge foncé du fond sombre (composant ≥ 3:1). */
 .t-btn--danger{border-color:var(--danger-text)}
@@ -635,10 +599,6 @@
 .t-lock-shield[hidden]{display:none}
 .t-lock-notice{margin:0;max-width:min(860px,90vw);padding:var(--sp-3) var(--sp-5);border-radius:var(--r-m);border:1px solid var(--warn);border-left-width:6px;background:var(--surface-2);color:var(--fg);font:var(--fs-18)/var(--lh) var(--font);text-align:center;box-shadow:var(--shadow)}
 body.is-locked .ks-exit{pointer-events:none;opacity:.4}
-.home-job-summary{align-items:center}
-.home-job-summary[hidden]{display:none}
-.home-job-summary-text{margin:0;flex:1 1 auto;overflow-wrap:anywhere}
-.home-job-summary .t-btn{min-height:var(--tap);flex:none}
 
 /* === Audit 31 (2026-10-29): rendered targets, compact layout, effective large text ===
  * body.t-compact is set by touch-shell.js under 1100 x 650 (the 1024 x 600 goal): the
@@ -647,7 +607,6 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
 /* Segmented controls render the full 48 px (they were 42-44 px in a 48 px group). */
 .t-seg{padding:2px}
 .t-seg button{min-height:var(--tap)}
-.t-seg--lg button{min-height:var(--tap-primary)}
 /* Strip labels at the 16 px floor; screen-reader-only text too (measured, never seen). */
 .t-vital span{font-size:var(--fs-16)}
 .ks-sr-only,#home-job-note{font-size:var(--fs-16)}
@@ -703,7 +662,6 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
 .t-sent[data-state="failed"]{color:var(--danger-text)}.t-sent[data-state="failed"]::before{background:var(--danger-text);border-radius:0;transform:rotate(45deg)}
 /* 12 px between Charger la sélection and Démarrer / Pause (the column gap is 6 px). The 6 px
  * are taken from the ready line above (#home-job-ready padding 8 -> 5 px): same column height. */
-.ks-ui .job-metrics>.home-load{margin-bottom:6px}
 .t-sent[data-state="uncertain"]{color:var(--warn-text)}.t-sent[data-state="uncertain"]::before{background:var(--warn);border-radius:2px}
 @keyframes t-sent-pulse{50%{opacity:.3}}
 @media(prefers-reduced-motion:reduce){.t-sent[data-state="sent"]::before{animation:none}}
@@ -711,15 +669,15 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
 /* --- Large text: the type tokens grow inside the screens, sheets and dialogs (the strip
  * and the rail keep their fixed heights). Nothing is shrunk to compensate: the layouts
  * below absorb the growth (Suivi loses its duplicated live tiles, the strip has them). */
-.ks-ui.display-large main,.ks-ui.display-large .ks-sheet,.ks-ui.display-large .job-dialog,.ks-ui.display-large .coordinate-editor,.ks-ui.display-large .t-numpad,.ks-ui.display-large .ks-why,.ks-ui.display-large .t-lock-shield{--fs-16:18px;--fs-18:20px;--fs-20:22px;--fs-24:27px;--fs-28:31px}
+.ks-ui.display-large main,.ks-ui.display-large .ks-sheet,.ks-ui.display-large .job-dialog,.ks-ui.display-large .coordinate-editor,.ks-ui.display-large .t-numpad,.ks-ui.display-large .t-textpad,.ks-ui.display-large .ks-why,.ks-ui.display-large .t-lock-shield{--fs-16:18px;--fs-18:20px;--fs-20:22px;--fs-24:27px;--fs-28:31px}
 .ks-ui.display-large .home-live-tiles{display:none}
 .ks-ui.display-large #home-job-percent{font-size:56px}
 .ks-ui.display-large .home-progress{padding:6px var(--sp-3)!important}
 
 /* --- Compact layout (1024 x 600 goal, also any window under 1100 x 650). --- */
 .ks-ui.t-compact main{padding:8px 16px!important}
-.ks-ui.t-compact main>#screen-menu,.ks-ui.t-compact main>#screen-jog,.ks-ui.t-compact main>#screen-files,.ks-ui.t-compact main>#screen-home,.ks-ui.t-compact main>#screen-machine,.ks-ui.t-compact main>#screen-history{top:8px}
-.ks-ui.t-compact #screen-menu.active,.ks-ui.t-compact #screen-menu.kept,.ks-ui.t-compact #screen-home.active,.ks-ui.t-compact #screen-home.kept,.ks-ui.t-compact #screen-files.active,.ks-ui.t-compact #screen-files.kept,.ks-ui.t-compact #screen-jog.active,.ks-ui.t-compact #screen-jog.kept,.ks-ui.t-compact #screen-machine.active,.ks-ui.t-compact #screen-machine.kept,.ks-ui.t-compact #screen-history.active,.ks-ui.t-compact #screen-history.kept{height:calc(var(--view-height) - 16px)}
+.ks-ui.t-compact main>#screen-more,.ks-ui.t-compact main>#screen-jog,.ks-ui.t-compact main>#screen-files,.ks-ui.t-compact main>#screen-home,.ks-ui.t-compact main>#screen-machine,.ks-ui.t-compact main>#screen-history{top:8px}
+.ks-ui.t-compact #screen-more.active,.ks-ui.t-compact #screen-more.kept,.ks-ui.t-compact #screen-home.active,.ks-ui.t-compact #screen-home.kept,.ks-ui.t-compact #screen-files.active,.ks-ui.t-compact #screen-files.kept,.ks-ui.t-compact #screen-jog.active,.ks-ui.t-compact #screen-jog.kept,.ks-ui.t-compact #screen-machine.active,.ks-ui.t-compact #screen-machine.kept,.ks-ui.t-compact #screen-history.active,.ks-ui.t-compact #screen-history.kept{height:calc(var(--view-height) - 16px)}
 .ks-ui.t-compact .job-dashboard{height:calc(var(--view-height) - 16px);grid-template-columns:minmax(0,1fr) 440px}
 .ks-ui.t-compact .ks-panel-intro h2,.ks-ui.t-compact #screen-jog .ks-panel-intro h2,.ks-ui.t-compact #screen-machine .ks-panel-intro h2,.ks-ui.t-compact #screen-history .ks-panel-intro h2{font-size:var(--fs-20)}
 .ks-ui.t-compact .ks-preparation-actions .ks-secondary,.ks-ui.t-compact .ks-preparation-actions .probe-entry,.ks-ui.t-compact .ks-preparation-actions .ks-macros-open{padding:var(--sp-2)}
@@ -776,17 +734,13 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
 .ks-ui.t-compact #screen-jog .ks-preparation-actions .ks-secondary,.ks-ui.t-compact #screen-jog .ks-preparation-actions .probe-entry,.ks-ui.t-compact #screen-jog .ks-preparation-actions .ks-macros-open{padding:var(--sp-2)}
 /* Narrower than 1000 px (browser zoom): the cards stack, the screen is then shrunk by viewport-fit. */
 @media(max-width:999px){.ks-ui.t-compact #screen-jog.active,.ks-ui.t-compact #screen-jog.kept{grid-template-columns:minmax(0,1fr)}}
-.ks-ui.t-compact #screen-jog #jog-controller{display:none}
 .ks-ui.t-compact #screen-jog .ks-motion-arrows{gap:var(--sp-6);padding:var(--sp-2) var(--sp-3)!important}
 /* Machine: commands on one row, links in three columns, the state word a little smaller. */
 .ks-ui.t-compact #screen-machine .card{padding:var(--sp-2) var(--sp-3)!important}
 .ks-ui.t-compact #screen-machine .ks-machine-overview{grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--tap-gap)}
 .ks-ui.t-compact #screen-machine .ks-machine-overview>.ks-machine-word{font-size:var(--fs-28);padding:var(--sp-1) var(--sp-3)}
 .ks-ui.t-compact #screen-machine .ks-machine-overview>p{font-size:var(--fs-16)}
-.ks-ui.t-compact #screen-machine .ks-machine-commands{grid-template-columns:repeat(3,minmax(0,1fr));margin-top:0}
-.ks-ui.t-compact #screen-machine .ks-machine-commands button{min-height:var(--tap-primary);font-size:var(--fs-16);padding:var(--sp-1) var(--sp-2)}
 .ks-ui.t-compact #screen-machine .ks-machine-overview>h2{display:none}
-.ks-ui.t-compact #screen-machine .ks-machine-commands button:last-child{grid-column:auto}
 .ks-ui.t-compact #screen-machine .ks-machine-overview>.ks-secondary{font-size:var(--fs-16);padding:var(--sp-1) var(--sp-2)}
 .ks-ui.t-compact #ks-machine-alarm{font-size:var(--fs-16);padding:var(--sp-2) var(--sp-3)}
 /* Fichiers: a 400 px detail column, the search field on its own row, 76 px rows (three per page). */
@@ -819,35 +773,29 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
 .t-numpad-error{margin:0;min-height:var(--sp-6);font-size:var(--fs-16);color:var(--mute)}
 .t-numpad-error[data-tone="danger"]{color:var(--danger-text);font-weight:600}
 .t-numpad-actions{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:var(--tap-gap)}
+/* Text keyboard (text-keyboard.js): a modal pad over the page for the text fields, ten keys a row, 48 px high.
+   Above every overlay that holds a bound field (pilot dialog 800, sheets 600), below the .ks-why toast. */
+.t-textpad{position:fixed;inset:0;z-index:850;display:flex;align-items:center;justify-content:center;padding:var(--sp-3);background:rgba(0,0,0,.72)}
+.t-textpad[hidden]{display:none!important}
+.t-textpad-card{width:min(860px,100%);max-height:calc(100vh - 16px);overflow:auto;background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r-l);padding:var(--sp-3);box-shadow:var(--shadow);color:var(--fg);display:flex;flex-direction:column;gap:var(--sp-2)}
+.t-textpad-card header{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3)}
+.t-textpad-card h2{margin:0;min-width:0;font:700 var(--fs-20)/var(--lh-tight) var(--font);color:var(--fg)}
+.t-textpad-card header button{flex:none;min-height:var(--tap);min-width:var(--tap);font:600 var(--fs-18)/1 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m);padding:var(--sp-2) var(--sp-3)}
+.t-textpad-value{display:block;min-height:var(--tap);padding:var(--sp-2) var(--sp-3);font:600 var(--fs-20)/1.3 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m);white-space:pre-wrap;overflow-wrap:anywhere;max-height:5.5em;overflow:auto}
+.t-textpad-keys{display:flex;flex-direction:column;gap:4px;user-select:none}
+.t-textpad-keys .ks-wifi-keyrow{display:flex;gap:4px}
+.t-textpad-keys .ks-wifi-key{flex:1 1 0;min-width:0;min-height:48px;padding:0;font:600 var(--fs-20)/1 var(--font);color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m);cursor:pointer;touch-action:manipulation}
+.t-textpad-keys .ks-wifi-key:active{transform:scale(.96)}
+.t-textpad-keys .ks-wifi-key--wide{flex-grow:1.6;font-size:var(--fs-16)}
+.t-textpad-keys .ks-wifi-key--space{flex-grow:6;font-size:var(--fs-16)}
+.t-textpad-keys .ks-wifi-key[aria-pressed="true"]{background:var(--info);color:var(--on-info);border-color:var(--info)}
+.t-textpad-actions{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:var(--tap-gap)}
+.t-below-strip .t-textpad-card{max-height:calc(100vh - var(--statusbar-h) - 24px)}
 .ks-ui.t-compact .t-numpad-keys button{min-height:var(--tap)}
 .ks-ui.t-compact .t-numpad-card{gap:var(--sp-2);padding:var(--sp-3)}
 /* Fields bound to the pad (plate thickness and search, resume line): the value and its unit side by side. */
-.t-field-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:var(--sp-2)}
-.t-field-row span{font-size:var(--fs-16);color:var(--mute)}
 #home-plate input,#home-resume-input{min-height:var(--tap);font:600 var(--fs-20)/1 var(--font-num);color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m);padding:var(--sp-2) var(--sp-3);width:100%}
 /* --- Guided preparation sheet (job-preparation.js): five steps, each with its state word. --- */
-.ks-prep-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--sp-2)}
-.ks-prep-step{padding:var(--sp-2) var(--sp-3);border:1px solid var(--line);border-left:6px solid var(--faint);border-radius:var(--r-m);background:var(--surface-2);display:grid;gap:var(--sp-1)}
-.ks-prep-step[data-state="ok"]{border-left-color:var(--ok)}
-.ks-prep-step[data-state="warn"]{border-left-color:var(--warn)}
-.ks-prep-step[data-state="blocking"]{border-left-color:var(--danger)}
-.ks-prep-head{display:flex;align-items:center;gap:var(--sp-3);font-size:var(--fs-18)}
-.ks-prep-mark{width:14px;height:14px;border-radius:50%;background:var(--faint);flex:none}
-.ks-prep-step[data-state="ok"] .ks-prep-mark{background:var(--ok)}
-.ks-prep-step[data-state="warn"] .ks-prep-mark{background:var(--warn);border-radius:2px}
-.ks-prep-step[data-state="blocking"] .ks-prep-mark{background:var(--danger-text);border-radius:0;transform:rotate(45deg)}
-.ks-prep-state{margin-left:auto;font:600 var(--fs-16)/1 var(--font);color:var(--mute);text-transform:uppercase;letter-spacing:.04em}
-.ks-prep-step[data-state="ok"] .ks-prep-state{color:var(--ok-text)}
-.ks-prep-step[data-state="warn"] .ks-prep-state{color:var(--warn-text)}
-.ks-prep-step[data-state="blocking"] .ks-prep-state{color:var(--danger-text)}
-.ks-ui .ks-sheet .ks-prep-detail,.ks-ui .ks-sheet .ks-prep-next{margin:0;font-size:var(--fs-16);color:var(--fg)}
-.ks-ui .ks-sheet .ks-prep-next{color:var(--info-text)}
-.ks-prep-next:empty,.ks-prep-detail:empty{display:none}
-.ks-ui .ks-sheet .ks-prep-check{min-height:var(--tap-primary);margin-top:var(--sp-1)}
-.ks-ui .ks-sheet .ks-prep-check input{width:var(--tap);height:var(--tap);margin:0;flex:none;accent-color:var(--ok)}
-.ks-ui .ks-sheet #ks-prep-load{margin-top:var(--sp-1);justify-self:start}
-#ks-preparation-open[data-tone="ok"]{border-color:var(--ok);color:var(--ok-text)}
-#ks-preparation-open[data-tone="danger"]{border-color:var(--danger);color:var(--danger-text)}
 /* Journal: shorter rows. */
 .ks-ui.t-compact #screen-history li{min-height:48px;padding:var(--sp-1) var(--sp-3) var(--sp-1) var(--sp-4)}
 /* --- Attribution of control (F5): the pilot chip of the strip, always shown, in the actions
@@ -859,7 +807,7 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
 .t-pilot[data-state="other"]{border-left-color:var(--warn);background:var(--warn-soft)}
 .t-pilot[data-state="other"] b{color:var(--warn-text)}
 .t-pilot:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
-.ks-ui.t-compact .t-pilot{max-width:150px;min-width:84px}
+.ks-ui.t-compact .t-pilot{max-width:160px;min-width:84px}
 .ks-ui #pilot-dialog{top:var(--statusbar-h)}
 .ks-ui .pilot-form{display:flex;flex-direction:column;gap:var(--sp-2)}
 .ks-ui .pilot-form label{font:600 var(--fs-18)/var(--lh) var(--font);color:var(--fg)}
@@ -893,53 +841,19 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
 .ks-ui .ks-history-source .t-seg button{min-width:140px}
 .ks-ui #screen-history .ks-history-scope{margin:0;flex:1 1 280px;font-size:var(--fs-16);color:var(--mute)}
 .ks-ui #screen-history li[data-kind=server]{border-left-color:var(--faint)}
-/* --- Real moves (F1, EXPERIMENTAL; real-motion.js): shown only when the server enables them. The
- * panel starts below the status strip (Pause / Arrêter stay reachable); arrows 96 px, other targets
- * 48 px (64 px for the origin confirmation), 12 px apart, at 1366 x 768 and 1024 x 600. --- */
-.ks-ui .real-motion-entry{display:inline-flex;align-items:center;gap:var(--sp-2);min-height:var(--tap)}
-.ks-ui .real-motion-tag{margin-left:0;font-size:var(--fs-16);line-height:1.2}
-.ks-ui #real-motion{top:var(--statusbar-h);padding:var(--sp-3);align-items:stretch}
-.ks-ui .real-motion-card{width:min(1180px,100%);max-height:calc(100vh - var(--statusbar-h) - 24px);overflow:auto;padding:var(--sp-4);gap:var(--sp-3);border:2px solid var(--warn)}
-.ks-ui .real-motion-head{display:flex;align-items:center;justify-content:space-between;gap:var(--tap-gap)}
-.ks-ui .real-motion-head h2{display:flex;align-items:center;gap:var(--sp-3);font-size:var(--fs-24)}
-.ks-ui .real-motion-head .t-btn{min-height:var(--tap)}
-.ks-ui .real-motion-warning{flex:1 1 auto;min-width:0;margin:0;padding:var(--sp-2) var(--sp-3);background:var(--warn-soft);border-left:6px solid var(--warn);color:var(--warn-text)!important;font:700 var(--fs-18)/var(--lh) var(--font)!important}
-.ks-ui .real-motion-cols{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--sp-4);align-items:start;min-height:0}
-.ks-ui .real-motion-left,.ks-ui .real-motion-right{display:flex;flex-direction:column;gap:var(--tap-gap);min-width:0}
-.ks-ui .real-motion-frame{margin:0;font:600 var(--fs-16)/var(--lh) var(--font)!important;color:var(--fg)!important}
-.ks-ui .real-motion-pos{border-collapse:collapse;font:var(--fs-18)/1.2 var(--font-num);font-variant-numeric:tabular-nums}
-.ks-ui .real-motion-pos th,.ks-ui .real-motion-pos td{padding:2px 0 2px var(--sp-3);text-align:right}
-.ks-ui .real-motion-pos tr>th:first-child{padding-left:0;text-align:left;font-size:var(--fs-16)}
-.ks-ui .real-motion-pos th{color:var(--mute);font-weight:600}
-.ks-ui .real-motion-seg{display:flex;align-items:center;gap:var(--sp-3)}
-.ks-ui .real-motion-label{flex:0 0 132px;font-size:var(--fs-16);color:var(--mute)}
-.ks-ui .real-motion-choices{display:flex;gap:var(--tap-gap);flex-wrap:wrap}
-.ks-ui .real-motion-choice{min-height:var(--tap);min-width:64px;padding:0 var(--sp-3);font:600 var(--fs-18)/1 var(--font-num);color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:var(--r-m);touch-action:manipulation}
-.ks-ui .real-motion-choice[aria-pressed="true"]{background:var(--info);color:var(--on-info);border-color:transparent}
-.ks-ui .real-motion-choice:disabled{color:var(--disabled-fg);background:var(--disabled-bg)}
-.ks-ui .real-motion-help,.ks-ui .real-motion-line{margin:0;font-size:var(--fs-16)!important;line-height:var(--lh)}
-.ks-ui .real-motion-reason{margin:0;font:600 var(--fs-16)/var(--lh) var(--font)!important;color:var(--warn-text)!important}
-.ks-ui .real-motion-pos .real-motion-origin td{padding-top:var(--tap-gap)}
-.ks-ui .real-motion-set{min-height:var(--tap);min-width:96px;font-size:var(--fs-18)}
-.ks-ui .real-motion-ticket{width:420px;max-width:100%;display:flex;flex-direction:column;gap:var(--sp-2);padding:var(--sp-3);border:2px solid var(--warn);border-radius:var(--r-m)}
-.ks-ui .real-motion-ticket p{color:var(--fg)}
-.ks-ui .real-motion-ticket-actions{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:var(--tap-gap)}
-.ks-ui .real-motion-ticket-actions .t-btn{min-height:var(--tap-primary)}
-.ks-ui .real-motion-pads{display:flex;gap:var(--sp-6);align-items:center}
-.ks-ui .real-motion-pad{display:grid;grid-template-columns:repeat(3,var(--tap-jog));grid-template-rows:repeat(3,var(--tap-jog));gap:var(--tap-gap)}
-.ks-ui .real-motion-zpad{display:flex;flex-direction:column;gap:var(--tap-gap)}
-.ks-ui .real-motion-jog{min-width:var(--tap-jog);min-height:var(--tap-jog);width:var(--tap-jog);height:var(--tap-jog);font:700 var(--fs-28)/1 var(--font);color:var(--fg);background:var(--surface-2);border:2px solid var(--warn);border-radius:var(--r-l);touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
-.ks-ui .real-motion-jog[data-held="true"]{background:var(--warn);color:var(--on-warn)}
-.ks-ui .real-motion-jog:disabled{color:var(--disabled-fg);background:var(--disabled-bg);border-color:var(--line)}
-.ks-ui .real-motion-mid{display:flex;align-items:center;justify-content:center;font:600 var(--fs-20)/1 var(--font-num);color:var(--mute);border:1px dashed var(--line-strong);border-radius:var(--r-l)}
-.ks-ui .real-motion-status{display:flex;flex-direction:column;gap:var(--sp-1);max-width:420px}
-.ks-ui .real-motion-note{margin-top:var(--sp-3)}
-/* 1024 x 600: the arrows keep 96 px; the choices' labels go above them. */
-.ks-ui.t-compact .real-motion-label{flex-basis:96px}
-.ks-ui.t-compact .real-motion-pads{gap:var(--tap-gap)}
-.ks-ui.t-compact .real-motion-card{padding:var(--sp-3);gap:var(--sp-2)}
-/* Who pilots stays in the strip (Pilote); the panel keeps its room for the request and answer lines. */
-.ks-ui.t-compact #real-motion-pilot{display:none}
+/* --- Real moves of Préparer (F1, real-motion.js): the arrows of #screen-jog move the machine, the
+ * Zéro buttons open the origin confirmation below the status strip (Pause / Arrêter stay reachable). --- */
+.ks-ui #real-motion-ticket .job-dialog-actions .t-btn{min-height:var(--tap-primary)}
+.ks-ui #real-motion-ticket .job-dialog-card p:first-of-type{color:var(--fg)}
+/* Held: no scroll, no selection, no callout; a finger sliding keeps the jog (pointer capture). */
+body.ks-real.ks-ui #screen-jog .jog{touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+body.ks-real.ks-ui #screen-jog .jog[data-held="true"],body.ks-real.ks-ui #screen-jog .jog[data-held="true"]:active:not(:disabled){background:var(--warn);color:var(--on-warn)}
+/* The answer to the last request: refused, sent, or uncertain (no answer: check the position). */
+.ks-ui #screen-jog #jog-feedback[data-state="failed"]{color:var(--danger-text)}
+.ks-ui #screen-jog #jog-feedback[data-state="confirmed"]{color:var(--ok-text)}
+.ks-ui #screen-jog #jog-feedback[data-state="uncertain"]{color:var(--warn-text)}
+/* « Continu » in the row of the steps: a word among numbers. */
+.ks-ui #screen-jog .step[data-step="hold"]{flex:1.5 1 0;grid-column:span 2;font-size:var(--fs-18);padding:0 var(--sp-1)}
 /* --- Layout audit 31: every command keeps its own room at scale 1 (1366 x 768 and 1024 x 600,
  * standard and large text). Measured by browser-run.cjs --strict. --- */
 /* app.css sets every card heading to 23 px in large text (body.display-large main .card h2); the
@@ -952,7 +866,6 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
 /* 1366 x 768, a file loaded with a two-line feedback (Spanish): 1 px over, scale 0.998. Tighter
  * lines on the ready and feedback texts give the column 6 px of margin. */
 .ks-ui #home-job-ready{line-height:1.3}
-.ks-ui #home-job-feedback{line-height:1.25}
 .ks-ui.t-compact .job-art #home-image-status:not(:only-child){right:140px}
 /* Fichiers: no part of the detail shrinks under its content (overlap); only the preview gives
  * room, down to the 64 px of Agrandir, and the card scrolls rather than overlapping. */
@@ -1046,7 +959,6 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
 .ks-ui #home-job-ready{max-height:calc(3 * 1.3em + 10px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
 .ks-ui.t-compact #home-job-ready{max-height:calc(2 * 1.2em + 8px)}
 /* The end-of-job summary keeps two lines in the compact window (name and figures). */
-.ks-ui.t-compact .home-job-summary-text{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 /* State word with its note under it (« Alarme 3 » / « déduite », V6), within the 52 px box. */
 .t-state-words{display:flex;flex-direction:column;justify-content:center;min-width:0;line-height:1}
 #t-state-text{white-space:nowrap}
@@ -1055,3 +967,44 @@ body.is-locked .ks-exit{pointer-events:none;opacity:.4}
 /* 1024 x 600: with « Déverrouiller… » or « Reprendre… » beside « PILOTE / Cet appareil », the
  * page switch link gives its room as during a job (the strip overflowed by 28 px, N2). */
 .ks-ui.t-compact [data-confirm=true] .ks-exit{display:none}
+/* === Menu (lot écrans 6) ===================================================== */
+/* First start (no last screen): the hidden resume bar is display:none, so the tiles took the auto row and
+ * the 1fr row stayed empty (tiles of 192 px over half the screen). They keep the second row; the grid gap
+ * of the empty first row is taken back. */
+.ks-ui .ks-tiles{grid-row:2}
+.ks-ui .ks-connect:not([hidden])~.ks-tiles{margin-top:0}
+/* 1024 x 600: the hint on one line (ellipsis), the icon and the indicator are no longer squeezed. */
+.ks-ui.t-compact .ks-tile-text{max-width:100%}
+.ks-ui.t-compact .ks-tile small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Outlines of the menu's controls at 3:1 at least on --bg and --surface (--line gave 1.6 to 2.0:1). The
+ * blue left edge of the resume bar stays. */
+.ks-ui .ks-tile{border-color:var(--line-control)}
+/* Resume bar: no file line under a screen that is not about the job (Journal, Réglages…). */
+/* An indicator with nothing to say (Journal, Réglages) keeps its place and its height (a no-break space for its
+ * line), so the titles stay aligned with the other tiles. */
+/* Strip: a greyed-out Pause / Reprendre / Déverrouiller stays readable (button:disabled{opacity:.4} of
+ * app.css gave 1.7 to 2.0:1); the stripes and the lock say it is unavailable. Appearance only. */
+.t-strip-actions .t-btn:disabled{opacity:1}
+/* Strip information zone: the machine cell gives way twice as fast as the file name and both keep their
+ * own ellipsis, rather than one being clipped by the zone (« F », « MÁQU »). While a confirmation
+ * (Déverrouiller…, Reprendre…) is shown, the machine name gives its room as during a job. */
+.ks-ui [data-confirm=true] .t-vital--machine{display:none}
+/* Another device pilots: its name is wider than « Cet appareil »; the machine cell was cut to « MAC… / Lase… ». */
+.ks-ui [data-pilot=other] .t-vital--machine{display:none}
+.ks-ui .t-vital--machine{flex:0 2 auto;min-width:0}
+.ks-ui .t-vital--machine span,.ks-ui .t-vital--machine b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Lot Transverses M1: a strip cell is drawn whole or not at all. The cells wrap (a cell that does not fit goes to a
+ * second line, under the strip, clipped by the zone) in order of importance: the file first (120 px asked, its own
+ * ellipsis; a zone narrower than that, 1024 x 600 with Pilote, Débloquer and Pause, gives it what is left), then the machine (at least 96 px,
+ * ellipsis), the feed, the spindle; the visual order is unchanged (spindle, feed, machine, file). Before: the fixed cells never gave way, so at 1024 x 600 or with Pilote and Débloquer the file
+ * name vanished (0 px) behind a clipped « AVANCE » or « Consigna S ». */
+.ks-ui #real-banner>.t-vitals,.ks-ui #simulation-banner>.t-vitals{height:100%;align-self:stretch;flex-wrap:wrap;flex-direction:row-reverse;justify-content:flex-start;align-content:flex-start;row-gap:0}
+.ks-ui #real-banner>.t-vitals>.t-vital,.ks-ui #simulation-banner>.t-vitals>.t-vital{height:100%;justify-content:center}
+.ks-ui #real-banner>.t-vitals>.t-vital--file,.ks-ui #simulation-banner>.t-vitals>.t-vital--file{order:1;flex:2 1 120px}
+.ks-ui #real-banner>.t-vitals>.t-vital--machine,.ks-ui #simulation-banner>.t-vitals>.t-vital--machine{order:2;flex:1 1 96px;max-width:max-content}
+.ks-ui #real-banner>.t-vitals>.t-vital--feed,.ks-ui #simulation-banner>.t-vitals>.t-vital--feed{order:3}
+.ks-ui #real-banner>.t-vitals>.t-vital--spindle,.ks-ui #simulation-banner>.t-vitals>.t-vital--spindle{order:4}
+
+/* Current content hosts retain the existing card rules. */
+
+.ks-ui #screen-home .ks-step-body>.card.wide{background:transparent;border:0;padding:0!important;margin:0}

@@ -67,7 +67,7 @@ const flush=()=>new Promise(setImmediate);
  f.expire();assert.equal(f.pending.size,0);assert.equal(f.revoked.length,4);
  for(const name of ['index.html','simulation.html']){
   const html=fs.readFileSync(__dirname+'/touch/'+name,'utf8');assert.equal((html.match(/src="download-file\.js/g)||[]).length,1);
-  for(const script of ['probe-ui.js',name==='index.html'?'real-history.js':'simulation-history.js'])assert(html.indexOf('download-file.js')<html.indexOf(script));
+  for(const script of [name==='index.html'?'zero-piece.js':'probe-ui.js',name==='index.html'?'real-history.js':'simulation-history.js'])assert(html.indexOf('download-file.js')<html.indexOf(script));
  }
  console.log('PASS: all export buttons, UTF-8/JSON round trips, repeated downloads, failure cleanup, delayed release, pagehide/BFcache, legacy browser and retry after failure; no network.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

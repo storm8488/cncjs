@@ -22,8 +22,8 @@ assert.equal(N.press('⌫','12',{}),'1');assert.equal(N.press('Effacer','12',{})
 assert.equal(N.press('9','123456789012345678',{}),'123456789012345678','18 characters at most');
 assert.equal(N.KEYS.length,14);
 // Modal pad bound to a field (DOM).
-const {document,node,element}=require('./dom-fixture.cjs').createDOM(['home']);
-const listeners={},events=[];
+const {document}=require('./dom-fixture.cjs').createDOM(['home']);
+const listeners={};
 const window={cncI18n:{t:s=>s},addEventListener:(n,f)=>listeners[n]=f};
 document.body.children=[];document.body.appendChild=function(c){this.children.push(c);c.parentNode=this;};
 // The fixture's createElement lacks querySelectorAll on lists of buttons and isConnected: add what the pad needs.
@@ -62,13 +62,25 @@ listeners.keydown||document.handlers.keydown({key:'Escape',preventDefault(){}});
 line.handlers.click();assert(!modal.hidden);listeners['cnc-screen-change']();assert(modal.hidden);
 // A disabled field never opens the pad.
 line.disabled=true;line.handlers.click();assert(modal.hidden);
+// Optional blanks are accepted; zero and malformed drafts still obey their rules.
+const optional=document.createElement('input');optional.value='8';let changes=0;optional.addEventListener('change',()=>changes++);
+Pad.bind(optional,{optional:true,min:1,max:10});optional.handlers.click();key('Effacer').click();all.find(e=>e.textContent==='Valider').click();
+assert(modal.hidden,'C-44: optional empty draft accepted');assert.equal(optional.value,'');assert.equal(changes,1);
+optional.value='0';optional.handlers.click();all.find(e=>e.textContent==='Valider').click();assert(!modal.hidden,'optional zero is range checked');all.find(e=>e.textContent==='Annuler').click();
+// Probe sheets use the same modal isolation/focus, with a right-hand visual dock.
+Pad.open(optional,{dock:'right',label:'Measured plate',unit:'mm',min:1,max:10});
+assert.equal(modal.getAttribute('data-dock'),'right');assert.equal(byId('t-numpad-title').textContent,'Measured plate');
+all.find(e=>e.textContent==='Annuler').click();assert.equal(optional.value,'0');
+Pad.open(optional);assert.equal(modal.getAttribute('data-dock'),'');all.find(e=>e.textContent==='Annuler').click();
 // Every phrase is in the FR/EN/ES catalog.
 const source=fs.readFileSync(__dirname+'/touch/numeric-pad.js','utf8');
 const phrases=[...source.matchAll(/\bt\('((?:[^'\\]|\\.)*)'\)/g)].map(m=>m[1]);
 const catalog={window:{}};vm.runInNewContext(fs.readFileSync(__dirname+'/touch/i18n-messages.js','utf8'),catalog);
 const keys=new Set(catalog.window.CNCTouchMessages.map(r=>r[0].trim().replace(/\s+/g,' ')));
 for(const p of new Set(phrases))if(/[a-zà-ÿ]{2}/i.test(p))assert(keys.has(p.trim().replace(/\s+/g,' ')),'missing translation: '+p);
-for(const name of ['index.html','simulation.html']){const html=fs.readFileSync(__dirname+'/touch/'+name,'utf8');assert(html.indexOf('numeric-pad.js')>html.indexOf('i18n.js')&&html.indexOf('numeric-pad.js')<html.indexOf('job-resume.js'),name+': numeric-pad.js before job-resume.js');assert(html.indexOf('numeric-pad.js')<html.indexOf('coordinate-editor.js'));}
+for(const name of ['index.html','simulation.html']){const html=fs.readFileSync(__dirname+'/touch/'+name,'utf8');assert(html.indexOf('numeric-pad.js')>html.indexOf('i18n.js')&&html.indexOf('numeric-pad.js')<html.indexOf('job-resume.js'),name+': numeric-pad.js before job-resume.js');if(html.indexOf('coordinate-editor.js')>=0)assert(html.indexOf('numeric-pad.js')<html.indexOf('coordinate-editor.js'));}
+// The real page no longer loads the coordinate editor (local preparation without movement); simulation.html keeps it.
+assert(fs.readFileSync(__dirname+'/touch/index.html','utf8').indexOf('coordinate-editor.js')<0&&fs.readFileSync(__dirname+'/touch/simulation.html','utf8').indexOf('coordinate-editor.js')>0);
 // The coordinate editor builds its keys from the shared pad (no second key pad).
 const editor=fs.readFileSync(__dirname+'/touch/coordinate-editor.js','utf8');
 assert(editor.includes("CNCNumeric.keys(pad"),'coordinate editor uses the shared keys');assert(!/\['7','8','9'/.test(editor),'no private key list left');

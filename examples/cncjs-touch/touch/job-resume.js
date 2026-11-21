@@ -2,23 +2,33 @@
   'use strict';
   var uiLocale=(typeof window!=='undefined'&&window.cncI18n)||{t:function(s){return s;}};
   var t=function(s){return uiLocale.t(s);};
+  // A server text shown as it comes, translated when the catalogue has it (its fixed notes), else in French.
+  var message=function(s){return typeof uiLocale.message==='function'?uiLocale.message(s):t(s);};
   // Grbl acknowledges a line when it enters its planner, up to ~15 moves before
   // it is executed: a resume after a stop starts that far back.
   var PLANNER_MARGIN=15;
   function spindleText(s){return s?s.mode+' S'+s.speed:'';}
   // What Suivi says while the program itself holds the job (M0, M1, M6, error).
-  function pauseText(p){
+  // Laser profile (PROFILES-CONTRACT.md §2-§4): no tool change, no plate, a resume at a pass boundary.
+  function laserOf(c){var p=c&&c.machineProfile;return !!(p&&typeof p==='object'&&p.kind==='laser');}
+  // A refused capability carries a code (no params): translated alone, else the server's French reason.
+  function capabilityOf(c,name){var k=c&&c.machineProfile&&c.machineProfile.capabilities,v=k&&k[name];if(!v||typeof v!=='object')return {supported:false,reason:''};
+    var reason=typeof v.reason==='string'?v.reason:'';if(v.supported!==true&&typeof v.code==='string'&&v.code&&uiLocale.format)reason=uiLocale.format(v.code,{},reason);
+    return {supported:v.supported===true,reason:reason};}
+  function laserPlan(p){return !!(p&&(p.mode==='laser'||p.kind==='laser'||p.preview&&p.preview.kind==='laser'));}
+  function pauseText(p,c){
     if(!p)return '';
-    if(p.kind==='M6')return t('Changement d’outil')+(p.tool!==null&&p.tool!==undefined?' T'+p.tool:'')+t(' : attendez l’arrêt, arrêtez la broche (M5), changez l’outil et refaites le zéro Z si sa longueur change, puis touchez Reprendre.')+
-      (p.restartSpindle?t(' La broche sera relancée (')+spindleText(p.restartSpindle)+t(', 3 s) avant la reprise.'):'');
-    if(p.kind==='M0'||p.kind==='M1')return t('Pause demandée par le programme (')+p.kind+')'+(p.message?' : '+p.message:'')+t('. Touchez Reprendre quand vous êtes prêt.');
+    if(p.kind==='M6'&&laserOf(c))return t('Ce laser ne gère pas le changement d’outil. Arrêtez et vérifiez le fichier.');
+    if(p.kind==='M6')return t('Changement d’outil')+(p.tool!==null&&p.tool!==undefined?' T'+p.tool:'')+t(' : attendez l’arrêt, arrêtez la broche, changez la fraise et refaites le zéro Z.')+
+      (p.restartSpindle?t(' La broche sera relancée (')+p.restartSpindle.speed+t(' tr/min')+t(', 3 s) avant la reprise.'):'');
+    if(p.kind==='M0'||p.kind==='M1')return t('Pause demandée par le fichier. Touchez Reprendre quand vous êtes prêt.');
     if(p.kind==='error')return t('Pause sur une erreur Grbl : arrêtez le travail, corrigez la cause, puis reprenez à une ligne.');
     return '';
   }
   // Plate probe parameters of the confirmation being prepared (set by the panel below).
   var pendingPlate=null;
   function plateNote(p){
-    return t('Plaque de ')+p.thickness+t(' mm posée sous l’outil et sonde branchée ? Descente de ')+p.search+t(' mm au plus ; le dessus de la plaque deviendra Z = épaisseur, puis l’outil remontera 5 mm au-dessus.');
+    return t('Plaque de ')+p.thickness+t(' mm posée sous l’outil et sonde branchée ? Descente de ')+p.search+t(' mm au plus ; le dessus de la plaque deviendra Z = épaisseur, puis l’outil remontera jusqu’à 5 mm au-dessus, sans dépasser sa hauteur de départ.');
   }
   function lastZeroText(z){
     if(!z)return '';
@@ -31,139 +41,141 @@
     if(operation==='zeroZ')return request&&request.thickness!==undefined?plateNote(request):pendingPlate?plateNote(pendingPlate):'';
     if(!c)return '';
     var p=c.programPause;
-    if(operation==='resume'&&p&&p.kind==='M6')return t('Outil')+(p.tool!==null&&p.tool!==undefined?' T'+p.tool:'')+t(' en place et zéro Z vérifié ?')+(p.restartSpindle?t(' La broche sera relancée (')+spindleText(p.restartSpindle)+t(', 3 s) avant la reprise.'):'');
+    if(operation==='resume'&&p&&p.kind==='M6'&&laserOf(c))return '';
+    if(operation==='resume'&&p&&p.kind==='M6')return t('Outil')+(p.tool!==null&&p.tool!==undefined?' T'+p.tool:'')+t(' en place et zéro Z vérifié ?')+(p.restartSpindle?t(' La broche sera relancée (')+p.restartSpindle.speed+t(' tr/min')+t(', 3 s) avant la reprise.'):'');
+    if(operation==='start'&&c.resume&&(laserOf(c)||laserPlan(c.resume))){var lr=c.resume;
+      return t('Reprise laser à la ligne ')+lr.from+' / '+lr.total+t('. Le laser reste éteint pendant le déplacement, puis reprend la puissance du fichier.');}
     if(operation==='start'&&c.resume){var r=c.resume;
-      return t('Reprise à la ligne ')+r.from+' / '+r.total+' : '+r.line+(r.tool!==null&&r.tool!==undefined?t(' — outil attendu T')+r.tool:'')+t('. La machine monte à la hauteur de dégagement, se place en XY, relance la broche puis plonge.')+notesText(r.notes);}
+      return t('Reprise à la ligne ')+r.from+' / '+r.total+(r.tool!==null&&r.tool!==undefined?t(' — outil attendu T')+r.tool:'')+t('. La machine monte à la hauteur de dégagement, se place en XY, relance la broche puis plonge.');}
     return '';
   }
-  // Server notes on a rebuilt program (units, work frame, clearance): French strings
-  // written by the server, like its messages, so they are shown as they come.
-  function notesText(notes){return Array.isArray(notes)&&notes.length?' '+notes.filter(function(n){return typeof n==='string'&&n;}).join(' '):'';}
+  // Server notes on a rebuilt program (units, work frame, clearance): French strings written by the
+  // server, like its messages; its fixed notes are in the catalogue, the others are shown as they come.
   function suggestedLine(c,file){
-    if(!c||typeof c.stoppedAtLine!=='number'||c.stoppedFile!==file)return null;
+    if(!c||typeof c.stoppedAtLine!=='number'||!isFinite(c.stoppedAtLine)||c.stoppedAtLine<=0||c.stoppedFile!==file)return null;
     return Math.max(2,c.stoppedAtLine-PLANNER_MARGIN);
   }
   function planText(plan){
+    var pv=plan&&plan.preview&&typeof plan.preview==='object'?plan.preview:null;
+    var file=plan&&plan.file?t('Fichier : ')+plan.file+' · ':'';
+    if(laserPlan(plan)){
+      var lines=[t('Ligne ')+plan.from+' / '+plan.total+' : '+plan.line+'.',t('Début de passe : laser éteint (M5), G0 en XY jusqu’au départ (Z rétabli seulement si le programme garde un Z constant), puis M3/M4 et consigne S du programme.')];
+      if(pv&&Array.isArray(pv.preamble)&&pv.preamble.length)lines.push(t('Lignes envoyées avant la reprise : ')+pv.preamble.filter(function(l){return typeof l==='string';}).join(' · ')+'.');
+      if(Array.isArray(plan.notes))plan.notes.forEach(function(n){if(typeof n==='string'&&n)lines.push(message(n));});
+      return file+lines.join(' ');
+    }
     var parts=[t('Ligne ')+plan.from+' / '+plan.total+' : '+plan.line+'.'];
     parts.push(t('Départ : Z ')+plan.safeZ+t(', puis X ')+plan.position.X+' Y '+plan.position.Y+t(', plongée à Z ')+plan.position.Z+'.');
     if(plan.spindle)parts.push(t('Broche ')+spindleText(plan.spindle)+t(' relancée 3 s avant la plongée.'));
     if(plan.coolant)parts.push(t('Arrosage ')+plan.coolant+'.');
     if(plan.tool!==null&&plan.tool!==undefined)parts.push(t('Outil attendu : T')+plan.tool+t(' (vérifiez qu’il est en place et que le zéro Z lui correspond).'));
-    if(Array.isArray(plan.notes))plan.notes.forEach(function(n){if(typeof n==='string'&&n)parts.push(n);});
-    return parts.join(' ');
+    if(Array.isArray(plan.notes))plan.notes.forEach(function(n){if(typeof n==='string'&&n)parts.push(message(n));});
+    return file+parts.join(' ');
   }
-  var api={pauseText:pauseText,dialogNote:dialogNote,suggestedLine:suggestedLine,planText:planText,plateNote:plateNote,lastZeroText:lastZeroText,PLANNER_MARGIN:PLANNER_MARGIN,
+  // One presentation for the notice and the session bar; all permissions come from the server.
+  function screenState(d){
+    var m=d&&d.machine||null,h=d&&d.halt||{},out={word:t('Rien en cours'),text:t('Rien en cours.'),action:m&&m.name?'suite:check':'suite:files',label:t(m&&m.name?'Suite : Contrôle →':'Suite : Fichier →'),allowed:true,tone:'neutre',pause:false,plate:false};
+    if(!m){out.text=t('État indisponible.');if(h.canStop){out.action='arreter-usinage';out.label=t('Arrêter l’usinage');out.allowed=true;}else if(h.canPause){out.action='pause';out.label=t('Pause');out.allowed=true;}return out;}
+    var running=m.workflow==='running',paused=m.workflow==='paused',alarm=/^alarm/i.test(m.activeState||''),door=/^door/i.test(m.activeState||''),p=m.programPause;
+    if(running||paused||door){out.action=paused||door?'reprendre':'pause';out.label=t(paused||door?'Reprendre…':'Pause');out.allowed=out.action==='pause'?!!m.canPause:!!(m.canResume&&!d.busy&&(!d.pilot||d.pilot.state!=='other'));}
+    if(running){out.word=t('En cours')+' · '+(m.total>0?Math.min(99,Math.floor((m.received||0)/m.total*100)):'—')+' %';out.text=t(typeof m.stalledMs==='number'?'La machine attend. Si rien ne bouge, arrêtez l’usinage.':'Usinage en cours.');if(typeof m.stalledMs==='number')out.tone='warn';}
+    if(paused){out.pause=true;out.tone='warn';out.word=t(p?'Pause du fichier':'Pause');out.text=t(p&&p.kind==='M6'?'Le fichier demande un changement de fraise.':p?'Pause demandée par le fichier.':'Pause. La broche tourne toujours.');out.plate=!!(p&&p.kind==='M6'&&!laserOf(m));if(p&&p.kind==='M6'&&laserOf(m))out.text=pauseText(p,m);
+      if(!m.canResume){out.text=m.resumeReason?message(m.resumeReason):t('Reprise indisponible.');out.remedy='arreter-usinage';}
+    }
+    if(door){out.word=t('Porte ouverte');out.text=t('La porte de la machine est ouverte. Fermez-la.');out.tone='warn';}
+    if(m.jobStopped&&!running&&!paused){out.tone='warn';var n=typeof m.stoppedAtLine==='number'&&isFinite(m.stoppedAtLine)&&m.stoppedAtLine>0?m.stoppedAtLine:null,s=suggestedLine(m,m.stoppedFile||m.name);
+      out.word=typeof n==='number'?t('Arrêté ligne {n}').replace('{n}',n):t('Arrêté');out.text=typeof n==='number'?t('Arrêté à la ligne {n} sur {total}.').replace('{n}',n).replace('{total}',m.resume&&m.resume.total||m.total||'—'):t('Usinage arrêté avant la fin.');
+      if(!m.homed||m.referenceLost){out.text+=' '+t('La machine a perdu sa position.');out.action='remise-en-route';out.label=t('Remise en route →');}
+      else if(s!==null){out.action='changer-ligne';out.label=t('Reprendre à la ligne {n}…').replace('{n}',s);out.allowed=!!(m.fresh&&m.canLoad&&!d.busy&&(!d.pilot||d.pilot.state!=='other'));}
+    }
+    if(!running&&!paused&&(m.finished||m.finishedWithErrors)){out.word=t('Terminé');out.text=m.finishedWithErrors?t('Terminé avec {n} lignes refusées par la machine.').replace('{n}',m.jobErrors||0):d.summary&&d.summary.short||t('Terminé.');out.action='suite:files';out.label=t('Suite : Fichier →');out.plate=!laserOf(m);out.tone=m.finishedWithErrors?'danger':'neutre';out.details=!!m.finishedWithErrors;}
+    if(!running&&!paused&&!m.jobStopped&&!m.finished&&!m.finishedWithErrors&&m.spindleSpeed>0){out.text=t(laserOf(m)?'Le laser est encore allumé : éteignez-le.':'La broche tourne encore : arrêtez-la.');out.pause=true;out.tone='warn';}
+    if(alarm&&(!m.jobStopped||running||paused)){var code=m.lastAlarm&&m.lastAlarm.code||m.alarmCode;out.word=t('Alarme')+(code?' '+code:'')+(m.alarmCodeInferred?' · '+t('déduite'):'');var help=root.CNCGrblHelp&&root.CNCGrblHelp.alarm(code,m.alarmCodeInferred);out.text=out.word+(help?' : '+message(help.title):'')+'. '+t('Arrêtez l’usinage.');out.tone='danger';out.action='arreter-usinage';out.label=t('Arrêter l’usinage');out.allowed=!!m.canStop;out.plate=false;}
+    if(m.probing&&out.plate)out.text=t('Zéro Z à la plaque en cours… Arrêter l’interrompt.');
+    else if(m.zeroZ&&(paused||m.finished)&&out.plate)out.text=m.zeroZ.failed?message(m.resumeReason||m.zeroZ.failed):paused&&!m.canResume?out.text:t('Zéro Z posé à la plaque.');
+    if(d.summary)out.details=true;
+    if(!m.fresh){out.text=t('Attendez une information à jour.');if(out.action!=='arreter-usinage'&&out.action!=='pause'&&out.action.indexOf('suite:')!==0)out.allowed=false;}
+    return out;
+  }
+
+  var api={screenState:screenState,pauseText:pauseText,dialogNote:dialogNote,laserOf:laserOf,capabilityOf:capabilityOf,suggestedLine:suggestedLine,planText:planText,plateNote:plateNote,lastZeroText:lastZeroText,PLANNER_MARGIN:PLANNER_MARGIN,
     setPendingPlate:function(p){pendingPlate=p;}};
   if(typeof module==='object'&&module.exports){module.exports=api;return;}
   root.CNCJobResume=api;
-  var ready=document.getElementById('home-job-ready');if(!ready)return;
-  var simulation=document.body.getAttribute('data-simulation')==='true';
-  if(simulation)return; // the simulation has no file to rebuild nor real program pauses
-  function el(tag,id,cls,text){var e=document.createElement(tag);if(id)e.id=id;if(cls)e.className=cls;if(text)e.textContent=t(text);return e;}
-  function after(ref,node){var p=ref.parentNode;if(!p)return;if(ref.nextSibling)p.insertBefore(node,ref.nextSibling);else p.appendChild(node);}
-  // Program pause notice with the M5 button.
-  var pause=el('div','home-program-pause','t-notice'),pauseText_=el('p','home-program-pause-text'),m5=el('button','home-pause-m5','t-btn t-btn--warn','Arrêter la broche (M5)');
-  pause.setAttribute('data-tone','warn');pause.setAttribute('role','status');pause.hidden=true;m5.hidden=true;pause.appendChild(pauseText_);pause.appendChild(m5);
-  // Resume from a line.
-  var open=el('button','home-resume-line','t-btn','Reprendre à une ligne…'),panel=el('div','home-resume-panel','t-card'),
-    label=el('label','home-resume-label','','Ligne de reprise'),input=el('input','home-resume-input'),hint=el('p','home-resume-hint','t-help'),
-    check=el('button','home-resume-check','t-btn','Vérifier'),load=el('button','home-resume-load','t-btn t-btn--primary','Charger la reprise'),
-    cancel=el('button','home-resume-cancel','t-btn t-btn--ghost','Annuler'),plan=el('p','home-resume-plan','t-help');
-  // Text fields read by the shared parser (numeric-pad.js): a comma or a point, empty, zero
-  // and unreadable kept apart; a tap opens the shared key pad with the unit and the limits.
-  input.setAttribute('type','text');input.setAttribute('inputmode','numeric');input.setAttribute('autocomplete','off');
+  var simulation=document.body.getAttribute('data-simulation')==='true',ready=document.getElementById('home-job-ready');if(!ready)return;
+  function el(tag,id,text,parent){var n=document.createElement(tag);if(id)n.id=id;if(text)n.textContent=t(text);if(parent)parent.appendChild(n);return n;}
+  function button(parent,id,text,fn){var n=el('button',id,text,parent);n.type='button';n.className='t-btn';n.addEventListener('click',fn);return n;}
+  var notice=el('div','home-notice','',ready.parentNode);notice.className='t-notice';notice.setAttribute('role','status');
+  var noticeText=el('p','home-notice-text','',notice),actions=el('div','home-notice-actions','',notice);
+  var m5=button(actions,'home-pause-m5','Arrêter la broche',function(){if(!m5.disabled&&controls())controls().spindleStop().catch(function(){});});
+  var m5Reason=el('span','home-spindle-stop-reason','',notice);
+  var open=button(actions,'home-resume-line','Reprendre à une ligne…',openResume),openReason=el('span','home-resume-reason','',notice);
+  var details=button(actions,'home-notice-details','Détails',function(){if(root.cncShell)root.cncShell.details({lignes:[{libelle:t('Bilan'),valeur:summary&&summary.text||''},{libelle:t('Détails'),valeur:ready.textContent}],brut:machine});});
+  var machine=null,status={},summary=null,sheet=null,panel=null,input=null,hint=null,plan=null,load=null,checked=null,resumeFile='',sequence=0,isOpen=false,loading=false,openedKey='',planKey='';
   var LINE_RULES={label:t('Ligne de reprise'),unit:t('ligne'),min:2,integer:true,negative:false};
-  plan.setAttribute('role','status');open.hidden=true;panel.hidden=true;load.disabled=true;
-  var lineRow=el('div','home-resume-row','t-field-row');lineRow.appendChild(input);var lineUnit=el('span');lineUnit.textContent=t('n° de ligne, 2 ou plus');lineRow.appendChild(lineUnit);
-  [label,lineRow,hint,check,load,cancel,plan].forEach(function(n){panel.appendChild(n);});
-  // Z zero with a touch plate: thickness and search distance, remembered on this device.
-  var plate=el('div','home-plate','t-card'),plateTitle=el('p','home-plate-title','','Zéro Z avec une plaque'),
-    thickLabel=el('label','home-plate-thickness-label','','Épaisseur de la plaque (mm)'),thick=el('input','home-plate-thickness'),
-    searchLabel=el('label','home-plate-search-label','','Descente maximale (mm)'),search=el('input','home-plate-search'),
-    probe=el('button','home-plate-probe','t-btn','Palper le zéro Z…'),plateHelp=el('p','home-plate-help','t-help','Posez la plaque sur la pièce sous l’outil et branchez la sonde. Descente à 100 mm/min, recul 1 mm, seconde touche à 25 mm/min ; le dessus de la plaque devient Z = épaisseur, puis l’outil remonte 5 mm au-dessus.'),
-    plateLast=el('p','home-plate-last','t-help'),plateStatus=el('p','home-plate-status','t-notice');
-  var THICK_RULES={label:t('Épaisseur de la plaque'),unit:'mm',min:0.01,max:50,negative:false},SEARCH_RULES={label:t('Descente maximale'),unit:'mm',min:1,max:100,negative:false};
-  [thick,search].forEach(function(i){i.setAttribute('type','text');i.setAttribute('inputmode','decimal');i.setAttribute('autocomplete','off');});
-  function fieldRow(field,rules){var row=el('div','','t-field-row');row.appendChild(field);var unit=el('span');unit.textContent=rules.unit+' · '+(window.CNCNumeric?window.CNCNumeric.limits(rules):'');row.appendChild(unit);return row;}
-  plateStatus.setAttribute('role','status');plate.hidden=true;
-  [plateTitle,thickLabel,fieldRow(thick,THICK_RULES),searchLabel,fieldRow(search,SEARCH_RULES),probe,plateHelp,plateLast,plateStatus].forEach(function(n){plate.appendChild(n);});
-  if(window.CNCNumeric&&typeof window.CNCNumeric.bind==='function'){window.CNCNumeric.bind(thick,THICK_RULES);window.CNCNumeric.bind(search,SEARCH_RULES);window.CNCNumeric.bind(input,LINE_RULES);}
-  var PLATE_KEY='cncjs-touch-plate-v1';
-  function loadPlate(){try{var v=JSON.parse(localStorage.getItem(PLATE_KEY)||'null');if(v&&typeof v==='object'){thick.value=v.thickness>0?String(v.thickness):'';search.value=v.search>0?String(v.search):'10';return;}}catch(_){}
-    thick.value='';search.value='10';}
-  function savePlate(p){try{localStorage.setItem(PLATE_KEY,JSON.stringify(p));}catch(_){}}
-  // Shared parser (numeric-pad.js): {state, value, message}; only 'ok' carries a value.
-  function parsed(v,rules){
-    if(window.CNCNumeric&&typeof window.CNCNumeric.parse==='function')return window.CNCNumeric.parse(v,rules);
-    // Same rules without the pad (messages come from the pad module only).
-    var s=String(v===null||v===undefined?'':v).trim(),n=Number(s.replace(',','.'));rules=rules||{};
-    if(!s)return {state:'empty',value:null,message:''};
-    if(!/^[+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)$/.test(s)||!isFinite(n))return {state:'invalid',value:null,message:''};
-    if(n<0&&rules.negative===false)return {state:'negative',value:n,message:''};
-    if(rules.integer&&Math.floor(n)!==n)return {state:'integer',value:n,message:''};
-    if((typeof rules.min==='number'&&n<rules.min)||(typeof rules.max==='number'&&n>rules.max))return {state:'range',value:n,message:''};
-    return {state:'ok',value:n,message:''};
+  function controls(){return root.cncJobControls;}
+  function set(n,key,v){if(n&&n[key]!==v)n[key]=v;}
+  function targetFile(){return machine&&(machine.stoppedFile||machine.name)||'';}
+  function identity(){return JSON.stringify(machine&&[machine.port,machine.generation,machine.revision,machine.stoppedFile,machine.name]);}
+  function permitted(){var lr=laserOf(machine)?capabilityOf(machine,'laserResume'):null;return !!(machine&&machine.fresh&&machine.workflow==='idle'&&machine.canLoad&&targetFile()&&!status.busy&&(!status.pilot||status.pilot.state!=='other')&&(!lr||lr.supported));}
+  function line(){var v=String(input&&input.value||'').trim();if(root.CNCNumeric){var parsed=root.CNCNumeric.parse(v,LINE_RULES);return parsed.state==='ok'?parsed.value:null;}var n=Number(v.replace(',','.'));return /^[+]?\d+(?:[.,]\d*)?$/.test(v)&&n>=2&&Math.floor(n)===n?n:null;}
+  function close(){sequence++;isOpen=false;checked=null;loading=false;planKey='';set(load,'disabled',true);if(root.cncResumePreview&&panel)root.cncResumePreview.hide(panel);}
+  function initialize(){
+    if(sheet||!root.cncShell||!root.cncShell.sheet)return !!sheet;
+    sheet=root.cncShell.sheet('ks-resume-sheet',t('Reprendre à une ligne'));panel=sheet.content;
+    hint=el('p','home-resume-hint','',panel);var label=el('label','home-resume-label','Reprendre à la ligne',panel);input=el('input','home-resume-input','',panel);label.setAttribute('for',input.id);input.setAttribute('type','text');input.setAttribute('inputmode','numeric');input.setAttribute('autocomplete','off');
+    if(root.CNCNumeric)root.CNCNumeric.bind(input,LINE_RULES);
+    el('p','home-resume-route','La fraise remonte, va au-dessus du point, redescend, puis l’usinage reprend.',panel);
+    button(panel,'home-resume-details','Détails',function(){root.cncShell.details({lignes:[{libelle:t('Détails'),valeur:checked?planText(checked.data):''}],brut:checked&&checked.data});});
+    plan=el('p','home-resume-plan','',panel);plan.setAttribute('role','status');
+    var remedy=el('div','home-resume-remedies','',panel);
+    button(remedy,'home-resume-change','Changer la ligne',function(){if(root.CNCNumeric&&root.CNCNumeric.open)root.CNCNumeric.open(input,LINE_RULES);else input.focus();});
+    button(remedy,'home-resume-begin','Reprendre au début',begin);
+    load=button(panel,'home-resume-load','Charger la reprise',loadResume);load.className='t-btn t-btn--primary';load.disabled=true;
+    input.addEventListener('input',requestPlan);input.addEventListener('change',function(){if(!checked||checked.line!==line())requestPlan();});return true;
   }
-  loadPlate();
-  after(ready,pause);after(pause,open);after(open,panel);after(panel,plate);
-  var machine=null,selection=window.cncLibrarySelection||null,checked=null,sequence=0,plateMessage='';
-  function controls(){return window.cncJobControls;}
-  function set(node,key,value){if(node[key]!==value)node[key]=value;}
-  function canResumeFromLine(){return !!(machine&&selection&&machine.fresh&&machine.workflow==='idle'&&machine.canLoad);}
-  function close(){panel.hidden=true;checked=null;sequence++;set(load,'disabled',true);set(plan,'textContent','');}
+  function openResume(){
+    if(!permitted()||!initialize())return;resumeFile=targetFile();openedKey=identity();planKey='';var n=suggestedLine(machine,resumeFile);input.value=String(n===null?2:n);isOpen=true;
+    var title=document.getElementById('ks-resume-sheet-title');set(title,'textContent',t(laserOf(machine)?'Reprendre à un début de passe':'Reprendre à une ligne')+' — '+resumeFile);
+    set(hint,'textContent',(typeof machine.stoppedAtLine==='number'?t('Arrêté à la ligne {n}.').replace('{n}',machine.stoppedAtLine):'')+' '+t('proposée : quinze mouvements avant l’arrêt'));
+    sheet.open();requestPlan();render();
+  }
+  function error(e){checked=null;planKey='';set(load,'disabled',true);var r=root.cncRefus&&root.cncRefus.lire(e);set(plan,'textContent',r?r.phrase:message(e&&e.message||t('Action refusée.')));}
+  function requestPlan(){
+    if(!isOpen)return;var n=line(),file=resumeFile,key=identity(),next=JSON.stringify([key,file,n]);if(n!==null&&next===planKey)return;planKey=n===null?'':next;var own=++sequence;checked=null;set(load,'disabled',true);
+    if(root.cncResumePreview)root.cncResumePreview.hide(panel);
+    if(n===null){var invalid=root.CNCNumeric&&root.CNCNumeric.parse(input.value,LINE_RULES);set(plan,'textContent',t('Indiquez une ligne (2 ou plus).')+(invalid&&invalid.message?' '+invalid.message:''));return;}
+    set(plan,'textContent',t('Vérification de la ligne…'));var c=controls();if(!c||!c.resumePlan)return;
+    c.resumePlan(file,n).then(function(data){if(!isOpen||own!==sequence||file!==resumeFile||line()!==n||identity()!==key)return;
+      checked={file:file,line:n,key:key,data:data};var check=data&&data.programCheck,view=root.CNCProgramCheckView;
+      set(plan,'textContent',check&&view?view.fileVerdict(check).text:t('Ligne vérifiée.'));
+      set(load,'disabled',!permitted()||loading);
+      if(root.cncResumePreview)root.cncResumePreview.show(panel,data&&data.preview);
+    },function(e){if(isOpen&&own===sequence&&identity()===key)error(e);});
+  }
+  function loadResume(){
+    var c=controls(),target=checked;if(!target||load.disabled||!permitted()||loading||target.line!==line()||target.key!==identity())return;
+    loading=true;set(load,'disabled',true);var own=sequence;
+    c.loadFrom(target.file,target.line).then(function(){if(!isOpen||own!==sequence)return;close();root.cncShell.closeSheet();root.cncShell.go('check');},function(e){if(!isOpen||own!==sequence)return;loading=false;error(e);});
+  }
+  function begin(){if(!permitted()||loading)return;var file=resumeFile,own=++sequence;checked=null;loading=true;set(load,'disabled',true);controls().loadFrom(file,1).then(function(){if(!isOpen||own!==sequence)return;close();root.cncShell.closeSheet();root.cncShell.go('check');},function(e){if(!isOpen||own!==sequence)return;loading=false;error(e);});}
   function render(){
-    var p=machine&&machine.programPause;
-    var text=pauseText(p);if(p&&p.kind==='M6'&&machine.canZeroZ)text+=t(' Le zéro Z avec la plaque se règle ci-dessous.');
-    set(pause,'hidden',!p||!text);set(pauseText_,'textContent',text);
-    set(plate,'hidden',!(machine&&(machine.canZeroZ||machine.probing)));
-    set(probe,'disabled',!(machine&&machine.canZeroZ));
-    set(plateLast,'textContent',lastZeroText(machine&&machine.zeroZ));
-    // A refused parameter stays shown until the field changes (reports come several times a second).
-    set(plateStatus,'textContent',machine&&machine.probing?t('Palpage en cours… Arrêter interrompt.'):plateMessage);
-    set(m5,'hidden',!(p&&machine.canSpindleStop&&machine.spindleSpeed>0));
-    var can=canResumeFromLine();set(open,'hidden',!can||!panel.hidden);
-    // A job that starts closes the panel; a passing refusal (an M5 or a $G on
-    // its way) only disables the load and keeps the check.
-    if(!panel.hidden&&(!machine||!selection||machine.workflow!=='idle'))close();
-    else set(load,'disabled',!checked||!can);
+    var state=screenState(Object.assign({},status,{summary:summary}));set(noticeText,'textContent',state.text);if(notice.getAttribute('data-tone')!==state.tone)notice.setAttribute('data-tone',state.tone);
+    set(m5,'hidden',!state.pause);set(m5,'disabled',!(machine&&machine.canSpindleStop));set(m5,'textContent',t(laserOf(machine)?'Éteindre le laser':'Arrêter la broche'));
+    set(m5Reason,'textContent',state.pause&&!(machine&&machine.canSpindleStop)?message(machine&&machine.spindleStopReason||t('Arrêt de la broche indisponible.')):'');
+    var jobOn=!!(machine&&machine.workflow==='running');set(open,'hidden',jobOn);set(open,'disabled',!permitted());set(open,'textContent',t(laserOf(machine)?'Reprendre à un début de passe…':'Reprendre à une ligne…'));
+    var lr=laserOf(machine)?capabilityOf(machine,'laserResume'):null;set(open,'title',lr&&!lr.supported?lr.reason:'');
+    set(openReason,'textContent',permitted()||jobOn?'':lr&&!lr.supported?lr.reason:!targetFile()?t('Aucun fichier chargé.'):machine&&machine.workflow!=='idle'?t('Un usinage est en cours.'):message(machine&&machine.loadReason||t('Impossible pour l’instant.')));
+    set(details,'hidden',!state.details);
+    if(isOpen&&!loading&&(!machine||resumeFile!==targetFile()||openedKey!==identity()||machine.workflow!=='idle')){close();if(root.cncShell)root.cncShell.closeSheet();}
+    if(isOpen)set(load,'disabled',!checked||!permitted()||loading);
   }
-  function line(){var p=parsed(input.value,LINE_RULES);return p.state==='ok'?p.value:null;}
-  open.addEventListener('click',function(){
-    if(!canResumeFromLine())return;
-    var s=suggestedLine(machine,selection.file);input.value=s===null?'':String(s);
-    set(hint,'textContent',typeof machine.stoppedAtLine==='number'&&machine.stoppedFile===selection.file?
-      t('Dernier arrêt après la ligne ')+machine.stoppedAtLine+t(' (acquittée). Grbl exécute jusqu’à 15 mouvements plus tard : ligne proposée ')+s+'.':
-      t('Numéro de ligne tel qu’affiché pendant le travail (lignes non vides).'));
-    panel.hidden=false;render();
-  });
-  cancel.addEventListener('click',function(){close();render();});
-  input.addEventListener('input',function(){checked=null;set(load,'disabled',true);set(plan,'textContent','');});
-  check.addEventListener('click',function(){
-    var n=line(),c=controls(),own=++sequence;
-    if(n===null){var why=parsed(input.value,LINE_RULES);set(plan,'textContent',t('Indiquez une ligne (2 ou plus).')+(why.message?' '+why.message:''));return;}
-    if(!c||typeof c.resumePlan!=='function')return;
-    set(plan,'textContent',t('Vérification…'));
-    c.resumePlan(selection.file,n).then(function(data){if(own!==sequence)return;checked={file:selection.file,line:n};set(plan,'textContent',planText(data));set(load,'disabled',false);},
-      function(e){if(own!==sequence)return;checked=null;set(load,'disabled',true);set(plan,'textContent',e.message);});
-  });
-  load.addEventListener('click',function(){
-    var c=controls();if(!checked||!c||typeof c.loadFrom!=='function'||load.disabled)return;
-    var target=checked;set(load,'disabled',true);
-    c.loadFrom(target.file,target.line).then(function(){close();render();},function(e){set(plan,'textContent',e.message);set(load,'disabled',false);});
-  });
-  probe.addEventListener('click',function(){
-    var c=controls();if(!c||typeof c.prepareCommand!=='function'||probe.disabled)return;
-    // Empty, unreadable and out-of-range values are told apart; none of them becomes a number.
-    var th=parsed(thick.value,THICK_RULES),se=parsed(search.value,SEARCH_RULES);
-    if(th.state!=='ok'){plateMessage=t('Indiquez l’épaisseur de la plaque (mm).')+(th.message?' '+th.message:'');render();return;}
-    if(se.state!=='ok'){plateMessage=t('Descente maximale invalide (1 à 100 mm).')+(se.message?' '+se.message:'');render();return;}
-    var params={thickness:Math.round(th.value*1000)/1000,search:Math.round(se.value*1000)/1000};
-    savePlate(params);pendingPlate=params;plateMessage='';render();
-    c.prepareCommand('zeroZ',params);
-  });
-  [thick,search].forEach(function(field){field.addEventListener('input',function(){if(plateMessage){plateMessage='';render();}});});
-  m5.addEventListener('click',function(){var c=controls();if(c&&typeof c.spindleStop==='function')c.spindleStop().catch(function(){});});
-  window.addEventListener('cnc-job-status',function(e){var d=e&&e.detail||{};if(d.simulation)return;machine=d.machine||null;render();});
-  window.addEventListener('cnc-library-select',function(e){selection=e&&e.detail||null;if(checked&&(!selection||checked.file!==selection.file))close();render();});
+  api.screenState=screenState;api.open=openResume;api.summary=function(value){summary=value;render();if(root.cncSeance)root.cncSeance.render();};
+  api.project=function(input,result){var state=screenState(Object.assign({},input,{summary:summary}));result.etapes.home.mot=state.word;var b=result.barres.home;b.cause={id:'usinage',texte:state.text,ton:state.tone};b.remedes=state.remedy?[{id:state.remedy,actif:!!(input.machine&&input.machine.canStop)}]:[];if(input.pilot&&input.pilot.state==='other'&&state.action==='reprendre')b.remedes.push({id:'prendre-la-main',actif:true});b.details=!!state.details;b.action={id:state.action,libelle:state.label,style:state.allowed?'plein':'raye'};return result;};
+  root.addEventListener('cnc-job-status',function(e){var d=e.detail||{};if(!!d.simulation!==simulation)return;var old=identity();status=d;machine=d.machine||null;if(old!==identity())summary=null;render();if(root.cncSeance)root.cncSeance.render();});
+  root.addEventListener('cnc-sheet-change',function(e){if(e.detail.id==='ks-resume-sheet'&&!e.detail.open)close();});
+  root.addEventListener('cnc-screen-change',function(){render();});
+  root.addEventListener('cnc-screen-lock',function(e){if(e.detail){close();if(root.cncShell)root.cncShell.closeSheet();}});
+  document.addEventListener('visibilitychange',function(){if(document.hidden){close();if(root.cncShell)root.cncShell.closeSheet();}});
   render();
 })(typeof window==='object'?window:this);

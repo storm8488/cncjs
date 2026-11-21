@@ -1,7 +1,10 @@
+/* global importScripts, FileReaderSync */
 /* Response decoding and geometry only. No controller, network or canvas API. */
 (function () {
   'use strict';
-  importScripts('toolpath-3d.js?v=worker13', 'library-preview.js?v=worker31f');
+  // motion-estimate.js is used as a library here (its worker-capable neighbours check this flag).
+  self.CNCAsLibrary = true;
+  importScripts('toolpath-3d.js?v=v2v', 'library-preview.js?v=v2v', 'motion-estimate.js?v=v2v');
   // Floats per segment: x, y, xx, yy, mode, deepest Z of the segment.
   var job = null, maxText = 20 * 1048576, blockSize = 2048, stride = 6;
   // Geometry blocks in flight before parsing pauses: parsing and drawing overlap
@@ -62,7 +65,12 @@
         flush(); return drain();
       }).then(function () {
         if (cancelled()) return;
-        state.text = ''; send('done', { path3d: builder.finish(result.lines) });
+        // Motion-based estimate and laser summary (preview version 3): one more pass on the text,
+        // here off the interface thread. A failure only leaves them out.
+        var estimate = null;
+        try { estimate = self.CNCMotionEstimate.estimate(state.text, { laser: true }); } catch (_) { estimate = null; }
+        var laser = estimate && estimate.laser; if (estimate) delete estimate.laser;
+        state.text = ''; send('done', { path3d: builder.finish(result.lines), estimate: estimate, laser: laser || null });
       });
     }).catch(fail);
   }

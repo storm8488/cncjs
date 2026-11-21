@@ -39,6 +39,6 @@
 .ks-wiz-nav{display:flex;gap:12px;padding:4px 0 12px}
 .ks-wiz-nav button{flex:1 1 0}
 .ks-ui #screen-settings .ks-commissioning-card>button{grid-column:2;grid-row:1/span 2}
-.ks-machine-commands{margin-top:12px}
-.ks-machine-commands button{min-height:52px}
 @media(max-width:800px){.ks-wiz-steps li{font-size:14px}.ks-wiz-nav{flex-wrap:wrap}}
+
+/* Current content hosts retain the existing card rules. */

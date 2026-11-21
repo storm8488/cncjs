@@ -1,0 +1,1724 @@
+{
+ "v1-768-es-clair-laser-agrandi-alarme-apres-7.html": {
+  "perfV2": false,
+  "v1": {
+   "rows": 7,
+   "scrollHeight": 437,
+   "clientHeight": 432,
+   "scrolls": true,
+   "liH": [
+    58.3,
+    58.3,
+    58.3,
+    58.3,
+    58.3,
+    58.3,
+    58.3
+   ],
+   "alarm": [
+    "rgb(165, 29, 25)"
+   ],
+   "page": "Página 1 / 2 · 9 eventos"
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v1-768-es-clair-laser-agrandi-alarme-apres.html": {
+  "perfV2": false,
+  "v1": {
+   "rows": 6,
+   "scrollHeight": 432,
+   "clientHeight": 432,
+   "scrolls": false,
+   "liH": [
+    68.7,
+    68.7,
+    68.7,
+    68.7,
+    68.7,
+    68.7
+   ],
+   "alarm": [
+    "rgb(165, 29, 25)"
+   ],
+   "page": "Página 1 / 2 · 9 eventos"
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v1-768-es-clair-laser-agrandi-alarme-avant.html": {
+  "perfV2": false,
+  "v1": {
+   "rows": 8,
+   "scrollHeight": 476,
+   "clientHeight": 432,
+   "scrolls": true,
+   "liH": [
+    56,
+    56,
+    56,
+    56,
+    56,
+    56,
+    56,
+    56
+   ],
+   "alarm": [],
+   "page": "Página 1 / 2 · 9 eventos"
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v1-768-es-clair-laser-hors-ligne-apres.html": {
+  "perfV2": false,
+  "v1": {
+   "rows": 6,
+   "scrollHeight": 433,
+   "clientHeight": 433,
+   "scrolls": false,
+   "liH": [
+    56,
+    56,
+    65.4,
+    65.4,
+    65.4,
+    65.4
+   ],
+   "alarm": [
+    "rgb(165, 29, 25)"
+   ],
+   "page": "Página 1 / 3 · 17 eventos"
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v1-768-es-clair-laser-hors-ligne-avant.html": {
+  "perfV2": false,
+  "v1": {
+   "rows": 8,
+   "scrollHeight": 477,
+   "clientHeight": 433,
+   "scrolls": true,
+   "liH": [
+    56,
+    56,
+    56,
+    56,
+    56,
+    56,
+    56,
+    56
+   ],
+   "alarm": [],
+   "page": "Página 1 / 3 · 17 eventos"
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v1-768-es-clair-laser-serveur-apres.html": {
+  "perfV2": false,
+  "v1": {
+   "rows": 6,
+   "scrollHeight": 433,
+   "clientHeight": 433,
+   "scrolls": false,
+   "liH": [
+    65.4,
+    65.4,
+    65.4,
+    65.4,
+    65.4,
+    65.4
+   ],
+   "alarm": [
+    "rgb(165, 29, 25)"
+   ],
+   "page": "Servidor · página 1 · 23 entradas"
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v1-768-es-clair-laser-serveur-avant.html": {
+  "perfV2": false,
+  "v1": {
+   "rows": 8,
+   "scrollHeight": 477,
+   "clientHeight": 433,
+   "scrolls": true,
+   "liH": [
+    56,
+    56,
+    56,
+    56,
+    56,
+    56,
+    56,
+    56
+   ],
+   "alarm": [],
+   "page": "Servidor · página 1 · 23 entradas"
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v1-768-es-clair-laser-travail-apres.html": {
+  "perfV2": false,
+  "v1": {
+   "rows": 6,
+   "scrollHeight": 433,
+   "clientHeight": 433,
+   "scrolls": false,
+   "liH": [
+    65.4,
+    65.4,
+    65.4,
+    56,
+    65.4,
+    65.4
+   ],
+   "alarm": [],
+   "page": "Página 1 / 2 · 11 eventos"
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v1-768-es-clair-laser-travail-avant.html": {
+  "perfV2": false,
+  "v1": {
+   "rows": 8,
+   "scrollHeight": 477,
+   "clientHeight": 433,
+   "scrolls": true,
+   "liH": [
+    56,
+    56,
+    56,
+    56,
+    56,
+    56,
+    56,
+    56
+   ],
+   "alarm": [],
+   "page": "Página 1 / 2 · 11 eventos"
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v1-768-fr-sombre-laser-hors-ligne-apres.html": {
+  "perfV2": false,
+  "v1": {
+   "rows": 6,
+   "scrollHeight": 433,
+   "clientHeight": 433,
+   "scrolls": false,
+   "liH": [
+    56,
+    56,
+    65.4,
+    65.4,
+    65.4,
+    65.4
+   ],
+   "alarm": [
+    "rgb(165, 29, 25)"
+   ],
+   "page": "Page 1 / 3 · 17 événements"
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v1-768-fr-sombre-laser-hors-ligne-avant.html": {
+  "perfV2": false,
+  "v1": {
+   "rows": 8,
+   "scrollHeight": 477,
+   "clientHeight": 433,
+   "scrolls": true,
+   "liH": [
+    56,
+    56,
+    56,
+    56,
+    56,
+    56,
+    56,
+    56
+   ],
+   "alarm": [],
+   "page": "Page 1 / 3 · 17 événements"
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v1-768-fr-sombre-laser-pause-apres.html": {
+  "perfV2": false,
+  "v1": {
+   "rows": 6,
+   "scrollHeight": 433,
+   "clientHeight": 433,
+   "scrolls": false,
+   "liH": [
+    65.4,
+    65.4,
+    65.4,
+    65.4,
+    65.4,
+    56
+   ],
+   "alarm": [],
+   "page": "Page 1 / 3 · 13 événements"
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v1-768-fr-sombre-laser-pause-avant.html": {
+  "perfV2": false,
+  "v1": {
+   "rows": 8,
+   "scrollHeight": 477,
+   "clientHeight": 433,
+   "scrolls": true,
+   "liH": [
+    56,
+    56,
+    56,
+    56,
+    56,
+    56,
+    56,
+    56
+   ],
+   "alarm": [],
+   "page": "Page 1 / 2 · 13 événements"
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v2-911-es-clair-cnc-hors-ligne-apres.html": {
+  "perfV2": true,
+  "v2": {
+   "rows": 21,
+   "minStep": 62,
+   "minRowH": 56,
+   "rowsOverlapping": 0,
+   "scrollTop": 738,
+   "atBottom": true,
+   "scrollable": true,
+   "sources": [
+    {
+     "t": "Esta sesión",
+     "w": 140,
+     "h": 56,
+     "lines": 3.1,
+     "font": "18px",
+     "pressedBg": "rgb(29, 95, 181)"
+    },
+    {
+     "t": "Servidor",
+     "w": 140,
+     "h": 56,
+     "lines": 3.1,
+     "font": "18px",
+     "pressedBg": null
+    }
+   ],
+   "filters": [
+    {
+     "t": "Todos",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(29, 95, 181)",
+     "img": false,
+     "fgRatio": 5.52
+    },
+    {
+     "t": "Orden",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(226, 231, 235)",
+     "img": false,
+     "fgRatio": 14.65
+    },
+    {
+     "t": "Estado",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(226, 231, 235)",
+     "img": false,
+     "fgRatio": 14.65
+    },
+    {
+     "t": "Conexión",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(226, 231, 235)",
+     "img": false,
+     "fgRatio": 14.65
+    }
+   ],
+   "readOnly": {
+    "border": "0px",
+    "padding": "0px",
+    "font": "16px",
+    "ratio": 7.69
+   },
+   "intro": "none",
+   "badges": [
+    {
+     "state": "confirmed",
+     "cat": "state",
+     "t": "Alarma",
+     "ratio": 14.65,
+     "font": "16px"
+    },
+    {
+     "state": "sent",
+     "cat": "command",
+     "t": "Enviada",
+     "ratio": 14.65,
+     "font": "16px"
+    },
+    {
+     "state": "confirmed",
+     "cat": "command",
+     "t": "Confirmada",
+     "ratio": 7.49,
+     "font": "16px"
+    },
+    {
+     "state": "refused",
+     "cat": "command",
+     "t": "Rechazada",
+     "ratio": 7.8,
+     "font": "16px"
+    },
+    {
+     "state": "uncertain",
+     "cat": "command",
+     "t": "Incierta",
+     "ratio": 7.62,
+     "font": "16px"
+    }
+   ],
+   "times": [
+    {
+     "t": "18:12:09",
+     "w": 96,
+     "lines": 1
+    },
+    {
+     "t": "18:12:09",
+     "w": 96,
+     "lines": 1
+    },
+    {
+     "t": "18:12:09",
+     "w": 96,
+     "lines": 1
+    }
+   ],
+   "rowFont": "17px",
+   "messageLinesMax": 2,
+   "toneAlarm": [
+    "rgb(165, 29, 25)"
+   ],
+   "empty": null
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v2-911-es-clair-cnc-hors-ligne-avant.html": {
+  "perfV2": true,
+  "v2": {
+   "rows": 21,
+   "minStep": 26.8,
+   "minRowH": 56,
+   "rowsOverlapping": 0,
+   "scrollTop": 0,
+   "atBottom": false,
+   "scrollable": true,
+   "sources": [
+    {
+     "t": "Esta sesión",
+     "w": 104.9,
+     "h": 56,
+     "lines": 3.1,
+     "font": "18px",
+     "pressedBg": "rgb(226, 231, 235)"
+    },
+    {
+     "t": "Servidor",
+     "w": 104.9,
+     "h": 56,
+     "lines": 3.1,
+     "font": "18px",
+     "pressedBg": null
+    }
+   ],
+   "filters": [
+    {
+     "t": "Todos",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(226, 231, 235)",
+     "img": false,
+     "fgRatio": 14.65
+    },
+    {
+     "t": "Orden",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(226, 231, 235)",
+     "img": false,
+     "fgRatio": 14.65
+    },
+    {
+     "t": "Estado",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(226, 231, 235)",
+     "img": false,
+     "fgRatio": 14.65
+    },
+    {
+     "t": "Conexión",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(226, 231, 235)",
+     "img": false,
+     "fgRatio": 14.65
+    }
+   ],
+   "readOnly": {
+    "border": "1px",
+    "padding": "8px",
+    "font": "16px",
+    "ratio": 7.69
+   },
+   "intro": "block",
+   "badges": [
+    {
+     "state": "sent",
+     "cat": "command",
+     "t": "Enviada",
+     "ratio": 14.65,
+     "font": "16px"
+    },
+    {
+     "state": "confirmed",
+     "cat": "command",
+     "t": "Confirmada",
+     "ratio": 7.49,
+     "font": "16px"
+    },
+    {
+     "state": "refused",
+     "cat": "command",
+     "t": "Rechazada",
+     "ratio": 6.05,
+     "font": "16px"
+    },
+    {
+     "state": "uncertain",
+     "cat": "command",
+     "t": "Incierta",
+     "ratio": 3.68,
+     "font": "16px"
+    }
+   ],
+   "times": [
+    {
+     "t": "18:12:09",
+     "w": 96,
+     "lines": 1
+    },
+    {
+     "t": "18:12:09",
+     "w": 96,
+     "lines": 1
+    },
+    {
+     "t": "18:12:09",
+     "w": 96,
+     "lines": 1
+    }
+   ],
+   "rowFont": "17px",
+   "messageLinesMax": 2,
+   "toneAlarm": [],
+   "empty": null
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v2-911-es-sombre-cnc-agrandi-alarme-apres.html": {
+  "perfV2": true,
+  "v2": {
+   "rows": 11,
+   "minStep": 62,
+   "minRowH": 56,
+   "rowsOverlapping": 0,
+   "scrollTop": 118,
+   "atBottom": true,
+   "scrollable": true,
+   "sources": [
+    {
+     "t": "Esta sesión",
+     "w": 140,
+     "h": 56,
+     "lines": 2.8,
+     "font": "20px",
+     "pressedBg": "rgb(142, 203, 255)"
+    },
+    {
+     "t": "Servidor",
+     "w": 140,
+     "h": 56,
+     "lines": 2.8,
+     "font": "20px",
+     "pressedBg": null
+    }
+   ],
+   "filters": [
+    {
+     "t": "Todos",
+     "h": 56,
+     "font": "20px",
+     "disabled": false,
+     "bg": "rgb(142, 203, 255)",
+     "img": false,
+     "fgRatio": 10.73
+    },
+    {
+     "t": "Orden",
+     "h": 56,
+     "font": "20px",
+     "disabled": false,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    },
+    {
+     "t": "Estado",
+     "h": 56,
+     "font": "20px",
+     "disabled": false,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    },
+    {
+     "t": "Conexión",
+     "h": 56,
+     "font": "20px",
+     "disabled": false,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    }
+   ],
+   "readOnly": {
+    "border": "0px",
+    "padding": "0px",
+    "font": "18px",
+    "ratio": 9.14
+   },
+   "intro": "none",
+   "badges": [
+    {
+     "state": "confirmed",
+     "cat": "state",
+     "t": "Alarma",
+     "ratio": 12.55,
+     "font": "18px"
+    }
+   ],
+   "times": [
+    {
+     "t": "18:12:28",
+     "w": 96,
+     "lines": 1
+    },
+    {
+     "t": "18:12:28",
+     "w": 96,
+     "lines": 1
+    },
+    {
+     "t": "18:12:28",
+     "w": 96,
+     "lines": 1
+    }
+   ],
+   "rowFont": "19px",
+   "messageLinesMax": 1.9,
+   "toneAlarm": [
+    "rgb(165, 29, 25)"
+   ],
+   "empty": null
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v2-911-es-sombre-cnc-agrandi-alarme-avant.html": {
+  "perfV2": true,
+  "v2": {
+   "rows": 11,
+   "minStep": 50.6,
+   "minRowH": 56,
+   "rowsOverlapping": 0,
+   "scrollTop": 0,
+   "atBottom": false,
+   "scrollable": true,
+   "sources": [
+    {
+     "t": "Esta sesión",
+     "w": 104.9,
+     "h": 56,
+     "lines": 3.1,
+     "font": "18px",
+     "pressedBg": "rgb(34, 45, 54)"
+    },
+    {
+     "t": "Servidor",
+     "w": 104.9,
+     "h": 56,
+     "lines": 3.1,
+     "font": "18px",
+     "pressedBg": null
+    }
+   ],
+   "filters": [
+    {
+     "t": "Todos",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    },
+    {
+     "t": "Orden",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    },
+    {
+     "t": "Estado",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    },
+    {
+     "t": "Conexión",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    }
+   ],
+   "readOnly": {
+    "border": "1px",
+    "padding": "8px",
+    "font": "16px",
+    "ratio": 9.14
+   },
+   "intro": "block",
+   "badges": [],
+   "times": [
+    {
+     "t": "18:12:28",
+     "w": 96,
+     "lines": 1
+    },
+    {
+     "t": "18:12:28",
+     "w": 96,
+     "lines": 1
+    },
+    {
+     "t": "18:12:28",
+     "w": 96,
+     "lines": 1
+    }
+   ],
+   "rowFont": "17px",
+   "messageLinesMax": 2,
+   "toneAlarm": [],
+   "empty": null
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v2-911-fr-sombre-cnc-hors-ligne-apres.html": {
+  "perfV2": true,
+  "v2": {
+   "rows": 18,
+   "minStep": 62,
+   "minRowH": 56,
+   "rowsOverlapping": 0,
+   "scrollTop": 552,
+   "atBottom": true,
+   "scrollable": true,
+   "sources": [
+    {
+     "t": "Cette session",
+     "w": 140,
+     "h": 56,
+     "lines": 3.1,
+     "font": "18px",
+     "pressedBg": "rgb(142, 203, 255)"
+    },
+    {
+     "t": "Serveur",
+     "w": 140,
+     "h": 56,
+     "lines": 3.1,
+     "font": "18px",
+     "pressedBg": null
+    }
+   ],
+   "filters": [
+    {
+     "t": "Tous",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(142, 203, 255)",
+     "img": false,
+     "fgRatio": 10.73
+    },
+    {
+     "t": "Commande",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    },
+    {
+     "t": "État",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    },
+    {
+     "t": "Connexion",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    }
+   ],
+   "readOnly": {
+    "border": "0px",
+    "padding": "0px",
+    "font": "16px",
+    "ratio": 9.14
+   },
+   "intro": "none",
+   "badges": [
+    {
+     "state": "sent",
+     "cat": "command",
+     "t": "Envoyée",
+     "ratio": 12.55,
+     "font": "16px"
+    },
+    {
+     "state": "confirmed",
+     "cat": "state",
+     "t": "Alarme",
+     "ratio": 12.55,
+     "font": "16px"
+    }
+   ],
+   "times": [
+    {
+     "t": "18:08:57",
+     "w": 96,
+     "lines": 1
+    },
+    {
+     "t": "18:08:57",
+     "w": 96,
+     "lines": 1
+    },
+    {
+     "t": "18:08:57",
+     "w": 96,
+     "lines": 1
+    }
+   ],
+   "rowFont": "17px",
+   "messageLinesMax": 1,
+   "toneAlarm": [
+    "rgb(165, 29, 25)"
+   ],
+   "empty": null
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v2-911-fr-sombre-cnc-hors-ligne-avant.html": {
+  "perfV2": true,
+  "v2": {
+   "rows": 18,
+   "minStep": 31.3,
+   "minRowH": 56,
+   "rowsOverlapping": 0,
+   "scrollTop": 0,
+   "atBottom": false,
+   "scrollable": true,
+   "sources": [
+    {
+     "t": "Cette session",
+     "w": 110.7,
+     "h": 56,
+     "lines": 3.1,
+     "font": "18px",
+     "pressedBg": "rgb(34, 45, 54)"
+    },
+    {
+     "t": "Serveur",
+     "w": 110.7,
+     "h": 56,
+     "lines": 3.1,
+     "font": "18px",
+     "pressedBg": null
+    }
+   ],
+   "filters": [
+    {
+     "t": "Tous",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    },
+    {
+     "t": "Commande",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    },
+    {
+     "t": "État",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    },
+    {
+     "t": "Connexion",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    }
+   ],
+   "readOnly": {
+    "border": "1px",
+    "padding": "8px",
+    "font": "16px",
+    "ratio": 9.14
+   },
+   "intro": "block",
+   "badges": [
+    {
+     "state": "sent",
+     "cat": "command",
+     "t": "Envoyée",
+     "ratio": 12.55,
+     "font": "16px"
+    }
+   ],
+   "times": [
+    {
+     "t": "18:08:57",
+     "w": 96,
+     "lines": 1
+    },
+    {
+     "t": "18:08:57",
+     "w": 96,
+     "lines": 1
+    },
+    {
+     "t": "18:08:57",
+     "w": 96,
+     "lines": 1
+    }
+   ],
+   "rowFont": "17px",
+   "messageLinesMax": 1,
+   "toneAlarm": [],
+   "empty": null
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v2-911-fr-sombre-cnc-pause-apres.html": {
+  "perfV2": true,
+  "v2": {
+   "rows": 18,
+   "minStep": 62,
+   "minRowH": 56,
+   "rowsOverlapping": 0,
+   "scrollTop": 552,
+   "atBottom": true,
+   "scrollable": true,
+   "sources": [
+    {
+     "t": "Cette session",
+     "w": 140,
+     "h": 56,
+     "lines": 3.1,
+     "font": "18px",
+     "pressedBg": "rgb(142, 203, 255)"
+    },
+    {
+     "t": "Serveur",
+     "w": 140,
+     "h": 56,
+     "lines": 3.1,
+     "font": "18px",
+     "pressedBg": null
+    }
+   ],
+   "filters": [
+    {
+     "t": "Tous",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(142, 203, 255)",
+     "img": false,
+     "fgRatio": 10.73
+    },
+    {
+     "t": "Commande",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    },
+    {
+     "t": "État",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    },
+    {
+     "t": "Connexion",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    }
+   ],
+   "readOnly": {
+    "border": "0px",
+    "padding": "0px",
+    "font": "16px",
+    "ratio": 9.14
+   },
+   "intro": "none",
+   "badges": [
+    {
+     "state": "sent",
+     "cat": "command",
+     "t": "Envoyée",
+     "ratio": 12.55,
+     "font": "16px"
+    },
+    {
+     "state": "confirmed",
+     "cat": "command",
+     "t": "Confirmée",
+     "ratio": 8.65,
+     "font": "16px"
+    },
+    {
+     "state": "refused",
+     "cat": "command",
+     "t": "Refusée",
+     "ratio": 6.15,
+     "font": "16px"
+    },
+    {
+     "state": "uncertain",
+     "cat": "command",
+     "t": "Incertaine",
+     "ratio": 9.12,
+     "font": "16px"
+    },
+    {
+     "state": "sent",
+     "cat": "command",
+     "t": "Envoyée",
+     "ratio": 12.55,
+     "font": "16px"
+    }
+   ],
+   "times": [
+    {
+     "t": "18:08:57",
+     "w": 96,
+     "lines": 1
+    },
+    {
+     "t": "18:08:57",
+     "w": 96,
+     "lines": 1
+    },
+    {
+     "t": "18:08:57",
+     "w": 96,
+     "lines": 1
+    }
+   ],
+   "rowFont": "17px",
+   "messageLinesMax": 2,
+   "toneAlarm": [],
+   "empty": null
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v2-911-fr-sombre-cnc-pause-avant.html": {
+  "perfV2": true,
+  "v2": {
+   "rows": 18,
+   "minStep": 31.3,
+   "minRowH": 56,
+   "rowsOverlapping": 0,
+   "scrollTop": 0,
+   "atBottom": false,
+   "scrollable": true,
+   "sources": [
+    {
+     "t": "Cette session",
+     "w": 110.7,
+     "h": 56,
+     "lines": 3.1,
+     "font": "18px",
+     "pressedBg": "rgb(34, 45, 54)"
+    },
+    {
+     "t": "Serveur",
+     "w": 110.7,
+     "h": 56,
+     "lines": 3.1,
+     "font": "18px",
+     "pressedBg": null
+    }
+   ],
+   "filters": [
+    {
+     "t": "Tous",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    },
+    {
+     "t": "Commande",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    },
+    {
+     "t": "État",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    },
+    {
+     "t": "Connexion",
+     "h": 56,
+     "font": "18px",
+     "disabled": false,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    }
+   ],
+   "readOnly": {
+    "border": "1px",
+    "padding": "8px",
+    "font": "16px",
+    "ratio": 9.14
+   },
+   "intro": "block",
+   "badges": [
+    {
+     "state": "sent",
+     "cat": "command",
+     "t": "Envoyée",
+     "ratio": 12.55,
+     "font": "16px"
+    },
+    {
+     "state": "confirmed",
+     "cat": "command",
+     "t": "Confirmée",
+     "ratio": 8.65,
+     "font": "16px"
+    },
+    {
+     "state": "refused",
+     "cat": "command",
+     "t": "Refusée",
+     "ratio": 1.86,
+     "font": "16px"
+    },
+    {
+     "state": "uncertain",
+     "cat": "command",
+     "t": "Incertaine",
+     "ratio": 7.39,
+     "font": "16px"
+    },
+    {
+     "state": "sent",
+     "cat": "command",
+     "t": "Envoyée",
+     "ratio": 12.55,
+     "font": "16px"
+    }
+   ],
+   "times": [
+    {
+     "t": "18:08:57",
+     "w": 96,
+     "lines": 1
+    },
+    {
+     "t": "18:08:57",
+     "w": 96,
+     "lines": 1
+    },
+    {
+     "t": "18:08:57",
+     "w": 96,
+     "lines": 1
+    }
+   ],
+   "rowFont": "17px",
+   "messageLinesMax": 2,
+   "toneAlarm": [],
+   "empty": null
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v2-911-fr-sombre-cnc-serveur-apres.html": {
+  "perfV2": true,
+  "v2": {
+   "rows": 6,
+   "minStep": 62,
+   "minRowH": 56,
+   "rowsOverlapping": 0,
+   "scrollTop": 0,
+   "atBottom": true,
+   "scrollable": false,
+   "sources": [
+    {
+     "t": "Cette session",
+     "w": 140,
+     "h": 56,
+     "lines": 3.1,
+     "font": "18px",
+     "pressedBg": null
+    },
+    {
+     "t": "Serveur",
+     "w": 140,
+     "h": 56,
+     "lines": 3.1,
+     "font": "18px",
+     "pressedBg": "rgb(142, 203, 255)"
+    }
+   ],
+   "filters": [
+    {
+     "t": "Tous",
+     "h": 56,
+     "font": "18px",
+     "disabled": true,
+     "bg": "rgb(27, 36, 43)",
+     "img": true,
+     "fgRatio": 5.31
+    },
+    {
+     "t": "Commande",
+     "h": 56,
+     "font": "18px",
+     "disabled": true,
+     "bg": "rgb(27, 36, 43)",
+     "img": true,
+     "fgRatio": 5.31
+    },
+    {
+     "t": "État",
+     "h": 56,
+     "font": "18px",
+     "disabled": true,
+     "bg": "rgb(27, 36, 43)",
+     "img": true,
+     "fgRatio": 5.31
+    },
+    {
+     "t": "Connexion",
+     "h": 56,
+     "font": "18px",
+     "disabled": true,
+     "bg": "rgb(27, 36, 43)",
+     "img": true,
+     "fgRatio": 5.31
+    }
+   ],
+   "readOnly": {
+    "border": "0px",
+    "padding": "0px",
+    "font": "16px",
+    "ratio": 9.14
+   },
+   "intro": "none",
+   "badges": [
+    {
+     "state": "confirmed",
+     "cat": "command",
+     "t": "Serveur CNCjs",
+     "ratio": 8.65,
+     "font": "16px"
+    },
+    {
+     "state": "confirmed",
+     "cat": "command",
+     "t": "Serveur CNCjs",
+     "ratio": 8.65,
+     "font": "16px"
+    },
+    {
+     "state": "confirmed",
+     "cat": "command",
+     "t": "Serveur CNCjs",
+     "ratio": 8.65,
+     "font": "16px"
+    },
+    {
+     "state": "confirmed",
+     "cat": "command",
+     "t": "Serveur CNCjs",
+     "ratio": 8.65,
+     "font": "16px"
+    },
+    {
+     "state": "confirmed",
+     "cat": "command",
+     "t": "Serveur CNCjs",
+     "ratio": 8.65,
+     "font": "16px"
+    }
+   ],
+   "times": [
+    {
+     "t": "08/11/2026 17:48:20",
+     "w": 156,
+     "lines": 1
+    },
+    {
+     "t": "08/11/2026 17:55:20",
+     "w": 156,
+     "lines": 1
+    },
+    {
+     "t": "08/11/2026 18:00:20",
+     "w": 156,
+     "lines": 1
+    }
+   ],
+   "rowFont": "17px",
+   "messageLinesMax": 1,
+   "toneAlarm": [],
+   "empty": null
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v2-911-fr-sombre-cnc-serveur-avant.html": {
+  "perfV2": true,
+  "v2": {
+   "rows": 8,
+   "minStep": 62,
+   "minRowH": 56,
+   "rowsOverlapping": 0,
+   "scrollTop": 0,
+   "atBottom": true,
+   "scrollable": false,
+   "sources": [
+    {
+     "t": "Cette session",
+     "w": 110.7,
+     "h": 56,
+     "lines": 3.1,
+     "font": "18px",
+     "pressedBg": null
+    },
+    {
+     "t": "Serveur",
+     "w": 110.7,
+     "h": 56,
+     "lines": 3.1,
+     "font": "18px",
+     "pressedBg": "rgb(34, 45, 54)"
+    }
+   ],
+   "filters": [
+    {
+     "t": "Tous",
+     "h": 56,
+     "font": "18px",
+     "disabled": true,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    },
+    {
+     "t": "Commande",
+     "h": 56,
+     "font": "18px",
+     "disabled": true,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    },
+    {
+     "t": "État",
+     "h": 56,
+     "font": "18px",
+     "disabled": true,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    },
+    {
+     "t": "Connexion",
+     "h": 56,
+     "font": "18px",
+     "disabled": true,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    }
+   ],
+   "readOnly": {
+    "border": "1px",
+    "padding": "8px",
+    "font": "16px",
+    "ratio": 9.14
+   },
+   "intro": "block",
+   "badges": [
+    {
+     "state": "confirmed",
+     "cat": "command",
+     "t": "Serveur CNCjs",
+     "ratio": 8.65,
+     "font": "16px"
+    },
+    {
+     "state": "confirmed",
+     "cat": "command",
+     "t": "Serveur CNCjs",
+     "ratio": 8.65,
+     "font": "16px"
+    },
+    {
+     "state": "confirmed",
+     "cat": "command",
+     "t": "Serveur CNCjs",
+     "ratio": 8.65,
+     "font": "16px"
+    },
+    {
+     "state": "confirmed",
+     "cat": "command",
+     "t": "Serveur CNCjs",
+     "ratio": 8.65,
+     "font": "16px"
+    },
+    {
+     "state": "confirmed",
+     "cat": "command",
+     "t": "Serveur CNCjs",
+     "ratio": 8.65,
+     "font": "16px"
+    },
+    {
+     "state": "confirmed",
+     "cat": "command",
+     "t": "Serveur CNCjs",
+     "ratio": 8.65,
+     "font": "16px"
+    },
+    {
+     "state": "confirmed",
+     "cat": "command",
+     "t": "Serveur CNCjs",
+     "ratio": 8.65,
+     "font": "16px"
+    }
+   ],
+   "times": [
+    {
+     "t": "08/11/2026 17:29:20",
+     "w": 96,
+     "lines": 2
+    },
+    {
+     "t": "08/11/2026 17:46:20",
+     "w": 96,
+     "lines": 2
+    },
+    {
+     "t": "08/11/2026 17:48:20",
+     "w": 96,
+     "lines": 2
+    }
+   ],
+   "rowFont": "17px",
+   "messageLinesMax": 1,
+   "toneAlarm": [],
+   "empty": null
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v2-911-fr-sombre-cnc-serveur-erreur-apres.html": {
+  "perfV2": true,
+  "v2": {
+   "rows": 1,
+   "minStep": null,
+   "minRowH": null,
+   "rowsOverlapping": 0,
+   "scrollTop": 0,
+   "atBottom": true,
+   "scrollable": false,
+   "sources": [
+    {
+     "t": "Cette session",
+     "w": 140,
+     "h": 56,
+     "lines": 3.1,
+     "font": "18px",
+     "pressedBg": null
+    },
+    {
+     "t": "Serveur",
+     "w": 140,
+     "h": 56,
+     "lines": 3.1,
+     "font": "18px",
+     "pressedBg": "rgb(142, 203, 255)"
+    }
+   ],
+   "filters": [
+    {
+     "t": "Tous",
+     "h": 56,
+     "font": "18px",
+     "disabled": true,
+     "bg": "rgb(27, 36, 43)",
+     "img": true,
+     "fgRatio": 5.31
+    },
+    {
+     "t": "Commande",
+     "h": 56,
+     "font": "18px",
+     "disabled": true,
+     "bg": "rgb(27, 36, 43)",
+     "img": true,
+     "fgRatio": 5.31
+    },
+    {
+     "t": "État",
+     "h": 56,
+     "font": "18px",
+     "disabled": true,
+     "bg": "rgb(27, 36, 43)",
+     "img": true,
+     "fgRatio": 5.31
+    },
+    {
+     "t": "Connexion",
+     "h": 56,
+     "font": "18px",
+     "disabled": true,
+     "bg": "rgb(27, 36, 43)",
+     "img": true,
+     "fgRatio": 5.31
+    }
+   ],
+   "readOnly": {
+    "border": "0px",
+    "padding": "0px",
+    "font": "16px",
+    "ratio": 9.14
+   },
+   "intro": "none",
+   "badges": [],
+   "times": [
+    null
+   ],
+   "rowFont": null,
+   "messageLinesMax": 0,
+   "toneAlarm": [],
+   "empty": {
+    "h": 27,
+    "padding": "0px"
+   }
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ },
+ "v2-911-fr-sombre-cnc-serveur-erreur-avant.html": {
+  "perfV2": true,
+  "v2": {
+   "rows": 1,
+   "minStep": null,
+   "minRowH": null,
+   "rowsOverlapping": 0,
+   "scrollTop": 0,
+   "atBottom": true,
+   "scrollable": false,
+   "sources": [
+    {
+     "t": "Cette session",
+     "w": 110.7,
+     "h": 56,
+     "lines": 3.1,
+     "font": "18px",
+     "pressedBg": null
+    },
+    {
+     "t": "Serveur",
+     "w": 110.7,
+     "h": 56,
+     "lines": 3.1,
+     "font": "18px",
+     "pressedBg": "rgb(34, 45, 54)"
+    }
+   ],
+   "filters": [
+    {
+     "t": "Tous",
+     "h": 56,
+     "font": "18px",
+     "disabled": true,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    },
+    {
+     "t": "Commande",
+     "h": 56,
+     "font": "18px",
+     "disabled": true,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    },
+    {
+     "t": "État",
+     "h": 56,
+     "font": "18px",
+     "disabled": true,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    },
+    {
+     "t": "Connexion",
+     "h": 56,
+     "font": "18px",
+     "disabled": true,
+     "bg": "rgb(34, 45, 54)",
+     "img": false,
+     "fgRatio": 12.55
+    }
+   ],
+   "readOnly": {
+    "border": "1px",
+    "padding": "8px",
+    "font": "16px",
+    "ratio": 9.14
+   },
+   "intro": "block",
+   "badges": [],
+   "times": [
+    null
+   ],
+   "rowFont": null,
+   "messageLinesMax": 0,
+   "toneAlarm": [],
+   "empty": {
+    "h": 27,
+    "padding": "0px"
+   }
+  },
+  "minTarget": 48,
+  "hOverflow": false
+ }
+}

@@ -97,11 +97,14 @@ const FILE_MESSAGES = {
 //   log(event)              durable job history (F4)
 //   jobInfo(job), controllerInfo(c, r)  what the history keeps of a job, a controller
 //   machineForCheck(c, r)   what the travel check (F2) needs from the machine now
+//   resumeMode(c)           'cnc' or 'laser' from the machine profile, or throws a coded refusal
+//                           (laser profile without $32=1, $32=1 without a laser profile)
 // Returns { sameFileAsLoaded(job), resumePlan(c, body), checkFile(c, body), load(c, r, body, actor) }.
 export const createLoader = (deps) => {
   const {
     files, config, conflict, available, idle, hasAutomations, record, changed, log, jobInfo, controllerInfo, machineForCheck
   } = deps;
+  const resumeMode = deps.resumeMode || (() => 'cnc');
 
   const fileConflict = (err) => {
     const message = err && FILE_MESSAGES[err.code];
@@ -148,14 +151,32 @@ export const createLoader = (deps) => {
     }
   };
 
-  // What a resume from a line would send, without loading anything.
+  // What a resume from a line would send, without loading anything. The
+  // preview is exactly the preamble the load sends before line `fromLine` of
+  // the same file (fingerprint): the tablet draws it, it never recomputes it.
   const resumePlan = async (c, body) => {
     available(c);
     validName(body.file);
-    const { text: gcode } = await readProgram(body.file);
-    const plan = buildResume(gcode, Number(body.line), { name: body.file.replace(/--touch-\d{14}-[a-f0-9]{16}(?=\.[^.]+$)/, '') });
+    const mode = resumeMode(c);
+    const { text: gcode, fingerprint } = await readProgram(body.file);
+    const plan = buildResume(gcode, Number(body.line), { name: body.file.replace(/--touch-\d{14}-[a-f0-9]{16}(?=\.[^.]+$)/, ''), mode });
+    const r = record(c);
     const summary = { ...plan };
     delete summary.program;
+    summary.preview = { version: 1, fingerprint, fromLine: plan.from, preamble: plan.preamble.slice(), kind: plan.mode };
+    // D1: the travel check of the program the resume would send, preamble included; its start
+    // goes through the same refusal as any start.
+    summary.programCheck = checkProgram(analyzeProgram(plan.program), machineForCheck(c, r));
+    // The plan the operator saw: "Charger la reprise" of the same file and line
+    // must rebuild it from the same program (E9). One plan per tracking
+    // connection: another screen's "Vérifier" does not replace it (phase 7).
+    const checked = r.resumeChecked || (r.resumeChecked = new Map());
+    const key = typeof body.transportId === 'string' ? body.transportId : '';
+    checked.delete(key);
+    checked.set(key, { file: body.file, line: Number(body.line), fingerprint });
+    if (checked.size > 16) {
+      checked.delete(checked.keys().next().value);
+    }
     return summary;
   };
 
@@ -190,7 +211,11 @@ export const createLoader = (deps) => {
       let program = gcode;
       let resume = null;
       if (body.fromLine !== undefined && body.fromLine !== null) {
-        const plan = buildResume(gcode, Number(body.fromLine), { name: originalName });
+        const checked = r.resumeChecked && r.resumeChecked.get(typeof body.transportId === 'string' ? body.transportId : '');
+        if (checked && checked.file === body.file && checked.line === Number(body.fromLine) && !sameProgram(checked.fingerprint, fingerprint)) {
+          throw conflict('Fichier modifié depuis « Vérifier » : vérifiez à nouveau la reprise.');
+        }
+        const plan = buildResume(gcode, Number(body.fromLine), { name: originalName, mode: resumeMode(c) });
         program = plan.program;
         resume = {
           from: plan.from,
@@ -201,7 +226,8 @@ toolChanged: plan.toolChanged,
           spindle: plan.spindle,
 coolant: plan.coolant,
 preambleLength: plan.preamble.length,
-notes: plan.notes
+notes: plan.notes,
+mode: plan.mode
         };
       }
       const revision = crypto.randomBytes(20).toString('hex');
@@ -232,6 +258,10 @@ notes: plan.notes
         startActor: null,
         resume
       };
+      // C-59: only the rebuilt preamble can set G94 before its first move. A G94 later in the
+      // original program does not protect that preamble from an inherited G93 on the board.
+      r.job.resumeFeedMode = !resume || program.split('\n').slice(0, resume.preambleLength)
+        .some((line) => /G0*94(?![\d.])/.test(codeOf(line).replace(/\s/g, '')));
       log({ event: 'load', ...jobInfo(r.job), controller: controllerInfo(c, r), actor: actor || null });
       return { message: resume ? 'Reprise à la ligne ' + resume.from + ' chargée dans CNCjs. Aucun démarrage envoyé.' : 'Fichier chargé dans CNCjs. Aucun démarrage envoyé.' };
     } finally {

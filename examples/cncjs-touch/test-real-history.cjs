@@ -15,6 +15,35 @@ const api=context.cncSessionJournal,j=api.create(()=>Date.UTC(2026,9,14,12));
  assert.equal(compactJournal.report().events.filter(e=>e.kind==='connection').length,2);
 }
 const machine={port:'/dev/test',fresh:true,name:'part.gcode',originalName:'Pièce.gcode',revision:'one',activeState:'Idle',workflow:'idle',token:'SECRET',nonce:'SECRET',settings:{secret:'SECRET'}};
+// Lot Journal (m8, m9, m10): a page of 6 at 1366 x 768 (touch-shell.js), the Erreurs filter keeps only losses,
+// an alarm state is drawn red (data-tone, display only).
+{
+ const {document:doc,nodes,activeScreens:screens,element}=require('./dom-fixture.cjs').createDOM(['history']);
+ const all=element('button'),errors=element('button'),alarms=element('button'),h={};
+ all.setAttribute('data-history-filter','all');errors.setAttribute('data-history-filter','errors');alarms.setAttribute('data-history-filter','alarms');
+ doc.querySelectorAll=s=>s==='[data-history-filter]'?[all,errors,alarms]:[];
+ const journal=api.create(),win={cncSessionJournal:{create:()=>journal},addEventListener(n,f){h[n]=f;}};
+ vm.runInNewContext(fs.readFileSync(__dirname+'/touch/real-history.js','utf8'),{document:doc,window:win,Blob,Date});
+ const m={port:'/dev/t',fresh:true,name:'a.nc',originalName:'a.nc',revision:'1',generation:'g1',activeState:'Idle',workflow:'idle'};
+ const st=x=>h['cnc-job-status']({detail:{machine:x,simulation:false}});
+ st(m);st({...m,activeState:'Run',workflow:'running'});st({...m,activeState:'Alarm',workflow:'running'});st({...m,fresh:false});st(m);
+ st({...m,generation:'g2'});st({...m,activeState:'Hold',workflow:'paused'});st({...m,activeState:'Idle',workflow:'idle'});
+ const messages=()=>journal.report().events.map(e=>e.kind+':'+e.message);
+ assert(messages().some(x=>/^availability:.*disponible/.test(x)&&!/indisponible/.test(x)),'a « Suivi … disponible » event: '+messages().join(' | '));
+ assert(messages().some(x=>/^availability:Nouvelle instance/.test(x)),'a new instance event');
+ h['cnc-screen-change']({detail:'history'});
+ const list=nodes['real-history-list'],titles=()=>list.children.map(li=>li.children[0].textContent);
+ assert(journal.report().events.length>=7,'more than a page of 6');
+ h['cnc-history-page-size']({detail:6});assert.equal(list.children.length,6,'a page of 6 events');const total=journal.report().events.length;assert.equal(nodes['real-history-page'].textContent,'Page 1 / '+Math.ceil(total/6)+' · '+total+' événements');
+ errors.handlers.click();
+ assert(titles().length>=1&&titles().every(t=>/indisponible/.test(t)),'Erreurs: losses only, not « disponible » nor a new instance: '+titles().join(' | '));
+ alarms.handlers.click();assert.equal(titles().length,1);assert.match(titles()[0],/Alarm/);
+ assert.equal(list.children[0].getAttribute('data-tone'),'alarm','an alarm state is drawn red');
+ all.handlers.click();
+ const tones=list.children.map(li=>li.getAttribute('data-tone')),alarmRow=list.children.findIndex(li=>/Alarm\b/.test(li.children[0].textContent)&&li.getAttribute('data-kind')==='state');
+ assert(tones.filter(t=>t==='alarm').length<=1&&tones.every((t,i)=>t===(i===alarmRow?'alarm':'')),'only the alarm row is red: '+tones.join(','));
+ screens.clear();
+}
 // Identical reports from a new CNCjs controller instance must start a new
 // baseline, including after a gap. Stale reports cannot change that identity.
 {
@@ -44,6 +73,12 @@ assert.match(api.text(j.report()),/en pause/);
 assert(j.observe({...machine,fresh:false}));assert(!j.observe(null));assert(!j.observe({...machine,fresh:false}));
 assert(j.observe(machine));assert.match(j.report().events.at(-1).message,/Journal ouvert/);
 assert(!JSON.stringify(j.report()).includes('SECRET'));
+// Performance v2 metadata (monotone time, loaded identity, command state) stays internal:
+// the export keeps exactly its v1 fields, even for a fingerprinted program.
+assert(j.observe({...machine,fingerprint:'sha256:private-fp',generation:'gen-x',revision:'r9'}));
+assert(j.report().events.every(e=>Object.keys(e).every(k=>['id','time','kind','message','port','file'].includes(k))));
+assert(!JSON.stringify(j.report()).includes('private-fp'));
+assert.equal(j.entries()[0].job.fingerprint,'sha256:private-fp');assert.equal(j.command('replay','x'),false,'only the four command states');
 assert(j.observe({...machine,revision:'two'}));assert.equal(j.report().events[0].message,'Fichier chargé dans CNCjs.');
 assert(j.observe({...machine,port:'/dev/other',revision:'two'}));
 assert(j.observe({...machine,name:'',originalName:'',revision:'',loading:true}));
@@ -70,10 +105,17 @@ ids['real-history-prev'].handlers.click();assert.match(ids['real-history-page'].
 activeScreens.clear();status({...machine,activeState:'Alarm'});const hiddenCount=stats.writes;
 socketHandlers.disconnect();socketHandlers.disconnect();assert.equal(stats.writes,hiddenCount);
 activeScreens.add('history');handlers['cnc-screen-change']({detail:'history'});assert(stats.writes>hiddenCount);
+const outcome={detail:{machine,simulation:false,feedbackState:'failed',feedback:'Refus détaillé de la commande.'}};
+activeScreens.clear();const hiddenFeedback=stats.writes;
+handlers['cnc-job-status'](outcome);handlers['cnc-job-status'](outcome);
+assert.equal(stats.writes,hiddenFeedback,'command feedback is stored without hidden DOM work in Eco');
+activeScreens.add('history');handlers['cnc-screen-change']({detail:'history'});
+assert.match(ids['real-history-list'].children[0].children[0].textContent,/Refus détaillé/);
 ids['real-export-json'].handlers.click();assert.match(download.name,/^cnc-journal-.*\.json$/);
 download.blob.text().then(content=>{
  const report=JSON.parse(content);assert.equal(report.mode,'interface-reelle');assert(!content.includes('SECRET'));
  assert.equal(report.events.filter(e=>e.kind==='connection'&&e.message.includes('indisponible')).length,1);
+ assert.equal(report.events.filter(e=>e.kind==='command'&&e.message==='Refus détaillé de la commande.').length,1,'Eco retains one command outcome in export');
  ids['real-export-text'].handlers.click();assert.match(download.name,/\.txt$/);
  console.log('PASS: real journal transitions, freshness, deduplication, 100-event cap, export whitelist, pagination, simulation isolation and zero hidden/unchanged repaint.');
 }).catch(e=>{console.error(e);process.exitCode=1;});

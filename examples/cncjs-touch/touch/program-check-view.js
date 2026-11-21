@@ -16,6 +16,8 @@
   // Coded reasons ({code, params, message}, ETOUCH_CHECK_*) in the interface language when the
   // server sends them; otherwise its French reasons, translated only when they are catalog phrases.
   function reasonsOf(check) {
+    var blocking = Array.isArray(check.blocking) ? check.blocking.filter(function (r) { return r && typeof r.message === 'string' && r.message; }) : [];
+    if (blocking.length) return blocking.map(function (r) { return uiLocale.format ? uiLocale.format(r.code, r.params, r.message) : msg(r.message); });
     var coded = Array.isArray(check.codedReasons) ? check.codedReasons.filter(function (r) { return r && typeof r === 'object' && typeof r.message === 'string' && r.message; }) : [];
     if (!coded.length || !uiLocale.format) return strings(check.reasons, 8);
     return coded.slice(0, 8).map(function (r) { return uiLocale.format(r.code, r.params, r.message.slice(0, 300)); });
@@ -54,6 +56,104 @@
     if (why.textContent) node.appendChild(why);
     return d;
   }
-  var api = { describe: describe, show: show };
+  // D1 uses usable-limit figures; snapshot and HTTP refusals share the code formatter.
+  function refusal(machine, operation) {
+    var r = machine && machine.refusals && machine.refusals[operation];
+    var fallback = machine && machine[operation + 'Reason'] || '';
+    var text = r && uiLocale.format ? uiLocale.format(r.code, r.params, fallback) : msg(fallback);
+    if (r && r.code === 'ETOUCH_START_OUTSIDE') {
+      var check = machine.programCheck;
+      var reasons = reasonsOf({ blocking: check && check.blocking && check.blocking.length ? check.blocking : r.reasons });
+      if (reasons.length) text += ' ' + reasons.join(' ');
+    }
+    return text;
+  }
+  function number(v) { return typeof v === 'number' && isFinite(v); }
+  function fmt(v) { if(typeof v==='string'&&v.trim())v=Number(v);return number(v) ? String(Math.round(v * 10) / 10).replace('.', uiLocale.language === 'en' ? '.' : ',') : '—'; }
+  function fill(s, values) { return t(s).replace(/\{(\w+)\}/g, function (_, k) { return values[k] === undefined ? '—' : values[k]; }); }
+  function blocks(check, axis) {
+    return (check && Array.isArray(check.blocking) ? check.blocking : []).filter(function (r) {
+      return !axis || (r.axis || r.params && r.params.axis || (/TOO_(LOW|HIGH)$/.test(r.code) ? 'Z' : '')) === axis;
+    });
+  }
+  function side(r) {
+    var p = r.params || r, axis = r.axis || p.axis || 'Z', sign = r.sign || p.sign;
+    return t(axis === 'X' ? sign === '+' ? 'à droite' : 'à gauche' : axis === 'Y' ? sign === '+' ? 'vers le fond' : 'vers l’avant' : r.code === 'ETOUCH_TRAVEL_TOO_HIGH' ? 'trop haut' : 'trop bas');
+  }
+  function overText(r, file) {
+    var p = r.params || r, values = { n: fmt(p.over), cote: side(r) };
+    return fill(r.code === 'ETOUCH_TRAVEL_TOO_LOW' ? file ? 'Descend {n} mm trop bas avec le zéro pièce actuel.' : 'descend {n} mm trop bas' : r.code === 'ETOUCH_TRAVEL_TOO_HIGH' ? file ? 'Monte {n} mm trop haut avec le zéro pièce actuel.' : 'monte {n} mm trop haut' : file ? 'Dépasse de {n} mm {cote} avec le zéro pièce actuel.' : 'dépasse de {n} mm {cote}', values);
+  }
+  function outside(check) { return !!(check && (check.verdict === 'outside' || AXES.some(function (a) { return check.axes && check.axes[a] && check.axes[a].verdict === 'outside'; }))); }
+  function fileVerdict(check) {
+    if (!check) return { text: t('Contrôle indisponible.'), remedy: 'retry' };
+    if (outside(check)) return { text: blocks(check).length ? overText(blocks(check)[0], true) : t('Le fichier dépasse la course de la machine.'), remedy: '' };
+    if (describe(check).verdict === 'validated') return { text: t('Tient dans la machine avec le zéro pièce actuel.'), remedy: '' };
+    var codes = (check.codedReasons || []).map(function (r) { return r.code; });
+    if (codes.indexOf('ETOUCH_CHECK_OFFSET_UNPROVEN') >= 0) return { text: t('Course pas encore vérifiée : la machine vérifie le zéro pièce.'), remedy: '' };
+    if (codes.indexOf('ETOUCH_CHECK_NOT_HOMED') >= 0) return { text: t('Course non vérifiée : origine machine pas prise.'), remedy: 'prise-origine' };
+    return { text: t('Course non vérifiable pour ce fichier.'), remedy: 'details' };
+  }
+  function axisLines(check) {
+    return AXES.map(function (axis) {
+      var a = check && check.axes && check.axes[axis], b = blocks(check, axis), word;
+      if (a && a.verdict === 'outside') word = '! ' + (b.length ? b.map(function (r) { return overText(r, false); }).join(' · ') : t('dépasse'));
+      else if (a && a.verdict === 'validated') {
+        var margin = a.usable && number(a.machineMin) && number(a.machineMax) ? Math.floor(Math.min(a.machineMin - a.usable.low, a.usable.high - a.machineMax)) : null;
+        word = '✓ ' + t('tient') + (margin === null ? '' : ' · ' + fill('marge {n} mm', { n: fmt(margin) }));
+      } else {
+        var why=a&&a.codedReasons&&a.codedReasons[0]||check&&check.codedReasons&&check.codedReasons[0],code=why&&why.code||'';
+        word='? '+t('non vérifié')+' · '+t(/OFFSET_UNPROVEN/.test(code)?'Zéro pièce non vérifié':/NOT_HOMED|HOMING_DIRECTION/.test(code)?'Origine machine pas prise':/TRAVEL_UNKNOWN|REPORT_UNITS|HOMING_SETTING/.test(code)?'Relisez les réglages.':code?'Course non vérifiable pour ce fichier.':'Données manquantes.');
+      }
+      return { axis: axis, verdict: a && a.verdict || 'unknown', text: axis + ' ' + word };
+    });
+  }
+  // SVG strings contain only finite numbers and escaped localised text. They never decide permission.
+  function escape(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); }
+  function drawing(check, plane, coordinates) {
+    var top = plane === 'top', axes = check && check.axes || {}, x = axes.X, y = axes.Y, z = axes.Z;
+    function known(a) { return !!(a && a.usable && number(a.usable.low) && number(a.usable.high) && a.usable.high > a.usable.low && number(a.machineMin) && number(a.machineMax) && (a.verdict === 'validated' || a.verdict === 'outside')); }
+    // Keep text in normal document flow, outside the plot. SVG text inherits the
+    // shell's stroke and cannot wrap safely near coincident zero/travel edges.
+    var captions = [], heading = '';
+    function label(s) { return '<p class="pc-label">' + escape(s) + '</p>'; }
+    function rect(px, py, w, h, cls) { return '<rect class="' + cls + '" x="' + px + '" y="' + py + '" width="' + Math.max(1, w) + '" height="' + Math.max(1, h) + '"/>'; }
+    var ready = top ? known(x) && known(y) : known(z), b = blocks(check), out = '';
+    if (!ready) {
+      out = rect(45, 70, 310, 260, 'pc-unknown');
+      heading = t(check ? 'non vérifié' : 'Aucun fichier chargé.');
+      var a = top ? x : z;
+      if (a && number(a.min) && number(a.max)) { out += rect(90, 160, 160, 90, 'pc-program'); captions.push(fmt(a.max - a.min) + ' mm'); }
+    } else if (top) {
+      var zx = number(x.min) ? x.machineMin - x.min : null, zy = number(y.min) ? y.machineMin - y.min : null;
+      var m = coordinates && coordinates.mpos,mx=m&&(typeof m.x==='string'&&m.x.trim()?Number(m.x):m.x),my=m&&(typeof m.y==='string'&&m.y.trim()?Number(m.y):m.y);
+      var tool = number(mx) && number(my);
+      var xmin = Math.min(x.usable.low, x.machineMin, zx === null ? x.usable.low : zx, tool ? mx : x.usable.low), xmax = Math.max(x.usable.high, x.machineMax, zx === null ? x.usable.high : zx, tool ? mx : x.usable.high), ymin = Math.min(y.usable.low, y.machineMin, zy === null ? y.usable.low : zy, tool ? my : y.usable.low), ymax = Math.max(y.usable.high, y.machineMax, zy === null ? y.usable.high : zy, tool ? my : y.usable.high);
+      var sx = 300 / Math.max(1, xmax - xmin), sy = 270 / Math.max(1, ymax - ymin), X = function (n) { return 50 + (n - xmin) * sx; }, Y = function (n) { return 340 - (n - ymin) * sy; };
+      out = rect(X(x.usable.low), Y(y.usable.high), (x.usable.high - x.usable.low) * sx, (y.usable.high - y.usable.low) * sy, 'pc-travel');
+      out += rect(X(x.machineMin), Y(y.machineMax), (x.machineMax - x.machineMin) * sx, (y.machineMax - y.machineMin) * sy, 'pc-program');
+      // Hatch only the portions beyond the usable machine rectangle.
+      if (x.machineMin < x.usable.low) out += rect(X(x.machineMin), Y(y.machineMax), (Math.min(x.machineMax, x.usable.low) - x.machineMin) * sx, (y.machineMax - y.machineMin) * sy, 'pc-over');
+      if (x.machineMax > x.usable.high) out += rect(X(Math.max(x.machineMin, x.usable.high)), Y(y.machineMax), (x.machineMax - Math.max(x.machineMin, x.usable.high)) * sx, (y.machineMax - y.machineMin) * sy, 'pc-over');
+      if (y.machineMin < y.usable.low) out += rect(X(x.machineMin), Y(Math.min(y.machineMax, y.usable.low)), (x.machineMax - x.machineMin) * sx, (Math.min(y.machineMax, y.usable.low) - y.machineMin) * sy, 'pc-over');
+      if (y.machineMax > y.usable.high) out += rect(X(x.machineMin), Y(y.machineMax), (x.machineMax - x.machineMin) * sx, (y.machineMax - Math.max(y.machineMin, y.usable.high)) * sy, 'pc-over');
+      heading = t('Course utilisable') + ' · ' + fmt(x.usable.high - x.usable.low) + ' × ' + fmt(y.usable.high - y.usable.low) + ' mm';
+      captions.push(t('Fichier') + ' · ' + fmt(x.max - x.min) + ' × ' + fmt(y.max - y.min) + ' mm');
+      if (zx !== null && zy !== null) { out += '<circle class="pc-origin" cx="' + X(zx) + '" cy="' + Y(zy) + '" r="4"/>'; captions.push('● ' + t('zéro pièce')); }
+      if (tool) { out += '<path class="pc-tool" d="M' + (X(mx) - 7) + ' ' + Y(my) + 'h14M' + X(mx) + ' ' + (Y(my) - 7) + 'v14"/>'; captions.push('+ ' + t('fraise')); }
+    } else {
+      var zero = number(z.min) ? z.machineMin - z.min : null, low = Math.min(z.usable.low, z.machineMin, zero === null ? z.usable.low : zero), high = Math.max(z.usable.high, z.machineMax, zero === null ? z.usable.high : zero), scale = 270 / Math.max(1, high - low), Z = function (n) { return 340 - (n - low) * scale; };
+      out = rect(65, Z(z.usable.high), 90, (z.usable.high - z.usable.low) * scale, 'pc-travel') + rect(85, Z(z.machineMax), 50, (z.machineMax - z.machineMin) * scale, 'pc-program');
+      if (z.machineMin < z.usable.low) out += rect(85, Z(Math.min(z.machineMax, z.usable.low)), 50, (Math.min(z.machineMax, z.usable.low) - z.machineMin) * scale, 'pc-over');
+      if (z.machineMax > z.usable.high) out += rect(85, Z(z.machineMax), 50, (z.machineMax - Math.max(z.machineMin, z.usable.high)) * scale, 'pc-over');
+      heading = t('haut de la course') + ' · ' + fmt(z.usable.high) + ' mm';
+      captions.push(t('plus bas possible') + ' · ' + fmt(z.usable.low) + ' mm');
+      if (zero !== null) { out += '<path class="pc-zero" d="M45 ' + Z(zero) + 'H160"/>'; captions.push(t('zéro Z') + ' · ' + fmt(zero) + ' mm'); }
+      captions.push(t('Profondeur sous le zéro') + ' · ' + fmt(Math.max(0, -(number(z.min) ? z.min : 0))) + ' mm');
+    }
+    b.filter(function (r) { return top ? (r.axis || r.params && r.params.axis) !== 'Z' && !/TOO_(LOW|HIGH)$/.test(r.code) : /TOO_(LOW|HIGH)$/.test(r.code); }).forEach(function (r) { captions.push(overText(r, false)); });
+    return '<div class="pc-diagram">' + label(heading) + '<svg class="pc-plot" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430 370" role="img" aria-label="' + escape(t(top ? 'Vue de dessus' : 'Vue de côté')) + '"><defs><pattern id="pc-hatch-' + plane + '" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M-2 2L2-2M0 8L8 0M6 10L10 6"/></pattern></defs><g data-plane="' + plane + '" data-verified="' + ready + '">' + out + '</g></svg><div class="pc-labels">' + captions.map(label).join('') + '</div></div>';
+  }
+  var api = { describe: describe, show: show, refusal: refusal, blocks: blocks, overText: overText, outside: outside, fileVerdict: fileVerdict, axisLines: axisLines, drawing: drawing, fmt: fmt };
   if (typeof module === 'object' && module.exports) module.exports = api; else root.CNCProgramCheckView = api;
 })(typeof window === 'object' ? window : this);

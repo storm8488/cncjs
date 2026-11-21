@@ -8,8 +8,30 @@ import path from 'path';
 import store from '../../../store';
 import settings from '../../../config/settings';
 import touch from '../index';
+import { provenOffset } from './support/proven-offset';
 
 jest.mock('../system-stats', () => ({ createSystemStats: () => ({ start: jest.fn(), stop: jest.fn(), read: () => ({}) }) }));
+// What the facade tells the job service about the socket commands it allows (full homing cycle or not).
+const mockSocketCommands = [];
+// mockService.workOffset: a work offset factory given to the facade's service (D2, a fake board that
+// does not answer `$#`); mockService.current: the service the facade built.
+const mockService = { workOffset: null, current: null };
+jest.mock('../job-service', () => {
+  const actual = jest.requireActual('../job-service');
+  return {
+    ...actual,
+    createService: (store, config, clock, options = {}) => {
+      const service = actual.createService(store, config, clock, mockService.workOffset ? { ...options, workOffset: mockService.workOffset } : options);
+      mockService.current = service;
+      const socketCommand = service.socketCommand;
+      service.socketCommand = (port, full) => {
+        mockSocketCommands.push([port, full]);
+        return socketCommand(port, full);
+      };
+      return service;
+    }
+  };
+});
 jest.mock('../backlight', () => ({ createBacklight: () => ({ restore: jest.fn(), status: () => ({}), set: jest.fn(), dim: jest.fn(), wake: jest.fn() }) }));
 
 let dir;
@@ -58,6 +80,25 @@ describe('touch facade (history, control, socket and host-command policies)', ()
   afterEach(() => {
     touch.stop();
     store.set('controllers', {});
+    mockService.workOffset = null;
+  });
+
+  test('automatic connection uses the D3 TCP peer policy, fails closed and refuses any live lease', async () => {
+    const local = { request: { socket: { remoteAddress: '::ffff:127.0.0.1' }, headers: {} } };
+    expect(touch.refuseAutoConnect(local)).toBeTruthy();
+    touch.start();
+    expect(touch.refuseAutoConnect(local)).toBeNull();
+    for (const request of [undefined, { socket: { remoteAddress: '192.168.1.2' } },
+      { socket: { remoteAddress: '::1' }, headers: { 'x-forwarded-for': '127.0.0.1' } }]) {
+      expect(touch.refuseAutoConnect({ request })).toBeTruthy();
+    }
+    const c = fakeController('COM3');
+    store.set('controllers', { COM3: c }); c.runner.emit('status');
+    const tablet = { kind: 'touch', id: 'other-tablet', user: 'ana' };
+    await touch.action({ port: 'COM3', action: 'control', operation: 'claim' }, tablet);
+    expect(touch.refuseAutoConnect(local)).toBeTruthy();
+    await touch.action({ port: 'COM3', action: 'control', operation: 'release' }, tablet);
+    expect(touch.refuseAutoConnect(local)).toBeNull();
   });
 
   test('a free port lets every socket command through; an owned port refuses motion from another client and lets stops through', async () => {
@@ -76,6 +117,12 @@ describe('touch facade (history, control, socket and host-command policies)', ()
     expect(refusal.owner.id).toBe('tablet-A');
     expect(touch.refuseSocket(socket, 'COM3', 'write', 'G0 X1')).not.toBeNull();
     expect(touch.refuseSocket(socket, 'COM3', 'writeln', '$H')).not.toBeNull();
+      ['sleep', 'lasertest:off', 'close'].forEach((command) => {
+        expect(touch.refuseSocket(socket, 'COM3', 'command', command)).toMatchObject({ owner: { id: 'tablet-A' } });
+        expect(touch.refuseSocket(socket, 'COM4', 'command', command)).toBeNull();
+      });
+      expect(touch.refuseSocket(socket, 'COM3', 'write', '\x9e')).toMatchObject({ owner: { id: 'tablet-A' } });
+      expect(touch.refuseSocket(socket, 'COM4', 'write', '\x9e')).toBeNull();
     // Stops, holds, resets and status queries are never refused.
     ['gcode:pause', 'gcode:stop', 'feedhold', 'reset', 'jogCancel', 'statusreport'].forEach((cmd) => {
       expect(touch.refuseSocket(socket, 'COM3', 'command', cmd)).toBeNull();
@@ -120,6 +167,135 @@ describe('touch facade (history, control, socket and host-command policies)', ()
     expect(fs.existsSync(file)).toBe(true);
     const text = fs.readFileSync(file, 'utf8');
     expect(text.split('\n').filter(Boolean)).toHaveLength(2);
+  });
+
+  test('refuseSocket : homing et writeln $H annoncent une origine complète ; gcode $H (file du feeder), $HX, une autre commande l’annulent ; un refus ou un arrêt n’annonce rien', async () => {
+    touch.start();
+    const c = fakeController('COM3');
+    store.set('controllers', { COM3: c });
+    c.runner.emit('status');
+    const socket = fakeSocket('s4');
+    mockSocketCommands.splice(0);
+    expect(touch.refuseSocket(socket, 'COM3', 'command', 'homing')).toBeNull();
+    expect(touch.refuseSocket(socket, 'COM3', 'writeln', '$H')).toBeNull();
+    expect(touch.refuseSocket(socket, 'COM3', 'writeln', ' $h ')).toBeNull();
+    expect(mockSocketCommands).toEqual([['COM3', true], ['COM3', true], ['COM3', true]]);
+    mockSocketCommands.splice(0);
+    // Not a full cycle written at once, the intention is cancelled: a $H queued in the feeder
+    // (which feeder:stop or an Alarm may drop), partial cycles, a raw write, a macro.
+    expect(touch.refuseSocket(socket, 'COM3', 'command', 'gcode')).toBeNull();
+    expect(touch.refuseSocket(socket, 'COM3', 'writeln', '$HX')).toBeNull();
+    expect(touch.refuseSocket(socket, 'COM3', 'writeln', '$HZ')).toBeNull();
+    // A non-breaking space: GrblController.writeln sends it as a realtime byte, without the newline.
+    expect(touch.refuseSocket(socket, 'COM3', 'writeln', '\u00a0$H')).toBeNull();
+    expect(touch.refuseSocket(socket, 'COM3', 'writeln', '$H\nG0 X10')).toBeNull();
+    expect(touch.refuseSocket(socket, 'COM3', 'write', '$H\n')).toBeNull();
+    expect(touch.refuseSocket(socket, 'COM3', 'command', 'macro:run')).toBeNull();
+    expect(mockSocketCommands).toEqual([['COM3', false], ['COM3', false], ['COM3', false], ['COM3', false], ['COM3', false], ['COM3', false], ['COM3', false]]);
+    mockSocketCommands.splice(0);
+    // Stops and status queries say nothing; a refused command (another owner) says nothing either.
+    expect(touch.refuseSocket(socket, 'COM3', 'command', 'statusreport')).toBeNull();
+    expect(touch.refuseSocket(socket, 'COM3', 'write', '?')).toBeNull();
+    const tablet = { kind: 'touch', id: 'tablet-A', label: 'Tablette A', user: 'ana' };
+    await touch.action({ port: 'COM3', action: 'control', operation: 'claim' }, tablet);
+    expect(touch.refuseSocket(socket, 'COM3', 'command', 'homing')).not.toBeNull();
+    expect(touch.refuseSocket(socket, 'COM3', 'writeln', '$H')).not.toBeNull();
+    expect(mockSocketCommands).toEqual([]);
+  });
+
+  test('D2: while the work offset check writes its lines, a socket command that is not safe is refused; a stop ends the check and passes', () => {
+    touch.start();
+    const c = fakeController('COM3');
+    c.settings = { version: '1.1f', settings: { $13: '0' } };
+    store.set('controllers', { COM3: c });
+    // A fresh $G, then a fresh Idle report: the real service starts its check (`$#`, unanswered here).
+    c.state.parserstate = { modal: { wcs: 'G54', units: 'G21', distance: 'G90', motion: 'G0', spindle: 'M5' } };
+    touch.snapshot();
+    c.runner.emit('parserstate', c.state.parserstate);
+    c.runner.emit('status', {});
+    expect(c.commands).toEqual([['gcode', '$#']]);
+    expect(touch.snapshot().controllers[0].workOffset.state).toBe('checking');
+    const socket = fakeSocket('s5');
+    mockSocketCommands.splice(0);
+    expect(touch.refuseSocket(socket, 'COM3', 'command', 'gcode')).toMatchObject({ code: 'ETOUCH_OFFSET_CHECKING', message: expect.stringMatching(/^Vérification de l’origine de la pièce/) });
+    expect(touch.refuseSocket(socket, 'COM3', 'writeln', 'G10 L20 P1 X0')).toMatchObject({ code: 'ETOUCH_OFFSET_CHECKING' });
+    expect(touch.refuseSocket(socket, 'COM3', 'command', 'statusreport')).toBeNull();
+    expect(mockSocketCommands).toEqual([]);
+    expect(touch.snapshot().controllers[0].workOffset.state).toBe('checking');
+    // A feed hold from the PC: the check ends where it is, the hold goes its way.
+    expect(touch.refuseSocket(socket, 'COM3', 'write', '!')).toBeNull();
+    expect(touch.snapshot().controllers[0].workOffset).toMatchObject({ state: 'unknown', detail: 'interrupted' });
+    expect(touch.refuseSocket(socket, 'COM3', 'command', 'gcode')).toBeNull();
+    expect(mockSocketCommands).toEqual([['COM3', false]]);
+    expect(c.commands).toEqual([['gcode', '$#']]);
+  });
+
+  // A homed LUNYEE board at rest, a fresh $G, and a tablet whose stream is open: a plate probe of
+  // the tablet sends its first G38.2 and waits (no answer from this board).
+  const plateRunning = async () => {
+    mockService.workOffset = provenOffset;
+    touch.start();
+    const c = fakeController('COM3');
+    c.settings = { version: '1.1f', settings: { $10: '1', $13: '0', $20: '1', $22: '1', $23: '3', $130: '408', $131: '396', $132: '130' } };
+    c.state.parserstate = { modal: { wcs: 'G54', units: 'G21', distance: 'G90', motion: 'G0', spindle: 'M5' }, feedrate: '0', spindle: '0' };
+    store.set('controllers', { COM3: c });
+    const report = (active) => {
+      c.state.status = { activeState: active, spindle: 0, mpos: { x: '150.000', y: '120.000', z: '-100.000' }, wpos: { x: '50.000', y: '20.000', z: '15.000' } };
+      c.runner.emit('status', { raw: '<' + active + '|MPos:150.000,120.000,-100.000|FS:0,0>' });
+    };
+    touch.snapshot();
+    report('Home');
+    report('Idle');
+    c.runner.emit('parserstate', c.state.parserstate);
+    const tablet = { kind: 'touch', id: 'tablet-A', label: 'Tablette A', user: 'ana' };
+    mockService.current.openTransport('tA', tablet);
+    const body = { port: 'COM3', generation: touch.snapshot().controllers[0].generation, transportId: 'tA' };
+    const ticket = await touch.action({ ...body, action: 'prepare', operation: 'zeroZ', thickness: 10, search: 20 }, tablet);
+    const run = touch.action({ ...body, action: 'zeroZ', nonce: ticket.nonce }, tablet).catch((err) => err);
+    expect(c.commands).toEqual([['gcode', 'G38.2 Z-5 F100']]);
+    return { c, run };
+  };
+
+  test.each(['gcode:stop', '?!', '!\x85', '?\x18'])('C-09, C-12, SURETE C-02: a socket stop %s holds the plate first, and no further line leaves', async (data) => {
+    const { c } = await plateRunning();
+    const socket = fakeSocket('s6');
+    mockSocketCommands.splice(0);
+    expect(touch.refuseSocket(socket, 'COM3', 'writeln', 'M3 S1000')).toMatchObject({ message: 'Palpage en cours sur la tablette : commande refusée jusqu’à sa fin (Arrêter reste possible).' });
+    expect(touch.refuseSocket(socket, 'COM3', 'command', 'gcode')).not.toBeNull();
+    expect(mockSocketCommands).toEqual([]);
+    // CNCjs's Stop on the PC: the probe is stopped before the command goes its way (the report still says Idle).
+    expect(touch.refuseSocket(socket, 'COM3', data === 'gcode:stop' ? 'command' : 'write', data)).toBeNull();
+    expect(c.commands.map((entry) => entry[0])).toEqual(['gcode', 'feeder:stop', 'gcode:stop', 'feedhold']);
+    await new Promise((resolve) => {
+      setTimeout(resolve, 300);
+    });
+    expect(c.commands.filter((entry) => entry[0] === 'gcode')).toEqual([['gcode', 'G38.2 Z-5 F100']]);
+  });
+
+  test('C-60: while a host command holds the machine, a socket command that is not safe is refused on a free port; stops pass', () => {
+    touch.start();
+    const c = fakeController('COM3');
+    store.set('controllers', { COM3: c });
+    touch.snapshot();
+    c.runner.emit('status');
+    const socket = fakeSocket('s7');
+    const reservation = touch.reserveSystemCommand({ id: 'touch-wifi', title: 'Recherche des réseaux Wi-Fi' });
+    expect(touch.refuseSocket(socket, 'COM3', 'command', 'gcode:start')).toMatchObject({ message: 'Commande système en cours sur la tablette : commande refusée jusqu’à sa fin (Arrêter reste possible).' });
+    expect(touch.refuseSocket(socket, 'COM3', 'writeln', 'G0 X10')).not.toBeNull();
+    expect(touch.refuseSocket(socket, 'COM3', 'command', 'feedhold')).toBeNull();
+    expect(touch.refuseSocket(socket, 'COM3', 'write', '!')).toBeNull();
+    reservation.release();
+    expect(touch.refuseSocket(socket, 'COM3', 'command', 'gcode:start')).toBeNull();
+  });
+
+  test.each(['?!', '!\x85', '?\x18'])('SURETE C-02: a safe mixed write %s ends the server sequence synchronously', async (data) => {
+    const { c, run } = await plateRunning();
+    const socket = fakeSocket('mixed-stop');
+    expect(touch.refuseSocket(socket, 'COM3', 'write', data)).toBeNull();
+    expect(c.commands.map((entry) => entry[0])).toContain('feedhold');
+    c.runner.emit('startup', { firmware: 'Grbl', version: '1.1f' });
+    await run;
+    expect(c.commands.filter((entry) => entry[0] === 'gcode')).toEqual([['gcode', 'G38.2 Z-5 F100']]);
   });
 
   test('before start, the policies allow everything (no control module yet)', () => {

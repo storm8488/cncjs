@@ -4,7 +4,7 @@
   function copy(value){return JSON.parse(JSON.stringify(value));}
   var fields={thickness:[0.001,100],faceX:[-100,100],faceY:[-100,100],fast:[1,1000],slow:[1,1000],search:[0.01,50],retract:[0.01,20],clearance:[0.01,50]};
   var fieldNames={thickness:uiLocale.t('épaisseur Z'),faceX:uiLocale.t('décalage de face X'),faceY:uiLocale.t('décalage de face Y'),fast:uiLocale.t('vitesse d’approche'),slow:uiLocale.t('vitesse de seconde touche'),search:uiLocale.t('distance de recherche'),retract:uiLocale.t('distance de retrait'),clearance:uiLocale.t('dégagement')};
-  function empty(){return {name:'Nouvelle sonde',corner:'',directionX:null,directionY:null,thickness:null,faceX:null,faceY:null,fast:null,slow:null,search:null,retract:null,clearance:null};}
+  function empty(){return {name:'Nouvelle sonde',corner:'--',directionX:1,directionY:1,thickness:null,faceX:null,faceY:null,fast:100,slow:25,search:10,retract:1,clearance:5};}
   function demo(){return {name:'Bloc fictif — démonstration',corner:'--',directionX:1,directionY:1,thickness:10,faceX:-5,faceY:-5,fast:100,slow:25,search:10,retract:2,clearance:5};}
   function validNumber(n,bounds){return typeof n==='number'&&isFinite(n)&&n>=bounds[0]&&n<=bounds[1];}
   function normalize(raw){
@@ -12,7 +12,9 @@
     if(typeof raw.name==='string'&&raw.name.trim())p.name=raw.name.trim().slice(0,60);
     if(['--','+-','-+','++'].indexOf(raw.corner)>=0)p.corner=raw.corner;
     ['directionX','directionY'].forEach(function(k){if(raw[k]===-1||raw[k]===1)p[k]=raw[k];});
-    Object.keys(fields).forEach(function(k){if(validNumber(raw[k],fields[k]))p[k]=raw[k];});
+    Object.keys(fields).forEach(function(k){if(Object.prototype.hasOwnProperty.call(raw,k))p[k]=validNumber(raw[k],fields[k])?raw[k]:null;});
+    if(Object.prototype.hasOwnProperty.call(raw,'corner')&&['--','+-','-+','++'].indexOf(raw.corner)<0)p.corner='';
+    ['directionX','directionY'].forEach(function(k){if(Object.prototype.hasOwnProperty.call(raw,k)&&raw[k]!==-1&&raw[k]!==1)p[k]=null;});
     return p;
   }
   function validate(p,operation,diameter){
@@ -24,7 +26,7 @@
     ['X','Y'].forEach(function(a){if(operation.indexOf(a)>=0){needed.push('face'+a);if(p['direction'+a]!==1&&p['direction'+a]!==-1)errors.push(uiLocale.t('Direction ')+a+uiLocale.t(' à renseigner.'));}});
     needed.forEach(function(k){if(!validNumber(p[k],fields[k]))errors.push(uiLocale.t('Paramètre à renseigner : ')+fieldNames[k]+'.');});
     if(operation!=='Z'&&!validNumber(diameter,[0.01,100]))errors.push(uiLocale.t('Diamètre outil / pige à renseigner.'));
-    if(['--','+-','-+','++'].indexOf(p.corner)<0)errors.push(uiLocale.t('Coin de montage à choisir.'));
+    if(operation!=='Z'&&['--','+-','-+','++'].indexOf(p.corner)<0)errors.push(uiLocale.t('Coin de montage à choisir.'));
     if(validNumber(p.slow,fields.slow)&&validNumber(p.fast,fields.fast)&&p.slow>p.fast)errors.push(uiLocale.t('La seconde touche doit être au plus aussi rapide que l’approche.'));
     if(validNumber(p.retract,fields.retract)&&validNumber(p.search,fields.search)&&p.retract>=p.search)errors.push(uiLocale.t('Le retrait doit être inférieur à la recherche maximale.'));
     return errors;
@@ -99,6 +101,29 @@
     function report(){return {version:1,mode:mode==='simulation'?'simulation-palpage':'preparation-palpage',exportedAt:new Date(clock()).toISOString(),parameters:settings?copy(settings):null,state:snapshot(),events:copy(log),note:uiLocale.t('Banc fictif indépendant : aucun G-code, aucune trajectoire ni origine machine réelle. Coordonnées de contact synthétiques en mm.')};}
     return {snapshot:snapshot,resetContact:resetContact,contact:contact,start:start,advance:advance,stop:stop,report:report};
   }
-  var api={empty:empty,demo:demo,normalize:normalize,validate:validate,compensate:compensate,create:create,fields:fields};
+  // Real probe input as the diagnostic shows it (read only, never a probing decision): a fresh
+  // report (2.5 s) without Pn means no input triggered (Grbl 1.1), shown as free.
+  function liveInput(p,elapsed){
+    if(!p.fresh||typeof p.ageMs!=='number'||p.ageMs<0||elapsed<0||p.ageMs+elapsed>2500)return {state:'unknown',reason:p.fresh?uiLocale.t('Rapport trop ancien : entrée sonde inconnue.'):p.reason||uiLocale.t('Attendre un nouveau rapport Grbl.')};
+    if(p.code==='MISSING')return {state:'free',reason:uiLocale.t('Aucun contact signalé par la carte.')};
+    return {state:p.state==='free'||p.state==='contact'?p.state:'unknown',reason:p.reason||uiLocale.t('Rapport sonde non reconnu.')};
+  }
+  // A brief contact stays shown CONTACT_HOLD_MS: {signal, seen (last contact time), recheck (ms, 0 = none)}.
+  var CONTACT_HOLD_MS=1500;
+  function heldSignal(signal,seen,now){
+    if(signal==='contact')return {signal:'contact',seen:now,recheck:0};
+    var left=CONTACT_HOLD_MS-(now-seen);
+    return left>0&&left<=CONTACT_HOLD_MS?{signal:'contact',seen:seen,recheck:left}:{signal:signal,seen:seen,recheck:0};
+  }
+  // Measured wall widths are unsigned; the mounting corner determines the server's signed faces.
+  function fromCorner(profile,corner,wallX,wallY){
+    var p=copy(profile);
+    if(['--','+-','-+','++'].indexOf(corner)<0)return p;
+    p.corner=corner;p.directionX=corner[0]==='-'?1:-1;p.directionY=corner[1]==='-'?1:-1;
+    p.faceX=validNumber(wallX,[0,100])?-p.directionX*wallX:null;
+    p.faceY=validNumber(wallY,[0,100])?-p.directionY*wallY:null;
+    return p;
+  }
+  var api={fromCorner:fromCorner,empty:empty,demo:demo,normalize:normalize,validate:validate,compensate:compensate,create:create,fields:fields,fieldNames:fieldNames,liveInput:liveInput,heldSignal:heldSignal,CONTACT_HOLD_MS:CONTACT_HOLD_MS};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.CNCProbe=api;
 })(typeof window==='undefined'?this:window);
