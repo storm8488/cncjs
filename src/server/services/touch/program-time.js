@@ -1,25 +1,22 @@
-// Display-only duration of the exact loaded program. The travel walk supplies lengths,
-// feeds and dwells; current coordinates and axis rates are captured at each real start.
+// Display-only duration of the exact loaded program. The travel walk accumulates
+// durations at load; only the initial approach is resolved at each real start.
 // Unsupported or interrupted observations never fall back to the sender's buffer counters.
 const AXES = ['X', 'Y', 'Z'];
 const number = (value) => ((typeof value === 'number' || (typeof value === 'string' && value.trim())) && Number.isFinite(Number(value)) ? Number(value) : null);
 
-export const durationOf = (analysis, context) => {
-  const t = analysis && analysis.timing;
-  if (!t || !t.supported || analysis.rawUnits || !analysis.distance || analysis.relativeStart ||
-      AXES.some((axis) => analysis.unknownAxes[axis]) || !context.offsetProven || context.reportUnits !== 'mm' ||
-      (analysis.wcs && analysis.wcs !== context.wcs) || (analysis.tloCancel !== null && number(context.tlo) !== 0)) {
-    return null;
-  }
-  const rates = AXES.map((axis, i) => number(context.settings['$' + (110 + i)]));
-  const initial = AXES.map((axis) => number(context.wpos[axis.toLowerCase()]));
-  const overrides = context.overrides;
-  if (!overrides || !(overrides.feed > 0) || !(overrides.rapid > 0)) {
-    return null;
-  }
-  let seconds = t.dwell;
-  for (let i = 0; i < t.moves.length; i++) {
-    const move = t.moves[i];
+export const MAX_TIME_BLOCKS = 1024;
+
+const profileOf = (context) => ({
+  rates: AXES.map((axis, i) => number((context.settings || {})['$' + (110 + i)])),
+  feed: number(context.overrides && context.overrides.feed),
+  rapid: number(context.overrides && context.overrides.rapid)
+});
+
+const moveTimer = (profile, context) => {
+  const { rates, feed, rapid } = profile;
+  const position = context.wpos || {};
+  const initial = AXES.map((axis) => number(position[axis.toLowerCase()]));
+  return (move) => {
     const delta = AXES.map((axis, j) => {
       const from = move.start[axis] === null ? initial[j] : move.start[axis];
       const to = move.end[axis] === null ? initial[j] : move.end[axis];
@@ -30,13 +27,13 @@ export const durationOf = (analysis, context) => {
     }
     const length = move.arcLength === null ? Math.hypot(...delta) : Math.hypot(move.arcLength, delta[2]);
     if (!length) {
-      continue;
+      return 0;
     }
     const mode = move.mode || context.feedMode;
     if (!move.rapid && (mode !== 'G94' || !(move.feed > 0))) {
       return null;
     }
-    let duration = move.rapid ? 0 : length / (move.feed * overrides.feed / 100) * 60;
+    let duration = move.rapid ? 0 : length / (move.feed * feed / 100) * 60;
     for (let j = 0; j < AXES.length; j++) {
       // Arcs also need planar axis limits; use the slower XY rate as a conservative bound.
       const distance = move.arcLength !== null && j < 2 ? length : Math.abs(delta[j]);
@@ -44,8 +41,101 @@ export const durationOf = (analysis, context) => {
         return null;
       }
       if (distance) {
-        duration = Math.max(duration, distance / (rates[j] * (move.rapid ? overrides.rapid / 100 : 1)) * 60);
+        duration = Math.max(duration, distance / (rates[j] * (move.rapid ? rapid / 100 : 1)) * 60);
       }
+    }
+    return Number.isFinite(duration) ? duration : null;
+  };
+};
+
+// The profile is a value snapshot, never a reference to mutable controller settings.
+// A changed profile is rebuilt from the exact source at start; it never changes a guard.
+export const createProgramTime = (context = {}) => {
+  const profile = profileOf(context);
+  const timing = {
+    supported: profile.feed > 0 && profile.rapid > 0,
+    profile,
+    blocks: [],
+    initial: [],
+    needsInitial: false,
+    inheritsFeedMode: false
+  };
+  const timer = moveTimer(profile, { wpos: { x: 0, y: 0, z: 0 }, feedMode: 'G94' });
+  let seconds = 0;
+  let span = 1024;
+  let lastLine = 0;
+  const checkpoint = (line, final = false) => {
+    if (line === lastLine || (!final && line - lastLine < span)) {
+      return;
+    }
+    timing.blocks.push({ line, seconds });
+    lastLine = line;
+    if (timing.blocks.length > MAX_TIME_BLOCKS) {
+      // Keep cumulative endpoints: merging blocks introduces no duration rounding.
+      timing.blocks = timing.blocks.filter((block, i) => i % 2 === 1 || block.line === line);
+      span *= 2;
+    }
+  };
+  return {
+    timing,
+    dwell: (value, line) => {
+      seconds += value;
+      checkpoint(line);
+    },
+    move: (move, line) => {
+      const symbolic = AXES.some((axis) => move.start[axis] === null || move.end[axis] === null);
+      timing.needsInitial = timing.needsInitial || symbolic;
+      // Only the first absolute assignment of each axis can depend on start position.
+      if (AXES.some((axis) => move.start[axis] === null && move.end[axis] !== null)) {
+        timing.initial.push(move);
+      } else {
+        const duration = timer(move);
+        if (duration === null) {
+          timing.supported = false;
+        } else {
+          seconds += duration;
+          if (duration > 0 && !move.rapid && !move.mode) {
+            timing.inheritsFeedMode = true;
+          }
+        }
+      }
+      checkpoint(line);
+    },
+    finish: (line) => {
+      checkpoint(line, true);
+      if (!timing.supported || !Number.isFinite(seconds)) {
+        timing.supported = false;
+        timing.blocks = [];
+        timing.initial = [];
+      }
+    }
+  };
+};
+
+export const durationOf = (analysis, context) => {
+  let t = analysis && analysis.timing;
+  if (!t || analysis.rawUnits || !analysis.distance || analysis.relativeStart ||
+      AXES.some((axis) => analysis.unknownAxes[axis]) || !context.offsetProven || context.reportUnits !== 'mm' ||
+      (analysis.wcs && analysis.wcs !== context.wcs) || (analysis.tloCancel !== null && number(context.tlo) !== 0)) {
+    return null;
+  }
+  if (JSON.stringify(t.profile) !== JSON.stringify(profileOf(context))) {
+    t = t.rebuild(context);
+    analysis.timing = t;
+  }
+  if (!t.supported || (t.inheritsFeedMode && context.feedMode !== 'G94')) {
+    return null;
+  }
+  const position = context.wpos || {};
+  if (t.needsInitial && AXES.some((axis) => number(position[axis.toLowerCase()]) === null)) {
+    return null;
+  }
+  let seconds = t.blocks.length ? t.blocks[t.blocks.length - 1].seconds : 0;
+  const timer = moveTimer(t.profile, context);
+  for (let i = 0; i < t.initial.length; i++) {
+    const duration = timer(t.initial[i]);
+    if (duration === null) {
+      return null;
     }
     seconds += duration;
   }

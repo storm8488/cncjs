@@ -1840,6 +1840,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     jobInfo,
     controllerInfo,
     machineForCheck,
+    // P5: display-only profile captured while walking the loaded program.
+    timingContext: (c) => ({ settings: allSettings(c), overrides: overridesOf(controllerStatus(c)) }),
     resumeMode
   });
 

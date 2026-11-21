@@ -253,7 +253,7 @@ mode: plan.mode
         changesOffset: changesOffset(resume ? programLines(gcode).slice(resume.from - 1).join('\n') : gcode),
         sets: modalsBeforeFirstMove(program),
         // Travel pre-check (F2) of the program as sent (the rebuilt one for a resume).
-        analysis: analyzeProgram(program),
+        analysis: analyzeProgram(program, deps.timingContext && deps.timingContext(c)),
         wcsAtStart: null,
         startActor: null,
         resume
