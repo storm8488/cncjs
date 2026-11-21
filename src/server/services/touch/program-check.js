@@ -16,6 +16,8 @@
 // Explicit extension: examples/cncjs-touch loads this module with Node's native ES module loader.
 // eslint-disable-next-line import/extensions
 import { envelopeOf, usableOf } from './motion.js';
+// eslint-disable-next-line import/extensions
+import { createProgramTime } from './program-time.js';
 
 const MM_PER_INCH = 25.4;
 // Arc geometry only; travel comparisons are strict (float rounding guard only).
@@ -30,6 +32,21 @@ const KNOWN_G = [0, 1, 2, 3, 4, 10, 17, 18, 19, 20, 21, 28, 28.1, 30, 30.1, 38.2
 const KNOWN_M = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 30];
 
 export const programLines = (gcode) => String(gcode).split('\n').filter((line) => line.trim().length > 0);
+
+// Same nonempty-line numbering as programLines/the sender, without a line array.
+function* walkLines(gcode) {
+  const text = String(gcode);
+  let start = 0;
+  while (start < text.length) {
+    const newline = text.indexOf('\n', start);
+    const end = newline < 0 ? text.length : newline;
+    const line = text.slice(start, end);
+    if (line.trim().length > 0) {
+      yield line;
+    }
+    start = end + 1;
+  }
+}
 
 // The code part of a line exactly as the CNCjs sender keeps it (gcode-parser
 // 2.2 stripComments, the `line` it sends to Grbl): parentheses nest, so
@@ -101,18 +118,21 @@ const extend = (extent, axis, value) => {
   }
 };
 
+// A separate closure keeps only the source, not the previous walk's analysis/state.
+const rebuildTiming = (source) => (context) => analyzeProgram(source, context).timing;
+
 // Walks the program. `extent` is in millimetres in the work coordinates of the
 // (single) work offset the program uses; `unknownAxes[axis]` tells why an axis
 // could not be followed. `rawUnits` is true when the program never fixes its
 // units before moving: the extent is then in the controller's units, which the
 // comparison converts when the machine's modal state is known.
-export const analyzeProgram = (gcode) => {
-  const lines = programLines(gcode);
+export const analyzeProgram = (gcode, timingContext) => {
+  const time = createProgramTime(timingContext);
   const a = {
-    lines: lines.length,
+    lines: 0,
     moves: 0,
     // Display-only timing model. Never participates in a travel verdict or a command guard.
-    timing: { supported: true, dwell: 0, moves: [] },
+    timing: time.timing,
     units: null,
     unitsChanges: [],
     rawUnits: false,
@@ -168,9 +188,8 @@ export const analyzeProgram = (gcode) => {
     }
   };
 
-  for (let i = 0; i < lines.length; i++) {
-    const lineNo = i + 1;
-    const raw = lines[i];
+  for (const raw of walkLines(gcode)) {
+    const lineNo = ++a.lines;
     const code = clean(raw);
     if (!code || code === '%') {
       continue;
@@ -223,7 +242,7 @@ export const analyzeProgram = (gcode) => {
         if (seconds === null || seconds < 0 || ['X', 'Y', 'Z'].some((axis) => at(axis) !== null)) {
           a.timing.supported = false;
         } else {
-          a.timing.dwell += seconds;
+          time.dwell(seconds, lineNo);
         }
       }
       if (m.includes(2) || m.includes(30)) {
@@ -470,11 +489,10 @@ export const analyzeProgram = (gcode) => {
       }
     }
     if (timed && a.timing.supported) {
-      if (a.timing.moves.length >= 20000 || (arc && arcLength === null)) {
+      if (arc && arcLength === null) {
         a.timing.supported = false;
-        a.timing.moves = [];
       } else {
-        a.timing.moves.push({ start, end: { ...pos }, rapid: st.motion === 'G0', feed: timingFeed, mode: timingMode, arcLength });
+        time.move({ start, end: { ...pos }, rapid: st.motion === 'G0', feed: timingFeed, mode: timingMode, arcLength }, lineNo);
       }
     }
     AXES.forEach((axis) => {
@@ -491,6 +509,10 @@ export const analyzeProgram = (gcode) => {
     a.zMin = a.extent.Z.min;
     a.zMax = a.extent.Z.max;
   }
+  time.finish(a.lines);
+  // Retain only a reference to the exact source (the sender already keeps it).
+  // Rebuild solely when the rates/overrides at a new start differ from the load profile.
+  time.timing.rebuild = rebuildTiming(gcode);
   return a;
 };
 
