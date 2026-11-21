@@ -2,218 +2,271 @@
 
 Lot P4 de `design/PROMPT-PLAQUE-XYZ.md`, 2026-11-21, arbre `cncjs-wt/P4` (branche `feat/P4`, base `caf09b31`). Conception seule : aucun code écrit, rien lancé, aucun accès à la tablette ni à la CNC.
 
-**Version 2**, après la contre-relecture d'Astra ultra (verdict « à revoir » : 2 dangers, 6 « à corriger »). Chaque constat a été vérifié dans le code ; la réponse est à la fin (§ 12). Changement principal : **le mouvement « Aller au-dessus du zéro pièce » est retiré du lot**. P4 n'envoie plus aucune commande de mouvement nouvelle : il reste la carte claire « position perdue », la redirection des refus, la prise d'origine existante, et une comparaison honnête du zéro pièce avant / après l'incident. À relire de nouveau par Astra avant tout code (règle commune 1).
+**Version 3**, après la deuxième relecture d'Astra ultra (commit `141ec466`, verdict « à revoir » : 3 dangers, 5 « à corriger », 2 remarques) et les décisions de l'orchestrateur. Chaque constat a été vérifié dans le code ; la réponse est à la fin (§ 13). Changements principaux :
+- **Une règle simple remplace les états `same` / `redone` de la v2** : tout incident remet le zéro pièce à « à confirmer » ; le serveur **refuse le départ** (reprise à une ligne comprise) tant que les trois axes ne sont pas **refaits par la tablette** ou **validés** par un geste explicite, possible seulement quand la machine applique exactement le dernier zéro accepté.
+- La même règle vaut pour une connexion neuve : l'absence d'historique n'autorise rien.
+- Le mouvement « Aller au-dessus du zéro pièce » reste retiré (décision de l'orchestrateur), écrit comme écart assumé, à confirmer par l'opérateur.
+
+À relire de nouveau par Astra avant tout code (règle commune 1).
 
 ## 0. Décisions
 
 | # | Décision | Raison |
 |---|---|---|
-| D0 | **Pas de mouvement « Aller au-dessus du zéro pièce » dans P4.** Il est mis de côté dans `IDEES.md` (idée à reprendre après l'essai F1 qui relève `$J=G90` en coordonnées pièce et `0x85` sur la LUNYEE). Écart voulu avec le prompt § 2 (« puis (sur confirmation) montée en Z haut et retour… ») : à confirmer par l'opérateur. | La relecture a montré que la moitié des constats (1 en partie, 2 en partie, 3, 6, 7b, 8 pour `purpose:'zero'`, 9) tenaient à ce mouvement, et que son but sûr, « voir où est le zéro », est déjà rempli par le **cadrage à vide F1** (déjà relu trois fois, ses propres gardes) une fois le zéro pièce retrouvé. Un lot plus petit, sans mouvement nouveau, est plus sûr. |
-| D1 | Le serveur garde une **remise en route ouverte** (`r.recovery`) qui survit à la prise d'origine, et qui porte **le zéro pièce prouvé avant l'incident** (`before`). Elle n'est ouverte que si la machine avait une référence (référencée, ou usinage commencé) au moment de la perte. | Sans elle, la prise d'origine efface `referenceLost` et `lastAlarm` (`job-service.js:425-427`, `:457-459`) et l'écran ne peut plus rien dire du zéro. |
-| D2 | « Zéro pièce : gardé, vérifié » n'est écrit que si le zéro prouvé **après** (D2, `work-offset.js`) est **identique** (repère et décalage effectif `$# + G92 + TLO`, à la tolérance de D2) au dernier zéro prouvé **avant** l'incident. Absent ou différent : « non comparé » ou « différent d'avant l'arrêt : refaites-le ». | D2 seul prouve que la machine applique son `$#` **actuel**, pas que c'est l'ancien (constat 1). La phrase actuelle de `seance.js:24` (« gardé, vérifié » dès qu'il y a incident et preuve) a ce défaut aujourd'hui même : P4 la corrige. |
-| D3 | Après une **alarme critique** (`ALARM:1` ou `ALARM:2`) sans bannière depuis, la machine attend une réinitialisation (`FIRMWARE.md` § 3.a, pts 3-4, R4) : la prise d'origine et le déverrouillage sont **refusés** par un nouveau garde `ETOUCH_HOME_RESET_REQUIRED`, et la carte dit quoi faire. P4 n'envoie **aucun** reset. | Constat 4. Un `$H` envoyé à une carte dans cette boucle n'a pas de réponse ; le seul remède est un reset envoyé après l'alarme, qui reste un geste de l'opérateur. |
-| D4 | La boîte de la prise d'origine demande **explicitement** le retrait de la pince de sonde de la fraise et de la plaque du trajet (texte et case). Pour toutes les prises d'origine, pas seulement après un incident. | Constat 2 : un Arrêter pendant un palpage (bloc ou plaque) fait feed hold puis reset (`job-service.js:2616-2618`, `:2668-2672`), donc probablement un redémarrage (E3, H1), avec la pince encore sur la fraise. Un `Pn:P` ouvert ne prouve pas que la pince est retirée. |
-| D5 | Textes : « La machine a redémarré : position perdue. », pas « La carte… » : le glossaire (`SPEC-REFONTE.md` § 9.3) réserve « carte » à « Détails ». | Écart de mot avec le prompt, voulu. |
-| D6 | Les codes de refus existants ne changent pas ; la **page** les présente par une famille unique `position-perdue` quand `referenceLost` n'est pas nul. | Le prompt : « gardent leur code mais renvoient au même remède ». |
-| D7 | Aucun `$X`, `$H` ni reset automatique. Une reconnexion (port fermé puis rouvert) **n'hérite de rien** : ni `homed`, ni remise en route, ni permission. | `SPEC-REFONTE.md` § 6.9 ; constat 5. |
+| D0 | **Pas de mouvement « Aller au-dessus du zéro pièce » dans P4.** Écart assumé avec le prompt § 2 (« puis (sur confirmation) montée en Z haut et retour… »), maintenu par l'orchestrateur, **à confirmer par l'opérateur**. Mis de côté dans `IDEES.md`, à reconcevoir entièrement (Z déjà haut, bornes du retour, position de départ inconnue, ticket lié à la position : rien de cela n'est validé) après l'essai F1 qui relève `$J=G90` en coordonnées pièce et `0x85` sur la LUNYEE. | Sûreté d'abord : lot sans mouvement nouveau. Le cadrage à vide F1 **ne remplace pas** ce retour (il dépend d'un fichier, parcourt son rectangle et revient au point de départ, `job-service.js:2098`, et ne montre rien de Z) ; il sert seulement d'aide visuelle avant la validation (D8). |
+| D1 | **Garde serveur du zéro pièce au départ** (`ETOUCH_START_ZERO_UNCONFIRMED`, profil CNC) : un usinage, reprise à une ligne comprise, ne part que si le **zéro est confirmé** (§ 4.2). Contrôlé partout où `readyFor(c, 'start')` l'est déjà : préparation du ticket (`job-service.js:2422`), relecture asynchrone du fichier (`:2433`), exécution (`:2527`) et après la seconde relecture (`:2559`). Sans dérogation : la dérogation de course (`travelReady`) vient après et ne le contourne pas. | Constat 1 et décision de l'orchestrateur : `ETOUCH_START_NOT_HOMED` et D2 (`:1047`, `:1051`) ne voient que l'état **actuel** ; un zéro effacé mais cohérent avec WCO les passe. |
+| D2 | **Tout incident remet les trois axes à « à confirmer ».** Incident : bannière (`r.reset`), `ALARM:n` (`r.alarmed`), état `Alarm` d'une machine référencée (`r.status`). Une **connexion neuve** (nouvel enregistrement) ou un **redémarrage de CNCjs** part de « non comparé » sur les trois axes. | Règle simple de l'orchestrateur ; constats 2, 3, 5 (reconnexion), et « l'absence d'historique ne devient pas une autorisation ». |
+| D3 | Un axe redevient **confirmé** par un seul de ces deux chemins : (a) **refait par la tablette** : un `G10 L20` envoyé par le serveur (origine posée, `motion.js:173` ; palpage bloc, `block-probe.js:1020` ; plaque Z, `plate-probe.js:411` ; et les palpages de P1 / P3 à la réunion) acquitté `ok`, puis une preuve D2 postérieure, même repère ; (b) **validé** (D8). Rien d'autre : une modification quelconque (PC, programme, Wi-Fi) n'est jamais promue. | Constat 2 : D2 ne prouve ni l'intention ni la réparation. Refaire aux mêmes valeurs aboutit (chemin a, sans condition de différence). |
+| D4 | Le **zéro de référence** est, axe par axe, la **dernière valeur acceptée** (refaite ou validée), jamais celle d'un premier incident. Chaque incident et chaque prise d'origine relèvent le **seuil de preuve** : une preuve antérieure ne compte jamais. | Constats 3 et 4. |
+| D5 | Après une **alarme critique** (`ALARM:1` / `ALARM:2`) sans bannière depuis : prise d'origine et déverrouillage refusés (`ETOUCH_HOME_RESET_REQUIRED`), **y compris après fermeture et réouverture du port** (interdiction gardée par port, jamais une permission). Levée seulement par une bannière vue sur ce port. P4 n'envoie aucun reset. | v2 D3 + constat 5. |
+| D6 | La boîte de la prise d'origine demande le retrait de la pince de sonde, de la plaque et de son fil (texte et case), pour toutes les prises d'origine. | v2 D4, jugé correct par la relecture 2. |
+| D7 | Textes : « La machine a redémarré : position perdue. » (le glossaire réserve « carte » à Détails). Les codes de refus existants ne changent pas ; la page les présente par la famille `position-perdue` quand `referenceLost` n'est pas nul. Aucun `$X`, `$H` ni reset automatique. | v2 D5-D7. |
+| D8 | **Geste de validation** « Valider le zéro pièce… » : offert **seulement** si la machine est référencée, D2 prouvé après la dernière prise d'origine et le dernier incident, et si **chaque axe à confirmer est identique** (même repère, mêmes unités, écart ≤ tolérance D2) à sa référence. Trois touchers (ouvrir, cocher, engager), ticket lié à la preuve. Aucune commande envoyée. « Différent » ou « non comparé » : pas de validation, l'axe se refait. | Décision de l'orchestrateur (« le valider explicitement après l'avoir vérifié ») ; Z ne peut pas être vérifié sans mouvement nouveau, donc l'opérateur ne valide que ce que le serveur a comparé. |
 
 ## 1. Ce qui existe (lu dans le code)
 
-- `referenceLost` : `'restart'` à toute bannière (`r.reset`, `job-service.js:532`, y compris une bannière à la connexion, `ECARTS-PLAN.md:306`), `'alarm'` à `ALARM:n` (`:504`) ou à un état `Alarm` d'une machine référencée (`:446`) ; effacé par une prise d'origine finie (`:427`, `:459`) ; publié nul quand `homed` (`:1712`).
-- La carte LUNYEE n'est **pas** redémarrée par l'ouverture de son port (simulateur L14, `sim-bridge.js:6`) : après une reconnexion sans coupure de courant, pas de bannière, `referenceLost` nul, `homed` faux.
-- Fermeture du port : l'enregistrement est **supprimé** (`remove`, `job-service.js:770-772`), avec `lastStop`, `homed`, `referenceLost` et la preuve D2.
-- Arrêter pendant un usinage : `halt.js` (feed hold, attente du repos, puis reset) ; le 18 novembre la carte a redémarré (E3) ; le simulateur LUNYEE donne `ALARM:3` puis redémarrage pour un reset en mouvement, retenue comprise (L9). Arrêter pendant un `$H` : reset (`job-service.js:2635-2642`). Pendant un déplacement de la tablette : `0x85` seul (`:2620-2624`). P4 ne change pas Arrêter.
-- Alarme critique sans bannière : le témoin `repetition-findings.test.js:247-269` montre qu'ensuite rien sur la tablette ne peut réinitialiser ni déverrouiller ; `homeReady` (`job-service.js:1300-1317`) accepte pourtant l'état `Alarm`, sans regarder le code d'alarme.
-- D2 (`work-offset.js`) : la transaction compare `$#[actif] + G92 (+ TLO)` au `WCO` rapporté (`:275-289`), recharge par `G55`/`G54` si besoin ; `invalidate` efface `stored` et `reported` (`:153`) ; un Arrêter invalide déjà la preuve (`job-service.js:710`, `:2663`) avant même la bannière. Rien ne garde le zéro d'avant.
-- Page : l'encart ① (`seance.js:178-181`, `grbl-help.js:67-77`) dit déjà « La machine a redémarré. », « Perdu : la position de la machine. », « Gardé : le fichier chargé. » ; la ligne zéro dit « gardé, vérifié » dès qu'il y a incident et preuve (`seance.js:24`). La cause globale `alarme` renvoie déjà à `remise-en-route` (`seance.js:88`) ; ⑤ dit déjà « La machine a perdu sa position. » + [Remise en route →] (`job-resume.js:88`). `refus.js` `lire(error)` ne connaît pas l'état de la machine.
-- Boîte de la prise d'origine : « Dégagez la zone de travail. » / « Je suis devant la machine et la zone est dégagée. » (`job-controls.js:197`) : rien sur la pince.
+- `referenceLost` : `'restart'` à toute bannière (`r.reset`, `job-service.js:532`), `'alarm'` à `ALARM:n` (`:505`) ou à un état `Alarm` d'une machine référencée (`:447`) ; effacé par une prise d'origine finie (`:427`, `:459`).
+- Fin de prise d'origine : `homed = true` et `r.offset.invalidate('homing')` (`:438`, `:460`) ; deux chemins : notre `$H`, et un cycle `Home → Idle` vu (PC compris).
+- D2 (`work-offset.js`) : la preuve compare `$#[actif] + G92 (+ TLO)` au `WCO` (`:275-289`) ; `invalidate` efface `stored` et `reported` (`:153`) ; `proof()` vaut `null` hors preuve (`:431`), le compteur `s.proofs` (`:135`) n'est pas exposé ; la tolérance dépend des unités des rapports (`TOLERANCE`, `:29`, `:109`). D2 tourne en `Idle` **sans exiger `homed`** (`offsetMode`, `job-service.js:949-960`) : une preuve peut tomber après `$X`, avant `$H`.
+- Départ : `readyFor` (`:995`) appelle `referenced` puis `offsetReady` pour tout départ (`:1047-1051`), à la préparation, après la relecture du fichier, à l'exécution et après la seconde relecture (`:2422`, `:2433`, `:2527`, `:2559`). Une reprise à une ligne est un départ (`j.resume`, `:1014`). La reprise d'une pause est déjà refusée après un redémarrage (`j.boardRestarted`, `:1068`).
+- Façade des sockets CNCjs (`touch/index.js:157-193`, `socketRefusal` `job-service.js:2942`) : elle ne refuse un `gcode:start` du PC que pendant une séquence du serveur, ni référence ni D2 aujourd'hui.
+- Fermeture du port : `remove` supprime l'enregistrement (`:770`).
+- Pertes de flux / de main : `closeTransport` (`:2894`) révoque les confirmations ; la libération laisse finir une prise d'origine en cours (`SURETE.md:294`).
+- Page : `seance.js:104-105` sait déjà qu'un zéro « d'une séance précédente » n'est pas posé (`zeroDone` exige une trace `lastOrigin`, `blockProbe` écrit ou `zeroZ`), mais sans axe ni garde serveur ; `seance.js:24` écrit « gardé, vérifié » dès incident + preuve.
+- Simulateur : après redémarrage, profil LUNYEE en `Alarm` (`$22=1`, `grbl-simulator.js:2526`), tout G-code refusé `error:8` (`:1025`).
 
 ## 2. Parcours de l'opérateur
 
 ### A. Redémarrage de la carte, connexion gardée (cas du 18 novembre)
 
-**A0 — L'incident.** Arrêter en usinage → bannière. Bandeau « Alarme » ou « Origine à reprendre » ; `#t-recover` mène à ①.
+**A0 — L'incident.** Arrêter en usinage → bannière. Les trois axes passent « à confirmer » (D2). Bandeau « Origine à reprendre » ; `#t-recover` mène à ①.
 
-**A1 — ① Machine, encart (`#machine-incident`), quatre lignes au plus :**
-1. « La machine a redémarré : position perdue. » (`recovery.cause === 'restart'`) ou « Alarme N : position perdue. » (`'alarm'`).
-2. « Perdu : la position, et l'usinage arrêté à la ligne 1 234. » (sans ligne connue : « Perdu : la position de la machine. »).
+**A1 — ① Machine, encart (`#machine-incident`)** :
+1. « La machine a redémarré : position perdue. » ou « Alarme N : position perdue. »
+2. « Perdu : la position, et l'usinage arrêté à la ligne 1 234. » (sans ligne : « Perdu : la position de la machine. »)
 3. « Gardé : le fichier chargé. »
-4. Ligne zéro, selon `recovery.zero` (§ 4) :
-   - `pending` : « Zéro pièce : comparé à celui d'avant après la prise d'origine. »
-   - `same` : « Zéro pièce : gardé, identique à celui d'avant l'arrêt. »
-   - `changed` : « Zéro pièce : différent de celui d'avant l'arrêt. Refaites-le. » (alerte, bouton [Refaire le zéro pièce])
-   - `unknown` : « Zéro pièce : relu dans la machine, sans comparaison possible. Contrôlez-le ou refaites-le. » (alerte)
-   - `redone` : « Zéro pièce : refait après l'arrêt, vérifié. »
-   - D2 en échec : les phrases actuelles (« à refaire », « la machine ne l'a pas confirmé »…), inchangées.
-   [Détails] : code, repère et valeurs avant / après (`before`, `after`), « Le zéro pièce est enregistré dans la machine ; il est relu et comparé à celui d'avant l'arrêt. »
+4. Ligne zéro (§ 4.3), une seule phrase :
+   - en attente : « Zéro pièce : à comparer après la prise d'origine. »
+   - identique : « Zéro pièce : identique au dernier zéro accepté. Validez-le ou refaites-le. » [Valider le zéro pièce…] [Refaire le zéro pièce]
+   - différent : « Zéro pièce : différent en X, Y. Refaites ces axes. » [Refaire le zéro pièce]
+   - non comparé : « Zéro pièce : aucun zéro accepté à comparer. Refaites-le. » [Refaire le zéro pièce]
+   - confirmé : « Zéro pièce : confirmé. »
+   - D2 en échec : phrases actuelles, inchangées.
+   [Détails] : code, repère, valeurs de référence et valeurs relues par axe.
 
-Liste (ordre) : connexion · main · réglages · arrêt · **origine** [Prise d'origine machine…] · zéro · reprise. Barre : « Il manque : l'origine machine. » [Prise d'origine machine…].
-
-**A2 — Boîte de la prise d'origine** (existante, 3 touchers, D4) : « La prise d'origine déplace chaque axe jusqu'à ses capteurs. Retirez la pince de la sonde de la fraise, la plaque et son fil du trajet, et dégagez la zone de travail. » ; case : « Je suis devant la machine, la pince de la sonde est retirée de la fraise et la zone est dégagée. »
+**A2 — Boîte de la prise d'origine** (existante, D6) : « La prise d'origine déplace chaque axe jusqu'à ses capteurs. Retirez la pince de la sonde de la fraise, la plaque et son fil du trajet, et dégagez la zone de travail. » ; case : « Je suis devant la machine, la pince de la sonde est retirée de la fraise, la plaque et son fil sont hors du trajet, la zone est dégagée. »
 
 **A3 — Prise d'origine en cours** : rayée « Prise d'origine en cours. » ; Arrêter dans le bandeau (reset existant).
 
-**A4 — Vérification et comparaison du zéro (automatiques)** : D2 se fait comme aujourd'hui ; à sa première preuve après l'ouverture, le serveur compare (§ 4) et la ligne zéro prend son état.
+**A4 — Comparaison (automatique)** : D2 se fait comme aujourd'hui ; à la première preuve **postérieure à la prise d'origine** (§ 4.2), chaque axe prend son état.
 
-**A5 — Suite** :
-- `same` ou `redone` : action principale [Reprendre à la ligne N…] (volet § 5.12 existant) si l'usinage a été arrêté, sinon « Suite : … → ». Ligne d'aide : « Pour voir où est le zéro avant de reprendre : Contrôle → Cadrage à vide. » (F1 existant, aucun mouvement nouveau ; non vérifié : que le cadrage soit offert sur un fichier arrêté sans rechargement, `seance.js:121` demande « Rechargez le fichier » après un arrêt — à constater au test de page, sinon la ligne d'aide dit de recharger d'abord).
-- `changed` ou `unknown` : action principale [Refaire le zéro pièce] (va à ③) ; la reprise n'est **pas** l'action principale de ① ni de ⑤ tant que l'état n'est pas `same` ou `redone`. Elle reste accessible par le volet de ⑤ avec ses gardes actuels (pilotage de page seulement : voir § 11, question de garde serveur).
+**A5 — Valider (D8)**, si « identique » : boîte « Valider le zéro pièce » :
+- texte : « La machine applique le même zéro pièce qu'avant l'arrêt : G54 X 50,000 Y 100,000 Z −105,000. Il n'est juste que si la pièce et la fraise n'ont pas bougé. Pour voir X et Y : Contrôle → Cadrage à vide. Z n'est pas montré : en cas de doute, refaites Z avec la plaque. » ;
+- case : « La pièce n'a pas bougé depuis l'arrêt et la fraise n'a pas été changée. » ;
+- trois touchers ; rien n'est envoyé à la machine.
+
+**A6 — Suite** : zéro confirmé → [Reprendre à la ligne N…] (volet existant) si l'usinage a été arrêté, sinon la suite ordinaire. Tant qu'il ne l'est pas, Démarrer et la reprise à une ligne sont **refusés par le serveur** (`ETOUCH_START_ZERO_UNCONFIRMED`) ; la page montre le refus avec son remède ([Valider le zéro pièce…] ou [Refaire le zéro pièce]).
 
 ### B. Alarme critique sans bannière
 
-**B1** — `ALARM:1` ou `ALARM:2`, aucune bannière depuis (`r.resetRequired`, § 4). Encart : « Alarme N : la machine attend une réinitialisation. » ; « Perdu : la position de la machine. » ; action (rayée, pas de commande) : « Réinitialisez la machine : bouton Reset de CNCjs sur le PC, ou éteignez-la puis rallumez-la. » [Détails] (code, « Reset to continue », lien vers l'aide Alarme). [Prise d'origine machine…] et [Déverrouiller] rayés avec cette phrase (`ETOUCH_HOME_RESET_REQUIRED`).
-**B2** — La bannière arrive (reset envoyé du PC, ou redémarrage spontané H2) : `resetRequired` faux, `referenceLost = 'restart'`, on passe au parcours A. Une mise hors tension avec perte du port : parcours C.
+**B1** — `ALARM:1` ou `ALARM:2`, aucune bannière depuis (`resetRequired`). Encart : « Alarme N : la machine attend une réinitialisation. » ; « Perdu : la position de la machine. » ; action rayée : « Réinitialisez la machine : bouton Reset de CNCjs sur le PC. » [Détails]. [Prise d'origine machine…] et [Déverrouiller] rayés (`ETOUCH_HOME_RESET_REQUIRED`).
+**B2** — La bannière arrive sur ce port (reset du PC, ou redémarrage spontané H2) : interdiction levée, parcours A.
+**B3 — Port fermé puis rouvert sans bannière** (constat 5) : l'interdiction est **gardée** (D5, § 4.4) : la carte peut rester dans sa boucle critique. Remède inchangé : Reset de CNCjs sur le PC, qui passe par ce même port et produit la bannière. Une carte éteinte et rallumée hors connexion n'envoie sa bannière à personne (L14) : l'interdiction reste, le même Reset du PC la lève (prudent, un geste de plus).
 
-### C. Reconnexion (port fermé puis rouvert, ou machine éteinte)
+### C. Connexion neuve (port fermé puis rouvert, CNCjs redémarré)
 
-Nouvel enregistrement, rien d'hérité (D7) : `homed` faux, `recovery` nulle, `lastStop` perdu. Sans bannière (cas LUNYEE, L14) : la séance ordinaire « Origine machine à prendre ». Avec bannière : `referenceLost = 'restart'`, l'encart dit « La machine a redémarré : position perdue. » mais la ligne zéro est « relu dans la machine, sans comparaison possible » (`unknown` sans `recovery`). Aucune promesse de reprise : la ligne d'arrêt n'est plus connue du serveur.
+Nouvel enregistrement : `homed` faux, rien d'autre hérité qu'une interdiction critique (B3). Les trois axes sont « non comparé » : après la prise d'origine, **le zéro est à refaire** avant tout départ de la tablette. Aucune promesse de reprise : la ligne d'arrêt n'est plus connue.
 
 ### Ailleurs (②–⑤, volets, carte Sonde)
 
-Tout refus des familles `origine-a-prendre` ou `alarme`, un pas refusé `error:15`, et `ETOUCH_FRAME_RESTART`, s'affichent quand `referenceLost` n'est pas nul : « La machine a redémarré : position perdue. » (ou « Après l'alarme, la machine a perdu sa position. ») + [Remise en route] (va à ①). Le code d'origine reste dans Détails. Sans `referenceLost`, rien ne change.
+Quand `referenceLost` n'est pas nul, les refus `origine-a-prendre`, `alarme`, un pas `error:15` et `ETOUCH_FRAME_RESTART` s'affichent « La machine a redémarré : position perdue. » + [Remise en route] (va à ①), code d'origine dans Détails. `ETOUCH_START_ZERO_UNCONFIRMED` a sa propre famille `zero-a-confirmer` (§ 5).
 
 ## 3. Commandes envoyées
 
-**Aucune commande nouvelle.** P4 n'ajoute rien aux listes blanches et n'envoie rien de lui-même.
+**Aucune émission ajoutée.** P4 n'ajoute rien aux listes blanches et n'envoie rien de lui-même ; la validation n'envoie rien.
 
 | Geste | Commande | Par quoi | Changement P4 |
 |---|---|---|---|
-| Prise d'origine | `$H` (commande `homing`) | ticket `home` existant, 3 touchers | texte et case de la boîte (D4) ; nouveau refus `ETOUCH_HOME_RESET_REQUIRED` (D3) |
-| Vérification du zéro | `$#`, puis si besoin `G55`/`G54` (`G54`/`G55`), `$G` | D2 existant, au repos | aucune ; la comparaison avant / après est faite côté serveur, sans ligne |
-| Arrêter pendant `$H` | reset (`0x18`) | existant | aucun |
+| Prise d'origine | `$H` | ticket `home` existant | texte et case (D6) ; refus `ETOUCH_HOME_RESET_REQUIRED` (D5) |
+| Vérification du zéro | `$#`, puis si besoin un autre repère puis **le repère initial** (sélection sans mot d'axe), `$G` | D2 existant, au repos | aucune ; P4 lit le résultat |
+| Zéro refait | `G10 L20 P<n> …` | origine, palpage bloc, plaque Z existants | aucune ; P4 note les axes acquittés `ok` |
+| Arrêter (usinage, `$H`) | feed hold puis reset, `0x18` | existant (`halt.js`) | aucun |
 
 Jamais envoyé par P4 : `$J=`, `G0`, `G1`, `G53`, `G38`, `G10`, `M3`, `M5`, `S`, `$X`, `0x18`, `0x85`.
 
 ## 4. État serveur ajouté
 
-**`work-offset.js`** : une copie de la **dernière preuve**, que l'invalidation n'efface pas : `last = { wcs, stored: {x,y,z} (= $# + G92 + TLO), units, proof }`, posée dans `proven()`. Accès `lastProven()` (copie). Rien d'autre ne change dans D2.
+### 4.1 `work-offset.js`
 
-**`r.recovery`** (`job-service.js`) : `null` ou `{ cause: 'restart' | 'alarm', at, before, proofAtOpen, zero, after }`.
-- Ouverte dans `r.reset`, `r.alarmed` et la branche `Alarm` de `r.status`, **avant** la remise à faux de `homed`, si `r.homed === true` ou si un usinage est commencé et non fini (y compris arrêté par la tablette, `r.job.stopped` avec `r.lastStop` de ce fichier). `before = r.offset.lastProven()` (ou `null`), `proofAtOpen` = nombre de preuves à cet instant, `zero = 'pending'`.
-- Déjà ouverte : `cause` passe à `'restart'` si c'est une bannière (jamais l'inverse) ; `before` et `proofAtOpen` **ne changent pas** (le zéro de référence reste celui d'avant le premier incident) ; `zero` repasse à `'pending'`.
-- Comparaison, à chaque `changed()` : si `zero === 'pending'` et qu'une preuve **postérieure** à `proofAtOpen` tient (`r.offset.proof() > proofAtOpen`) : `after = lastProven()` ; `zero = 'unknown'` si `before` est nul ou d'autres unités ; `'same'` si même repère et `|after − before| ≤` tolérance D2 sur X, Y, Z ; sinon `'changed'`.
-- Ensuite, une nouvelle preuve dont le repère ou la valeur diffère de `after` : `zero = 'redone'`, `after` mis à jour (l'opérateur a refait le zéro ; le serveur ne sait pas par quel moyen, il ne le prétend pas).
-- Gardée par la prise d'origine. Fermée par le départ d'un usinage (`r.run`, reprise comprise) et la fermeture du port (enregistrement supprimé). Pas d'opération « Passer » : il n'y a plus rien à passer.
+Accesseur `lastProven()` : copie de la dernière preuve, que l'invalidation n'efface pas : `{ proof: s.proofs, wcs, units, stored: {x, y, z} }` (`stored` = `$# + G92 + TLO`, valeurs **brutes**, non arrondies, en unités des rapports). Accesseur `proofs()` : le compteur, toujours numérique. Rien d'autre ne change dans D2.
 
-**`r.resetRequired`** : vrai dans `r.alarmed` si le code est 1 ou 2 ; faux dans `r.reset` (bannière). Indépendant de `recovery` (une alarme critique d'une machine jamais référencée l'a aussi).
+### 4.2 `r.zero` (`job-service.js`, un par enregistrement)
 
-**Garde ajouté** dans `homeReady` et `unlockReady`, en premier : `r.resetRequired` → `ETOUCH_HOME_RESET_REQUIRED` (409), « La machine attend une réinitialisation après l'alarme N : bouton Reset de CNCjs sur le PC, ou éteignez puis rallumez la machine. » Aucun garde existant retiré ni affaibli.
+`{ ref: {x, y, z}, refWcs, refUnits, ok: {x, y, z}, floor, written }`
+- `ref[a]` : dernière valeur acceptée de l'axe, ou `null` (non comparé). `ok[a]` : axe confirmé.
+- `floor` : seuil de preuve ; seule une preuve de numéro `> floor` compte.
+- `written` : `null` ou `{ axes, wcs, after }`, un `G10 L20` de la tablette acquitté `ok`, en attente de sa preuve.
 
-**Instantané** : `recovery: { cause, at, zero, before, after } | null` (valeurs `fmt3`), `resetRequired`. La signature de changement (`job-service.js:2840`) inclut `recovery.zero` et `resetRequired`.
+Règles (toutes au même endroit, appelées avant toute notification `changed()`) :
+1. **Création** : `ref` nuls, `ok` faux, `floor = proofs()`.
+2. **Incident** (`r.reset`, `r.alarmed`, branche `Alarm` de `r.status`) : `ok` tous faux, `written = null`, `floor = proofs()`. `ref` est gardé (D4).
+3. **Fin de prise d'origine réussie** (`:438`, `:460`) : `floor = proofs()` (l'invalidation `'homing'` existe déjà).
+4. **Zéro écrit par la tablette** (`ok` reçu pour le `G10 L20`) : `written = { axes, wcs: repère actif, after: proofs() }`. Un `G10` « peut-être écrit » (délai, erreur) ne marque rien.
+5. **À chaque preuve D2** `p = lastProven()`, si `homed` et `p.proof > floor` :
+   - si `written` et `p.proof > written.after` et `p.wcs === written.wcs` : pour chaque axe écrit, `ref[a] = p.stored[a]`, `ok[a] = true` ; `written = null` ;
+   - si `p.wcs !== refWcs` ou `p.units !== refUnits` : tout axe non écrit à l'instant passe `ref[a] = null`, `ok[a] = false` ; `refWcs`, `refUnits` prennent ceux de `p` ;
+   - tout axe `ok` dont `|p.stored[a] − ref[a]| >` tolérance D2 : `ok[a] = false` (changé par le PC, un programme, le Wi-Fi : jamais promu).
+6. **Validation** (D8) : voir § 4.3.
+
+**Zéro confirmé** (garde D1) : profil CNC ; `homed` ; D2 prouvé maintenant (`proof() !== null`) avec `proof() > floor` ; même repère et mêmes unités que la référence ; pour chaque axe, `ok[a]` et `|stored[a] − ref[a]| ≤` tolérance. Sinon refus `ETOUCH_START_ZERO_UNCONFIRMED` (409), paramètres : axes en cause et leur état. Profil laser : garde non appliqué (inchangé, hors lot).
+
+### 4.3 États par axe et validation
+
+État affiché d'un axe : `confirmé` (`ok`) ; sinon `en attente` (pas `homed`, ou pas de preuve `> floor`) ; `non comparé` (`ref[a]` nul, ou repère / unités différents) ; `identique` (écart ≤ tolérance) ; `différent`. État global = le pire (ordre : différent, non comparé, en attente, identique, confirmé).
+
+Validation : opération `zero-confirm`, ticket comme les autres (`nonce`, `transportId`, expiration, révoqué par `closeTransport`), qui porte `{ proof, startups, wcs, values }`. Préparation et exécution exigent : main, repos, `homed`, `proof() === ticket.proof`, `startups` inchangé, aucun axe non confirmé `différent` ou `non comparé` ou `en attente`. Effet : `ok` tous vrais, `ref = stored` de cette preuve. Aucune ligne envoyée.
+
+### 4.4 Alarme critique
+
+`r.resetRequired` : vrai dans `r.alarmed` pour le code 1 ou 2 ; faux à la bannière (`r.reset`). Copié dans une table **par port** du service (`criticalAlarms`, hors des enregistrements) : à la création d'un enregistrement, `resetRequired` en hérite ; une bannière sur ce port l'efface. Seule une interdiction est héritée. Garde en premier dans `homeReady` et `unlockReady` : `ETOUCH_HOME_RESET_REQUIRED`. Perdu si CNCjs redémarre (limite § 11).
+
+### 4.5 `r.recovery` (carte seulement)
+
+`null` ou `{ cause, at }`, ouverte à un incident si la machine était référencée ou un usinage commencé ; `cause` passe à `'restart'` sur bannière, jamais l'inverse ; gardée par la prise d'origine ; fermée par le départ d'un usinage et la fermeture du port. Elle ne donne **aucune** permission : le zéro suit § 4.2.
+
+### 4.6 Instantané
+
+`zero: { state, axes: { x: {state, ref, now}, … }, wcs, canConfirm }` (valeurs `fmt3`), `recovery`, `resetRequired`. La signature de changement (`job-service.js:2840`) inclut `zero.state`, les états d'axe et `resetRequired`. `refusals.start` porte le nouveau code via le chemin existant (`:1625`).
 
 ## 5. Présentation des refus (page)
 
-- `refus.js` `lire(error, machine)` : second argument facultatif (l'état reçu, passé par `seance.js` et les autres appelants qui l'ont ; sinon `window.cncState.get().machine` s'il existe). Si `machine.referenceLost` n'est pas nul, les familles `origine-a-prendre` et `alarme`, la raison `error:15` d'un pas, et `ETOUCH_FRAME_RESTART` deviennent la famille **`position-perdue`** : phrase selon la cause, remède `remise-en-route`. Sur ①, ce remède est filtré (`seance.js:141`) : l'action reste [Prise d'origine machine…]. Cause globale n° 10 (`seance.js:91`) : même phrase et même remède hors de ①.
-- `ETOUCH_HOME_RESET_REQUIRED` : famille nouvelle `reinitialisation` (phrase serveur, remède `details`), **prioritaire** sur `position-perdue`.
-- Phrases serveur FR dans la table des messages (`machine-profile.js` ou `job-service.js`, là où vivent les phrases de `homeReady`), EN/ES dans `i18n-messages-machine.js`, en fin de table.
+- `refus.js` `lire(error, machine)` (second argument facultatif) : `referenceLost` non nul → famille `position-perdue` pour `origine-a-prendre`, `alarme`, `error:15` d'un pas, `ETOUCH_FRAME_RESTART`.
+- `ETOUCH_START_ZERO_UNCONFIRMED` → famille `zero-a-confirmer` : phrase serveur (« Zéro pièce à confirmer en X, Y : refaites-le ou validez-le. »), remèdes `valider-zero` (actif seulement si `zero.canConfirm`) et `refaire-zero`.
+- `ETOUCH_HOME_RESET_REQUIRED` → famille `reinitialisation`, prioritaire.
+- `seance.js` : la ligne zéro suit `zero.state`, plus jamais « gardé, vérifié » sur la seule preuve D2 ; `zeroDone` devient `zero.state === 'confirmé'` (la règle « ancien zéro » de la page passe au serveur, par axe).
+- Phrases FR dans la table serveur, EN/ES dans `i18n-messages-machine.js`, en fin de table.
 
 ## 6. Cas d'échec
 
 | Cas | Ce qui se passe | Après |
 |---|---|---|
-| Pince de sonde restée sur la fraise | La boîte de prise d'origine demande son retrait (D4) ; rien ne le **prouve** (`Pn:P` ouvert ne dit rien d'une pince posée à vide). | Limite écrite § 11 ; essai P4-B2. |
-| Alarme critique, carte muette | `resetRequired`, prise d'origine et déverrouillage refusés, carte B1. Rien n'est écrit. | Reset du PC ou coupure ; bannière → A ; port perdu → C. |
-| Prise d'origine en échec (`ALARM:6-9`, interrompue) | Comportement existant ; `homed` reste faux, `recovery` reste ouverte, `zero` reste `pending`. | Refaire la prise d'origine. |
-| `$#` effacé ou modifié par le redémarrage | D2 peut prouver (WCO et `$#` d'accord entre eux) : la comparaison donne `changed`. | « différent… Refaites-le », [Refaire le zéro pièce]. |
-| G92 perdu au redémarrage | `before.stored` contenait G92 : `changed`. | idem. |
-| Repère actif changé (G55 avant, G54 après) | `changed` (repère différent). | idem. |
-| Aucune preuve avant l'incident | `before` nul : `unknown`. | « sans comparaison possible ». |
-| D2 non prouvé après | `zero` reste `pending` ; phrases D2 actuelles. | [Vérifier à nouveau] / [Refaire le zéro pièce]. |
-| Programme qui a écrit un `G10` en cours d'usinage | `before` (preuve d'avant le départ) diffère du `$#` relu : `changed`. Prudent, peut-être à tort. | L'opérateur refait le zéro. |
-| Nouvel incident avant le départ | `before` gardé, `zero` repasse `pending`. | Nouvelle comparaison. |
-| Reconnexion | Rien d'hérité (C). | Prise d'origine ; zéro « sans comparaison ». |
-| CNCjs redémarré | `r.recovery` (mémoire seule) perdue. | Comme C. |
+| `$#` effacé au redémarrage, cohérent avec WCO | D2 prouve ; les trois axes `différent` ; départ refusé. | Refaire X, Y, Z. |
+| Effacé, puis Z seul refait (constat 2) | Z confirmé ; X, Y `différent` ; validation non offerte ; départ refusé. | Refaire X, Y. |
+| Zéro refait aux mêmes valeurs | Confirmé par le chemin (a), sans condition de différence. | Départ possible. |
+| Second incident après une réparation C (constat 3) | `ref = C` ; `A` relu → `différent`. | Refaire. |
+| Preuve après `$X`, avant `$H` (constat 4) | `homed` faux : ne compte pas ; la fin de prise d'origine relève `floor`. | Preuve suivante. |
+| Changement d'unités (`$13`) | `non comparé`. | Refaire. |
+| Repère actif changé (G55 avant, G54 après) | `non comparé` sur les axes non écrits. | Refaire. |
+| G92 perdu, `G10` d'un programme, zéro posé du PC, Wi-Fi | Valeur relue ≠ `ref` : `différent`, jamais promu. | Refaire sur la tablette (ou démarrer depuis le PC, § 11). |
+| Incident pendant la relecture asynchrone du fichier | `readyFor` après la relecture refuse ; rien n'est envoyé. | — |
+| Ancien ticket de départ | `readyFor` à l'exécution refuse. | — |
+| Connexion neuve, CNCjs redémarré | `non comparé` ; départ refusé. | Refaire le zéro. |
+| Alarme critique, port rouvert sans bannière (constat 5) | Interdiction gardée ; `$H`/`$X` refusés sans octet écrit. | Reset du PC. |
+| Flux perdu, rotation, main rendue **avant** l'envoi de `$H` (constat 7) | Confirmation révoquée (`closeTransport`) ; aucun `$H`. | Refaire la boîte. |
+| Même chose **après** l'envoi | Le cycle de la carte continue (existant) ; aucun mouvement de suite, aucune validation, aucune reprise ; le zéro reste à confirmer. | Comme A4. |
+| Arrêter, `ALARM:6-9` ou nouvelle bannière pendant `$H` | `homed` reste faux ; incident (règle 2) ; rien n'est confirmé. | Refaire la prise d'origine. |
+| Pince de sonde restée sur la fraise | Demandée par la boîte (D6), jamais constatée. | Essai P4-B2. |
 
 ## 7. Faits de la carte utilisés (`design/refonte/FIRMWARE.md`)
 
 | Fait | Où il sert | Degré de preuve |
 |---|---|---|
-| E3 : après un Arrêter en usinage ou `ALARM:2`, MPos 0, non référencée | la détection, la carte « a redémarré » | **observé** ; mécanisme inconnu (H1, H2, H3) |
-| § 3.a pts 3-4, R4 : après `ALARM:1/2`, boucle vide jusqu'à un reset envoyé **après** l'alarme ; `?` répond encore | parcours B, garde `ETOUCH_HOME_RESET_REQUIRED` | **amont seulement** ; sur la LUNYEE, E3 suggère un redémarrage (H2) que le simulateur imite (L7, L8) |
-| E4 / R6 : `WCO:0,0,0` après `$H`, `$#` garde G54 ; `G55` puis `G54` recharge | D2 avant la comparaison | observé (terrain) + amont |
-| `$#` conservé à travers un **redémarrage** de l'ESP32 | « gardé, identique » | **amont seulement** ; la comparaison le constate ou dit `changed` |
-| L14 : pas de bannière à l'ouverture du port | parcours C | simulateur, d'après le terrain |
-| R12 : Wi-Fi ouvert, un autre client peut écrire | un `$#` changé par le Wi-Fi pendant l'incident donne `changed` (prudent) | observé |
+| E3 : après un Arrêter en usinage ou `ALARM:2`, MPos 0, non référencée | détection, carte « a redémarré » | observé ; mécanisme inconnu (H1-H3) |
+| § 3.a pts 3-4, R4 : après `ALARM:1/2`, boucle vide jusqu'à un reset envoyé après l'alarme ; `?` répond | parcours B, D5 | amont seulement |
+| E4 / R6 : `WCO:0,0,0` après `$H`, `$#` garde G54 ; D2 recharge | comparaison | observé + amont |
+| `$#` conservé à travers un redémarrage | « identique » | amont seulement ; la comparaison le constate |
+| L14 : pas de bannière à l'ouverture du port | parcours C, B3 | simulateur, d'après le terrain |
+| R12 / E6 : Wi-Fi ouvert, un autre client peut écrire | `différent`, jamais promu | observé ; aucune exclusivité |
+
+Aucune hypothèse nouvelle sur le zéro machine, `$27`, `$HX` ou `$39`.
 
 ## 8. Fichiers touchés
 
-Serveur : `src/server/services/touch/work-offset.js` (`last`, `lastProven`) ; `job-service.js` (fichier partagé : `r.recovery`, `r.resetRequired`, garde dans `homeReady`/`unlockReady`, instantané, signature, groupés en fin de section) ; table des phrases serveur ; `__tests__/touch-codes-catalog.js` si le catalogue l'exige.
+Serveur : `work-offset.js` (`lastProven`, `proofs`) ; `job-service.js` (fichier partagé, groupé en fin de section : `r.zero`, garde D1 dans `readyFor`, opération `zero-confirm`, `criticalAlarms`, `resetRequired`, `r.recovery`, instantané, signature) ; `motion.js`, `block-probe.js`, `plate-probe.js` (un appel « axes écrits » à l'`ok` du `G10`, une ligne chacun) ; table des phrases serveur ; catalogue des codes.
 
-Page : `touch/seance.js` (ligne zéro selon `recovery.zero`, action principale, cause n° 10, parcours B) ; `touch/refus.js` (`position-perdue`, `reinitialisation`, second argument) ; `touch/grbl-help.js` (lignes de l'encart) ; `touch/job-controls.js` (texte de la boîte `home`, D4) ; `touch/job-resume.js` (action principale de ⑤ selon `recovery.zero`) ; `touch/i18n-messages*.js` (blocs en fin, FR/EN/ES) ; `verify-project.cjs` (nouveau test) ; `browser-run.cjs` (fixture `stopped-unhomed` complétée).
+Page : `seance.js`, `refus.js`, `grbl-help.js`, `job-controls.js` (boîtes `home` et `zero-confirm`), `job-resume.js`, `i18n-messages*.js`, `verify-project.cjs`, `browser-run.cjs`.
 
-Documents : `design/refonte/SURETE.md` § P4, `design/refonte/PROTOCOLE-ESSAI.md` § P4, `IDEES.md` (le mouvement retiré), `design/plaque/P4-COMPTE-RENDU.md`.
+Documents : `SURETE.md` § P4, `PROTOCOLE-ESSAI.md` § P4, `IDEES.md` (retour au zéro), `P4-COMPTE-RENDU.md`.
+
+**Coût pour la réunion** : les tests de départ existants supposent qu'un zéro prouvé suffit ; ils devront confirmer le zéro par le chemin réel (origine X0 Y0 Z0 posée par la tablette après la prise d'origine), dans une aide de banc commune. P1 et P3 doivent appeler « axes écrits » à leur propre `G10 L20`.
 
 ## 9. Tests exigés
 
-Chaque test nomme l'assertion nouvelle et la régression qu'il attrape. Les témoins (qui restent verts sans le code) sont marqués « témoin » et ne comptent pas comme preuve du code.
+Chaque test nomme l'assertion nouvelle et la régression qu'il attrape ; les témoins (verts sans le code) sont marqués et ne prouvent pas le code.
 
 Serveur, faux contrôleur — `__tests__/recovery.test.js` :
-1. **Ouverture.** Nouvelle assertion : `state().recovery` non nul avec `cause` attendue. Cas : bannière après prise d'origine → `restart` ; `ALARM:3` → `alarm` ; bannière puis alarme → reste `restart` ; usinage commencé non référencé ($22=0) puis bannière → ouverte. Témoin : bannière sans référence ni usinage → `null`. Régression attrapée : remise en route absente, ou annoncée à chaque connexion.
-2. **Survie.** Après prise d'origine : `referenceLost` nul **et** `recovery` présente ; fermée par `r.run`. Régression : la carte disparaît à la prise d'origine.
-3. **Reconnexion (constat 5).** Port fermé (`remove`) puis nouveau contrôleur avec et sans bannière : `recovery` nulle, `homed` faux, `canStart` faux, aucun héritage de `before`. Régression : un historique qui rendrait une permission.
-4. **Alarme critique sans bannière (constat 4).** `ALARM:1` puis `ALARM:2`, rapports `Alarm` frais, aucune bannière : `canHome` et `canUnlock` faux, code `ETOUCH_HOME_RESET_REQUIRED`, une demande `home` refusée **sans aucun octet écrit** ; témoin `ALARM:3` → pas de `resetRequired` ; bannière ensuite → `resetRequired` faux, `canHome` vrai. Régression : `$H` envoyé à une carte muette.
-5. **Comparaison avec le vrai D2 (constat 1), faux contrôleur répondant `$#`/WCO** : avant = G54 (50, 100, −105) prouvé ; bannière ; prise d'origine ; après, quatre cas : identique → `same` ; `$#` remis à 0 et WCO 0 (D2 **prouve**) → `changed` ; G92 X5 avant, 0 après → `changed` ; repère G55 avant, G54 après → `changed`. Aucune preuve avant → `unknown`. Nouvelle preuve différente après `same` → `redone`. Régression : « gardé » annoncé pour un zéro effacé.
-6. **Indépendance de l'invalidation.** `invalidate('stop')` puis `invalidate('restart')` ne changent pas `lastProven()`. Régression : `before` vidé par l'Arrêter qui précède la bannière (`job-service.js:2663`).
-7. **Rien d'écrit.** Ouverture, comparaison, fermeture : `c.commands` inchangé. Régression : P4 qui enverrait une ligne.
+1. **Garde de départ (constat 1).** Zéro prouvé mais non confirmé : `prepare start` refusé `ETOUCH_START_ZERO_UNCONFIRMED`, et par l'API directe sans ticket, avec un ancien ticket, pour une reprise chargée depuis une ligne, après rechargement du fichier, après reconnexion ; incident pendant `sameFileAsLoaded` (préparation et exécution) → refus. Assertion : aucun `gcode:start`, aucune ligne. Dérogation de course demandée : même refus. Régression : départ sur un zéro effacé.
+2. **Confirmation par la tablette (constat 2).** Effacement XYZ puis Z seul refait → X, Y `différent`, départ refusé ; réparation complète → confirmé ; réparation aux mêmes valeurs → confirmé ; `G10` « peut-être écrit » → rien marqué ; changement extérieur G54 → G55 (socket) → `non comparé`, jamais confirmé. Remplace l'assertion v2 « nouvelle preuve différente → `redone` ».
+3. **Validation (D8).** Identique → `canConfirm`, validation → confirmé, aucune ligne ; différent, non comparé, en attente → refusée ; ticket dont la preuve a changé, ou après une bannière → refusé.
+4. **Référence la plus récente (constat 3).** `A → incident → B → C refait → incident → A` : jamais `identique`, état `différent`.
+5. **Seuil de preuve (constat 4).** Preuve après `$X` avant `$H` → `en attente` ; Arrêter → invalidation → bannière → la preuve d'avant ne compte pas ; incidents successifs ; changement d'unités ; écarts à 0,9 et 1,1 fois la tolérance, valeurs brutes.
+6. **Alarme critique (constat 5).** `ALARM:2` sans bannière : `canHome`, `canUnlock` faux, `home` refusé sans octet ; port fermé puis rouvert **sans répéter `ALARM:n`** → toujours refusé ; témoin : bannière sur ce port → levé.
+7. **Prise d'origine et flux (constat 7).** Fermeture réelle du flux, rotation, libération et prise de main **avant** l'envoi → aucun `$H` ; **après** l'envoi → le cycle finit, zéro toujours à confirmer, rien d'autre envoyé ; Arrêter, `ALARM:6-9` et bannière pendant `$H` → incident gardé, rien confirmé.
+8. **Indépendance de l'invalidation.** `invalidate('stop')` puis `('restart')` ne changent pas `lastProven()`.
+9. *Témoin* : ouverture, comparaison, validation, fermeture n'ajoutent aucune écriture hors D2 (les lignes de D2 sont filtrées).
 
-Simulateur, **profil LUNYEE** — `__tests__/recovery-lunyee.test.js` :
-- S1. Cas du 18 novembre : prise d'origine, `G10 L2 P1 X50 Y100 Z-105` (et non `L20` : après `$H` à MPos 0, `L20` donnerait −50, −100, +105), `$#` relu = 50/100/−105 ; preuve D2 ; usinage lancé, Arrêter en mouvement → bannière (le simulateur donne `ALARM:3` puis redémarrage, L9 ; l'`ALARM:3` n'est pas exigé) ; `recovery.cause === 'restart'` ; `ETOUCH_START_NOT_HOMED` et `ETOUCH_ORIGIN_NOT_HOMED` gardent leur code ; prise d'origine ; D2 prouvé dans les deux hypothèses `executedAfterHoming: 'zero'` et `'stored'` ; `recovery.zero === 'same'` ; `stoppedAtLine` conservé.
-- S2. Même chose avec `G10 L2 P1 X0 Y0 Z0` envoyé entre la bannière et la prise d'origine (zéro perdu simulé) : D2 prouvé, `recovery.zero === 'changed'`.
-- S3. `ALARM:2` provoquée par une ligne hors course (profil L7 : redémarrage) : `resetRequired` vrai puis faux à la bannière ; témoin du chemin H2.
+Simulateur, **profil LUNYEE**, `G21` fixé — `__tests__/recovery-lunyee.test.js` :
+- S1. Prise d'origine, `G10 L2 P1 X50 Y100 Z-105`, `$#` relu ; origine posée par la tablette (confirmée) ; usinage, Arrêter en mouvement → bannière ; départ refusé (`ETOUCH_START_ZERO_UNCONFIRMED`) ; prise d'origine ; D2 dans les deux hypothèses `executedAfterHoming` ; `identique` ; validation ; départ accepté ; `stoppedAtLine` conservé.
+- S2. Même chose, mais la **fixture** efface les décalages du simulateur au redémarrage (paramètres remis à 0, injection explicite du banc, aucune ligne et aucun `$X` dans le produit) ; `$#` relu à 0 ; D2 prouvé ; `différent` ; validation refusée.
+- S3. `ALARM:2` provoquée (profil L7) : `resetRequired` vrai puis faux à la bannière ; témoin H2.
 
-Page (hors navigateur, `examples/cncjs-touch/test-remise-en-route-p4.cjs`, enregistré dans `verify-project.cjs`) :
-- P1. `referenceLost: 'restart'` : sur ② à ⑤, `ETOUCH_START_NOT_HOMED`, `ETOUCH_ORIGIN_NOT_HOMED`, `ETOUCH_CNC_FRAME_NOT_HOMED`, `ETOUCH_MOTION_ALARM`, `ETOUCH_FRAME_RESTART`, `lastJog` `error:15` → famille `position-perdue`, remède `remise-en-route`, code d'origine dans Détails (nouvelle assertion : la famille ; aujourd'hui `origine-a-prendre`, `alarme` ou « erreur 15 »). `'alarm'` → l'autre phrase. Témoin : `referenceLost` nul → présentation actuelle.
-- P2. **Ligne zéro.** Nouvelle assertion, rouge aujourd'hui : incident + D2 prouvé **sans** `recovery` → pas « gardé » (aujourd'hui `seance.js:24` l'écrit) ; `recovery.zero` `same` → « gardé, identique… » ; `changed` → alerte, bouton `refaire-zero` ; `unknown` → alerte ; `redone` → « refait… ».
-- P3. **Action principale.** Arrêté ligne 1 234, référencé, prouvé : `zero: 'changed'` ou `'unknown'` → ① et ⑤ proposent `refaire-zero`, pas `changer-ligne` (rouge aujourd'hui) ; `same` → `changer-ligne` (témoin du chemin actuel).
-- P4. **Boîte de prise d'origine (constat 2).** Texte et case contiennent la pince de sonde ; un seul envoi du ticket après les 3 touchers (rouge aujourd'hui : texte absent).
-- P5. **Parcours B.** `resetRequired: true` → encart « attend une réinitialisation », [Prise d'origine machine…] rayé avec la phrase du serveur, aucun handler d'envoi appelé.
-- P6. `test-refus-table.cjs` (chaque nouveau code a sa famille), `test-i18n.cjs` (FR/EN/ES), `test-textes-regles.cjs` (aucun `$`, G-code ou « carte » hors Détails) : contrôles généraux, témoins.
+Page (`examples/cncjs-touch/test-remise-en-route-p4.cjs`, enregistré dans `verify-project.cjs`) :
+- P1. `position-perdue` pour les six codes (rouge aujourd'hui) ; témoin `referenceLost` nul.
+- P2. Ligne zéro par état ; incident + D2 prouvé sans `zero.state === 'confirmé'` → jamais « gardé » (rouge aujourd'hui, `seance.js:24`).
+- P3. `ETOUCH_START_ZERO_UNCONFIRMED` → famille `zero-a-confirmer`, `valider-zero` rayé sans `canConfirm`.
+- P4. Boîte `home` : pince, plaque et fil nommés (texte et case) ; boîte `zero-confirm` : valeurs, Z non montré, un seul envoi après trois touchers.
+- P5. Parcours B, y compris après reconnexion.
+- P6. *Témoins* : `test-refus-table.cjs`, `test-i18n.cjs`, `test-textes-regles.cjs`.
 - Navigateur si disponible : `browser-run.cjs --strict --only <étape remise en route>`.
 
 Avant de rendre : `node examples/cncjs-touch/verify-project.cjs`, `npx jest src/server/services/touch src/server/services/cncengine src/server/api grbl-simulator --coverage=false`, ESLint sur les fichiers touchés.
 
 ## 10. Essai réel (à ajouter à `PROTOCOLE-ESSAI.md` § P4)
 
-Aucun mouvement nouveau : seul `$H` (existant) bouge la machine. **Broche débranchée de son alimentation, pas de fraise, table vide** jusqu'à P4-D. CNCjs classique ouvert sur le PC en observateur. Main sur l'arrêt physique pendant chaque prise d'origine.
+Seul `$H` (existant) bouge la machine, plus le cadrage F1 s'il a déjà été essayé. **Broche débranchée, pas de fraise, table vide** jusqu'à P4-D. CNCjs classique ouvert sur le PC en observateur. Main sur l'arrêt physique pendant chaque prise d'origine.
 
 | Étape | Manipulation | Attendu / relevé |
 |---|---|---|
-| P4-A1 | Machine connectée et référencée, zéro pièce posé (X 200, Y 200), D2 prouvé. **Au repos**, bouton Reset de CNCjs sur le PC. | Bannière ou non ; messages de démarrage complets ou seulement `Grbl … ['$' for help]` (discriminant H1, `FIRMWARE.md` § 3.a). Si bannière : encart « La machine a redémarré : position perdue. », ligne zéro « comparé… après la prise d'origine ». |
-| P4-A2 | Toucher Démarrer (④), un zéro (③), un pas +Z (après Déverrouiller seulement si l'opérateur le veut). | Chaque refus dit « position perdue » + [Remise en route] ; Détails : le code d'origine. |
-| P4-B1 | [Prise d'origine machine…] : lire la boîte. | La pince de sonde y est nommée, dans le texte et la case. |
-| P4-B2 | Poser la pince de sonde sur une fraise **absente** (pince fermée à vide, câble libre) : la boîte la fait retirer ; la retirer ; cocher, engager. | Prise d'origine faite ; aucun câble tiré. |
-| P4-B3 | Attendre D2. | « Zéro pièce : gardé, identique… » ou « différent… » : **noter lequel** (fait « `$#` après redémarrage »). Détails : avant / après. |
-| P4-B4 | Contrôle → Cadrage à vide (F1, s'il a déjà été essayé). | La fraise passe au-dessus du coin attendu. |
-| P4-C1 | Débrancher puis rebrancher l'USB, reconnecter. | Parcours C : rien d'hérité, « Origine machine à prendre » (ou « a redémarré » si bannière), zéro « sans comparaison possible ». |
-| P4-D1 | Cas du terrain, encadré : planche bridée, fraise montée, broche **toujours débranchée**, zéro pièce posé ; petit fichier d'essai (Z de travail ≥ 5 mm au-dessus de la planche) ; Arrêter en plein mouvement. | Bannière ou non (H1). Si redémarrage : encart, prise d'origine, comparaison ; [Reprendre à la ligne N…] proposé seulement si « identique ». |
+| P4-A1 | Référencée, origine posée par la tablette (X 200, Y 200, Z en l'air), confirmée. **Au repos**, Reset de CNCjs sur le PC. | Bannière ou non ; messages de démarrage complets ou non (H1). Si bannière : encart, « à comparer après la prise d'origine ». |
+| P4-A2 | Toucher Démarrer, un zéro, un pas +Z. | « position perdue » + [Remise en route] ; code d'origine dans Détails. |
+| P4-B1 | [Prise d'origine machine…] : lire la boîte. | Pince, plaque et fil nommés. |
+| P4-B2 | Pince posée à vide, câble libre : la retirer, cocher, engager. | Prise d'origine faite ; aucun câble tiré. |
+| P4-B3 | Attendre D2 ; toucher Démarrer **avant** de valider. | Refus « Zéro pièce à confirmer » ; noter « identique » ou « différent » (fait « `$#` après redémarrage »). |
+| P4-B4 | Si identique : Cadrage à vide (F1), puis [Valider le zéro pièce…]. | Fraise au-dessus du coin attendu ; validation ; Démarrer accepté (ne pas lancer). |
+| P4-C1 | Débrancher puis rebrancher l'USB, reconnecter, prise d'origine. | « aucun zéro accepté à comparer » ; Démarrer refusé jusqu'à l'origine reposée par la tablette. |
+| P4-D1 | Planche bridée, fraise montée, broche **débranchée**, zéro posé ; petit fichier (Z de travail ≥ 5 mm au-dessus) ; Arrêter en plein mouvement. | Si redémarrage : encart, prise d'origine, comparaison, validation ou zéro refait, puis [Reprendre à la ligne N…]. |
 
-Ne pas essayer : provoquer `ALARM:1` ou `ALARM:2` (parcours B : tests seulement), `$20=0`, reset en mouvement hors P4-D1. Relevé : fait / non fait par étape, messages, valeurs avant / après, surprises.
+Ne pas essayer : `ALARM:1` / `ALARM:2` (tests seulement), `$20=0`, reset en mouvement hors P4-D1, perte de flux pendant `$H` (tests seulement). Relevé : fait / non fait, messages, valeurs, surprises.
 
 ## 11. Ce qui reste incertain
 
-- La cause du redémarrage (H1, H2, H3) : P4 traite le résultat, pas la cause.
-- Si `$#` survit au redémarrage sur ce binaire : la comparaison le dira ; sinon « différent… refaites-le ».
-- Le parcours B repose sur le code amont ; sur la LUNYEE, `ALARM:2` semble suivi d'un redémarrage (E3). Si la carte ne redémarre pas **et** répond quand même aux lignes, le garde refuse une prise d'origine qui aurait marché : sens prudent, remède = reset du PC.
-- La pince de sonde : demandée, jamais constatée. Aucun capteur ne dit qu'elle est retirée.
-- La comparaison prouve « même `$#` + G92 + TLO qu'à la dernière preuve », pas « même pièce au même endroit » : une pièce déplacée sur la table n'est vue que par l'opérateur (cadrage à vide).
-- Un `G10` écrit par le programme pendant l'usinage donne `changed` (prudent) ; un `G92` posé par le programme et perdu au redémarrage n'est pas dans `before` (preuve faite avant le départ) : la reprise à une ligne garde alors ses propres contrôles.
-- **Question pour l'orchestrateur / l'opérateur** : faut-il un garde **serveur** refusant la reprise à une ligne tant que `recovery.zero` vaut `changed` ou `unknown` ? P4 ne fait qu'orienter la page (la reprise reste possible par le volet de ⑤, et depuis CNCjs sur le PC). Garde ajouté, aucun retiré, mais il touche la reprise existante : je ne l'ai pas mis sans accord.
-- `r.recovery` n'est pas persistante : perdue si CNCjs redémarre (parcours C).
-- Écart avec le prompt : le retour au-dessus du zéro pièce n'est pas fait (D0).
+- Écart D0 (retour au zéro retiré) : **à confirmer par l'opérateur**.
+- **Changement de pratique, à confirmer par l'opérateur** : à chaque nouvelle connexion et chaque matin (CNCjs redémarre avec la tablette), le zéro doit être reposé par la tablette avant de démarrer depuis elle, même si la pièce n'a pas bougé. Un zéro posé depuis le PC n'est pas reconnu par la tablette. Alternative plus tard (hors lot) : garder la référence acceptée sur disque pour permettre la validation après reconnexion.
+- **Départ depuis CNCjs sur le PC** : non gardé, comme la référence aujourd'hui (`socketRefusal` ne refuse pas `gcode:start`). Le garder bloquerait le PC sur tout zéro posé hors tablette ; le PC reste la voie d'expert. Le Wi-Fi direct est hors de portée du serveur. Question ouverte pour l'orchestrateur.
+- Un programme qui sélectionne un autre repère que l'actif : même limite que D2 (seul le repère actif au départ est prouvé et confirmé).
+- `criticalAlarms` et `r.zero` en mémoire seule : CNCjs redémarré perd l'interdiction critique (un `$H` sans réponse finit par le délai existant `HOMING_MAX_MS`) ; le zéro, lui, repart « non comparé » (sens prudent).
+- Le parcours B repose sur le code amont ; si la carte répond quand même, le garde refuse une prise d'origine qui aurait marché (sens prudent).
+- La validation prouve « même `$# + G92 + TLO` que le dernier zéro accepté », pas « même pièce au même endroit » ; Z n'est vu par aucun cadrage.
+- La pince de sonde : demandée, jamais constatée.
+- Cause du redémarrage (H1-H3) : P4 traite le résultat, pas la cause.
 
-## 12. Réponse à la relecture Astra
+## 12. Réponse à la première relecture (v1 → v2, résumé)
 
-Relecture : commit `768b7192`, 2 dangers, 6 « à corriger », 2 remarques. Tous les constats ont été vérifiés dans le code ; **aucun n'est réfuté**.
+Dix constats acceptés ; v2 retirait le mouvement de retour et ajoutait la comparaison avant / après, la boîte pince, le parcours alarme critique, la reconnexion sans héritage, des tests corrigés (`G10 L2`). Les états `same` / `redone` / `before` du premier incident, jugés dangereux par la deuxième relecture, sont remplacés en v3 par § 4.2.
 
-| # | Constat | Verdict | Preuve | Ce qui change |
+## 13. Réponse à la deuxième relecture
+
+Relecture du commit `141ec466`. Constats vérifiés dans le code ; aucun réfuté. Constat 1 et constat 6 suivent les décisions de l'orchestrateur.
+
+| # | Constat | Verdict | Preuve vérifiée | Ce qui change en v3 |
 |---|---|---|---|---|
-| 1 | danger — D2 ne prouve pas la conservation de l'ancien zéro | **Accepté** | `work-offset.js:275-289` compare `$#` actuel au WCO actuel ; `invalidate` efface `stored` (`:153`) ; l'Arrêter invalide déjà avant la bannière (`job-service.js:2663`, `:710`). Pire : la page actuelle écrit déjà « gardé, vérifié » dès incident + preuve (`seance.js:24`). | D2 : `lastProven()` non effacé par l'invalidation ; `recovery.before` / `after` / `zero` (§ 4) ; « gardé » seulement si identique ; `changed`/`unknown` orientent vers « Refaire le zéro pièce ». Tests 5, 6, S1, S2, P2, P3 avec le vrai D2 (effacé, G92 perdu, repère changé, témoin). |
-| 2 | danger — la pince de sonde attachée | **Accepté** | La v1 disait « sans objet » ; or un Arrêter pendant un palpage fait feed hold + reset (`job-service.js:2616-2618`, `:2668-2672`), donc probablement un redémarrage avec la pince sur la fraise ; la boîte `home` ne la nomme pas (`job-controls.js:197`). | D4 : texte et case de la boîte de prise d'origine (toutes les prises d'origine). Le mouvement de retour, second trajet à risque, est retiré (D0). Test P4, essai P4-B1/B2 ; limite « jamais constatée » écrite. |
-| 3 | le ticket n'atteste pas la position de départ | **Accepté**, devenu sans objet | Vrai : `$J=G90 G21 X0 Y0` ne dépend pas de la position X/Y, et de Z 0 à Z −3 aucune ligne Z n'existe (seuil `zs − mz ≥ 0,01`, `zs = −5`) : le plan restait identique. | Le mouvement et son ticket sont retirés (D0). À reprendre avec lui (position XYZ de départ comparée, tolérance chiffrée) s'il revient. |
-| 4 | alarme critique sans bannière | **Accepté** | `FIRMWARE.md:67-69` et R4 : boucle vide, reset nécessaire **après** l'alarme ; `homeReady` accepte `Alarm` sans regarder le code (`job-service.js:1300-1305`) ; le témoin `repetition-findings.test.js:247-269` montre la tablette sans recours. | D3, parcours B, `r.resetRequired`, garde `ETOUCH_HOME_RESET_REQUIRED` sur prise d'origine et déverrouillage, remède explicite sans reset automatique. Test 4 (aucun octet écrit), S3, P5. L'Arrêter pendant `$H` (reset existant) n'est pas touché ; plus aucun `0x85` propre à P4. |
-| 5 | la reconnexion USB détruit l'état | **Accepté** | `remove` supprime l'enregistrement (`job-service.js:770-772`) ; la LUNYEE n'envoie pas de bannière à l'ouverture (L14) : l'essai P4-A1 de la v1 ne pouvait pas montrer la carte annoncée. | Parcours C défini (rien d'hérité, D7) et testé (test 3) ; P4-A1 remplacé par un Reset du PC **au repos**, connexion gardée ; la reconnexion devient l'essai P4-C1. |
-| 6 | `done` peut afficher une position fausse | **Accepté**, devenu sans objet | Vrai : rien ne remettait `done` à faux après un pas manuel ou une nouvelle tentative. | `done` n'existe plus (pas de mouvement). L'état `zero` ne parle que du zéro pièce, jamais de la position de la fraise ; il change à chaque preuve (`redone`) et repasse `pending` à chaque incident. |
-| 7 | deux tests faux | **Accepté** | (a) Après `$H` à MPos 0, `G10 L20 P1 X50 Y100 Z-105` pose le décalage MPos − valeur = −50, −100, +105 ; c'est `L2` qui écrit 50, 100, −105. (b) Depuis Z −60, la montée passe forcément sous −5,05. | (a) S1 et S2 utilisent `G10 L2` et vérifient `$#`. (b) Sans objet (S2 v1 retiré avec le mouvement). |
-| 8 | les tests différentiels doivent viser les nouvelles branches | **Accepté** | `seance.js:24` contient déjà « gardé, vérifié » et « à vérifier après la prise d'origine » : le test P2 v1 serait resté vert sans code ; `test-refus-table`, `test-i18n` sont des contrôles généraux. | § 9 réécrit : chaque test nomme son assertion nouvelle et la régression qu'il attrape ; témoins marqués. La partie `purpose:'zero'` (surveillance, flux, grâce de 3 s) est sans objet sans le mouvement. |
-| 9 | remarque — l'arrivée comparée ne voit pas les pas perdus | **Accepté** | `motion.js` compare des coordonnées rapportées ; `SURETE.md:256` le reconnaît. | La promesse est retirée avec le mouvement ; § 11 dit que seule la vue de l'opérateur (cadrage à vide) voit une pièce ou des pas décalés. |
-| 10 | remarque — commandes cohérentes sous réserves | Pris acte | — | Plus de commande propre à P4 ; `$J=G90` et `0x85` restent à relever par l'essai F1, hors de P4. |
+| 1 | danger — départ et reprise possibles avec un zéro différent | **Accepté** (décision de l'orchestrateur) | `readyFor` ne fait que `referenced` + `offsetReady` (`job-service.js:1047-1051`) ; une reprise à une ligne est un départ (`j.resume`) ; la page seule oriente (`seance.js:24`, `job-resume.js:88`). | D1 : `ETOUCH_START_ZERO_UNCONFIRMED` dans `readyFor`, donc aux quatre contrôles (`:2422`, `:2433`, `:2527`, `:2559`), sans dérogation, pour « différent », « non comparé » et « en attente » ; indépendant de `recovery` (connexion neuve et CNCjs redémarré partent de « non comparé »). Remède : refaire, ou valider (D8). Test 1. Départ du PC non couvert, justifié et laissé en question (§ 11). |
+| 2 | danger — `redone` acquitte tout après Z seul | **Accepté** | D2 compare `$#` actuel et WCO (`work-offset.js:275-289`), sans notion d'auteur ni d'axe. | `redone` supprimé. Confirmation **par axe**, seulement par un `G10 L20` de la tablette acquitté puis prouvé, ou par la validation d'axes identiques (D3, D8). Mêmes valeurs : confirmé. Changement extérieur : jamais promu. Test 2. |
+| 3 | danger — second incident valide un ancien zéro | **Accepté** | v2 § 4 gardait `before` du premier incident. | `ref` = dernière valeur acceptée par axe ; chaque incident relève `floor` et efface `written` (règle 2). Test 4 sur la succession exacte. |
+| 4 | à corriger — preuve d'avant la prise d'origine, mauvais accesseur | **Accepté** | `offsetMode` n'exige pas `homed` (`job-service.js:949-960`) ; `proof()` vaut `null` après invalidation (`work-offset.js:431`). | Règle 5 : `homed` et `p.proof > floor`, `floor` relevé à la fin de prise d'origine ; accesseurs `proofs()` et `lastProven().proof` ; valeurs brutes, unités des rapports, tolérance D2 ; mise à jour avant `changed()`. Test 5. |
+| 5 | à corriger — reconnexion oublie l'alarme critique | **Accepté** | `remove` supprime l'enregistrement (`:770`) ; boucle critique jusqu'à un reset après l'alarme (`FIRMWARE.md` § 3.a pt 3). | D5, § 4.4 : interdiction gardée **par port**, levée par une bannière sur ce port ; jamais de permission héritée, aucun reset automatique. Parcours B3, test 6 (sans répéter `ALARM:n`, témoin après bannière). |
+| 6 | à corriger — retrait du retour hors périmètre | **Maintenu par l'orchestrateur** | Le prompt § 2 P4 le demande ; F1 dépend d'un fichier et revient à son départ (`job-service.js:2098`) : il ne le remplace pas, c'est exact. | D0 réécrit en **écart assumé, à confirmer par l'opérateur** ; plus de prétention d'équivalence avec F1 (aide visuelle X/Y seulement) ; « Z déjà haut, bornes, position initiale » notés comme **non validés** dans `IDEES.md`. |
+| 7 | à corriger — flux et main pendant `$H` sans contrat | **Accepté** | `closeTransport` révoque les tickets (`:2894`) ; la libération laisse finir une prise d'origine (`SURETE.md:294`). | § 6 : avant envoi, aucun `$H` ; après envoi, le cycle continue, aucune suite, aucune validation, zéro à confirmer. Test 7 ; essai : non provoqué sur la machine. |
+| 8 | à corriger — S2 faux | **Accepté** | Simulateur en `Alarm` après redémarrage, G-code refusé `error:8` (`grbl-simulator.js:1025`, `:2526`). | S2 : effacement injecté par la fixture au redémarrage, relu par `$#` ; `G21` fixé ; aucun `$X` dans le produit. |
+| 9 | remarque — test 7 témoin, scénarios manquants | **Accepté** | — | Ancien test 7 classé témoin (test 9), écritures D2 filtrées ; scénarios des constats 1-5 et 7 ajoutés (tests 1-7). Les fichiers de tests n'existent pas encore : conception seule. |
+| 10 | remarque — commandes | **Accepté** | D2 restaure le repère initial ; Arrêter garde son reset. | § 3 : « aucune émission ajoutée », D2 décrit comme « un autre repère puis le repère initial ». |
