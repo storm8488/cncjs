@@ -7,7 +7,7 @@
   function t(s){return window.cncI18n?window.cncI18n.t(s):s;}
   function referenceReady(m){return !!(m&&(m.settings&&(m.settings.$22===0||m.settings.$22==='0')||m.homed===true&&!m.referenceLost));}
   function cause(id,texte,remedes,ton){return {id:id,texte:t(texte),remedes:remedes||[],ton:ton||'warn'};}
-  function fromRefusal(error){var r=window.cncRefus&&window.cncRefus.lire(error);return r?cause(r.famille,r.phrase,r.remedes):cause('indisponible','Impossible pour l’instant.',['details']);}
+  function fromRefusal(error,m){var r=window.cncRefus&&window.cncRefus.lire(error,m||null);return r?cause(r.famille,r.phrase,r.remedes):cause('indisponible','Impossible pour l’instant.',['details']);}
   function settingsMissing(m){
     if(!m)return false;
     var coded=Object.keys(m.refusals||{}).some(function(k){return window.CNCTouchRefus&&window.CNCTouchRefus.codes[m.refusals[k].code]==='reglages-non-lus';});
@@ -21,7 +21,9 @@
     var incident=!!(m&&(alarm||m.lastAlarm||m.referenceLost||stopped));
     var settings=!!m&&!settingsMissing(m);
     var reading=!!(m&&m.refusals&&m.refusals.readSettings&&m.refusals.readSettings.code==='ETOUCH_SETTINGS_READING');
-    var zero=!homed?'Zéro pièce : à vérifier après la prise d’origine':!o?'Zéro pièce : non vérifié':o.state==='proven'?incident?'Zéro pièce : gardé, vérifié':'Zéro pièce : vérifié':o.state==='unknown'||o.state==='checking'?'Zéro pièce : la machine le vérifie…':o.code==='ETOUCH_OFFSET_SETTINGS'?'Zéro pièce : réglages à relire d’abord':o.code==='ETOUCH_OFFSET_MISMATCH'?'Zéro pièce : à refaire':'Zéro pièce : la machine ne l’a pas confirmé';
+    // After an incident the page compares nothing: the zero is the one stored in the machine, to check by eye.
+    var laser=(input.kind||m&&m.machineProfile&&m.machineProfile.kind)==='laser',lost=window.cncRefus&&window.cncRefus.perdue(m);
+    var zero=!homed?lost?'Zéro pièce : enregistré dans la machine, il revient après la prise d’origine.':'Zéro pièce : à vérifier après la prise d’origine':!o?'Zéro pièce : non vérifié':o.state==='proven'?incident?laser?'Zéro pièce : celui enregistré dans la machine. Vérifiez-le avant la gravure : « Cadrer… » sur 4 · Contrôle.':'Zéro pièce : celui enregistré dans la machine. Vérifiez-le avant l’usinage : « Cadrer à vide… » sur 4 · Contrôle.':'Zéro pièce : vérifié':o.state==='unknown'||o.state==='checking'?'Zéro pièce : la machine le vérifie…':o.code==='ETOUCH_OFFSET_SETTINGS'?'Zéro pièce : réglages à relire d’abord':o.code==='ETOUCH_OFFSET_MISMATCH'?'Zéro pièce : à refaire':'Zéro pièce : la machine ne l’a pas confirmé';
     var rows=[],action='suite:files',word='Prête',reason=cause('pret','La machine est prête.',[],'neutre');
     function line(id,text,state,buttons){rows.push({id:id,texte:t(text),etat:state,boutons:buttons||[]});}
     function button(id,label,allowed){return {id:id,libelle:t(label),actif:!!allowed};}
@@ -50,7 +52,7 @@
     else if(!settings||reading){action='relire';word='Réglages à lire';reason=cause('reglages-non-lus',reading?'Lecture des réglages en cours.':'La machine n’a pas encore donné ses réglages.',['relire']);}
     else if(m.homing){action='prise-origine';word='Prise d’origine…';reason=cause('occupee','Prise d’origine en cours.',[]);}
     else if(running){action='suite:home';word='Usinage en cours';reason=cause('usinage-en-cours','Un usinage est en cours.',[],'neutre');}
-    else if(!homed||alarm){action='prise-origine';word=alarm?'Alarme':incident?'Origine à reprendre':'Origine à prendre';reason=cause('origine-a-prendre','Il manque : l’origine machine.',['prise-origine']);}
+    else if(!homed||alarm){action='prise-origine';word=alarm?'Alarme':incident?'Origine à reprendre':'Origine à prendre';reason=lost?cause('position-perdue',lost,['prise-origine']):cause('origine-a-prendre','Il manque : l’origine machine.',['prise-origine']);}
     else if(resumable&&o&&o.state==='proven'){action='changer-ligne';word=t('Arrêté ligne {n}').replace('{n}',m.stoppedAtLine);reason=cause('arret',t('Usinage arrêté à la ligne {n}').replace('{n}',m.stoppedAtLine),[]);}
     else if(!o||o.state!=='proven'){word='Zéro pièce à vérifier';reason=cause('zero-non-verifie',zero,rows.filter(function(r){return r.id==='zero';})[0].boutons.map(function(b){return b.id;}));}
     if(alarm&&word==='Alarme'){var code=m.lastAlarm&&m.lastAlarm.code||m.alarmCode;if(code)word=t('Alarme')+' '+code+(m.alarmCodeInferred?' · '+t('déduite'):'');}
@@ -61,9 +63,9 @@
     if(action==='changer-ligne')allowed=commands&&m.canLoad===true;
     if(!allowed&&m&&!m.homing&&rank>6&&action==='prise-origine'){
       var refusal=m.refusals&&m.refusals.home;
-      if(refusal)reason=fromRefusal(refusal);
+      if(refusal)reason=fromRefusal(refusal,m);
       else if(global&&global.id==='broche-tourne'||global&&global.id==='occupee')reason=global;
-      else if(m.homeReason)reason=fromRefusal({message:m.homeReason});
+      else if(m.homeReason)reason=fromRefusal({message:m.homeReason},m);
       else reason=cause('indisponible','Impossible pour l’instant.',['details']);
     }
     if(action==='connecter'&&input.connectionBusy){allowed=false;reason=cause('connexion-question','Répondez dans la carte ci-dessus.',[]);}
@@ -85,10 +87,14 @@
     if(m&&m.fresh!==true)pick(5,'information-ancienne',t('La machine ne répond plus depuis {n} s. Vérifiez qu’elle est allumée et branchée.').replace('{n}',typeof m.statusAgeMs==='number'?Math.ceil(m.statusAgeMs/1000):'—'),['details']);
     if(input.systemCommand)pick(6,'commande-tablette','Une commande de la tablette est en cours. Attendez sa fin.',[]);
     if(alarm&&running)pick(7,'alarme-usinage','Alarme pendant l’usinage. Arrêtez l’usinage.',['arreter-usinage']);
-    if(alarm)pick(8,'alarme','La machine est en alarme : sa position est perdue.',['remise-en-route']);
+    // A restart or an alarm lost the reference: one cause, the same as every « not homed » refusal.
+    // Settings come first: the homing waits for them. In alarm the remedy stays the recovery panel
+    // (an ALARM:1/2 needs its reset before any homing).
+    var lost=!settingsMissing(m)&&window.cncRefus&&window.cncRefus.perdue(m);
+    if(alarm)pick(8,lost?'position-perdue':'alarme',lost||'La machine est en alarme : sa position est perdue.',['remise-en-route']);
     var settings=!!settingsMissing(m);
     if(settings)pick(9,'reglages-non-lus','La machine n’a pas encore donné ses réglages.',['relire']);
-    if(m&&/^idle/i.test(m.activeState||'')&&!referenceReady(m))pick(10,'origine-a-prendre','Origine machine pas prise : la machine ne sait pas où elle est.',['prise-origine']);
+    if(m&&/^idle/i.test(m.activeState||'')&&!referenceReady(m))pick(10,lost?'position-perdue':'origine-a-prendre',lost||'Origine machine pas prise : la machine ne sait pas où elle est.',['prise-origine']);
     var moving=m&&m.motion&&(m.motion.jog||m.motion.cancelling),busyCode=m&&m.refusals&&m.refusals.readSettings;
     if(m&&(m.homing||m.probing||moving||busyCode&&busyCode.code==='ETOUCH_SETTINGS_READING'))pick(11,'occupee',m.homing?'Prise d’origine en cours.':m.probing?'Palpage en cours.':moving?'Déplacement en cours.':'Lecture des réglages en cours.',[]);
     if(running)pick(12,'usinage-en-cours','Un usinage est en cours.',['voir-usinage']);
@@ -118,7 +124,7 @@
     if(m&&m.workflow==='running')words.home=t('En cours')+' · '+(m.total>0?Math.min(99,Math.floor((m.received||0)/m.total*100)):'—')+' %';
     if(m&&m.jobStopped&&typeof m.stoppedAtLine==='number')words.home=t('Arrêté ligne {n}').replace('{n}',String(m.stoppedAtLine));
     if(alarm){var alarmCode=m.lastAlarm&&m.lastAlarm.code||m.alarmCode;if(alarmCode)words.home=t('Alarme')+' '+alarmCode+(m.alarmCodeInferred?' · '+t('déduite'):'');}
-    var own={machine:global,files:!selection?cause('aucun-choix','Choisissez un fichier dans la liste.',['choisir-fichier']):null,jog:zeroCause||(!zeroDone?cause('zero-ancien','Zéro pièce d’une séance précédente. Refaites-le pour cette pièce.',['refaire-zero']):null),check:!m||!m.name?cause('aucun-fichier','Aucun fichier chargé.',['choisir-fichier']):zeroCause|| (outside?fromRefusal(check.blocking&&check.blocking[0]||{code:'ETOUCH_START_OUTSIDE'}):m.jobStopped?cause('a-recharger','Rechargez le fichier avant de démarrer.',['recharger-fichier']):check&&check.verdict==='unknown'?fromRefusal({code:'ETOUCH_CHECK_UNITS_UNKNOWN'}):null),home:null};
+    var own={machine:global,files:!selection?cause('aucun-choix','Choisissez un fichier dans la liste.',['choisir-fichier']):null,jog:zeroCause||(!zeroDone?cause('zero-ancien','Zéro pièce d’une séance précédente. Refaites-le pour cette pièce.',['refaire-zero']):null),check:!m||!m.name?cause('aucun-fichier','Aucun fichier chargé.',['choisir-fichier']):zeroCause|| (outside?fromRefusal(check.blocking&&check.blocking[0]||{code:'ETOUCH_START_OUTSIDE'},m):m.jobStopped?cause('a-recharger','Rechargez le fichier avant de démarrer.',['recharger-fichier']):check&&check.verdict==='unknown'?fromRefusal({code:'ETOUCH_CHECK_UNITS_UNKNOWN'},m):null),home:null};
     var actions={machine:{id:global&&global.remedes[0]||'suite:files',allowed:true},files:{id:'charger',allowed:!!(m&&m.canLoad&&selection&&!input.busy)},jog:{id:'suite:check',allowed:true},check:{id:'demarrer',allowed:!!(m&&m.canStart&&!outside&&!input.busy)},home:{id:m&&m.canResume?'reprendre':'pause',allowed:!!(m&&(m.canResume||m.canPause)||h&&h.canPause)}};
     if(global&&(global.id==='alarme'||global.id==='occupee'))actions.machine.id='prise-origine';
     var guards={connecter:online&&!m,'prendre-la-main':p.state==='other',relire:!!(m&&m.canReadSettings),'prise-origine':!!(m&&m.canHome),'arreter-usinage':!!(m&&m.canStop||h&&h.canStop),'verifier-zero':!!(offset&&offset.canVerify),'arreter-broche':!!(m&&m.canSpindleStop)};
@@ -131,7 +137,7 @@
       var c=rank>0&&rank<=6||k==='jog'&&global?global:own[k],blocked=rank>0&&rank<=6&&k!=='jog'&&a.id!==(global.remedes[0]||'');
       // Navigation, stop and release never inherit a machine command refusal.
       if(k==='home'&&a.id==='pause')blocked=false;
-      if(blocked){a.allowed=false;c=global;}else if(!a.allowed)c=k==='machine'?c:global||c||fromRefusal(m&&m.refusals&&m.refusals[k==='check'?'start':k==='files'?'load':'resume']||{});
+      if(blocked){a.allowed=false;c=global;}else if(!a.allowed)c=k==='machine'?c:global||c||fromRefusal(m&&m.refusals&&m.refusals[k==='check'?'start':k==='files'?'load':'resume']||{},m);
       if(k==='machine'&&a.id==='connecter'&&input.connectionBusy)c=machineView.cause;
       if(done[k]&&!(k==='files'&&selection&&m&&selection.file!==m.name)&&k!=='home'&&k!=='machine'&&k!=='jog'&&!(global&&rank<=6)){
         var next=order.slice(i+1).filter(function(n){return !done[n];})[0]||'check';a={id:'suite:'+next,allowed:true};
@@ -198,9 +204,14 @@
     if(movement&&movement.stopUnconfirmed)r={phrase:t('ANNULATION NON CONFIRMÉE : utilisez l’arrêt physique si la machine bouge encore'),remedes:['details']};
     if(movement&&!r){
       if(movement.stale&&(!result.globale||result.rang>4))r=window.cncRefus&&window.cncRefus.lire({code:'ETOUCH_MACHINE_STALE'});
-      else if(!(result.globale&&result.rang<=10)){
-        if(movement.blocked)r=window.cncRefus&&window.cncRefus.lire(movement.error);
-        else if(movement.state==='failed')r=window.cncRefus&&window.cncRefus.lire({message:movement.feedback});
+      else {
+        var failed=!movement.blocked&&movement.state==='failed'&&window.cncRefus&&window.cncRefus.lire({message:movement.feedback},last.machine||null);
+        if(!(result.globale&&result.rang<=10)){
+          if(movement.blocked)r=window.cncRefus&&window.cncRefus.lire(movement.error,last.machine||null);
+          else if(failed)r=failed;
+        }
+        // A jog refused while the machine is not homed says why, over « origin not taken ».
+        else if(result.rang===10&&failed&&failed.famille==='position-perdue')r=failed;
       }
     }
     var prefix='step-'+active+'-',by=function(id){return document.getElementById(prefix+id);};
