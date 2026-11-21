@@ -1,0 +1,203 @@
+/* Visual theme "Métal d'atelier" (Astra proposal 1, chosen by the operator on 2026-11-21).
+ * Appearance only: no size, margin, grid, font, line height, visibility or interaction change.
+ * Loaded last in the head. :where([data-theme="light"] *) tests the html ancestor.
+ * No animation, no external resource; Chromium 106.
+ */
+body.ks-ui {
+  color-scheme: dark;
+  --bg: #121A20;
+  --surface: #1C2830;
+  --surface-2: #273641;
+  --surface-3: #30424F;
+  --fg: #F4F7FA;
+  --mute: #CDD8DF;
+  --faint: #B6C4CE;
+  --line: #586C79;
+  --line-control: #98AAB6;
+  --accent: #D8E2E9;
+  --on-accent: #111A20;
+  --ok: #5FDF9C;
+  --ok-text: #86E6AF;
+  --ok-soft: #132D20;
+  --on-ok: #092317;
+  --warn: #F7C65F;
+  --warn-text: #FFDA86;
+  --warn-soft: #362A12;
+  --on-warn: #231A08;
+  --danger: #981B25;
+  --danger-text: #FFADA8;
+  --danger-soft: #351419;
+  --on-danger: #FFFFFF;
+  --info: #80B9F2;
+  --info-text: #A2CDF9;
+  --info-soft: #142A42;
+  --on-info: #0F2035;
+  --line-strong: #98AAB6;
+  --disabled-fg: #CDD8DF;
+  --disabled-bg: #1C2830;
+  --disabled-stripe: #273641;
+  --focus: #D8E2E9;
+  --shadow: none;
+  --r-s: 3px;
+  --r-m: 5px;
+  --r-l: 7px;
+  --vis-selected-bg: var(--surface-2);
+  --vis-selected-fg: var(--fg);
+  --vis-panel-shadow: inset 0 1px 0 var(--line);
+}
+body.ks-ui:where([data-theme="light"] *) {
+  color-scheme: light;
+  --bg: #E8EDF0;
+  --surface: #FFFFFF;
+  --surface-2: #E0E7EC;
+  --surface-3: #D4DDE4;
+  --fg: #17232B;
+  --mute: #334650;
+  --faint: #40535E;
+  --line: #8C9CA8;
+  --line-control: #586A75;
+  --accent: #243D4A;
+  --on-accent: #FFFFFF;
+  --ok: #155D36;
+  --ok-text: #175A32;
+  --ok-soft: #E3F3E7;
+  --on-ok: #FFFFFF;
+  --warn: #F7C65F;
+  --warn-text: #663D00;
+  --warn-soft: #FFF0CD;
+  --on-warn: #231A08;
+  --danger: #981B25;
+  --danger-text: #851622;
+  --danger-soft: #FBE8E7;
+  --on-danger: #FFFFFF;
+  --info: #1855A0;
+  --info-text: #164B85;
+  --info-soft: #E5EFFB;
+  --on-info: #FFFFFF;
+  --line-strong: #586A75;
+  --disabled-fg: #334650;
+  --disabled-bg: #FFFFFF;
+  --disabled-stripe: #E0E7EC;
+  --focus: #243D4A;
+  --shadow: none;
+  --r-s: 3px;
+  --r-m: 5px;
+  --r-l: 7px;
+  --vis-selected-bg: var(--surface-2);
+  --vis-selected-fg: var(--fg);
+  --vis-panel-shadow: inset 0 1px 0 var(--line);
+}
+
+/* Surfaces: radii and inner relief only, no box resized. */
+body.ks-ui .card,
+body.ks-ui .t-card,
+body.ks-ui .job-art,
+body.ks-ui .ks-sheet-card,
+body.ks-ui .job-dialog-card {
+  border-radius: var(--r-l);
+}
+body.ks-ui #machine-ready,
+body.ks-ui .home-progress,
+body.ks-ui .t-coords-card {
+  box-shadow: var(--vis-panel-shadow);
+}
+body.ks-ui .t-btn,
+body.ks-ui .ks-stepbar button,
+body.ks-ui #machine-list button,
+body.ks-ui .ks-machine-secondary button,
+body.ks-ui #machine-incident button {
+  border-radius: var(--r-m);
+}
+body.ks-ui #tabbar .ks-nav.active,
+body.ks-ui #tabbar .ks-nav.active:hover {
+  background-color: var(--vis-selected-bg);
+  color: var(--vis-selected-fg);
+  box-shadow: inset 4px 0 0 var(--accent);
+}
+body.ks-ui #tabbar .ks-nav[data-seance-state="fait"] .ks-step-mark,
+body.ks-ui #machine-list [data-line-state="fait"] .ks-line-mark {
+  color: var(--ok-text);
+}
+body.ks-ui #machine-incident {
+  border-color: var(--danger-text);
+}
+/* The stale list opacity also dimmed its buttons.
+   The dashed frame and the state words stay visible; no state is changed. */
+body.ks-ui #machine-layout[data-stale="true"] #machine-list { opacity: 1; }
+body.ks-ui #machine-layout[data-stale="true"] #machine-ready { border-style: dashed; }
+
+/* Pause / Stop: include the step bar buttons without the t-btn class.
+   Explicit exclusions: a forbidden control keeps its stripes. */
+body.ks-ui .t-btn--warn:not(:disabled):not([aria-disabled="true"]),
+body.ks-ui #t-pause:not(:disabled):not([aria-disabled="true"]),
+body.ks-ui .ks-stepbar button[data-action="pause"]:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--warn);
+  background-image: none;
+  color: var(--on-warn);
+  border-color: var(--warn-text);
+}
+body.ks-ui .t-btn--danger:not(:disabled):not([aria-disabled="true"]),
+body.ks-ui #t-stop:not(:disabled):not([aria-disabled="true"]),
+body.ks-ui #home-job-stop:not(:disabled):not([aria-disabled="true"]),
+body.ks-ui .ks-stepbar button[data-action="arreter-usinage"]:not(:disabled):not([aria-disabled="true"]),
+body.ks-ui #machine-list button[data-action="arreter-usinage"]:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--danger);
+  background-image: none;
+  color: var(--on-danger);
+  border-color: var(--danger-text);
+}
+/* Stripes stay a distinct, opaque signal in both modes. */
+body.ks-ui #t-pause:is(:disabled,[aria-disabled="true"]),
+body.ks-ui #t-stop:is(:disabled,[aria-disabled="true"]),
+body.ks-ui #home-job-stop:is(:disabled,[aria-disabled="true"]),
+body.ks-ui #machine-list button:is(:disabled,[aria-disabled="true"]),
+body.ks-ui .ks-machine-secondary button:is(:disabled,[aria-disabled="true"]),
+body.ks-ui .ks-stepbar button:is(:disabled,[aria-disabled="true"]),
+body.ks-ui #screen-home button:is(:disabled,[aria-disabled="true"]) {
+  background-color: var(--disabled-bg);
+  background-image: repeating-linear-gradient(135deg,var(--disabled-bg) 0 6px,var(--disabled-stripe) 6px 14px);
+  color: var(--disabled-fg);
+  border-color: var(--line-control);
+  opacity: 1;
+}
+/* Secondary buttons used to take --line when pressed.
+   The exclusions keep the semantic fills and the existing selections. */
+body.ks-ui .t-btn:where(:not(.t-btn--primary):not(.t-btn--warn):not(.t-btn--danger):not([data-armed="true"]):not([data-flash="true"]):not([aria-pressed="true"]):not(:disabled):not([aria-disabled="true"])):active,
+body.ks-ui .t-seg button:where(:not([aria-pressed="true"]):not(:disabled):not([aria-disabled="true"])):active {
+  background-color: var(--surface-2);
+  color: var(--fg);
+}
+/* Immediate press feedback; no contrast drop, no smaller target. */
+body.ks-ui .t-btn:active:not(:disabled):not([aria-disabled="true"]),
+body.ks-ui .ks-stepbar button:active:not(:disabled):not([aria-disabled="true"]),
+body.ks-ui #tabbar .ks-nav:active:not(:disabled),
+body.ks-ui .t-seg button:active:not(:disabled) {
+  opacity: 1;
+  transform: none;
+  box-shadow: inset 0 0 0 3px currentColor;
+}
+/* Two-tone inner focus, readable on both safety fills too. */
+body.ks-ui button:focus-visible,
+body.ks-ui a:focus-visible,
+body.ks-ui input:focus-visible,
+body.ks-ui select:focus-visible {
+  outline: 2px solid #FFFFFF;
+  outline-offset: -2px;
+  box-shadow: inset 0 0 0 4px #111111;
+}
+body.ks-ui .t-sent[data-state="sent"]::before { animation: none; }
+
+/* Signature of this theme. */
+body.ks-ui #machine-list li + li { box-shadow: inset 0 1px 0 var(--line); }
+body.ks-ui .t-coords-card .t-val,
+body.ks-ui.ks-real #screen-jog .ks-zero-axis > b,
+body.ks-ui .ks-coordinate-table td b { font-weight: 600; }
+
+/* The rail focus stays above the selection relief, even on hover. */
+body.ks-ui #tabbar .ks-nav:focus-visible,
+body.ks-ui #tabbar .ks-nav.active:focus-visible,
+body.ks-ui #tabbar .ks-nav.active:hover:focus-visible {
+  outline: 2px solid #FFFFFF;
+  outline-offset: -2px;
+  box-shadow: inset 0 0 0 4px #111111;
+}
