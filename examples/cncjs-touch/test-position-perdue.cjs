@@ -18,7 +18,7 @@ for(const lang of ['fr','en','es']){
   const r=evaluate({...base,machine:restarted({referenceLost:lost,activeState:state})}),name=lang+' '+lost+' '+state;
   assert.equal(r.globale.id,'position-perdue',name);assert.equal(r.rang,rank,name);assert.equal(r.globale.texte,t(text),name);assert.deepEqual(Array.from(r.globale.remedes),[state==='Alarm'?'remise-en-route':'prise-origine'],name+' (in alarm the recovery panel: an ALARM:1/2 needs its reset first)');
   assert.equal(r.barres.machine.cause.texte,t(text),name+' machine bar');assert.equal(r.barres.machine.action.id,'prise-origine',name);
-  assert.equal(r.barres.jog.cause.texte,t(text),name+' jog bar');assert.equal(r.barres.jog.remedes[0].id,'prise-origine',name);
+  assert.equal(r.barres.jog.cause.texte,t(text),name+' jog bar');assert.equal(r.barres.jog.remedes[0].id,state==='Alarm'?'remise-en-route':'prise-origine',name);
   // 1b. The « not homed » refusals keep their code but name the same cause and remedy.
   for(const code of ['ETOUCH_START_NOT_HOMED','ETOUCH_ORIGIN_NOT_HOMED','ETOUCH_CNC_FRAME_NOT_HOMED']){
    const q=lire({code,message:'Machine non référencée'},restarted({referenceLost:lost,activeState:state}));
