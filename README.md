@@ -1,3 +1,9 @@
+> **About this fork (storm8488/cncjs).** This repository is CNCjs plus **CNCjs Touch**, a touchscreen interface served by the CNCjs server at `/touch/`, written for a LUNYEE 4040 CNC (Grbl_ESP32 board, banner Grbl 1.1f) driven from a Surface Pro 3 kiosk; a Surface RT runs the same pages for a laser. Start with [examples/cncjs-touch/README.md](examples/cncjs-touch/README.md): what the interface does, its state, installation ([INSTALL.md](examples/cncjs-touch/INSTALL.md), Node.js 18 or newer), tests and safety.
+>
+> **State.** Used on the real machine since November 2026 (first jobs with the tablet on 14 November 2026). `master` holds the version installed on the CNC tablet, commit `caf09b31`, also marked by the tag `tablette-2026-11-21`. Its redesign and the functions of 17 November have been checked on a PC and a simulator only; their trial protocol on the machine has not been run yet. The function "Pause et dégager", not merged and not installed, is kept on the branch `idees/F2-pause-degager`.
+>
+> The text below is the upstream CNCjs README, unchanged: its badges, links and `npm install -g cncjs` instructions refer to the upstream project, which does not include CNCjs Touch.
+
 # CNCjs [![Backers on Open Collective](https://opencollective.com/cncjs/backers/badge.svg)](#backers) [![Sponsors on Open Collective](https://opencollective.com/cncjs/sponsors/badge.svg)](#sponsors) [![Travis CI Build Status](https://travis-ci.org/cncjs/cncjs.svg)](https://travis-ci.org/cncjs/cncjs) [![AppVeyor Build status](https://ci.appveyor.com/api/projects/status/qxx53wq32w3edule?svg=true)](https://ci.appveyor.com/project/cheton/cncjs) [![Coverage Status](https://coveralls.io/repos/github/cncjs/cncjs/badge.svg?branch=master)](https://coveralls.io/github/cncjs/cncjs?branch=master)
 
 [![NPM](https://nodei.co/npm/cncjs.png?downloads=true&stars=true)](https://www.npmjs.com/package/cncjs)

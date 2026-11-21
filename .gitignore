@@ -21,3 +21,10 @@ yarn-error.log
 
 # Reports of examples/cncjs-touch/browser-run.cjs (default --out)
 /examples/cncjs-touch/output
+
+# Working screenshots of examples/cncjs-touch/design (the tracked ones, in design/reglages and design/v2, stay tracked)
+/examples/cncjs-touch/design/ecrans/**/*.png
+/examples/cncjs-touch/design/refonte/files/*.png
+
+# Session reports at the repository root
+/COMPTE-RENDU-*.md
