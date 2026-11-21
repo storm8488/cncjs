@@ -1874,7 +1874,6 @@ window.CNCTouchMessages.push([' · Sélection différente : ',' · Different sel
 ["Origine machine à reprendre","Home the machine again","Volver a referenciar la máquina"],
 ["Zéro pièce : à vérifier après la prise d’origine","Work zero: to be checked after homing","Cero pieza: por comprobar después del referenciado"],
 ["Zéro pièce : non vérifié","Work zero: not checked","Cero pieza: no comprobado"],
-["Zéro pièce : gardé, vérifié","Work zero: kept and checked","Cero pieza: conservado y comprobado"],
 ["Zéro pièce : vérifié","Work zero: checked","Cero pieza: comprobado"],
 ["Zéro pièce : la machine le vérifie…","Work zero: the machine is checking it…","Cero pieza: la máquina lo está comprobando…"],
 ["Zéro pièce : réglages à relire d’abord","Work zero: read settings again first","Cero pieza: relea primero los ajustes"],

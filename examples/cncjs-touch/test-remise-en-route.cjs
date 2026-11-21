@@ -42,12 +42,12 @@ const zeros=[
  [undefined,'non vérifié',['details']],
  [{state:'unknown'},'la machine le vérifie…',[]],
  [{state:'checking'},'la machine le vérifie…',[]],
- [{state:'proven'},'gardé, vérifié',[]],
+ [{state:'proven'},'celui enregistré dans la machine. Vérifiez-le avant l’usinage : « Cadrer à vide… » sur 4 · Contrôle.',[]],
  [{state:'failed',code:'ETOUCH_OFFSET_UNCONFIRMED',canVerify:true},'la machine ne l’a pas confirmé',['verifier-zero']],
  [{state:'failed',code:'ETOUCH_OFFSET_MISMATCH',canVerify:true},'à refaire',['refaire-zero','verifier-zero']],
  [{state:'failed',code:'ETOUCH_OFFSET_SETTINGS'},'réglages à relire d’abord',['relire']]
 ];
-for(const [offset,text,buttons] of zeros){const q=model({machine:machine({...stopped,homed:true,referenceLost:null,workOffset:offset})});const line=q.lignes.find(x=>x.id==='zero');assert.equal(line.texte,'Zéro pièce : '+text);assert.equal(line.boutons.map(b=>b.id).join(','),buttons.join(','));if(!offset||offset.state!=='proven')assert(!q.machine.zero.includes('gardé'));const unhomed=model({machine:machine({...stopped,workOffset:offset})});assert.equal(unhomed.machine.zero,'Zéro pièce : à vérifier après la prise d’origine');assert.equal(unhomed.lignes.find(x=>x.id==='zero').boutons.length,0);}
+for(const [offset,text,buttons] of zeros){const q=model({machine:machine({...stopped,homed:true,referenceLost:null,workOffset:offset})});const line=q.lignes.find(x=>x.id==='zero');assert.equal(line.texte,'Zéro pièce : '+text);assert.equal(line.boutons.map(b=>b.id).join(','),buttons.join(','));if(!offset||offset.state!=='proven')assert(!q.machine.zero.includes('gardé'));const unhomed=model({machine:machine({...stopped,workOffset:offset})});assert.equal(unhomed.machine.zero,'Zéro pièce : enregistré dans la machine, il revient après la prise d’origine.');assert.equal(model({machine:machine({homed:false,workOffset:offset})}).machine.zero,'Zéro pièce : à vérifier après la prise d’origine','never homed, no incident: unchanged');assert.equal(unhomed.lignes.find(x=>x.id==='zero').boutons.length,0);}
 assert.equal(model({machine:machine({workOffset:{state:'failed',code:'ETOUCH_OFFSET_UNCONFIRMED',canVerify:false}})}).lignes.find(x=>x.id==='zero').boutons[0].actif,false);
 assert.equal(model({machine:machine({fresh:false}),pilot:{state:'other'}}).lignes.find(x=>x.id==='reglages').boutons[0].actif,false);
 // Actual page: received facts reconstruct the incident after a reload, without local marks.

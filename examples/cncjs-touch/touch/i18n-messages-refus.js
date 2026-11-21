@@ -737,3 +737,12 @@
   Object.keys(codes).forEach(function(code){data.codes[code]=codes[code];});
   window.CNCTouchMessages=(window.CNCTouchMessages||[]).concat(families.map(function(row){return row.slice(1,4);}));
 })();
+/* Lot P4 (lightened): one cause after a restart or an alarm, error:15 while not homed, the stored work zero. */
+window.CNCTouchMessages=(window.CNCTouchMessages||[]).concat([
+  ["La machine a redémarré : sa position est perdue. Faites la prise d’origine.","The machine restarted: its position is lost. Home the machine.","La máquina se ha reiniciado: ha perdido su posición. Busque el origen."],
+  ["Après une alarme, la position de la machine est perdue. Faites la prise d’origine.","After an alarm, the machine position is lost. Home the machine.","Tras una alarma, la máquina ha perdido su posición. Busque el origen."],
+  ["Position perdue : la machine croit être ailleurs. Faites la prise d’origine.","Position lost: the machine thinks it is somewhere else. Home the machine.","Posición perdida: la máquina cree estar en otro sitio. Busque el origen."],
+  ["Zéro pièce : enregistré dans la machine, il revient après la prise d’origine.","Work zero: stored in the machine, it comes back after homing.","Cero pieza: guardado en la máquina, vuelve tras buscar el origen."],
+  ["Zéro pièce : celui enregistré dans la machine. Vérifiez-le avant l’usinage : « Cadrer à vide… » sur 4 · Contrôle.","Work zero: the one stored in the machine. Check it before machining: “Frame in the air…” on 4 · Check.","Cero pieza: el guardado en la máquina. Compruébelo antes del mecanizado: «Encuadrar en vacío…» en 4 · Control."],
+  ["Zéro pièce : celui enregistré dans la machine. Vérifiez-le avant la gravure : « Cadrer… » sur 4 · Contrôle.","Work zero: the one stored in the machine. Check it before engraving: “Frame…” on 4 · Check.","Cero pieza: el guardado en la máquina. Compruébelo antes del grabado: «Encuadrar…» en 4 · Control."]
+]);
