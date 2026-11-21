@@ -127,6 +127,36 @@ const setup = (options = {}) => {
 };
 
 describe('program progress without a preview sidecar', () => {
+  test('P5: fromLine times the rebuilt resume including its preamble from the actual start position', async () => {
+    const ctx = setup();
+    ctx.c.settings.settings.$13 = 0;
+    ctx.c.state.status = { activeState: 'Idle', wpos: { x: 20, y: 0, z: 2 }, mpos: { x: 20, y: 0, z: 2 }, ov: [100, 100, 100] };
+    ctx.c.state.parserstate = { modal: { wcs: 'G54', feedrate: 'G94' } };
+    ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
+    const report = () => ctx.c.runner.emit('status', { wpos: ctx.c.state.status.wpos });
+    report();
+    await ctx.req('load', { file: 'resume.nc', fromLine: 7 });
+    expect(ctx.state().resume).toMatchObject({ from: 7 });
+    const check = ctx.state().programCheck;
+    // Move after load: the initial approach must be resolved again at start.
+    ctx.c.state.status.wpos = { x: 30, y: 0, z: 1 };
+    ctx.c.state.status.mpos = { x: 30, y: 0, z: 1 };
+    report();
+    const ticket = await ctx.req('prepare', { operation: 'start', revision: ctx.state().revision });
+    await ctx.req('start', { nonce: ticket.nonce });
+    // Z clearance, XY approach, spindle dwell, plunge, remaining Y/X cuts, Z retract.
+    const seconds = 4 * 60 / 200 + 20 * 60 / 1000 + 3 + 6 * 60 / 200 + 20 * 60 / 800 + 6 * 60 / 200;
+    expect(ctx.state().jobProgress.durationSeconds).toBeCloseTo(seconds);
+    expect(ctx.state().programCheck).toEqual(check);
+    expect(ctx.c.commands.map(([name]) => name)).toEqual(['gcode:load', 'gcode:start']);
+    ctx.c.state.status.activeState = 'Run';
+    report();
+    ctx.now += 1000;
+    report();
+    expect(ctx.state().jobProgress.remainingSeconds).toBeCloseTo(seconds - 1);
+    expect(ctx.state().jobProgress.percent).toBeCloseTo(100 / seconds);
+  });
+
   test.each([100, 50])('P5: a large loaded program exposes time progress at %i%% feed without changing travel or start commands', async (feed) => {
     const text = 'G21 G90 G94 F600\nG1 X0 Y0 Z0\n' + 'G1 X1 Y1 Z-1\nG1 X0 Y0 Z0\n'.repeat(11000);
     const fingerprint = sha256(text);

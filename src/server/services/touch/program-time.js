@@ -85,9 +85,14 @@ export const createProgramTime = (context = {}) => {
     move: (move, line) => {
       const symbolic = AXES.some((axis) => move.start[axis] === null || move.end[axis] === null);
       timing.needsInitial = timing.needsInitial || symbolic;
-      // Only the first absolute assignment of each axis can depend on start position.
+      // At most three initial assignments are expected. Repeated position invalidations
+      // must refuse timing instead of retaining an unbounded list of approaches.
       if (AXES.some((axis) => move.start[axis] === null && move.end[axis] !== null)) {
-        timing.initial.push(move);
+        if (timing.initial.length >= AXES.length) {
+          timing.supported = false;
+        } else {
+          timing.initial.push(move);
+        }
       } else {
         const duration = timer(move);
         if (duration === null) {

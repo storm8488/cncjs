@@ -116,6 +116,39 @@ test('initial approaches are resolved at each start and do not grow with unset i
   expect(durationOf(analysis, context({ wpos: { x: 10, y: 20, z: 5 } }))).toBeCloseTo(22000);
 });
 
+test('the collector refuses a fourth initial approach and never retains more than three', () => {
+  const collector = createProgramTime(context());
+  const move = {
+    start: { X: null, Y: 0, Z: 0 },
+    end: { X: 3, Y: 0, Z: 0 },
+    rapid: false,
+    feed: 60,
+    mode: 'G94',
+    arcLength: null
+  };
+  for (let i = 1; i <= 4; i++) {
+    collector.move(move, i * 3);
+    expect(collector.timing.initial.length).toBeLessThanOrEqual(3);
+    expect(collector.timing.supported).toBe(i <= 3);
+  }
+  for (let i = 5; i <= 100000; i++) {
+    collector.move(move, i * 3);
+  }
+  expect(collector.timing.initial).toHaveLength(3);
+  expect(collector.timing.supported).toBe(false);
+  collector.finish(300000);
+  expect(collector.timing).toMatchObject({ supported: false, blocks: [], initial: [] });
+});
+
+test('100000 repetitions of G80 and axis-only lines release the unsupported timing model', () => {
+  const analysis = analyzeProgram('G21 G90 G94 F60\nG1 X0 Y0 Z0\n' + 'G80\nX5\nG1 X3\n'.repeat(100000), context());
+  expect(analysis.moves).toBe(100001);
+  expect(analysis.timing.initial.length).toBe(0);
+  expect(analysis.timing.blocks.length).toBe(0);
+  expect(analysis.timing.supported).toBe(false);
+  expect(durationOf(analysis, context())).toBeNull();
+});
+
 test.each([
   'G93 G1 X5 F1', 'G2 X2 Y2 R0.1', 'M6', 'M0', 'G53 G0 Z0', 'G1 X[2]'
 ])('an unsupported line after a large supported prefix releases the model: %s', (last) => {
