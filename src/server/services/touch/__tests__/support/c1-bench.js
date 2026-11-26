@@ -16,9 +16,9 @@ export const A = { kind: 'touch', id: 'tablet-A', label: 'Tablette A', user: 'op
 export const B = { kind: 'touch', id: 'tablet-B', label: 'Tablette B', user: 'op' };
 
 // Standard Grbl conventions ($23=0): machine X, Y in [-400, 0], Z in [-80, 0]; MPos reports ($10=1).
-export const SETTINGS = {
-  10: 1, 13: 0, 20: 1, 22: 1, 23: 0, 30: 1000, 31: 0, 32: 0, 100: 80, 101: 80, 102: 400, 110: 3000, 111: 3000, 112: 500, 120: 200, 121: 200, 122: 50, 130: 400, 131: 400, 132: 80
-};
+const BOARD = { 10: 1, 13: 0, 20: 1, 22: 1, 23: 0, 30: 1000, 31: 0, 32: 0, 100: 80, 101: 80, 102: 400 };
+const AXES = { 110: 3000, 111: 3000, 112: 500, 120: 200, 121: 200, 122: 50, 130: 400, 131: 400, 132: 80 };
+export const SETTINGS = { ...BOARD, ...AXES };
 
 export const PROGRAMS = {
   // X 10 → 60, Y 20 → 50 (work).
@@ -109,7 +109,9 @@ export const setup = async ({
   }] : [];
   const config = { get: (key) => ({ 'touch.motion.enabled': true, 'touch.machines': machines, events: [], macros }[key]) };
   const files = {
-    readProgram: (name) => Promise.resolve({ text: ctx.programs[name], fingerprint: sha256(Buffer.from(ctx.programs[name])), size: ctx.programs[name].length, mtimeMs: 1 }),
+    readProgram: (name) => Promise.resolve({
+      text: ctx.programs[name], fingerprint: sha256(Buffer.from(ctx.programs[name])), size: ctx.programs[name].length, mtimeMs: 1
+    }),
     fingerprintOf: (name) => Promise.resolve({ fingerprint: sha256(Buffer.from(ctx.programs[name])), size: 1, mtimeMs: 1 })
   };
   const workOffset = realD2 ? undefined : () => ({ ...provenOffset(), proof: () => ctx.proof, invalidate: (cause) => ctx.invalidated.push(cause) });

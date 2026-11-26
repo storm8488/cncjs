@@ -2,7 +2,7 @@
 /* eslint-disable no-await-in-loop */ // the cases of a table run one after the other on purpose
 // Lot C1 (design/plaque/C1-CONCEPTION.md § 4): the starts. Every report is a line read by the real
 // parser; every test is judged on the bytes written and on the code of the refusal.
-import { setup, disposeAll, gcLine } from './support/c1-bench';
+import { setup, disposeAll, gcLine, SETTINGS } from './support/c1-bench';
 
 afterEach(disposeAll);
 
@@ -260,7 +260,7 @@ describe('C1: the spindle is stopped only on two positive proofs (R-3)', () => {
 describe('C1: the position learnt at the end of the homing cycle (§ 2.9)', () => {
   // $23=3: X and Y homed towards their negative end; found at 0, the firmware forces the origin there.
   const home = async (last) => {
-    const ctx = await setup({ settings: { 10: 1, 13: 0, 20: 1, 22: 1, 23: 3, 30: 1000, 31: 0, 32: 0, 110: 3000, 111: 3000, 112: 500, 130: 400, 131: 400, 132: 80 }, at: [0, 0, 0], wco: [0, 0, 0] });
+    const ctx = await setup({ settings: { ...SETTINGS, 23: 3 }, at: [0, 0, 0], wco: [0, 0, 0] });
     await ctx.confirmed('home');
     ctx.now += 1100;
     ctx.rep('Home');
