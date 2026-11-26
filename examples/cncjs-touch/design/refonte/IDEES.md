@@ -28,6 +28,18 @@
 | I-25 | Palper dans le trou de la plaque XYZ Bulkman3D (TP-XYZ) et profil prêt à l'emploi | Opérateur, 2026-11-21 | **Conçu, mis de côté à sa demande** jusqu'à la mesure de la plaque (épaisseur du dessus, position du trou). Conception : `../plaque/P1-CONCEPTION.md` (branche `feat/P1`), pas encore relue par Astra. |
 | I-26 | Changement de fraise guidé (pause `M6` et entre deux fichiers) | Opérateur, 2026-11-21 | **Conçu, mis de côté** avec I-25 (repose sur le palpage Z à la plaque). Conception : `../plaque/P3-CONCEPTION.md` (branche `feat/P3`), pas encore relue. |
 | I-27 | Remise en route complète après un Arrêter : retour au-dessus du zéro pièce, zéro gardé prouvé par comparaison, garde de départ | Opérateur, 2026-11-21 | **Refusé trois fois par la relecture de sûreté, mis de côté.** Conception v3 : `../plaque/P4-CONCEPTION.md` ; le coût opérateur (zéro XYZ à refaire après chaque reconnexion) n'était pas acceptable. Une version allégée sans mouvement est livrée (`../plaque/P4-ALLEGE.md`). |
+| I-28 | Position de changement de fraise : Z monte seul, puis X, puis Y vers une position machine enregistrée | Opérateur, 2026-11-26 | **Conçu, non codé.** Conception révision 3 : `../plaque/N4-CONCEPTION.md`. Premier contre-avis de sûreté : « à revoir » (deux dangers dans le code existant sur lequel elle s'appuie). Le code attend un verdict « à réaliser » et l'opérateur. |
+| I-29 | Rapports d'état sans position ou sans vitesse de broche : une ancienne valeur est gardée comme actuelle (cadrage à vide, pas) | Relecture de sûreté, 2026-11-26 | **Constat, non corrigé.** `../plaque/CONSTAT-RAPPORTS-SANS-POSITION.md` : prouvé dans le code par reproduction, rien ne montre que la carte LUNYEE le déclenche. Correction proposée dans un lot à part, après un relevé de 60 rapports sur la machine. |
+
+## Réalisé la nuit du 26 novembre 2026 (branche `feat/nuit-2026-11-26`, non installée)
+
+Choisies par l'opérateur parmi huit idées issues d'une recherche documentaire. Aucune n'est essayée sur la machine ; chacune a son essai dans `PROTOCOLE-ESSAI.md`.
+
+- Analyse du fichier (lot N1) : profondeur comparée à l'épaisseur du brut saisie, fraises nommées par le fichier, temps de montée de la broche avant la première descente. Avertissements d'affichage, qui ne bloquent pas le départ. Rapport : `../plaque/N1-RAPPORT.md`.
+- Notification (lot N3) : grand bandeau et son à la fin, à une pause et à une alarme ; volume et essai du son dans Réglages → Affichage. Rapport : `../plaque/N3-RAPPORT.md`.
+- Sauvegarde des réglages de la carte (lot N8) : fichiers datés sur le serveur, comparaison avec la carte, export ; aucune restauration, aucune commande nouvelle. Rapport : `../plaque/N8-RAPPORT.md`.
+
+Non retenues cette nuit par l'opérateur : surfaçage intégré, compteurs d'heures de broche et d'usure des fraises.
 
 ## Réalisé le 21 novembre 2026 (branche `feat/plaque-xyz`, non installée)
 
