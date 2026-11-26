@@ -18,6 +18,9 @@ Aucune installation, aucun accès à la tablette, à la RT ni à la CNC, aucun p
 - « **Exporter** » sur chaque ligne : le fichier JSON, par la voie de téléchargement de la page
   (`CNCDownload`, celle du journal et des autres exports).
 - « **Relire** » : la relecture existante des réglages, avec ses gardes (refusée pendant un usinage).
+  Le bouton est grisé exactement quand celui de la ligne « Réglages lus » de 1 · Machine l'est
+  (main tenue ailleurs, information ancienne, flux coupé, action ou commande de tablette en cours,
+  usinage) : la carte lit la réponse de `seance.js` pour ce bouton, elle ne recopie pas la condition.
 - Deux phrases fixes : « La restauration se fait à la main, réglage par réglage. Rien n'est écrit
   dans la carte d'ici. » et « La comparaison porte sur la dernière lecture des réglages. »
 - Si la carte diffère de la dernière sauvegarde : une ligne dans la carte, et une ligne de plus sur
@@ -44,9 +47,13 @@ Aucune installation, aucun accès à la tablette, à la RT ni à la CNC, aucun p
 1. **Dossier** : `cncjs-touch-settings/` à côté de `.cncrc` (là où `history.js` écrit
    `cncjs-touch-history.jsonl`). `projects.js` écrit dans le dossier des programmes : un fichier de
    réglages n'y a pas sa place.
-2. **Nom** : `reglages-AAAAMMJJTHHMMSSZ.json`, heure UTC ; l'heure locale est affichée par la page.
-3. **Borne** : 20 fichiers. Au-delà, les plus anciens partent, **jamais le premier** (référence)
-   ni le dernier. Aucun bouton de suppression.
+2. **Nom** : `reglages-NNNN-AAAAMMJJTHHMMSSZ.json` : un compteur d'écriture (le plus grand du
+   dossier plus un), puis l'heure UTC ; l'heure locale est affichée par la page. **L'ordre est
+   celui du compteur, jamais celui de l'horloge** : si l'horloge de la tablette recule (pile,
+   démarrage sans réseau), la nouvelle sauvegarde reste la dernière, la première reste la première.
+3. **Borne** : 20 fichiers. Au-delà, les premiers écrits partent, **jamais la référence** (la
+   première sauvegarde lisible) ni les dernières. Un fichier illisible n'est jamais la référence.
+   Aucun bouton de suppression.
 4. **Contenu** : les réglages numériques `$n` seulement (ce que le serveur Touch expose déjà et
    compte dans « réglages lus »). Les lignes de démarrage `$N0` / `$N1`, les zéros pièce (`$#`) et
    les réglages nommés du firmware ne sont **pas** sauvegardés.
@@ -81,22 +88,27 @@ Partagés, modifications minimales :
 
 ## Tests
 
-- Serveur, 22 tests : emplacement, contenu du fichier, ordre `$n`, refus sans réglage, liste, borne
+- Serveur, 27 tests : emplacement, contenu du fichier, ordre `$n`, refus sans réglage, liste, borne
   et première gardée, deux sauvegardes dans la même seconde, fichiers étrangers jamais supprimés,
   fichier abîmé, nom hors dossier, comparaison (changé, ajouté, disparu, même nombre écrit
-  autrement), écart depuis la dernière sauvegarde lisible ; façade sur le vrai service (rien envoyé,
+  autrement), écart depuis la dernière sauvegarde lisible, ordre d'écriture quand l'horloge recule,
+  compteur repris après le plus grand du dossier, fichier illisible écrit en premier, fichier de
+  plus de 256 Ko, borne de 400 réglages ; façade sur le vrai service (rien envoyé,
   pendant un usinage aussi, refus sans machine / sans réglages / pendant une relecture, pas d'action
   de restauration) ; API (session, service, champs transmis, refus, panne générique).
 - Page, `test-settings-backup.cjs` : requêtes, états des boutons, tableau de comparaison, export,
-  refus traduits, « Relire » par l'action existante, ligne de 1 · Machine (pluriel, singulier,
+  refus traduits, « Relire » par l'action existante et grisé comme sur 1 · Machine (six cas, avec
+  les vraies règles de `seance.js`), message gardé quand une liste répond après coup, écart jamais
+  montré pour un autre port, ligne de 1 · Machine (pluriel, singulier,
   incident, déconnexion), repli de la liste, fichier abîmé, anglais et espagnol, chargement par la page.
 - Résultats sur le code livré (26 novembre, PC) :
   - `node examples/cncjs-touch/verify-project.cjs` → « 232/232 contrôles réussis » ;
   - `npx jest src/server/services/touch src/server/services/cncengine src/server/api grbl-simulator --coverage=false`
-    → 60 suites, 1801 tests réussis ;
+    → 60 suites, 1806 tests réussis ;
   - ESLint sans remarque sur les fichiers touchés ;
-  - `node examples/cncjs-touch/browser-run.cjs --strict --only settings` (Edge 158) → « 0 violation(s), 0 excepted »,
-    « every step passed » ; l'étape `startup` passée aussi avant les deux dernières retouches.
+  - `node examples/cncjs-touch/browser-run.cjs --strict --only settings` (Chrome 158, relancé sur le code final après les
+    constats mineurs) → « 0 violation(s), 0 excepted », « every step passed » ; l'étape `startup`,
+    passée avant la correction de relecture, n'a pas été relancée depuis.
   Les autres étapes du harnais (`screens`, `v2`, `rail`, `e2e`…) n'ont pas été lancées par ce lot.
 
 ## Limites
@@ -117,13 +129,33 @@ Partagés, modifications minimales :
   L'écart affiché est corrigé par la seconde demande ; une sauvegarde touchée dans ces quelques
   dixièmes de seconde serait incomplète (visible à son nombre de réglages).
 - Une écriture de fichier coupée (panne de courant) laisse un fichier « illisible » dans la liste ;
-  il est compté dans la borne et finira supprimé avec les plus anciens.
+  il est compté dans la borne et finira supprimé avec les plus anciens, même s'il est le premier.
+- La **date affichée** d'une sauvegarde reste celle de l'horloge de la tablette : après un recul
+  d'horloge, la liste est dans le bon ordre mais une date peut y paraître plus ancienne que la
+  ligne du dessous. Un fichier nommé à l'ancienne façon (sans compteur) n'est pas reconnu : il
+  n'est ni listé ni supprimé (aucun n'existe, rien n'a été installé).
+- Le message de la carte (« Sauvegarde enregistrée », refus de « Relire ») reste jusqu'à l'action
+  suivante dans la carte ; seul le message d'une liste en échec part à la liste suivante.
+- « Relire » grisé ne dit pas sa raison dans la carte (elle est dans la barre de 1 · Machine).
 - Les sauvegardes sont communes à toutes les machines du serveur ; chaque ligne porte son port, son
   firmware et son profil. L'écart est calculé contre la dernière sauvegarde, quelle que soit la
   machine : après un changement de machine, il annonce beaucoup de différences. C'est vrai, mais
   à lire comme tel.
 - Sur le kiosque, « Exporter » dépend du téléchargement de Chromium (dossier de téléchargement de
   la tablette). Le fichier reste de toute façon sur le serveur.
+
+## Constats mineurs de la relecture (26 novembre, second passage)
+
+1. **Ordre dépendant de l'horloge** : corrigé (compteur dans le nom, référence = première lisible).
+2. **Trois mutations survivantes** : trois tests ajoutés (port changé sans nouvelle réponse,
+   fichier de plus de 256 Ko, 500 réglages → 400). Neuf mutations rejouées sur le code final
+   (les trois du relecteur et celles des corrections 1, 3, 4) : toutes tuées.
+3. **« Relire » de la carte** : même condition que 1 · Machine, lue dans `cncSeance.state()`.
+4. **Message effacé par une liste tardive** : corrigé.
+5. **Écarts au prompt déclarés, laissés tels quels** pour la réunion : le bloc CSS de
+   `settings-list.css` placé avant la section v2 et non en toute fin de fichier ; le tableau de
+   comparaison, la liste repliée et la ligne de 1 · Machine jamais vus dans un navigateur ; la
+   liste demandée à chaque lecture des réglages sur toutes les pages, v1 Éco comprise.
 
 ## Non vérifié
 

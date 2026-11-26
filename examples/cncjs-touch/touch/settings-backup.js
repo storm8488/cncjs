@@ -34,6 +34,12 @@
   function machine() { try { return window.cncState.get().machine; } catch (_) { return null; } }
   function reading(m) { return !!(m && m.refusals && m.refusals.readSettings && m.refusals.readSettings.code === 'ETOUCH_SETTINGS_READING'); }
   function settingsRead(m) { return !!(m && m.settingsCount > 0); }
+  // « Relire » here is allowed exactly when « Relire » of 1 · Machine is: seance.js answers for both.
+  function rereadAllowed() {
+    var seance = window.cncSeance && window.cncSeance.state(), rows = seance && seance.lignes || [];
+    var line = rows.filter(function (r) { return r.id === 'reglages'; })[0];
+    return !!(line && line.boutons.some(function (b) { return b.id === 'relire' && b.actif === true; }));
+  }
   function shown() { return !document.hidden && panel.classList.contains('active') && panel.getAttribute('data-settings-tab') === 'machine'; }
   function when(at) {
     try { return new Date(at).toLocaleString(uiLocale.locale || undefined, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch (_) { return String(at); }
@@ -80,7 +86,7 @@
   card.appendChild(el('p', 'ks-help', t('La comparaison porte sur la dernière lecture des réglages. Pour les relire : « Relire », machine au repos.')));
   panel.appendChild(card);
 
-  var info = null, busy = false, notice = '', expanded = false, loadedKey = '', compared = null, machineLine = null, compareButtons = [], exportButtons = [];
+  var info = null, busy = false, notice = '', listNotice = false, expanded = false, loadedKey = '', compared = null, machineLine = null, compareButtons = [], exportButtons = [];
 
   function latest() { var b = info && Array.isArray(info.backups) ? info.backups : []; for (var i = 0; i < b.length; i++) if (!b[i].damaged) return b[i]; return null; }
   function driftText() {
@@ -152,7 +158,7 @@
     if (!shown()) return;
     var m = machine(), ready = settingsRead(m) && !reading(m), last = latest(), all = info && Array.isArray(info.backups) ? info.backups : [];
     saveButton.disabled = busy || !info || !ready;
-    rereadButton.disabled = busy || !(m && m.canReadSettings === true);
+    rereadButton.disabled = busy || !rereadAllowed();
     compareButtons.forEach(function (b) { b.disabled = busy || !ready; });
     exportButtons.forEach(function (b) { b.disabled = busy; });
     if (info) set(summary, last ? t('Dernière sauvegarde : {date}').replace('{date}', when(last.at)) + ' · ' + count(last.count) + ' · ' + t('{n} sur {max} gardées').replace('{n}', all.length).replace('{max}', info.max) : t('Aucune sauvegarde pour l’instant.'));
@@ -180,15 +186,18 @@
     request('GET', undefined, function (code, data) {
       loading = false;
       if (again) { again = false; load(); return; }
-      if (code === 200 && data) { accept(data); if (!busy) notice = ''; } else { if (!info) set(summary, '—'); notice = message(code, data, t('Liste des sauvegardes indisponible.')); }
+      // A list that answers takes back only what a failed list said: the outcome of a save, of an
+      // export or of « Relire » stays until the next action.
+      if (code === 200 && data) { accept(data); if (listNotice) { notice = ''; listNotice = false; } }
+      else { if (!info) set(summary, '—'); notice = message(code, data, t('Liste des sauvegardes indisponible.')); listNotice = true; }
       paint();
     });
   }
   function act(body, fallback, done) {
     if (busy) return;
-    busy = true; notice = ''; paint();
+    busy = true; notice = ''; listNotice = false; paint();
     request('POST', body, function (code, data) {
-      busy = false;
+      busy = false; listNotice = false;
       if (code === 200 && data) done(data); else notice = message(code, data, fallback);
       paint();
     });
@@ -203,8 +212,8 @@
   rereadButton.addEventListener('click', function () {
     var controls = window.cncJobControls;
     if (rereadButton.disabled || !controls || typeof controls.readSettings !== 'function') return;
-    compared = null; paintResult(); notice = '';
-    controls.readSettings().then(function () { paint(); }, function (error) { notice = (uiLocale.message || t)(error && error.message || '') || t('Impossible pour l’instant.'); paint(); });
+    compared = null; paintResult(); notice = ''; listNotice = false;
+    controls.readSettings().then(function () { paint(); }, function (error) { listNotice = false; notice = (uiLocale.message || t)(error && error.message || '') || t('Impossible pour l’instant.'); paint(); });
   });
   moreButton.addEventListener('click', function () { expanded = !expanded; paintList(); paint(); });
   function compareWith(id) {

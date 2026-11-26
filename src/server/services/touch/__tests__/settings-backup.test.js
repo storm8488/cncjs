@@ -41,8 +41,8 @@ describe('settings backups: where and what', () => {
   test('a save writes one dated JSON file with the date, the firmware, the profile and every $n pair', async () => {
     const { store, dir } = make();
     const saved = await store.save(BOARD);
-    expect(saved.id).toBe('reglages-20261126T211530Z.json');
-    expect(await fs.readdir(dir)).toEqual(['reglages-20261126T211530Z.json']);
+    expect(saved.id).toBe('reglages-0001-20261126T211530Z.json');
+    expect(await fs.readdir(dir)).toEqual(['reglages-0001-20261126T211530Z.json']);
     const file = JSON.parse(await fs.readFile(path.join(dir, saved.id), 'utf8'));
     expect(file).toEqual({
       format: BACKUP_FORMAT,
@@ -66,6 +66,16 @@ describe('settings backups: where and what', () => {
     await expect(fs.readdir(dir)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  test('at most 400 settings are kept, the lowest numbers', () => {
+    const many = {};
+    for (let i = 499; i >= 0; i--) {
+      many['$' + i] = String(i);
+    }
+    const kept = Object.keys(cleanSettings(many));
+    expect(kept).toHaveLength(400);
+    expect([kept[0], kept[399]]).toEqual(['$0', '$399']);
+  });
+
   test('only numeric settings with a short value are kept', () => {
     expect(cleanSettings({ $130: 408, $0: ' 10 ', $N0: 'G54', $12345: '1', $1: '', $2: 'x'.repeat(40), $3: NaN, other: 1 })).toEqual({ $0: '10', $130: '408' });
     expect(cleanSettings(null)).toEqual({});
@@ -82,8 +92,8 @@ describe('settings backups: the list and its bound', () => {
     const { backups, max } = await store.list();
     expect(max).toBe(MAX_BACKUPS);
     expect(backups).toEqual([
-      { id: 'reglages-20261127T211530Z.json', at: '2026-11-27T21:15:30.000Z', port: '/dev/ttyUSB0', firmware: 'Grbl 1.1f.20231030', profile: { label: 'LUNYEE 4040', kind: 'cnc' }, count: 13, first: false },
-      { id: 'reglages-20261126T211530Z.json', at: '2026-11-26T21:15:30.000Z', port: '/dev/ttyUSB0', firmware: 'Grbl 1.1f.20231030', profile: { label: 'LUNYEE 4040', kind: 'cnc' }, count: 12, first: true }
+      { id: 'reglages-0002-20261127T211530Z.json', at: '2026-11-27T21:15:30.000Z', port: '/dev/ttyUSB0', firmware: 'Grbl 1.1f.20231030', profile: { label: 'LUNYEE 4040', kind: 'cnc' }, count: 13, first: false },
+      { id: 'reglages-0001-20261126T211530Z.json', at: '2026-11-26T21:15:30.000Z', port: '/dev/ttyUSB0', firmware: 'Grbl 1.1f.20231030', profile: { label: 'LUNYEE 4040', kind: 'cnc' }, count: 12, first: true }
     ]);
   });
 
@@ -107,7 +117,7 @@ describe('settings backups: the list and its bound', () => {
     const { store, dir } = make();
     const a = await store.save(BOARD);
     const b = await store.save({ ...BOARD, settings: { ...LUNYEE, $30: '2000' } });
-    expect([a.id, b.id]).toEqual(['reglages-20261126T211530Z.json', 'reglages-20261126T211530Z-2.json']);
+    expect([a.id, b.id]).toEqual(['reglages-0001-20261126T211530Z.json', 'reglages-0002-20261126T211530Z.json']);
     expect((await fs.readdir(dir)).length).toBe(2);
     expect((await store.list()).backups.map((x) => x.id)).toEqual([b.id, a.id]);
     expect((await store.read(a.id)).settings.$30).toBe('1000');
@@ -118,12 +128,13 @@ describe('settings backups: the list and its bound', () => {
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(path.join(dir, 'notes.txt'), 'mine');
     await fs.writeFile(path.join(dir, 'reglages-old.json'), '{}');
+    await fs.writeFile(path.join(dir, 'reglages-20261126T211530Z.json'), '{}');
     await each([0, 1, 2, 3], async () => {
       await store.save(BOARD);
       clock.now += 1000;
     });
     const names = (await fs.readdir(dir)).sort();
-    expect(names).toEqual(['notes.txt', 'reglages-20261126T211530Z.json', 'reglages-20261126T211533Z.json', 'reglages-old.json']);
+    expect(names).toEqual(['notes.txt', 'reglages-0001-20261126T211530Z.json', 'reglages-0004-20261126T211533Z.json', 'reglages-20261126T211530Z.json', 'reglages-old.json']);
     expect((await store.list()).backups).toHaveLength(2);
   });
 
@@ -131,16 +142,77 @@ describe('settings backups: the list and its bound', () => {
     const { store, dir, clock } = make();
     const good = await store.save(BOARD);
     clock.now += 1000;
-    await fs.writeFile(path.join(dir, 'reglages-20261126T211531Z.json'), '{"format":"cncjs-touch-settings-backup","at":"2026-11-26T21:15:31.000Z","settings":{"$0"');
+    await fs.writeFile(path.join(dir, 'reglages-0002-20261126T211531Z.json'), '{"format":"cncjs-touch-settings-backup","at":"2026-11-26T21:15:31.000Z","settings":{"$0"');
     const { backups } = await store.list();
-    expect(backups[0]).toEqual({ id: 'reglages-20261126T211531Z.json', damaged: true, first: false });
+    expect(backups[0]).toEqual({ id: 'reglages-0002-20261126T211531Z.json', damaged: true, first: false });
     expect(backups[1].id).toBe(good.id);
-    await expect(store.read('reglages-20261126T211531Z.json')).rejects.toMatchObject({ code: 'EBACKUP_UNREADABLE', status: 404 });
-    await expect(store.read('reglages-20270101T000000Z.json')).rejects.toMatchObject({ code: 'EBACKUP_UNREADABLE' });
-    await each(['../.cncrc', '..\\reglages-20261126T211530Z.json', 'sub/reglages-20261126T211530Z.json', '', null, undefined, 12, 'notes.txt'], async (id) => {
+    await expect(store.read('reglages-0002-20261126T211531Z.json')).rejects.toMatchObject({ code: 'EBACKUP_UNREADABLE', status: 404 });
+    await expect(store.read('reglages-0009-20270101T000000Z.json')).rejects.toMatchObject({ code: 'EBACKUP_UNREADABLE' });
+    await each(['../.cncrc', '..\\reglages-0001-20261126T211530Z.json', 'sub/reglages-0001-20261126T211530Z.json', 'reglages-20261126T211530Z.json', '', null, undefined, 12, 'notes.txt'], async (id) => {
       await expect(store.read(id)).rejects.toMatchObject({ code: 'EBACKUP_ID', status: 400 });
       await expect(store.compare(id, LUNYEE)).rejects.toMatchObject({ code: 'EBACKUP_ID' });
     });
+  });
+});
+
+describe('settings backups: the order is the order of writing, not the clock', () => {
+  test('a clock that went back neither takes the reference nor the place of the last backup', async () => {
+    const { store, dir, clock } = make({ max: 3 });
+    const first = await store.save(BOARD);
+    clock.now += 86400000;
+    const second = await store.save({ ...BOARD, settings: { ...LUNYEE, $30: '2000' } });
+    expect(second.id).toBe('reglages-0002-20261127T211530Z.json');
+    // The tablet restarts without network: its clock is a month behind.
+    clock.now -= 30 * 86400000;
+    const third = await store.save({ ...BOARD, settings: { ...LUNYEE, $30: '3000' } });
+    expect(third.id).toBe('reglages-0003-20261028T211530Z.json');
+    const fourth = await store.save({ ...BOARD, settings: { ...LUNYEE, $30: '4000' } });
+    // The first one written is still the reference, the two last written are kept.
+    expect((await fs.readdir(dir)).sort()).toEqual([first.id, third.id, fourth.id].sort());
+    const { backups } = await store.list();
+    expect(backups.map((b) => b.id)).toEqual([fourth.id, third.id, first.id]);
+    expect(backups.map((b) => b.first)).toEqual([false, false, true]);
+    // The board is compared with the backup just made, whatever its date says.
+    expect(await store.drift({ ...LUNYEE, $30: '4000' })).toMatchObject({ id: fourth.id, changed: 0 });
+  });
+
+  test('the counter goes on after the highest one left in the folder', async () => {
+    const { store, dir } = make();
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, 'reglages-0041-20270101T000000Z.json'), 'cut short');
+    expect((await store.save(BOARD)).id).toBe('reglages-0042-20261126T211530Z.json');
+  });
+
+  test('a damaged file written first is not the reference and goes with the oldest', async () => {
+    const { store, dir, clock } = make({ max: 3 });
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, 'reglages-0001-20261125T000000Z.json'), 'cut short');
+    const ids = [];
+    await each([0, 1], async (i) => {
+      ids.push((await store.save({ ...BOARD, settings: { ...LUNYEE, $30: String(1000 + i) } })).id);
+      clock.now += 60000;
+    });
+    expect((await store.list()).backups.map((b) => [b.id, b.first])).toEqual([
+      [ids[1], false], [ids[0], true], ['reglages-0001-20261125T000000Z.json', false]
+    ]);
+    await each([2, 3], async (i) => {
+      ids.push((await store.save({ ...BOARD, settings: { ...LUNYEE, $30: String(1000 + i) } })).id);
+      clock.now += 60000;
+    });
+    expect((await fs.readdir(dir)).sort()).toEqual([ids[0], ids[2], ids[3]]);
+  });
+
+  test('a file larger than 256 KB is listed as damaged, never read', async () => {
+    const { store, dir } = make();
+    const saved = await store.save(BOARD);
+    const text = await fs.readFile(path.join(dir, saved.id), 'utf8');
+    const big = 'reglages-0002-20261126T211531Z.json';
+    await fs.writeFile(path.join(dir, big), text + ' '.repeat(262144));
+    expect((await store.list()).backups[0]).toEqual({ id: big, damaged: true, first: false });
+    await expect(store.read(big)).rejects.toMatchObject({ code: 'EBACKUP_UNREADABLE' });
+    // At the bound, the same content reads.
+    await fs.writeFile(path.join(dir, big), text + ' '.repeat(262144 - Buffer.byteLength(text)));
+    expect((await store.read(big)).settings).toEqual(LUNYEE);
   });
 });
 
@@ -181,7 +253,7 @@ describe('settings backups: comparing the board with a backup', () => {
     // Settings not read yet: no conclusion, never "everything changed".
     expect(await store.drift({})).toBeNull();
     // A newer damaged file is skipped.
-    await fs.writeFile(path.join(dir, 'reglages-20261127T000000Z.json'), 'not json');
+    await fs.writeFile(path.join(dir, 'reglages-0003-20261127T000000Z.json'), 'not json');
     expect((await store.drift({ ...LUNYEE, $110: '4000.000' })).id).toBe(last.id);
   });
 });

@@ -126,7 +126,7 @@ describe('settings backups through the touch facade (lot N8)', () => {
 
     const empty = connect({});
     await expect(touch.settingsBackupAction({ action: 'save', port: 'COM3' })).rejects.toMatchObject({ status: 409, code: 'EBACKUP_NO_SETTINGS' });
-    await expect(touch.settingsBackupAction({ action: 'compare', port: 'COM3', id: 'reglages-20261126T211530Z.json' }))
+    await expect(touch.settingsBackupAction({ action: 'compare', port: 'COM3', id: 'reglages-0001-20261126T211530Z.json' }))
       .rejects.toMatchObject({ status: 409, code: 'EBACKUP_NO_SETTINGS' });
     expect(files()).toEqual([]);
     expect(empty.sent).toEqual([]);
@@ -149,7 +149,7 @@ describe('settings backups through the touch facade (lot N8)', () => {
     expect(c.sent).toEqual([['writeln', '$$']]);
 
     await expect(touch.settingsBackupAction({ action: 'save', port: 'COM3' })).rejects.toMatchObject({ status: 409, code: 'ETOUCH_SETTINGS_READING' });
-    await expect(touch.settingsBackupAction({ action: 'compare', port: 'COM3', id: 'reglages-20261126T211530Z.json' }))
+    await expect(touch.settingsBackupAction({ action: 'compare', port: 'COM3', id: 'reglages-0001-20261126T211530Z.json' }))
       .rejects.toMatchObject({ status: 409, code: 'ETOUCH_SETTINGS_READING' });
     expect(files()).toEqual([]);
     // The list still answers, without a drift it cannot judge.
@@ -179,7 +179,7 @@ describe('settings backups through the touch facade (lot N8)', () => {
   test('an unknown action is refused: there is no restoring, writing or deleting action', async () => {
     const c = connect();
     await Promise.all(['restore', 'write', 'delete', undefined].map((action) => (
-      expect(touch.settingsBackupAction({ action, port: 'COM3', id: 'reglages-20261126T211530Z.json' })).rejects.toMatchObject({ status: 400 })
+      expect(touch.settingsBackupAction({ action, port: 'COM3', id: 'reglages-0001-20261126T211530Z.json' })).rejects.toMatchObject({ status: 400 })
     )));
     expect(c.sent).toEqual([]);
     expect(files()).toEqual([]);

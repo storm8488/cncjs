@@ -10,7 +10,7 @@ jest.mock('../../services/touch', () => ({
   __esModule: true,
   default: {
     isStarted: jest.fn(() => true),
-    settingsBackupList: jest.fn(() => Promise.resolve({ backups: [{ id: 'reglages-20261126T211530Z.json', first: true }], max: 20, drift: null })),
+    settingsBackupList: jest.fn(() => Promise.resolve({ backups: [{ id: 'reglages-0001-20261126T211530Z.json', first: true }], max: 20, drift: null })),
     settingsBackupAction: jest.fn(() => Promise.resolve({ changes: [], same: 12 }))
   }
 }));
@@ -66,9 +66,9 @@ describe('api/touch-settings-backups (lot N8)', () => {
 
   test('POST passes the action, the port and the id only', async () => {
     const res = makeRes();
-    postSettingsBackups({ user: { id: 'u' }, body: { action: 'compare', port: 'COM3', id: 'reglages-20261126T211530Z.json', settings: { $130: '1' }, restore: true } }, res);
+    postSettingsBackups({ user: { id: 'u' }, body: { action: 'compare', port: 'COM3', id: 'reglages-0001-20261126T211530Z.json', settings: { $130: '1' }, restore: true } }, res);
     await settled();
-    expect(touch.settingsBackupAction).toHaveBeenCalledWith({ action: 'compare', port: 'COM3', id: 'reglages-20261126T211530Z.json' });
+    expect(touch.settingsBackupAction).toHaveBeenCalledWith({ action: 'compare', port: 'COM3', id: 'reglages-0001-20261126T211530Z.json' });
     expect(res.payload).toEqual({ changes: [], same: 12 });
     expect(res.headers['Cache-Control']).toBe('no-store');
   });

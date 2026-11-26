@@ -8,6 +8,8 @@
 const assert = require('assert').strict, fs = require('fs'), path = require('path'), vm = require('vm');
 const read = (name) => fs.readFileSync(path.join(__dirname, 'touch', name), 'utf8');
 const source = read('settings-backup.js');
+// The real session rules (seance.js): they decide « Relire » on 1 · Machine, and so here.
+const seance = require('./session-fixture.cjs').pure();
 
 function el(tag) {
   const n = { tagName: String(tag).toUpperCase(), children: [], parentNode: null, hidden: false, disabled: false, type: '', className: '', id: '', attrs: {}, handlers: {}, _text: '',
@@ -25,12 +27,12 @@ function all(root, pred) { const out = []; const walk = (x) => x.children.forEac
 const byClass = (root, cls) => all(root, (c) => new RegExp('(^| )' + cls + '( |$)').test(c.className));
 const visible = (n) => { for (let x = n; x; x = x.parentNode) if (x.hidden) return false; return true; };
 
-const LUNYEE = { port: '/dev/ttyUSB0', generation: 'g1', startups: 1, firmware: 'Grbl 1.1f', settingsCount: 34, canReadSettings: true, workflow: 'idle', refusals: {} };
+const LUNYEE = { port: '/dev/ttyUSB0', generation: 'g1', startups: 1, firmware: 'Grbl 1.1f', settingsCount: 34, canReadSettings: true, workflow: 'idle', fresh: true, refusals: {} };
 const NEW = { id: 'reglages-20261126T211530Z.json', at: '2026-11-26T21:15:30.000Z', port: '/dev/ttyUSB0', firmware: 'Grbl 1.1f', profile: { label: 'LUNYEE 4040', kind: 'cnc' }, count: 34, first: false };
 const OLD = { id: 'reglages-20261113T090000Z.json', at: '2026-11-13T09:00:00.000Z', port: '/dev/ttyUSB0', firmware: 'Grbl 1.1f', profile: { label: '', kind: 'cnc' }, count: 34, first: true };
 
 function setup({ language = 'fr', machine = LUNYEE, tab = 'machine', session = true } = {}) {
-  const state = { machine }, requests = [], listeners = {}, saved = [], reads = [];
+  const state = { machine, session: {} }, requests = [], listeners = {}, saved = [], reads = [];
   const panel = el('section'); panel.id = 'screen-settings'; panel.attrs['data-settings-tab'] = tab;
   const machineList = el('ul'); machineList.id = 'machine-list'; machineList.appendChild(el('li'));
   const layout = el('div'); layout.id = 'machine-layout'; layout.attrs['data-incident'] = 'false';
@@ -38,6 +40,7 @@ function setup({ language = 'fr', machine = LUNYEE, tab = 'machine', session = t
   const document = { hidden: false, createElement: el, addEventListener(n, f) { listeners[n] = f; }, getElementById: (id) => ids[id] || null };
   const window = { addEventListener: (n, f) => { listeners[n] = f; }, cncState: { get: () => ({ apiBase: '/api', machine: state.machine }) },
     CNCDownload: { save: (blob, name) => saved.push({ blob, name }) },
+    cncSeance: { state: () => seance.evaluate({ machine: state.machine, transportConnected: true, pilot: { state: 'free' }, ...state.session }) },
     cncJobControls: { readSettings: () => { reads.push(1); return state.readRefusal ? Promise.reject(new Error(state.readRefusal)) : Promise.resolve({}); } } };
   const stored = new Map([['cncjs-touch-language-v1', language], ['cnc', JSON.stringify({ state: { session: { token: session ? 'tok' : '' } } })]]);
   const localStorage = { getItem: (k) => (stored.has(k) ? stored.get(k) : null), setItem() {} };
@@ -160,6 +163,30 @@ const LIST = { backups: [NEW, OLD], max: 20, drift: { id: NEW.id, at: NEW.at, ch
     p.state.machine = { ...LUNYEE, canReadSettings: false }; p.status();
     assert.equal(p.button('ks-backup-reread').disabled, true);
     p.button('ks-backup-reread').click(); assert.equal(p.reads.length, 2);
+    // The same conditions as « Relire » of 1 · Machine, whatever the server's own permission says:
+    // the button of the card and the button of the line are greyed together, case by case.
+    const lineButton = () => p.window.cncSeance.state().lignes.filter((r) => r.id === 'reglages')[0].boutons[0].actif;
+    p.state.machine = { ...LUNYEE }; p.status();
+    assert.equal(lineButton(), true); assert.equal(p.button('ks-backup-reread').disabled, false);
+    for (const [why, machinePatch, session] of [
+      ['another device holds the machine', {}, { pilot: { state: 'other', name: 'PC' } }],
+      ['old information', { fresh: false }, {}],
+      ['stream lost', {}, { streamConnected: false }],
+      ['an action is running', {}, { busy: true }],
+      ['a tablet command is running', {}, { systemCommand: { title: 'x' } }],
+      ['a job is running', { workflow: 'running' }, {}]]) {
+      p.state.machine = { ...LUNYEE, ...machinePatch }; p.state.session = session; p.status();
+      assert.equal(p.state.machine.canReadSettings, true, why);
+      assert.equal(lineButton(), false, why);
+      assert.equal(p.button('ks-backup-reread').disabled, true, 'Relire greyed as on 1 · Machine: ' + why);
+      p.button('ks-backup-reread').click(); assert.equal(p.reads.length, 2, why);
+    }
+    p.state.machine = { ...LUNYEE }; p.state.session = {}; p.status();
+    assert.equal(p.button('ks-backup-reread').disabled, false);
+    // Without the session rules (seance.js missing), nothing is offered.
+    const rules = p.window.cncSeance; p.window.cncSeance = undefined; p.status();
+    assert.equal(p.button('ks-backup-reread').disabled, true);
+    p.window.cncSeance = rules; p.status();
 
     // Nothing here ever talks to the machine's API.
     assert(!/touch-job|writeln|gcode/.test(source), 'no machine request in settings-backup.js');
@@ -245,6 +272,54 @@ const LIST = { backups: [NEW, OLD], max: 20, drift: { id: NEW.id, at: NEW.at, ch
     p.answer(p.requests.shift(), 200, LIST);
     p.state.machine = null; p.status();
     assert.deepEqual(p.tick(), []); assert.equal(p.requests.length, 0);
+  }
+
+  // ---- A list answered later never takes back the outcome of an action; it takes back its own failure ----
+  {
+    const p = setup();
+    while (p.requests.length) p.answer(p.requests.shift(), 200, LIST);
+    p.tick(); while (p.requests.length) p.answer(p.requests.shift(), 200, LIST);
+    p.button('ks-backup-save').click();
+    p.answer(p.requests.shift(), 200, { saved: { id: NEW.id, at: NEW.at, count: 34 }, ...LIST });
+    assert.match(p.text(), /Sauvegarde enregistrée : 26\/11\/2026/);
+    // The board restarts: the settings are read again, the list is asked and answers.
+    p.state.machine = { ...LUNYEE, startups: 2 }; p.status();
+    assert.equal(p.requests.length, 1);
+    p.answer(p.requests.shift(), 200, LIST);
+    assert.match(p.text(), /Sauvegarde enregistrée : 26\/11\/2026/, 'the list does not erase « Sauvegarde enregistrée »');
+    p.tick(); while (p.requests.length) p.answer(p.requests.shift(), 200, LIST);
+    // The refusal of « Relire » stays too.
+    p.state.readRefusal = 'Usinage en cours.';
+    p.button('ks-backup-reread').click();
+    await Promise.resolve(); await Promise.resolve();
+    assert.match(p.text(), /Usinage en cours\./);
+    p.listeners['cnc-settings-tab']({ detail: 'machine' });
+    p.answer(p.requests.shift(), 200, LIST);
+    assert.match(p.text(), /Usinage en cours\./, 'the list does not erase the refusal of « Relire »');
+    // A failed list says so; the next list that answers takes that message back.
+    p.listeners['cnc-settings-tab']({ detail: 'machine' });
+    p.requests.shift().onerror();
+    assert.match(p.text(), /Serveur CNCjs injoignable\./);
+    p.listeners['cnc-settings-tab']({ detail: 'machine' });
+    p.answer(p.requests.shift(), 200, LIST);
+    assert(!/Serveur CNCjs injoignable|Usinage en cours/.test(p.text()), p.text());
+  }
+
+  // ---- The drift belongs to the board it was asked for: another port shows none until its own answer ----
+  {
+    const p = setup();
+    while (p.requests.length) p.answer(p.requests.shift(), 200, { ...LIST, drift: { id: NEW.id, at: NEW.at, changed: 2 } });
+    p.tick(); while (p.requests.length) p.answer(p.requests.shift(), 200, { ...LIST, drift: { id: NEW.id, at: NEW.at, changed: 2 } });
+    assert.equal(p.machineList.children.length, 2);
+    assert.equal(byClass(p.card, 'ks-backup-drift')[0].hidden, false);
+    // Another board on another port, its settings read: its list is asked, not answered yet.
+    p.state.machine = { ...LUNYEE, port: '/dev/ttyACM0', generation: 'g2' }; p.status();
+    assert.equal(p.requests.length, 1);
+    assert.equal(p.requests[0].url, '/api/touch-settings-backups?port=%2Fdev%2FttyACM0');
+    assert.equal(p.machineList.children.length, 1, 'the drift of the other board is not shown on 1 · Machine');
+    assert.equal(byClass(p.card, 'ks-backup-drift')[0].hidden, true, 'nor in the card');
+    p.answer(p.requests.shift(), 200, { ...LIST, drift: { id: NEW.id, at: NEW.at, changed: 5 } });
+    assert.match(p.machineList.children[1].textContent, /5 réglages de la machine ont changé/);
   }
 
   // ---- No settings read, no backup, hidden tab, old server, no session ----
