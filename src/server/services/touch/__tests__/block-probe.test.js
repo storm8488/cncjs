@@ -2002,15 +2002,18 @@ describe('block probe, lot C1: the position carried by the report, the spindle p
   });
 
   test('T7s (mutation M16): FS: alone missing for 2.6 s during a G38.3: stopped (spindle), feed hold, no jog cancel; T10: a $G M3 during a line stops it too', async () => {
+    // The slow touch at 5 mm/min: well over 2.6 s of Run.
+    const SLOW = 'G38.3 Z-20.565 F5';
     let ctx = await setup();
-    await ctx.launch(Z_ONLY);
-    await ctx.until(() => ctx.g.active === 'Run' && ctx.g.sent.includes(FAST));
+    await ctx.launch({ ...Z_ONLY, profile: { ...PROFILE, slow: 5 } });
+    await ctx.until(() => ctx.g.active === 'Run' && ctx.g.sent.includes(SLOW));
     ctx.g.omitFs = true;
     await ctx.tick(2700);
+    expect(ctx.g.active).not.toBe('Idle');
     let { err } = await ctx.finish();
     expect(err.code).toBe('ETOUCH_PROBE_SPINDLE');
     expect(ctx.g.realtime[0]).toBe('!');
-    expect(ctx.g.sent.filter(moving)).toEqual([FAST]);
+    expect(ctx.g.sent.filter(moving)).toEqual([FAST, BACK, SLOW]);
     ctx = await setup();
     await ctx.launch(Z_ONLY);
     await ctx.until(() => ctx.g.active === 'Run' && ctx.g.sent.includes(FAST));
