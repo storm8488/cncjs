@@ -25,9 +25,14 @@
     return /^door/i.test(a) ? 'door' : /^hold/i.test(a) ? 'hold' : '';
   }
   function machineOnly(kind) { return kind === 'hold' || kind === 'door'; }
+  // The machine seen at rest with every line acknowledged while CNCjs still counts the job as
+  // running: the program ran to its end (CNCjs then waits half a second before going to rest).
+  // Every line acknowledged while the machine still moves proves nothing: a stop may follow.
   function observe(m) {
-    return { port: m.port, generation: m.generation, alarm: isAlarm(m), active: isActive(m), pause: pauseOf(m),
+    var s = { port: m.port, generation: m.generation, alarm: isAlarm(m), active: isActive(m), pause: pauseOf(m),
       total: typeof m.total === 'number' && m.total > 0 ? m.total : 0, received: typeof m.received === 'number' ? m.received : 0, pending: null };
+    s.settled = s.active && !s.pause && /^idle/i.test(String(m.activeState || '')) && s.total > 0 && s.received >= s.total;
+    return s;
   }
   // reduce(previous state, machine snapshot, monotonic ms) → {state, events}.
   // Events: {type:'alarm'}, {type:'pause', kind, changed}, {type:'pause-end'}, {type:'start'},
@@ -40,14 +45,13 @@
     next.pending = prev.pending;
     if (next.alarm && !prev.alarm) events.push({ type: 'alarm' });
     if (next.active) {
-      next.pending = null;
       if (!next.total) next.total = prev.active ? prev.total : 0;
       if (!prev.active) events.push({ type: 'start' });
     } else if (prev.active) {
       // An old report does not say the job is over: the job is kept as it was.
-      if (m.fresh === false) { next.active = true; next.pause = prev.pause; next.total = prev.total; next.received = prev.received; }
+      if (m.fresh === false) { next.active = true; next.pause = prev.pause; next.total = prev.total; next.received = prev.received; next.settled = prev.settled; }
       // Back to rest: the server's result (finished, errors, stopped) is waited for up to 2 s.
-      else next.pending = { until: now + 2000, total: prev.total, received: prev.received };
+      else next.pending = { until: now + 2000, total: prev.total, received: prev.received, settled: prev.settled };
     }
     if (next.pause) {
       if (!next.alarm && !prev.pause) events.push({ type: 'pause', kind: next.pause, changed: false });
@@ -59,15 +63,16 @@
       var p = next.pending;
       // The report at rest carries the last acknowledgements of the same job (the simulation, a job
       // started from the PC): the last report of the job itself may be short of the total.
-      if (next.total === p.total && next.received > p.received) p = next.pending = { until: p.until, total: p.total, received: next.received };
+      if (next.total === p.total && next.received > p.received) p = next.pending = { until: p.until, total: p.total, received: next.received, settled: p.settled || next.received >= p.total };
       var known = m.finished === true || m.finishedWithErrors === true || m.jobStopped === true;
       if (known || now >= p.until) {
         next.pending = null;
         var refused = typeof m.jobErrors === 'number' && m.jobErrors > 0 ? m.jobErrors : 0;
         var errors = refused && m.finishedWithErrors === true ? refused : 0;
-        // A job started from the PC is not marked finished by the server: every line acknowledged
-        // says so (same rule as job-follow.js), except after an operator stop.
-        var allSent = p.total > 0 && p.received >= p.total && m.jobStopped !== true;
+        // A job started from the PC is not marked finished by the server, and a stop from the PC is
+        // not marked stopped: only the machine seen at rest with every line acknowledged says the
+        // program ended. In doubt nothing is announced, rather than a false end.
+        var allSent = p.settled && m.jobStopped !== true;
         var done = !errors && (m.finished === true || (allSent && !refused));
         // A job cut by an alarm is not finished, whatever was acknowledged before.
         if (!next.alarm && (errors || done)) events.push({ type: 'finish', errors: errors });
@@ -91,11 +96,11 @@
     function arm(then) {
       if (!AudioCtor) return;
       try {
-        if (!ctx) { ctx = new AudioCtor(); ctx.onstatechange = function () { if (changed) changed(); }; }
+        if (!ctx) { ctx = new AudioCtor(); api.available = true; ctx.onstatechange = function () { if (changed) changed(); }; }
         if (ready()) { if (then) then(); return; }
         var p = typeof ctx.resume === 'function' ? ctx.resume() : null;
         if (p && typeof p.then === 'function') p.then(function () { if (changed) changed(); if (ready() && then) then(); }, function () { /* Still blocked: said by the status line. */ });
-      } catch (_) { ctx = null; }
+      } catch (_) { ctx = null; api.available = false; if (changed) changed(); }
     }
     // Never queued on a suspended context: a sound refused now must not ring at a later touch.
     function play(kind, gain, delay) {
@@ -112,7 +117,9 @@
       return true;
     }
     function dispose() { var old = ctx; ctx = null; if (old) { old.onstatechange = null; if (typeof old.close === 'function') { try { var p = old.close(); if (p && p.catch) p.catch(function () { /* Already closed. */ }); } catch (_) { /* Already closed. */ } } } }
-    return { available: !!AudioCtor, ready: ready, arm: arm, play: play, dispose: dispose };
+    // available: false without Web Audio, or once its constructor has failed (no touch will help).
+    var api = { available: !!AudioCtor, ready: ready, arm: arm, play: play, dispose: dispose };
+    return api;
   }
   root.CNCNotify = { reduce: reduce, pauseOf: pauseOf, createSound: createSound, PATTERNS: PATTERNS, LEVELS: LEVELS };
 
@@ -165,7 +172,7 @@
     var head, body = shown.detail || '';
     if (shown.type === 'finish') {
       head = shown.laser ? t('Gravure terminée') : t('Usinage terminé');
-      body = shown.errors ? t('{n} lignes refusées par la machine : vérifiez la pièce.').replace('{n}', shown.errors) : shown.file;
+      body = shown.errors === 1 ? t('1 ligne refusée par la machine : vérifiez la pièce.') : shown.errors ? t('{n} lignes refusées par la machine : vérifiez la pièce.').replace('{n}', shown.errors) : shown.file;
     } else if (shown.type === 'pause') {
       head = t('Pause'); body = pauseText(shown.kind, shown.laser);
     } else {
@@ -179,7 +186,8 @@
     }
     shown.detail = body;
     text(title, head); text(detail, body);
-    text(hint, shown.silent ? t('Son bloqué par le navigateur : touchez l’écran une fois.') + ' ' + t('Touchez ce message pour le fermer.') : t('Touchez ce message pour le fermer.'));
+    // Touching the screen arms a blocked sound; it does nothing where there is no Web Audio.
+    text(hint, shown.silent ? (sound.available ? t('Son bloqué par le navigateur : touchez l’écran une fois.') : t('Son indisponible dans ce navigateur.')) + ' ' + t('Touchez ce message pour le fermer.') : t('Touchez ce message pour le fermer.'));
     attr(banner, 'data-tone', shown.type === 'finish' && shown.errors ? 'warn' : TONES[shown.type]); attr(banner, 'data-type', shown.type);
     if (path && path.getAttribute('d') !== ICONS[shown.type]) path.setAttribute('d', ICONS[shown.type]);
     prop(banner, 'hidden', false);
