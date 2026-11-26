@@ -180,7 +180,12 @@ const fakeGrbl = (ctx, {
     const state = g.active + (g.subState !== null && g.active === 'Hold' ? ':' + g.subState : '');
     const pin = touching(g.m) ? '|Pn:P' : '';
     const field = wco ? '|WCO:' + wco.x + ',' + wco.y + ',' + wco.z : '';
-    const raw = '<' + state + '|MPos:' + f3(g.m.x) + ',' + f3(g.m.y) + ',' + f3(g.m.z) + '|FS:0,' + g.spindle + pin + field + '>';
+    // Lot C1, knobs for its own tests (unset: the line of before): `omitPos` / `omitFs` leave the
+    // field out, `zGlitch` shifts the Z said by the next reports, one value a report (0: none).
+    const dz = g.zGlitch && g.zGlitch.length ? g.zGlitch.shift() : 0;
+    const position = g.omitPos ? '' : '|MPos:' + f3(g.m.x) + ',' + f3(g.m.y) + ',' + f3(g.m.z + dz);
+    const speed = g.omitFs ? '' : '|FS:0,' + g.spindle;
+    const raw = '<' + state + position + speed + pin + field + '>';
     c.runner.emit('status', wco ? { raw, wco: { ...wco } } : { raw });
   };
   // LUNYEE: the board restarts (after ALARM:n when given): nothing more runs, MPos 0,0,0, G54,
@@ -428,7 +433,8 @@ const fakeGrbl = (ctx, {
     }
   };
   g.advance = () => {
-    if (ctx.now - g.lastPoll >= 500) {
+    // Lot C1 knob: `noGc` holds CNCjs's $G exchange back.
+    if (!g.noGc && ctx.now - g.lastPoll >= 500) {
       g.lastPoll = ctx.now;
       g.refresh();
       c.runner.emit('parserstate', { modal: { ...modal } });
@@ -1914,4 +1920,117 @@ describe('block probe: the LUNYEE options of the fake Grbl (PLAN-CORRECTIONS § 
     await none.failedCleanly('ETOUCH_PROBE_NO_CONTACT');
     expect(causes).toEqual([]);
   }, 60000);
+});
+
+// Lot C1 (design/plaque/C1-CONCEPTION.md § 2.5, § 4): the proofs of the block probe, on the fake
+// board of this file (its reports are raw lines read by the real parser, its $G exchange a report
+// then its ok). Judged on the lines sent (`g.sent`) and on the realtime bytes (`g.realtime`).
+describe('block probe, lot C1: the position carried by the report, the spindle proven stopped', () => {
+  const Z_ONLY = { axes: 'Z', wcs: 'G54', profile: PROFILE };
+  const FAST = 'G38.3 Z-20 F100';
+  const BACK = 'G53 G1 Z-117.565 F500';
+  // The cycle launched; resolves once `line` is over on the board, with `then` run at that moment.
+  const after = async (ctx, line, then) => {
+    let seen = false;
+    ctx.g.onComplete = (done) => {
+      if (done === line && !seen) {
+        seen = true;
+        then();
+      }
+    };
+    await ctx.launch(Z_ONLY);
+    await ctx.until(() => seen);
+  };
+  const moving = (line) => /^G38|^G53/.test(line);
+
+  test('T13: without coordinates in the reports, the confirmation is refused (the travel cannot be read from a position that is not reported), nothing sent', async () => {
+    const ctx = await setup();
+    ctx.g.omitPos = true;
+    await ctx.tick(200);
+    await expect(ctx.prepare(Z_ONLY)).rejects.toMatchObject({ code: 'ETOUCH_PROBE_TRAVEL_UNKNOWN' });
+    expect(ctx.g.sent).toEqual([]);
+  });
+
+  test('T13 (mutation M23): the coordinates disappear after the ok of the first G38.3: no line more, stopped through halt.js', async () => {
+    const ctx = await setup();
+    await after(ctx, FAST, () => {
+      ctx.g.omitPos = true;
+    });
+    const { err } = await ctx.finish();
+    expect(err.code).toBe('ETOUCH_PROBE_STALE');
+    expect(ctx.g.sent.filter(moving)).toEqual([FAST]);
+    expect(ctx.g.realtime[0]).toBe('!');
+    expect(ctx.c.commands.map((cmd) => cmd[0])).not.toContain('jogCancel');
+  });
+
+  test('T11 (mutation M12): no $G after the ok of a line: no next line, the cycle stops (spindle not proven stopped)', async () => {
+    const ctx = await setup();
+    await after(ctx, FAST, () => {
+      ctx.g.noGc = true;
+    });
+    await ctx.tick(2000);
+    expect([ctx.g.sent.filter(moving), ctx.outcome]).toEqual([[FAST], null]);
+    const { err } = await ctx.finish();
+    expect(err.code).toBe('ETOUCH_PROBE_SPINDLE');
+    expect(ctx.g.sent.filter(moving)).toEqual([FAST]);
+  });
+
+  test('T13b, variant (mutation M21): the machine found 0.02 mm away while the $G was waited for: the line computed before is not sent', async () => {
+    const ctx = await setup();
+    await after(ctx, FAST, () => {
+      ctx.g.noGc = true;
+    });
+    await ctx.tick(400);
+    expect(ctx.g.sent.filter(moving)).toEqual([FAST]);
+    ctx.g.m.x += 0.02;
+    await ctx.tick(200);
+    ctx.g.noGc = false;
+    const { err } = await ctx.finish();
+    expect(err.code).toBe('ETOUCH_PROBE_POSITION');
+    expect(ctx.g.sent.filter(moving)).toEqual([FAST]);
+  });
+
+  test('T13c transposed (mutation M22): after a move, a first Idle off the target then two that agree on it: the arrival is read at the proven rest, the cycle goes on', async () => {
+    const ctx = await setup();
+    await after(ctx, BACK, () => {
+      // The report that follows the ok says the target, the next one 0.5 mm off, then the target again.
+      ctx.g.zGlitch = [0, 0.5];
+    });
+    const { ok } = await ctx.finish();
+    expect(ok.blockProbe.state).toBe('done');
+    expect(ctx.g.sent.filter(moving)).toEqual([FAST, BACK, 'G38.3 Z-20.565 F25', 'G53 G1 Z-114.565 F500']);
+  });
+
+  test('T7s (mutation M16): FS: alone missing for 2.6 s during a G38.3: stopped (spindle), feed hold, no jog cancel; T10: a $G M3 during a line stops it too', async () => {
+    let ctx = await setup();
+    await ctx.launch(Z_ONLY);
+    await ctx.until(() => ctx.g.active === 'Run' && ctx.g.sent.includes(FAST));
+    ctx.g.omitFs = true;
+    await ctx.tick(2700);
+    let { err } = await ctx.finish();
+    expect(err.code).toBe('ETOUCH_PROBE_SPINDLE');
+    expect(ctx.g.realtime[0]).toBe('!');
+    expect(ctx.g.sent.filter(moving)).toEqual([FAST]);
+    ctx = await setup();
+    await ctx.launch(Z_ONLY);
+    await ctx.until(() => ctx.g.active === 'Run' && ctx.g.sent.includes(FAST));
+    ctx.g.modal.spindle = 'M3';
+    await ctx.tick(600);
+    ({ err } = await ctx.finish());
+    expect(err.code).toBe('ETOUCH_PROBE_SPINDLE');
+    expect(ctx.g.sent.filter(moving)).toEqual([FAST]);
+  });
+
+  test('T13g: no $G at all during the descents (held back while the board runs): no stop, the cycle goes to its end with the lines of before', async () => {
+    const ctx = await setup();
+    await ctx.launch(Z_ONLY);
+    for (let i = 0; i < 2000 && ctx.outcome === null; i += 1) {
+      ctx.g.noGc = ctx.g.active === 'Run';
+      // eslint-disable-next-line no-await-in-loop
+      await ctx.tick(50);
+    }
+    expect(ctx.outcome.ok.blockProbe.state).toBe('done');
+    expect(ctx.g.sent).toEqual(['$#', FAST, BACK, 'G38.3 Z-20.565 F25', 'G53 G1 Z-114.565 F500', 'G0', 'G10 L20 P1 Z10']);
+    expect(ctx.g.realtime).toEqual([]);
+  });
 });
