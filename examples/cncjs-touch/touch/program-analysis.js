@@ -28,7 +28,8 @@
       return { state: 'ok', depth: depth, result: fill('Il reste {n} mm de matière sous la fraise.', { n: fmt(low) }), note: note };
     }
     if (thickness === null) return { state: 'ask', depth: depth, result: t('Saisissez l’épaisseur du brut pour la comparer.'), note: note };
-    var over = tenth(-low - thickness);
+    // A file that stays above the zero does not enter the stock: the whole thickness is left.
+    var over = tenth(Math.max(0, -low) - thickness);
     if (over > 0) return { state: 'warn', depth: depth, result: fill('La fraise descend {n} mm sous le brut : elle touchera le martyr.', { n: fmt(over) }), note: note };
     if (over === 0) return { state: 'ok', depth: depth, result: t('La fraise arrive juste au fond du brut.'), note: note };
     return { state: 'ok', depth: depth, result: fill('Il reste {n} mm de matière sous la fraise.', { n: fmt(-over) }), note: note };
@@ -42,7 +43,7 @@
     var rows = list.filter(function (e) { return e && typeof e === 'object'; }).slice(0, MAX_ROWS).map(function (e) {
       var parts = [];
       if (number(e.number)) parts.push('T' + e.number);
-      if (typeof e.text === 'string' && e.text) parts.push(e.text.slice(0, MAX_TEXT));
+      if (typeof e.text === 'string' && e.text) parts.push(Array.from(e.text).slice(0, MAX_TEXT).join(''));
       if (number(e.line)) parts.push(fill('ligne {n}', { n: e.line }));
       else if (number(e.noteLine)) parts.push(fill('annoncée ligne {n}', { n: e.noteLine }));
       return parts.join(' · ');
@@ -112,7 +113,9 @@
   var memory = { getItem: function () { return null; }, setItem: function () {} };
   var saved = store((function () { try { return localStorage || memory; } catch (_) { return memory; } })(), STOCK_KEY);
   // Typed in this page but not stored (storage refused): kept for the session.
-  var session = {}, wanted = SPIN_DEFAULT;
+  // `read`: what the storage holds, per file, read once (again when the sheet opens or a value
+  // is kept): painting on every machine state must not read and parse the storage.
+  var session = {}, read = {}, wanted = SPIN_DEFAULT;
   try { wanted = threshold(Number(localStorage.getItem(SPIN_KEY))); } catch (_) { /* default */ }
 
   var filesOpen = document.createElement('button'); filesOpen.type = 'button'; filesOpen.id = 'files-analysis-open'; filesOpen.hidden = true; verdict.appendChild(filesOpen);
@@ -139,7 +142,7 @@
     if (from === 'files') return { file: selection.file || '', name: selection.name || selection.file || '', check: selection.file ? selection.check : null };
     return { file: m && m.name || '', name: m && (m.originalName || m.name) || '', check: m && m.name ? m.programCheck || null : null };
   }
-  function entryOf(file) { return session[file] || saved.get(file); }
+  function entryOf(file) { if (session[file]) return session[file]; if (!(file in read)) read[file] = saved.get(file); return read[file]; }
   function text(node, value) { if (node && node.textContent !== String(value)) node.textContent = String(value); }
   function tone(node, value) { if (node && node.getAttribute('data-tone') !== value) node.setAttribute('data-tone', value); }
   function mark(state) { return state === 'warn' ? '! ' : state === 'ok' ? '✓ ' : ''; }
@@ -178,9 +181,10 @@
     var file = subject(source).file; if (!file) return;
     var entry = entryOf(file) || { thickness: null, ref: 'top' }, next = { thickness: 'thickness' in patch ? patch.thickness : entry.thickness, ref: patch.ref || entry.ref };
     if (saved.set(file, next)) delete session[file]; else session[file] = next;
+    read = {};
     paint();
   }
-  function open(from) { source = from; paintKey = ''; paint(); sheet.open(); }
+  function open(from) { source = from; read = {}; paintKey = ''; paint(); sheet.open(); }
   filesOpen.addEventListener('click', function () { open('files'); });
   checkOpen.addEventListener('click', function () { open('check'); });
   $('pa-ref-top').addEventListener('click', function () { keep({ ref: 'top' }); });

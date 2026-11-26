@@ -144,10 +144,19 @@ const commentsOf = (line) => {
 const TOOL_NUMBERED = /^T\s*(\d{1,6})(?![\d.])\s*[:=-]?\s*(.*)$/i;
 const TOOL_WORD = /^(?:TOOL|OUTIL|WERKZEUG)\s*(?:(?:NUMBER|NO\.?|#)\s*)?(\d{1,6})?\s*[:=]\s*(.+)$/i;
 const TOOL_OTHER = /^(?:TOOL\/\w+\s*,|BEGIN OPERATION\s*:\s*TC\s*:)\s*(.+)$/i;
-const printable = (text) => text.split('').map((ch) => (ch.charCodeAt(0) < 32 || ch.charCodeAt(0) === 127 ? ' ' : ch)).join('');
+// Control characters become a space; the invisible characters that reorder or hide text
+// (bidirectional marks, zero-width, line separators) and half surrogate pairs are dropped.
+const INVISIBLE = /[\u061C\u200B-\u200F\u2028-\u202E\u2060-\u2069\uFEFF]|^[\uD800-\uDFFF]$/;
+const printable = (text) => Array.from(text).map((ch) => {
+  if (INVISIBLE.test(ch)) {
+    return '';
+  }
+  return ch.charCodeAt(0) < 32 || ch.charCodeAt(0) === 127 ? ' ' : ch;
+}).join('');
 const toolNote = (comment) => {
   const text = printable(comment.slice(0, 200)).trim();
-  const brief = (value) => value.replace(/\s+/g, ' ').trim().slice(0, MAX_TOOL_TEXT).trim();
+  // Cut by code points: never half a character.
+  const brief = (value) => Array.from(value.replace(/\s+/g, ' ').trim()).slice(0, MAX_TOOL_TEXT).join('').trim();
   let m = TOOL_NUMBERED.exec(text);
   if (m) {
     return { number: Number(m[1]), text: brief(m[2]) };
@@ -227,7 +236,9 @@ export const analyzeProgram = (gcode, timingContext) => {
     tools: { list: [], truncated: false, changes: 0, changeLine: null },
     // N1, display only: the spindle start in force at the first entry into the material, and
     // the time the duration model counts between the two (a lower bound when `atLeast`).
-    spinUp: { startLine: null, entryLine: null, seconds: null, dwell: 0, atLeast: false, feedInherited: false, supported: false }
+    // `opaque`: a line that was not read (expression, line the board reads otherwise) came
+    // before the entry; it may hold the spindle start.
+    spinUp: { startLine: null, entryLine: null, seconds: null, dwell: 0, atLeast: false, feedInherited: false, supported: false, opaque: false }
   };
   const pos = { X: null, Y: null, Z: null };
   // Modal state while walking (one object, so the per-line closures below
@@ -303,6 +314,7 @@ export const analyzeProgram = (gcode, timingContext) => {
     if (/^%/.test(code) || /[[\]#]/.test(code)) {
       a.timing.supported = false;
       a.unsafeOverride = true;
+      a.spinUp.opaque = a.spinUp.opaque || (timed && !st.entered);
       st.machineUnitsKnown = false;
       listed(lineNo, raw.trim().slice(0, 40), true);
       AXES.forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_MACRO', { line: lineNo }, 'Macro ou expression CNCjs à la ligne ' + lineNo + ' : contenu non prévisible.')));
@@ -313,6 +325,7 @@ export const analyzeProgram = (gcode, timingContext) => {
     if (/^\$/.test(code) || !sameWithoutSpaces(code)) {
       a.timing.supported = false;
       a.unsafeOverride = a.unsafeOverride || /^\$/.test(code);
+      a.spinUp.opaque = a.spinUp.opaque || (timed && !st.entered);
       st.machineUnitsKnown = false;
       listed(lineNo, raw.trim().slice(0, 40), true);
       AXES.forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_SYNTAX', { line: lineNo }, 'Ligne ' + lineNo + ' lue autrement par la carte (espace dans un nombre, ou commande $) : non interprétée.')));
@@ -739,8 +752,9 @@ const laserCheck = (analysis, laser) => {
 // material. `computed` carries the model's seconds (a lower bound when `atLeast`: the approach
 // from the start position is not counted), at rapids 100 % and feed at least 100 % whatever the
 // overrides at load; `unknown` whenever the duration model could not follow the program up to
-// there or the file starts the spindle without any S setpoint, never a guessed figure. No
-// verdict, no guard reads it.
+// there or the file starts the spindle without any S setpoint, never a guessed figure; and
+// `noStart` only when every line up to the entry was read (a line that was not may hold the
+// start). No verdict, no guard reads it.
 const spinUpOf = (analysis, modal) => {
   const s = analysis.spinUp;
   if (!s) {
@@ -751,7 +765,7 @@ const spinUpOf = (analysis, modal) => {
     return { state: 'noEntry', ...lines };
   }
   if (s.startLine === null) {
-    return { state: 'noStart', ...lines };
+    return { state: s.opaque ? 'unknown' : 'noStart', ...lines };
   }
   const followed = s.supported && Number.isFinite(s.seconds) && !analysis.relativeStart &&
     !(analysis.rawUnits && !(modal && modal.units === 'G21')) &&
