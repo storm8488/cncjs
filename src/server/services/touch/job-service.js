@@ -1810,7 +1810,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       settings: allSettings(c),
       mpos: status.mpos || {},
       wpos: status.wpos || {},
-      modal: parser ? { units: parser.units, distance: parser.distance, wcs: parser.wcs } : null,
+      modal: parser ? { units: parser.units, distance: parser.distance, wcs: parser.wcs, feedMode: parser.feedrate } : null,
       parameters,
       homed: r.homed === true,
       // The homing convention our own full cycle taught (C-04): an axis homed towards its

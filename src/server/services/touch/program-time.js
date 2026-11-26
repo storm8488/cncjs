@@ -106,6 +106,9 @@ export const createProgramTime = (context = {}) => {
       }
       checkpoint(line);
     },
+    // N1 (spindle spin-up, display only): the seconds summed so far, how many moves wait for the
+    // start position, and whether every line read so far was understood.
+    mark: () => ({ seconds, pending: timing.initial.length, supported: timing.supported }),
     finish: (line) => {
       checkpoint(line, true);
       if (!timing.supported || !Number.isFinite(seconds)) {
