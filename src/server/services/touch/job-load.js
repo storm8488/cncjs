@@ -186,7 +186,9 @@ export const createLoader = (deps) => {
     validName(body.file);
     const { text, fingerprint } = await readProgram(body.file);
     const r = record(c);
-    return { file: body.file, fingerprint, programCheck: checkProgram(analyzeProgram(text), machineForCheck(c, r)) };
+    // N1: with the display-only duration profile, so the spindle spin-up time is known before loading.
+    const analysis = analyzeProgram(text, deps.timingContext && deps.timingContext(c));
+    return { file: body.file, fingerprint, programCheck: checkProgram(analysis, machineForCheck(c, r)) };
   };
 
   const load = async (c, r, body, actor) => {

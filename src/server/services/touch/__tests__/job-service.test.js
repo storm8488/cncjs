@@ -157,6 +157,42 @@ describe('program progress without a preview sidecar', () => {
     expect(ctx.state().jobProgress.percent).toBeCloseTo(100 / seconds);
   });
 
+  test('N1: the check of a library file and the loaded program carry the tools and the spindle spin-up time, and send nothing', async () => {
+    const ctx = setup();
+    ctx.c.settings.settings.$13 = 0;
+    ctx.c.state.status = { activeState: 'Idle', wpos: { x: 20, y: 0, z: 2 }, mpos: { x: 20, y: 0, z: 2 }, ov: [100, 100, 100] };
+    ctx.c.state.parserstate = { modal: { wcs: 'G54', feedrate: 'G94' } };
+    ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
+    ctx.c.runner.emit('status', { wpos: ctx.c.state.status.wpos });
+    // resume.nc starts its spindle (line 2) before its first moves: a lower bound, the plunge is line 5.
+    const spinUp = { state: 'computed', seconds: 0, dwell: 0, atLeast: true, startLine: 2, entryLine: 5 };
+    const tools = { list: [], truncated: false, changes: 0, changeLine: null };
+    const checked = await ctx.req('check', { file: 'resume.nc' });
+    expect(checked.programCheck).toMatchObject({ spinUp, tools });
+    expect(ctx.c.commands).toEqual([]);
+    await ctx.req('load', { file: 'resume.nc' });
+    expect(ctx.state().programCheck).toMatchObject({ spinUp, tools });
+    expect(ctx.state().programCheck.verdict).toBe(checked.programCheck.verdict);
+    expect(ctx.c.commands.map(([name]) => name)).toEqual(['gcode:load']);
+  });
+
+  test('N1: a feed move before the plunge is timed only while the machine is known in G94', async () => {
+    const text = ['G21 G90', 'G0 X0 Y0 Z5', 'M3 S1000', 'G1 X60 F600', 'G1 Z-1 F100'].join('\n');
+    const fingerprint = sha256(text);
+    const ctx = setup({ files: { readProgram: () => Promise.resolve({ text, fingerprint }), fingerprintOf: () => Promise.resolve({ fingerprint }) } });
+    ctx.c.settings.settings.$13 = 0;
+    ctx.c.state.status = { activeState: 'Idle', wpos: { x: 0, y: 0, z: 0 }, mpos: { x: 0, y: 0, z: 0 }, ov: [100, 100, 100] };
+    const modal = (feedrate) => {
+      ctx.c.state.parserstate = { modal: { units: 'G21', distance: 'G90', wcs: 'G54', feedrate } };
+      ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
+      ctx.c.runner.emit('status', { wpos: ctx.c.state.status.wpos });
+    };
+    modal('G94');
+    expect((await ctx.req('check', { file: 'feed.nc' })).programCheck.spinUp).toEqual({ state: 'computed', seconds: 6, dwell: 0, atLeast: false, startLine: 3, entryLine: 5 });
+    modal('G93');
+    expect((await ctx.req('check', { file: 'feed.nc' })).programCheck.spinUp).toEqual({ state: 'unknown', startLine: 3, entryLine: 5 });
+  });
+
   test.each([100, 50])('P5: a large loaded program exposes time progress at %i%% feed without changing travel or start commands', async (feed) => {
     const text = 'G21 G90 G94 F600\nG1 X0 Y0 Z0\n' + 'G1 X1 Y1 Z-1\nG1 X0 Y0 Z0\n'.repeat(11000);
     const fingerprint = sha256(text);

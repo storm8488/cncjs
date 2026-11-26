@@ -74,7 +74,12 @@
       fileCheck=data&&data.programCheck||null;fileError=fileCheck?null:new Error(t('Contrôle indisponible.'));checking=false;paintFiles();
     },function(e){if(own!==serial||fileKey()!==key||ended)return;fileError=e;checking=false;paintFiles();});
   }
+  // N1: the check of the chosen file, told to the file analysis (program-analysis.js) when it changes.
+  var announced=null;
+  function selection(){return {file:selected&&selected.file||'',name:selected&&selected.name||'',check:fileCheck};}
+  function announce(){var s=selection();if(announced&&announced.file===s.file&&announced.check===s.check)return;announced=s;window.dispatchEvent(new CustomEvent('cnc-file-check',{detail:s}));}
   function paintFiles(){
+    announce();
     if(!isActive('files'))return;
     var m=machine(),preview=$('library-image').cncPreview,check=fileCheck;
     if(preview&&(!selected||preview.file!==selected.file))preview=null;
@@ -194,7 +199,7 @@
   document.addEventListener('visibilitychange',function(){paint();syncPlacement();});
   $('library-image').addEventListener('load',paintFiles);
   window.addEventListener('pagehide',function(){ended=true;serial++;unmount();});
-  window.cncCheckScreen={project:project,retry:requestCheck,overrideChanged:function(){text('check-override-feedback',t('Le contrôle a changé. Recommencez.'));}};
+  window.cncCheckScreen={project:project,retry:requestCheck,selection:selection,overrideChanged:function(){text('check-override-feedback',t('Le contrôle a changé. Recommencez.'));}};
   if(window.cncDashboardView&&window.cncDashboardView.rapidRow)window.cncDashboardView.rapidRow($('check-rapids'),'check');
   if(window.cncSeance)window.cncSeance.render();paint();
 })();
