@@ -751,9 +751,9 @@ window.CNCTouchMessages=(window.CNCTouchMessages||[]).concat([
   'use strict';
   var data=window.CNCTouchRefus;
   var families=[
-    ["position-non-confirmee","La machine n’a pas encore confirmé sa position. Attendez un instant ; si cela dure, vérifiez le câble.","The machine has not confirmed its position yet. Wait a moment; if it lasts, check the cable.","La máquina aún no ha confirmado su posición. Espere un momento; si persiste, compruebe el cable.","details"],
+    ["position-non-confirmee","La machine n’a pas encore confirmé sa position. Attendez un instant.","The machine has not confirmed its position yet. Wait a moment.","La máquina aún no ha confirmado su posición. Espere un momento.","details"],
     ["broche-commandee","La broche est commandée : arrêtez-la d’abord.","The spindle is commanded on: stop it first.","El husillo está activado: párelo primero.","arreter-broche"],
-    ["broche-inconnue","La machine ne dit pas si la broche est arrêtée. Attendez un instant, ou arrêtez la broche.","The machine does not say whether the spindle has stopped. Wait a moment, or stop the spindle.","La máquina no indica si el husillo está parado. Espere un momento o pare el husillo.","arreter-broche"]
+    ["broche-inconnue","La machine ne dit pas si la broche est arrêtée. Attendez, ou arrêtez la broche.","The machine does not say whether the spindle has stopped. Wait, or stop the spindle.","La máquina no indica si el husillo está parado. Espere o pare el husillo.","arreter-broche"]
   ];
   Array.prototype.push.apply(data.familles,families);
   var codes={
