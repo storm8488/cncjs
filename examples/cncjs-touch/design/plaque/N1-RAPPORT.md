@@ -64,8 +64,8 @@ de simulation n'est pas modifiée.
 | Où calculer | Le serveur étend `program-check.js` (fraises, temps de broche, profondeur déjà connue) ; la page compare à l'épaisseur et au temps voulu. | L'épaisseur et le seuil sont des données d'affichage de la tablette : aucune nouvelle requête, aucun réglage serveur. |
 | Place à l'écran | Un bouton par écran et un volet, pas de nouvelle ligne. | À 1366 × 768 la carte « Verdict » de 4 · Contrôle n'avait que 34 px de libre : une phrase de plus poussait « Détails du contrôle » hors de la carte (vu au navigateur). Les phrases sont dans le volet et dans le nom accessible du bouton. |
 | « Première entrée dans la matière » | Le premier mouvement qui finit sous le zéro Z, **ou** le premier mouvement d'usinage (G1/G2/G3) qui descend, ou dont la hauteur n'est pas connue. Le temps est compté jusqu'au **début** de ce mouvement. | Couvre les deux lectures du zéro Z (dessus du brut, martyr). On prend le plus tôt : le temps affiché n'est jamais trop long. |
-| Démarrage de la broche | Le dernier `M3` / `M4` en vigueur à l'entrée (un `M5` avant l'entrée annule le précédent). | « Premier M3 » serait faux pour un fichier qui démarre, arrête, redémarre. |
-| Modèle de durée | Celui de P5 (`program-time.js`), avec les corrections de vitesse lues au chargement. Il ignore les accélérations : le temps réel est un peu plus long. | Erreur du côté prudent (on avertit plutôt trop). |
+| Démarrage de la broche | Le dernier `M3` / `M4` **ou le dernier changement de consigne `S`** en vigueur à l'entrée, le plus tardif des deux (un `M5` avant l'entrée annule tout). Consigne `S0` à l'entrée : « ne démarre pas la broche ». `M3` sans aucun `S` dans le fichier : « non calculé » (la consigne est celle de la machine). | La broche ne tourne à son régime qu'à partir de sa dernière consigne : compter depuis un `M3` sans vitesse, ou depuis un démarrage lent, donnait un « ✓ » faux (constat de relecture). |
+| Modèle de durée | Celui de P5 (`program-time.js`), dans un cumul à part : **rapides à 100 %, avance à 100 %** (ou à la valeur lue au chargement si elle dépasse 100 %), quelles que soient les corrections lues au chargement. Il ignore les accélérations : le temps réel est un peu plus long. | L'opérateur peut remettre les rapides à 100 % sur 4 · Contrôle après le chargement : le temps affiché ne doit pas dépendre d'un ralentissement qui peut disparaître. La durée du programme (P5), elle, suit toujours les corrections réelles. |
 | Fichier non suivi jusqu'à l'entrée (`M6`, `M0`, `G53`, palpage, macro, mode inverse du temps, unités ou mode laissés à une machine inconnue, vitesses maximales non lues) | « non calculé ». | Exigence du lot : jamais « correct » sans calcul. |
 | Seuil | Dans le volet lui-même (« Temps voulu »), pas dans Réglages. | Un seul endroit à apprendre, aucun fichier partagé de plus. |
 | Descente sans broche | Avertissement. | Sur cette machine la broche est commandée par le fichier ; une descente sans `M3` casse une fraise. Avec une broche à interrupteur, le texte dit quoi faire. |
@@ -95,11 +95,13 @@ des post-processeurs, sans fichier réel sous la main.
 
 ## Tests
 
-- `program-analysis.test.js`, 26 cas : formes de commentaires, mots `T` et `M6` lus dans
+- `program-analysis.test.js`, 28 cas : formes de commentaires, mots `T` et `M6` lus dans
   le code seulement, commentaires voisins qui ne sont pas des fraises, texte gardé tel
   quel sans caractère de contrôle et borné, ligne de 6 Mo non parcourue, **500 000 lignes
   nommant chacune une fraise** (liste de 8, moins de 2 Ko) ; temps de broche (départ type
-  Vectric, temporisation, `M4`, arrêt puis redémarrage, toutes les formes d'entrée,
+  Vectric, **corrections au chargement sans effet sur le temps** (rapides 25 %, avance
+  50 % et 150 %), **consigne `S` après le `M3`, `M3 S0`, démarrage lent puis régime,
+  `S0`, `M3` sans `S`**, temporisation, `M4`, arrêt puis redémarrage, toutes les formes d'entrée,
   borne basse Fusion 360, pas de démarrage, pas d'entrée, onze cas « non calculé »,
   mode d'avance hérité, laser) ; aucun effet sur le verdict, les raisons, `blocking` ni
   la durée.
@@ -119,9 +121,14 @@ Lancées depuis l'arbre `cncjs-wt/N1` le 26 novembre, après le dernier changeme
 | Vérification | Résultat |
 |---|---|
 | `node examples/cncjs-touch/verify-project.cjs` | « 232/232 contrôles réussis. Aucun essai matériel. », sortie 0 (dont `test-program-analysis.cjs`). |
-| `npx jest src/server/services/touch src/server/services/cncengine src/server/api grbl-simulator --coverage=false` | 58 suites réussies sur 58, 1 806 tests réussis sur 1 806, sortie 0. |
+| `npx jest src/server/services/touch src/server/services/cncengine src/server/api grbl-simulator --coverage=false` | 58 suites réussies sur 58, 1 808 tests réussis sur 1 808, sortie 0 (relancé après la correction de relecture). |
 | ESLint sur les fichiers serveur touchés et leurs tests | Aucune erreur, aucun avertissement. Les fichiers de la page (`touch/*.js`, `test-*.cjs`) passés à ESLint ne donnent rien non plus. |
 | `node examples/cncjs-touch/browser-run.cjs --strict --only responsive,sim,screens,small` (deux passes) | Sortie 1 avec **cinq défauts, tous dans `HARNAIS-CONNU.md`** : les deux « comparison squeezed into a side column » (bibliothèque 1920 × 1080 v2), « screens: timeout: library not followed », et les deux mots coupés de Suivi en alarme à 1366 × 768 (« Reprendre », « Reanudar »). Aucun autre défaut. |
+
+Après la correction de relecture (temps de broche : corrections de vitesse et consigne
+`S`, serveur seul) : `verify-project`, Jest et ESLint relancés (résultats ci-dessus) ; le
+harnais navigateur et la mesure de temps d'analyse ci-dessous **n'ont pas été relancés**
+(la page n'est pas modifiée ; le second cumul ne tourne que jusqu'à la première descente).
 
 Étapes du harnais non lancées : `measure`, `settings`, `startup`, `e2e`, `strip`, `v2`, `rail`
 (le lot ne touche ni Suivi, ni les réglages, ni le démarrage ; la v2 Performance n'a pas été
@@ -153,8 +160,16 @@ le temps.
   « non calculé » : c'est le cas de beaucoup de post-processeurs autres que Grbl.
 - Broche démarrée avant le premier déplacement : borne basse seulement (le trajet
   d'approche n'est pas compté).
-- Le temps affiché est celui des corrections de vitesse lues au chargement. Changer les
-  rapides sur 4 · Contrôle ne le recalcule pas avant un rechargement.
+- Le temps affiché est calculé à rapides 100 % et avance 100 % (ou plus si l'avance lue
+  au chargement dépasse 100 %). Avec des rapides ralentis, le temps réel est plus long que
+  l'affiché. Seul cas où il serait plus court : l'opérateur monte l'avance au-dessus de
+  100 % **après** le chargement et le fichier fait un mouvement d'usinage à plat entre le
+  démarrage de la broche et la descente (rare ; les rapides ne sont pas concernés).
+- Une consigne `S` qui change après le démarrage (même à la baisse) fait repartir le
+  compte ; un `M3` répété aussi. Le temps affiché peut donc être plus court que le vrai,
+  jamais plus long pour cette raison.
+- `M3` sans aucun `S` dans le fichier (broche à relais, vitesse au variateur) : « non
+  calculé », alors que la broche démarre bien au `M3` sur une telle machine.
 - La comparaison au brut repose sur l'hypothèse choisie par l'opérateur. La page ne sait
   pas où est le vrai dessus de la pièce.
 - Un fichier où `Z` n'est pas suivi (palpage, changement de zéro) : « Profondeur non

@@ -96,8 +96,40 @@ describe('N1 spindle spin-up time before the first entry into the material', () 
   test('spindle started after the tool is placed: the time of what lies between, in the model of the duration', () => {
     // One rapid: Z 15 mm at 800 mm/min (the slowest axis decides), 1.125 s.
     expect(check(VECTRIC).spinUp).toEqual({ state: 'computed', seconds: 1.125, dwell: 0, atLeast: false, startLine: 7, entryLine: 9 });
-    // Rapids at 25 %: four times longer.
-    expect(check(VECTRIC, {}, profile({ overrides: { feed: 100, rapid: 25 } })).spinUp).toMatchObject({ state: 'computed', seconds: 4.5 });
+  });
+
+  test('the overrides at load never lengthen the time: the operator may put them back before the start', () => {
+    // Rapids at 25 % at load and 100 % at the start: the spindle only has the time at 100 %.
+    expect(check(VECTRIC, {}, profile({ overrides: { feed: 100, rapid: 25 } })).spinUp).toEqual(check(VECTRIC).spinUp);
+    // A feed move before the plunge: 60 mm at F600 is 6 s, never 12 s at a feed of 50 %.
+    const level = ['G21 G90 G94', 'G0 X0 Y0 Z5', 'M3 S1000', 'G1 X60 F600', 'G1 Z-1 F100'].join('\n');
+    expect(check(level, {}, profile({ overrides: { feed: 50, rapid: 25 } })).spinUp).toMatchObject({ state: 'computed', seconds: 6 });
+    // A feed above 100 % at load is kept: it shortens the time.
+    expect(check(level, {}, profile({ overrides: { feed: 150, rapid: 100 } })).spinUp).toMatchObject({ state: 'computed', seconds: 4 });
+    // The duration of the program itself still follows the overrides at load.
+    const context = { ...profile({ overrides: { feed: 50, rapid: 25 } }), wpos: { x: 0, y: 0, z: 5 }, reportUnits: 'mm', offsetProven: true, wcs: 'G54', feedMode: 'G94', tlo: 0 };
+    const full = { ...context, overrides: { feed: 100, rapid: 100 } };
+    expect(durationOf(analyzeProgram(level, context), context)).toBeCloseTo(2 * durationOf(analyzeProgram(level, full), full));
+  });
+
+  test('the spindle turns at its setpoint from the last S or M3/M4, not from a first M3 without speed', () => {
+    // M3 alone, the setpoint comes just before the plunge: no time at all.
+    expect(check('M3\nG0 X200 Y100\nG0 Z5\nS18000\nG1 Z-1').spinUp).toEqual({ state: 'computed', seconds: 0, dwell: 0, atLeast: false, startLine: 4, entryLine: 5 });
+    // M3 S0 then a dwell: the dwell is not a spin-up time.
+    expect(check('M3 S0\nG4 P5\nS18000\nG1 Z-1').spinUp).toEqual({ state: 'computed', seconds: 0, dwell: 0, atLeast: false, startLine: 3, entryLine: 4 });
+    // A slow start, then the working speed: counted from the working speed.
+    expect(check('M3 S1000\nG4 P5\nM3 S24000\nG1 Z-1').spinUp).toEqual({ state: 'computed', seconds: 0, dwell: 0, atLeast: false, startLine: 3, entryLine: 4 });
+    // The same, with a dwell after the last setpoint: only that one counts.
+    expect(check('M3 S1000\nG4 P5\nS24000\nG4 P2\nG1 Z-1').spinUp).toEqual({ state: 'computed', seconds: 2, dwell: 2, atLeast: false, startLine: 3, entryLine: 5 });
+    // The same S repeated changes nothing; a setpoint given before the M3 counts from the M3.
+    expect(check('S18000\nG4 P4\nM3\nG4 P3\nS18000\nG1 Z-1').spinUp).toEqual({ state: 'computed', seconds: 3, dwell: 3, atLeast: false, startLine: 3, entryLine: 6 });
+    // Still at S0 at the plunge, or put back to S0: the file does not start the spindle.
+    expect(check('M3 S0\nG4 P5\nG1 Z-1').spinUp).toEqual({ state: 'noStart', startLine: null, entryLine: 3 });
+    expect(check('M3 S18000\nG4 P5\nS0\nG1 Z-1').spinUp).toEqual({ state: 'noStart', startLine: null, entryLine: 4 });
+    // M3 without any S in the file: the setpoint is the machine's, never a figure.
+    expect(check('M3\nG4 P5\nG1 Z-1').spinUp).toEqual({ state: 'unknown', startLine: 1, entryLine: 3 });
+    // An S word after a stop, without a new M3/M4, starts nothing.
+    expect(check('M3 S18000\nM5\nS12000\nG1 Z-1').spinUp).toEqual({ state: 'noStart', startLine: null, entryLine: 4 });
   });
 
   test('a dwell after the start is counted, on its own line or on the line of the start', () => {

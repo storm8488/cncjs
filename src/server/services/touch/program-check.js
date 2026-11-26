@@ -188,6 +188,10 @@ const rebuildTiming = (source) => (context) => analyzeProgram(source, context).t
 // comparison converts when the machine's modal state is known.
 export const analyzeProgram = (gcode, timingContext) => {
   const time = createProgramTime(timingContext);
+  // N1: the spin-up time is summed apart, at the overrides that leave the spindle the least
+  // time (rapids 100 %, feed at least 100 %): the operator may change them after the load.
+  const loadFeed = Number(timingContext && timingContext.overrides && timingContext.overrides.feed);
+  const spin = createProgramTime({ settings: timingContext && timingContext.settings, overrides: { feed: loadFeed > 100 ? loadFeed : 100, rapid: 100 } });
   const a = {
     lines: 0,
     moves: 0,
@@ -238,8 +242,11 @@ export const analyzeProgram = (gcode, timingContext) => {
     plane: 'G17',
     arcMode: 'G91.1',
     moved: false,
-    // N1: the duration mark at the spindle start, until the first entry into the material.
+    // N1: the duration mark at the spindle start, until the first entry into the material;
+    // M3/M4 in force, and the last S setpoint the file gave (null: none yet).
     spinMark: null,
+    spinning: false,
+    speed: null,
     entered: false
   };
   let timingFeed = null;
@@ -334,15 +341,28 @@ export const analyzeProgram = (gcode, timingContext) => {
         timingMode = 'G94';
       }
       // N1: Grbl starts the spindle before the dwell and the motion of the same line. A stop
-      // before the first entry cancels the start: the next one counts.
+      // before the first entry cancels the start: the next one counts. The spindle only turns
+      // at its setpoint from the last M3/M4 or the last change of S, whichever comes last:
+      // the time is counted from there. S0: not started (no start line); no S in the file
+      // yet: the setpoint is the machine's, no time is counted (start line kept, no mark).
       if (!st.entered) {
+        const setpoint = at('S');
+        const changed = setpoint !== null && setpoint !== st.speed;
+        const started = m.includes(3) || m.includes(4);
+        if (setpoint !== null) {
+          st.speed = setpoint;
+        }
         if (m.includes(5)) {
+          st.spinning = false;
           st.spinMark = null;
           a.spinUp.startLine = null;
         }
-        if ((m.includes(3) || m.includes(4)) && st.spinMark === null) {
-          st.spinMark = time.mark();
-          a.spinUp.startLine = lineNo;
+        if (started) {
+          st.spinning = true;
+        }
+        if (st.spinning && (started || changed)) {
+          st.spinMark = st.speed > 0 ? spin.mark() : null;
+          a.spinUp.startLine = st.speed === 0 ? null : lineNo;
           a.spinUp.dwell = 0;
           a.spinUp.feedInherited = false;
         }
@@ -353,8 +373,11 @@ export const analyzeProgram = (gcode, timingContext) => {
           a.timing.supported = false;
         } else {
           time.dwell(seconds, lineNo);
-          if (st.spinMark && !st.entered) {
-            a.spinUp.dwell += seconds;
+          if (!st.entered) {
+            spin.dwell(seconds, lineNo);
+            if (st.spinMark) {
+              a.spinUp.dwell += seconds;
+            }
           }
         }
       }
@@ -622,10 +645,11 @@ export const analyzeProgram = (gcode, timingContext) => {
         st.entered = true;
         a.spinUp.entryLine = lineNo;
         if (st.spinMark) {
-          const now = time.mark();
+          const now = spin.mark();
           a.spinUp.seconds = now.seconds - st.spinMark.seconds;
           a.spinUp.atLeast = now.pending > st.spinMark.pending;
-          a.spinUp.supported = now.supported;
+          // Every line understood (the duration model's own flag) and every move timed.
+          a.spinUp.supported = now.supported && time.mark().supported;
         }
       } else if (st.spinMark && feedMove && timingMode === null) {
         a.spinUp.feedInherited = true;
@@ -635,7 +659,12 @@ export const analyzeProgram = (gcode, timingContext) => {
       if (arc && arcLength === null) {
         a.timing.supported = false;
       } else {
-        time.move({ start, end: { ...pos }, rapid: st.motion === 'G0', feed: timingFeed, mode: timingMode, arcLength }, lineNo);
+        const move = { start, end: { ...pos }, rapid: st.motion === 'G0', feed: timingFeed, mode: timingMode, arcLength };
+        time.move(move, lineNo);
+        // The entry move itself is not counted (st.entered is already set for it).
+        if (!st.entered) {
+          spin.move(move, lineNo);
+        }
       }
     }
     AXES.forEach((axis) => {
@@ -708,8 +737,10 @@ const laserCheck = (analysis, laser) => {
 
 // N1, display only: the time the spindle has between its start and the first entry into the
 // material. `computed` carries the model's seconds (a lower bound when `atLeast`: the approach
-// from the start position is not counted); `unknown` whenever the duration model could not
-// follow the program up to there, never a guessed figure. No verdict, no guard reads it.
+// from the start position is not counted), at rapids 100 % and feed at least 100 % whatever the
+// overrides at load; `unknown` whenever the duration model could not follow the program up to
+// there or the file starts the spindle without any S setpoint, never a guessed figure. No
+// verdict, no guard reads it.
 const spinUpOf = (analysis, modal) => {
   const s = analysis.spinUp;
   if (!s) {
