@@ -89,3 +89,20 @@
  .check-result-card{order:0}.check-side-card{order:1}.check-top-card{order:2}
  .check-drawing{height:330px;flex:auto}
 }
+/* N1: file analysis (depth against the stock, tools named by the file, spindle spin-up). Display only. */
+#files-analysis-open,#check-analysis-open{min-height:48px}
+#files-analysis-open[data-tone="warn"],#check-analysis-open[data-tone="warn"]{border-color:var(--warn);color:var(--warn-text)}
+.check-actions{display:flex;flex-wrap:wrap;gap:12px}
+.check-actions>button{flex:1 1 150px;padding:8px 6px;font-size:16px}
+#ks-program-analysis .ks-sheet-content{display:flex;flex-direction:column;gap:12px;font-size:16px}
+#ks-program-analysis p{margin:0}
+#pa-file{font-size:18px;overflow-wrap:anywhere}
+.pa-block{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line);padding-top:12px}
+.pa-block h3{font-size:18px;font-weight:700;margin:0}
+#ks-program-analysis .pa-block [data-tone="warn"]{color:var(--warn-text);font-weight:700}
+#ks-program-analysis .pa-block [data-tone="ok"]{color:var(--ok-text)}
+#ks-program-analysis .pa-note{color:var(--mute)}
+.pa-row{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+.pa-row input{width:140px;min-height:48px;padding:0 12px;font:inherit;font-size:20px;color:var(--fg);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:7px}
+#ks-program-analysis .pa-ref button{font-size:16px;padding:8px}
+#ks-program-analysis .pa-ref button[aria-pressed="true"]{background:var(--accent);color:var(--bg)}
