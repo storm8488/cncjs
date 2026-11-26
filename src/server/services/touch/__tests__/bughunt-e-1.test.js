@@ -25,6 +25,7 @@ import { fingerprint as sha256 } from '../program-identity';
 import { signatureOf } from '../machine-profile';
 import { expectCatalogMatch } from './touch-codes-catalog';
 import { provenOffset } from './support/proven-offset';
+import { lineBench } from './support/line-bench';
 
 describe('E-1 : $23 et le contrôle de course serveur', () => {
   test('Grbl 1.1 standard, bit X de $23 à 1, MPos X=-350 après $H : un programme X 0→60 (machine -350→-290) n’est pas hors course', () => {
@@ -105,7 +106,7 @@ const fakeController = () => {
       args[3](null);
     }
   };
-  return c;
+  return lineBench(c);
 };
 
 const services = [];
@@ -141,6 +142,10 @@ describe('E-1 (suite) : cadrage laser refusé à tort sur une machine $23=3 (Grb
     report();
     ctx.c.state.status.activeState = 'Idle';
     report();
+    // Lot C1: a second report at rest, and CNCjs's own $G exchange (the modal report, spindle off, then its ok).
+    report();
+    ctx.c.runner.emit('parserstate', { modal: { motion: 'G0', wcs: 'G54', plane: 'G17', units: 'G21', distance: 'G90', feedrate: 'G94', spindle: 'M5', coolant: 'M9' } });
+    ctx.c.runner.emit('ok');
     const req = (action, extra = {}) => service.action({ port: 'TEST', generation, transportId: 'tA', action, ...extra }, A);
     await req('load', { file: 'passes.nc' });
     const state = service.list()[0];

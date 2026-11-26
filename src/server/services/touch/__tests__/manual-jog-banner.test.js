@@ -8,11 +8,18 @@
 // EXPECTED was recorded by running this very file on the sources of db584555 (touch/index.js,
 // job-service.js, machine-profile.js, motion.js of that commit; RECORD=<file> writes the table).
 // Fake controller only: nothing here touches a serial port.
+//
+// Lot C1 (design/plaque/C1-CONCEPTION.md): the reports of this bench are real status lines read by
+// CNCjs's parser (support/line-bench.js). The bytes written (lines, cancels, refusals) are those of
+// db584555, unchanged. In 42 entries of the tables the instant at which `canJog` (K) comes back
+// after a move is one report (50 ms) later: a move now starts from two agreeing Idle reports that
+// carry the position, where one report after the line's end was enough.
 import fs from 'fs';
 import { EventEmitter } from 'events';
 import { createService } from '../job-service';
 import { createControl } from '../control';
 import { provenOffset } from './support/proven-offset';
+import { lineBench } from './support/line-bench';
 
 const fakeController = () => {
   const c = {
@@ -49,7 +56,7 @@ const fakeController = () => {
       c.written.push('0x85');
     }
   };
-  return c;
+  return lineBench(c);
 };
 
 const A = { kind: 'touch', id: 'tablet-A', label: 'Tablette A', user: 'op' };
@@ -100,6 +107,10 @@ const scenario = async (what, context, event) => {
   report();
   ctx.c.state.status.activeState = 'Idle';
   report();
+  // Lot C1: a second report at rest, and CNCjs's $G exchange (spindle off, M5, then its ok).
+  report();
+  ctx.c.runner.emit('parserstate', { modal: { motion: 'G0', plane: 'G17', units: 'G21', distance: 'G90', feedrate: 'G94', spindle: 'M5', coolant: 'M9' } });
+  ctx.c.runner.emit('ok');
   const t0 = ctx.now;
   const cancels = [];
   const lines = [];
@@ -289,25 +300,25 @@ const EXPECTED = {
     refused: '',
     lines: ['$J=G91 G21 X10 F100'],
     cancels: [],
-    snaps: ['0: -', '8650:K -', '11600:disposed']
+    snaps: ['0: -', '8700:K -', '11600:disposed']
   },
   'step / banner / stream-closed': {
     refused: '',
     lines: ['$J=G91 G21 X10 F100'],
     cancels: [650, 40, 8450],
-    snaps: ['0: -', '650:C cancelled/transport/', '5700:CU cancelled/transport/U', '8650:K cancelled/transport/U', '11600:disposed']
+    snaps: ['0: -', '650:C cancelled/transport/', '5700:CU cancelled/transport/U', '8650: cancelled/transport/U', '8700:K cancelled/transport/U', '11600:disposed']
   },
   'step / banner / stream-rotated': {
     refused: '',
     lines: ['$J=G91 G21 X10 F100'],
     cancels: [650, 40, 8450],
-    snaps: ['0: -', '650:C cancelled/transport/', '5700:CU cancelled/transport/U', '8650:K cancelled/transport/U', '11600:disposed']
+    snaps: ['0: -', '650:C cancelled/transport/', '5700:CU cancelled/transport/U', '8650: cancelled/transport/U', '8700:K cancelled/transport/U', '11600:disposed']
   },
   'step / banner / lease-taken': {
     refused: '',
     lines: ['$J=G91 G21 X10 F100'],
     cancels: [650, 40, 8450],
-    snaps: ['0: -', '650:C cancelled/control/', '5700:CU cancelled/control/U', '8650:K cancelled/control/U', '11600:disposed']
+    snaps: ['0: -', '650:C cancelled/control/', '5700:CU cancelled/control/U', '8650: cancelled/control/U', '8700:K cancelled/control/U', '11600:disposed']
   },
   'step / banner / lease-released': {
     refused: '',
@@ -319,25 +330,25 @@ const EXPECTED = {
     refused: '',
     lines: ['$J=G91 G21 X10 F100'],
     cancels: [3150, 41, 11450],
-    snaps: ['0: -', '3150:C cancelled/stale/', '8200:CU cancelled/stale/U', '11650:K cancelled/stale/U', '14600:disposed']
+    snaps: ['0: -', '3150:C cancelled/stale/', '8200:CU cancelled/stale/U', '11650: cancelled/stale/U', '11700:K cancelled/stale/U', '14600:disposed']
   },
   'step / banner / jog-stop': {
     refused: '',
     lines: ['$J=G91 G21 X10 F100'],
     cancels: [600, 41, 8600],
-    snaps: ['0: -', '600:C cancelled/operator/', '5650:CU cancelled/operator/U', '8650:K cancelled/operator/U', '11600:disposed']
+    snaps: ['0: -', '600:C cancelled/operator/', '5650:CU cancelled/operator/U', '8650: cancelled/operator/U', '8700:K cancelled/operator/U', '11600:disposed']
   },
   'step / banner / stop-button': {
     refused: '',
     lines: ['$J=G91 G21 X10 F100'],
     cancels: [600, 41, 8600],
-    snaps: ['0: -', '600:C cancelled/stop/', '5650:CU cancelled/stop/U', '8650:K cancelled/stop/U', '11600:disposed']
+    snaps: ['0: -', '600:C cancelled/stop/', '5650:CU cancelled/stop/U', '8650: cancelled/stop/U', '8700:K cancelled/stop/U', '11600:disposed']
   },
   'step / banner / socket-stop': {
     refused: '',
     lines: ['$J=G91 G21 X10 F100'],
     cancels: [],
-    snaps: ['0: -', '8650:K -', '11600:disposed']
+    snaps: ['0: -', '8700:K -', '11600:disposed']
   },
   'step / banner / dispose': {
     refused: '',
@@ -349,7 +360,7 @@ const EXPECTED = {
     refused: '',
     lines: ['$J=G91 G21 X10 F100'],
     cancels: [],
-    snaps: ['0: -', '8650:K -', '11600:disposed']
+    snaps: ['0: -', '8700:K -', '11600:disposed']
   },
   'step / banner / disabled': {
     refused: '',
@@ -421,7 +432,7 @@ const EXPECTED = {
     refused: '',
     lines: ['$J=G91 G21 X10 F100'],
     cancels: [],
-    snaps: ['0: -', '400:K -', '600: -', '8650:K -', '11600:disposed']
+    snaps: ['0: -', '400:K -', '600: -', '8700:K -', '11600:disposed']
   },
   'step / banner-idle / disabled': {
     refused: '',
@@ -433,25 +444,25 @@ const EXPECTED = {
     refused: '',
     lines: ['$J=G91 G21 X10 F100'],
     cancels: [300, 42, 8500],
-    snaps: ['0: -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '8650:K cancelled/operator/U', '11600:disposed']
+    snaps: ['0: -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '8650: cancelled/operator/U', '8700:K cancelled/operator/U', '11600:disposed']
   },
   'step / cancel-then-banner / stream-closed': {
     refused: '',
     lines: ['$J=G91 G21 X10 F100'],
     cancels: [300, 42, 8500],
-    snaps: ['0: -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '8650:K cancelled/operator/U', '11600:disposed']
+    snaps: ['0: -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '8650: cancelled/operator/U', '8700:K cancelled/operator/U', '11600:disposed']
   },
   'step / cancel-then-banner / stream-rotated': {
     refused: '',
     lines: ['$J=G91 G21 X10 F100'],
     cancels: [300, 42, 8500],
-    snaps: ['0: -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '8650:K cancelled/operator/U', '11600:disposed']
+    snaps: ['0: -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '8650: cancelled/operator/U', '8700:K cancelled/operator/U', '11600:disposed']
   },
   'step / cancel-then-banner / lease-taken': {
     refused: '',
     lines: ['$J=G91 G21 X10 F100'],
     cancels: [300, 42, 8500],
-    snaps: ['0: -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '8650:K cancelled/operator/U', '11600:disposed']
+    snaps: ['0: -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '8650: cancelled/operator/U', '8700:K cancelled/operator/U', '11600:disposed']
   },
   'step / cancel-then-banner / lease-released': {
     refused: '',
@@ -463,25 +474,25 @@ const EXPECTED = {
     refused: '',
     lines: ['$J=G91 G21 X10 F100'],
     cancels: [300, 43, 11450],
-    snaps: ['0: -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '11650:K cancelled/operator/U', '14600:disposed']
+    snaps: ['0: -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '11650: cancelled/operator/U', '11700:K cancelled/operator/U', '14600:disposed']
   },
   'step / cancel-then-banner / jog-stop': {
     refused: '',
     lines: ['$J=G91 G21 X10 F100'],
     cancels: [300, 43, 8600],
-    snaps: ['0: -', '300:C cancelled/operator/', '5650:CU cancelled/operator/U', '8650:K cancelled/operator/U', '11600:disposed']
+    snaps: ['0: -', '300:C cancelled/operator/', '5650:CU cancelled/operator/U', '8650: cancelled/operator/U', '8700:K cancelled/operator/U', '11600:disposed']
   },
   'step / cancel-then-banner / stop-button': {
     refused: '',
     lines: ['$J=G91 G21 X10 F100'],
     cancels: [300, 43, 8600],
-    snaps: ['0: -', '300:C cancelled/operator/', '600:C cancelled/stop/', '5650:CU cancelled/stop/U', '8650:K cancelled/stop/U', '11600:disposed']
+    snaps: ['0: -', '300:C cancelled/operator/', '600:C cancelled/stop/', '5650:CU cancelled/stop/U', '8650: cancelled/stop/U', '8700:K cancelled/stop/U', '11600:disposed']
   },
   'step / cancel-then-banner / socket-stop': {
     refused: '',
     lines: ['$J=G91 G21 X10 F100'],
     cancels: [300, 42, 8500],
-    snaps: ['0: -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '8650:K cancelled/operator/U', '11600:disposed']
+    snaps: ['0: -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '8650: cancelled/operator/U', '8700:K cancelled/operator/U', '11600:disposed']
   },
   'step / cancel-then-banner / dispose': {
     refused: '',
@@ -493,7 +504,7 @@ const EXPECTED = {
     refused: '',
     lines: ['$J=G91 G21 X10 F100'],
     cancels: [300, 2, 500],
-    snaps: ['0: -', '300:C cancelled/operator/', '700: cancelled/operator/', '8650:K cancelled/operator/', '11600:disposed']
+    snaps: ['0: -', '300:C cancelled/operator/', '700: cancelled/operator/', '8700:K cancelled/operator/', '11600:disposed']
   },
   'step / cancel-then-banner / disabled': {
     refused: '',
@@ -577,25 +588,25 @@ const EXPECTED = {
     refused: '',
     lines: ['$J=G91 G21 X99 F500'],
     cancels: [900, 39, 8500],
-    snaps: ['0:J -', '900:C cancelled/keepalive/', '5950:CU cancelled/keepalive/U', '8650:K cancelled/keepalive/U', '11600:disposed']
+    snaps: ['0:J -', '900:C cancelled/keepalive/', '5950:CU cancelled/keepalive/U', '8650: cancelled/keepalive/U', '8700:K cancelled/keepalive/U', '11600:disposed']
   },
   'continuous / banner / stream-closed': {
     refused: '',
     lines: ['$J=G91 G21 X99 F500'],
     cancels: [600, 41, 8600],
-    snaps: ['0:J -', '600:C cancelled/transport/', '5650:CU cancelled/transport/U', '8650:K cancelled/transport/U', '11600:disposed']
+    snaps: ['0:J -', '600:C cancelled/transport/', '5650:CU cancelled/transport/U', '8650: cancelled/transport/U', '8700:K cancelled/transport/U', '11600:disposed']
   },
   'continuous / banner / stream-rotated': {
     refused: '',
     lines: ['$J=G91 G21 X99 F500'],
     cancels: [600, 41, 8600],
-    snaps: ['0:J -', '600:C cancelled/transport/', '5650:CU cancelled/transport/U', '8650:K cancelled/transport/U', '11600:disposed']
+    snaps: ['0:J -', '600:C cancelled/transport/', '5650:CU cancelled/transport/U', '8650: cancelled/transport/U', '8700:K cancelled/transport/U', '11600:disposed']
   },
   'continuous / banner / lease-taken': {
     refused: '',
     lines: ['$J=G91 G21 X99 F500'],
     cancels: [650, 40, 8450],
-    snaps: ['0:J -', '650:C cancelled/control/', '5700:CU cancelled/control/U', '8650:K cancelled/control/U', '11600:disposed']
+    snaps: ['0:J -', '650:C cancelled/control/', '5700:CU cancelled/control/U', '8650: cancelled/control/U', '8700:K cancelled/control/U', '11600:disposed']
   },
   'continuous / banner / lease-released': {
     refused: '',
@@ -607,25 +618,25 @@ const EXPECTED = {
     refused: '',
     lines: ['$J=G91 G21 X99 F500'],
     cancels: [900, 41, 11450],
-    snaps: ['0:J -', '900:C cancelled/keepalive/', '5950:CU cancelled/keepalive/U', '11650:K cancelled/keepalive/U', '14600:disposed']
+    snaps: ['0:J -', '900:C cancelled/keepalive/', '5950:CU cancelled/keepalive/U', '11650: cancelled/keepalive/U', '11700:K cancelled/keepalive/U', '14600:disposed']
   },
   'continuous / banner / jog-stop': {
     refused: '',
     lines: ['$J=G91 G21 X99 F500'],
     cancels: [600, 41, 8600],
-    snaps: ['0:J -', '600:C cancelled/operator/', '5650:CU cancelled/operator/U', '8650:K cancelled/operator/U', '11600:disposed']
+    snaps: ['0:J -', '600:C cancelled/operator/', '5650:CU cancelled/operator/U', '8650: cancelled/operator/U', '8700:K cancelled/operator/U', '11600:disposed']
   },
   'continuous / banner / stop-button': {
     refused: '',
     lines: ['$J=G91 G21 X99 F500'],
     cancels: [600, 41, 8600],
-    snaps: ['0:J -', '600:C cancelled/stop/', '5650:CU cancelled/stop/U', '8650:K cancelled/stop/U', '11600:disposed']
+    snaps: ['0:J -', '600:C cancelled/stop/', '5650:CU cancelled/stop/U', '8650: cancelled/stop/U', '8700:K cancelled/stop/U', '11600:disposed']
   },
   'continuous / banner / socket-stop': {
     refused: '',
     lines: ['$J=G91 G21 X99 F500'],
     cancels: [900, 39, 8500],
-    snaps: ['0:J -', '900:C cancelled/keepalive/', '5950:CU cancelled/keepalive/U', '8650:K cancelled/keepalive/U', '11600:disposed']
+    snaps: ['0:J -', '900:C cancelled/keepalive/', '5950:CU cancelled/keepalive/U', '8650: cancelled/keepalive/U', '8700:K cancelled/keepalive/U', '11600:disposed']
   },
   'continuous / banner / dispose': {
     refused: '',
@@ -637,7 +648,7 @@ const EXPECTED = {
     refused: '',
     lines: ['$J=G91 G21 X99 F500'],
     cancels: [650, 1, 650],
-    snaps: ['0:J -', '650:C cancelled/alarm/', '700: cancelled/alarm/', '8650:K cancelled/alarm/', '11600:disposed']
+    snaps: ['0:J -', '650:C cancelled/alarm/', '700: cancelled/alarm/', '8700:K cancelled/alarm/', '11600:disposed']
   },
   'continuous / banner / disabled': {
     refused: '',
@@ -709,7 +720,7 @@ const EXPECTED = {
     refused: '',
     lines: ['$J=G91 G21 X99 F500'],
     cancels: [],
-    snaps: ['0:J -', '400:K ended/bound/', '600: ended/bound/', '8650:K ended/bound/', '11600:disposed']
+    snaps: ['0:J -', '400:K ended/bound/', '600: ended/bound/', '8700:K ended/bound/', '11600:disposed']
   },
   'continuous / banner-idle / disabled': {
     refused: '',
@@ -721,25 +732,25 @@ const EXPECTED = {
     refused: '',
     lines: ['$J=G91 G21 X99 F500'],
     cancels: [300, 42, 8500],
-    snaps: ['0:J -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '8650:K cancelled/operator/U', '11600:disposed']
+    snaps: ['0:J -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '8650: cancelled/operator/U', '8700:K cancelled/operator/U', '11600:disposed']
   },
   'continuous / cancel-then-banner / stream-closed': {
     refused: '',
     lines: ['$J=G91 G21 X99 F500'],
     cancels: [300, 42, 8500],
-    snaps: ['0:J -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '8650:K cancelled/operator/U', '11600:disposed']
+    snaps: ['0:J -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '8650: cancelled/operator/U', '8700:K cancelled/operator/U', '11600:disposed']
   },
   'continuous / cancel-then-banner / stream-rotated': {
     refused: '',
     lines: ['$J=G91 G21 X99 F500'],
     cancels: [300, 42, 8500],
-    snaps: ['0:J -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '8650:K cancelled/operator/U', '11600:disposed']
+    snaps: ['0:J -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '8650: cancelled/operator/U', '8700:K cancelled/operator/U', '11600:disposed']
   },
   'continuous / cancel-then-banner / lease-taken': {
     refused: '',
     lines: ['$J=G91 G21 X99 F500'],
     cancels: [300, 42, 8500],
-    snaps: ['0:J -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '8650:K cancelled/operator/U', '11600:disposed']
+    snaps: ['0:J -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '8650: cancelled/operator/U', '8700:K cancelled/operator/U', '11600:disposed']
   },
   'continuous / cancel-then-banner / lease-released': {
     refused: '',
@@ -751,25 +762,25 @@ const EXPECTED = {
     refused: '',
     lines: ['$J=G91 G21 X99 F500'],
     cancels: [300, 43, 11450],
-    snaps: ['0:J -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '11650:K cancelled/operator/U', '14600:disposed']
+    snaps: ['0:J -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '11650: cancelled/operator/U', '11700:K cancelled/operator/U', '14600:disposed']
   },
   'continuous / cancel-then-banner / jog-stop': {
     refused: '',
     lines: ['$J=G91 G21 X99 F500'],
     cancels: [300, 43, 8600],
-    snaps: ['0:J -', '300:C cancelled/operator/', '5650:CU cancelled/operator/U', '8650:K cancelled/operator/U', '11600:disposed']
+    snaps: ['0:J -', '300:C cancelled/operator/', '5650:CU cancelled/operator/U', '8650: cancelled/operator/U', '8700:K cancelled/operator/U', '11600:disposed']
   },
   'continuous / cancel-then-banner / stop-button': {
     refused: '',
     lines: ['$J=G91 G21 X99 F500'],
     cancels: [300, 43, 8600],
-    snaps: ['0:J -', '300:C cancelled/operator/', '600:C cancelled/stop/', '5650:CU cancelled/stop/U', '8650:K cancelled/stop/U', '11600:disposed']
+    snaps: ['0:J -', '300:C cancelled/operator/', '600:C cancelled/stop/', '5650:CU cancelled/stop/U', '8650: cancelled/stop/U', '8700:K cancelled/stop/U', '11600:disposed']
   },
   'continuous / cancel-then-banner / socket-stop': {
     refused: '',
     lines: ['$J=G91 G21 X99 F500'],
     cancels: [300, 42, 8500],
-    snaps: ['0:J -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '8650:K cancelled/operator/U', '11600:disposed']
+    snaps: ['0:J -', '300:C cancelled/operator/', '5350:CU cancelled/operator/U', '8650: cancelled/operator/U', '8700:K cancelled/operator/U', '11600:disposed']
   },
   'continuous / cancel-then-banner / dispose': {
     refused: '',
@@ -781,7 +792,7 @@ const EXPECTED = {
     refused: '',
     lines: ['$J=G91 G21 X99 F500'],
     cancels: [300, 2, 500],
-    snaps: ['0:J -', '300:C cancelled/operator/', '700: cancelled/operator/', '8650:K cancelled/operator/', '11600:disposed']
+    snaps: ['0:J -', '300:C cancelled/operator/', '700: cancelled/operator/', '8700:K cancelled/operator/', '11600:disposed']
   },
   'continuous / cancel-then-banner / disabled': {
     refused: '',
@@ -806,13 +817,13 @@ const WITH_F4_RELEASE = {
     refused: '',
     lines: ['$J=G91 G21 X10 F100'],
     cancels: [600, 41, 8600],
-    snaps: ['0: -', '600:C cancelled/released/', '5650:CU cancelled/released/U', '8650:K cancelled/released/U', '11600:disposed']
+    snaps: ['0: -', '600:C cancelled/released/', '5650:CU cancelled/released/U', '8650: cancelled/released/U', '8700:K cancelled/released/U', '11600:disposed']
   },
   'step / cancel-then-banner / lease-released': {
     refused: '',
     lines: ['$J=G91 G21 X10 F100'],
     cancels: [300, 43, 8600],
-    snaps: ['0: -', '300:C cancelled/operator/', '600:C cancelled/released/', '5650:CU cancelled/released/U', '8650:K cancelled/released/U', '11600:disposed']
+    snaps: ['0: -', '300:C cancelled/operator/', '600:C cancelled/released/', '5650:CU cancelled/released/U', '8650: cancelled/released/U', '8700:K cancelled/released/U', '11600:disposed']
   },
   'continuous / none / lease-released': {
     refused: '',
@@ -824,13 +835,13 @@ const WITH_F4_RELEASE = {
     refused: '',
     lines: ['$J=G91 G21 X99 F500'],
     cancels: [600, 41, 8600],
-    snaps: ['0:J -', '600:C cancelled/released/', '5650:CU cancelled/released/U', '8650:K cancelled/released/U', '11600:disposed']
+    snaps: ['0:J -', '600:C cancelled/released/', '5650:CU cancelled/released/U', '8650: cancelled/released/U', '8700:K cancelled/released/U', '11600:disposed']
   },
   'continuous / cancel-then-banner / lease-released': {
     refused: '',
     lines: ['$J=G91 G21 X99 F500'],
     cancels: [300, 43, 8600],
-    snaps: ['0:J -', '300:C cancelled/operator/', '600:C cancelled/released/', '5650:CU cancelled/released/U', '8650:K cancelled/released/U', '11600:disposed']
+    snaps: ['0:J -', '300:C cancelled/operator/', '600:C cancelled/released/', '5650:CU cancelled/released/U', '8650: cancelled/released/U', '8700:K cancelled/released/U', '11600:disposed']
   }
 };
 

@@ -18,6 +18,7 @@ import { expectCatalogMatch } from './touch-codes-catalog';
 import { provenOffset } from './support/proven-offset';
 import { offsetRefusal } from '../work-offset';
 import { pageSeesBusy } from './support/auto-reload-rest';
+import { lineBench } from './support/line-bench';
 
 // The real touch facade (index.js refuseSocket, refuseUpload) over the service of a test: its
 // createService returns `mockFacade.service` when set, else the real one (every other test).
@@ -100,7 +101,7 @@ const fakeController = (settings) => {
       c.workflow.emit('start');
     }
   };
-  return c;
+  return lineBench(c);
 };
 
 const A = { kind: 'touch', id: 'tablet-A', label: 'Tablette A', user: 'op' };
@@ -166,10 +167,27 @@ const setup = ({ settings = SETTINGS, enabled = true, homed = true, machines = [
   ctx.service.openTransport('tA', A);
   ctx.service.openTransport('tB', B);
   ctx.report = () => ctx.c.runner.emit('status');
-  ctx.ok = () => ctx.c.runner.emit('ok');
+  // Lot C1: CNCjs's own $G exchange, the modal report (spindle off, M5) then its ok. The board
+  // answers a line (`ok`), and the next exchange follows it; one more every 500 ms of bench time.
+  // It says again the modal state a test wrote in the bench's state (another system, M3), if any.
+  ctx.gc = () => {
+    const said = (ctx.c.state.parserstate && ctx.c.state.parserstate.modal) || {};
+    ctx.c.runner.emit('parserstate', { modal: { motion: 'G0', wcs: 'G54', plane: 'G17', units: 'G21', distance: 'G90', feedrate: 'G94', spindle: 'M5', coolant: 'M9', ...said } });
+    ctx.c.runner.emit('ok');
+  };
+  ctx.ok = () => {
+    ctx.c.runner.emit('ok');
+    ctx.gc();
+  };
+  ctx.sinceGc = 0;
   ctx.tick = (ms) => {
     for (let t = 0; t < ms; t += 50) {
       ctx.now += 50;
+      ctx.sinceGc += 50;
+      if (ctx.sinceGc >= 500) {
+        ctx.sinceGc = 0;
+        ctx.gc();
+      }
       ctx.report();
       jest.advanceTimersByTime(50);
     }
@@ -212,6 +230,9 @@ const setup = ({ settings = SETTINGS, enabled = true, homed = true, machines = [
     ctx.c.state.status.activeState = 'Idle';
     ctx.report();
   }
+  // Lot C1: a second report at rest, and the $G exchange a board at rest gets twice a second.
+  ctx.report();
+  ctx.gc();
   return ctx;
 };
 
@@ -402,7 +423,9 @@ describe('CNC framing: the guards before (§ 5.1)', () => {
     ctx.report();
     expect((await refusalOf(ctx.machine('frame-prepare'))).message).toMatch(/La broche tourne encore/);
     // No speed reported and no recent $G: maybe turning, refused too.
+    // Lot C1: the bench now has a $G exchange at rest; « no recent $G » is 3 s without one.
     ctx.c.state.status.spindle = undefined;
+    ctx.now += 3000;
     ctx.report();
     expect((await refusalOf(ctx.machine('frame-prepare'))).message).toMatch(/La broche tourne peut-être/);
     expect(ctx.c.written).toEqual([]);
@@ -416,8 +439,9 @@ describe('CNC framing: the guards before (§ 5.1)', () => {
     }
     // Another work offset.
     ctx = setup();
-    ctx.c.runner.state.parserstate = { modal: { wcs: 'G54' } };
-    ctx.c.runner.emit('parserstate', { modal: { wcs: 'G54' } });
+    // Lot C1: the $G of this test says M5 too (a $G without a spindle word proves no stopped spindle).
+    ctx.c.runner.state.parserstate = { modal: { wcs: 'G54', spindle: 'M5' } };
+    ctx.c.runner.emit('parserstate', { modal: { wcs: 'G54', spindle: 'M5' } });
     ctx.c.settings.parameters = { G55: { x: -200, y: -200, z: 0 } };
     await ctx.req('load', { file: 'g55.nc' });
     expect(await code(ctx.machine('frame-prepare'))).toMatchObject({ code: 'ETOUCH_LASER_FRAME_WCS', params: { wcs: 'G55', active: 'G54' } });
@@ -459,6 +483,8 @@ describe('CNC framing: the guards before (§ 5.1)', () => {
     let ticket = await ctx.machine('frame-prepare');
     ctx.now += 16000;
     ctx.report();
+    // Lot C1: 16 s later, CNCjs's $G exchange has come again.
+    ctx.gc();
     expect((await refusalOf(ctx.machine('frame', { nonce: ticket.nonce }))).code).toBe('ETOUCH_LASER_FRAME_EXPIRED');
     ticket = await ctx.machine('frame-prepare');
     expect((await refusalOf(ctx.req('machine', { operation: 'frame', nonce: ticket.nonce }, A, 'tB'))).message).toMatch(/appareil dont le suivi est ouvert/);
@@ -470,10 +496,13 @@ describe('CNC framing: the guards before (§ 5.1)', () => {
     ctx.programs['box.nc'] = PROGRAMS['box.nc'];
     // Moved by 0.1 mm in Z, then in X: the Z line or the way back differ.
     for (const move of [[0, 0, 0.1], [0.1, 0, 0]]) {
+      // Lot C1: two reports at rest at each place (a single one is no proven rest).
       ctx.c.at(-100, -100, -60);
+      ctx.report();
       ctx.report();
       ticket = await ctx.machine('frame-prepare');
       ctx.c.at(-100 + move[0], -100 + move[1], -60 + move[2]);
+      ctx.report();
       ctx.report();
       const err = await refusalOf(ctx.machine('frame', { nonce: ticket.nonce }));
       expect(err.code).toBe('ETOUCH_LASER_FRAME_CHANGED');
@@ -482,6 +511,7 @@ describe('CNC framing: the guards before (§ 5.1)', () => {
     expect(ctx.c.written).toEqual([]);
     // Single use.
     ctx.c.at(-100, -100, -60);
+    ctx.report();
     ctx.report();
     ticket = await ctx.machine('frame-prepare');
     await ctx.machine('frame', { nonce: ticket.nonce });
@@ -882,6 +912,8 @@ describe('laser framing stays as it was (non-regression of lot F1)', () => {
     const ctx = setup({ settings, machines: [laserRecord(settings)] });
     ctx.c.at(-100, -100, -10);
     ctx.report();
+    // Lot C1: a second report at rest at the new place.
+    ctx.report();
     await ctx.req('load', { file: 'frame.nc' });
     const ticket = await ctx.machine('frame-prepare');
     expect(ticket.frame).toEqual({
@@ -1256,16 +1288,21 @@ describe('CNC framing: the windows of the safety review', () => {
     expect(ctx.c.written.slice(before)).toEqual([]);
   });
 
-  test('C2. without a reported speed, the whole guard of the start during the framing: a $G with M3 or M4, or a $G too old, stops it', async () => {
+  // Lot C1 (design/plaque/C1-CONCEPTION.md, R-3 and § 4.1 point 2): before C1 this test started a
+  // framing without any reported speed, on the $G alone, and showed a $G with M3 / M4 or a $G too old
+  // stopping it. A board that gives no whole FS: is now refused at the start (no fallback on $G);
+  // with the speed reported, a $G with M3 or M4 still stops the framing, and a $G that only grows
+  // old during a line stops nothing (no fresh $G is asked for during a line).
+  test('C2. without a reported speed the framing is refused at its start; with it, a $G with M3 or M4 during the framing stops it, a $G growing old during a line does not', async () => {
     const cases = [
-      ['M3', (ctx) => ctx.modal('M3')],
-      ['M4', (ctx) => ctx.modal('M4')],
+      ['M3', (ctx) => ctx.modal('M3'), true],
+      ['M4', (ctx) => ctx.modal('M4'), true],
       ['$G too old', (ctx) => {
         ctx.now += 2600;
         ctx.report();
-      }]
+      }, false]
     ];
-    for (const [name, act] of cases) {
+    for (const [name, act, stops] of cases) {
       const ctx = setup();
       ctx.modal = (spindle) => {
         ctx.c.state.parserstate = { modal: { wcs: 'G54', spindle } };
@@ -1274,6 +1311,13 @@ describe('CNC framing: the windows of the safety review', () => {
       ctx.c.state.status.spindle = undefined;
       ctx.modal('M5');
       ctx.report();
+      await ctx.req('load', { file: 'box.nc' });
+      expect([name, (await refusalOf(ctx.machine('frame-prepare'))).code]).toEqual([name, 'ETOUCH_MOTION_SPINDLE_UNKNOWN']);
+      expect([name, ctx.c.written]).toEqual([name, []]);
+      // The speed reported again (FS:0,0), two reports at rest.
+      ctx.c.state.status.spindle = 0;
+      ctx.report();
+      ctx.report();
       await ctx.start();
       runTo(ctx, 4);
       ctx.modal('M5');
@@ -1281,8 +1325,12 @@ describe('CNC framing: the windows of the safety review', () => {
       ctx.report();
       act(ctx);
       ctx.tick(50);
-      expect([name, ctx.state().motion.lastFrame]).toEqual([name, expect.objectContaining({ code: 'ETOUCH_FRAME_STATE', params: { state: 'spindle' } })]);
-      expect([name, ctx.c.written.at(-1)]).toEqual([name, '\x85']);
+      if (stops) {
+        expect([name, ctx.state().motion.lastFrame]).toEqual([name, expect.objectContaining({ code: 'ETOUCH_FRAME_STATE', params: { state: 'spindle' } })]);
+        expect([name, ctx.c.written.at(-1)]).toEqual([name, '']);
+      } else {
+        expect([name, !!ctx.state().motion.frame, ctx.c.written.includes('')]).toEqual([name, true, false]);
+      }
     }
   });
 });
@@ -1726,6 +1774,10 @@ describe('CNC framing: the state table of the third review', () => {
     for (let t = 0; t < wait; t += 50) {
       ctx.now += 50;
       if (!silent) {
+        // Lot C1: CNCjs's $G exchange goes on with the reports, every 500 ms.
+        if (t % 500 === 450) {
+          ctx.gc();
+        }
         ctx.report();
       }
       jest.advanceTimersByTime(50);

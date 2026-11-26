@@ -18,6 +18,7 @@ import { createControl } from '../control';
 import { analyzeProgram, checkProgram, programCheck } from '../program-check';
 import { MAX_ATTEMPTS, MESSAGES, RETRY_MS } from '../work-offset';
 import { bridge } from './support/sim-bridge';
+import { lineBench } from './support/line-bench';
 import { expectCatalogMatch } from './touch-codes-catalog';
 
 const GrblSimulator = require('../../../../../grbl-simulator/grbl-simulator');
@@ -181,6 +182,8 @@ const fakeBoard = (ctx) => {
   };
   c.sender.state = { name: '', context: {}, total: 0 };
   c.sender.toJSON = () => ({ ...c.sender.state });
+  // Lot C1: every report of this fake board is read by CNCjs's real parser.
+  lineBench(c);
   const offset = () => (g.void ? ZERO : g.stored[g.wcs]);
   g.refresh = () => {
     const o = g.lastWco ? { x: Number(g.lastWco.x), y: Number(g.lastWco.y), z: Number(g.lastWco.z) } : ZERO;

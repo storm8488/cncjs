@@ -15,6 +15,7 @@ import os from 'os';
 import path from 'path';
 import { createService } from '../job-service';
 import { provenOffset } from './support/proven-offset';
+import { lineBench } from './support/line-bench';
 
 const fakeController = () => {
   const c = {
@@ -25,7 +26,8 @@ const fakeController = () => {
     runner: new EventEmitter(),
     sender: new EventEmitter(),
     workflow: Object.assign(new EventEmitter(), { state: 'idle' }),
-    state: { status: { activeState: 'Idle' } },
+    // Lot C1: the board reports its spindle speed (FS:…,0), as the LUNYEE does.
+    state: { status: { activeState: 'Idle', spindle: 0 } },
     feeder: { toJSON: () => ({ queue: 0, pending: false }) },
     settings: { settings: { $110: 1000, $111: 1000, $112: 200 } },
     commands: []
@@ -41,7 +43,7 @@ const fakeController = () => {
       args[3](null);
     }
   };
-  return c;
+  return lineBench(c);
 };
 
 let root;
@@ -65,6 +67,9 @@ test('E-5 : flux fermé pendant prepare(start) → aucune confirmation en attent
     const generation = service.list()[0].generation;
     service.openTransport('t1');
     c.runner.emit('status');
+    // Lot C1: CNCjs's own $G exchange at rest, the modal report (spindle off, M5) then its ok.
+    c.runner.emit('parserstate', { modal: { motion: 'G0', wcs: 'G54', plane: 'G17', units: 'G21', distance: 'G90', feedrate: 'G94', spindle: 'M5', coolant: 'M9' } });
+    c.runner.emit('ok');
     await service.action({ port: 'TEST', generation, transportId: 't1', action: 'load', file: 'test.nc' });
     const revision = service.list()[0].revision;
     expect(service.list()[0].canPreviewMotion).toBe(true);

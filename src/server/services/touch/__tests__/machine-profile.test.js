@@ -15,6 +15,7 @@ import {
 } from '../machine-profile';
 import { catalogCodes, expectCatalogMatch } from './touch-codes-catalog';
 import { provenOffset } from './support/proven-offset';
+import { lineBench } from './support/line-bench';
 import { offsetRefusal } from '../work-offset';
 
 const SETTINGS = {
@@ -82,7 +83,7 @@ const fakeController = (port = 'TEST', settings = SETTINGS) => {
       c.workflow.emit('start');
     }
   };
-  return c;
+  return lineBench(c);
 };
 
 const A = { kind: 'touch', id: 'tablet-A', label: 'Tablette A', user: 'op' };
@@ -141,10 +142,25 @@ const setup = ({ machines = [], enabled = true, homed = true, settings = SETTING
   ctx.service.openTransport('tA', A);
   ctx.service.openTransport('tB', B);
   ctx.report = () => ctx.c.runner.emit('status');
-  ctx.ok = () => ctx.c.runner.emit('ok');
+  // Lot C1: CNCjs's own $G exchange, the modal report (spindle off, M5) then its ok. The board
+  // answers a line (`ok`), and the next exchange follows it; one more every 500 ms of bench time.
+  ctx.gc = () => {
+    ctx.c.runner.emit('parserstate', { modal: { motion: 'G0', wcs: 'G54', plane: 'G17', units: 'G21', distance: 'G90', feedrate: 'G94', spindle: 'M5', coolant: 'M9' } });
+    ctx.c.runner.emit('ok');
+  };
+  ctx.ok = () => {
+    ctx.c.runner.emit('ok');
+    ctx.gc();
+  };
+  ctx.sinceGc = 0;
   ctx.tick = (ms) => {
     for (let t = 0; t < ms; t += 50) {
       ctx.now += 50;
+      ctx.sinceGc += 50;
+      if (ctx.sinceGc >= 500) {
+        ctx.sinceGc = 0;
+        ctx.gc();
+      }
       ctx.report();
       jest.advanceTimersByTime(50);
     }
@@ -167,6 +183,9 @@ const setup = ({ machines = [], enabled = true, homed = true, settings = SETTING
     ctx.c.state.status.activeState = 'Idle';
     ctx.report();
   }
+  // Lot C1: a second report at rest, and the $G exchange a board at rest gets twice a second.
+  ctx.report();
+  ctx.gc();
   return ctx;
 };
 
@@ -803,6 +822,8 @@ describe('laser framing (§4)', () => {
     ctx.c.state.status.activeState = 'Home';
     ctx.report();
     ctx.c.state.status.activeState = 'Idle';
+    ctx.report();
+    // Lot C1: a second report at rest (a move starts from two agreeing Idle reports).
     ctx.report();
     // Someone else pilots: ECONTROL; another device's stream: refused.
     ctx.control.takeover('TEST', B, 'essai');

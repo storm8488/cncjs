@@ -8,6 +8,7 @@ import { createControl } from '../control';
 import { blockParams, blockPlan, originOf, MESSAGES, createBlockProbe, refusal } from '../block-probe';
 import { provenOffset } from './support/proven-offset';
 import { expectCatalogMatch } from './touch-codes-catalog';
+import { lineBench } from './support/line-bench';
 
 // The page's side of the contract: its pure module and its catalog of the server's codes.
 const TOUCH = path.join(__dirname, '../../../../../examples/cncjs-touch/touch');
@@ -115,6 +116,8 @@ const fakeGrbl = (ctx, {
   };
   c.sender.state = { name: '', context: {}, total: 0 };
   c.sender.toJSON = () => ({ ...c.sender.state });
+  // Lot C1: every report of this fake board is read by CNCjs's real parser.
+  lineBench(c);
   g.modal = modal;
   g.spindle = 0;
   const f3 = (n) => n.toFixed(3);
@@ -1058,7 +1061,9 @@ describe('block probe: real cycle on a fake Grbl', () => {
     };
     await again();
     await ctx.launch({ axes: 'Z', wcs: 'G54', profile: PROFILE });
-    await ctx.until(() => ctx.step() === 'Z_CLEAR');
+    // Lot C1: the step is published before its line waits for its proofs (a $G after the ok of the
+    // previous line); the scenario of this test starts once the clearing move itself is written.
+    await ctx.until(() => ctx.step() === 'Z_CLEAR' && ctx.g.sent.length === 5);
     ctx.service.closeTransport('tA2', true);
     await ctx.tick(3200);
     let err = await ctx.failedCleanly('ETOUCH_PROBE_STREAM');
@@ -1126,6 +1131,7 @@ describe('block probe: real cycle on a fake Grbl', () => {
       return ctx.state().blockProbeReason;
     };
     ctx.g.modal.spindle = 'M3';
+    // Lot C1: the coded refusal of the spindle proof (zeroZReady) now comes before the block's own sentence.
     expect(await reason(() => {})).toBe('La broche est commandée (M3 ou M4) : arrêtez-la d’abord (M5).');
     await expect(ctx.prepare()).rejects.toThrow(/broche est commandée/);
     ctx.g.modal.spindle = 'M5';
@@ -1517,6 +1523,10 @@ describe('block probe: real cycle on a fake Grbl', () => {
     ctx.g.report();
     await ctx.tick(100);
     expect(ctx.g.sent).toEqual(sent);
+    emit('ok');
+    // Lot C1: CNCjs's $G exchange after the ok (M5), given by hand like the rest of this sequence;
+    // the two reports below stay what releases the line.
+    emit('parserstate', { modal: { ...ctx.g.modal } });
     emit('ok');
     await ctx.tick(100);
     expect(ctx.g.sent).toEqual(sent);

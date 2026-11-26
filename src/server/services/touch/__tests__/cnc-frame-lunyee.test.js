@@ -278,7 +278,10 @@ describe('CNC framing on the simulator (LUNYEE profile)', () => {
     }
     // At rest, and the D2 reading of the new session over (else ETOUCH_OFFSET_CHECKING comes first,
     // depending on how fast the simulator answers under load).
-    expect(await until(() => state().activeState === 'Idle' && state().workOffset.state !== 'checking')).toBe(true);
+    // Lot C1: and two agreeing Idle reports that carry the position (else ETOUCH_MOTION_NO_POSITION
+    // comes first for the 25 ms between the first Idle report and the second).
+    const unproven = () => !!state().refusals.jog && state().refusals.jog.code === 'ETOUCH_MOTION_NO_POSITION';
+    expect(await until(() => state().activeState === 'Idle' && state().workOffset.state !== 'checking' && !unproven())).toBe(true);
     const err = await refusalOf(req('machine', { operation: 'frame-prepare' }));
     expect(err && err.code).toBe('ETOUCH_CNC_FRAME_NOT_HOMED');
     expect(state().canFrame).toBe(false);
