@@ -24,6 +24,7 @@
     if (m.workflow === 'paused') { var p = m.programPause; return p && typeof p.kind === 'string' && p.kind ? p.kind : 'operator'; }
     return /^door/i.test(a) ? 'door' : /^hold/i.test(a) ? 'hold' : '';
   }
+  function machineOnly(kind) { return kind === 'hold' || kind === 'door'; }
   function observe(m) {
     return { port: m.port, generation: m.generation, alarm: isAlarm(m), active: isActive(m), pause: pauseOf(m),
       total: typeof m.total === 'number' && m.total > 0 ? m.total : 0, received: typeof m.received === 'number' ? m.received : 0, pending: null };
@@ -50,10 +51,16 @@
     }
     if (next.pause) {
       if (!next.alarm && !prev.pause) events.push({ type: 'pause', kind: next.pause, changed: false });
-      else if (!next.alarm && prev.pause !== next.pause) events.push({ type: 'pause', kind: next.pause, changed: true });
+      // A resume in progress: CNCjs runs again while the machine still reports its hold, for one
+      // status report. Not a new pause; a hold or a door that lasts after a resume is not announced.
+      else if (!next.alarm && prev.pause !== next.pause && !(machineOnly(next.pause) && !machineOnly(prev.pause))) events.push({ type: 'pause', kind: next.pause, changed: true });
     } else if (prev.pause) events.push({ type: 'pause-end' });
     if (next.pending && !next.active) {
-      var p = next.pending, known = m.finished === true || m.finishedWithErrors === true || m.jobStopped === true;
+      var p = next.pending;
+      // The report at rest carries the last acknowledgements of the same job (the simulation, a job
+      // started from the PC): the last report of the job itself may be short of the total.
+      if (next.total === p.total && next.received > p.received) p = next.pending = { until: p.until, total: p.total, received: next.received };
+      var known = m.finished === true || m.finishedWithErrors === true || m.jobStopped === true;
       if (known || now >= p.until) {
         next.pending = null;
         var refused = typeof m.jobErrors === 'number' && m.jobErrors > 0 ? m.jobErrors : 0;

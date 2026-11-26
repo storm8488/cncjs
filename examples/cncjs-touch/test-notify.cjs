@@ -40,6 +40,12 @@ assert.deepEqual(feed([idle,snap({activeState:'Hold:0'})]).out,[[],[]],'a hold w
 assert.deepEqual(feed([running,snap({activeState:'Hold:1',workflow:'running',total:100,received:40}),paused('M6'),running]).out,[[],['pause:hold'],['pause:M6:changed'],['pause-end']]);
 // A plate probe during a tool change pause reports Run: still the same pause.
 assert.deepEqual(feed([running,paused('M6','Idle'),paused('M6','Run'),paused('M6','Idle')]).out,[[],['pause:M6'],[],[]]);
+// Resume: CNCjs runs again one status report before the machine leaves its hold. Not a new pause.
+const lag=snap({activeState:'Hold:0',workflow:'running',total:100,received:40});
+assert.deepEqual(feed([running,paused(null),lag,running]).out,[[],['pause:operator'],[],['pause-end']],'resume seen before the machine state');
+assert.deepEqual(feed([running,paused('M6','Idle'),snap({activeState:'Door:0',workflow:'running',total:100,received:40}),running]).out,[[],['pause:M6'],[],['pause-end']]);
+// … and a program stop met while the hold still shows is announced as such.
+assert.deepEqual(feed([running,paused(null),lag,paused('M0')]).out[3],['pause:M0:changed']);
 // Stopped while paused: the pause ends, nothing is « finished ».
 assert.deepEqual(feed([running,paused(null),[snap({jobStopped:true}),10]]).out,[[],['pause:operator'],['pause-end']]);
 
@@ -53,6 +59,15 @@ assert.deepEqual(feed([[sent,0],[idle,100],[idle,1900],[idle,2100],[idle,2200]])
 assert.deepEqual(feed([[running,0],[idle,100],[idle,2200]]).out,[[],[],[]],'lines missing and no result: not an end');
 assert.deepEqual(feed([[sent,0],[idle,100],[snap({finished:true}),300]]).out[2],['finish'],'the server result ends the wait');
 assert.deepEqual(feed([[sent,0],[idle,100],[snap({jobErrors:1}),2200]]).out[2],[],'refused lines without the server verdict: not announced as finished');
+// The last report of the job is short of the total and the report at rest carries the rest (simulation
+// page at one report a second; job started from the PC): announced, on the report at rest.
+const short=snap({activeState:'Run',workflow:'running',total:100,received:98.8}),rest=snap({total:100,received:100});
+assert.deepEqual(feed([[short,0],[rest,1000],[rest,2000],[rest,3100],[rest,4000]]).out,[[],[],[],['finish'],[]]);
+assert.deepEqual(feed([[short,0],[idle,1000],[rest,1500],[idle,3100]]).out[3],['finish'],'the acknowledgements may come one report after the rest');
+assert.deepEqual(feed([[short,0],[snap({total:100,received:98.8}),1000],[snap({total:100,received:98.8}),3100]]).out,[[],[],[]],'still short at rest: not an end');
+assert.deepEqual(feed([[short,0],[snap({total:250,received:250}),1000],[snap({total:250,received:250}),3100]]).out,[[],[],[]],'another program at rest says nothing of this job');
+assert.deepEqual(feed([[short,0],[snap({total:100,received:100,jobStopped:true}),1000],[snap({total:100,received:100,jobStopped:true}),3100]]).out,[[],[],[]],'stopped by the operator: not an end');
+assert.deepEqual(feed([[short,0],[snap({total:100,received:100,activeState:'Alarm'}),1000],[snap({total:100,received:100,activeState:'Alarm'}),3100]]).out,[[],['alarm'],[]]);
 // An old report does not end the job; the next fresh one does.
 assert.deepEqual(feed([running,snap({fresh:false,finished:true}),snap({finished:true})]).out,[[],[],['finish']]);
 // A new job after an end.
@@ -179,8 +194,23 @@ async function pageChecks(){
   p.status(Object.assign({},op,{programPause:{kind:'M0'}}));assert.equal(p.banner.hidden,false);assert.equal(p.find('notify-detail').textContent,'Pause demandée par le fichier.');assert.equal(p.oscs(),N.PATTERNS.pause.notes.length);
   p.status(run);assert.equal(p.banner.hidden,true);
   p.advance(3000);p.status(op);assert.equal(p.banner.hidden,false,'pause from elsewhere: announced');assert.equal(p.find('notify-detail').textContent,'Usinage en pause.');
+  // Own pause, then own resume: the machine still reports its hold for one report. Nothing is announced.
+  p.status(run);p.banner.click();const quiet=p.oscs();p.touch();p.advance(300);p.status(op);assert.equal(p.banner.hidden,true);
+  p.advance(20000);p.touch();p.advance(300);p.status(snap({activeState:'Hold:0',workflow:'running',total:100,received:40}));
+  assert.equal(p.banner.hidden,true,'no pause banner at the resume');assert.equal(p.oscs(),quiet,'no pause sound at the resume');
+  p.status(run);assert.equal(p.banner.hidden,true);
+  // An announced pause keeps its words through the resume, then goes.
+  p.advance(5000);p.status(m6);p.status(snap({activeState:'Hold:0',workflow:'running',total:100,received:40}));
+  assert.equal(p.find('notify-detail').textContent,'Changement de fraise demandé par le fichier.');p.status(run);assert.equal(p.banner.hidden,true);
   // A program stop is announced even right after a touch.
   p.status(run);p.touch();p.status(m6);assert.equal(p.banner.hidden,false);
+ }
+ {
+  // Simulation page: the last report of the job is short of the total, the report at rest is complete.
+  const p=page({simulation:true});p.touch();p.status(snap({activeState:'Run',workflow:'running',total:100,received:98.8,name:'plaque.nc'}),true);
+  p.status(snap({total:100,received:100,name:'plaque.nc'}),true);assert.equal(p.banner.hidden,true,'the server result is waited for');
+  p.advance(2100);p.status(snap({total:100,received:100,name:'plaque.nc'}),true);
+  assert.equal(p.banner.hidden,false);assert.equal(p.find('notify-title').textContent,'Usinage terminé');assert.equal(p.find('notify-detail').textContent,'plaque.nc');assert.equal(p.oscs(),N.PATTERNS.finish.notes.length);
  }
  {
   // Laser words.
