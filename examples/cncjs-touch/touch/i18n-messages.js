@@ -2022,6 +2022,7 @@ window.CNCTouchMessages.push(
 ['La broche n’a que {n} s pour monter en vitesse.','The spindle has only {n} s to reach its speed.','El husillo solo tiene {n} s para alcanzar su velocidad.'],
 ['Ajoutez une temporisation après le démarrage de la broche, dans le post-processeur.','Add a dwell after the spindle start, in the post-processor.','Añada una espera tras el arranque del husillo, en el posprocesador.'],
 ['Ces avertissements n’empêchent pas de démarrer.','These warnings do not prevent starting.','Estos avisos no impiden iniciar.']
+);
 // Lot N3: notification banner and sound (notify.js).
 (window.CNCTouchMessages=window.CNCTouchMessages||[]).push(
 ['Usinage terminé','Machining finished','Mecanizado terminado'],

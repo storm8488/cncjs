@@ -42,7 +42,7 @@ const tests = [
  // Merge of the lots: F5 and F10 in the same page load.
  'f5-f10',
  // Night of 26 November, lot N1: file analysis (stock depth, tools, spindle spin-up).
- 'program-analysis'
+ 'program-analysis',
  // Lot N3: notification of the end, of a pause and of an alarm.
  'notify'
 ].map(name=>'test-'+name+'.cjs');
