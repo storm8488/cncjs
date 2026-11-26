@@ -153,6 +153,24 @@ main::-webkit-scrollbar{width:10px}main::-webkit-scrollbar-thumb{background:var(
 /* « Actions système » (system-monitor.js): sets Tablette and Mises à jour apart from the read-only blocks. */
 .ks-ui #screen-settings .ks-system-actions-head{margin:24px 0 4px;padding-left:12px;border-left:4px solid var(--warn-text);font-size:22px;font-weight:600;color:var(--fg)}
 .ks-ui #screen-settings .ks-system>.ks-system-actions-note{margin:0 0 8px;padding-left:16px;font-size:16px}
+/* Lot N8 — backups of the board settings (settings-backup.js), Machine tab: one column, the list and the comparison full width. */
+.ks-ui #screen-settings .ks-backup-card{display:flex;flex-direction:column;align-items:stretch;gap:12px}
+.ks-ui #screen-settings .ks-backup-card>p{font-size:16px}
+.ks-ui #screen-settings .ks-backup-tools{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.ks-ui #screen-settings .ks-backup-save{min-height:64px}
+.ks-ui #screen-settings .ks-backup-drift[data-tone=warn]{color:var(--warn-text)}
+.ks-ui #screen-settings .ks-backup-drift[data-tone=warn]::before{content:"! "}
+.ks-ui #screen-settings .ks-backup-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+.ks-ui #screen-settings .ks-backup-list li{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);font-size:16px}
+.ks-ui #screen-settings .ks-backup-when{flex:1 1 320px;min-width:0;overflow-wrap:anywhere;color:var(--fg)}
+.ks-ui #screen-settings .ks-backup-first{color:var(--mute)}
+.ks-ui #screen-settings .ks-backup-more{align-self:flex-start}
+.ks-ui #screen-settings .ks-backup-result{border-top:1px solid var(--line);padding-top:12px;font-size:16px}
+.ks-ui #screen-settings .ks-backup-result h3{margin:0 0 8px;font-size:18px;font-weight:600;color:var(--fg)}
+.ks-ui #screen-settings .ks-backup-result p{margin:0 0 8px;font-size:16px;color:var(--mute)}
+.ks-ui #screen-settings .ks-backup-diff{width:100%;border-collapse:collapse;font-size:16px}
+.ks-ui #screen-settings .ks-backup-diff th,.ks-ui #screen-settings .ks-backup-diff td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);font-weight:400;color:var(--fg);overflow-wrap:anywhere}
+.ks-ui #screen-settings .ks-backup-diff thead th{color:var(--mute);font-weight:600}
 /* Performance v2 (L6): every rule below is scoped to body.perf-v2; outside it the L6 mounts
  * never show. Réglages: rendering quality and diagnostic, read on demand. */
 body:not(.perf-v2) #perf-v2-settings,body:not(.perf-v2) #perf-v2-history,body:not(.perf-v2) #perf-v2-machine{display:none!important}

@@ -223,6 +223,32 @@ export const postUpdates = authorized((req, res) => {
   }
 });
 
+// Backups of the board's settings (lot N8): files on the CNCjs host, written from what CNCjs
+// last read by `$$`. Nothing here reaches a controller. GET lists them (`?port=` adds what
+// changed on that board since the last one); POST { action: 'save' | 'compare' | 'read' }.
+const answerBackups = (res, promise, what) => {
+  res.set('Cache-Control', 'no-store');
+  promise
+    .then((result) => res.send(result))
+    .catch((err) => {
+      if (!err || !err.status) {
+        log.error(`${what} failed: ${err && err.stack}`);
+        res.status(ERR_INTERNAL_SERVER_ERROR).send({ message: 'Sauvegardes des réglages indisponibles.' });
+        return;
+      }
+      res.status(err.status).send({ message: err.message, ...(typeof err.code === 'string' ? { code: err.code } : {}) });
+    });
+};
+
+export const getSettingsBackups = authorized((req, res) => {
+  answerBackups(res, touch.settingsBackupList((req.query || {}).port), 'settings backup list');
+});
+
+export const postSettingsBackups = authorized((req, res) => {
+  const body = req.body || {};
+  answerBackups(res, touch.settingsBackupAction({ action: body.action, port: body.port, id: body.id }), 'settings backup ' + String(body.action).slice(0, 16));
+});
+
 // Project sheets of the shared library (F3) and the provenance of compensated
 // files (F6). They describe programs only: nothing here reaches a controller,
 // so they need a session but not the touch service.

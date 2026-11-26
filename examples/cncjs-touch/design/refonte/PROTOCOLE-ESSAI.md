@@ -221,3 +221,24 @@ Rien de cette fonction ne commande la machine : l'essai vérifie que les trois a
 Ne pas essayer de « vérifier » un avertissement de profondeur en usinant : il se vérifie au pied à coulisse et sur le dessin.
 
 **Relevé à rendre** : pour deux ou trois fichiers habituels, la profondeur affichée, ce que dit « Fraises du fichier », le temps de broche affiché et le temps chronométré, le temps de montée réel de la broche, et toute phrase fausse ou incomprise.
+
+## N8 — Sauvegarde des réglages de la carte (sans mouvement, ajouté le 26 novembre 2026)
+
+Rien ne bouge et rien n'est écrit dans la carte : cet essai peut se faire broche débranchée, à tout moment d'une séance au repos. Serveur à recompiler pour ce lot : `src/server/services/touch/settings-backup.js` (nouveau), `src/server/services/touch/index.js`, `src/server/api/api.touch.js`, `src/server/app.js`. Détails et limites : `../plaque/N8-RAPPORT.md`.
+
+| # | Geste | Attendu |
+|---|---|---|
+| N8-1 | Machine connectée, « Réglages lus » sur 1 · Machine. Ouvrir Plus → Réglages → Machine et performances. | Carte « Sauvegarde des réglages de la carte », « Aucune sauvegarde pour l'instant. », la phrase « La restauration se fait à la main… ». Rien ne déborde. |
+| N8-2 | « Sauvegarder maintenant ». | « Sauvegarde enregistrée : date · N réglages » ; une ligne dans la liste, marquée « Première sauvegarde, toujours gardée ». Noter N (à comparer au nombre de lignes de `$$` dans la console de CNCjs, hors `$N0` / `$N1`). |
+| N8-3 | Sur le PC, par ssh ou le gestionnaire de fichiers : regarder `cncjs-touch-settings/` à côté du `.cncrc` du serveur. | Un fichier `reglages-…Z.json` lisible : date, firmware, `$n` avec les valeurs de la carte (`$130` = 408, `$131` = 396, `$132` = 130…). |
+| N8-4 | « Comparer à la carte » sur cette ligne. | « Aucune différence : la carte a les mêmes réglages que cette sauvegarde. » La machine n'a rien reçu (console de CNCjs : aucune ligne nouvelle). |
+| N8-5 | « Exporter ». | Un fichier du même nom proposé au téléchargement (dossier de téléchargement de la tablette). Si le kiosque ne télécharge pas : le noter, le fichier du serveur suffit. |
+| N8-6 | **Avec l'opérateur présent**, au repos : dans la console de CNCjs du PC, changer un réglage sans effet au repos et le noter (par exemple la tolérance des arcs : lire `$12`, noter sa valeur, puis `$12=0.003`). Revenir à la carte, « Relire », puis « Comparer à la carte ». | Une ligne : « $12 · Tolérance des arcs », ancienne valeur → 0.003. Dans la carte et sur 1 · Machine : « 1 réglage de la machine a changé depuis la sauvegarde du … ». |
+| N8-7 | Remettre la valeur d'origine dans la console de CNCjs, « Relire ». | La ligne de 1 · Machine disparaît ; « La carte a les mêmes réglages que la dernière sauvegarde. » |
+| N8-8 | Pendant un usinage en l'air : ouvrir la carte. | « Relire » rayé (comme aujourd'hui) ; « Sauvegarder maintenant » reste possible et n'interrompt rien. |
+| N8-9 | Débrancher l'USB de la carte, rouvrir la carte. | La liste reste lisible, « Exporter » marche, « Sauvegarder » et « Comparer » sont rayés avec « Machine non connectée… ». |
+| N8-10 | Sur la RT (laser, v1 Éco), ouvrir la même carte. | Même carte, mêmes boutons ; rien de plus lent qu'avant sur les autres écrans. |
+
+Ne **pas** essayer : restaurer une sauvegarde par un script ; changer `$20`–`$23`, `$100`–`$132` ou `$39` « pour voir » la comparaison (N8-6 prend un réglage sans effet sur les courses).
+
+**Relevé à rendre** : N lu en N8-2, contenu du fichier, ce que fait « Exporter » en kiosque, toute différence annoncée à tort.
