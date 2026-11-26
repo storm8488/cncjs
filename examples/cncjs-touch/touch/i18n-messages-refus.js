@@ -746,3 +746,24 @@ window.CNCTouchMessages=(window.CNCTouchMessages||[]).concat([
   ["Zéro pièce : celui enregistré dans la machine. Vérifiez-le avant l’usinage : « Cadrer à vide… » sur 4 · Contrôle.","Work zero: the one stored in the machine. Check it before machining: “Frame in the air…” on 4 · Check.","Cero pieza: el guardado en la máquina. Compruébelo antes del mecanizado: «Encuadrar en vacío…» en 4 · Control."],
   ["Zéro pièce : celui enregistré dans la machine. Vérifiez-le avant la gravure : « Cadrer… » sur 4 · Contrôle.","Work zero: the one stored in the machine. Check it before engraving: “Frame…” on 4 · Check.","Cero pieza: el guardado en la máquina. Compruébelo antes del grabado: «Encuadrar…» en 4 · Control."]
 ]);
+/* Lot C1 (position carried by the report itself, dated spindle proof): families and codes, appended here. */
+(function(){
+  'use strict';
+  var data=window.CNCTouchRefus;
+  var families=[
+    ["position-non-confirmee","La machine n’a pas encore confirmé sa position. Attendez un instant ; si cela dure, vérifiez le câble.","The machine has not confirmed its position yet. Wait a moment; if it lasts, check the cable.","La máquina aún no ha confirmado su posición. Espere un momento; si persiste, compruebe el cable.","details"],
+    ["broche-commandee","La broche est commandée : arrêtez-la d’abord.","The spindle is commanded on: stop it first.","El husillo está activado: párelo primero.","arreter-broche"],
+    ["broche-inconnue","La machine ne dit pas si la broche est arrêtée. Attendez un instant, ou arrêtez la broche.","The machine does not say whether the spindle has stopped. Wait a moment, or stop the spindle.","La máquina no indica si el husillo está parado. Espere un momento o pare el husillo.","arreter-broche"]
+  ];
+  Array.prototype.push.apply(data.familles,families);
+  var codes={
+    "ETOUCH_MOTION_NO_POSITION":"position-non-confirmee",
+    "ETOUCH_MOTION_SPINDLE_COMMANDED":"broche-commandee",
+    "ETOUCH_MOTION_SPINDLE_UNKNOWN":"broche-inconnue",
+    "ETOUCH_PLATE_SPINDLE":"palpage-arrete",
+    "ETOUCH_PLATE_POSITION":"palpage-arrete",
+    "ETOUCH_PROBE_SPINDLE":"palpage-arrete"
+  };
+  Object.keys(codes).forEach(function(code){data.codes[code]=codes[code];});
+  window.CNCTouchMessages=(window.CNCTouchMessages||[]).concat(families.map(function(row){return row.slice(1,4);}));
+})();

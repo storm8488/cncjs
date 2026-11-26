@@ -1009,7 +1009,6 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     if (action === 'start') {
       idle(c);
       spindleStill(c);
-      spindleProven(c);
       if (record(c).loading) {
         throw conflict('Chargement en cours.');
       }
@@ -1058,6 +1057,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       }
       // A program (a resume from a line too) runs in work coordinates (D2).
       offsetReady(c);
+      // Lot C1, after the guards of before (their refusals keep their place): the spindle proven
+      // stopped by the reports themselves. A program then commands its spindle by itself.
+      spindleProven(c);
     } else {
       const kind = pauseKind(c);
       const state = controllerStatus(c).activeState;
@@ -1504,7 +1506,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     control,
     transports,
     transportActors,
-    zeroZReady,
+    zeroZReady: plateProbe.zeroZBase,
     answers,
     quiet,
     haltPlan,

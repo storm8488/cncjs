@@ -116,7 +116,9 @@ export const createProof = ({ clock, conflict }) => {
     if (rep.xyz) {
       const k = r.wcoKept;
       const sign = rep.frame === 'm' ? -1 : 1;
-      const other = k ? { x: rep.xyz.x + sign * k.x, y: rep.xyz.y + sign * k.y, z: rep.xyz.z + sign * k.z } : null;
+      // Rounded like the reports themselves (a sum of two decimals is not one in binary).
+      const sum = (axis) => Math.round((rep.xyz[axis] + sign * k[axis]) * 1e6) / 1e6;
+      const other = k ? { x: sum('x'), y: sum('y'), z: sum('z') } : null;
       const pos = {
         report: r.reports, at: clock(), state: rep.state, frame: rep.frame, m: rep.frame === 'm' ? rep.xyz : other, w: rep.frame === 'w' ? rep.xyz : other
       };

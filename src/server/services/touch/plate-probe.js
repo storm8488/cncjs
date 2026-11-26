@@ -108,7 +108,7 @@ export const createPlateProbe = (deps) => {
   // The plate probe runs at rest, or during a pause the program asked for
   // (tool change) once the machine has stopped, with the probe free, the
   // spindle still and the modal state known: G90 and G21.
-  const zeroZReady = (c) => {
+  const zeroZBase = (c) => {
     available(c);
     const r = record(c);
     if (homingActive(r)) {
@@ -184,13 +184,21 @@ export const createPlateProbe = (deps) => {
     if (hasAutomations(config)) {
       throw conflict('Des automatismes CNCjs sont configurés. Leur compatibilité doit être vérifiée avant utilisation.');
     }
-    // Lot C1, after every guard of before: the spindle proven stopped (a whole FS: at 0 in the last
-    // report, a recent $G naming M5 alone), a proven rest, and Z read from the report itself.
+  };
+  // Lot C1, after every guard of before: the spindle proven stopped (a whole FS: at 0 in the last
+  // report, a recent $G naming M5 alone), a proven rest, and Z read from the report itself. The
+  // block probe runs them after its own guards (block-probe.js).
+  const zeroZProofs = (c) => {
+    const r = record(c);
     throwIf(proof.spindleRefusal(r));
     throwIf(proof.positionRefusal(r));
     if (proof.posOf(r, 'w', 'Z') === null) {
       throw conflict('Position Z inconnue.');
     }
+  };
+  const zeroZReady = (c) => {
+    zeroZBase(c);
+    zeroZProofs(c);
   };
 
   const plateParams = (body) => {
@@ -644,5 +652,5 @@ export const createPlateProbe = (deps) => {
     stop(c, r, 'ETOUCH_PLATE_STREAM');
   };
 
-  return { zeroZReady, plateParams, plateTravel, answers, zeroZ, quiet, stop, spindleStop, supervise, holds, transportClosed };
+  return { zeroZReady, zeroZBase, zeroZProofs, plateParams, plateTravel, answers, zeroZ, quiet, stop, spindleStop, supervise, holds, transportClosed };
 };

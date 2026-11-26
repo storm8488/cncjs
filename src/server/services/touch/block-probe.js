@@ -403,6 +403,11 @@ export const createBlockProbe = (deps) => {
   const sessions = new WeakMap();
 
   const connected = (c) => controllers()[c.options.port] === c && !c.isClose() && !!c.runner;
+  const throwIf = (err) => {
+    if (err) {
+      throw err;
+    }
+  };
   const activeOf = (c) => controllerStatus(c).activeState || '';
   // Lot C1: the position of the last report itself ('mpos' machine, 'wpos' work), null axes otherwise.
   const positionOf = (c, kind) => {
@@ -469,6 +474,9 @@ export const createBlockProbe = (deps) => {
     }
     // Every G38.3 runs in work coordinates (D2).
     offsetReady(c);
+    // Lot C1, last: the spindle proven stopped and a proven rest, read from the reports themselves.
+    throwIf(proof.spindleRefusal(r));
+    throwIf(proof.positionRefusal(r));
   };
 
   const limitsFor = (travel) => {
@@ -760,6 +768,13 @@ export const createBlockProbe = (deps) => {
       // Where the machine stands as this line was computed (the caller read it in this very step).
       const from = proof.place(r);
       ensure();
+      if (!LINE.test(line)) {
+        throw failure('ETOUCH_PROBE_POSITION', { axis: '?' });
+      }
+      if (session.last) {
+        await waitFor(() => !missing(), Math.max(0, session.last.until - clock()));
+        ensure();
+      }
       // The stream rotated by the server: no new line until it is back (the
       // supervisor stops the cycle once its grace is over).
       if (!streamOpen()) {
@@ -768,13 +783,8 @@ export const createBlockProbe = (deps) => {
         }
         ensure();
       }
-      if (!LINE.test(line)) {
-        throw failure('ETOUCH_PROBE_POSITION', { axis: '?' });
-      }
       if (session.last) {
-        await waitFor(() => !missing(), Math.max(0, session.last.until - clock()));
         // The step of the write: everything is checked again here, after every wait.
-        ensure();
         const code = missing();
         if (code) {
           abort(code);
