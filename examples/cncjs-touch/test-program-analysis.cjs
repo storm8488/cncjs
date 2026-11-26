@@ -32,6 +32,8 @@ for (const entry of [null, undefined, { thickness: null, ref: 'top' }, { thickne
   assert.equal(s.state, 'ask'); assert.equal(s.result, 'Saisissez l’épaisseur du brut pour la comparer.'); assert.equal(s.depth, 'Le fichier descend à 50 mm sous le zéro Z.');
 }
 assert.equal(fr.stock({ zMin: 2 }, null).depth, 'Le fichier ne descend pas sous le zéro Z.');
+// A file that stays above the zero leaves the whole stock, never more than its thickness.
+for (const zMin of [2, 0]) same(fr.stock({ zMin }, { thickness: 18, ref: 'top' }), { state: 'ok', depth: 'Le fichier ne descend pas sous le zéro Z.', result: 'Il reste 18 mm de matière sous la fraise.', note: 'Calcul valable si le zéro Z est posé sur le dessus du brut.' });
 // Work zero on the spoilboard: what is below the zero is in the spoilboard, whatever the thickness.
 same(fr.stock({ zMin: -1.5 }, { thickness: null, ref: 'bed' }), { state: 'warn', depth: 'Le fichier descend à 1,5 mm sous le zéro Z.',
   result: 'La fraise descend 1,5 mm dans le martyr.', note: 'Calcul valable si le zéro Z est posé sur le martyr.' });
@@ -47,6 +49,8 @@ same(fr.tools({ tools: { list: [], truncated: false, changes: 0, changeLine: nul
 // Bounded again on the page: number of rows, length of a description, shape of an entry.
 named = fr.tools({ tools: { list: Array.from({ length: 30 }, (_, i) => ({ number: i, text: 'x'.repeat(500), line: i + 1 })).concat([null, 'T1', 7]), truncated: true, changes: 0 } });
 assert.equal(named.rows.length, 8); assert(named.rows.every((row) => row.length <= 80)); same(named.notes, ['Liste abrégée : le fichier en nomme davantage.']);
+// The description is cut by characters: the 60th, outside the basic plane, is kept whole.
+same(fr.tools({ tools: { list: [{ number: 2, text: 'x'.repeat(59) + '\u{1F600}\u{1F600}', line: 4 }] } }).rows, ['T2 · ' + 'x'.repeat(59) + '\u{1F600} · ligne 4']);
 // A server older than this lot sends no list: nothing is said about the tools.
 for (const c of [null, {}, { tools: null }, { tools: { list: 'T1' } }]) same(fr.tools(c), { known: false, rows: [], notes: [] });
 
@@ -196,6 +200,21 @@ const N1 = { tools: { list: [{ number: 1, text: '<img src=x onerror=alert(1)> & 
     assert.equal(p.node('pa-ref-top').textContent, en ? 'Z zero on top of the stock' : 'Cero Z sobre el material');
     assert.equal(p.node('pa-tools').textContent, en ? 'The file does not name its bit.' : 'El archivo no indica su fresa.');
     assert(!/Profondeur|Fraises|Montée|Épaisseur|Temps voulu|avertissements/.test(p.node('ks-program-analysis').textContent), language + ': the sheet is translated');
+  }
+  // The slow tablet: a machine state (several per second while cutting) never reads the storage again.
+  {
+    const p = fixture(), storage = p.context.localStorage, getItem = storage.getItem; let reads = 0;
+    storage.setItem('cncjs-touch-stock-v1', JSON.stringify({ files: { 'loaded.nc': { thickness: 18, ref: 'top', at: 1 } } }));
+    storage.getItem = function (key) { if (key === 'cncjs-touch-stock-v1') reads += 1; return getItem.apply(this, arguments); };
+    p.run('numeric-pad.js'); p.run('program-analysis.js'); p.send({ programCheck: check('validated', N1) });
+    const open = p.node('check-analysis-open'); assert.equal(open.textContent, '! 2 avertissements', 'the stored thickness is read');
+    const before = reads; assert(before >= 1);
+    for (let i = 0; i <= 20; i++) p.send({ activeState: i % 2 ? 'Run' : 'Idle', programCheck: check('validated', i % 2 ? N1 : { tools: N1.tools, spinUp: computed(9).spinUp }) });
+    assert.equal(reads, before, 'no storage read per machine state'); assert.equal(open.textContent, '! 1 avertissement', 'and the thickness still counts');
+    // Opening the sheet reads it again (a value changed elsewhere is seen), and a typed value is seen at once.
+    storage.setItem('cncjs-touch-stock-v1', JSON.stringify({ files: { 'loaded.nc': { thickness: 30, ref: 'top', at: 2 } } }));
+    open.click(); assert(reads > before); assert.equal(p.node('pa-thickness').value, '30'); assert.equal(p.node('pa-stock').textContent, '✓ Il reste 10 mm de matière sous la fraise.');
+    p.node('pa-thickness').value = '12'; fire(p.node('pa-thickness'), 'change'); assert.equal(p.node('pa-stock').textContent, '! La fraise descend 8 mm sous le brut : elle touchera le martyr.');
   }
   // The real page loads the module after the screen it extends; operator texts carry no setting or G-code name.
   assert(fs.readFileSync(path.join(__dirname, 'touch/index.html'), 'utf8').includes('<script defer src="check-screen.js?v=v2v"></script><script defer src="program-analysis.js?v=v2v"></script>'));

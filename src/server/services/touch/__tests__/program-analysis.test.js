@@ -73,6 +73,18 @@ describe('N1 tools named by the file', () => {
     expect(tools('(' + 'T1 '.repeat(2000000) + ')').list).toEqual([{ number: 1, text: 'T1 '.repeat(20).trim().slice(0, 60), line: null, noteLine: 1 }]);
   });
 
+  test('characters that reorder or hide text are dropped, and the cut never halves a character', () => {
+    // Right-to-left override, isolates, zero-width space and joiner, byte order mark, line separator.
+    expect(tools('; tool = \u202Eevil\u2066 6\u200Bmm\u200D\u2069 \uFEFFend\u2028mill\u200F').list[0].text).toBe('evil 6mm endmill');
+    // 59 letters then an astral character: the 60th character is kept whole, not as half a pair.
+    const [entry] = tools('; Tool: ' + 'x'.repeat(59) + '\u{1F600}\u{1F600}').list;
+    expect(entry.text).toBe('x'.repeat(59) + '\u{1F600}');
+    // The 200 units read of a comment may end inside a pair: the half is dropped.
+    expect(tools('; Tool: ab' + ' '.repeat(190) + '\u{1F600}').list[0].text).toBe('ab');
+    // Letters and typographic spaces of the file stay (a narrow no-break space reads as a space).
+    expect(tools('; Tool: café Ø 6\u202Fmm').list[0].text).toBe('café Ø 6 mm');
+  });
+
   test('500000 lines naming a tool each keep a bounded list', () => {
     const lines = ['G21 G90 G94 F600'];
     for (let i = 0; i < 500000; i++) {
@@ -173,6 +185,15 @@ describe('N1 spindle spin-up time before the first entry into the material', () 
     expect(check('').spinUp).toEqual({ state: 'noEntry', startLine: null, entryLine: null });
     // Nothing after the end of the program is read as an entry.
     expect(check('G21 G90\nM3 S1000\nG0 Z5\nM30\nG1 Z-1 F100').spinUp).toMatchObject({ state: 'noEntry' });
+  });
+
+  test('a start that may sit on a line that was not read is not computed, never « no start »', () => {
+    // A CNCjs expression, a number with a space (read otherwise by the board), a macro line.
+    expect(check('G21 G90\nM3 S1000 [x]\nG0 Z5\nG1 Z-1 F100').spinUp).toEqual({ state: 'unknown', startLine: null, entryLine: 4 });
+    expect(check('G21 G90\nM3 S1 000\nG0 Z5\nG1 Z-1 F100').spinUp).toEqual({ state: 'unknown', startLine: null, entryLine: 4 });
+    expect(check('G21 G90\n%wait\nG0 Z5\nG1 Z-1 F100').spinUp).toEqual({ state: 'unknown', startLine: null, entryLine: 4 });
+    // Such a line after the entry changes nothing: every line up to the entry was read.
+    expect(check('G21 G90\nG0 Z5\nG1 Z-1 F100\nM3 S1000 [x]').spinUp).toEqual({ state: 'noStart', startLine: null, entryLine: 3 });
   });
 
   test.each([

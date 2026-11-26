@@ -46,7 +46,9 @@ s'inquiéter, le bouton devient ambre et dit **« ! 1 avertissement »** ou
    - Le fichier descend sans avoir démarré la broche : « ! Le fichier ne démarre pas la
      broche avant de descendre (ligne 4). » (compte comme avertissement).
    - Non calculable : « Temps de montée en vitesse non calculé pour ce fichier. »,
-     jamais « correct ».
+     jamais « correct ». C'est aussi la réponse quand aucun démarrage n'a été lu mais
+     qu'une ligne avant la descente n'a pas pu être lue (expression CNCjs, nombre coupé par
+     une espace) : le démarrage peut s'y trouver, la page n'affirme pas qu'il manque.
    - Broche démarrée avant les premiers déplacements (cas des fichiers Fusion 360) :
      le trajet d'approche dépend de l'endroit où est la fraise au départ. Si ce qui est
      calculable suffit : « Au moins 5 s… ». Sinon : « Au moins 0,7 s, plus le trajet
@@ -95,7 +97,7 @@ des post-processeurs, sans fichier réel sous la main.
 
 ## Tests
 
-- `program-analysis.test.js`, 28 cas : formes de commentaires, mots `T` et `M6` lus dans
+- `program-analysis.test.js`, 30 cas : formes de commentaires, mots `T` et `M6` lus dans
   le code seulement, commentaires voisins qui ne sont pas des fraises, texte gardé tel
   quel sans caractère de contrôle et borné, ligne de 6 Mo non parcourue, **500 000 lignes
   nommant chacune une fraise** (liste de 8, moins de 2 Ko) ; temps de broche (départ type
@@ -121,7 +123,7 @@ Lancées depuis l'arbre `cncjs-wt/N1` le 26 novembre, après le dernier changeme
 | Vérification | Résultat |
 |---|---|
 | `node examples/cncjs-touch/verify-project.cjs` | « 232/232 contrôles réussis. Aucun essai matériel. », sortie 0 (dont `test-program-analysis.cjs`). |
-| `npx jest src/server/services/touch src/server/services/cncengine src/server/api grbl-simulator --coverage=false` | 58 suites réussies sur 58, 1 808 tests réussis sur 1 808, sortie 0 (relancé après la correction de relecture). |
+| `npx jest src/server/services/touch src/server/services/cncengine src/server/api grbl-simulator --coverage=false` | 58 suites réussies sur 58, 1 810 tests réussis sur 1 810, sortie 0 (relancé après les corrections des constats mineurs). |
 | ESLint sur les fichiers serveur touchés et leurs tests | Aucune erreur, aucun avertissement. Les fichiers de la page (`touch/*.js`, `test-*.cjs`) passés à ESLint ne donnent rien non plus. |
 | `node examples/cncjs-touch/browser-run.cjs --strict --only responsive,sim,screens,small` (deux passes) | Sortie 1 avec **cinq défauts, tous dans `HARNAIS-CONNU.md`** : les deux « comparison squeezed into a side column » (bibliothèque 1920 × 1080 v2), « screens: timeout: library not followed », et les deux mots coupés de Suivi en alarme à 1366 × 768 (« Reprendre », « Reanudar »). Aucun autre défaut. |
 
@@ -134,6 +136,21 @@ harnais navigateur et la mesure de temps d'analyse ci-dessous **n'ont pas été 
 (le lot ne touche ni Suivi, ni les réglages, ni le démarrage ; la v2 Performance n'a pas été
 mesurée avec le bouton). L'étape `screens` s'arrête sur son défaut connu (« library not
 followed ») : ce qu'elle mesure après ce point ne l'a donc pas été, comme sur la base.
+
+## Constats mineurs de relecture, corrigés ensuite
+
+Un test par correction, chacun vu en échec sans elle (code remis à l'ancien, test gardé).
+
+| Constat | Correction | Test |
+|---|---|---|
+| Fausse alerte « ne démarre pas la broche » quand le `M3` est sur une ligne non lue (`M3 S1000 [x]`, `M3 S1 000`, macro) | `program-check.js` : une ligne non lue avant la première descente rend « non calculé » ; « ne démarre pas la broche » seulement si toutes les lignes jusqu'à la descente ont été lues. | `program-analysis.test.js`, « a start that may sit on a line that was not read… » |
+| « Il reste 20 mm de matière » pour un brut de 18 mm quand le fichier reste au-dessus du zéro Z | `touch/program-analysis.js` : la profondeur comparée est bornée à 0 ; la page dit « Il reste 18 mm… ». | `test-program-analysis.cjs`, `zMin` 2 et 0 avec épaisseur |
+| Lecture du stockage du navigateur à chaque état de la machine | La page garde ce qu'elle a lu, par fichier ; relu seulement à l'ouverture du volet et après une saisie. | `test-program-analysis.cjs`, 21 états de suite sans aucune lecture, puis relecture à l'ouverture |
+| Caractères de direction et de largeur nulle gardés dans le texte d'outil ; coupe au milieu d'un caractère | Serveur : ces caractères (U+061C, U+200B à U+200F, U+2028 à U+202E, U+2060 à U+2069, U+FEFF) et les demi-paires sont retirés ; coupe à 60 caractères entiers, côté serveur et côté page. | `program-analysis.test.js`, « characters that reorder or hide text… » ; `test-program-analysis.cjs`, 60ᵉ caractère hors plan de base |
+
+Non relancés après ces corrections : le harnais navigateur et les mesures de temps
+ci-dessous. Le rendu du volet n'a pas été revu à l'écran (aucun texte nouveau, aucune
+règle de style touchée).
 
 ## Temps d'analyse et mémoire, avant / après
 
@@ -153,11 +170,35 @@ grandeur du rapport P5 s'applique : plusieurs fois plus lent que le PC, dans les
 Le test Jest « 500 000 lignes » vérifie la borne de la liste (8 lignes, moins de 2 Ko), pas
 le temps.
 
+### Le contrôle d'aperçu de 2 · Fichier coûte plus qu'avant
+
+Le tableau ci-dessus compare à contexte égal (profil de durée fourni des deux côtés). Or
+le contrôle d'aperçu de 2 · Fichier (`checkFile`, `job-load.js`) ne passait pas par le
+modèle de durée avant ce lot ; il y passe maintenant, pour le temps de broche. Pour ce
+chemin, la vraie comparaison est « base sans contexte → N1 avec contexte ». Mesure du
+relecteur sur le PC, 500 000 lignes, médiane de cinq (non refaite par l'auteur) :
+
+| Fichier | Aperçu avant (sans modèle de durée) | Aperçu après (avec) |
+|---|---|---|
+| Sans commentaire | 894 ms | 1 084 ms (+21 %) |
+| Un commentaire de fraise par ligne (pire cas) | 985 ms | 1 551 ms (+57 %) |
+
+L'analyse reste synchrone sur la boucle du serveur, comme avant : pendant ce temps le
+serveur ne répond à rien d'autre. Sur la tablette (non mesurée), compter plusieurs fois
+ces valeurs pour un fichier de cette taille ; le fichier chargé, lui, payait déjà ce coût.
+
 ## Limites
 
 - Le temps de broche n'est calculé que si le modèle de durée suit le fichier jusqu'à la
   première descente. Un fichier avec `M6`, `M0` ou un `G53` avant la descente donne
   « non calculé » : c'est le cas de beaucoup de post-processeurs autres que Grbl.
+- **Fusion 360 : en pratique, pas de chiffre.** Un fichier Fusion 360 réel commence par
+  `G28 G91 Z0`, que le modèle de durée ne suit pas : « non calculé » (rejoué par le
+  relecteur). Le fichier Fusion du corpus, sans cette ligne, donne « Au moins 0,7 s, plus
+  le trajet d'approche : non calculé. » Aujourd'hui seule la forme Vectric (fraise placée
+  avant le démarrage de la broche) produit un temps et donc un avertissement. C'est le
+  choix prudent demandé (jamais « correct » sans calcul), mais l'utilité du point (6) est
+  limitée d'autant ; à dire à l'opérateur à l'essai N1.
 - Broche démarrée avant le premier déplacement : borne basse seulement (le trajet
   d'approche n'est pas compté).
 - Le temps affiché est calculé à rapides 100 % et avance 100 % (ou plus si l'avance lue
