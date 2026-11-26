@@ -93,7 +93,7 @@ Partagés, modifications minimales :
 - Résultats sur le code livré (26 novembre, PC) :
   - `node examples/cncjs-touch/verify-project.cjs` → « 232/232 contrôles réussis » ;
   - `npx jest src/server/services/touch src/server/services/cncengine src/server/api grbl-simulator --coverage=false`
-    → 60 suites, 1800 tests réussis ;
+    → 60 suites, 1801 tests réussis ;
   - ESLint sans remarque sur les fichiers touchés ;
   - `node examples/cncjs-touch/browser-run.cjs --strict --only settings` (Edge 158) → « 0 violation(s), 0 excepted »,
     « every step passed » ; l'étape `startup` passée aussi avant les deux dernières retouches.
@@ -105,8 +105,17 @@ Partagés, modifications minimales :
   CNCjs ne relit `$$` qu'à la connexion et sur « Relire ». Un `$n=` tapé dans la console de CNCjs,
   ou par le Wi-Fi de la carte, n'est vu qu'après « Relire ». Un redémarrage de la carte sans
   reconnexion ne provoque pas de relecture : la ligne d'écart ne bouge pas tant qu'on n'a pas relu.
-- La ligne de 1 · Machine n'est demandée au serveur qu'une fois par lecture des réglages
-  (connexion, relecture, redémarrage de carte compté) : une requête, y compris en v1 Éco.
+- La ligne de 1 · Machine est demandée au serveur deux fois par lecture des réglages (connexion,
+  relecture, redémarrage de carte compté) : à la fin de la lecture, puis une fois 400 ms plus tard,
+  y compris en v1 Éco. Raison (constat de relecture) : CNCjs ne recopie ce que son analyseur a lu
+  vers le contrôleur que par une minuterie de 250 ms, après le `ok`. Tant que la copie n'est pas
+  faite, le serveur refuse sauvegarde et comparaison (« lecture en cours ») et la liste ne donne
+  aucun écart ; la seconde demande apporte le vrai. Sans cela, après « Relire », la carte pouvait
+  garder « mêmes réglages » sur les anciennes valeurs.
+- Reste une fenêtre étroite à la connexion : si la minuterie de CNCjs tombe au milieu de la réponse
+  `$$` et qu'aucune ligne n'est encore arrivée ensuite, la copie partielle paraît à jour un instant.
+  L'écart affiché est corrigé par la seconde demande ; une sauvegarde touchée dans ces quelques
+  dixièmes de seconde serait incomplète (visible à son nombre de réglages).
 - Une écriture de fichier coupée (panne de courant) laisse un fichier « illisible » dans la liste ;
   il est compté dans la borne et finira supprimé avec les plus anciens.
 - Les sauvegardes sont communes à toutes les machines du serveur ; chaque ligne porte son port, son
@@ -118,6 +127,8 @@ Partagés, modifications minimales :
 
 ## Non vérifié
 
+- Le délai de 250 ms de CNCjs après « Relire » est établi par lecture de GrblController.js et
+  rejoué par test avec un faux contrôleur, pas sur la carte.
 - Rien sur la vraie carte, la vraie Surface, la RT (Chromium 106) : ni l'écriture du dossier sur
   la tablette (droits de l'utilisateur du service), ni le téléchargement en kiosque.
 - Le rendu de la ligne ajoutée sur 1 · Machine (hauteur à 1366 × 768 et 1366 × 911) n'a été ni vu

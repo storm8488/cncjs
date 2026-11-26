@@ -46,14 +46,18 @@ function setup({ language = 'fr', machine = LUNYEE, tab = 'machine', session = t
   XMLHttpRequest.prototype.setRequestHeader = function (k, v) { this.headers[k] = v; };
   XMLHttpRequest.prototype.send = function (body) { requests.push(this); this.body = body ? JSON.parse(body) : null; };
   function Blob(parts, options) { this.text = parts.join(''); this.type = options.type; }
-  const context = { window, document, XMLHttpRequest, localStorage, JSON, Date, Blob, Array, Number, String, Math, encodeURIComponent };
+  // The page's timers, run by hand: tick() fires those that are due and not cancelled.
+  const timers = [];
+  const setTimeout = (f, ms) => { timers.push({ f, ms }); return timers.length; }, clearTimeout = (id) => { if (timers[id - 1]) timers[id - 1].f = null; };
+  const tick = () => timers.splice(0).filter((x) => x.f).map((x) => { x.f(); return x.ms; });
+  const context = { window, document, XMLHttpRequest, localStorage, JSON, Date, Blob, Array, Number, String, Math, encodeURIComponent, setTimeout, clearTimeout };
   // The real catalogs and translator: every phrase of the card exists in the three languages.
   ['i18n-messages.js', 'i18n-messages-backup.js', 'i18n.js'].forEach((name) => vm.runInNewContext(read(name), Object.assign(context, { document: Object.assign(document, { documentElement: {}, title: '' }) })));
   vm.runInNewContext(source, context);
   const card = panel.children[0];
   const answer = (x, status, data) => { x.status = status; x.responseText = data === undefined ? 'Forbidden' : JSON.stringify(data); x.onload(); };
   const status = () => { if (listeners['cnc-job-status']) listeners['cnc-job-status'](); };
-  return { state, requests, listeners, saved, reads, panel, card, machineList, layout, answer, status, window,
+  return { state, requests, listeners, saved, reads, panel, card, machineList, layout, answer, status, window, tick,
     text: () => all(card, visible).filter((c) => !c.children.length).map((c) => c.textContent).join('\n'),
     button: (cls, i = 0) => byClass(card, cls)[i] };
 }
@@ -206,6 +210,41 @@ const LIST = { backups: [NEW, OLD], max: 20, drift: { id: NEW.id, at: NEW.at, ch
     assert.equal(p.button('ks-backup-export').disabled, false, 'a saved file can still be exported');
     assert.match(p.text(), /Machine non connectée : la liste reste consultable, pas la comparaison\./);
     assert.equal(p.requests.length, 0);
+  }
+
+  // ---- « Relire » ends before CNCjs has handed the reading over: the list is asked once more ----
+  {
+    const p = setup();
+    while (p.requests.length) p.answer(p.requests.shift(), 200, LIST);
+    p.tick();
+    while (p.requests.length) p.answer(p.requests.shift(), 200, LIST);
+    // The operator changed a setting elsewhere, then « Relire »: reading, then read.
+    p.state.machine = { ...LUNYEE, refusals: { readSettings: { code: 'ETOUCH_SETTINGS_READING' } } }; p.status();
+    p.state.machine = { ...LUNYEE }; p.status();
+    assert.equal(p.requests.length, 1, 'asked at the end of the reading');
+    // That answer predates the handover: it still tells the previous reading.
+    p.answer(p.requests.shift(), 200, LIST);
+    assert.match(p.text(), /La carte a les mêmes réglages que la dernière sauvegarde\./);
+    // The state is published again with the same key (the new settings reached the controller).
+    p.state.machine = { ...LUNYEE }; p.status();
+    assert.equal(p.requests.length, 0, 'not on every state');
+    assert.deepEqual(p.tick(), [400], 'one delayed request, past the 250 ms of CNCjs');
+    assert.equal(p.requests.length, 1, 'the list is asked once more');
+    p.answer(p.requests.shift(), 200, { ...LIST, drift: { id: NEW.id, at: NEW.at, changed: 2 } });
+    assert.match(p.text(), /2 réglages de la machine ont changé depuis la sauvegarde du 26\/11\/2026/);
+    assert(!/La carte a les mêmes réglages/.test(p.text()));
+    assert.equal(p.machineList.children.length, 2, 'the line on 1 · Machine follows');
+    assert.deepEqual(p.tick(), [], 'once: no polling');
+    p.status(); assert.equal(p.requests.length, 0);
+    // A new reading, or the machine leaving, cancels a pending request: nothing is asked meanwhile.
+    p.state.machine = { ...LUNYEE, startups: 2 }; p.status();
+    p.answer(p.requests.shift(), 200, LIST);
+    p.state.machine = { ...LUNYEE, startups: 2, refusals: { readSettings: { code: 'ETOUCH_SETTINGS_READING' } } }; p.status();
+    assert.deepEqual(p.tick(), []); assert.equal(p.requests.length, 0);
+    p.state.machine = { ...LUNYEE, startups: 2 }; p.status();
+    p.answer(p.requests.shift(), 200, LIST);
+    p.state.machine = null; p.status();
+    assert.deepEqual(p.tick(), []); assert.equal(p.requests.length, 0);
   }
 
   // ---- No settings read, no backup, hidden tab, old server, no session ----

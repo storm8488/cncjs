@@ -329,6 +329,14 @@ const boardSettings = async (port) => {
   if (busy && busy.code === 'ETOUCH_SETTINGS_READING') {
     throw busy;
   }
+  // CNCjs copies what its parser read into `controller.settings` by a 250 ms timer: until then
+  // the copy is the previous reading (after « Relire ») or a part of the first one (at connection).
+  const c = (store.get('controllers') || {})[port];
+  if (c && c.runner && c.runner.settings && c.runner.settings !== c.settings) {
+    throw Object.assign(new Error('Lecture de la version et des réglages en cours : patientez quelques secondes.'), {
+      status: 409, code: 'ETOUCH_SETTINGS_READING'
+    });
+  }
   const board = await service.action({ action: 'settings', port });
   const machine = service.list().find((m) => m && m.port === port);
   const profile = (machine && machine.machineProfile) || {};

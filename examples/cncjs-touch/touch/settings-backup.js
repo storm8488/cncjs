@@ -221,12 +221,20 @@
 
   // The board's settings were read (connection, « Relire », another board): ask once what changed
   // since the last backup. Nothing is asked while they are missing or being read.
+  // CNCjs hands a reading over to its controller up to 250 ms after the board's `ok`, without any
+  // change of this key: the first answer may predate it (the server then gives no drift, or the
+  // drift of a partial first reading), so the list is asked once more when that delay has passed.
+  var SETTLE_MS = 400, settle = 0;
   function follow() {
     var m = machine(), key = m ? [m.port, m.generation, m.startups, settingsRead(m), reading(m)].join('|') : '';
     if (key !== loadedKey) {
       loadedKey = key;
+      clearTimeout(settle); settle = 0;
       if (!m) { if (info) info.drift = null; compared = null; paintResult(); }
-      else if (settingsRead(m) && !reading(m)) { compared = null; paintResult(); load(); }
+      else if (settingsRead(m) && !reading(m)) {
+        compared = null; paintResult(); load();
+        settle = setTimeout(function () { settle = 0; var now = machine(); if (now && settingsRead(now) && !reading(now)) load(); }, SETTLE_MS);
+      }
     }
     paint();
   }

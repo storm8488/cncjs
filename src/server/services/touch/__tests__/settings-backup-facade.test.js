@@ -158,6 +158,24 @@ describe('settings backups through the touch facade (lot N8)', () => {
     req.emit('close');
   });
 
+  test('refused until CNCjs has copied what its parser read (the 250 ms timer of the controller)', async () => {
+    const c = connect();
+    const out = await touch.settingsBackupAction({ action: 'save', port: 'COM3' });
+    // « Relire » has answered `ok`: the parser holds the new values, the controller still the old ones.
+    const held = store.get('controllers').COM3;
+    c.runner.settings = { version: '1.1f', settings: { ...LUNYEE, $130: '400.000' } };
+    await expect(touch.settingsBackupAction({ action: 'save', port: 'COM3' })).rejects.toMatchObject({ status: 409, code: 'ETOUCH_SETTINGS_READING' });
+    await expect(touch.settingsBackupAction({ action: 'compare', port: 'COM3', id: out.saved.id }))
+      .rejects.toMatchObject({ status: 409, code: 'ETOUCH_SETTINGS_READING' });
+    // Never « the same settings » on the old values: the list alone.
+    expect((await touch.settingsBackupList('COM3')).drift).toBeNull();
+    expect(files()).toEqual([out.saved.id]);
+    // The timer has run: the change is seen.
+    held.settings = c.runner.settings;
+    expect((await touch.settingsBackupList('COM3')).drift).toEqual({ id: out.saved.id, at: out.saved.at, changed: 1 });
+    expect(c.sent).toEqual([]);
+  });
+
   test('an unknown action is refused: there is no restoring, writing or deleting action', async () => {
     const c = connect();
     await Promise.all(['restore', 'write', 'delete', undefined].map((action) => (
