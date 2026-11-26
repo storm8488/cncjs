@@ -198,3 +198,26 @@ Les fenêtres trouvées par la relecture (rotation du flux, bannière, `jogCance
 2. Même geste pendant un usinage en cours, puis en pause : le bouton est rayé avec sa phrase, la main reste à la tablette, rien ne bouge ; « Voir l'usinage » ouvre l'écran 5.
 3. Un pas long et lent (X 50 mm à 100 mm/min) : pendant qu'il court, rendre la main ; le pas s'arrête net (Jog → Idle, `0x85` au journal) et rien ne repart seul.
 4. Pendant un cadrage à vide (§ 8, table vide) : rendre la main l'arrête (« Cadrage arrêté : le pilotage a changé de main »), un seul arrêt, la fraise reste en haut.
+
+## N1 — Analyse du fichier (essai réel, sans mouvement puis sur un usinage habituel)
+
+Rien de cette fonction ne commande la machine : l'essai vérifie que les trois avertissements disent vrai sur vos fichiers. Détail : `../plaque/N1-RAPPORT.md`.
+
+| # | Geste | Attendu |
+|---|---|---|
+| N1-1 | 2 · Fichier : toucher un fichier Vectric habituel. | À droite de la ligne du verdict, « Analyse du fichier… » (ou « ! 1 avertissement », ambre). Rien d'autre n'a bougé sur l'écran. |
+| N1-2 | Ouvrir le volet. Lire « Le fichier descend à N mm sous le zéro Z. » | N est la profondeur de coupe que vous avez réglée dans Vectric (la même que « Profondeur sous le zéro » de l'écran). |
+| N1-3 | Toucher « Épaisseur du brut », saisir l'épaisseur mesurée de la planche au pied à coulisse, Valider. | Détourage prévu traversant de 0,5 mm : « ! La fraise descend 0,5 mm sous le brut : elle touchera le martyr. » Poche non traversante : « ✓ Il reste N mm de matière sous la fraise. » Comparer N à votre dessin. |
+| N1-4 | Toucher « Zéro Z sur le martyr », puis revenir à « Zéro Z sur le dessus du brut ». | La phrase change (« … dans le martyr ») puis revient. La ligne grise dit sur quelle hypothèse repose le calcul. |
+| N1-5 | Fermer, toucher un autre fichier, rouvrir le volet ; puis revenir au premier. | L'autre fichier n'a pas d'épaisseur ; le premier a gardé la sienne. |
+| N1-6 | « Fraises du fichier ». | Le numéro de fraise écrit par Vectric et sa ligne, ou « Le fichier n'indique pas sa fraise. » Noter ce que vos fichiers donnent vraiment (une photo du volet suffit) : c'est le point le moins vérifié. |
+| N1-7 | « Montée en vitesse de la broche ». | Un temps en secondes, les deux lignes du fichier (démarrage de la broche, première descente), ou « non calculé ». Ouvrir le fichier sur le PC et vérifier que ces deux lignes sont les bonnes. |
+| N1-8 | Charger le fichier, 4 · Contrôle. | Le même bouton à côté de « Détails du contrôle », avec le même nombre d'avertissements. « Démarrer l'usinage… » n'est ni rayé ni changé par un avertissement. |
+| N1-9 | **Usinage habituel, fraise en l'air ou pièce d'essai** : au départ, chronométrer de la mise en route de la broche à l'instant où la fraise touche la matière. Écouter si la broche a atteint son régime avant. | Le temps mesuré est égal ou un peu supérieur au temps affiché (le calcul ignore les accélérations). Si la broche n'est pas à son régime à la descente, c'est l'avertissement qui avait raison : ajouter une temporisation dans le post-processeur de Vectric et refaire N1-7. |
+| N1-10 | Régler « Temps voulu » à la durée de montée réelle de votre broche (mesurée en N1-9), fermer, rouvrir. | La valeur est gardée ; l'avertissement suit ce seuil. |
+| N1-11 | Recharger la page (ou redémarrer la tablette), rouvrir le volet du même fichier. | Épaisseur, choix du zéro Z et temps voulu sont revenus. |
+| N1-12 | Sur la RT (laser), 2 · Fichier et 4 · Contrôle. | Aucun bouton « Analyse du fichier… » ; écrans inchangés. |
+
+Ne pas essayer de « vérifier » un avertissement de profondeur en usinant : il se vérifie au pied à coulisse et sur le dessin.
+
+**Relevé à rendre** : pour deux ou trois fichiers habituels, la profondeur affichée, ce que dit « Fraises du fichier », le temps de broche affiché et le temps chronométré, le temps de montée réel de la broche, et toute phrase fausse ou incomprise.
