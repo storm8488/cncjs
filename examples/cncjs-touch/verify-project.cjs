@@ -43,6 +43,8 @@ const tests = [
  'f5-f10',
  // Night of 26 November, lot N1: file analysis (stock depth, tools, spindle spin-up).
  'program-analysis'
+ // Lot N3: notification of the end, of a pause and of an alarm.
+ 'notify'
 ].map(name=>'test-'+name+'.cjs');
 // The backend (job service, event stream, motion preflight, probe input) lives in
 // src/server/services/touch and is covered by the root Jest suite (`yarn test`).

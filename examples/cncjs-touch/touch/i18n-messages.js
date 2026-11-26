@@ -2022,4 +2022,30 @@ window.CNCTouchMessages.push(
 ['La broche n’a que {n} s pour monter en vitesse.','The spindle has only {n} s to reach its speed.','El husillo solo tiene {n} s para alcanzar su velocidad.'],
 ['Ajoutez une temporisation après le démarrage de la broche, dans le post-processeur.','Add a dwell after the spindle start, in the post-processor.','Añada una espera tras el arranque del husillo, en el posprocesador.'],
 ['Ces avertissements n’empêchent pas de démarrer.','These warnings do not prevent starting.','Estos avisos no impiden iniciar.']
+// Lot N3: notification banner and sound (notify.js).
+(window.CNCTouchMessages=window.CNCTouchMessages||[]).push(
+['Usinage terminé','Machining finished','Mecanizado terminado'],
+['Gravure terminée','Engraving finished','Grabado terminado'],
+['{n} lignes refusées par la machine : vérifiez la pièce.','{n} lines refused by the machine: check the part.','{n} líneas rechazadas por la máquina: revise la pieza.'],
+['Changement de fraise demandé par le fichier.','Bit change requested by the file.','Cambio de fresa pedido por el archivo.'],
+['Une ligne a été refusée par la machine.','The machine refused a line.','La máquina ha rechazado una línea.'],
+['Porte ouverte.','Door open.','Puerta abierta.'],
+['La machine s’est mise en pause.','The machine paused itself.','La máquina se ha puesto en pausa.'],
+['Usinage en pause.','Machining paused.','Mecanizado en pausa.'],
+['Gravure en pause.','Engraving paused.','Grabado en pausa.'],
+['La machine s’est arrêtée.','The machine has stopped.','La máquina se ha detenido.'],
+['Touchez ce message pour le fermer.','Touch this message to close it.','Toque este mensaje para cerrarlo.'],
+['Son bloqué par le navigateur : touchez l’écran une fois.','Sound blocked by the browser: touch the screen once.','Sonido bloqueado por el navegador: toque la pantalla una vez.'],
+['Son des notifications','Notification sound','Sonido de los avisos'],
+['Un son court à la fin de l’usinage, à chaque pause et à chaque alarme. Le message à l’écran reste toujours affiché.','A short sound when machining ends, at every pause and at every alarm. The on-screen message is always shown.','Un sonido corto al terminar el mecanizado, en cada pausa y en cada alarma. El mensaje en pantalla se muestra siempre.'],
+['Coupé','Off','Apagado'],
+['Faible','Low','Bajo'],
+['Moyen','Medium','Medio'],
+['Fort','Loud','Alto'],
+['Essayer le son','Test the sound','Probar el sonido'],
+['Trois sons : fin, pause, puis alarme.','Three sounds: end, pause, then alarm.','Tres sonidos: fin, pausa y alarma.'],
+['Son indisponible dans ce navigateur.','Sound unavailable in this browser.','Sonido no disponible en este navegador.'],
+['Son coupé : seul le message s’affiche.','Sound off: only the message is shown.','Sonido apagado: solo se muestra el mensaje.'],
+['Son prêt.','Sound ready.','Sonido listo.'],
+['Son en attente : touchez l’écran une fois après l’ouverture de la page.','Sound waiting: touch the screen once after the page opens.','Sonido en espera: toque la pantalla una vez tras abrir la página.']
 );

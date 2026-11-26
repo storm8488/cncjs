@@ -242,3 +242,25 @@ Rien ne bouge et rien n'est écrit dans la carte : cet essai peut se faire broch
 Ne **pas** essayer : restaurer une sauvegarde par un script ; changer `$20`–`$23`, `$100`–`$132` ou `$39` « pour voir » la comparaison (N8-6 prend un réglage sans effet sur les courses).
 
 **Relevé à rendre** : N lu en N8-2, contenu du fichier, ce que fait « Exporter » en kiosque, toute différence annoncée à tort.
+
+## N3 — Notification de fin, de pause et d'alarme (ajouté le 26 novembre 2026)
+
+Aucune commande nouvelle : la page lit l'état déjà publié. Compte rendu : `../plaque/N3-RAPPORT.md`. À faire dans l'ordre ; s'arrêter à la première surprise et la noter.
+
+| Étape | Geste | Attendu |
+|---|---|---|
+| N3-A1 | Sans machine. Plus → Réglages → Affichage, carte « Son des notifications ». Toucher « Essayer le son ». | Trois sons distincts : fin (trois notes montantes), pause (deux notes égales), alarme (deux tons alternés). La ligne dit « Trois sons : fin, pause, puis alarme. ». Noter si le son s'entend à trois mètres, broche et aspirateur arrêtés, puis en marche. |
+| N3-A2 | Choisir Faible, Moyen, Fort, puis Coupé ; recharger la page. | Le choix est gardé. Sur Coupé, « Essayer le son » est grisé et la ligne dit « Son coupé : seul le message s'affiche. ». Remettre Fort. |
+| N3-A3 | Recharger la page et ne rien toucher : lire la carte. Toucher l'écran une fois. | Avant le toucher : « Son en attente : touchez l'écran une fois… ». Après : « Son prêt. ». |
+| N3-B1 | Page de simulation, sur le PC (`simulation.html`, jamais sur la tablette de la machine). Lancer un usinage fictif et s'éloigner à trois mètres. | Environ deux secondes après la fin : son de fin, bandeau vert « Usinage terminé » avec le nom du fichier, lisible de loin. Il reste jusqu'au toucher. Pause et Arrêter du haut restent visibles et touchables. |
+| N3-B2 | Simulation : pendant un usinage fictif, toucher Pause sur la tablette. Puis refaire en déclenchant la pause autrement, sans toucher l'écran pendant trois secondes avant (si la simulation le permet). | Pause touchée sur cet écran : pas de bandeau (le bandeau du haut dit déjà « Pause »). Pause venue d'ailleurs : son de pause et bandeau orange « Pause ». Le bandeau part seul à la reprise. À la reprise elle-même : ni son ni bandeau de pause. |
+| N3-B3 | Simulation : déclencher l'alarme fictive, si la page le propose. Puis déverrouiller sans toucher le bandeau. | Son d'alarme, bandeau rouge « Alarme N » avec sa cause. Il ne part **pas** seul, même après le déverrouillage ; un toucher le ferme. |
+| N3-C1 | Machine réelle, connectée, au repos, **déjà en alarme ou travail terminé**, recharger la page. | Aucun bandeau, aucun son : rien d'ancien n'est rejoué. |
+| N3-C2 | Machine réelle, fraise en l'air, broche débranchée. Charger un petit fichier qui contient une ligne `M0` au milieu, le lancer, s'éloigner. | À la ligne `M0` : son de pause, bandeau « Pause — Pause demandée par le fichier. ». Reprendre : le bandeau part. À la fin : son de fin et « Usinage terminé ». |
+| N3-C3 | Même essai avec une ligne `M6` (changement de fraise) à la place de `M0`. | « Pause — Changement de fraise demandé par le fichier. » ; la carte d'Usinage reste utilisable sous le bandeau une fois celui-ci fermé. |
+| N3-C4 | Pendant un usinage à vide, pause depuis CNCjs classique sur le PC (tablette non touchée depuis trois secondes). | Son de pause et bandeau « Pause — Usinage en pause. » sur la tablette. |
+| N3-C5 | Ouvrir une confirmation (par exemple « Prise d'origine machine… ») et la laisser ouverte pendant qu'un événement arrive (fin d'un fichier lancé depuis le PC). | Le son joue ; la confirmation reste au-dessus, sa case et ses boutons répondent ; le bandeau est visible derrière et se ferme après la confirmation. |
+| N3-C6 | Une alarme réelle n'est **pas** à provoquer. Si une alarme survient pendant les essais : noter si le son et le bandeau sont venus. | Bandeau rouge jusqu'au toucher ; « Remise en route » reste dans le bandeau du haut. |
+| N3-D1 | Tablette du laser (RT), après sa mise à jour : A1 à A3, puis une gravure courte. | Mêmes sons ; « Gravure terminée ». Noter si le son de la RT est assez fort. |
+
+**Relevé à rendre** : son entendu ou non à trois mètres pour chaque volume, lisibilité du bandeau à trois mètres (sombre et clair), tout bandeau venu sans raison ou resté absent, toute commande gênée par le bandeau.
