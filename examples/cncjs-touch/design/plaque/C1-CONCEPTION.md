@@ -1,6 +1,6 @@
-# C1 — Position portée par le rapport, broche datée : conception (révision 2)
+# C1 — Position portée par le rapport, broche datée : conception (révision 3)
 
-Nuit du 26 novembre 2026. Arbre `cncjs-wt/C1`, branche `feat/C1`. **Conception seule : aucun code, aucun test écrit ni lancé, rien d'essayé sur la tablette ni sur la CNC.** Fait suite à `CONSTAT-RAPPORTS-SANS-POSITION.md` et aux contre-avis d'Astra sur N4. **Révision 2** : après le contre-avis d'Astra sur la révision 1 (`C1-AVIS-ASTRA-1.md`, verdict « à revoir ») ; les réponses point par point sont au § 8. Les numéros `fichier:ligne` ont été relus cette nuit dans cet arbre.
+Nuit du 26 novembre 2026. Arbre `cncjs-wt/C1`, branche `feat/C1`. **Conception seule : aucun code, aucun test écrit ni lancé, rien d'essayé sur la tablette ni sur la CNC.** Fait suite à `CONSTAT-RAPPORTS-SANS-POSITION.md` et aux contre-avis d'Astra sur N4. **Révision 2** : après le contre-avis d'Astra sur la révision 1 (`C1-AVIS-ASTRA-1.md`, verdict « à revoir ») ; les réponses point par point sont au § 8. **Révision 3** : après son second contre-avis (`C1-AVIS-ASTRA-2.md`, « à revoir, corrections ciblées ») ; réponses au § 9. Règle de cette dernière passe : une garde qui créerait un faux refus sur un parcours normal (départ d'un programme, reprise, sortie d'alarme par `$H` / `$X`) est **retirée**, et le risque restant est écrit comme limite. Les numéros `fichier:ligne` ont été relus cette nuit dans cet arbre.
 
 ## 0. Lecture rapide
 
@@ -17,7 +17,7 @@ Nuit du 26 novembre 2026. Arbre `cncjs-wt/C1`, branche `feat/C1`. **Conception s
 
 **R-2, repos prouvé.** La machine est « arrivée » quand les **deux derniers** rapports reçus portent la position, disent `Idle`, donnent la même position à 0,01 mm, et sont tous deux postérieurs à l'`ok` de la ligne.
 
-**R-3, broche.** La broche est tenue pour arrêtée seulement sur deux preuves **positives** : le dernier rapport porte un `FS:` complet dont la vitesse **vaut 0** ; et le dernier `$G`, de moins de 2,5 s, porte **un seul** mode de broche, **`M5`**. Tout le reste bloque : vitesse non nulle, négative ou illisible ; `M3`, `M4`, aucun mode, plusieurs modes ; champ `A:` avec `S` ou `C` ; information absente ou trop ancienne. **Une carte qui n'envoie pas `FS:` n'est jamais « supposée sans `FS:` »** : elle est refusée (révision 2).
+**R-3, broche.** La broche est tenue pour arrêtée seulement sur deux preuves **positives** : le dernier rapport porte un `FS:` complet dont la vitesse **vaut 0** ; et le dernier `$G`, de moins de 2,5 s, porte **un seul** mode de broche, **`M5`**. Tout le reste bloque : vitesse non nulle, négative ou illisible ; `M3`, `M4`, aucun mode, plusieurs modes ; information absente ou trop ancienne. Pendant une séquence, un champ `A:` avec `S` ou `C` l'arrête aussi (révision 3 : il ne verrouille plus un départ, § 2.6). **Une carte qui n'envoie pas `FS:` n'est jamais « supposée sans `FS:` »** : elle est refusée (révision 2).
 
 **R-4, jamais en faveur du mouvement.** Information absente ou contradictoire : refus avant de partir ; en cours de séquence, plus aucune ligne, puis l'arrêt existant. Une information **absente** n'est pas un **écart constaté** : elle n'invalide pas la preuve du décalage (D2).
 
@@ -29,8 +29,8 @@ Un seul endroit : `r.status`, dans `job-service.js:393-411`, écouteur de Touch 
 
 **Lecture stricte de la ligne brute** (le parseur de CNCjs n'est pas modifié ; il accepte `MPos:1,2,3foo`, `FS:0,` et `FS:0,-1`, `GrblLineParserResultStatus.js:28`, `:121-124`). La ligne `<…>` est découpée sur `|`, comme le fait déjà `probe-input.js:77`. Un champ compte seulement s'il est **entier** :
 
-- position : exactement un champ `MPos:` ou `WPos:`, de la forme `-?chiffres(.chiffres)?` répétée 3 à 6 fois, séparée par des virgules, rien d'autre ; **et** `explicitXyz(payload)` vrai (`job-service.js:128-131`) ;
-- vitesse : exactement un champ `FS:` fait de deux nombres **sans signe** séparés par une virgule, rien d'autre ;
+- position : exactement un champ `MPos:` ou `WPos:`, de la forme `-?chiffres(.chiffres)?` répétée 3 à 6 fois, séparée par des virgules, rien d'autre. **Les valeurs X, Y, Z de ce repère sont prises dans ce champ brut**, pas dans la charge (révision 3 : `<Idle|MPos:1,2,3|junk:MPos:4,5,6|FS:0,0>` a un seul champ `MPos:` entier, mais le parseur livre 4, 5, 6 dans `payload.mpos`, `GrblLineParserResultStatus.js:28`, `:47-54`). L'autre repère, calculé par CNCjs, n'est repris de la charge que si la charge donne **les mêmes** X, Y, Z que le champ brut pour le repère rapporté ; sinon la position est inconnue ;
+- vitesse : exactement un champ `FS:` fait de deux nombres **sans signe** séparés par une virgule, rien d'autre ; la vitesse est le second nombre **de ce champ brut** ;
 - `[GC:…]` : les mots de la ligne brute sont comptés ; `spindle` vaut `M5` seulement s'il y a **un** mot parmi `M3`, `M4`, `M5` et que c'est `M5`.
 
 Un champ en double, tronqué ou suivi de caractères en trop rend le champ **absent**.
@@ -39,7 +39,7 @@ Ajouts purs à l'enregistrement `r` (`r.seen`, `r.xyzAt`, `r.reports` inchangés
 
 | Donnée | Mise à jour | Contenu |
 |---|---|---|
-| `r.pos = { report, at, state, m:{x,y,z}, w:{x,y,z} }` | à chaque rapport **positionnel** | `report` = `r.reports` après incrément ; `at` = `clock()`. `m` et `w` viennent de la charge : l'un est rapporté, l'autre est **calculé** par CNCjs avec le dernier `WCO:` reçu (`GrblRunner.js:79-93`). Ce calcul n'est pas une preuve du décalage : D2 reste seul juge (`work-offset.js`). |
+| `r.pos = { report, at, state, m:{x,y,z}, w:{x,y,z} }` | à chaque rapport **positionnel** | `report` = `r.reports` après incrément ; `at` = `clock()`. Le repère rapporté vient du champ brut validé ; l'autre est **calculé** par CNCjs avec le dernier `WCO:` reçu (`GrblRunner.js:79-93`). Ce calcul n'est pas une preuve du décalage : D2 reste seul juge (`work-offset.js`). |
 | `r.still` (entier) | à chaque rapport | +1 si le rapport est positionnel, `Idle`, et à 0,01 mm du précédent positionnel ; 1 s'il est positionnel et `Idle` mais ailleurs ; **0 sinon**. |
 | `r.fs = { report, at, speed }` | à chaque rapport à `FS:` complet | `speed` : le second nombre. |
 | `r.gc = { n, at, spindle }` | à chaque `[GC:…]` (`r.modal`, `:587-593`) | `n` : compteur ; `spindle` : `'M5'`, `'on'` (`M3` ou `M4`) ou `null` (aucun mot, ou plusieurs). |
@@ -66,9 +66,9 @@ Ce sont des **seuils du code**, contrôlés au passage suivant du superviseur (5
 | Âge maximal de la position, du `FS:`, du `$G` au départ | 2 500 ms | La constante déjà en place (`motion.js:65`, `job-service.js:44`, `plate-probe.js:46`, `block-probe.js:51`). |
 | Repos prouvé | 2 rapports (un compte) | Le nombre déjà exigé par `settle` (`motion.js:368`) et `quiet` (`plate-probe.js:277`). |
 | Concordance | 0,01 mm | `ORIGIN_MOVED_MM` (`motion.js:64`), `POS_TOL` (`block-probe.js:38`). |
-| Attente d'une preuve entre deux lignes | 2 500 ms à partir du moment où `settle` / `quiet` rend la ligne ; l'échéance effective est **le plus tôt** de cette attente et de la borne absolue de la ligne (durée + 10 s, `job-service.js:2082`). | Choix prudent, à confronter à l'essai. |
+| Attente d'une preuve entre deux lignes | 2 500 ms à partir du moment où `settle` / `quiet` rend la ligne ; l'échéance effective est **le plus tôt** de cette attente et de la borne propre à la ligne : durée + 10 s pour un cadrage (`job-service.js:2082`) ; pour la plaque, durée + 15 s, 15 s ou 30 s selon la ligne (`plate-probe.js:397-423`) ; pour le bloc, durée + 15 s (`block-probe.js:799`). | Choix prudent, à confronter à l'essai. |
 
-**Ordres de grandeur, pas des garanties.** CNCjs interroge la carte (`?`) toutes les 250 ms **si** la réponse précédente est arrivée ; sinon il attend jusqu'à 5 s avant de redemander (`GrblController.js:885-895`). Il demande `$G` toutes les 500 ms dans les mêmes conditions, avec une reprise à 10 s (`:921-942`). Un rapport ou un `$G` perdu peut donc **arrêter à tort** une séquence au seuil de 2,5 s : sens prudent, accepté, à relever à l'essai. Le temps ajouté par l'attente du `$G` entre deux lignes n'est **pas connu** : le journal de la séquence note l'attente de chaque ligne (§ 6).
+**Ordres de grandeur, pas des garanties.** CNCjs interroge la carte (`?`) toutes les 250 ms **si** la réponse précédente est arrivée ; sinon il attend jusqu'à 5 s avant de redemander (`GrblController.js:885-895`). Il demande `$G` toutes les 500 ms dans les mêmes conditions, **pause comprise** ; mais la reprise à 10 s après une réponse perdue n'existe que **travail à l'arrêt et machine `Idle`** (`:917-930`). Pendant une pause `M6`, un `$G` perdu peut donc arrêter durablement les demandes suivantes. Conséquence acceptée et dite : un zéro Z à la plaque lancé dans cette pause s'arrête alors à l'échéance, l'échec marque `probeFailed` (`plate-probe.js:451-453`) et **la reprise du programme est refusée**. Aujourd'hui déjà, sans `$G` frais, ce palpage ne démarre pas (`plate-probe.js:133`) ; ce qui est nouveau, c'est l'arrêt en cours de palpage. À surveiller à l'essai (§ 6). Un rapport ou un `$G` perdu peut donc **arrêter à tort** une séquence au seuil de 2,5 s : sens prudent, accepté, à relever à l'essai. Le temps ajouté par l'attente du `$G` entre deux lignes n'est **pas connu** : le journal de la séquence note l'attente de chaque ligne (§ 6).
 
 ## 2. Gardes et points de passage touchés
 
@@ -84,7 +84,7 @@ Ce sont des **seuils du code**, contrôlés au passage suivant du superviseur (5
 | Zéro Z à la plaque | `spindleRefusal`, `zeroZReady` `plate-probe.js:132`. | `spindleWatch` dans `verdict` (`:330-350`). | `spindleHeld` dans `send`, juste avant `:374`. |
 | Palpage au bloc | `spindleRefusal` par `zeroZReady` (`block-probe.js:426`). | `spindleWatch` dans `verdict` (`:638-661`). | `spindleHeld` dans `send`, juste avant `:768`. |
 | Macro, départ d'un programme | `spindleRefusal` (§ 2.8). | Non surveillé par C1 : limite dite. | — |
-| Prise d'origine | Contradiction seule (§ 2.8). | Non surveillé. | — |
+| Prise d'origine | **Inchangé** (révision 3, § 2.8). | Non surveillé. | — |
 
 ### 2.2 Un pas, un déplacement continu
 
@@ -124,10 +124,10 @@ Ce sont des **seuils du code**, contrôlés au passage suivant du superviseur (5
 |---|---|---|
 | `zeroZReady`, `plate-probe.js:132`, `:157` ; `plateTravel`, `:197` | `spindleRefusal` ; `positionRefusal` ; Z par `posOf`. | Refus. |
 | Plaque : `zOf`, `:300` (départ `:391`, contact `:399`, `:409-410`, vérification `:414`) | `posOf(r, 'w', 'Z')`. La plaque lit son contact **dans les rapports d'état**, pas dans `[PRB:]` : c'est pourquoi le repos prouvé compte ici. | `null` : échecs existants (`:400`, `:415`). |
-| Plaque : `send`, `:363-387` | **Avant** `c.command` (`:374`), dans le même pas : `restedSince(r, mark de la ligne précédente)` et `spindleHeld`. **Après** `quiet` : attendre `restedSince(r, t.reportsAtOk)`. | Échéance du § 1.2, puis `stop(c, r, 'ETOUCH_PLATE_STALE')` (`:487-512`) : `halt.js`, aucune ligne de plus. |
+| Plaque : `send`, `:363-387` | Les cibles sont calculées **avant** `send` (`:397`, `:404`, `:406`, `:411`, `:421`). Donc, **avant** `c.command` (`:374`), après toute attente et dans le même pas (révision 3, comme le bloc) : `restedSince(r, mark de la ligne précédente)` ; **position égale à 0,01 mm, et repère actif (`r.wcs`) identique, à ceux du repos prouvé qui a servi au calcul** ; `spindleHeld`. Vaut pour le `G10 L20` comme pour les `G0` et `G38`. **Après** `quiet` : attendre `restedSince(r, t.reportsAtOk)`. | Preuve absente : échéance du § 1.2, puis `stop(c, r, 'ETOUCH_PLATE_STALE')` (`:487-512`). Position ou repère **différents** : abandon par la même voie ; ni la cible ni le contact ne sont recalculés. Tout échec de la plaque continue d'invalider D2 (`:458`), comme aujourd'hui. |
 | Plaque : `verdict`, `:345` | `r.pos` de moins de 2,5 s ; `spindleWatch`. | `stop(…)`. |
 | Bloc : `positionOf`, `block-probe.js:403-406` (lu à `:444`, `:484`, `:524`, `:800`, `:811`, `:817-822`, `:1030`) | `posOf`, axes nuls sinon. | Refus et échecs existants. |
-| Bloc : `send`, `:733-793` (révision 2) | La ligne est calculée **avant** l'appel (`:873`), et `send` peut attendre le retour du flux (`:740-744`). Donc, **juste avant** `c.command` (`:768`), après toute attente et dans le même pas : `restedSince(r, session.okReports)` ; **position égale à 0,01 mm à celle du repos prouvé de la ligne précédente** (celle qui a servi au calcul, gardée dans la session) ; `spindleHeld`. **Après** `quiet` : attendre `restedSince(r, tracker.reportsAtOk)`. | Preuve absente : `abort('ETOUCH_PROBE_STALE')` (`:589-610`). Position **différente** : `ETOUCH_PROBE_POSITION`, la ligne n'est pas envoyée (elle n'est pas recalculée). |
+| Bloc : `send`, `:733-793` (révision 2) | La ligne est calculée **avant** l'appel (`:873`), et `send` peut attendre le retour du flux (`:740-744`). Donc, **juste avant** `c.command` (`:768`), après toute attente et dans le même pas : `restedSince(r, session.okReports)` ; **position égale à 0,01 mm, et repère actif identique, à ceux du repos prouvé de la ligne précédente** (ceux qui ont servi au calcul, gardés dans la session) ; `spindleHeld`. **Après** `quiet` : attendre `restedSince(r, tracker.reportsAtOk)`. | Preuve absente : `abort('ETOUCH_PROBE_STALE')` (`:589-610`). Position **différente** : `ETOUCH_PROBE_POSITION`, la ligne n'est pas envoyée (elle n'est pas recalculée). |
 | Bloc : `verdict`, `:656` | `r.pos` de moins de 2,5 s ; `spindleWatch`. | `abort(…)`. |
 
 Pour le bloc, le contact vient de `[PRB:…]` (`block-probe.js:750-757`, `:830`) : inchangé. **Aucun `0x85` n'est ajouté pour arrêter un `G38`** : les palpages s'arrêtent par leurs voies (`stop`, `abort`, puis `halt.js`).
@@ -136,9 +136,9 @@ Pour le bloc, le contact vient de `[PRB:…]` (`block-probe.js:750-757`, `:830`)
 
 | Fonction | Rend « bloqué » si |
 |---|---|
-| `spindleRefusal(r)` : départ, au repos | Le dernier rapport n'a pas de `FS:` complet, ou sa vitesse n'est pas 0 ; `r.gc` absent, de plus de 2,5 s, ou `spindle !== 'M5'` ; dernier `A:` reçu avec `S` ou `C`. Trois refus codés : broche qui tourne (phrase existante), `ETOUCH_MOTION_SPINDLE_COMMANDED`, `ETOUCH_MOTION_SPINDLE_UNKNOWN`. |
+| `spindleRefusal(r)` : départ, au repos | Le dernier rapport n'a pas de `FS:` complet, ou sa vitesse n'est pas 0 ; `r.gc` absent, de plus de 2,5 s, ou `spindle !== 'M5'`. Le champ `A:` **n'entre pas** dans ce refus (révision 3) : un `A:S` ne s'efface qu'à un rapport portant `Ov:` sans `A:` (`GrblRunner.js:103-108`), un rapport sur dix environ ; l'employer ici aurait refusé un départ juste après un arrêt normal de la broche. Trois refus codés : broche qui tourne (phrase existante), `ETOUCH_MOTION_SPINDLE_COMMANDED`, `ETOUCH_MOTION_SPINDLE_UNKNOWN`. |
 | `spindleWatch(r, ref)` : à chaque pas d'une séquence, tout état | `r.spinHints !== ref.hints` (un `M3` suivi d'un `M5` arrête quand même) ; ou dernier `FS:` complet de plus de 2,5 s (un rapport isolé sans `FS:` n'arrête rien ; une disparition durable arrête). **Aucun `$G` frais n'est exigé pendant une ligne** : on ne sait pas si la carte répond à `$G` en `Jog`. |
-| `spindleHeld(r, ref)` : avant chaque ligne après la première, dans le pas de l'écriture | Le dernier rapport n'a pas de `FS:` complet à 0 ; ou pas encore de `[GC:]` `'M5'` avec `r.gc.n > ref.gcAtOk`. Faux → attendre ; à l'échéance → arrêt `spindle`. |
+| `spindleHeld(r, ref)` : avant chaque ligne après la première, dans le pas de l'écriture | Le dernier rapport n'a pas de `FS:` complet à 0 ; ou pas encore de `[GC:]` `'M5'` avec `r.gc.n > ref.gcAtOk` ; **ou ce `[GC:]` a plus de 2,5 s au moment de l'écriture** (révision 3 : l'`ok` d'un `$J=` ou d'un `G0` arrive quand la ligne est planifiée, `plate-probe.js:248-251` ; un `M5` reçu juste après resterait « postérieur » trente secondes plus tard). Faux → attendre ; à l'échéance → arrêt `spindle`. |
 
 `ref` appartient à la séquence : `hints` relevé au départ (à la preuve du `M5` pour le laser) ; `gcAtOk` relevé par `answers` à l'`ok` de **sa** ligne, à côté de `reportsAtOk` (`plate-probe.js:224-231`).
 
@@ -161,7 +161,7 @@ Relevé de tous les `c.command(…)` et `c.writeln(…)` de `src/server/services
 | Palpage au bloc | `block-probe.js:768` | Oui | **Couverte** (§ 2.5). |
 | **Macro** | `job-service.js:2461`, garde `macroReady` `:1176-1187` (préparation `:2407`, exécution `:2458`) | Oui, contenu libre | **Couverte au départ** (révision 2) : `positionRefusal` et `spindleRefusal` ajoutés à `macroReady`. **Non surveillée ensuite** : Touch ne suit pas les lignes d'une macro. Limite dite au § 5. |
 | **Départ d'un programme**, y compris la reprise à une ligne (même garde, `:1014`) | `job-service.js:2574`, garde `readyFor` `:995-1003` | Oui | **Couverte au départ, broche seule** (révision 2) : `spindleRefusal` ajouté après `spindleStill` (`:1003`). Position : non concernée, le contrôle de course travaille sur le décalage (prouvé par D2), pas sur la position courante. Le programme lui-même n'est pas surveillé par C1 (hors du lot). |
-| **Prise d'origine** `$H` | `job-service.js:1530`, garde `homeReady` `:1300-1317` | Oui | **Couverte pour la contradiction seule** (révision 2) : refus si le dernier `[GC:]` reçu depuis la bannière n'est pas `'M5'` alors qu'il existe, ou si le dernier `FS:` complet n'est pas 0. **L'absence ne bloque pas** : `$H` est permis en alarme, où rien ne garantit que la carte réponde à `$G` ; un refus ici immobiliserait la machine. Position : non exigée, par nature. Limite dite. |
+| **Prise d'origine** `$H` | `job-service.js:1530`, garde `homeReady` `:1300-1317` | Oui | **Garde de départ inchangée** (révision 3 : la garde ajoutée en révision 2 est retirée). `$H` sert à sortir d'une alarme, et en alarme « Arrêter la broche » n'écrit pas `M5` (`:2492-2494`), Arrêter ne fait pas de reset sans travail ni file (`:2677`) : un refus sur un ancien `M3` n'aurait eu aucun remède depuis le kiosque. Reste `spindleStill` (`:1306`). Limite dite au § 5. **En revanche la position apprise à la fin du cycle est corrigée** (§ 2.9). |
 | Reprise après une pause | `job-service.js:2539`, `:1877` | Oui (le programme continue) | **Non concernée** : la broche est normalement en marche ; le programme repart d'où la carte est. Hors du lot. |
 | Relance de la broche après `M6` | `job-service.js:1862` (`M3 S…`, `G4`) | Non | Non concernée : aucune ligne d'axe ; c'est la broche elle-même. |
 | Essai de broche | `job-service.js:1543` | Non | Non concernée. |
@@ -169,17 +169,24 @@ Relevé de tous les `c.command(…)` et `c.writeln(…)` de `src/server/services
 | Preuve D2 (`$#`, `G54` / `G55` sans mot d'axe) | `work-offset.js:221` | Non | Non concernée. |
 | `G0` seul après un palpage (mode modal) | `plate-probe.js:446`, `block-probe.js:1107` | Non (aucun mot d'axe) | Non concernée. |
 | Lecture des réglages (`$$`…) | `job-service.js:1230`, `:1256` | Non | Non concernée. |
-| Déverrouillage `$X`, corrections de vitesse, `M5`, chargement | `:1520`, `:2510`, `:2496`, `job-load.js:237` | Non | Non concernée. |
+| Déverrouillage `$X`, corrections de vitesse, chargement | `:1520`, `:2510`, `job-load.js:237` | Non | Non concernée ; `$X` n'est conditionné par aucune garde de C1. |
+| « Arrêter la broche » (`M5`) | `:2480-2497` | Non | Pendant un bloc ou un cadrage, c'est déjà l'arrêt de la séquence (`:2483-2491`). **Pendant la plaque**, un `M5` est aujourd'hui injecté (`:2496`) et son `ok` serait pris pour celui de la ligne du palpage, ce qui fausserait `gcAtOk`. Révision 3 : pendant la plaque, « Arrêter la broche » devient l'arrêt du palpage (`plateStop`), comme pour le bloc. |
 | Arrêts : `0x85`, pause, feed hold, reset, arrêt du programme | `motion.js:610`, `:645`, `:649`, `:1591` ; `job-service.js:564`, `:2605`, `:2629`, `:2643`, `:2651`, `:2688-2693` ; `halt.js:56-95` ; `plate-probe.js:502-503` ; `block-probe.js:602-603`, `:1159` | Arrêtent | **Jamais conditionnés** par une garde de C1. |
 
 Ce que Touch n'écrit pas lui-même (console et boutons de CNCjs classique, Wi-Fi de la carte) n'est pas une voie de Touch : non couvert, par définition.
+
+### 2.9 Position apprise après la prise d'origine (révision 3)
+
+Une garde **indirecte**. À la fin de notre `$H`, `homeEnd()` (`job-service.js:387-392`) copie la position **fusionnée** (`homeMposOf`, `:134-143`) dans `r.homeMpos` dès que `Home` a été vu (`:436`), même si le rapport `Idle` final ne porte aucun XYZ. Cette position choisit ensuite la convention des courses (`motion.js:241-244`) pour les pas, le continu, les cadrages, les palpages et le contrôle d'un programme (`job-service.js:1819`), et les rapports suivants ne la corrigent pas. Le cycle d'un autre client exige déjà une position explicite (`:470-472`).
+
+Correction : `r.homeMpos` n'est appris que si **ce rapport `Idle` final** est positionnel au sens strict du § 1.1, et depuis ses valeurs (`r.pos.m`, `r.pos.report === r.reports`) ; sinon `r.homeMpos = null`, aux deux endroits (`:436`, `:472`). Rien n'est exigé **avant** `$H`, et `r.homed` n'est pas touché : la prise d'origine réussit comme aujourd'hui. Effet d'un `null` : la course reste ambiguë pour un axe référencé vers le négatif, donc les refus existants (`ETOUCH_MOTION_AMBIGUOUS`, `ETOUCH_CNC_FRAME_Z`) jusqu'à une nouvelle prise d'origine. Sur la LUNYEE, dont chaque rapport porte `MPos:`, rien ne change.
 
 ## 3. Faux refus examinés
 
 | # | Cas | Ce que fait la correction | Verdict |
 |---|---|---|---|
 | 3.1 | **Laser en `M4` dynamique** (au repos, `FS:…,0` et `$G` `M4`) | Cadrage laser : pas de garde de broche au plan ; `M5` d'abord (`job-service.js:1949`), puis `spindleHeld`. Zéros : non touchés. Pas > 0,1 mm, continu, macro, départ d'un programme : **refusés** tant que `M4` est actif ; « Arrêter la broche » envoie `M5` (`:2496`). | Pas de refus nouveau du cadrage ni des zéros. Le reste est **voulu** : d'après le Grbl 1.1 amont, un `$J=` garde l'état de broche, donc un laser armé peut émettre pendant un pas. Non relu dans le code de la carte, non essayé. Un programme laser qui finit par `M5` ou `M2` / `M30` ne laisse pas cet état ; un programme arrêté en route par Touch passe par un reset. |
-| 3.2 | **Pause `M6`**, zéro Z à la plaque | `M5` avant `M6` dans le programme, ou « Arrêter la broche » (permis en pause, `:1319-1329`) : le `$G` dit `M5`, accepté. `$G` frais déjà exigé aujourd'hui (`plate-probe.js:133`). | Aucun refus nouveau dans le parcours de Touch. La reprise n'est pas touchée. |
+| 3.2 | **Pause `M6`**, zéro Z à la plaque | `M5` avant `M6` dans le programme, ou « Arrêter la broche » (permis en pause, `:1319-1329`) : le `$G` dit `M5`, accepté. `$G` frais déjà exigé aujourd'hui (`plate-probe.js:133`). | Aucun refus nouveau au départ. **Risque nouveau, dit au § 1.2** : un `$G` perdu pendant le palpage arrête celui-ci et interdit la reprise. |
 | 3.3 | **`WCO:` / `Ov:` un rapport sur dix** | Ni `WCO:` ni `Ov:` ne sont exigés. `A:` n'est lu que s'il est là. | Aucun effet. |
 | 3.4 | **Rapports à 5 Hz ou à 1 Hz** | Les preuves comptent des rapports. À 1 Hz, un rapport perdu : 2 s, sous le seuil ; deux de suite arrêtent, comme aujourd'hui. À 1 Hz l'attente de deux `Idle` peut approcher le seuil de 2,5 s : **cas à tester** (§ 4). | Pas de refus attendu ; marge mince à 1 Hz, dite. |
 | 3.5 | **Premier rapport après connexion ou bannière** | `r.pos`, `r.fs`, `r.gc` sont `null` : tout mouvement est refusé jusqu'à deux rapports complets et un `[GC:]` `M5`. Les zéros d'origine de CNCjs (`GrblRunner.js:23-32`) ne sont jamais lus. | Refus bref, voulu. |
@@ -188,11 +195,14 @@ Ce que Touch n'écrit pas lui-même (console et boutons de CNCjs classique, Wi-F
 | 3.8 | **LUNYEE, marche normale** | Valeurs lues identiques ; `restedSince` vrai au même instant que `settle`. Différence : `spindleHeld` avant chaque ligne d'une séquence. | Temps ajouté **inconnu** : à lire dans le journal de l'essai. Un arrêt `spindle` sans cause dirait que la carte tarde à répondre à `$G`. |
 | 3.9 | **Rapport abîmé isolé** | Au repos : refus le temps d'un rapport. Pendant une ligne : rien. Entre deux lignes : attente. | Gêne brève ; plus de D2 invalidé à tort. |
 | 3.10 | **`?` ou `$G` perdu** | Reprise de CNCjs à 5 s ou 10 s : arrêt au seuil de 2,5 s entre deux lignes ; refus au repos jusqu'au suivant. | Faux arrêt possible, sens prudent, accepté. |
+| 3.12 | **Sortie d'alarme par `$H` ou `$X`** | Aucune garde de C1 sur leur départ. | Aucun refus nouveau (révision 3). |
+| 3.13 | **Départ juste après un arrêt normal de la broche** (`A:S` vu, puis `M5`) | `A:` n'entre pas dans le refus de départ ; `FS:` 0 et `[GC:]` `M5` suffisent. | Aucun refus nouveau (révision 3). |
+| 3.14 | **Départ d'un programme, reprise** | Départ : `spindleRefusal`, satisfait par une machine au repos, broche arrêtée ; un programme commande ensuite sa broche lui-même. Reprise après pause : non touchée. Un `$G` perdu au repos est redemandé par CNCjs après 10 s. | Refus nouveau seulement sur `M3` / `M4` actif à vitesse nulle (remède : « Arrêter la broche », qui fonctionne au repos) ou `FS:` incomplet. |
 | 3.11 | **Carte sans `FS:`** (Grbl compilé sans broche variable) | Refus de tout mouvement gardé par `spindleRefusal`. Aucun repli. | **Refus voulu**, nouveau : une telle carte n'est pas la cible. Le seul relevé de la LUNYEE porte `FS:0,0`. |
 
 ## 4. Tests exigés
 
-**Banc.** `__tests__/support/line-bench.js` : le vrai `GrblRunner`, le vrai `createService`, la **vraie preuve D2** (`work-offset.js`) dans au moins un parcours par mouvement ; tout ce que « dit la carte » est une ligne de texte passée à `runner.parse`. Les échanges sont **complets** : `[GC:…]` **puis son `ok`**, l'`ok` de nos lignes à part (le pont existant retire l'`ok` des `$G`, `support/sim-bridge.js:96-100` : il ne suffit pas). Un faux côté série note chaque octet écrit. Chaque test est jugé sur les **octets écrits**. Une exception JavaScript ou un refus venu d'une autre garde ne valent pas preuve : le test vérifie aussi **le code du refus**.
+**Banc.** `__tests__/support/line-bench.js` : le vrai `GrblRunner`, le vrai `createService`, la **vraie preuve D2** (`work-offset.js`) dans au moins un parcours par mouvement ; tout ce que « dit la carte » est une ligne de texte passée à `runner.parse`. Les échanges sont **complets** : `[GC:…]` **puis son `ok`**, l'`ok` de nos lignes à part (le pont existant retire l'`ok` des `$G`, `support/sim-bridge.js:96-100` : il ne suffit pas). Un faux côté série note chaque octet écrit. Les `[GC: M5]` des tableaux sont une **abréviation** : le banc injecte la ligne modale complète (`[GC:G0 G54 G17 G21 G90 G94 M5 M9 T0 F0 S0]`), que le vrai parseur reconnaît, et son `ok` à part. Chaque test est jugé sur les **octets écrits**. Une exception JavaScript ou un refus venu d'une autre garde ne valent pas preuve : le test vérifie aussi **le code du refus**.
 
 | # | Suite de lignes | Attendu |
 |---|---|---|
@@ -203,21 +213,27 @@ Ce que Touch n'écrit pas lui-même (console et boutons de CNCjs classique, Wi-F
 | T4 | **Contre-séquence d'Astra** : après l'`ok` du `M5`, Z haut explicite, puis `<Idle\|FS:0,0>`, `[GC: M5]` et son `ok`. | Aucun `$J=`. Puis deux rapports à Z bas : `ETOUCH_FRAME_POSITION`, D2 invalidé. |
 | T4c | Après l'`ok` d'une ligne : `[GC: M5]`, puis `Jog` positionnel, puis **un seul** `Idle` positionnel à la bonne place. | Aucune ligne suivante ; un second `Idle` la libère. |
 | T4h | Hauteur sûre seule : arrivée du `M5` prouvée à Z = −5,005 ; puis deux `Idle` concordants à −5,054 (toléré par l'arrivée à 0,05 mm, refusé par la hauteur sûre), le cas de `F1-CORRECTIONS.md`. | Aucun X/Y ; `ETOUCH_FRAME_POSITION` axe Z. |
-| T6 | **`M3 S0`** : rapports complets `FS:0,0` ; `[GC: M3 S0]` au repos. | Cadrage, pas de 100 mm, continu, zéro Z, bloc, macro, départ d'un programme, `$H` refusés (`…SPINDLE_COMMANDED`) ; pas de 0,1 mm accepté. |
-| T7 | **`FS:` seul disparaît** : XYZ frais, `[GC: M5]` frais, aucun indice positif ; au repos. | Mêmes refus (`…SPINDLE_UNKNOWN`) ; `$H` **accepté**. |
+| T6 | **`M3 S0`** : rapports complets `FS:0,0` ; `[GC: M3 S0]` au repos. | Cadrage, pas de 100 mm, continu, zéro Z, bloc, macro, départ d'un programme refusés (`…SPINDLE_COMMANDED`) ; pas de 0,1 mm accepté ; `$H` et `$X` **comme aujourd'hui**. |
+| T7 | **`FS:` seul disparaît** : XYZ frais, `[GC: M5]` frais, aucun indice positif ; au repos. | Mêmes refus (`…SPINDLE_UNKNOWN`) ; `$H` accepté. |
 | T7s | Même disparition **pendant** une ligne de chaque séquence, 2,6 s : grand pas, continu, cadrage CNC, cadrage laser, plaque, bloc. | Arrêt par la voie de chacun. Un seul rapport sans `FS:` : rien. |
-| T8 | `FS:0`, `FS:0,`, `FS:0,-1`, `FS:0,0foo`, `MPos:1,2,3foo`, deux champs `MPos:` ; `[GC:]` sans mode de broche, puis avec `M3 M5`. | Chacun compte comme absent : refus. |
+| T8 | `FS:0`, `FS:0,`, `FS:0,-1`, `FS:0,0foo`, `MPos:1,2,3foo`, deux champs `MPos:`, `<Idle\|MPos:1,2,3\|junk:MPos:4,5,6\|FS:0,0>` (position **inconnue**, jamais 4, 5, 6) ; `[GC:]` sans mode de broche, puis avec `M3 M5`. | Chacun compte comme absent : refus. |
 | T8b | **Dès la connexion et après une bannière** : uniquement `FS:0`, uniquement `FS:0,`, aucun `FS:` ; `[GC: M5]` frais, XYZ parfaits. | Refus dans les trois cas (aucun repli « carte sans `FS:` »). |
 | T9 | Témoin 2c (`FS:0,1000`). | Arrêt `spindle`, comme aujourd'hui. |
 | T10 | `[GC: M3]` puis `[GC: M5]` entre deux pas de surveillance. | Arrêt `spindle`. |
-| T11 | Aucun `[GC:]` après l'`ok` du `M5`, puis après l'`ok` d'une ligne `$J=` ; rapports parfaits. | Aucune ligne suivante ; arrêt à l'échéance. Variante : un `[GC:]` déjà en vol quand le suivi de la ligne s'installe ne compte pas. |
+| T11 | Aucun `[GC:]` après l'`ok` du `M5`, puis après l'`ok` d'une ligne `$J=` ; rapports parfaits. | Aucune ligne suivante ; arrêt à l'échéance. Variante : un `[GC:]` déjà en vol quand le suivi de la ligne s'installe ne compte pas. Variante (révision 3) : `[GC: M5]` reçu juste après l'`ok` d'un `$J=` de 30 s, aucun autre ensuite, XYZ et `FS:` parfaits : à l'arrivée, **aucune ligne suivante** tant qu'un nouveau `[GC: M5]` n'est pas reçu. |
 | T12 | Pendant un `Jog` : pas, continu, cadrage CNC, cadrage laser ; rapports sans `MPos:` 2,6 s. | `0x85`. Un seul : rien. |
 | T12b | Tolérance : `Jog` de 30 s, `FS:` complets, **aucun** `$G` nouveau ; puis un rapport isolé sans `FS:`. | Le cadrage continue. |
 | T13 | Plaque et bloc : sans coordonnées avant le départ ; après l'`ok` du premier `G38` ; et, coordonnées explicites, un seul `Idle` après l'`ok`. | Aucune ligne de plus ; arrêt par `halt.js`, **sans `0x85`**. |
 | T13b | Bloc : flux de l'appareil absent, rapport sans coordonnées, flux revenu avant la fin de la grâce. Variante : position explicite mais déplacée de 0,02 mm. | Aucune ligne (`…STALE`, puis `…POSITION`). |
+| T13p | **Plaque** (révision 3) : contact à Z = 0, retrait calculé `G0 Z1` ; pendant l'attente du `[GC:]`, la machine est remontée à Z = 10 ; puis deux `Idle` complets et `[GC: M5]`. Même chose avant le `G10 L20`. Variante : repère changé (`G55`). | Ni `G0 Z1` ni `G10` écrits ; arrêt de la plaque ; D2 invalidé. |
+| T13c | Attente après `quiet`, **postcondition de `send`** : après l'`ok` du premier `G38`, `Run` positionnel, un `Idle` à Z = −3,000, puis deux `Idle` concordants à Z = −3,200, `[GC: M5]`. | Code sain : le contact lu est −3,200 et la ligne suivante le porte (`G0 Z-2.2`). Sans l'attente : contact lu à −3,000, puis abandon par la garde d'avant écriture. Les octets diffèrent. |
+| T13g | `G38` **longs**, plaque (au repos et pendant `M6`) et bloc : XYZ et `FS:` frais, **aucun** `[GC:]` pendant la descente, une demande `$G` de CNCjs déjà en vol au départ (ses drapeaux reproduits) ; échanges complets après le contact. | Aucun arrêt pendant le `G38` ; le cycle va au bout. |
 | T14 | Faux refus du § 3, un par un, dont 1 Hz. | Mêmes octets qu'aujourd'hui. |
 | T15 | LUNYEE : `cnc-frame-lunyee`, `motion-simulator`. | Mêmes octets, même ordre ; les attentes ajoutées par ligne sont relevées. |
-| T16 | Coordonnées absentes : instantané demandé ; Pause, Arrêter, « Arrêter la broche » par un appareil sans la main ; pendant un `G38` ; pendant une attente de preuve ; bannière ; arrêt du service pendant une attente. | Instantané complet, `canJog` faux avec sa raison ; chaque arrêt écrit ses octets ; aucune ligne après une attente résolue trop tard. |
+| T18 | **Position apprise** (révision 3) : état de départ MPos 0, 0, 0 ; notre `$H` ; `<Home>` puis `<Idle\|FS:0,0>` sans XYZ. Témoin : même suite, `Idle` final avec `MPos:`. | `r.homeMpos` reste `null` (course ambiguë, grand pas vers le bord refusé) ; témoin : appris, comme aujourd'hui. `r.homed` vrai dans les deux cas. |
+| T19 | `A:S` dans un rapport à `Ov:`, puis `M5`, `FS:0,0`, `[GC: M5]`, **avant** tout rapport `Ov:` sans `A:`. | Départ accepté (pas, cadrage). Le même `A:S` reçu **pendant** une séquence l'arrête. |
+| T20 | En alarme, dernier `[GC:]` `M3` reçu avant l'alarme, `FS:0,0` : `$H`, puis `$X`. | Écrits comme aujourd'hui. |
+| T16 | Coordonnées absentes : instantané demandé ; Pause, Arrêter, « Arrêter la broche » par un appareil sans la main ; pendant un `G38` ; pendant une attente de preuve ; bannière ; arrêt du service pendant une attente. | Instantané complet, `canJog` faux avec sa raison ; chaque arrêt écrit ses octets ; aucune ligne après une attente résolue trop tard. « Arrêter la broche » pendant la plaque : arrêt du palpage, **aucun `M5` injecté**, aucun `ok` étranger compté pour une ligne. |
 | T17 | `WCO:` explicite différent dans un rapport **sans** XYZ. | D2 invalidé comme aujourd'hui. |
 
 **Table de mutations** (une à la fois ; le test cité devient rouge sur les octets, **avec le bon code de refus côté sain**) :
@@ -238,10 +254,14 @@ Ce que Touch n'écrit pas lui-même (console et boutons de CNCjs classique, Wi-F
 | M16 | Âge du `FS:` dans `spindleWatch`, par séquence | T7s | XYZ frais, aucun indice. |
 | M17 | `spindle === 'M5'` remplacé par « ni `M3` ni `M4` » | T8 (`[GC:]` sans mode) | — |
 | M18 | Repli « aucun `FS:` vu : `$G` seul » réintroduit | T8b | — |
-| M19, M22 | Attente après `quiet`, plaque et bloc | T13, cas « un seul `Idle` » | Coordonnées explicites : les lecteurs nuls n'interviennent pas. |
-| M20, M23 | Garde avant écriture, plaque et bloc | T13b | — |
-| M21 | Égalité de position avant écriture, bloc | T13b, variante 0,02 mm | — |
-| M24 à M26 | `spindleRefusal` de la macro, du départ, contradiction de `$H` | T6 | — |
+| M19 | Attente après `quiet`, plaque | T13c | La garde d'avant écriture bloque aussi la ligne suivante : « aucun octet de plus » ne distinguerait pas. T13c regarde **la cible écrite**. |
+| M22 | Attente après `quiet`, bloc | T13c transposé si le cycle lit une position entre `quiet` et l'écriture ; sinon **redondance reconnue** avec M23, à écrire dans le rapport. | Le contact du bloc vient de `[PRB:]`, pas d'un rapport. |
+| M20, M23 | Garde avant écriture, plaque et bloc | T13p sans coordonnées, T13b | — |
+| M21, M21p | Égalité de position et de repère avant écriture, bloc et plaque | T13b variante 0,02 mm ; T13p | Deux `Idle` complets et `[GC: M5]` frais : seule l'égalité retient. |
+| M24, M25 | `spindleRefusal` de la macro, du départ d'un programme | T6 | — |
+| M27 | Fraîcheur du `[GC:]` dans `spindleHeld` | T11, variante « `M5` devenu ancien » | L'ordre est satisfait ; seul l'âge retient. |
+| M28 | Apprentissage strict de `r.homeMpos` | T18 | — |
+| M29 | Valeurs prises dans le champ brut | T8, ligne `junk:MPos:` | Un seul champ entier : seule la comparaison des valeurs retient. |
 
 Un mutant qui survit est un garde redondant ou un test trop faible : à écrire dans le rapport.
 
@@ -249,9 +269,9 @@ Un mutant qui survit est un garde redondant ou un test trop faible : à écrire 
 
 Reprises des trois points « à vérifier au code » d'Astra ; le relecteur les contrôle un par un.
 
-1. **Vrais acquittements.** Le banc injecte `[GC:…]` puis `ok`, un échange déjà en vol à l'installation du suivi d'une ligne, des `$G` perdus et retardés, des cadences réalistes dont 1 Hz. `gcAtOk` est relevé à l'`ok` de **notre** ligne, pas à celui d'un `$G` (`plate-probe.js:220-230`). Des parcours avec la vraie preuve D2.
-2. **Conversion des bancs existants.** Dix-sept fichiers de test émettent un rapport sans contenu (`cnc-frame.test.js:168`, `motion.test.js:82`, 32 fois dans `job-service.test.js`…) ou avec `raw` ou `wco` seuls (`plate-probe.test.js:113`, `motion.test.js:183`), et posent la position dans `state.status`. Leur fonction « rapport » devra émettre une vraie ligne. Procédé imposé : (a) convertir les bancs dans un commit **à part** ; (b) le faire tourner **sur l'ancien code** : tout vert, sinon la conversion a changé un scénario ; (c) comparer, test par test, les octets écrits et leur ordre avant et après conversion ; (d) garder une entrée « ligne brute » pour les omissions volontaires ; (e) les tests négatifs de C1 échouent sur l'ancien code **avec ce même banc**. La fonction de conversion n'ajoute jamais d'elle-même `FS:0,0`, `M5`, un second `Idle` ou du temps : ce qu'elle ajoute est écrit dans le test. Sont listés un à un dans `C1-RAPPORT.md` : chaque `expect` modifié, **et** chaque changement de rapports, d'ordre ou de temporisation. Cas déjà repéré : `cnc-frame.test.js:405` retire la vitesse (`spindle = undefined`) et continue ; avec la règle sans repli, la suite de ce test change et devra être justifiée.
-3. **Arrêts préservés, absence distinguée de l'écart.** Aucun `0x85` pour un `G38`. Les attentes nouvelles sont annulables, gardent les réservations (`r.probing`, `s.frame`) et n'envoient rien après une résolution tardive. Aucune garde de C1 sur le chemin d'un arrêt. Position absente : D2 intact ; position discordante : D2 invalidé ; `WCO:` explicite différent : traité même sans XYZ (T16, T17).
+1. **Vrais acquittements.** Le banc injecte `[GC:…]` puis `ok`, un échange déjà en vol à l'installation du suivi d'une ligne, des `$G` perdus et retardés, des cadences réalistes dont 1 Hz. `gcAtOk` est relevé à l'`ok` de **notre** ligne, pas à celui d'un `$G` (`plate-probe.js:220-230`). Des parcours avec la vraie preuve D2. **L'attente modale ne doit jamais devenir un délai de 2,5 s pendant un `G38`** : T13g, plaque et bloc.
+2. **Conversion des bancs existants.** Le périmètre est **à établir** : une recherche trouve 24 fichiers sous `src/server` qui émettent `status` sans argument (Astra en compte 22 ; la révision 1 en citait 17), et tous n'ont pas forcément besoin d'être convertis. Ils émettent un rapport sans contenu (`cnc-frame.test.js:168`, `motion.test.js:82`, 32 fois dans `job-service.test.js`…) ou avec `raw` ou `wco` seuls (`plate-probe.test.js:113`, `motion.test.js:183`), et posent la position dans `state.status`. Leur fonction « rapport » devra émettre une vraie ligne. Procédé imposé : (a) convertir les bancs dans un commit **à part** ; (b) le faire tourner **sur l'ancien code** : tout vert, sinon la conversion a changé un scénario ; (c) comparer, test par test, les octets écrits et leur ordre avant et après conversion ; (d) garder une entrée « ligne brute » pour les omissions volontaires ; (e) les tests négatifs de C1 échouent sur l'ancien code **avec ce même banc, pour la raison visée**. La fonction de conversion n'ajoute jamais d'elle-même `FS:0,0`, `M5`, un second `Idle` ou du temps : ce qu'elle ajoute est écrit dans le test. Sont listés un à un dans `C1-RAPPORT.md` : chaque `expect` modifié, **et** chaque changement de rapports, d'ordre ou de temporisation. Cas déjà repéré : `cnc-frame.test.js:405` retire la vitesse (`spindle = undefined`) et continue ; avec la règle sans repli, la suite de ce test change et devra être justifiée.
+3. **Arrêts préservés, absence distinguée de l'écart.** Aucun `0x85` pour un `G38`. Les attentes nouvelles sont annulables, gardent les réservations (`r.probing`, `s.frame`) et n'envoient rien après une résolution tardive. Aucune garde de C1 sur le chemin d'un arrêt. « Position absente : D2 intact » vaut **pour le cadrage seulement**. La plaque et le bloc gardent leurs invalidations : tout échec de la plaque (`plate-probe.js:458`), tout `G10` écrit ou peut-être écrit, tout reset. Position discordante : D2 invalidé. `WCO:` explicite différent : traité même sans XYZ (T16, T17). Contrôler aussi les bannières et les réservations pendant les attentes.
 
 ## 5. Ce que la correction ne couvre pas
 
@@ -261,7 +281,9 @@ Reprises des trois points « à vérifier au code » d'Astra ; le relecteur les 
 - **Ce que la broche fait vraiment.** Le serveur lit une consigne, jamais une rotation.
 - **Un `M3 S0` envoyé pendant une ligne** par un autre client : vu à la fin de la ligne au plus tôt (une ligne, 60 s nominales au plus, sans les rampes). D'après un commentaire du code (`job-service.js:2488`), Grbl le refuse en `Jog` ; non vérifié.
 - **Une macro ou un programme en cours.** Gardés au départ seulement. Ce qu'ils font ensuite, et ce qu'un autre client fait pendant, n'est pas surveillé par C1.
-- **La prise d'origine** quand la carte ne dit rien de sa broche : permise, comme aujourd'hui.
+- **La prise d'origine** : son départ garde le garde d'aujourd'hui. Un `M3 S0` actif (vitesse fusionnée nulle) ne la refuse pas. Choix assumé : `$H` est la sortie d'alarme, et aucun remède n'existe depuis le kiosque en alarme.
+- **Le champ `A:` au départ** : non lu. Une broche dite en marche par `A:` seul, avec `FS:` 0 et `$G` `M5`, ne refuse pas un départ ; elle arrête une séquence en cours.
+- **Un `$G` perdu pendant une pause `M6`** : arrête un zéro Z à la plaque en cours et interdit la reprise (§ 1.2).
 - **La reprise après une pause** : non touchée.
 - **Une carte sans `FS:`** : refusée, pas adaptée.
 - **Une collision pendant le trajet** ; **deux rapports faux et concordants** ; le mode `$10=0` ; les zéros.
@@ -276,14 +298,15 @@ Depuis le kiosque de la Surface seulement, veille automatique coupée. Table vid
 3. **Cadrer à vide** sur un petit programme connu, Z à mi-hauteur. Attendu : montée, tour, retour. Noter si les coins marquent un temps d'arrêt plus long qu'avant.
 4. **Lire le journal** de ce cadrage : rapports reçus, sans position, sans `FS:` complet (attendu : 0 et 0), et l'attente relevée avant chaque ligne. Ces chiffres sont le résultat principal de l'essai.
 5. **Broche commandée à vitesse nulle.** Rien près de la broche. Depuis le PC, console de CNCjs classique : `M3 S0`. Regardez et écoutez la broche (elle peut tourner lentement : notez-le). Sur la tablette : « Cadrer à vide… » et un pas de 10 mm doivent être **refusés** avec « La broche est commandée (M3) » ; un pas de 0,1 mm reste permis. « Arrêter la broche » : tout redevient permis.
-6. **Zéro Z à la plaque**, pince sur la plaque, fraise 20 mm au-dessus, alimentation de la broche coupée : comme avant, en notant la durée.
+6. **Zéro Z à la plaque**, pince sur la plaque, fraise 20 mm au-dessus, alimentation de la broche coupée : comme avant, en notant la durée. Le refaire **pendant une pause `M6`** d'un programme d'essai sans matière, puis reprendre : la reprise doit rester permise.
 
 Ce que l'essai ne peut pas montrer : un rapport sans position ou sans `FS:`, que la carte n'est pas connue pour émettre. Cette partie n'est prouvée qu'au banc.
 
 ## 7. Ce qui n'est pas vérifié
 
 - Rien n'est codé ni exécuté : § 4 est une exigence, pas un résultat. Les reproductions du constat et les cas rejoués par Astra n'ont pas été rejoués par moi.
-- Le nombre de tests existants dont l'entrée ou la suite doit changer.
+- Le nombre de tests existants dont l'entrée ou la suite doit changer (périmètre non établi : 17, 22 ou 24 fichiers selon la recherche).
+- Les rejeux d'Astra (`junk:MPos:`, `[GC: M5]` classé comme message) : repris de son avis, cohérents avec le motif lu, non rejoués par moi.
 - La cadence réelle des rapports et des `$G` ; la réponse de la carte à `$G` pendant un `Jog`, un `G38` et en alarme ; le temps ajouté par ligne.
 - Que `payload.raw` accompagne bien l'événement `parserstate` reçu par `r.modal` (lu à `GrblLineParser.js:77`, non rejoué).
 - Qu'un `$J=` émette sur un laser armé en `M4` ; que Grbl refuse `M3` pendant un `Jog`.
@@ -310,3 +333,20 @@ Ce que l'essai ne peut pas montrer : un rapport sans position ou sans `FS:`, que
 | 11 | à vérifier au code — conversion des bancs | Admis ; le risque est réel (cas repéré : `cnc-frame.test.js:405`). | Exigence 2 du § 4.1 : commit à part, vert sur l'ancien code, comparaison des octets, rien d'ajouté en silence. |
 | 12 | à vérifier au code — arrêts préservés ; absence ≠ écart | **Confirmé** : `stop` et `abort` passent par `halt.js` ; `WCO:` explicite traité à `work-offset.js:348-355`. | Exigence 3 du § 4.1 ; R-4 ; T16, T17. |
 | 13 | remarque — charge émise après la fusion ; `MPos`/`WPos` calculé ; `[PRB:]` vaut pour le bloc seul | **Confirmé** (`GrblRunner.js:121-124` ; `plate-probe.js:399-410`). | § 1.1 et § 2.5 corrigés. |
+
+## 9. Réponses au second contre-avis d'Astra (`C1-AVIS-ASTRA-2.md`)
+
+| # | Constat | Vérifié dans le code | Réponse de la révision 3 |
+|---|---|---|---|
+| 1 | danger — un `$G` ancien autorise la ligne suivante | **Confirmé** : `r.gc.n > gcAtOk` ne dit que l'ordre ; l'`ok` d'un déplacement arrive à la planification (`plate-probe.js:248-251`). | `spindleHeld` exige aussi un `[GC:]` de moins de 2,5 s **au moment de l'écriture** (§ 2.6). Aucune fraîcheur modale pendant la ligne. T11 variante, M27. |
+| 2 | danger — la plaque garde la fenêtre fermée pour le bloc | **Confirmé** : cibles calculées avant `send` (`plate-probe.js:399-411`, `:421`). | Même garde que le bloc avant chaque écriture : position et repère égaux à ceux du calcul, sinon abandon, sans recalcul ; `G10 L20` compris (§ 2.5). T13p, M21p. |
+| 3 | danger — position apprise après `$H` | **Confirmé** : `job-service.js:436` appelle `homeEnd()` (`:387-392`), qui lit l'état fusionné (`:134-143`) ; employé à `motion.js:241-244` et `job-service.js:1819`. | § 2.9 : appris seulement du rapport `Idle` final strictement positionnel, sinon `null` ; rien d'exigé avant `$H`. T18, M28. |
+| 4 | à corriger — valeur de la charge différente du champ validé | **Confirmé à la lecture** du motif (`GrblLineParserResultStatus.js:28`, `:47-54`) ; rejeu d'Astra non refait. | Valeurs du repère rapporté et vitesse prises **dans le champ brut** ; l'autre repère repris de la charge seulement si elle concorde (§ 1.1). T8, M29. |
+| 5 | à corriger — « dernier `A:` » verrouille un départ | **Confirmé** : la révision 2 ne disait pas quand `A:` s'efface ; la règle existe à `GrblRunner.js:103-108`. | Astra proposait de reprendre cette règle d'effacement. Choix retenu, plus simple et sans aucun faux refus : `A:` **retiré** du refus de départ (reprendre la règle aurait encore refusé un départ jusqu'au rapport `Ov:` suivant) ; gardé comme indice pendant une séquence (`r.spinHints`), jamais comme verrou. Limite au § 5. T19. |
+| 6 | à corriger — refus de `$H` en alarme sans remède | **Confirmé** : en alarme, « Arrêter la broche » n'écrit rien (`job-service.js:2492-2494`) ; Arrêter ne fait pas de reset sans travail ni file (`:2677`). | Astra proposait de définir une récupération. Choix retenu : la garde ajoutée à `$H` est **retirée**, départ inchangé ; aucune récupération nouvelle n'est donc nécessaire, et `$X` n'est pas proposé comme contournement. Limite au § 5. T20. |
+| 7 | à corriger — reprise `$G` à dix secondes trop générale | **Confirmé** : la reprise exige travail à l'arrêt et machine `Idle` (`GrblController.js:917-930`) ; `probeFailed` à `plate-probe.js:451-453` ; bornes de ligne différentes (`:397-423`, `block-probe.js:799`). | § 1.2 : condition et conséquence écrites (palpage en pause `M6`, reprise refusée) ; borne réelle par ligne. Essai en pause `M6` ajouté (§ 6). |
+| 8 | à corriger — M19 / M22 non discriminantes | **Confirmé** : la garde d'avant écriture masque le retrait de l'attente. | T13c observe la cible écrite ; M22 : redondance reconnue si le bloc ne lit rien entre les deux ; variante plaque de T13b : T13p. |
+| 9 | à vérifier au code — pas de délai de 2,5 s pendant `G38` | Admis. | Exigence 1 du § 4.1 et T13g ; lignes modales complètes et `ok` distinct dans le banc. |
+| 10 | à vérifier au code — arrêts ; portée de « D2 intact » | **Confirmé** : pendant la plaque, « Arrêter la broche » injecte un `M5` (`job-service.js:2480-2496`) ; la plaque invalide D2 sur tout échec (`plate-probe.js:458`). | § 2.8 : pendant la plaque, ce bouton devient l'arrêt du palpage ; T16. « D2 intact » limité au cadrage (§ 4.1). |
+| 11 | à vérifier au code — conversion des bancs ; « dix-sept fichiers » | **Confirmé** : ma recherche en trouve 24 sous `src/server`. | Périmètre dit « à établir » ; « pour la raison visée » ajouté (§ 4.1). |
+| 12 | remarque | — | Pris note : la couverture reste celle annoncée (départs des programmes et macros, exceptions des petits pas et de la prise d'origine, pas de surveillance de leurs trajectoires). |
