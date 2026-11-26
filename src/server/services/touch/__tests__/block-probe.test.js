@@ -1990,6 +1990,21 @@ describe('block probe, lot C1: the position carried by the report, the spindle p
     expect(ctx.g.sent.filter(moving)).toEqual([FAST]);
   });
 
+  test('T13b (mutations M23 with M21): the rest proven, then the coordinates disappear while the $G is waited for: no line when it comes', async () => {
+    const ctx = await setup();
+    await after(ctx, FAST, () => {
+      ctx.g.noGc = true;
+    });
+    await ctx.tick(400);
+    expect(ctx.g.sent.filter(moving)).toEqual([FAST]);
+    ctx.g.omitPos = true;
+    await ctx.tick(200);
+    ctx.g.noGc = false;
+    const { err } = await ctx.finish();
+    expect(['ETOUCH_PROBE_STALE', 'ETOUCH_PROBE_SPINDLE']).toContain(err.code);
+    expect(ctx.g.sent.filter(moving)).toEqual([FAST]);
+  });
+
   test('T13c transposed (mutation M22): after a move, a first Idle off the target then two that agree on it: the arrival is read at the proven rest, the cycle goes on', async () => {
     const ctx = await setup();
     await after(ctx, BACK, () => {
@@ -2002,17 +2017,20 @@ describe('block probe, lot C1: the position carried by the report, the spindle p
   });
 
   test('T7s (mutation M16): FS: alone missing for 2.6 s during a G38.3: stopped (spindle), feed hold, no jog cancel; T10: a $G M3 during a line stops it too', async () => {
-    // The slow touch at 5 mm/min: well over 2.6 s of Run.
-    const SLOW = 'G38.3 Z-20.565 F5';
+    // The slow touch stays in the planner of the fake board: a line in flight for as long as needed.
+    const SLOW = 'G38.3 Z-20.565 F25';
     let ctx = await setup();
-    await ctx.launch({ ...Z_ONLY, profile: { ...PROFILE, slow: 5 } });
-    await ctx.until(() => ctx.g.active === 'Run' && ctx.g.sent.includes(SLOW));
+    ctx.g.stalled = (line) => line === SLOW;
+    await ctx.launch(Z_ONLY);
+    await ctx.until(() => ctx.g.sent.includes(SLOW));
+    await ctx.tick(300);
     ctx.g.omitFs = true;
-    await ctx.tick(2700);
-    expect(ctx.g.active).not.toBe('Idle');
+    await ctx.tick(2400);
+    expect([ctx.g.realtime, ctx.outcome]).toEqual([[], null]);
+    await ctx.tick(300);
+    expect(ctx.g.realtime[0]).toBe('!');
     let { err } = await ctx.finish();
     expect(err.code).toBe('ETOUCH_PROBE_SPINDLE');
-    expect(ctx.g.realtime[0]).toBe('!');
     expect(ctx.g.sent.filter(moving)).toEqual([FAST, BACK, SLOW]);
     ctx = await setup();
     await ctx.launch(Z_ONLY);

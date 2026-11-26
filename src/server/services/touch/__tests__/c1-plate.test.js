@@ -161,6 +161,24 @@ describe('C1, Z zero with the plate: the proofs before each line (§ 2.5)', () =
     expect(ctx.result.err.code).toBe('ETOUCH_PLATE_POSITION');
   });
 
+  test('T13p, without coordinates (mutations M20 with M21p): the rest proven, then the coordinates disappear while the $G is waited for: no line when it comes', async () => {
+    const ctx = await launched();
+    await run(ctx, -25, { gc: null });
+    ctx.rep('Idle', { pos: null });
+    ctx.rep('Idle', { pos: null });
+    ctx.gc();
+    await ctx.tick(300, () => ctx.rep('Idle', { pos: null }));
+    expect(ctx.lines()).toEqual([G38_1]);
+    await ctx.tick(2500, (t) => {
+      if (t % 500 === 0) {
+        ctx.gc();
+      }
+      ctx.rep('Idle', { pos: null });
+    });
+    expect(ctx.result.err.code).toBe('ETOUCH_PLATE_STALE');
+    expect(ctx.lines().filter((l) => l !== 'G0')).toEqual([G38_1]);
+  });
+
   test('T11, plate (mutations M12, M27): no $G after the ok of a line: no next line, then the probe stops (spindle); a $G grown old does not count', async () => {
     let ctx = await launched();
     await run(ctx, -25, { gc: null });

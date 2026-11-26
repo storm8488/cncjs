@@ -87,6 +87,20 @@ describe('C1, CNC framing: the proofs between two lines', () => {
     expect(ctx.lines()).toEqual(['M5', Z_LINE, XY_1]);
   });
 
+  test('T4c, arrival (mutation M5): a first Idle 0.2 mm short of the target, then two that agree on it: the arrival is judged at the proven rest, the framing goes on', async () => {
+    const ctx = await inZLine();
+    ctx.rep('Jog', { pos: [-100, -100, -30] });
+    ctx.rep('Idle', { pos: [-100, -100, -5.2] });
+    await ctx.tick(100);
+    ctx.m = [-100, -100, -5];
+    ctx.rep('Idle');
+    await ctx.tick(50);
+    ctx.rep('Idle');
+    await ctx.tick(50);
+    expect(ctx.lines()).toEqual(['M5', Z_LINE, XY_1]);
+    expect(ctx.invalidated).not.toContain('frame');
+  });
+
   test('§ 4.1 point 4: an arrival already validated, then a Jog and a single Idle at the target while the $G is waited for: no line', async () => {
     const ctx = await startFrame();
     ctx.ok();
