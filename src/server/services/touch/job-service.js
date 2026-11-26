@@ -35,6 +35,8 @@ import { createBlockProbe, blockParams } from './block-probe.js';
 import { createSystemCommands } from './system-command.js';
 // eslint-disable-next-line import/extensions
 import { createWorkOffset } from './work-offset.js';
+// eslint-disable-next-line import/extensions
+import { createProof } from './report-proof.js';
 
 // Kept exported from here for the existing callers and tests.
 // eslint-disable-next-line import/extensions
@@ -129,18 +131,6 @@ const explicitXyz = (payload) => ['mpos', 'wpos'].some((key) => {
   const p = payload && payload[key];
   return !!p && ['x', 'y', 'z'].every((axis) => ['string', 'number'].includes(typeof p[axis]) && String(p[axis]).trim() !== '' && Number.isFinite(Number(p[axis])));
 });
-
-// Machine position per axis (X, Y, Z) as CNCjs holds it now, null where not a number.
-const homeMposOf = (c) => {
-  const p = controllerStatus(c).mpos || {};
-  const out = {};
-  ['X', 'Y', 'Z'].forEach((axis) => {
-    const v = p[axis.toLowerCase()];
-    const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
-    out[axis] = typeof n === 'number' && Number.isFinite(n) ? n : null;
-  });
-  return out;
-};
 
 const realtimeValue = (value) => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null);
 
@@ -263,6 +253,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
 
   const controllers = () => store.get('controllers') || {};
 
+  // Lot C1 (report-proof.js): what each report carried by itself, and the proofs the moves read.
+  const proof = createProof({ clock, conflict });
+
   const jobProgress = (c, r) => {
     const j = r.job;
     if (!j || !j.runTime) {
@@ -366,6 +359,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         xyzAt: null,
         generation: crypto.randomBytes(12).toString('hex')
       };
+      proof.init(r);
       // D2: whether the work offset the board applies is proven equal to `$#` (work-offset.js).
       r.offset = workOffsetOf({
         c,
@@ -384,11 +378,13 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       });
       // Where a full homing cycle left the machine, with the $23 it ran under (F1, motion.js
       // envelopeOf), or null when CNCjs's machine position cannot be trusted.
+      // Lot C1 (§ 2.9): learnt only when this very report carried X, Y and Z itself, from its values.
       const homeEnd = () => {
         const settings = allSettings(c);
         const mask = settings.$23 === undefined || String(settings.$23).trim() === '' ? NaN : Number(settings.$23);
-        return Number.isInteger(mask) && machinePositionKnown(settings, { wcoSeen: r.wcoSeen, wposReported: r.wposReported })
-          ? { ...homeMposOf(c), mask } : null;
+        const m = r.pos && r.pos.report === r.reports ? r.pos.m : null;
+        return m && Number.isInteger(mask) && machinePositionKnown(settings, { wcoSeen: r.wcoSeen, wposReported: r.wposReported })
+          ? { X: m.x, Y: m.y, Z: m.z, mask } : null;
       };
       r.status = (payload) => {
         r.seen = clock();
@@ -404,6 +400,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
           r.wcoAt = clock();
         }
         r.reports += 1;
+        proof.status(r, payload);
         jobProgress(c, r);
         // The last explicit WCO: and the report that carried it (the block probe's check, C-03).
         if (explicitWco) {
@@ -535,6 +532,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         r.wcoSeen = false;
         r.wcoAt = null;
         r.wco = null;
+        proof.init(r);
         // A Home state seen before the restart says nothing about the new session.
         r.sawHome = false;
         r.startups += 1;
@@ -588,6 +586,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         r.modalSeen = clock();
         const value = payload && payload.modal && payload.modal.wcs;
         r.wcs = /^G5[4-9]$/.test(value || '') ? value : null;
+        proof.modal(r, payload);
         r.offset.modal();
         changed();
       };
@@ -940,6 +939,15 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     }
   };
 
+  // Lot C1: the proofs a start needs besides spindleStill, read from the reports themselves.
+  const throwIf = (err) => {
+    if (err) {
+      throw err;
+    }
+  };
+  const spindleProven = (c) => throwIf(proof.spindleRefusal(record(c)));
+  const positionProven = (c) => throwIf(proof.positionRefusal(record(c)));
+
   const homingActive = (r) => !!r.homing && clock() - r.homing.since < HOMING_MAX_MS;
 
   // When the D2 transaction may start (work-offset.js): 'write' at rest, 'read' (no reload)
@@ -1001,6 +1009,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     if (action === 'start') {
       idle(c);
       spindleStill(c);
+      spindleProven(c);
       if (record(c).loading) {
         throw conflict('Chargement en cours.');
       }
@@ -1176,6 +1185,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
   const macroReady = (c) => {
     idle(c);
     spindleStill(c);
+    positionProven(c);
+    spindleProven(c);
     if (record(c).loading) {
       throw conflict('Chargement en cours.');
     }
@@ -1421,6 +1432,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     changed,
     available,
     spindleStill,
+    proof,
     pauseKind,
     modalFresh,
     allSettings,
@@ -1470,6 +1482,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     referenceReady,
     homingActive,
     offsetReady,
+    proof,
     // Turning, or maybe turning: no FS speed reported and no fresh $G to tell.
     spindleOn: (c) => spindleOn(c) || (realtimeValue(controllerStatus(c).spindle) === null && !modalFresh(record(c)))
   });
@@ -1498,7 +1511,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     halt,
     homingActive,
     requireCapability,
-    offsetReady
+    offsetReady,
+    proof
   });
 
   const findMacro = (id) => {
@@ -1606,6 +1620,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     };
   };
 
+  const plateRunning = (r) => !!(r.probing && r.probing.kind === 'plate');
+
   const snapshot = (c) => {
     const r = record(c);
     const sender = c.sender.toJSON();
@@ -1636,7 +1652,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     const blockProbeReason = reason(() => blockProbe.blockReady(c), refusals, 'blockProbe');
     const readSettingsReason = reason(() => readSettingsReady(c), refusals, 'readSettings');
     reason(() => moves.originOperation.guard(c), refusals, 'setOrigin');
-    reason(() => moves.jogReady(c, r), refusals, 'jog');
+    reason(() => moves.moveReady(c, r), refusals, 'jog');
     // Framing (laser or CNC, lot F1): the whole guard of this machine kind now.
     const frameReason = reason(() => planFor(c, r), refusals, 'frame');
 
@@ -1744,7 +1760,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       stoppedAtLine: r.lastStop ? r.lastStop.line : null,
       stoppedFile: r.lastStop ? r.lastStop.file : null,
       // A block probe is interrupted by Pause (it cannot be resumed).
-      canPause: c.workflow.state === 'running' || !!(r.probing && r.probing.kind === 'block') || moves.framing(r),
+      // Lot C1: a plate probe too (Pause ends it, see the `pause` action).
+      canPause: c.workflow.state === 'running' || !!r.probing || moves.framing(r),
       // A macro waiting in a dwell (CNCjs queue not empty) can be stopped too.
       canStop: c.workflow.state !== 'idle' || ['Run', 'Hold', 'Home', 'Jog'].includes(state.activeState) || /^Door/.test(state.activeState || '') ||
         !!r.probing || !!r.starting || !!r.frameStarting || homingActive(r) || !!(feederState.queue || feederState.pending) ||
@@ -1770,8 +1787,9 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       canSpindleTest: !spindleReason,
       spindleReason,
       spindleTestSpeed: spindleTestSpeed(allSettings(c)),
-      canSpindleStop: !spindleStopReason && !spindleAlarm,
-      spindleStopReason: spindleStopReason || spindleAlarm,
+      // Lot C1: during a plate probe the button stops the probe, whatever the state (see `spindleStop`).
+      canSpindleStop: (!spindleStopReason && !spindleAlarm) || plateRunning(r),
+      spindleStopReason: plateRunning(r) ? '' : spindleStopReason || spindleAlarm,
       // Z zero with a touch plate (guarded like the commissioning commands).
       canZeroZ: !zeroZReason,
       zeroZReason,
@@ -1894,7 +1912,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
   const fmt3 = (n) => String(Math.round(n * 1000) / 1000);
   const framePlan = (c, r, feedAsked) => {
     requireCapability(c, 'laserFrame');
-    moves.jogReady(c, r);
+    moves.moveReady(c, r);
     // $J=G90 in work coordinates (D2).
     offsetReady(c);
     const j = r.job;
@@ -1928,12 +1946,8 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     if (typeof feed !== 'number' || !Number.isFinite(feed) || feed < MIN_FEED || feed > max) {
       throw machineRefusal('ETOUCH_LASER_FRAME_FEED', { min: MIN_FEED, max: fmt3(max) });
     }
-    const wpos = controllerStatus(c).wpos || {};
-    const here = ['x', 'y'].map((axis) => {
-      const v = wpos[axis];
-      const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
-      return typeof n === 'number' && Number.isFinite(n) ? n : null;
-    });
+    // Lot C1: the work position of the last report itself.
+    const here = ['x', 'y'].map((axis) => proof.posOf(r, 'w', axis));
     if (here.includes(null)) {
       throw machineRefusal('ETOUCH_LASER_FRAME_POSITION');
     }
@@ -1975,7 +1989,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
   const cncFramePlan = (c, r, feedAsked) => {
     // G3 to G7: the machine kind, at rest, homed, the work offset proven (D2), the spindle still.
     requireCapability(c, 'cncFrame');
-    moves.jogReady(c, r);
+    moves.moveReady(c, r);
     if (r.homed !== true) {
       throw machineRefusal('ETOUCH_CNC_FRAME_NOT_HOMED');
     }
@@ -1984,6 +1998,7 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     if (realtimeValue(controllerStatus(c).spindle) === null && !modalFresh(r)) {
       throw conflict(CNC_FRAME_SPINDLE_UNKNOWN);
     }
+    spindleProven(c);
     // G8 to G11: the loaded program, its travel check in X and Y, its outline, its work offset.
     const j = r.job;
     const sender = c.sender.state || {};
@@ -2020,18 +2035,13 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
     if (settingNumber(settings, 20) !== 1) {
       throw machineRefusal('ETOUCH_CNC_FRAME_SOFT_LIMITS');
     }
-    // G13: where the machine is, in work and machine coordinates.
-    const status = controllerStatus(c);
-    const at = (kind, axis) => {
-      const v = status[kind] && status[kind][axis];
-      const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
-      return typeof n === 'number' && Number.isFinite(n) ? n : null;
-    };
-    const wx = at('wpos', 'x');
-    const wy = at('wpos', 'y');
-    const mx = at('mpos', 'x');
-    const my = at('mpos', 'y');
-    const mz = at('mpos', 'z');
+    // G13: where the machine is, in work and machine coordinates: the five values of the last
+    // report itself (lot C1), never the position CNCjs kept from an earlier one.
+    const wx = proof.posOf(r, 'w', 'x');
+    const wy = proof.posOf(r, 'w', 'y');
+    const mx = proof.posOf(r, 'm', 'x');
+    const my = proof.posOf(r, 'm', 'y');
+    const mz = proof.posOf(r, 'm', 'z');
     if ([wx, wy, mx, my, mz].includes(null)) {
       throw machineRefusal('ETOUCH_LASER_FRAME_POSITION');
     }
@@ -2488,6 +2498,14 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       if (moves.framing(r)) {
         r.ticket = null;
         return moves.stop(c, r, 'spindle');
+      }
+      // During a plate probe (lot C1): the stop of the probe with a hardware stop of the spindle (a
+      // reset), never an M5 whose ok would be counted for a line of the probe. Null: nothing of a
+      // probe is left to stop (ended by a banner), the ordinary M5 follows.
+      const plateAnswer = plateRunning(r) ? plateProbe.spindleStop(c, r) : null;
+      if (plateAnswer) {
+        r.ticket = null;
+        return plateAnswer;
       }
       spindleStopReady(c);
       if (/^Alarm/.test(controllerStatus(c).activeState || '')) {

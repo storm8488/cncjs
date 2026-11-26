@@ -53,6 +53,8 @@ const SUPERVISE_MS = 100;
 const RELEASE_MS = 7000;
 const PRB_WAIT_MS = 1000;
 const LINE_MARGIN_MS = 15000;
+// Lot C1: a proof missing between two lines is waited for this long (report-proof.js).
+const PROOF_WAIT_MS = 2500;
 // C-03: the active offset of `$#` and the WCO: of a report received after its ok agree within
 // this (mm, the report units the probe needs), and that report comes within this time.
 const OFFSET_TOL = 0.0025;
@@ -89,6 +91,8 @@ export const MESSAGES = {
   ETOUCH_PROBE_STREAM: 'Suivi de la tablette perdu pendant le palpage : mouvement arrêté.',
   ETOUCH_PROBE_CONTROL: 'Pilotage pris par un autre appareil : palpage arrêté.',
   ETOUCH_PROBE_STALE: 'Rapports de la machine interrompus plus de 2,5 s : palpage arrêté.',
+  // Lot C1 (design/plaque/C1-CONCEPTION.md § 2.5).
+  ETOUCH_PROBE_SPINDLE: 'La broche est commandée, ou sa vitesse n’est plus rapportée : palpage arrêté.',
   ETOUCH_PROBE_TIMEOUT: 'Durée maximale du palpage dépassée : mouvement arrêté.',
   ETOUCH_PROBE_RESTART: 'La carte a redémarré pendant le palpage.',
   ETOUCH_PROBE_LOST: 'Connexion machine perdue pendant le palpage.',
@@ -392,7 +396,7 @@ const publicPlan = (plan) => {
 export const createBlockProbe = (deps) => {
   const {
     config, clock, conflict, controllers, record, later, changed, log, controllerInfo, allSettings, modalWcs,
-    probeInput, control, transports, transportActors, zeroZReady, answers, quiet, haltPlan, halt, homingActive, requireCapability, offsetReady
+    probeInput, control, transports, transportActors, zeroZReady, answers, quiet, haltPlan, halt, homingActive, requireCapability, offsetReady, proof
   } = deps;
 
   // The cycle in progress on a record (also while it is stopping).
@@ -400,9 +404,11 @@ export const createBlockProbe = (deps) => {
 
   const connected = (c) => controllers()[c.options.port] === c && !c.isClose() && !!c.runner;
   const activeOf = (c) => controllerStatus(c).activeState || '';
+  // Lot C1: the position of the last report itself ('mpos' machine, 'wpos' work), null axes otherwise.
   const positionOf = (c, kind) => {
-    const p = controllerStatus(c)[kind] || {};
-    return { X: num(p.x), Y: num(p.y), Z: num(p.z) };
+    const r = record(c);
+    const frame = kind === 'mpos' ? 'm' : 'w';
+    return { X: proof.posOf(r, frame, 'X'), Y: proof.posOf(r, frame, 'Y'), Z: proof.posOf(r, frame, 'Z') };
   };
 
   // Travel usable from the current machine position, per axis (motion.js).
@@ -555,7 +561,11 @@ export const createBlockProbe = (deps) => {
       haltStartups: null,
       haltReports: null,
       done: false,
-      index: 0
+      index: 0,
+      // Lot C1: what the spindle watch compares with, noted at the start; the line sent last (the
+      // counts at its ok, until when the proofs after it are waited for), null before the first.
+      ref: { hints: r.spinHints },
+      last: null
     };
     const id = crypto.randomBytes(8).toString('hex');
     r.probing = probing;
@@ -653,10 +663,14 @@ export const createBlockProbe = (deps) => {
         abort('ETOUCH_PROBE_STREAM');
       } else if (!owner || keyOf(owner) !== session.deviceKey) {
         abort('ETOUCH_PROBE_CONTROL');
-      } else if (!Number.isFinite(r.seen) || clock() - r.seen > STALE_MS) {
+      } else if (!Number.isFinite(r.seen) || clock() - r.seen > STALE_MS || !proof.posYoung(r)) {
+        // Lot C1: and no position reported itself for that long.
         abort('ETOUCH_PROBE_STALE');
       } else if (clock() > session.deadline) {
         abort('ETOUCH_PROBE_TIMEOUT');
+      } else if (proof.spindleWatch(r, session.ref)) {
+        // Lot C1: a sign of a running spindle since the start, or no whole FS: for 2.5 s.
+        abort('ETOUCH_PROBE_SPINDLE');
       }
     };
     session.streamOpen = streamOpen;
@@ -732,7 +746,19 @@ export const createBlockProbe = (deps) => {
 
     // One line, alone in flight, until acknowledged and seen at rest; the PRB
     // (and $# parameters) events of that line only.
+    // Lot C1 (§ 2.5): the proofs a line after the first needs right before its write, '' when they
+    // are there, else the code of the stop: a proven rest after the ok of the previous line, the
+    // spindle proven stopped after that ok.
+    const missing = () => {
+      const sent = session.last;
+      if (!proof.restedSince(r, sent.reportsAtOk)) {
+        return 'ETOUCH_PROBE_STALE';
+      }
+      return proof.spindleHeld(r, sent) ? '' : 'ETOUCH_PROBE_SPINDLE';
+    };
     const send = async (line, limitMs, { probe = false, collect = null } = {}) => {
+      // Where the machine stands as this line was computed (the caller read it in this very step).
+      const from = proof.place(r);
       ensure();
       // The stream rotated by the server: no new line until it is back (the
       // supervisor stops the cycle once its grace is over).
@@ -745,7 +771,23 @@ export const createBlockProbe = (deps) => {
       if (!LINE.test(line)) {
         throw failure('ETOUCH_PROBE_POSITION', { axis: '?' });
       }
+      if (session.last) {
+        await waitFor(() => !missing(), Math.max(0, session.last.until - clock()));
+        // The step of the write: everything is checked again here, after every wait.
+        ensure();
+        const code = missing();
+        if (code) {
+          abort(code);
+          throw failure(code);
+        }
+        // The line is not computed again: the machine must be where it was computed from.
+        const off = proof.moved(from, proof.place(r));
+        if (off) {
+          throw failure('ETOUCH_PROBE_POSITION', { axis: /^[XYZ]$/.test(off) ? off : '?' });
+        }
+      }
       const tracker = answers(c, r);
+      const sentAt = clock();
       const prb = [];
       const onParameters = (payload) => {
         if (!payload || typeof payload.name !== 'string') {
@@ -775,6 +817,13 @@ export const createBlockProbe = (deps) => {
             probing.outstanding = false;
           }
           throw classify(tracker);
+        }
+        // Lot C1, after quiet: the rest is proven (two reports after the ok that carry the position,
+        // Idle and agreeing) before anything is read from it.
+        session.last = { reportsAtOk: tracker.reportsAtOk, gcAtOk: tracker.gcAtOk, until: Math.min(clock() + PROOF_WAIT_MS, sentAt + limitMs) };
+        if (!(await waitFor(() => proof.restedSince(r, tracker.reportsAtOk), Math.max(0, session.last.until - clock())))) {
+          abort('ETOUCH_PROBE_STALE');
+          throw failure('ETOUCH_PROBE_STALE');
         }
         probing.outstanding = false;
         // The report count at the line's ok: a report after it is newer than the line.
@@ -1071,13 +1120,15 @@ export const createBlockProbe = (deps) => {
     };
 
     const entry = { event: 'probe', kind: 'block', axes: params.axes, wcs: params.wcs, controller: controllerInfo(c, r), actor: device };
+    // Lot C1 (§ 6): reports since the banner (all, without X/Y/Z, without a whole FS:), read at the end.
+    const counts = () => ({ reports: { ...r.seenCounts } });
     changed();
     return sequence().then((result) => {
       finish();
       r.blockProbe = {
         ...r.blockProbe, state: 'done', endedAt: Date.now(), written: 'yes', ...result, failure: null, needsHoming: false
       };
-      log({ ...entry, result: 'set', origin: result.origin, values: result.values, command: result.command, contacts: r.blockProbe.contacts });
+      log({ ...entry, result: 'set', origin: result.origin, values: result.values, command: result.command, contacts: r.blockProbe.contacts, ...counts() });
       changed();
       return { message: 'Origine ' + params.wcs + ' réglée par palpage ' + params.axes + '.', blockProbe: { ...r.blockProbe } };
     }, async (err) => {
@@ -1113,7 +1164,7 @@ export const createBlockProbe = (deps) => {
       r.blockProbe = {
         ...r.blockProbe, state: 'failed', endedAt: Date.now(), written: probing.written, failure: { code, params: codeParams, message }, needsHoming
       };
-      log({ ...entry, result: 'failed', code, written: probing.written, contacts: r.blockProbe.contacts });
+      log({ ...entry, result: 'failed', code, written: probing.written, contacts: r.blockProbe.contacts, ...counts() });
       changed();
       const out = refusal(code, codeParams);
       out.message = message;

@@ -63,6 +63,8 @@ const ORIGIN_TOLERANCE = 0.005;
 // The machine must not have moved more than this between confirmation and execution.
 const ORIGIN_MOVED_MM = 0.01;
 const MAX_REPORT_AGE_MS = 2500;
+// Lot C1: a proof missing between two lines of a framing is waited for this long (report-proof.js).
+const PROOF_WAIT_MS = 2500;
 // A machine position this far outside an envelope is outside it.
 const POSITION_TOLERANCE_MM = 0.001;
 // An unconfirmed jog cancel goes on being repeated while Jog is reported, at
@@ -96,6 +98,8 @@ const STOP_REASONS = {
   dispose: 'service arrêté',
   socket: 'arrêt venu d’un client CNCjs',
   spindle: 'bouton Arrêter la broche',
+  // Lot C1: seen by the watch of a move, not asked for by the operator.
+  spindleProof: 'broche commandée, ou vitesse de broche non rapportée, pendant le déplacement',
   program: 'programme remplacé pendant le cadrage'
 };
 // A framing (laser or CNC) holds the machine from its first line to its end: no other move,
@@ -320,6 +324,13 @@ export const createMotion = (deps) => {
     config, clock, conflict, controllers, record, later, answers, changed, available,
     hasAutomations, control, transports, transportActors, log, controllerInfo, allSettings, modalWcs, spindleOn, referenceReady, homingActive, offsetReady
   } = deps;
+  // Lot C1 (report-proof.js): what the reports carried by themselves.
+  const { proof } = deps;
+  const throwIf = (err) => {
+    if (err) {
+      throw err;
+    }
+  };
 
   // A refusal with a stable code (ETOUCH_MOTION_*) and the values of its
   // message: the French text is unchanged, the API forwards code and params so
@@ -461,6 +472,13 @@ export const createMotion = (deps) => {
     }
   };
 
+  // Lot C1 (design/plaque/C1-CONCEPTION.md § 2.2): a move starts only from a proven rest, two reports
+  // that carry the position themselves, Idle and agreeing, the last one recent. Any step, 0.01 mm included.
+  const moveReady = (c, r, own = null) => {
+    jogReady(c, r, own);
+    throwIf(proof.positionRefusal(r));
+  };
+
   // A real move belongs to the client whose own event stream is open: its
   // closing stops the move, and nobody can bind a move to someone else's stream.
   const bound = (body, actor) => {
@@ -486,14 +504,19 @@ export const createMotion = (deps) => {
 
   // One discrete step.
   const step = (c, r, body, actor) => {
-    jogReady(c, r);
+    moveReady(c, r);
     const p = jogParams(c, body, false);
     if (p.step > MAX_SPINDLE_STEP_MM && spindleOn(c)) {
       throw refusal('Broche en rotation : pas de ' + fmt(MAX_SPINDLE_STEP_MM) + ' mm au plus (maintien continu refusé). Arrêtez la broche (M5) pour de plus grands déplacements.',
         'ETOUCH_MOTION_SPINDLE_STEP',
         { max: fmt(MAX_SPINDLE_STEP_MM) });
     }
-    const pos = positionOf(c, 'mpos', p.axis);
+    // Lot C1: beyond the small steps kept for touching off with the spindle on, the spindle is proven stopped.
+    const large = p.step > MAX_SPINDLE_STEP_MM;
+    if (large) {
+      throwIf(proof.spindleRefusal(r));
+    }
+    const pos = proof.posOf(r, 'm', p.axis);
     const at = limitsAt(envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen, wposReported: r.wposReported, homeAt: r.homeMpos })[p.axis], pos, p.axis);
     if (at.outside) {
       throw conflict('Pas refusé : ' + at.reason + '.');
@@ -527,6 +550,7 @@ export const createMotion = (deps) => {
     pending.axis = p.axis;
     // Its stream is not rotated while it runs (holds, touch-stream.js): a rotation would cancel it.
     pending.transportId = body.transportId;
+    pending.ref = large ? { hints: r.spinHints } : null;
     watchStep(c, r, pending, body.transportId, actor);
     return { message: 'Pas de ' + fmt(p.step) + ' mm en ' + p.axis + (p.direction > 0 ? '+' : '−') + ' envoyé (' + line + ').', command: line };
   };
@@ -553,8 +577,12 @@ export const createMotion = (deps) => {
         cancel(c, r, 'control');
         return;
       }
-      if (!fresh(r)) {
+      if (!fresh(r) || !proof.posYoung(r)) {
         cancel(c, r, 'stale');
+        return;
+      }
+      if (pending.ref && proof.spindleWatch(r, pending.ref)) {
+        cancel(c, r, 'spindleProof');
         return;
       }
       later(c, r, check, STEP_WATCH_MS);
@@ -697,11 +725,14 @@ export const createMotion = (deps) => {
     if (owner && keyOf(owner) !== session.actorKey) {
       return 'control';
     }
-    if (!fresh(r)) {
+    if (!fresh(r) || !proof.posYoung(r)) {
       return 'stale';
     }
     if (/^Alarm/.test(activeOf(c))) {
       return 'alarm';
+    }
+    if (proof.spindleWatch(r, session.ref)) {
+      return 'spindleProof';
     }
     return '';
   };
@@ -743,7 +774,12 @@ export const createMotion = (deps) => {
     if (spindleOn(c)) {
       return 'Broche en rotation : maintien continu refusé ; pas de ' + fmt(MAX_SPINDLE_STEP_MM) + ' mm au plus.';
     }
-    const at = limitsAt(envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen, wposReported: r.wposReported, homeAt: r.homeMpos })[axis], positionOf(c, 'mpos', axis), axis);
+    // Lot C1: never throws (the snapshot calls it too).
+    const spindle = proof.spindleRefusal(r);
+    if (spindle) {
+      return spindle.message;
+    }
+    const at = limitsAt(envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen, wposReported: r.wposReported, homeAt: r.homeMpos })[axis], proof.posOf(r, 'm', axis), axis);
     if (!at.limits) {
       return 'Maintien continu impossible : ' + at.reason + '.' + (at.outside ? '' : ' Utilisez les pas (' + MAX_UNREFERENCED_STEP_MM + ' mm au plus).');
     }
@@ -752,14 +788,18 @@ export const createMotion = (deps) => {
 
   const start = (c, r, body, actor) => {
     gate(c, r, 'jogContinuous');
-    jogReady(c, r);
+    moveReady(c, r);
     const p = jogParams(c, body, true);
+    // Lot C1: the coded refusal of the spindle proof (the old guard keeps its own sentence below).
+    if (!spindleOn(c)) {
+      throwIf(proof.spindleRefusal(r));
+    }
     const why = continuousReason(c, r, p.axis);
     if (why) {
       throw conflict(why);
     }
     const env = envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen, wposReported: r.wposReported, homeAt: r.homeMpos })[p.axis];
-    const pos = positionOf(c, 'mpos', p.axis);
+    const pos = proof.posOf(r, 'm', p.axis);
     const { limits, ambiguous } = limitsAt(env, pos, p.axis);
     // Safe in every plausible convention, never more than the travel itself,
     // and never longer than MAX_JOG_MS at this feed (hold again to go on).
@@ -787,7 +827,8 @@ export const createMotion = (deps) => {
       command: line,
       since: Date.now(),
       deadline: clock() + KEEPALIVE_TIMEOUT_MS,
-      until: clock() + Math.min(MAX_JOG_MS, 60000 * room / p.feed) + SESSION_MARGIN_MS
+      until: clock() + Math.min(MAX_JOG_MS, 60000 * room / p.feed) + SESSION_MARGIN_MS,
+      ref: { hints: r.spinHints }
     };
     const s = stateOf(r);
     send(c, r, 'jog', line, 60000 * room / p.feed + 10000);
@@ -924,6 +965,10 @@ export const createMotion = (deps) => {
       bounds: session.bounds,
       feed: session.feed,
       ...(cnc ? { kind: 'cnc', code: session.code || null, safeZ: session.safeZ || null } : {}),
+      // Lot C1 (§ 6): reports since the banner (all, without X/Y/Z, without a whole FS:), and how
+      // long each line after the first waited for its proofs (ms).
+      reports: { ...r.seenCounts },
+      waits: session.waits.slice(),
       startedAt: new Date(session.since).toISOString(),
       durationMs: Date.now() - session.since,
       actor: session.actor
@@ -942,11 +987,15 @@ export const createMotion = (deps) => {
     if (owner && keyOf(owner) !== session.actorKey) {
       return 'control';
     }
-    if (!fresh(r)) {
+    if (!fresh(r) || !proof.posYoung(r)) {
       return 'stale';
     }
     if (/^Alarm/.test(activeOf(c))) {
       return 'alarm';
+    }
+    // Lot C1: from the proof of its M5 on (a laser at rest in M4 is no sign before it).
+    if (session.ref && proof.spindleWatch(r, session.ref)) {
+      return 'spindleProof';
     }
     return '';
   };
@@ -971,7 +1020,8 @@ export const createMotion = (deps) => {
     if (keyOf(control.inspect(c.options.port).owner) !== session.ownerKey) {
       return ['control', 'ETOUCH_FRAME_CONTROL', {}];
     }
-    if (!fresh(r)) {
+    // Lot C1: a position reported itself less than 2.5 s ago, in Jog too.
+    if (!fresh(r) || !proof.posYoung(r)) {
       return ['stale', 'ETOUCH_FRAME_STALE', {}];
     }
     const state = activeOf(c);
@@ -998,13 +1048,14 @@ export const createMotion = (deps) => {
     } else if (JSON.stringify(allSettings(c)) !== session.settings) {
       // The travel, the feeds, $13, $20 the plan was made with (second review, family 3).
       cause = 'settings';
-    } else if (r.wcs !== session.wcs || offsetOff(c, session)) {
+    } else if (r.wcs !== session.wcs || offsetOff(r, session)) {
       // The work coordinate system and the work offset the X/Y targets are written in, compared
       // directly, whatever the D2 proof says (second review, family 3).
       cause = 'offset';
-    } else if (spindleOn(c)) {
+    } else if (spindleOn(c) || proof.spindleWatch(r, session.ref)) {
       // The whole guard of the start (review C2): a speed reported above 0, or without a speed
-      // a $G naming M3/M4, or no $G recent enough to tell.
+      // a $G naming M3/M4, or no $G recent enough to tell. Lot C1: and any sign of a running
+      // spindle since the start, or no whole FS: for 2.5 s.
       cause = 'spindle';
     } else if (state !== 'Idle' && state !== 'Jog') {
       cause = state || 'inconnu';
@@ -1012,11 +1063,13 @@ export const createMotion = (deps) => {
     return cause ? ['state', 'ETOUCH_FRAME_STATE', { state: cause }] : null;
   };
 
-  // The work offset in X and Y (MPos − WPos as CNCjs has them) differs from the one of the plan.
-  const offsetOff = (c, session) => ['X', 'Y'].some((axis) => {
-    const m = positionOf(c, 'mpos', axis);
-    const w = positionOf(c, 'wpos', axis);
-    return m === null || w === null || Math.abs(m - w - session.offset[axis.toLowerCase()]) > FRAME_ARRIVAL_MM;
+  // The work offset in X and Y (MPos − WPos of the last report itself) differs from the one of the
+  // plan. Lot C1: judged only when that report carries the position; a position that is missing is
+  // no difference seen (the watch of its age, and the wait before each line, deal with it).
+  const offsetOff = (r, session) => ['X', 'Y'].some((axis) => {
+    const m = proof.posOf(r, 'm', axis);
+    const w = proof.posOf(r, 'w', axis);
+    return m !== null && w !== null && Math.abs(m - w - session.offset[axis.toLowerCase()]) > FRAME_ARRIVAL_MM;
   });
 
   // A framing whose board restarted ends here, without a byte: not even a jog cancel goes to the
@@ -1050,6 +1103,9 @@ export const createMotion = (deps) => {
   // every step while one waits (review D2, D3): an earlier arrival is no leave to send. Nothing of
   // ours or anyone else's pending, the machine Idle, still where the last line put it (M5: where
   // the plan was made), and before an X/Y line Z at the safe height. [why, code, params, off] or null.
+  // Lot C1: `{ wait }` while a proof is missing ('stale': no proven rest after the ok of the last
+  // line; 'spindle': no FS: at 0 in the last report, or no recent $G naming M5 after that ok): the
+  // line waits, nothing stops yet. The position and the height are read from the report itself.
   const holdReason = (c, r, session) => {
     const s = stateOf(r);
     if (s.pending || s.session || s.cancel) {
@@ -1066,24 +1122,32 @@ export const createMotion = (deps) => {
     } catch (_) {
       return ['state', 'ETOUCH_FRAME_STATE', { state: 'busy' }];
     }
-    const off = arrivalOff(c, session, session.index - 1);
+    const sent = session.pending.t;
+    if (!proof.restedSince(r, sent.reportsAtOk)) {
+      return { wait: 'stale' };
+    }
+    const off = arrivalOff(r, session, session.index - 1);
     if (off) {
       return ['position', 'ETOUCH_FRAME_POSITION', off, true];
     }
     const next = session.lines[session.index];
     if (next !== undefined && CNC_XY_LINE.test(next)) {
-      const z = positionOf(c, 'mpos', 'Z');
+      const z = proof.posOf(r, 'm', 'Z');
       const safe = session.safeZ.machine;
       if (z === null || z < safe - FRAME_ARRIVAL_MM) {
         return ['position', 'ETOUCH_FRAME_POSITION', { axis: 'Z', expected: fmt(safe), reported: z === null ? 'inconnu' : fmt(z) }, true];
       }
     }
-    return null;
+    return proof.spindleHeld(r, { gcAtOk: sent.gcAtOk }) ? null : { wait: 'spindle' };
   };
+
+  // A proof waited for between two lines is late: PROOF_WAIT_MS after the line was seen over, or the
+  // own time limit of that line, whichever comes first.
+  const proofLate = (session) => clock() - session.settledAt > PROOF_WAIT_MS || clock() - session.pending.sentAt > session.pending.limitMs;
 
   // Where the machine stands after a CNC framing line against where it was sent (§ 5.3): null
   // when it arrived, else the first axis off with its expected and reported machine positions.
-  const arrivalOff = (c, session, i) => {
+  const arrivalOff = (r, session, i) => {
     const target = session.expect[i];
     if (!target) {
       return null;
@@ -1091,12 +1155,12 @@ export const createMotion = (deps) => {
     const off = (axis, expected, reported) => ({ axis, expected: fmt(expected), reported: reported === null ? 'inconnu' : fmt(reported) });
     for (const axis of AXES) {
       const want = target[axis.toLowerCase()];
-      const got = positionOf(c, 'mpos', axis);
+      const got = proof.posOf(r, 'm', axis);
       if (want !== undefined && (got === null || Math.abs(got - want) > FRAME_ARRIVAL_MM)) {
         return off(axis, want, got);
       }
     }
-    const z = positionOf(c, 'mpos', 'Z');
+    const z = proof.posOf(r, 'm', 'Z');
     if (session.zFloor !== null && (z === null || z < session.zFloor - FRAME_ARRIVAL_MM)) {
       return off('Z', session.zFloor, z);
     }
@@ -1120,7 +1184,7 @@ export const createMotion = (deps) => {
   // plan: { lines, limits (ms per line), bounds, feed }, checked by the caller; a CNC plan
   // (kind 'cnc') adds phases, sides, expect (machine position after each line), revision, safeZ.
   const frame = (c, r, plan, actor, transportId) => {
-    jogReady(c, r);
+    moveReady(c, r);
     const cnc = !!plan && plan.kind === 'cnc';
     const shaped = (list) => Array.isArray(list) && list.length === plan.lines.length;
     if (!plan || !Array.isArray(plan.lines) || !plan.lines.length || plan.lines[0] !== 'M5' || !shaped(plan.limits) ||
@@ -1143,7 +1207,12 @@ export const createMotion = (deps) => {
       owner: actor ? { kind: actor.kind, id: actor.id, label: actor.label || '' } : null,
       since: Date.now(),
       // A banner after this ends the sequence without a byte more (both kinds, P3).
-      startups: r.startups
+      startups: r.startups,
+      // Lot C1: when the line sent last was seen over (null while it runs), the wait of each line
+      // after the first, and what the spindle watch compares with (a laser: from the proof of its M5).
+      settledAt: null,
+      waits: [],
+      ref: cnc ? { hints: r.spinHints } : null
     };
     if (cnc) {
       const owner = keyOf(control.inspect(c.options.port).owner);
@@ -1173,6 +1242,10 @@ export const createMotion = (deps) => {
     }
     const sendNext = () => {
       const i = session.index;
+      if (session.settledAt !== null) {
+        session.waits.push(Math.round(clock() - session.settledAt));
+      }
+      session.settledAt = null;
       session.index += 1;
       session.pending = send(c, r, /^\$J=/.test(session.lines[i]) ? 'jog' : 'frame', session.lines[i], session.limits[i]);
       // A line of a framing: after a banner, nothing automatic is written for it (cancel, forget).
@@ -1219,7 +1292,21 @@ export const createMotion = (deps) => {
           abortFrame(c, r, session, 'cancelled', 'state', 'ETOUCH_FRAME_STATE', { state: state || 'inconnu' });
           return;
         }
-        const off = arrivalOff(c, session, session.index - 1);
+        if (session.settledAt === null) {
+          session.settledAt = clock();
+        }
+        // Lot C1: the arrival is judged on a proven rest only, two reports after the ok that carry the
+        // position, Idle and agreeing. Until then nothing leaves; a position that stays missing ends
+        // the framing as stale reports do, without doubting the work offset (D2).
+        if (!proof.restedSince(r, p.t.reportsAtOk)) {
+          if (proofLate(session)) {
+            abortFrame(c, r, session, 'cancelled', 'stale', 'ETOUCH_FRAME_STALE', {});
+            return;
+          }
+          later(c, r, check, WATCH_MS);
+          return;
+        }
+        const off = arrivalOff(r, session, session.index - 1);
         if (off) {
           // The board does not put the bit where the check placed it: the zero is doubtful (D2).
           r.offset.invalidate('frame');
@@ -1236,6 +1323,18 @@ export const createMotion = (deps) => {
       // The arrival validated above, or at an earlier step, is no leave to send: the conditions
       // are checked again now, at every step while the next line waits and right before it leaves.
       const hold = holdReason(c, r, session);
+      if (hold && hold.wait) {
+        if (proofLate(session)) {
+          if (hold.wait === 'spindle') {
+            abortFrame(c, r, session, 'cancelled', 'state', 'ETOUCH_FRAME_STATE', { state: 'spindle' });
+          } else {
+            abortFrame(c, r, session, 'cancelled', 'stale', 'ETOUCH_FRAME_STALE', {});
+          }
+          return;
+        }
+        later(c, r, check, WATCH_MS);
+        return;
+      }
       if (hold) {
         if (hold[3]) {
           // The machine is not where the framing put it: the zero is doubtful (D2).
@@ -1249,7 +1348,7 @@ export const createMotion = (deps) => {
         // The height before the first X/Y line (the safe height or above, just checked): Z never
         // goes below it afterwards.
         if (session.zFloor === null && CNC_XY_LINE.test(session.lines[session.index])) {
-          session.zFloor = positionOf(c, 'mpos', 'Z');
+          session.zFloor = proof.posOf(r, 'm', 'Z');
         }
         sendNext();
       }
@@ -1293,6 +1392,24 @@ export const createMotion = (deps) => {
         if (activeOf(c) !== 'Idle') {
           cancel(c, r, 'state');
           return;
+        }
+        if (session.settledAt === null) {
+          session.settledAt = clock();
+        }
+        // Lot C1: the next line leaves from a proven rest after the ok of the last one, the spindle
+        // proven stopped after that ok; a proof that stays missing cancels the framing.
+        const sent = session.pending.t;
+        const rested = proof.restedSince(r, sent.reportsAtOk);
+        if (!rested || !proof.spindleHeld(r, { gcAtOk: sent.gcAtOk })) {
+          if (proofLate(session)) {
+            cancel(c, r, rested ? 'spindleProof' : 'stale');
+            return;
+          }
+          later(c, r, check, WATCH_MS);
+          return;
+        }
+        if (!session.ref) {
+          session.ref = { hints: r.spinHints };
         }
         sendNext();
       }
@@ -1498,7 +1615,7 @@ export const createMotion = (deps) => {
   // What every snapshot shows: capabilities and what is possible right now.
   const snapshot = (c, r) => {
     const s = stateOf(r);
-    const jogReason = reason(() => jogReady(c, r));
+    const jogReason = reason(() => moveReady(c, r));
     const continuous = {};
     AXES.forEach((axis) => {
       continuous[axis] = jogReason || reason(() => gate(c, r, 'jogContinuous')) || continuousReason(c, r, axis);
@@ -1615,7 +1732,7 @@ export const createMotion = (deps) => {
   };
 
   // The framing in progress (lot F1): whether one runs, its supervision now, its end at a banner.
-  const framingApi = { framing, supervise, restarted, bannerLeftover };
+  const framingApi = { framing, supervise, restarted, bannerLeftover, moveReady };
   return {
     perform, precheck, stop, moving, originOperation, snapshot, signature, transportClosed, holds, forget, jogReady, bound, frame, enabled, ...framingApi
   };
