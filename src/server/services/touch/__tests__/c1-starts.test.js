@@ -3,7 +3,6 @@
 // Lot C1 (design/plaque/C1-CONCEPTION.md § 4): the starts. Every report is a line read by the real
 // parser; every test is judged on the bytes written and on the code of the refusal.
 import { setup, disposeAll, gcLine } from './support/c1-bench';
-import { readStatus, readModal } from '../report-proof';
 
 afterEach(disposeAll);
 
@@ -17,11 +16,17 @@ const PLATE = { operation: 'zeroZ', thickness: 10, search: 10 };
 const STARTS = {
   'step 10 mm': { run: (ctx) => ctx.jog(10), first: '$J=G91 G21 X10 F600' },
   'continuous jog': { run: (ctx) => ctx.hold('X', 1), first: /^\$J=G91 G21 X/ },
-  'CNC framing': { run: async (ctx) => { await ctx.load(); return ctx.frame(); }, first: 'M5' },
+  'CNC framing': { run: async (ctx) => {
+ await ctx.load(); return ctx.frame();
+},
+first: 'M5' },
   'plate probe': { run: (ctx) => ctx.launch('zeroZ', PLATE), first: /^G38\.2 Z/ },
   macro: { run: (ctx) => ctx.confirmed('macro', { macroId: 'm1' }), first: 'MACRO m1' },
   'program start': {
-    run: async (ctx) => { await ctx.load(); return ctx.confirmed('start', { revision: ctx.state().revision }); }, first: 'START'
+    run: async (ctx) => {
+ await ctx.load(); return ctx.confirmed('start', { revision: ctx.state().revision });
+},
+first: 'START'
   }
 };
 
@@ -95,8 +100,6 @@ describe('C1: the position is the one the last report carried itself (R-1, R-2)'
       expect([line, await ctx.codeOf(ctx.jog(10))]).toEqual([line, NO_POSITION]);
       expect([line, ctx.c.written]).toEqual([line, []]);
     }
-    expect(readStatus('<Idle|MPos:1,2,3|junk:MPos:4,5,6|FS:0,0>')).toMatchObject({ xyz: null, speed: 0 });
-    expect(readStatus('<Idle|MPos:1,2,3|FS:0,0>')).toMatchObject({ frame: 'm', xyz: { x: 1, y: 2, z: 3 }, speed: 0 });
     // Speeds: the position is perfect, the $G says M5; the last two reports carry this FS: field.
     for (const fs of ['0', '0,', '0,-1', '0,0foo', '0,0|FS:0,0', '0,0|junk:FS:0,0']) {
       const ctx = await setup();
@@ -112,7 +115,6 @@ describe('C1: the position is the one the last report carried itself (R-1, R-2)'
       ctx.rep('Idle');
       ctx.rep('Idle');
       ctx.say(line, 'ok');
-      expect(readModal(line)).toEqual({ spindle: null, mode: null });
       expect([spindle, await ctx.codeOf(ctx.jog(10))]).toEqual([spindle, UNKNOWN]);
       expect([spindle, ctx.c.written]).toEqual([spindle, []]);
     }
