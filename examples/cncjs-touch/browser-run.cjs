@@ -319,6 +319,9 @@ async function screenshot(cdp, file) {
 // active screen plus the header and the rail. Sizes in CSS px of the page.
 const MEASURE = require('./browser-surface.cjs').inject(String(function measure(goals) {
   /* BROWSER_SURFACE */
+  // Lot N3: a notification banner stays until it is touched. The screens are measured as the operator
+  // uses them, the banner touched away; the banner itself is checked where it is expected (NOTIFY_SCAN).
+  if (window.cncNotify) window.cncNotify.dismiss();
   var vw = window.innerWidth, vh = window.innerHeight, dpr = window.devicePixelRatio || 1;
   var active = document.querySelector('main .screen.active');
   function hiddenAncestor(el) { for (var n = el; n; n = n.parentElement) { if (n.hidden || n.getAttribute('aria-hidden') === 'true') return true; } return false; }
@@ -835,6 +838,19 @@ const DEDUCED_SCAN = `(function(){var code=/(Alarme|Alarma|Alarm)\\s*3\\b/,mark=
     var block=el.closest('#t-state,.ks-tile,[id]')||el,text=(block.innerText||block.textContent).replace(/\\s+/g,' ').trim();
     if(mark.test(text)||(el.closest('#t-state')&&noted)||seen[block.id+text])continue;seen[block.id+text]=1;out.push({id:block.id||block.className,text:text.slice(0,120)});}
   return out;})()`;
+// Lot N3 — the notification banner (touch/notify.js) as drawn: under the status strip, inside the
+// window, never over the strip's commands nor Suivi's own Arrêter, no focus taken, a deduced code
+// said « déduite », the title not cut.
+const NOTIFY_SCAN = `(function(){var b=document.getElementById('notify-banner'),out={shown:!!(b&&!b.hidden),problems:[]};if(!out.shown)return out;
+  var r=b.getBoundingClientRect(),strip=document.getElementById('real-banner').getBoundingClientRect();
+  if(r.top<strip.bottom-0.5)out.problems.push('starts over the status strip');
+  if(r.left<0||r.right>window.innerWidth+0.5||r.bottom>window.innerHeight+0.5)out.problems.push('outside the window');
+  ['t-pause','t-stop','t-recover','t-resume','t-pilot','home-job-stop'].forEach(function(id){var n=document.getElementById(id);if(!n||n.hidden||!n.getClientRects().length)return;
+    var q=n.getBoundingClientRect(),h=document.elementFromPoint(q.left+q.width/2,q.top+q.height/2);if(h&&b.contains(h))out.problems.push(id+' covered');});
+  if(document.activeElement&&b.contains(document.activeElement))out.problems.push('took the focus');
+  var m=window.cncState.get().machine;if(m&&m.alarmCodeInferred&&!/déduit|deducid|deduced/i.test(b.innerText))out.problems.push('deduced code shown as received');
+  var t=document.getElementById('notify-title'),q=t.getBoundingClientRect();if(t.scrollWidth>t.clientWidth+1||q.right>r.right||q.bottom>r.bottom)out.problems.push('title cut');
+  out.type=b.getAttribute('data-type');out.title=t.textContent;out.rect=[r.left,r.top,r.width,r.height].map(Math.round);return out;})()`;
 async function alarmMeasure(cdp, summary) {
   for (const [arg, kind] of [['--replay-alarm', 'ALARM:1'], ['--replay-alarm-stopped', 'ALARM:3 deduced']]) await alarmVariant(cdp, summary, arg, kind);
 }
@@ -854,6 +870,19 @@ async function alarmVariant(cdp, summary, arg, kind) {
             await navigate(cdp, fixture.base + 'index.html?alarm=' + lang + size); await waitReady(cdp);
             await cdp.waitFor('(function(){var b=document.getElementById("t-recover");return !!b&&!b.hidden;})()', 20000, 'Déverrouiller offered');
             if (arg !== '--replay-alarm') await cdp.waitFor('(function(){var m=window.cncState.get().machine,s=document.getElementById("home-notice-text");return !!(m&&m.alarmCodeInferred&&m.jobStopped&&s&&s.textContent);})()', 20000, 'ALARM:3 deduced and stopped notice');
+            // Lot N3: nothing is announced for the alarm found at load (ALARM:1 at rest); the alarm that
+            // comes while the page watches (job stopped, ALARM:3 deduced) raises the banner; a tap closes it.
+            {
+              await goScreen(cdp, 'home');
+              const note = await cdp.evaluate(NOTIFY_SCAN), expected = arg !== '--replay-alarm';
+              if (note.shown !== expected) failures.push(tag + ': notification banner ' + (note.shown ? 'shown for an alarm found at load' : 'missing'));
+              note.problems.forEach((x) => failures.push(tag + ': notification banner ' + x));
+              if (note.shown) {
+                log(tag + ': notification « ' + note.title + ' » (' + note.type + ') at ' + note.rect.join(','));
+                await screenshot(cdp, path.join(dir, 'notify.png'));
+                if (await cdp.evaluate('(function(){var b=document.getElementById("notify-banner");b.click();return !b.hidden;})()')) failures.push(tag + ': a tap does not close the notification banner');
+              }
+            }
             for (const [name, label] of [['home', 'Suivi'], ['more', 'Menu'], ['machine', 'Machine']]) {
               await goScreen(cdp, name);
               const data = await cdp.evaluate('(' + MEASURE + ')(' + JSON.stringify(GOALS) + ')');
