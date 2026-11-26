@@ -317,11 +317,12 @@ async function screenshot(cdp, file) {
 
 // Measures what is really rendered: every visible button/link/field of the
 // active screen plus the header and the rail. Sizes in CSS px of the page.
-const MEASURE = require('./browser-surface.cjs').inject(String(function measure(goals) {
+const MEASURE = require('./browser-surface.cjs').inject(String(function measure(goals, keepBanner) {
   /* BROWSER_SURFACE */
   // Lot N3: a notification banner stays until it is touched. The screens are measured as the operator
-  // uses them, the banner touched away; the banner itself is checked where it is expected (NOTIFY_SCAN).
-  if (window.cncNotify) window.cncNotify.dismiss();
+  // uses them, the banner touched away; the banner itself is checked where it is expected (NOTIFY_SCAN),
+  // and one measure is taken with it shown (keepBanner, simFinish).
+  if (window.cncNotify && !keepBanner) window.cncNotify.dismiss();
   var vw = window.innerWidth, vh = window.innerHeight, dpr = window.devicePixelRatio || 1;
   var active = document.querySelector('main .screen.active');
   function hiddenAncestor(el) { for (var n = el; n; n = n.parentElement) { if (n.hidden || n.getAttribute('aria-hidden') === 'true') return true; } return false; }
@@ -874,6 +875,27 @@ async function simFinish(cdp, simUrl) {
     note.problems.forEach((x) => failures.push(tag + ': notification banner ' + x));
     log(tag + ': notification « ' + note.title + ' » (' + note.type + ') at ' + (note.rect || []).join(','));
     await screenshot(cdp, path.join(dir, 'notify.png'));
+    // The one measure of the harness taken with the banner shown: it must leave the banner there, add no
+    // horizontal overflow and leave the strip's commands and Suivi's own Arrêter free. What it covers
+    // until it is touched (progress card, view buttons) is listed, not refused.
+    const data = await cdp.evaluate('(' + MEASURE + ')(' + JSON.stringify(GOALS) + ', true)');
+    fs.writeFileSync(path.join(dir, 'home-under-banner.json'), JSON.stringify(data, null, 1));
+    if (!(await cdp.evaluate(NOTIFY_SCAN)).shown) failures.push(tag + ': the measure closed the notification banner');
+    if (data.horizontalOverflow.document) failures.push(tag + ': horizontal overflow with the notification banner shown');
+    const covered = data.targets.filter((t) => !t.reachable && !(t.scroller && t.offscreen));
+    covered.filter((t) => ['t-pause', 't-stop', 't-recover', 't-resume', 't-pilot', 'home-job-stop'].includes(t.id)).forEach((t) => failures.push(tag + ': ' + t.id + ' covered by the notification banner'));
+    log(tag + ': measured with the banner shown, ' + data.targets.length + ' targets, ' + covered.length + ' covered until it is touched' + (covered.length ? ' (' + covered.map((t) => t.label).join('; ') + ')' : ''));
+    // Screen sleep: its veil covers the banner; the touch that wakes the screen does not close it.
+    if (!await cdp.evaluate('window.cncScreenSaver.preview()===true&&!document.getElementById("touch-screen-saver").hidden')) failures.push(tag + ': screen sleep not entered with the end banner shown');
+    else {
+      const x = note.rect[0] + note.rect[2] / 2, y = note.rect[1] + note.rect[3] / 2;
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1 });
+      await cdp.waitFor('document.getElementById("touch-screen-saver").hidden', 5000, 'screen awake after a touch');
+      const woken = await cdp.evaluate(NOTIFY_SCAN);
+      if (!woken.shown || woken.type !== 'finish') failures.push(tag + ': the end banner is gone after the screen woke up');
+      else log(tag + ': end banner still shown after the screen slept and woke');
+    }
     if (await cdp.evaluate('(function(){var b=document.getElementById("notify-banner");b.click();return !b.hidden;})()')) failures.push(tag + ': a tap does not close the notification banner');
   } catch (e) { failures.push(tag + ': ' + e.message); log('FAIL ' + tag + ': ' + e.message); }
 }

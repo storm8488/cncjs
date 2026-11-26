@@ -2005,5 +2005,6 @@ window.CNCTouchMessages.push(
 ['Son indisponible dans ce navigateur.','Sound unavailable in this browser.','Sonido no disponible en este navegador.'],
 ['Son coupé : seul le message s’affiche.','Sound off: only the message is shown.','Sonido apagado: solo se muestra el mensaje.'],
 ['Son prêt.','Sound ready.','Sonido listo.'],
-['Son en attente : touchez l’écran une fois après l’ouverture de la page.','Sound waiting: touch the screen once after the page opens.','Sonido en espera: toque la pantalla una vez tras abrir la página.']
+['Son en attente : touchez l’écran une fois après l’ouverture de la page.','Sound waiting: touch the screen once after the page opens.','Sonido en espera: toque la pantalla una vez tras abrir la página.'],
+['1 ligne refusée par la machine : vérifiez la pièce.','1 line refused by the machine: check the part.','1 línea rechazada por la máquina: revise la pieza.']
 );

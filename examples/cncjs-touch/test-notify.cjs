@@ -46,6 +46,8 @@ assert.deepEqual(feed([running,paused(null),lag,running]).out,[[],['pause:operat
 assert.deepEqual(feed([running,paused('M6','Idle'),snap({activeState:'Door:0',workflow:'running',total:100,received:40}),running]).out,[[],['pause:M6'],[],['pause-end']]);
 // … and a program stop met while the hold still shows is announced as such.
 assert.deepEqual(feed([running,paused(null),lag,paused('M0')]).out[3],['pause:M0:changed']);
+// A pause met while the machine is in alarm is not announced: the alarm alone is.
+assert.deepEqual(feed([running,snap({activeState:'Alarm',alarmCode:2,workflow:'paused',total:100,received:40}),snap({activeState:'Alarm',alarmCode:2,workflow:'paused',total:100,received:40,programPause:{kind:'M0'}})]).out,[[],['alarm'],[]],'no pause announced during an alarm');
 // Stopped while paused: the pause ends, nothing is « finished ».
 assert.deepEqual(feed([running,paused(null),[snap({jobStopped:true}),10]]).out,[[],['pause:operator'],['pause-end']]);
 
@@ -54,8 +56,22 @@ assert.deepEqual(feed([running,snap({finished:true})]).out[1],['finish']);
 assert.deepEqual(feed([running,snap({finishedWithErrors:true,jobErrors:2})]).out[1],['finish:2']);
 assert.deepEqual(feed([running,snap({jobStopped:true}),[snap({jobStopped:true}),9000]]).out,[[],[],[]],'an operator stop is not an end');
 // Result not known yet: waited for 2 s, then decided on what was acknowledged (job started from the PC).
-const sent=snap({activeState:'Run',workflow:'running',total:100,received:100});
+// The proof is the machine seen at rest with every line acknowledged while CNCjs still counts the job.
+const sent=snap({activeState:'Idle',workflow:'running',total:100,received:100}),moving=snap({activeState:'Run',workflow:'running',total:100,received:100});
 assert.deepEqual(feed([[sent,0],[idle,100],[idle,1900],[idle,2100],[idle,2200]]).out,[[],[],[],['finish'],[]]);
+assert.deepEqual(feed([[moving,0],[sent,300],[idle,600],[idle,2700]]).out[3],['finish'],'at rest after the last move');
+// Stopped from the PC, file loaded from the PC: the server says neither « finished » nor « stopped ».
+// Every line acknowledged while the machine still moved is no proof of an end: nothing is announced.
+assert.deepEqual(feed([[moving,0],[idle,100],[idle,2100],[idle,9000]]).out,[[],[],[],[]],'stop from the PC with every line acknowledged: no false end');
+assert.deepEqual(feed([[sent,0],[moving,300],[idle,600],[idle,2700]]).out[3],[],'moving again after a rest: the last report of the job decides');
+assert.deepEqual(feed([[snap({activeState:'Idle',workflow:'running',total:100,received:40}),0],[idle,100],[idle,2200]]).out,[[],[],[]],'at rest between two lines, lines missing: not an end');
+assert.deepEqual(feed([[snap({activeState:'Hold:0',workflow:'paused',total:100,received:100}),0],[idle,100],[idle,2200]]).out,[[],['pause-end'],[]],'stopped in a pause: not an end');
+assert.deepEqual(feed([[snap({activeState:'Idle',workflow:'paused',total:100,received:100,programPause:{kind:'M0'}}),0],[idle,100],[idle,2200]]).out[2],[],'stopped at a program stop: not an end');
+// An operator stop known to the server, every line acknowledged and the machine at rest: not an end.
+assert.deepEqual(feed([[sent,0],[snap({jobStopped:true}),100],[snap({jobStopped:true}),2200]]).out,[[],[],[]],'stopped after the last line: not an end');
+// An old report keeps what was proven; a new job during the wait takes its place.
+assert.deepEqual(feed([[sent,0],[snap({fresh:false}),100],[idle,200],[idle,2300]]).out[3],['finish']);
+assert.deepEqual(feed([[sent,0],[idle,100],[running,500],[idle,5000],[idle,9000]]).out,[[],[],['start'],[],[]],'the end of the job before is not announced for the next one');
 assert.deepEqual(feed([[running,0],[idle,100],[idle,2200]]).out,[[],[],[]],'lines missing and no result: not an end');
 assert.deepEqual(feed([[sent,0],[idle,100],[snap({finished:true}),300]]).out[2],['finish'],'the server result ends the wait');
 assert.deepEqual(feed([[sent,0],[idle,100],[snap({jobErrors:1}),2200]]).out[2],[],'refused lines without the server verdict: not announced as finished');
@@ -112,7 +128,7 @@ async function soundChecks(){
  // No Web Audio at all: said, never thrown.
  const none=N.createSound(undefined);none.arm();assert.equal(none.available,false);assert.equal(none.play('alarm',1,0),false);
  // A constructor that throws leaves the page working.
- const bad=N.createSound(function(){throw new Error('no audio device');});bad.arm();assert.equal(bad.ready(),false);
+ const bad=N.createSound(function(){throw new Error('no audio device');});assert.equal(bad.available,true);bad.arm();assert.equal(bad.ready(),false);assert.equal(bad.available,false,'a failed constructor: no sound here');
 }
 
 // ---------- 3. Page part ----------
@@ -123,7 +139,7 @@ function page(options){
  const body=dom.document.body;body.attributes['data-simulation']=options.simulation?'true':'false';
  const settings=dom.node('screen-settings');settings.querySelector=()=>null;
  const window={addEventListener:(n,f)=>{handlers[n]=f;},removeEventListener:n=>{delete handlers[n];},performance:{now:()=>now},
-  cncI18n:options.i18n||{t:s=>s},AudioContext:options.noAudio?undefined:audio.Ctx,
+  cncI18n:options.i18n||{t:s=>s},AudioContext:options.noAudio?undefined:options.badAudio?function(){throw new Error('no audio device');}:audio.Ctx,
   CNCGrblHelp:{incident:m=>m.alarmCode===2?['Alarme 2 : la machine a dépassé sa course.','La machine a redémarré.']:[]}};
  const context={window,document:dom.document,localStorage:{getItem:k=>store.has(k)?store.get(k):null,setItem:(k,v)=>store.set(k,String(v))}};
  vm.runInNewContext(source,context);
@@ -176,6 +192,8 @@ async function pageChecks(){
   p.status(run);assert.equal(p.banner.hidden,true);
   // Refused lines at the end: amber, with their count.
   p.status(snap({finishedWithErrors:true,jobErrors:3}));assert.equal(p.banner.getAttribute('data-tone'),'warn');assert.equal(p.find('notify-detail').textContent,'3 lignes refusées par la machine : vérifiez la pièce.');
+  // One line: singular.
+  p.status(run);p.status(snap({finishedWithErrors:true,jobErrors:1}));assert.equal(p.find('notify-detail').textContent,'1 ligne refusée par la machine : vérifiez la pièce.');p.status(run);p.status(snap({finishedWithErrors:true,jobErrors:3}));
   // An alarm replaces anything.
   p.status(alarm2);assert.equal(p.banner.getAttribute('data-type'),'alarm');
   p.window.cncNotify.dismiss();assert.equal(p.banner.hidden,true);
@@ -204,6 +222,21 @@ async function pageChecks(){
   assert.equal(p.find('notify-detail').textContent,'Changement de fraise demandé par le fichier.');p.status(run);assert.equal(p.banner.hidden,true);
   // A program stop is announced even right after a touch.
   p.status(run);p.touch();p.status(m6);assert.equal(p.banner.hidden,false);
+ }
+ {
+  // The cause of a pause already announced is known one report later: the words follow, the sound is not repeated.
+  const p=page();p.status(run);p.touch();p.advance(5000);p.status(snap({activeState:'Hold:1',workflow:'running',total:100,received:40}));
+  assert.equal(p.find('notify-detail').textContent,'La machine s’est mise en pause.');const once=p.oscs();assert.equal(once,N.PATTERNS.pause.notes.length);
+  p.status(m6);assert.equal(p.banner.hidden,false);assert.equal(p.find('notify-detail').textContent,'Changement de fraise demandé par le fichier.');assert.equal(p.window.cncNotify.shown().kind,'M6');assert.equal(p.oscs(),once,'one sound for one pause');
+ }
+ {
+  // Screen sleep (choice 6): the end banner is not closed by time, by later reports nor by a touch
+  // elsewhere on the screen (the touch that wakes the screen lands on the sleep veil): still there at wake.
+  const p=page();p.touch();p.status(run);p.status(done);const rung=p.oscs();
+  for(let i=0;i<5;i++){p.advance(600000);p.status(snap({finished:true,name:'plaque.nc'}));p.touch();p.dom.document.handlers.click({type:'click'});p.dom.document.handlers.keydown({type:'keydown'});}
+  assert.equal(p.banner.hidden,false,'end banner still there at wake');assert.equal(p.find('notify-title').textContent,'Usinage terminé');assert.equal(p.oscs(),rung,'the sound rang once');
+  // … and so is an alarm met at rest.
+  p.banner.click();p.status(alarm2);p.advance(3600000);p.status(alarm2);p.touch();assert.equal(p.banner.hidden,false);assert.equal(p.banner.getAttribute('data-type'),'alarm');
  }
  {
   // Simulation page: the last report of the job is short of the total, the report at rest is complete.
@@ -248,6 +281,11 @@ async function pageChecks(){
   // No Web Audio: said in Réglages, the banner still works.
   const none=page({noAudio:true});assert.equal(none.find('notify-status').textContent,'Son indisponible dans ce navigateur.');assert.equal(none.find('notify-test').disabled,true);
   none.touch();none.status(idle);none.status(alarm2);assert.equal(none.banner.hidden,false);
+  // … and the banner does not ask for a touch that would change nothing.
+  assert.equal(none.find('notify-hint').textContent,'Son indisponible dans ce navigateur. Touchez ce message pour le fermer.');assert.equal(none.window.cncNotify.shown().silent,true);
+  // Same when the audio constructor fails at the first gesture.
+  const broken=page({badAudio:true});broken.status(idle);broken.status(alarm2);assert(/^Son bloqué/.test(broken.find('notify-hint').textContent),'before any gesture a touch may still arm it');
+  broken.touch();broken.status(alarm2);assert.equal(broken.find('notify-hint').textContent,'Son indisponible dans ce navigateur. Touchez ce message pour le fermer.');assert.equal(broken.find('notify-status').textContent,'Son indisponible dans ce navigateur.');
   // Still blocked after a gesture (browser policy): said, and nothing rings later.
   const blocked=page({allow:false});blocked.touch();await null;await null;blocked.status(idle);blocked.status(alarm2);assert.equal(blocked.oscs(),0);assert(/^Son bloqué/.test(blocked.find('notify-hint').textContent));
  }
@@ -266,7 +304,7 @@ function staticChecks(){
  const phrases=new Set();let match;const literal=/\bt\('((?:[^'\\]|\\.)*)'\)/g;
  while((match=literal.exec(source)))phrases.add(match[1]);
  ['Coupé','Faible','Moyen','Fort'].forEach(s=>phrases.add(s));
- assert(phrases.size>=24,'phrases found: '+phrases.size);
+ assert(phrases.size>=25,'phrases found: '+phrases.size);
  // No setting name, G-code word or firmware name (the glossary's English « Door open » is an operator word).
  const technical=/\$\d|\b[GM]\d+\b|\b(?:Idle|Hold|Jog)\b|\bGrbl\b/;
  for(const s of phrases){
@@ -294,6 +332,13 @@ function staticChecks(){
  assert(!/\.focus\(|setTimeout|setInterval|requestAnimationFrame|XMLHttpRequest|fetch\(|cncJobControls|cncSocket|\.inert\b/.test(source),'reads the published state only');
  assert(!/\?\.|\?\?|\basync\b|=>/.test(source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm,'')),'syntax the RT runs');
  assert(!/<audio|new Audio\(|\.mp3\b|\.wav\b|\.ogg\b/.test(source),'no sound file');
+ // Browser harness: the common measurer touches the banner away, except for the one measure taken with it shown.
+ const harness=fs.readFileSync(path.join(__dirname,'browser-run.cjs'),'utf8');
+ assert(harness.includes('function measure(goals, keepBanner)')&&harness.includes('if (window.cncNotify && !keepBanner) window.cncNotify.dismiss();'),'the measurer can leave the banner shown');
+ assert.equal(harness.split("JSON.stringify(GOALS) + ', true)'").length,2,'one measure with the banner shown, the others unchanged');
+ // Screen sleep is left alone: nothing here knows it, and its veil lies over the banner.
+ assert(!/screen-saver|cncScreenSaver|cnc-screen-saver/.test(source),'the screen sleep mechanism is not touched');
+ assert(z<layer('touch-shell.css','#touch-screen-saver'),'under the sleep veil');
  // Both pages load it once, after what it reads, and its stylesheet.
  for(const name of ['index.html','simulation.html']){
   const html=file(name);
