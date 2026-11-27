@@ -288,3 +288,37 @@ Ne **pas** essayer : débrancher l'USB pendant un mouvement, envoyer `M3` avec u
 **Ce que cet essai ne peut pas montrer** : un rapport sans position ou sans `FS:`, que la carte n'est pas connue pour émettre. Cette partie n'est prouvée qu'au banc.
 
 **Relevé à rendre** : les chiffres de C1-4, ce que fait la broche sur `M3 S0`, les durées de C1-3 et C1-7 comparées à avant, tout refus ou arrêt non attendu avec son texte exact.
+
+## L0 axe A — Programme qui commande un axe rotatif (sans mouvement, ajouté le 27 novembre 2026)
+
+Rien de cette fonction ne commande la machine. **On ne lance pas le programme d'essai.** Détail : `../axe-a/L0-RAPPORT.md`.
+
+**Avant l'essai** : la version de cache de la page (`v2v`) n'a pas changé avec ce lot. Après l'installation, faire le **rechargement forcé du kiosque** (ou le redémarrer) ; sinon la tablette garde l'ancienne page et L0-2 échoue sans que le lot soit en cause.
+
+Fichier d'essai à déposer dans le dossier des programmes, nommé `essai-axe-a.nc` :
+
+```
+G21 G90 G94
+G0 Z5
+G0 X0 Y0
+G1 Z-1 F100
+G1 X10 F300
+G0 Z5
+G0 A90
+M2
+```
+
+| # | Geste | Attendu |
+|---|---|---|
+| L0-1 | 2 · Fichier : charger un fichier habituel (sans axe A), puis 4 · Contrôle. | Écran comme avant : aucune phrase sur un axe rotatif. |
+| L0-2 | Charger `essai-axe-a.nc`, puis 4 · Contrôle, **sans ouvrir « Détails du contrôle »**. | Dans la carte « Verdict », en ambre : « Ce programme fait tourner l'axe A : CNC Touch ne le contrôle pas encore. » La même phrase dans la barre du bas. Les lignes X, Y, Z du verdict sont celles d'un fichier ordinaire. |
+| L0-3 | Ouvrir « Détails du contrôle ». | La phrase longue, avec la ligne (7). Fermer. |
+| L0-4 | Toucher « Démarrer l'usinage… ». **Ne pas cocher, ne pas confirmer.** | La fenêtre de confirmation redit la phrase. Fermer la fenêtre sans confirmer. |
+| L0-5 | 5 · Usinage, « Reprendre à une ligne… », choisir la ligne 5, « Vérifier ». | Refus : « Ce programme fait tourner l'axe A : reprenez-le depuis le début. » Rien n'est chargé. |
+| L0-6 | Réglages : passer en anglais, puis en espagnol, refaire L0-2. | La phrase est traduite, rien ne déborde. Revenir au français. |
+| L0-7 | Recharger un fichier habituel. | La phrase a disparu. |
+| L0-8 | Dans `essai-axe-a.nc`, remplacer la ligne `G0 A90` par `$J=G91 A10 F100`, enregistrer, recharger, refaire L0-2 et L0-5. **Ne pas lancer.** | Même phrase à 4 · Contrôle, même refus de reprise. |
+
+**Ce que cet essai ne montre pas** : rien sur l'axe A lui-même (aucun mouvement, aucune lecture de la carte). Voir `../axe-a/AXE-A-CONCEPTION.md` § 2 pour la suite.
+
+**Relevé à rendre** : une photo de l'écran 4 · Contrôle en L0-2 et de la fenêtre en L0-4, tout texte coupé ou incompris.

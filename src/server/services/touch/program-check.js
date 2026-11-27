@@ -102,6 +102,52 @@ const sameWithoutSpaces = (code) => {
 
 const fmt = (n) => String(Math.round(n * 1000) / 1000);
 
+// Axis A, lot L0 (design/axe-a/AXE-A-CONCEPTION.md): the rotary axis letters (A, B, C) a line
+// commands, as the board reads it (spaces dropped), in that order; '' when none. `code` is a
+// line without its comments (codeOf).
+//   `%…`    a CNCjs directive or assignment (`%A1=5`, `%msg …`): never G-code, never counted;
+//   `$J=…`  a jog: a move like another, its body is read; any other `$` line is a board
+//           command ($103=…, $H): never counted;
+//   an expression or a variable is not evaluated: what stands inside `[…]` (by depth) or `#<…>`
+//   is dropped, and a letter whose value is one, signed or not (`A[1+2]`, `A-[1+2]`, `A.[n]`,
+//   `A#1`), counts like `A90`. Brackets that do not pair mask nothing: the letters are told.
+// Checked against the controller's own translator in __tests__/axis-a-l0-expressions.test.js.
+const maskBrackets = (text) => {
+  let out = '';
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '[') {
+      out += depth === 0 ? '[' : '';
+      depth++;
+    } else if (c === ']') {
+      if (depth === 0) {
+        return text;
+      }
+      depth--;
+    } else if (depth === 0) {
+      out += c;
+    }
+  }
+  return depth === 0 ? out : text;
+};
+
+export const rotaryLetters = (code) => {
+  let packed = code.replace(/\s+/g, '');
+  if (/^%/.test(packed)) {
+    return '';
+  }
+  if (/^\$/.test(packed)) {
+    if (!/^\$J=/.test(packed)) {
+      return '';
+    }
+    packed = packed.slice(3);
+  }
+  packed = maskBrackets(packed).replace(/#<[^>]*>/g, '#');
+  const found = words(packed).map(([letter]) => letter).concat((packed.match(/[ABC][-+]?[\d.]*(?=[[#])/g) || []).map((hit) => hit[0]));
+  return ['A', 'B', 'C'].filter((letter) => found.includes(letter)).join('');
+};
+
 // N1, display only: the tools the file names. Bounded in number and in length; the description
 // is the file's own text, which the page writes as text (never as markup).
 const MAX_TOOLS = 8;
@@ -307,6 +353,15 @@ export const analyzeProgram = (gcode, timingContext) => {
     }
     if (!code || code === '%') {
       continue;
+    }
+    // Axis A, lot L0: noted apart. It takes no part in the extents, in the unknown axes or in any
+    // verdict below; the key exists only for a program that has such a word. Read before the
+    // line is sorted (macro, expression, board command, odd spaces): the sorting is as it was.
+    const rotary = rotaryLetters(code);
+    if (rotary) {
+      a.rotary = a.rotary || { letters: '', line: lineNo, count: 0 };
+      a.rotary.letters = ['A', 'B', 'C'].filter((letter) => (a.rotary.letters + rotary).includes(letter)).join('');
+      a.rotary.count += 1;
     }
     const timed = !timingEnded;
     // CNCjs directives and expressions execute on the server, G-code words
@@ -1018,6 +1073,14 @@ export const checkProgram = (analysis, machine = {}) => {
       }
     });
   });
+  // Axis A, lot L0: a warning of its own, after everything above was decided. No axis reason, no
+  // extent, no `blocking` entry and no verdict depends on it.
+  const rotary = analysis.rotary || null;
+  if (rotary) {
+    const letters = rotary.letters.split('').join(', ');
+    const message = 'Ce programme fait tourner un axe rotatif (' + letters + ', première ligne ' + rotary.line + ') : CNC Touch ne le contrôle pas encore. Seuls X, Y et Z sont vérifiés.';
+    info.push(reason('ETOUCH_ROTARY_UNCHECKED', { axis: letters, line: rotary.line, count: rotary.count }, message));
+  }
   const out = {
     verdict,
     axes: axesOut,
@@ -1049,6 +1112,9 @@ export const checkProgram = (analysis, machine = {}) => {
   };
   if (machine.laser) {
     out.laser = laserCheck(analysis, machine.laser);
+  }
+  if (rotary) {
+    out.rotary = { letters: rotary.letters, line: rotary.line, count: rotary.count };
   }
   return out;
 };

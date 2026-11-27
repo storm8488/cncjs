@@ -11,7 +11,7 @@
 
 // The offline preview server loads these modules natively: keep the extension.
 // eslint-disable-next-line import/extensions
-import { codeOf } from './program-check.js';
+import { codeOf, rotaryLetters } from './program-check.js';
 
 const SPINUP_SECONDS = 3;
 
@@ -578,6 +578,13 @@ export const buildResume = (gcode, from, { name = '', mode = 'cnc' } = {}) => {
     throw refuse('ETOUCH_RESUME_LINE', 'Ligne de reprise invalide : choisissez entre 2 et ' + lines.length + '.', { min: 2, max: lines.length });
   }
   checkSyntax(lines);
+  // Axis A, lot L0: the preamble replays X, Y and Z only. A program that commands a rotary axis
+  // anywhere, before or after the line, is not resumed.
+  const turning = lines.findIndex((text) => rotaryLetters(clean(text)) !== '');
+  if (turning >= 0) {
+    const letter = rotaryLetters(clean(lines[turning]))[0];
+    throw refuse('ETOUCH_RESUME_ROTARY', 'Reprise à une ligne impossible : ce programme fait tourner l’axe ' + letter + ' (ligne ' + (turning + 1) + '), que la reprise ne sait pas replacer.', { axis: letter, line: turning + 1 });
+  }
   checkProgramEnd(lines, from);
   const s = stateBefore(lines, from);
   checkFirstLine(lines, from);

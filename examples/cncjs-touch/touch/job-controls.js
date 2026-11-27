@@ -652,6 +652,10 @@
       if(!startDrawing){startDrawing=document.createElement('div');startDrawing.id='job-start-drawing';startDrawing.className='check-drawing';$('job-warning').parentNode.insertBefore(startDrawing,$('job-warning'));}
       startStatus.hidden=operation!=='start'||ticket.override;
       if(operation==='start'&&!ticket.override)startStatus.textContent=uiLocale.t(ticket.programCheck&&ticket.programCheck.verdict==='validated'?'Tient dans la machine.':'Course non vérifiée.')+(ticket.programCheck&&ticket.programCheck.verdict!=='validated'&&window.CNCProgramCheckView?' '+window.CNCProgramCheckView.axisLines(ticket.programCheck).filter(function(a){return a.verdict==='unknown';}).map(function(a){return a.text;}).join(' · '):'');
+      // Axis A, lot L0: the rotary warning of the server's check, said again where the start is confirmed.
+      var turning=operation==='start'&&((ticket.programCheck&&ticket.programCheck.info)||[]).filter(function(i){return i&&i.code==='ETOUCH_ROTARY_UNCHECKED';})[0],startRotary=$('job-start-rotary');
+      if(!startRotary){startRotary=document.createElement('p');startRotary.id='job-start-rotary';startRotary.className='check-rotary';$('job-warning').parentNode.insertBefore(startRotary,$('job-warning'));}
+      startRotary.hidden=!turning;startRotary.textContent=turning?(window.cncRefus?window.cncRefus.lire(turning).phrase:turning.message):'';
       startDrawing.hidden=!ticket.override;
       if(ticket.override&&window.CNCProgramCheckView)startDrawing.innerHTML=window.CNCProgramCheckView.drawing(Object.assign({},ticket.programCheck,{blocking:data.override.blocking}),'side');
       // Tool change resume or a resume from a line: what will happen, in one line.
