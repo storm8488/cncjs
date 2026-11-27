@@ -108,8 +108,30 @@ const fmt = (n) => String(Math.round(n * 1000) / 1000);
 //   `%…`    a CNCjs directive or assignment (`%A1=5`, `%msg …`): never G-code, never counted;
 //   `$J=…`  a jog: a move like another, its body is read; any other `$` line is a board
 //           command ($103=…, $H): never counted;
-//   an expression or a variable is not evaluated: what stands inside `[…]` or `#<…>` is dropped,
-//   and a letter whose value is one (`A[1+2]`, `A#1`) counts like `A90`.
+//   an expression or a variable is not evaluated: what stands inside `[…]` (by depth) or `#<…>`
+//   is dropped, and a letter whose value is one, signed or not (`A[1+2]`, `A-[1+2]`, `A.[n]`,
+//   `A#1`), counts like `A90`. Brackets that do not pair mask nothing: the letters are told.
+// Checked against the controller's own translator in __tests__/axis-a-l0-expressions.test.js.
+const maskBrackets = (text) => {
+  let out = '';
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '[') {
+      out += depth === 0 ? '[' : '';
+      depth++;
+    } else if (c === ']') {
+      if (depth === 0) {
+        return text;
+      }
+      depth--;
+    } else if (depth === 0) {
+      out += c;
+    }
+  }
+  return depth === 0 ? out : text;
+};
+
 export const rotaryLetters = (code) => {
   let packed = code.replace(/\s+/g, '');
   if (/^%/.test(packed)) {
@@ -121,8 +143,8 @@ export const rotaryLetters = (code) => {
     }
     packed = packed.slice(3);
   }
-  packed = packed.replace(/\[[^\]]*\]/g, '[').replace(/#<[^>]*>/g, '#');
-  const found = words(packed).map(([letter]) => letter).concat(packed.match(/[ABC](?=[[#])/g) || []);
+  packed = maskBrackets(packed).replace(/#<[^>]*>/g, '#');
+  const found = words(packed).map(([letter]) => letter).concat((packed.match(/[ABC][-+]?[\d.]*(?=[[#])/g) || []).map((hit) => hit[0]));
   return ['A', 'B', 'C'].filter((letter) => found.includes(letter)).join('');
 };
 

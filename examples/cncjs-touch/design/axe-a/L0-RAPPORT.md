@@ -100,6 +100,27 @@ Avis d'Astra n° 3 (`AXE-A-AVIS-ASTRA-3.md`, « à revoir ») et relecture du co
 
 Suites après corrections : Jest 66 suites, 1974 tests ; `verify-project.cjs` 235 / 235 ; ESLint sans erreur. Le harnais de navigateur n'a pas été relancé après ces corrections (une règle CSS et le détecteur du serveur).
 
+## Après le quatrième avis
+
+Avis d'Astra n° 4 (`AXE-A-AVIS-ASTRA-4.md`) : tout accepté sauf deux restes du détecteur sur les lignes à expression. Classement, verdicts, X Y Z et les 33 empreintes : inchangés.
+
+| Point | Défaut | Correction |
+|---|---|---|
+| 1 | `A-[1+2]`, `A+[1+2]` (et B, C, minuscules, espaces, `A-#1`) non signalés, alors que CNCjs envoie `A-3`. | Signe facultatif, chiffres ou point facultatifs, entre la lettre et l'expression ou la variable (`A-[…]`, `A.[n]`, `A1[n]`). |
+| 2 | `G0 X[1+[2]+a1]` signalait A : le masquage s'arrêtait au premier `]`. | Crochets masqués par profondeur. Si les crochets ne s'apparient pas, rien n'est masqué : les lettres sont signalées. |
+| 3 | Pas de preuve générale. | **Test de concordance** avec le vrai traducteur du contrôleur (`src/server/lib/translate-expression.js`, appelé par `GrblController.js`) : `axis-a-l0-expressions.test.js`. |
+
+**Le test de concordance.** Environ 1 350 lignes à expression (six lettres, sept formes de signe et d'espace, dix expressions, en `G0`, en `G1` avec d'autres expressions, en `$J=` ; mots littéraux à côté d'une expression ; chiffres ou point avant le crochet ; lettres A, B, C seulement dans les expressions ; variables, crochets imbriqués ou cassés, noms inconnus). Chaque ligne est traduite par le vrai traducteur, puis lue comme la carte la lit. Règle : **dès que la ligne envoyée contient un vrai mot A, B ou C, le détecteur signale cette lettre. Aucun faux négatif : la liste des manqués est vide.** Avant la correction, plus de 750 lignes de cette table étaient manquées.
+
+**Faux positifs restants, tous sur des lignes que la carte refuse en entier (aucun mouvement).**
+
+- *Famille non décidable sans évaluer* : un signe devant une expression dont la valeur est négative (`A-[v]` avec v = −2, envoyé `A--2`). Le détecteur n'évalue rien : **il signale, par prudence.**
+- Neuf lignes listées une à une dans le test, avec leur raison : lettre devant une variable `#` que CNCjs ne traduit pas, devant une expression sans valeur, ou à côté de crochets qui ne s'apparient pas.
+
+**Limite déclarée.** Le test suppose qu'une expression donne un nombre. Une variable CNCjs qui contiendrait du texte (par exemple « A90 ») et serait posée seule sur une ligne produirait un mot A que le détecteur ne peut pas voir sans évaluer. La ligne reste classée « expression, contenu non prévisible » (course non vérifiée), comme avant L0.
+
+Suites : Jest 67 suites, 1990 tests ; `verify-project.cjs` 235 / 235 ; ESLint sans erreur.
+
 ## Non fait, non vérifié
 
 - **Aucun essai sur la tablette** (Chromium du kiosque, lisibilité réelle, place dans la carte à 1366 × 911) : protocole « L0 axe A » de `../refonte/PROTOCOLE-ESSAI.md`, sans mouvement, sans lancer le programme.
