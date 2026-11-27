@@ -64,6 +64,8 @@
   var tool=el('div','','',card);tool.className='zero-probe-row';var dl=el('label','','Fraise Ø',tool),diameterInput=el('input','probe-diameter','',dl);diameterInput.type='text';
   var setup=button(tool,'probe-setup-open','Ma sonde…',function(){openSetup(false);});
   var start=button(card,'probe-start','Palper au bloc XYZ…',launch),stop=button(card,'probe-stop','Arrêter le palpage',function(){var c=controls();if(c&&c.stop)c.stop();});stop.className='ks-secondary probe-stop';
+  // Lot C1 (Astra 5, point 3): « Arrêter la broche » right in this screen while a probe runs (block or plate, at rest too).
+  var spindleStop=button(card,'probe-spindle-stop','Arrêter la broche',function(){var c=controls();if(!spindleStop.disabled&&c&&c.spindleStop)Promise.resolve(c.spindleStop()).catch(function(){/* The refusal is shown by the shared feedback. */});});spindleStop.className='ks-secondary probe-spindle-stop';
   var plateStart=button(card,'probe-plate-start','Zéro Z à la plaque…',function(){launchPlate(false);});
   var diameterReason=el('span','probe-diameter-reason','',dl);diameterReason.className='sr-only';diameterInput.setAttribute('aria-describedby','probe-diameter-reason');
   var diagram=root.CNCProbeDiagram.attach(diagramHost,{mode:'screen'});
@@ -101,7 +103,7 @@
     var kind=machine&&machine.machineProfile&&machine.machineProfile.kind;
     set(card,'hidden',kind!=='cnc');
     var running=cycle(),incomplete=missing(profile(),diameter),can=permitted('canBlockProbe'),canPlate=permitted('canZeroZ');
-    set(start,'hidden',running);set(stop,'hidden',!running);set(stop,'disabled',!(running&&(machine&&machine.canStop||status.halt&&status.halt.canStop)));
+    set(start,'hidden',running);set(stop,'hidden',!running);set(spindleStop,'hidden',!running);set(spindleStop,'disabled',!(running&&machine&&machine.canSpindleStop===true));set(stop,'disabled',!(running&&(machine&&machine.canStop||status.halt&&status.halt.canStop)));
     set(start,'disabled',running||pending||!incomplete&&!can);set(plateStart,'disabled',running||pending||!canPlate);
     text(start,t('Palper au bloc {axes}…').replace('{axes}',operation));
     choices.forEach(function(b){set(b,'disabled',running||pending);var value=String(b.getAttribute('data-probe-operation')===operation);if(b.getAttribute('aria-pressed')!==value)b.setAttribute('aria-pressed',value);});

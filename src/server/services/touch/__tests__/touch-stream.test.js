@@ -7,6 +7,7 @@ import vm from 'vm';
 import { createService } from '../job-service';
 import { createStream } from '../touch-stream';
 import { provenOffset } from './support/proven-offset';
+import { lineBench } from './support/line-bench';
 
 // Deterministic replacements for the stream's timers.
 const fakeTimers = () => {
@@ -91,7 +92,8 @@ const fakeController = () => {
       args[3](null);
     }
   };
-  return c;
+  // Lot C1: every `status` / `parserstate` emission becomes a line read by the real parser.
+  return lineBench(c);
 };
 
 let dir;
@@ -252,7 +254,9 @@ describe('touch stream', () => {
     const ctx = setup();
     const first = ctx.registry.A;
     const connection = ctx.connect();
-    first.runner.emit('status', { raw: '<Idle|MPos:4,5,6>' });
+    // Lot C1: a start needs the spindle proven stopped: the $G report says M5, the status report carries FS:0,0.
+    first.runner.emit('parserstate', { modal: { wcs: 'G54', spindle: 'M5' } });
+    first.runner.emit('status', { raw: '<Idle|MPos:4,5,6|FS:0,0>' });
     ctx.timers.flush();
     const machine = connection.res.lines.at(-1).controllers[0];
     const transportId = connection.res.lines.at(-1).transportId;

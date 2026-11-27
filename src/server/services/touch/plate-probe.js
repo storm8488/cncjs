@@ -45,6 +45,8 @@ const EDGE_MM = 1;
 const STREAM_GRACE_MS = 3000;
 const STALE_MS = 2500;
 const SUPERVISE_MS = 100;
+// Lot C1: a proof missing between two lines is waited for this long (report-proof.js).
+const PROOF_WAIT_MS = 2500;
 
 // Coded refusals and stops of the plate probe: French message (the server's), with its values.
 export const PLATE_MESSAGES = {
@@ -52,7 +54,10 @@ export const PLATE_MESSAGES = {
   ETOUCH_PLATE_STREAM: 'Palpage arrêté : la tablette qui l’a lancé ne suit plus la machine (connexion perdue). Le zéro Z n’est pas réglé.',
   ETOUCH_PLATE_CONTROL: 'Palpage arrêté : le pilotage a changé de main. Le zéro Z n’est pas réglé.',
   ETOUCH_PLATE_STALE: 'Palpage arrêté : la machine ne donne plus de nouvelles (rapports trop anciens). Le zéro Z n’est pas réglé.',
-  ETOUCH_PLATE_TIMEOUT: 'Palpage arrêté : une ligne n’a pas fini à temps. Vérifiez la machine ; le zéro Z n’est pas réglé.'
+  ETOUCH_PLATE_TIMEOUT: 'Palpage arrêté : une ligne n’a pas fini à temps. Vérifiez la machine ; le zéro Z n’est pas réglé.',
+  // Lot C1 (design/plaque/C1-CONCEPTION.md § 2.5).
+  ETOUCH_PLATE_SPINDLE: 'Palpage arrêté : la broche est commandée, ou sa vitesse n’est plus rapportée. Le zéro Z n’est pas réglé.',
+  ETOUCH_PLATE_POSITION: 'Palpage arrêté : la machine n’est plus là où le palpage l’avait laissée, ou le repère a changé. Le zéro Z n’est pas réglé.'
 };
 
 const keyOf = (who) => (who && who.kind && who.id ? who.kind + ':' + who.id : '');
@@ -83,8 +88,13 @@ export const createPlateProbe = (deps) => {
   const {
     config, clock, conflict, controllers, record, later, changed, available, spindleStill,
     pauseKind, modalFresh, allSettings, settingNumber, hasAutomations, grblCode, probeInput, moving, referenceReady,
-    haltPlan, halt, control, transports, transportActors, homingActive
+    haltPlan, halt, control, transports, transportActors, homingActive, proof
   } = deps;
+  const throwIf = (err) => {
+    if (err) {
+      throw err;
+    }
+  };
 
   const refusal = (code, params = {}) => {
     const err = conflict(PLATE_MESSAGES[code].replace(/\{(\w+)\}/g, (all, name) => String(params[name])));
@@ -98,7 +108,7 @@ export const createPlateProbe = (deps) => {
   // The plate probe runs at rest, or during a pause the program asked for
   // (tool change) once the machine has stopped, with the probe free, the
   // spindle still and the modal state known: G90 and G21.
-  const zeroZReady = (c) => {
+  const zeroZBase = (c) => {
     available(c);
     const r = record(c);
     if (homingActive(r)) {
@@ -175,6 +185,26 @@ export const createPlateProbe = (deps) => {
       throw conflict('Des automatismes CNCjs sont configurés. Leur compatibilité doit être vérifiée avant utilisation.');
     }
   };
+  // Lot C1, after every guard of before: the spindle proven stopped (a whole FS: at 0 in the last
+  // report, a recent $G naming M5 alone), a proven rest, and Z read from the report itself. The
+  // block probe runs them after its own guards (block-probe.js).
+  const zeroZProofs = (c) => {
+    const r = record(c);
+    throwIf(proof.spindleRefusal(r));
+    throwIf(proof.positionRefusal(r));
+    if (proof.posOf(r, 'w', 'Z') === null) {
+      throw conflict('Position Z inconnue.');
+    }
+    // A machine Z that is unknown (a WPos: report without any whole WCO: kept) is no « travel not
+    // checkable »: refused before the travel check (after the reviews of lot C1).
+    if (proof.posOf(r, 'm', 'Z') === null) {
+      throw conflict('Position machine inconnue.');
+    }
+  };
+  const zeroZReady = (c) => {
+    zeroZBase(c);
+    zeroZProofs(c);
+  };
 
   const plateParams = (body) => {
     const thickness = Number(body.thickness);
@@ -194,8 +224,11 @@ export const createPlateProbe = (deps) => {
   // allowed from here. A position outside the assumed travel allows none. Travel unknown: no check.
   const plateTravel = (c, params) => {
     const r = record(c);
-    const mpos = controllerStatus(c).mpos;
-    const z = axisNumber(mpos && mpos.z);
+    // Lot C1: the machine Z of the last report itself.
+    const z = proof.posOf(r, 'm', 'Z');
+    if (z === null) {
+      throw conflict('Position machine inconnue.');
+    }
     const env = envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen, wposReported: r.wposReported, homeAt: r.homeMpos }).Z;
     const at = limitsAt(env, z, 'Z');
     if (!at.limits && !at.outside) {
@@ -215,7 +248,9 @@ export const createPlateProbe = (deps) => {
   // own parser state query, sent every 500 ms, paused or not.
   const answers = (c, r) => {
     const runner = c.runner;
-    const t = { oks: 0, error: null, reportsAtOk: 0, reportsAtError: 0 };
+    // gcAtOk (lot C1): the count of $G reports at the ok of this line; a $G that says M5 counts for
+    // the next line only when it came after it.
+    const t = { oks: 0, error: null, reportsAtOk: 0, reportsAtError: 0, gcAtOk: Infinity };
     // A $G reply already parsed whose ok is still on its way (CNCjs's own flag).
     let parserReply = !!(c.actionMask && c.actionMask.queryParserState && c.actionMask.queryParserState.reply);
     const onParser = () => {
@@ -228,6 +263,7 @@ export const createPlateProbe = (deps) => {
       }
       t.oks += 1;
       t.reportsAtOk = r.reports;
+      t.gcAtOk = r.gcCount || 0;
     };
     const onError = (res) => {
       parserReply = false;
@@ -297,7 +333,8 @@ export const createPlateProbe = (deps) => {
     const p = t.params;
     // C-07: the search fits in the Z travel, checked again at the run.
     plateTravel(c, p);
-    const zOf = () => axisNumber(controllerStatus(c).wpos && controllerStatus(c).wpos.z);
+    // Lot C1: the work Z of the last report itself (the plate reads its contact in the status reports).
+    const zOf = () => proof.posOf(r, 'w', 'Z');
     // outstanding: a line sent and not over (C-08: a stop while the report still says Idle holds it).
     // halted: the stop sent a feed hold or a reset, and what it is proven against.
     // abort: the code of a stop by the supervisor (C-17), null for Arrêter or a socket stop.
@@ -318,7 +355,9 @@ export const createPlateProbe = (deps) => {
       transportId: t.transportId,
       deviceKey: keyOf(device),
       owner: keyOf(control.inspect(c.options.port).owner),
-      lostSince: null
+      lostSince: null,
+      // Lot C1: what the spindle watch compares with, noted at the start.
+      ref: { hints: r.spinHints }
     };
     // A stream of the device is open (or, for a client without identity, the one that confirmed).
     const streamOpen = () => (probing.deviceKey
@@ -342,10 +381,14 @@ export const createPlateProbe = (deps) => {
         stop(c, r, 'ETOUCH_PLATE_STREAM');
       } else if (keyOf(control.inspect(c.options.port).owner) !== probing.owner) {
         stop(c, r, 'ETOUCH_PLATE_CONTROL');
-      } else if (!Number.isFinite(r.seen) || clock() - r.seen > STALE_MS) {
+      } else if (!Number.isFinite(r.seen) || clock() - r.seen > STALE_MS || !proof.posYoung(r)) {
+        // Lot C1: and no position reported itself for that long.
         stop(c, r, 'ETOUCH_PLATE_STALE');
       } else if (probing.deadline !== null && clock() > probing.deadline) {
         stop(c, r, 'ETOUCH_PLATE_TIMEOUT');
+      } else if (proof.spindleWatch(r, probing.ref)) {
+        // Lot C1: a sign of a running spindle since the start, or no whole FS: for 2.5 s.
+        stop(c, r, 'ETOUCH_PLATE_SPINDLE');
       }
     };
     probing.verdict = () => {
@@ -360,31 +403,97 @@ export const createPlateProbe = (deps) => {
       probing.verdict();
       later(c, r, watch, SUPERVISE_MS);
     };
-    const send = (line, limitMs) => {
+    // Lot C1: polls `missing()` ('' once the proof is there, else the code of the stop it would
+    // cause) every SUPERVISE_MS until `limitAt`. `then` runs in the very step that saw the proof;
+    // a proof that stays missing stops the probe (halt.js, never a jog cancel).
+    const awaitProof = (missing, limitAt, then, reject) => {
+      const check = () => {
+        // The port closed meanwhile (CNCjs destroyed the controller): nothing is read or written.
+        if (!connected(c)) {
+          reject(conflict('Connexion machine perdue pendant le palpage.'));
+          return;
+        }
+        probing.verdict();
+        if (probing.cancelled) {
+          reject(conflict('Palpage interrompu par l’opérateur.'));
+          return;
+        }
+        const code = missing();
+        if (!code) {
+          // Run from a timer: an exception here would be nobody's, and the probe would never end.
+          try {
+            then();
+          } catch (err) {
+            reject(err);
+          }
+          return;
+        }
+        if (clock() > limitAt) {
+          stop(c, r, code);
+          reject(refusal(code));
+          return;
+        }
+        later(c, r, check, SUPERVISE_MS, () => reject(conflict('Palpage abandonné (service arrêté ou contrôleur retiré) : vérifiez la machine.')));
+      };
+      check();
+    };
+    // The line sent last: the counts at its ok, and until when the proofs after it are waited for.
+    let last = null;
+    // `from`: where the machine stood (both frames, active system) at the proven rest the line was
+    // computed from. Every line after the first leaves only (lot C1, § 2.5), in the step of its
+    // write: from a proven rest after the ok of the previous line, the spindle proven stopped after
+    // that ok, and the machine still at `from`. Otherwise the probe stops; nothing is computed again.
+    const send = (line, limitMs, from = null) => new Promise((resolve, reject) => {
+      const write = () => {
+        if (last && proof.moved(from, proof.place(r))) {
+          stop(c, r, 'ETOUCH_PLATE_POSITION');
+          reject(refusal('ETOUCH_PLATE_POSITION'));
+          return;
+        }
+        const t = answers(c, r);
+        const sentAt = clock();
+        probing.outstanding = true;
+        probing.probed = probing.probed || /^G38/.test(line);
+        probing.deadline = sentAt + limitMs;
+        c.command('gcode', line);
+        quiet(c, r, t, limitMs).then(() => {
+          t.done();
+          last = { reportsAtOk: t.reportsAtOk, gcAtOk: t.gcAtOk, until: Math.min(clock() + PROOF_WAIT_MS, sentAt + limitMs) };
+          // After quiet: the rest is proven (two reports after the ok that carry the position, Idle
+          // and agreeing) before anything is read from it.
+          awaitProof(() => (proof.restedSince(r, last.reportsAtOk) ? '' : 'ETOUCH_PLATE_STALE'), last.until, () => {
+            probing.outstanding = false;
+            probing.deadline = null;
+            resolve();
+          }, reject);
+        }, (err) => {
+          // A line Grbl refused (error:n) never ran.
+          if (t.error) {
+            probing.outstanding = false;
+          }
+          t.done();
+          reject(err);
+        });
+      };
       // The supervisor's checks at that very moment, then: stopped (Arrêter, a socket stop, the
       // supervisor), nothing more leaves.
       probing.verdict();
       if (probing.cancelled) {
-        return Promise.reject(conflict('Palpage interrompu par l’opérateur.'));
+        reject(conflict('Palpage interrompu par l’opérateur.'));
+        return;
       }
-      const t = answers(c, r);
-      probing.outstanding = true;
-      probing.probed = probing.probed || /^G38/.test(line);
-      probing.deadline = clock() + limitMs;
-      c.command('gcode', line);
-      return quiet(c, r, t, limitMs).then(() => {
-        probing.outstanding = false;
-        probing.deadline = null;
-        t.done();
-      }, (err) => {
-        // A line Grbl refused (error:n) never ran.
-        if (t.error) {
-          probing.outstanding = false;
+      if (!last) {
+        write();
+        return;
+      }
+      const sent = last;
+      awaitProof(() => {
+        if (!proof.restedSince(r, sent.reportsAtOk)) {
+          return 'ETOUCH_PLATE_STALE';
         }
-        t.done();
-        throw err;
-      });
-    };
+        return proof.spindleHeld(r, sent) ? '' : 'ETOUCH_PLATE_SPINDLE';
+      }, sent.until, write, reject);
+    });
     r.probing = probing;
     later(c, r, watch, SUPERVISE_MS);
     changed();
@@ -401,14 +510,13 @@ export const createPlateProbe = (deps) => {
           throw conflict('Palpage sans contact net (Z ' + cz + ' depuis ' + z0 + ').');
         }
         r.probing.contact = cz;
-        return send('G0 Z' + fmt(cz + PLATE.backOff), 15000);
+        return send('G0 Z' + fmt(cz + PLATE.backOff), 15000, proof.place(r));
       })
-      .then(() => send('G38.2 Z' + fmt(r.probing.contact - PLATE.backOff) + ' F' + PLATE.slowFeed, 30000))
+      .then(() => send('G38.2 Z' + fmt(r.probing.contact - PLATE.backOff) + ' F' + PLATE.slowFeed, 30000, proof.place(r)))
       .then(() => {
-        const status = controllerStatus(c);
         r.probing.contact = zOf();
-        r.probing.machineZ = axisNumber(status.mpos && status.mpos.z);
-        return send('G10 L20 P0 Z' + fmt(p.thickness), 15000);
+        r.probing.machineZ = proof.posOf(r, 'm', 'Z');
+        return send('G10 L20 P0 Z' + fmt(p.thickness), 15000, proof.place(r));
       })
       .then(() => {
         const now = zOf();
@@ -418,9 +526,9 @@ export const createPlateProbe = (deps) => {
         // Start height in the new frame: the retract never ends above it (a start
         // close to the plate at the top of the Z travel would hit the Z switch).
         r.probing.retract = Math.min(p.thickness + PLATE.clearance, z0 - r.probing.contact + p.thickness);
-        return send('G0 Z' + fmt(r.probing.retract), 15000);
+        return send('G0 Z' + fmt(r.probing.retract), 15000, proof.place(r));
       })
-      .then(() => (restore ? send(restore, 15000) : null))
+      .then(() => (restore ? send(restore, 15000, proof.place(r)) : null))
       .then(() => {
         probing.done = true;
         r.zeroZ = { at: Date.now(), thickness: p.thickness, machineZ: r.probing.machineZ, wcs: r.wcs };
@@ -484,7 +592,9 @@ export const createPlateProbe = (deps) => {
   // progress sends no further line, and a feed hold then a reset (halt.js) stop a move that may
   // run, a line just sent whose report still says Idle included (C-08, C-09). False when no plate
   // probe runs.
-  const stop = (c, r, code = null) => {
+  // `spindle` (lot C1, « Arrêter la broche »): the spindle must be stopped by the board itself, so
+  // a reset is asked for even at rest between two lines, where halt.js would ask for nothing.
+  const stop = (c, r, code = null, spindle = false) => {
     const probing = r.probing;
     if (!probing || probing.kind !== 'plate') {
       return false;
@@ -499,6 +609,9 @@ export const createPlateProbe = (deps) => {
       if (!plan && probing.outstanding) {
         plan = 'hold';
       }
+      if (!plan && spindle) {
+        plan = 'reset';
+      }
       c.command('feeder:stop');
       c.command('gcode:stop');
       halt(c, plan);
@@ -508,6 +621,26 @@ export const createPlateProbe = (deps) => {
     }
     changed();
     return true;
+  };
+
+  // « Arrêter la broche » during a plate probe (lot C1, § 2.8 and § 4.1 point 5): the probe stops and
+  // the board is reset (after a feed hold when something may move), which stops the spindle; no M5
+  // joins the lines of the probe, no jog cancel is sent. A probe already stopped without a reset on
+  // its way (the supervisor's stop at rest) gets its reset now. Null when the board restarted since
+  // the probe started: nothing of it is left to stop, the caller sends its ordinary M5.
+  const spindleStop = (c, r) => {
+    const probing = r.probing;
+    if (!probing || probing.kind !== 'plate' || !connected(c) || r.startups !== probing.startups) {
+      return null;
+    }
+    if (!probing.cancelled) {
+      stop(c, r, null, true);
+    } else if (!probing.halted) {
+      c.command('reset');
+      probing.halted = { startups: r.startups, reports: r.reports };
+      changed();
+    }
+    return { message: 'Arrêt broche pendant un palpage : palpage interrompu, réinitialisation de la carte demandée. Vérifiez l’immobilisation et l’arrêt de la broche ; le zéro Z n’est pas réglé.' };
   };
 
   // The lease changed (job-service.js, release or takeover): the supervisor's checks now (C-12).
@@ -537,5 +670,5 @@ export const createPlateProbe = (deps) => {
     stop(c, r, 'ETOUCH_PLATE_STREAM');
   };
 
-  return { zeroZReady, plateParams, plateTravel, answers, zeroZ, quiet, stop, supervise, holds, transportClosed };
+  return { zeroZReady, zeroZBase, zeroZProofs, plateParams, plateTravel, answers, zeroZ, quiet, stop, spindleStop, supervise, holds, transportClosed };
 };

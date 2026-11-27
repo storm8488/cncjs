@@ -48,6 +48,11 @@ describe('real motion against the Grbl 1.1h simulator (F1)', () => {
     // Homing seen by the service (Home then Idle): the travel becomes usable.
     sim.processLineAsync('$H', () => {});
     expect(await until(() => service.list()[0].homed === true)).toBe(true);
+    // Lot C1: a move starts from two agreeing Idle reports that carry the position (the second one
+    // comes 25 ms after the one that ends the homing), the spindle proven stopped by a $G report
+    // received by the service (the bridge gives one every 500 ms; the first came before the service listened).
+    const ready = () => service.list()[0].motion.canJog === true && service.list()[0].motion.continuousReason.X === '';
+    expect(await until(ready)).toBe(true);
   });
 
   afterEach(() => {

@@ -10,6 +10,7 @@ import {
 } from '../motion';
 import { catalogCodes, expectCatalogMatch, expectMessageTranslation } from './touch-codes-catalog';
 import { provenOffset } from './support/proven-offset';
+import { lineBench } from './support/line-bench';
 
 // A fake Grbl controller: `written` holds the exact bytes GrblController
 // would put on the serial line for the commands the service uses
@@ -51,7 +52,7 @@ const fakeController = (port = 'TEST') => {
       c.written.push('\x85');
     }
   };
-  return c;
+  return lineBench(c);
 };
 
 const A = { kind: 'touch', id: 'tablet-A', label: 'Tablette A', user: 'op' };
@@ -79,14 +80,41 @@ const setup = ({ enabled = true, homed = false, hasKey = true, workOffset = prov
   ctx.service.openTransport('tA', A);
   ctx.service.openTransport('tA2', A);
   ctx.service.openTransport('tB', B);
-  ctx.report = () => ctx.c.runner.emit('status');
-  ctx.modal = (wcs = 'G54') => ctx.c.runner.emit('parserstate', { modal: { wcs } });
+  // Lot C1: the status line of the state the test wrote, as a board reporting MPos says it: the
+  // machine position when X, Y and Z are numbers, FS: when the state has a spindle speed, and no
+  // WCO: (the tests that need one give it themselves).
+  ctx.line = () => {
+    const status = ctx.c.state.status;
+    const m = ['x', 'y', 'z'].map((axis) => (status.mpos || {})[axis]);
+    const position = m.every((v) => v !== undefined && String(v).trim() !== '' && Number.isFinite(Number(v))) ? '|MPos:' + m.join(',') : '';
+    const speed = typeof status.spindle === 'number' ? '|FS:' + (status.feedrate || 0) + ',' + status.spindle : '';
+    return '<' + status.activeState + position + speed + '>';
+  };
+  ctx.report = () => ctx.c.runner.emit('status', { raw: ctx.line() });
+  ctx.modal = (wcs = 'G54') => {
+    ctx.wcs = wcs;
+    return ctx.c.runner.emit('parserstate', { modal: { wcs } });
+  };
   ctx.ok = () => ctx.c.runner.emit('ok');
+  // Lot C1: CNCjs's own $G exchange, the modal report (spindle off, M5) then its ok; one at the
+  // end of the setup, and one every 500 ms of bench time while the bench makes reports. It names
+  // the work coordinate system only once the test gave one (ctx.modal), the same one.
+  ctx.gc = () => {
+    const wcs = ctx.wcs ? { wcs: ctx.wcs } : {};
+    ctx.c.runner.emit('parserstate', { modal: { motion: 'G0', ...wcs, plane: 'G17', units: 'G21', distance: 'G90', feedrate: 'G94', spindle: 'M5', coolant: 'M9' } });
+    ctx.c.runner.emit('ok');
+  };
+  ctx.sinceGc = 0;
   // Advances both clocks, with a status report every 50 ms like CNCjs's poll.
-  ctx.tick = (ms, { reports = true } = {}) => {
+  ctx.tick = (ms, { reports = true, gc = true } = {}) => {
     for (let t = 0; t < ms; t += 50) {
       ctx.now += 50;
+      ctx.sinceGc += 50;
       if (reports) {
+        if (gc && ctx.sinceGc >= 500) {
+          ctx.sinceGc = 0;
+          ctx.gc();
+        }
         ctx.report();
       }
       jest.advanceTimersByTime(50);
@@ -95,7 +123,15 @@ const setup = ({ enabled = true, homed = false, hasKey = true, workOffset = prov
   ctx.req = (action, extra = {}, actor = A, transportId = actor === B ? 'tB' : 'tA') => ctx.service.action({
     port: 'TEST', generation: ctx.generation, transportId, action, ...extra
   }, actor);
-  ctx.motion = (operation, extra, actor, transportId) => ctx.req('motion', { operation, ...extra }, actor, transportId);
+  // Lot C1: the service reads the position in the reports themselves, no longer in the state the
+  // bench writes: before a step or a continuous jog is asked for, the board reports that state twice.
+  ctx.motion = (operation, extra, actor, transportId) => {
+    if (operation === 'jog' || operation === 'jog-start') {
+      ctx.report();
+      ctx.report();
+    }
+    return ctx.req('motion', { operation, ...extra }, actor, transportId);
+  };
   ctx.state = () => ctx.service.list()[0];
   ctx.home = () => {
     ctx.c.state.status.activeState = 'Home';
@@ -114,6 +150,9 @@ const setup = ({ enabled = true, homed = false, hasKey = true, workOffset = prov
   if (homed) {
     ctx.home();
   }
+  // Lot C1: a second report at rest, and the $G exchange a board at rest gets twice a second.
+  ctx.report();
+  ctx.gc();
   return ctx;
 };
 
@@ -462,7 +501,8 @@ describe('real jog (F1)', () => {
     ctx.c.settings.settings.$13 = '0';
 
     ctx.now += 3000;
-    await expect(ctx.motion('jog', STEP)).rejects.toThrow(/trop ancien/);
+    // Lot C1: asked without the two reports ctx.motion gives first (the report must be stale).
+    await expect(ctx.req('motion', { operation: 'jog', ...STEP })).rejects.toThrow(/trop ancien/);
     ctx.report();
 
     ctx.c.state.status.activeState = 'Alarm';
@@ -960,13 +1000,15 @@ describe('cross-check 4 · 3. bornes', () => {
     expect(ctx.c.written).toEqual(['$J=G91 G21 X1 F500\n']);
   });
 
-  test('référencé, position machine inconnue : 10 mm refusé, 1 mm permis, continu refusé', async () => {
+  // Lot C1 (R-1): reports that carry no position refuse every move, the 1 mm step included (before:
+  // 10 mm and the continuous jog refused for « position machine X inconnue », 1 mm allowed and written).
+  test('référencé, position machine inconnue : 10 mm, 1 mm et continu refusés (position non confirmée)', async () => {
     const ctx = setup({ homed: true });
     ctx.c.state.status.mpos = {};
-    await expect(ctx.motion('jog', { ...STEP, step: 10 })).rejects.toThrow(/position machine X inconnue/);
-    await expect(ctx.motion('jog-start', HOLD)).rejects.toThrow(/position machine X inconnue/);
-    await ctx.motion('jog', STEP);
-    expect(ctx.c.written).toEqual(['$J=G91 G21 X1 F500\n']);
+    await expect(ctx.motion('jog', { ...STEP, step: 10 })).rejects.toMatchObject({ code: 'ETOUCH_MOTION_NO_POSITION' });
+    await expect(ctx.motion('jog-start', HOLD)).rejects.toMatchObject({ code: 'ETOUCH_MOTION_NO_POSITION' });
+    await expect(ctx.motion('jog', STEP)).rejects.toMatchObject({ code: 'ETOUCH_MOTION_NO_POSITION' });
+    expect(ctx.c.written).toEqual([]);
   });
 
   test('$23 bit X : course [0, 400] ; pas qui sortirait refusé (pas réduit)', async () => {
@@ -991,8 +1033,9 @@ describe('cross-check 4 · 3. bornes', () => {
   test('rapport périmé (> 2,5 s) : pas et continu refusés', async () => {
     const ctx = setup({ homed: true });
     ctx.now += 2600;
-    await expect(ctx.motion('jog', STEP)).rejects.toThrow(/trop ancien/);
-    await expect(ctx.motion('jog-start', HOLD)).rejects.toThrow(/trop ancien/);
+    // Lot C1: asked without the two reports ctx.motion gives first (the report must be stale).
+    await expect(ctx.req('motion', { operation: 'jog', ...STEP })).rejects.toThrow(/trop ancien/);
+    await expect(ctx.req('motion', { operation: 'jog-start', ...HOLD })).rejects.toThrow(/trop ancien/);
     expect(ctx.c.written).toEqual([]);
   });
 
@@ -1049,6 +1092,8 @@ describe('cross-check 4 · 3. bornes', () => {
     ctx.c.state.status.activeState = 'Home';
     ctx.tick(1100);
     ctx.c.state.status.activeState = 'Idle';
+    ctx.report();
+    // Lot C1: a second report at rest (a move starts from two agreeing reports).
     ctx.report();
   };
 
@@ -1146,7 +1191,9 @@ describe('cross-check 4 · 3. bornes', () => {
     if (end) {
       Object.assign(ctx.c.state.status.mpos, end);
     }
-    ctx.c.runner.emit('status', end ? { activeState: 'Idle', ...(wpos ? { wpos: { ...end } } : {}), mpos: { ...end } } : { activeState: 'Idle' });
+    // Lot C1: the very line of the end of the cycle (WPos for a board that reports WPos; no
+    // coordinates at all for `end: null`).
+    ctx.c.runner.emit('status', { raw: end ? '<Idle|' + (wpos ? 'WPos' : 'MPos') + ':' + [end.x, end.y, end.z].join(',') + '|FS:0,0>' : '<Idle|FS:0,0>' });
   };
   const setupPc = () => {
     const ctx = setup();
@@ -1158,6 +1205,8 @@ describe('cross-check 4 · 3. bornes', () => {
   test('$23=3, origine complète demandée par CNCjs du PC, Home ≥ 1 s puis Idle à 0,0,0 : X et Y en [0, course], X+ permis depuis 0, X− refusé', async () => {
     const ctx = setupPc();
     homePc(ctx);
+    // Lot C1: a second report at rest (a move starts from two agreeing reports).
+    ctx.report();
     expect(ctx.state().homed).toBe(true);
     expect(ctx.state().motion.continuousReason.X).toBe('');
     expect(ctx.state().motion.continuousReason.Y).toBe('');
@@ -1204,6 +1253,8 @@ describe('cross-check 4 · 3. bornes', () => {
     ctx.c.state.status.activeState = 'Idle';
     Object.assign(ctx.c.state.status.mpos, ZERO);
     ctx.report();
+    // Lot C1: the $G exchange of the new session (the banner forgot the one before).
+    ctx.gc();
     expect(ctx.state().homed).toBe(false);
     const before = ctx.c.written.length;
     await expect(ctx.motion('jog', { ...STEP, step: 10 })).rejects.toThrow(/non constaté/);
@@ -1213,7 +1264,7 @@ describe('cross-check 4 · 3. bornes', () => {
     ctx.c.state.status.activeState = 'Home';
     ctx.tick(1100);
     ctx.c.state.status.activeState = 'Idle';
-    ctx.c.runner.emit('status', { activeState: 'Idle', mpos: { ...ZERO } });
+    ctx.c.runner.emit('status', { raw: '<Idle|MPos:0.000,0.000,0.000|FS:0,0>' });
     await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette/);
   });
 
@@ -1249,7 +1300,7 @@ describe('cross-check 4 · 3. bornes', () => {
     ctx.c.state.status.activeState = 'Home';
     ctx.tick(1100);
     ctx.c.state.status.activeState = 'Idle';
-    ctx.c.runner.emit('status', { activeState: 'Idle', mpos: { ...ZERO } });
+    ctx.c.runner.emit('status', { raw: '<Idle|MPos:0.000,0.000,0.000|FS:0,0>' });
     expect(ctx.state().homed).toBe(true);
     await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette/);
   });
@@ -1263,7 +1314,7 @@ describe('cross-check 4 · 3. bornes', () => {
     ctx.tick(1100);
     ctx.c.state.status.activeState = 'Idle';
     Object.assign(ctx.c.state.status.mpos, ZERO);
-    ctx.c.runner.emit('status', { activeState: 'Idle', mpos: { ...ZERO } });
+    ctx.c.runner.emit('status', { raw: '<Idle|MPos:0.000,0.000,0.000|FS:0,0>' });
     await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette/);
   });
 
@@ -1275,7 +1326,7 @@ describe('cross-check 4 · 3. bornes', () => {
     ctx.c.state.status.activeState = 'Idle';
     ctx.service.socketCommand('TEST', true);
     ctx.tick(1100, { reports: false });
-    ctx.c.runner.emit('status', { activeState: 'Idle', mpos: { ...ZERO } });
+    ctx.c.runner.emit('status', { raw: '<Idle|MPos:0.000,0.000,0.000|FS:0,0>' });
     // That earlier cycle neither homes the machine nor teaches the convention: 10 mm refused.
     expect(ctx.state().homed).toBe(false);
     await expect(ctx.motion('jog', { ...STEP, step: 10 })).rejects.toThrow(/non constaté/);
@@ -1308,7 +1359,7 @@ describe('cross-check 4 · 3. bornes', () => {
     ctx.c.state.status.activeState = 'Home';
     ctx.tick(1100);
     ctx.c.state.status.activeState = 'Idle';
-    ctx.c.runner.emit('status', { activeState: 'Idle', mpos: { ...ZERO } });
+    ctx.c.runner.emit('status', { raw: '<Idle|MPos:0.000,0.000,0.000|FS:0,0>' });
     expect(ctx.state().homed).toBe(true);
     await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).resolves.toMatchObject({ command: '$J=G91 G21 X0.1 F500' });
   });
@@ -1360,7 +1411,7 @@ describe('cross-check 4 · 3. bornes', () => {
     ctx.service.socketCommand('TEST', true);
     ctx.tick(1100);
     ctx.c.state.status.activeState = 'Idle';
-    ctx.c.runner.emit('status', { activeState: 'Idle', mpos: { ...ZERO } });
+    ctx.c.runner.emit('status', { raw: '<Idle|MPos:0.000,0.000,0.000|FS:0,0>' });
     await expect(ctx.motion('jog', { ...STEP, step: 0.1 })).rejects.toThrow(/Position de l’axe X inconnue : refaites la prise d’origine depuis la tablette/);
   });
 
@@ -1746,7 +1797,8 @@ describe('cross-check 4 · 5. origines', () => {
   test('repère inconnu (modal périmé), pause M6, travail, alarme : refus', async () => {
     const ctx = setupHeld();
     ctx.modal('G54');
-    ctx.tick(2600);
+    // Lot C1: without the bench's $G exchanges (the modal state must get old).
+    ctx.tick(2600, { gc: false });
     await expect(prepare(ctx)).rejects.toThrow(/Repère de travail inconnu/);
     ctx.modal('G53');
     await expect(prepare(ctx)).rejects.toThrow(/Repère de travail inconnu/);
@@ -1988,8 +2040,27 @@ describe('cross-check 6 · 2. D1 : position machine déduite de WPos ($10 sans l
     services.push(service);
     service.openTransport('tA', A);
     const generation = service.list()[0].generation;
-    const motion = (operation, extra) => service.action({ port: 'TEST', generation, transportId: 'tA', action: 'motion', operation, ...extra }, A);
-    return { c, runner, service, box, motion };
+    // Lot C1: before a move is asked for, the board says its last status line twice more and
+    // CNCjs's $G exchange (spindle off) follows: a move starts from a proven rest, spindle proven stopped.
+    let lastStatus = null;
+    runner.on('raw', (payload) => {
+      if (/^<.*>$/.test(payload.raw)) {
+        lastStatus = payload.raw;
+      }
+    });
+    const rest = () => {
+      if (lastStatus) {
+        runner.parse(lastStatus);
+        runner.parse(lastStatus);
+      }
+      runner.parse('[GC:G0 G54 G17 G21 G90 G94 M5 M9 T0 F0 S0]');
+      runner.parse('ok');
+    };
+    const motion = (operation, extra) => {
+      rest();
+      return service.action({ port: 'TEST', generation, transportId: 'tA', action: 'motion', operation, ...extra }, A);
+    };
+    return { c, runner, service, box, motion, rest };
   };
 
   test('$10=0 sans WCO reçu : MPos fausse (WPos), continu et pas > 1 mm refusés ; un WCO reçu rétablit la vraie course', async () => {
@@ -2027,11 +2098,14 @@ describe('cross-check 6 · 2. D1 : position machine déduite de WPos ($10 sans l
     t.runner.parse('<Home|WPos:-50.000,0.000,0.000|FS:0,0>');
     t.box.now += 50;
     t.runner.parse('<Idle|WPos:-50.000,0.000,0.000|FS:0,0>');
+    // Lot C1: the same report twice more and the $G exchange (a proven rest, the spindle proven stopped).
+    t.rest();
     expect(t.service.list()[0].motion.continuousReason.X).toBe('');
     t.runner.parse('Grbl 1.1h [\'$\' for help]');
     t.box.now += 50;
     t.runner.parse('<Home|WPos:-50.000,0.000,0.000|FS:0,0>');
     t.runner.parse('<Idle|WPos:-50.000,0.000,0.000|FS:0,0>');
+    t.rest();
     expect(t.service.list()[0].motion.continuousReason.X).toMatch(/aucun décalage WCO reçu/);
   });
 });
@@ -2182,7 +2256,7 @@ describe('motion, cross-check 7', () => {
         c.written.push('\x85');
       }
     };
-    return c;
+    return lineBench(c);
   };
 
   const setup = ({ settings = {}, mpos = {}, homed = true } = {}) => {
@@ -2208,18 +2282,42 @@ describe('motion, cross-check 7', () => {
     ctx.service.openTransport('tA', A);
     ctx.service.openTransport('tA2', A);
     ctx.service.openTransport('tB', B);
-    ctx.report = (payload) => ctx.c.runner.emit('status', payload);
+    // Lot C1: the status line of the state the test wrote, as a board says it: the machine position,
+    // FS:, and a WCO: field only when the test gives one (with the very values it gives, whole or not).
+    ctx.report = (payload) => {
+      const status = ctx.c.state.status;
+      const wco = payload && payload.wco ? '|WCO:' + ['x', 'y', 'z'].filter((axis) => payload.wco[axis] !== undefined).map((axis) => payload.wco[axis]).join(',') : '';
+      return ctx.c.runner.emit('status', { raw: '<' + status.activeState + '|MPos:' + [status.mpos.x, status.mpos.y, status.mpos.z].join(',') + '|FS:0,' + status.spindle + wco + '>' });
+    };
     ctx.ok = () => ctx.c.runner.emit('ok');
+    // Lot C1: CNCjs's own $G exchange (spindle off, M5, then its ok): at the end of the setup and
+    // every 500 ms of bench time; and two reports of the state the test wrote before a move is asked for.
+    ctx.gc = () => {
+      ctx.c.runner.emit('parserstate', { modal: { motion: 'G0', plane: 'G17', units: 'G21', distance: 'G90', feedrate: 'G94', spindle: 'M5', coolant: 'M9' } });
+      ctx.c.runner.emit('ok');
+    };
+    ctx.sinceGc = 0;
     ctx.tick = (ms) => {
       for (let t = 0; t < ms; t += 50) {
         ctx.now += 50;
+        ctx.sinceGc += 50;
+        if (ctx.sinceGc >= 500) {
+          ctx.sinceGc = 0;
+          ctx.gc();
+        }
         ctx.report();
         jest.advanceTimersByTime(50);
       }
     };
-    ctx.motion = (operation, extra = {}, actor = A, transportId = actor === B ? 'tB' : 'tA') => ctx.service.action({
-      port: 'TEST', generation: ctx.generation, transportId, action: 'motion', operation, ...extra
-    }, actor);
+    ctx.motion = (operation, extra = {}, actor = A, transportId = actor === B ? 'tB' : 'tA') => {
+      if (operation === 'jog' || operation === 'jog-start') {
+        ctx.report();
+        ctx.report();
+      }
+      return ctx.service.action({
+        port: 'TEST', generation: ctx.generation, transportId, action: 'motion', operation, ...extra
+      }, actor);
+    };
     ctx.state = () => ctx.service.list()[0];
     ctx.cancels = () => ctx.c.written.filter((b) => b === '\x85').length;
     ctx.jogs = () => ctx.c.written.filter((b) => b.startsWith('$J'));
@@ -2230,6 +2328,7 @@ describe('motion, cross-check 7', () => {
       ctx.c.state.status.activeState = 'Idle';
       ctx.report();
     }
+    ctx.gc();
     return ctx;
   };
 
@@ -2273,7 +2372,26 @@ describe('motion, cross-check 7', () => {
     service.openTransport('tA', A);
     const generation = service.list()[0].generation;
     const t = { c, runner, service, box };
-    t.motion = (operation, extra) => service.action({ port: 'TEST', generation, transportId: 'tA', action: 'motion', operation, ...extra }, A);
+    // Lot C1: before a move is asked for, the board says its last status line twice more and
+    // CNCjs's $G exchange (spindle off) follows: a move starts from a proven rest, spindle proven stopped.
+    let lastStatus = null;
+    runner.on('raw', (payload) => {
+      if (/^<.*>$/.test(payload.raw)) {
+        lastStatus = payload.raw;
+      }
+    });
+    t.rest = () => {
+      if (lastStatus) {
+        runner.parse(lastStatus);
+        runner.parse(lastStatus);
+      }
+      runner.parse('[GC:G0 G54 G17 G21 G90 G94 M5 M9 T0 F0 S0]');
+      runner.parse('ok');
+    };
+    t.motion = (operation, extra) => {
+      t.rest();
+      return service.action({ port: 'TEST', generation, transportId: 'tA', action: 'motion', operation, ...extra }, A);
+    };
     t.parse = (line) => {
       box.now += 50;
       runner.parse(line);
@@ -2683,10 +2801,11 @@ describe('real moves (F1): stable refusal codes (ETOUCH_MOTION_*)', () => {
 
   test('every ETOUCH_MOTION_* row of the client catalog is emitted by motion.js; other refusals stay uncoded', async () => {
     const catalog = catalogCodes().filter((code) => /^ETOUCH_MOTION_/.test(code)).sort();
-    const source = require('fs').readFileSync(require('path').join(__dirname, '../motion.js'), 'utf8');
-    const emitted = Array.from(new Set(source.match(/'ETOUCH_MOTION_[A-Z_]+'/g).map((s) => s.slice(1, -1)))).sort();
+    // Lot C1: three more codes, emitted by report-proof.js (the proofs motion.js asks for).
+    const source = ['../motion.js', '../report-proof.js'].map((file) => require('fs').readFileSync(require('path').join(__dirname, file), 'utf8')).join(' ');
+    const emitted = Array.from(new Set(source.match(/'?ETOUCH_MOTION_[A-Z_]+'?/g).map((s) => s.replace(/'/g, '')))).sort();
     expect(emitted).toEqual(catalog);
-    expect(emitted).toHaveLength(11);
+    expect(emitted).toHaveLength(14);
     const ctx = setup();
     const err = await ctx.motion('jog', { ...STEP, step: 0.5 }).then(() => null, (e) => e);
     expect(err).toMatchObject({ status: 409, message: expect.stringMatching(/pas invalide/) });

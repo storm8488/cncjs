@@ -265,3 +265,26 @@ Aucune commande nouvelle : la page lit l'état déjà publié. Compte rendu : `.
 | N3-D1 | Tablette du laser (RT), après sa mise à jour : A1 à A3, puis une gravure courte. | Mêmes sons ; « Gravure terminée ». Noter si le son de la RT est assez fort. |
 
 **Relevé à rendre** : son entendu ou non à trois mètres pour chaque volume, lisibilité du bandeau à trois mètres (sombre et clair), tout bandeau venu sans raison ou resté absent, toute commande gênée par le bandeau.
+
+## C1 — Position et broche lues dans le rapport lui-même (essai court, fraise en l'air, ajouté le 27 novembre 2026)
+
+Correction de sûreté sans commande nouvelle. Compte rendu : `../plaque/C1-RAPPORT.md`. Depuis le kiosque de la Surface seulement, veille automatique coupée, table vide, fraise courte ou pince vide, main près de l'arrêt d'urgence. **Tout refus ou arrêt inexpliqué se note tel quel et arrête l'essai : on ne le contourne pas.** Quinze minutes environ.
+
+| Étape | Geste | Attendu |
+|---|---|---|
+| C1-1 | Vérifier la version affichée par la tablette. | Celle qui contient C1. |
+| C1-2 | Prise d'origine. Puis un pas X+ 10 mm, un pas Z+ 1 mm, un maintien continu Y+ de deux secondes. | Comme avant. Dans la seconde qui suit la prise d'origine ou une connexion, les flèches peuvent rester grisées un instant (« La machine n'a pas encore confirmé sa position. ») : le noter si cela dure plus d'une seconde. |
+| C1-3 | Charger un petit programme connu, Z à mi-hauteur, « Cadrer à vide… ». | Montée, tour, retour, comme avant. Noter si la fraise marque à chaque coin un arrêt plus long qu'avant (attendu : une demi-seconde au plus). |
+| C1-4 | Plus → Journal : ouvrir la ligne de ce cadrage (ou exporter le journal). | Champs `reports` : `noXyz` 0 et `noFs` 0. Champ `waits` : une durée en millisecondes par ligne après la première. **Recopier ces chiffres : c'est le résultat principal de l'essai.** |
+| C1-5 | Rien près de la broche. Depuis le PC, console de CNCjs classique : `M3 S0`. Regarder et écouter la broche. Sur la tablette : « Cadrer à vide… », puis un pas de 10 mm, puis un pas de 0,1 mm. | Noter ce que fait la broche (elle peut tourner lentement). Cadrage et pas de 10 mm **refusés** : « La broche est commandée : arrêtez-la d'abord. », avec le bouton « Arrêter la broche ». Le pas de 0,1 mm reste permis. |
+| C1-6 | Toucher « Arrêter la broche ». | Tout redevient permis en moins d'une seconde. |
+| C1-7 | Zéro Z à la plaque : pince sur la plaque, fraise 20 mm au-dessus, alimentation de la broche coupée. | Comme avant. Noter la durée totale (attendu : une à deux secondes de plus qu'avant). |
+| C1-8 | Programme d'essai sans matière qui contient un `M6` : à la pause, « Arrêter la broche », zéro Z à la plaque, puis « Reprendre… ». | Le palpage va au bout, la reprise reste permise. Si le palpage s'arrête avec « la broche est commandée, ou sa vitesse n'est plus rapportée » : noter l'heure, ne pas recommencer, arrêter le programme (Arrêter), et rendre le journal. |
+| C1-9 | Pendant le palpage de C1-7 refait une fois : toucher « Arrêter le palpage » (bouton Pause) en cours de descente. | Arrêt immédiat ; la carte se réinitialise (alarme, puis prise d'origine à refaire) ; le zéro Z n'est pas réglé. |
+| C1-10 | Refaire C1-7 ; pendant la descente, regarder l'écran 3 · Zéro pièce, puis toucher « Arrêter la broche » (sous « Arrêter le palpage »). | Le bouton est visible et lisible, rien ne déborde. Au toucher : arrêt du palpage, message « réinitialisation de la carte demandée », la carte passe en alarme ; prise d'origine à refaire. Aucun `M5` ne part. |
+
+Ne **pas** essayer : débrancher l'USB pendant un mouvement, envoyer `M3` avec une vitesse, palper avec la broche alimentée.
+
+**Ce que cet essai ne peut pas montrer** : un rapport sans position ou sans `FS:`, que la carte n'est pas connue pour émettre. Cette partie n'est prouvée qu'au banc.
+
+**Relevé à rendre** : les chiffres de C1-4, ce que fait la broche sur `M3 S0`, les durées de C1-3 et C1-7 comparées à avant, tout refus ou arrêt non attendu avec son texte exact.

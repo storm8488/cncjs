@@ -12,6 +12,7 @@ import { createControl } from '../control';
 import { provenOffset } from './support/proven-offset';
 import { expectCatalogMatch } from './touch-codes-catalog';
 import { bridge } from './support/sim-bridge';
+import { lineBench } from './support/line-bench';
 
 const GrblSimulator = require('../../../../../grbl-simulator/grbl-simulator');
 
@@ -75,7 +76,7 @@ const fakeController = () => {
       c.workflow.emit('start');
     }
   };
-  return c;
+  return lineBench(c);
 };
 
 const services = [];
@@ -110,16 +111,29 @@ const setup = (m, workOffset = provenOffset) => {
       mpos: { x: f3(at.x), y: f3(at.y), z: f3(at.z) },
       wpos: { x: f3(at.x - ctx.offset.x), y: f3(at.y - ctx.offset.y), z: f3(at.z - ctx.offset.z) }
     };
-    ctx.c.runner.emit('status', { raw: '<' + active + '|MPos:' + f3(at.x) + ',' + f3(at.y) + ',' + f3(at.z) + '|FS:0,0>' });
+    // Lot C1: the line says the work offset too (WCO:), as the state above does: the work position
+    // is read from the report itself.
+    ctx.c.runner.emit('status', { raw: '<' + active + '|MPos:' + f3(at.x) + ',' + f3(at.y) + ',' + f3(at.z) + '|FS:0,0|WCO:' + f3(ctx.offset.x) + ',' + f3(ctx.offset.y) + ',' + f3(ctx.offset.z) + '>' });
   };
   ctx.modal = () => {
     ctx.c.state.parserstate = { modal: { motion: 'G0', wcs: 'G54', units: 'G21', distance: 'G90', spindle: 'M5', feedrate: 'G94' }, feedrate: '0', spindle: '0' };
     ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
   };
   // Time goes by: one report every 50 ms, like CNCjs's poll.
+  // Lot C1: CNCjs's own $G exchange, the modal report (M5) then its ok; one every 500 ms of bench time.
+  ctx.gc = () => {
+    ctx.modal();
+    ctx.c.runner.emit('ok');
+  };
+  ctx.sinceGc = 0;
   ctx.tick = async (ms) => {
     for (let t = 0; t < ms; t += 50) {
       ctx.now += 50;
+      ctx.sinceGc += 50;
+      if (ctx.sinceGc >= 500) {
+        ctx.sinceGc = 0;
+        ctx.gc();
+      }
       ctx.report();
       // eslint-disable-next-line no-await-in-loop
       await jest.advanceTimersByTimeAsync(50);
@@ -127,6 +141,8 @@ const setup = (m, workOffset = provenOffset) => {
   };
   ctx.report('Home', { x: 0, y: 0, z: 0 });
   ctx.report('Idle', { x: 0, y: 0, z: 0 });
+  ctx.report();
+  // Lot C1: a second report at rest where the tool is.
   ctx.report();
   ctx.modal();
   ctx.lines = () => ctx.c.commands.filter((entry) => entry[0] === 'gcode').map((entry) => entry[1]);
@@ -418,6 +434,8 @@ describe('plate probe: the search against the Z travel, the supervision (C-07, C
       }
       ctx.report();
       ctx.c.runner.emit('ok');
+      // Lot C1: CNCjs's $G exchange after the ok of each line (M5).
+      ctx.gc();
     };
     await ctx.start({ thickness: 1, search: 1 });
     await ctx.tick(2000);
@@ -456,6 +474,8 @@ describe('plate probe: the search against the Z travel, the supervision (C-07, C
     const ctx = setup({ x: 150, y: 120, z: -60 });
     const ticket = await ctx.req('prepare', { operation: 'zeroZ', thickness: 10, search: 50 });
     ctx.m = { ...ctx.m, z: -100 };
+    ctx.report();
+    // Lot C1: at rest there, a second report.
     ctx.report();
     const err = await ctx.req('zeroZ', { nonce: ticket.nonce }).then(() => null, (e) => e);
     expect(err).toMatchObject({ code: 'ETOUCH_PLATE_TRAVEL', params: { search: '50', max: '28' } });
@@ -600,6 +620,8 @@ test('S4 two Idle reports after the ok are required before the plate retract lea
   await ctx.tick(100);
   expect(ctx.lines()).toEqual(['G38.2 Z-5 F100']);
   ctx.c.runner.emit('ok');
+  // Lot C1: CNCjs's $G exchange after the ok (M5); the two reports below stay what releases the line.
+  ctx.gc();
   ctx.now += 100;
   await jest.advanceTimersByTimeAsync(100);
   expect(ctx.lines()).toEqual(['G38.2 Z-5 F100']);
@@ -677,7 +699,8 @@ describe('plate probe on the LUNYEE simulator', () => {
 
   test('C-07 a search below the LUNYEE travel is refused before the board can raise ALARM:2', async () => {
     c.command('gcode', 'G53 G0 Z-60');
-    await until(() => state().activeState === 'Idle' && Number(state().coordinates.mpos.z) === -60);
+    // Lot C1: and seen at rest there (two reports), the plate ready again.
+    await until(() => state().activeState === 'Idle' && Number(state().coordinates.mpos.z) === -60 && state().canZeroZ);
     const before = c.written.slice();
     await expect(req('prepare', { operation: 'zeroZ', thickness: 1, search: 100 })).rejects.toMatchObject({
       code: 'ETOUCH_PLATE_TRAVEL', params: { search: '100', max: '68' }

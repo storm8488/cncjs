@@ -12,6 +12,7 @@ import { createControl } from '../control';
 import { fingerprint as sha256 } from '../program-identity';
 import { signatureOf } from '../machine-profile';
 import { provenOffset } from './support/proven-offset';
+import { lineBench } from './support/line-bench';
 
 const SETTINGS = {
   $10: '1',
@@ -80,7 +81,7 @@ const fakeController = (port, settings) => {
       c.workflow.emit('start');
     }
   };
-  return c;
+  return lineBench(c);
 };
 
 const A = { kind: 'touch', id: 'tablet-A', label: 'Tablette A', user: 'op' };
@@ -143,15 +144,28 @@ const setup = ({ machines = [], enabled = true, settings = SETTINGS } = {}) => {
   ctx.service.openTransport('tA', A);
   ctx.service.openTransport('tB', B);
   ctx.report = () => ctx.c.runner.emit('status');
+  // Lot C1: CNCjs's own $G exchange, the modal report (spindle off, M5) then its ok. The board
+  // answers a line (`ok`), and the next exchange follows it; one more every 500 ms of bench time.
+  ctx.gc = () => {
+    ctx.c.runner.emit('parserstate', { modal: { motion: 'G0', wcs: 'G54', plane: 'G17', units: 'G21', distance: 'G90', feedrate: 'G94', spindle: 'M5', coolant: 'M9' } });
+    ctx.c.runner.emit('ok');
+  };
+  ctx.sinceGc = 0;
   ctx.tick = (ms) => {
     for (let t = 0; t < ms; t += 50) {
       ctx.now += 50;
+      ctx.sinceGc += 50;
+      if (ctx.sinceGc >= 500) {
+        ctx.sinceGc = 0;
+        ctx.gc();
+      }
       ctx.report();
       jest.advanceTimersByTime(50);
     }
   };
   ctx.settle = () => {
     ctx.c.runner.emit('ok');
+    ctx.gc();
     ctx.c.state.status.activeState = 'Idle';
     ctx.tick(150);
   };
@@ -171,6 +185,9 @@ const setup = ({ machines = [], enabled = true, settings = SETTINGS } = {}) => {
   ctx.report();
   ctx.c.state.status.activeState = 'Idle';
   ctx.report();
+  // Lot C1: a second report at rest, and the $G exchange a board at rest gets twice a second.
+  ctx.report();
+  ctx.gc();
   return ctx;
 };
 

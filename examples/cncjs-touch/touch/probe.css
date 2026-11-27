@@ -90,3 +90,5 @@ body.ks-real.ks-ui #probe-card .zero-probe-ops button{min-height:64px;padding:4p
 .t-numpad[data-dock="right"] .t-numpad-card{pointer-events:auto;width:340px;max-height:calc(100vh - 88px)}
 @media(min-height:850px){#probe-zone{height:291px;min-height:291px}#job-probe-diagram{height:360px}#job-probe-diagram .probe-start-diagram{height:240px}}
 @media(max-width:1099px){.zero-measures{grid-template-columns:minmax(200px,1fr) minmax(180px,1fr)}#ks-probe-setup .ks-sheet-card,#ks-plate .ks-sheet-card{margin:0;width:calc(100vw - 24px)}}
+/* Lot C1: « Arrêter la broche » while a probe runs, under « Arrêter le palpage ». */
+body.ks-real.ks-ui #probe-card #probe-spindle-stop{min-height:48px;width:100%}

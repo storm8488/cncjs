@@ -6,6 +6,7 @@ import { EventEmitter } from 'events';
 import { createService } from '../job-service';
 import { createControl } from '../control';
 import { provenOffset } from './support/proven-offset';
+import { lineBench } from './support/line-bench';
 import { expectCatalogMatch } from './touch-codes-catalog';
 
 const fakeController = (port = 'TEST') => {
@@ -45,7 +46,7 @@ const fakeController = (port = 'TEST') => {
       c.written.push('\x85');
     }
   };
-  return c;
+  return lineBench(c);
 };
 
 const A = { kind: 'touch', id: 'tablet-A', label: 'Tablette A', user: 'op' };
@@ -92,6 +93,13 @@ const setup = () => {
   ctx.report();
   ctx.c.state.status.activeState = 'Idle';
   ctx.report();
+  // Lot C1: a second report at rest, and CNCjs's $G exchange (spindle off, M5, then its ok).
+  ctx.gc = () => {
+    ctx.c.runner.emit('parserstate', { modal: { motion: 'G0', plane: 'G17', units: 'G21', distance: 'G90', feedrate: 'G94', spindle: 'M5', coolant: 'M9' } });
+    ctx.c.runner.emit('ok');
+  };
+  ctx.report();
+  ctx.gc();
   return ctx;
 };
 

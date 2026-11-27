@@ -12,6 +12,43 @@ import monitor from '../../monitor';
 import { provenOffset } from './support/proven-offset';
 import { offsetRefusal, MESSAGES } from '../work-offset';
 import { expectCatalogMatch, expectMessageTranslation } from './touch-codes-catalog';
+import { lineBench } from './support/line-bench';
+
+// Lot C1: a fake controller of this file whose `status` / `parserstate` emissions become lines read
+// by the real parser (support/line-bench.js), with CNCjs's own $G exchange.
+const c1Bench = (c) => {
+  lineBench(c);
+  // Lot C1: CNCjs's own $G exchange, the modal report then its ok. It says again the modal state the
+  // test gave last (emitted, or written in `c.state.parserstate`), with the spindle off (M5) unless
+  // the test names a spindle mode. As CNCjs does at rest, one is made by itself before a status
+  // report: before the first one of the controller, then whenever the last exchange is 500 ms old
+  // on the bench's clock (`c.clock`, given by the setups that have one), and before the first one
+  // after a banner (CNCjs asks again when the board restarts). `c.gcOff = true` stops them: a test
+  // about a missing $G, or one that lets the $G grow old.
+  c.gc = () => {
+    const base = c.lastModal || c.runner.state.parserstate || {};
+    const said = { ...base };
+    delete said.raw;
+    c.gcAt = c.clock ? c.clock() : 0;
+    c.runner.emit('parserstate', { ...said, modal: { ...(said.modal || {}), spindle: (said.modal || {}).spindle || 'M5' } });
+    c.runner.emit('ok');
+  };
+  c.gcAt = null;
+  const emit = c.runner.emit;
+  c.runner.emit = (name, ...args) => {
+    if (name === 'status' && !c.gcOff && (c.gcAt === null || (c.clock && c.clock() - c.gcAt >= 500))) {
+      c.gc();
+    }
+    if (name === 'parserstate') {
+      [c.lastModal] = args;
+    }
+    if (name === 'startup') {
+      c.gcAt = null;
+    }
+    return emit(name, ...args);
+  };
+  return c;
+};
 
 // A fake Grbl controller that records commands and mimics the sender/workflow
 // transitions the service observes. It never touches a serial port.
@@ -24,13 +61,14 @@ const fakeController = (port = 'TEST') => {
     runner: new EventEmitter(),
     sender: new EventEmitter(),
     workflow: Object.assign(new EventEmitter(), { state: 'idle' }),
-    state: { status: { activeState: 'Idle' } },
+    state: { status: { activeState: 'Idle', spindle: 0 } },
     feeder: { toJSON: () => ({ queue: 0, pending: false }) },
     settings: { version: 'Grbl 1.1h', settings: { $110: 1000, $111: 1000, $112: 200 } },
     commands: [],
     writeln: jest.fn()
   };
   c.runner.state = c.state;
+  c1Bench(c);
   c.sender.state = { name: '', context: {}, total: 0 };
   c.sender.toJSON = () => ({ ...c.sender.state });
   c.writeln = jest.fn(() => c.runner.emit('ok'));
@@ -87,6 +125,7 @@ afterEach(() => {
 
 const setup = (options = {}) => {
   const ctx = { now: 10000, events: [], macros: [], c: fakeController() };
+  ctx.c.clock = () => ctx.now;
   ctx.controllers = { TEST: ctx.c };
   ctx.service = createService(
     { get: () => ctx.controllers },
@@ -130,7 +169,7 @@ describe('program progress without a preview sidecar', () => {
   test('P5: fromLine times the rebuilt resume including its preamble from the actual start position', async () => {
     const ctx = setup();
     ctx.c.settings.settings.$13 = 0;
-    ctx.c.state.status = { activeState: 'Idle', wpos: { x: 20, y: 0, z: 2 }, mpos: { x: 20, y: 0, z: 2 }, ov: [100, 100, 100] };
+    ctx.c.state.status = { activeState: 'Idle', wpos: { x: 20, y: 0, z: 2 }, mpos: { x: 20, y: 0, z: 2 }, ov: [100, 100, 100], spindle: 0 };
     ctx.c.state.parserstate = { modal: { wcs: 'G54', feedrate: 'G94' } };
     ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
     const report = () => ctx.c.runner.emit('status', { wpos: ctx.c.state.status.wpos });
@@ -160,7 +199,7 @@ describe('program progress without a preview sidecar', () => {
   test('N1: the check of a library file and the loaded program carry the tools and the spindle spin-up time, and send nothing', async () => {
     const ctx = setup();
     ctx.c.settings.settings.$13 = 0;
-    ctx.c.state.status = { activeState: 'Idle', wpos: { x: 20, y: 0, z: 2 }, mpos: { x: 20, y: 0, z: 2 }, ov: [100, 100, 100] };
+    ctx.c.state.status = { activeState: 'Idle', wpos: { x: 20, y: 0, z: 2 }, mpos: { x: 20, y: 0, z: 2 }, ov: [100, 100, 100], spindle: 0 };
     ctx.c.state.parserstate = { modal: { wcs: 'G54', feedrate: 'G94' } };
     ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
     ctx.c.runner.emit('status', { wpos: ctx.c.state.status.wpos });
@@ -181,7 +220,7 @@ describe('program progress without a preview sidecar', () => {
     const fingerprint = sha256(text);
     const ctx = setup({ files: { readProgram: () => Promise.resolve({ text, fingerprint }), fingerprintOf: () => Promise.resolve({ fingerprint }) } });
     ctx.c.settings.settings.$13 = 0;
-    ctx.c.state.status = { activeState: 'Idle', wpos: { x: 0, y: 0, z: 0 }, mpos: { x: 0, y: 0, z: 0 }, ov: [100, 100, 100] };
+    ctx.c.state.status = { activeState: 'Idle', wpos: { x: 0, y: 0, z: 0 }, mpos: { x: 0, y: 0, z: 0 }, ov: [100, 100, 100], spindle: 0 };
     const modal = (feedrate) => {
       ctx.c.state.parserstate = { modal: { units: 'G21', distance: 'G90', wcs: 'G54', feedrate } };
       ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
@@ -202,7 +241,7 @@ describe('program progress without a preview sidecar', () => {
     };
     const ctx = setup({ files });
     ctx.c.settings.settings.$13 = 0;
-    ctx.c.state.status = { activeState: 'Idle', wpos: { x: 0, y: 0, z: 0 }, mpos: { x: 0, y: 0, z: 0 }, ov: [100, 100, 100] };
+    ctx.c.state.status = { activeState: 'Idle', wpos: { x: 0, y: 0, z: 0 }, mpos: { x: 0, y: 0, z: 0 }, ov: [100, 100, 100], spindle: 0 };
     ctx.c.state.parserstate = { modal: { wcs: 'G54', feedrate: 'G94' } };
     ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
     const report = () => ctx.c.runner.emit('status', { wpos: ctx.c.state.status.wpos });
@@ -231,7 +270,7 @@ describe('program progress without a preview sidecar', () => {
   test('the snapshot follows this run, even when the whole short program is acknowledged immediately', async () => {
     const ctx = setup();
     ctx.c.settings.settings = { ...ctx.c.settings.settings, $13: 0 };
-    ctx.c.state.status = { activeState: 'Idle', wpos: { x: 0, y: 0, z: 0 }, mpos: { x: 0, y: 0, z: 0 }, ov: [100, 100, 100] };
+    ctx.c.state.status = { activeState: 'Idle', wpos: { x: 0, y: 0, z: 0 }, mpos: { x: 0, y: 0, z: 0 }, ov: [100, 100, 100], spindle: 0 };
     ctx.c.state.parserstate = { modal: { wcs: 'G54', feedrate: 'G94' } };
     ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
     const report = () => ctx.c.runner.emit('status', { wpos: ctx.c.state.status.wpos });
@@ -458,11 +497,15 @@ describe('job service', () => {
 
   test('a program that sets neither units nor distance mode starts only in G21 and G90 (fresh $G)', async () => {
     const ctx = setup();
+    // Lot C1: no $G exchange before the test gives its own (the first expectation is about its absence).
+    ctx.c.gcOff = true;
     ctx.report();
     await ctx.req('load', { file: 'bare.nc' });
     expect(ctx.state().startReason).toMatch(/\$G/);
+    ctx.c.gcOff = false;
+    // Lot C1: each $G report of the test says the spindle off (M5).
     const modal = (units, distance) => {
-      ctx.c.state.parserstate = { modal: { wcs: 'G54', units, distance } };
+      ctx.c.state.parserstate = { modal: { wcs: 'G54', units, distance, spindle: 'M5' } };
       ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
       ctx.report();
     };
@@ -572,12 +615,13 @@ describe('job service', () => {
   test('the work offset seen at start holds during a program that cannot change it', async () => {
     const ctx = setup();
     ctx.report();
-    ctx.c.runner.emit('parserstate', { modal: { wcs: 'G54' } });
+    ctx.c.runner.emit('parserstate', { modal: { wcs: 'G54', spindle: 'M5' } });
     let state = await ctx.loaded();
     expect(state.operator.wcs).toBe('G54');
     const ticket = await ctx.req('prepare', { operation: 'start', revision: state.revision });
     await ctx.req('start', { nonce: ticket.nonce });
     // CNCjs stops asking $G while streaming: the modal report grows old.
+    ctx.c.gcOff = true;
     ctx.now += 10000;
     ctx.report();
     expect(ctx.state().operator.wcs).toBe('G54');
@@ -590,11 +634,13 @@ describe('job service', () => {
   test('a program that selects or changes an offset leaves the offset unknown once $G is old', async () => {
     const ctx = setup();
     ctx.report();
-    ctx.c.runner.emit('parserstate', { modal: { wcs: 'G54' } });
+    ctx.c.runner.emit('parserstate', { modal: { wcs: 'G54', spindle: 'M5' } });
     await ctx.req('load', { file: 'offset.nc' });
     const state = ctx.state();
     const ticket = await ctx.req('prepare', { operation: 'start', revision: state.revision });
     await ctx.req('start', { nonce: ticket.nonce });
+    // Lot C1: no new $G exchange while the test lets the $G grow old.
+    ctx.c.gcOff = true;
     ctx.now += 10000;
     ctx.report();
     expect(ctx.state().operator.wcs).toBe(null);
@@ -767,6 +813,8 @@ describe('job service', () => {
 
   test('reports the real feed rate and spindle speed from the status report', () => {
     const ctx = setup();
+    // Lot C1: the bench's controller now reports a speed (FS:) by default; this test starts without one.
+    delete ctx.c.state.status.spindle;
     ctx.report();
     expect(ctx.state()).toMatchObject({ feedrate: null, spindleSpeed: null });
     ctx.c.state.status.feedrate = 400;
@@ -907,6 +955,9 @@ describe('job service', () => {
     expect(state.canMacro).toBe(false);
     expect(state.macroReason).toMatch(/trop ancien/);
 
+    // Lot C1: a macro starts from a proven rest: the machine reports its position, twice at rest.
+    ctx.c.state.status.mpos = { x: 0, y: 0, z: 0 };
+    ctx.report();
     ctx.report();
     state = service.list()[0];
     expect(state.canMacro).toBe(true);
@@ -1138,6 +1189,8 @@ describe('job service', () => {
 
     test('without FS in the reports, a spindle commanded on in a fresh $G still blocks', async () => {
       const ctx = ready();
+      // Lot C1: the test gives every $G itself (one of them grows old on purpose).
+      ctx.c.gcOff = true;
       delete ctx.c.state.status.spindle; // Grbl built without variable spindle, or 0.9
       const modal = (spindle) => {
         ctx.c.state.parserstate = { modal: { wcs: 'G54', spindle } };
@@ -1701,7 +1754,12 @@ describe('job service', () => {
       c.feeder = { toJSON: () => ({ queue: 0, pending }) };
       c.sent = [];
       c.pinState = '';
-      const report = () => c.runner.emit('status', { raw: '<' + c.state.status.activeState + '|WPos:0,0,' + c.state.status.wpos.z + (c.pinState ? '|Pn:' + c.pinState : '') + '>' });
+      // Lot C1: the report carries a whole FS: (spindle stopped) and the work offset WCO: (machine
+      // minus work position of the bench's state), from which the machine position is derived.
+      const wco = () => ['x', 'y', 'z'].map((a) => (Number(c.state.status.mpos[a]) - Number(c.state.status.wpos[a])).toFixed(3)).join(',');
+      const report = () => c.runner.emit('status', {
+        raw: '<' + c.state.status.activeState + '|WPos:0,0,' + c.state.status.wpos.z + '|FS:0,0|WCO:' + wco() + (c.pinState ? '|Pn:' + c.pinState : '') + '>'
+      });
       c.report = report;
       const z = () => Number(c.state.status.wpos.z);
       const setZ = (v) => {
@@ -1755,6 +1813,13 @@ describe('job service', () => {
           report();
           setTimeout(report, delay);
           setTimeout(report, 2 * delay);
+          // Lot C1: CNCjs's next $G exchange, after the ok of the line (spindle off), with a report after it.
+          setTimeout(() => {
+            if (!/^Alarm/.test(c.state.status.activeState)) {
+              c.gc();
+              report();
+            }
+          }, 3 * delay);
         }, delay);
       };
       return c;
@@ -1767,6 +1832,8 @@ describe('job service', () => {
       ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
       ctx.c.report();
       ctx.homed(ctx.c.report);
+      // Lot C1: a second report at rest (a probe starts from two agreeing Idle reports).
+      ctx.c.report();
       return ctx;
     };
 
@@ -1900,6 +1967,8 @@ describe('job service', () => {
       ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
       ctx.c.report();
       ctx.homed(ctx.c.report);
+      // Lot C1: a second report at rest (a probe starts from two agreeing Idle reports).
+      ctx.c.report();
       await ctx.req('load', { file: 'test.nc' });
       let state = ctx.state();
       let ticket = await ctx.req('prepare', { operation: 'start', revision: state.revision });
@@ -1924,6 +1993,8 @@ describe('job service', () => {
       ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
       ctx.c.report();
       ctx.homed(ctx.c.report);
+      // Lot C1: a second report at rest (a probe starts from two agreeing Idle reports).
+      ctx.c.report();
       await ctx.req('load', { file: 'test.nc' });
       let state = ctx.state();
       let ticket = await ctx.req('prepare', { operation: 'start', revision: state.revision });
@@ -2147,6 +2218,9 @@ describe('job service', () => {
     test('a macro sent (feeder busy) refuses the reservation until the queue is empty', async () => {
       const ctx = setup();
       ctx.macros = [{ id: 'm1', name: 'Park' }];
+      // Lot C1: a macro starts from a proven rest: the machine reports its position, twice at rest.
+      ctx.c.state.status.mpos = { x: 0, y: 0, z: 0 };
+      ctx.report();
       ctx.report();
       const original = ctx.c.command;
       ctx.c.command = (name, ...args) => {
@@ -2548,7 +2622,8 @@ describe('F2: the travel pre-check of the loaded program follows the machine sta
   const machineReady = (ctx, extra = {}) => {
     ctx.c.settings.settings = { ...ctx.c.settings.settings, $13: 0, $20: 1, $22: 1, $23: 0, $130: 300, $131: 200, $132: 80, ...extra };
     ctx.c.state.status = { ...ctx.c.state.status, activeState: 'Idle', mpos: { x: -250, y: -150, z: -40 }, wpos: { x: 0, y: 0, z: 0 } };
-    ctx.c.state.parserstate = { modal: { wcs: 'G54', units: 'G21', distance: 'G90' } };
+    // Lot C1: the $G report says the spindle off (M5), as a board at rest does.
+    ctx.c.state.parserstate = { modal: { wcs: 'G54', units: 'G21', distance: 'G90', spindle: 'M5' } };
     ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
     ctx.report();
   };
@@ -2651,6 +2726,8 @@ describe('F2: the travel pre-check of the loaded program follows the machine sta
     ctx.report();
     await ctx.req('load', { file: 'bare.nc' });
     expect(ctx.state().programCheck.verdict).toBe('validated'); // machine in a fresh G21 G90
+    // Lot C1: no new $G exchange while the test lets the $G grow old.
+    ctx.c.gcOff = true;
     ctx.now += 3000;
     ctx.report();
     expect(ctx.state().programCheck.verdict).toBe('unknown');
@@ -3113,12 +3190,13 @@ describe('job service F5, cross-check 3', () => {
       runner: new EventEmitter(),
       sender: new EventEmitter(),
       workflow: Object.assign(new EventEmitter(), { state: 'idle' }),
-      state: { status: { activeState: 'Idle' } },
+      state: { status: { activeState: 'Idle', spindle: 0 } },
       feeder: { toJSON: () => ({ queue: 0, pending: false }) },
       settings: { settings: { $110: 1000, $111: 1000, $112: 200 } },
       commands: []
     };
     c.runner.state = c.state;
+    c1Bench(c);
     c.sender.state = { name: '', context: {}, total: 0 };
     c.sender.toJSON = () => ({ ...c.sender.state });
     c.writeln = jest.fn(() => c.runner.emit('ok'));
@@ -3171,6 +3249,7 @@ describe('job service F5, cross-check 3', () => {
     const box = { now: 10000 };
     const control = createControl({ now: () => box.now, elapsed: () => box.now, graceMs: 60000, onEvent: options.onEvent });
     const ctx = { events: [], c: fakeController(), control, box };
+    ctx.c.clock = () => ctx.now;
     ctx.controllers = { TEST: ctx.c };
     ctx.service = createService(
       { get: () => ctx.controllers },
@@ -3428,12 +3507,13 @@ describe('job service A5 and F2, cross-check 3', () => {
       runner: new EventEmitter(),
       sender: new EventEmitter(),
       workflow: Object.assign(new EventEmitter(), { state: 'idle' }),
-      state: { status: { activeState: 'Idle' } },
+      state: { status: { activeState: 'Idle', spindle: 0 } },
       feeder: { toJSON: () => ({ queue: 0, pending: false }) },
       settings: { settings: { $110: 1000, $111: 1000, $112: 200 } },
       commands: []
     };
     c.runner.state = c.state;
+    c1Bench(c);
     c.sender.state = { name: '', context: {}, total: 0 };
     c.sender.toJSON = () => ({ ...c.sender.state });
     c.writeln = jest.fn(() => c.runner.emit('ok'));
@@ -3480,6 +3560,7 @@ describe('job service A5 and F2, cross-check 3', () => {
 
   const setup = (options = {}) => {
     const ctx = { now: 10000, events: [], c: fakeController() };
+    ctx.c.clock = () => ctx.now;
     ctx.controllers = { TEST: ctx.c };
     const config = { get: (key) => ({ watchDirectory: root, macros: [] }[key] || ctx.events) };
     ctx.service = createService({ get: () => ctx.controllers }, config, () => ctx.now, { workOffset: provenOffset, ...options });
@@ -3676,12 +3757,13 @@ isClose: () => false,
       runner: new EventEmitter(),
 sender: new EventEmitter(),
 workflow: Object.assign(new EventEmitter(), { state: 'idle' }),
-      state: { status: { activeState: 'Idle' } },
+      state: { status: { activeState: 'Idle', spindle: 0 } },
 feeder: { toJSON: () => ({ queue: c.queue || 0, pending: false }) },
       settings: { settings: { $110: 1000, $111: 1000, $112: 200 } },
 commands: []
     };
     c.runner.state = c.state;
+    c1Bench(c);
     c.sender.state = { name: '', context: {}, total: 0 };
     c.sender.toJSON = () => ({ ...c.sender.state });
     c.writeln = jest.fn(() => c.runner.emit('ok'));
@@ -3732,6 +3814,7 @@ commands: []
     const events = [];
     const control = createControl({ now: () => box.now, elapsed: () => box.now, graceMs: 60000, onEvent: (e) => events.push(e) });
     const ctx = { c: fakeController(), control, box, events };
+    ctx.c.clock = () => ctx.now;
     ctx.controllers = { TEST: ctx.c };
     const store = { get: () => ctx.controllers };
     const config = { get: (key) => ({ watchDirectory: root, macros: [] }[key] || []) };
@@ -3877,12 +3960,13 @@ describe('job service F5, cross-check 7', () => {
       runner: new EventEmitter(),
       sender: new EventEmitter(),
       workflow: Object.assign(new EventEmitter(), { state: 'idle' }),
-      state: { status: { activeState: 'Idle' } },
+      state: { status: { activeState: 'Idle', spindle: 0 } },
       feeder: { toJSON: () => ({ queue: 0, pending: false }) },
       settings: { settings: { $110: 1000, $111: 1000, $112: 200 } },
       commands: []
     };
     c.runner.state = c.state;
+    c1Bench(c);
     c.sender.state = { name: '', context: {}, total: 0 };
     c.sender.toJSON = () => ({ ...c.sender.state });
     c.writeln = jest.fn(() => c.runner.emit('ok'));
@@ -4044,6 +4128,7 @@ describe('job service, final cross-check (xvf)', () => {
       written: []
     };
     c.runner.state = c.state;
+    c1Bench(c);
     c.sender.state = { name: '', context: {}, total: 0 };
     c.sender.toJSON = () => ({ ...c.sender.state });
     c.writeln = jest.fn(() => c.runner.emit('ok'));
@@ -4068,9 +4153,11 @@ describe('job service, final cross-check (xvf)', () => {
     jest.useRealTimers();
   });
 
-  const setup = ({ homed = false } = {}) => {
+  // `mposOnly` (lot C1): the state holds no work position, so no report says a WCO: (the tests of R1).
+  const setup = ({ homed = false, mposOnly = false } = {}) => {
     jest.useFakeTimers();
     const ctx = { now: 10000, c: fakeController(), history: [] };
+    ctx.c.clock = () => ctx.now;
     ctx.controllers = { TEST: ctx.c };
     ctx.control = createControl({ now: () => ctx.now, elapsed: () => ctx.now });
     ctx.service = createService(
@@ -4095,6 +4182,9 @@ describe('job service, final cross-check (xvf)', () => {
       port: 'TEST', generation: ctx.generation, transportId, action, ...extra
     }, actor);
     ctx.state = () => ctx.service.list()[0];
+    if (mposOnly) {
+      delete ctx.c.state.status.wpos;
+    }
     ctx.report();
     if (homed) {
       ctx.c.state.status.activeState = 'Home';
@@ -4102,6 +4192,8 @@ describe('job service, final cross-check (xvf)', () => {
       ctx.c.state.status.activeState = 'Idle';
       ctx.report();
     }
+    // Lot C1: a second report at rest (a move starts from two agreeing Idle reports).
+    ctx.report();
     return ctx;
   };
 
@@ -4191,18 +4283,20 @@ describe('job service, final cross-check (xvf)', () => {
     const raw = (ctx, line) => ctx.c.runner.emit('raw', { raw: line });
 
     test('$10=1 en cache mais rapports WPos : pas de 10 mm refusé, puis WCO reçu : accepté', async () => {
-      const ctx = setup({ homed: true });
+      const ctx = setup({ homed: true, mposOnly: true });
       raw(ctx, '<Idle|WPos:5.000,5.000,2.000|FS:0,0>');
       await expect(ctx.req('motion', { operation: 'jog', axis: 'X', direction: -1, step: 10, feed: 500 }))
         .rejects.toThrow(/WPos/);
       // Un WCO arrive : CNCjs dérive MPos = WPos + WCO, la course redevient connue.
       ctx.c.runner.emit('status', { wco: { x: '-105', y: '-105', z: '-12' } });
+      // Lot C1: a second report at rest once the work position is known (the first one that gives it starts the count again).
+      ctx.report();
       const res = await ctx.req('motion', { operation: 'jog', axis: 'X', direction: -1, step: 10, feed: 500 });
       expect(res.command).toBe('$J=G91 G21 X-10 F500');
     });
 
     test('une ligne Grbl 0.9 (virgules) ne change rien ; une ligne MPos rétablit la confiance', async () => {
-      const ctx = setup({ homed: true });
+      const ctx = setup({ homed: true, mposOnly: true });
       raw(ctx, '<Idle|WPos:5.000,5.000,2.000|FS:0,0>');
       raw(ctx, '<Idle,MPos:0.000,0.000,0.000,WPos:0.000,0.000,0.000>');
       await expect(ctx.req('motion', { operation: 'jog', axis: 'X', direction: -1, step: 10, feed: 500 }))
@@ -4213,10 +4307,12 @@ describe('job service, final cross-check (xvf)', () => {
     });
 
     test('redémarrage de carte : wcoSeen oublié, wposReported conservé (la ligne suivante tranche)', async () => {
-      const ctx = setup({ homed: true });
+      const ctx = setup({ homed: true, mposOnly: true });
       raw(ctx, '<Idle|WPos:5.000,5.000,2.000|FS:0,0>');
       ctx.c.runner.emit('status', { wco: { x: '-105', y: '-105', z: '-12' } });
       ctx.c.runner.emit('startup', { firmware: 'Grbl', version: '1.1h' });
+      ctx.report();
+      // Lot C1: a second report at rest, so that the refusal is the one of the travel, not of the rest.
       ctx.report();
       // Après redémarrage : plus de WCO vu, rapports encore WPos : 10 mm refusé.
       await expect(ctx.req('motion', { operation: 'jog', axis: 'X', direction: -1, step: 10, feed: 500 }))
@@ -4254,6 +4350,7 @@ describe('job service, re-check of c4c048c7 (xvg)', () => {
       written: []
     };
     c.runner.state = c.state;
+    c1Bench(c);
     c.sender.state = { name: '', context: {}, total: 0 };
     c.sender.toJSON = () => ({ ...c.sender.state });
     c.writeln = jest.fn(() => c.runner.emit('ok'));
@@ -4281,6 +4378,7 @@ describe('job service, re-check of c4c048c7 (xvg)', () => {
   const setup = ({ homed = false } = {}) => {
     jest.useFakeTimers();
     const ctx = { now: 10000, c: fakeController(), history: [] };
+    ctx.c.clock = () => ctx.now;
     ctx.controllers = { TEST: ctx.c };
     ctx.control = createControl({ now: () => ctx.now, elapsed: () => ctx.now });
     ctx.service = createService(
@@ -4317,6 +4415,8 @@ describe('job service, re-check of c4c048c7 (xvg)', () => {
       ctx.c.state.status.activeState = 'Idle';
       ctx.report();
     }
+    // Lot C1: a second report at rest (a move starts from two agreeing Idle reports).
+    ctx.report();
     return ctx;
   };
 
@@ -4628,6 +4728,7 @@ describe('job service, re-check of 98941288 (xvh)', () => {
       written: []
     };
     c.runner.state = c.state;
+    c1Bench(c);
     c.sender.state = { name: '', context: {}, total: 0 };
     c.sender.toJSON = () => ({ ...c.sender.state });
     c.writeln = jest.fn(() => c.runner.emit('ok'));
@@ -4655,6 +4756,7 @@ describe('job service, re-check of 98941288 (xvh)', () => {
   const setup = ({ homed = false } = {}) => {
     jest.useFakeTimers();
     const ctx = { now: 10000, c: fakeController() };
+    ctx.c.clock = () => ctx.now;
     ctx.controllers = { TEST: ctx.c };
     ctx.control = createControl({ now: () => ctx.now, elapsed: () => ctx.now });
     ctx.service = createService(
@@ -4696,6 +4798,8 @@ describe('job service, re-check of 98941288 (xvh)', () => {
       ctx.set('Idle');
       ctx.report();
     }
+    // Lot C1: a second report at rest (a move starts from two agreeing Idle reports).
+    ctx.report();
     return ctx;
   };
 
@@ -4772,7 +4876,8 @@ describe('job service, re-check of 98941288 (xvh)', () => {
       ctx.set('Home');
       ctx.tick(50);
       ctx.set('Idle');
-      ctx.tick(50);
+      // Lot C1: two reports at rest before the new step (100 ms instead of 50).
+      ctx.tick(100);
       expect(ctx.state().homed).toBe(true);
       await ctx.req('motion', { operation: 'jog', ...STEP });
       ctx.tick(5000);
@@ -5124,6 +5229,9 @@ describe('job service: the coded refusal behind each reason (snapshot `refusals`
   test('a coded refusal is published with its code and values; a reason without a code is not', async () => {
     let refusal = null;
     const ctx = setup({ workOffset: () => ({ ...provenOffset(), proven: () => !refusal, refusal: () => refusal }) });
+    // Lot C1: a macro starts from a proven rest: the machine reports its position, twice at rest.
+    ctx.c.state.status.mpos = { x: 0, y: 0, z: 0 };
+    ctx.report();
     const state = await ctx.loaded();
     expect(state).toMatchObject({ canStart: true, canMacro: true, refusals: {} });
     refusal = offsetRefusal('ETOUCH_OFFSET_UNCONFIRMED', { detail: 'no-report' });
@@ -5220,8 +5328,10 @@ describe('S4 starts in preparation (C-13) and inherited feed mode (C-59)', () =>
     await fs.writeFile(path.join(root, 'resume-no-g94.nc'), text);
     ctx.report();
     await ctx.req('load', { file: 'resume-no-g94.nc', fromLine: 7 });
+    // Lot C1: the test gives every $G itself (one grows old on purpose); each says the spindle off (M5).
+    ctx.c.gcOff = true;
     const modal = (mode) => {
-      ctx.c.state.parserstate = { modal: { units: 'G21', distance: 'G90', feedrate: mode } };
+      ctx.c.state.parserstate = { modal: { units: 'G21', distance: 'G90', feedrate: mode, spindle: 'M5' } };
       ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
     };
     modal('G93');
@@ -5245,7 +5355,8 @@ describe('S4 starts in preparation (C-13) and inherited feed mode (C-59)', () =>
   test('a rebuilt preamble that sets G94 may start with an inherited G93; an ordinary file keeps its guards', async () => {
     const ctx = setup();
     ctx.report();
-    ctx.c.state.parserstate = { modal: { units: 'G21', distance: 'G90', feedrate: 'G93' } };
+    // Lot C1: the $G report says the spindle off (M5).
+    ctx.c.state.parserstate = { modal: { units: 'G21', distance: 'G90', feedrate: 'G93', spindle: 'M5' } };
     ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);
     await ctx.req('load', { file: 'resume.nc', fromLine: 7 });
     const ticket = await ctx.req('prepare', { operation: 'start', revision: ctx.state().revision });

@@ -17,6 +17,7 @@ import path from 'path';
 import { createService, START_MESSAGES } from '../job-service';
 import { createControl } from '../control';
 import { bridge } from './support/sim-bridge';
+import { lineBench } from './support/line-bench';
 import { provenOffset } from './support/proven-offset';
 import { expectCatalogMatch } from './touch-codes-catalog';
 
@@ -203,7 +204,7 @@ const fakeController = () => {
       c.workflow.emit('start');
     }
   };
-  return c;
+  return lineBench(c);
 };
 
 const services = [];
@@ -236,7 +237,8 @@ const setup = () => {
       mpos: { x: f3(at.x), y: f3(at.y), z: f3(at.z) },
       wpos: { x: f3(at.x - G54.x), y: f3(at.y - G54.y), z: f3(at.z - G54.z) }
     };
-    ctx.c.runner.emit('status', { raw: '<' + active + '|MPos:' + f3(at.x) + ',' + f3(at.y) + ',' + f3(at.z) + '|FS:0,0>' });
+    // Lot C1: the line says the work offset too (WCO:), as the state above does.
+    ctx.c.runner.emit('status', { raw: '<' + active + '|MPos:' + f3(at.x) + ',' + f3(at.y) + ',' + f3(at.z) + '|FS:0,0|WCO:' + f3(G54.x) + ',' + f3(G54.y) + ',' + f3(G54.z) + '>' });
   };
   ctx.modal = () => {
     ctx.c.state.parserstate = { modal: { motion: 'G0', wcs: 'G54', units: 'G21', distance: 'G90', spindle: 'M5', feedrate: 'G94' }, feedrate: '0', spindle: '0' };
@@ -245,6 +247,8 @@ const setup = () => {
   ctx.homed = () => {
     ctx.report('Home', { x: 0, y: 0, z: 0 });
     ctx.report('Idle', { x: 0, y: 0, z: 0 });
+    ctx.report();
+    // Lot C1: a second report at rest where the tool is.
     ctx.report();
     ctx.modal();
   };
@@ -261,6 +265,8 @@ const restartThenUnlock = async (ctx) => {
   const unlock = await ctx.req('prepare', { operation: 'unlock' });
   await ctx.req('unlock', { nonce: unlock.nonce });
   ctx.now += 100;
+  ctx.report('Idle');
+  // Lot C1: a second report at rest.
   ctx.report('Idle');
   ctx.modal();
   expect(ctx.state()).toMatchObject({ homed: false, referenceLost: 'restart' });
@@ -286,6 +292,8 @@ describe('reference guards (fake board): the plate, the reason kept, $22', () =>
     const ticket = await ctx.req('prepare', { operation: 'zeroZ', thickness: 10, search: 20 });
     // An alarm line, the board back to Idle (an Unlock from the PC): the reference is lost.
     ctx.c.runner.emit('alarm', { message: '1', raw: 'ALARM:1' });
+    ctx.report('Idle');
+    // Lot C1: a second report at rest.
     ctx.report('Idle');
     expect(ctx.state()).toMatchObject({ homed: false, referenceLost: 'alarm' });
     expect(await refusalOf(ctx.req('zeroZ', { nonce: ticket.nonce }))).toMatchObject({ code: 'ETOUCH_ORIGIN_NOT_HOMED' });
