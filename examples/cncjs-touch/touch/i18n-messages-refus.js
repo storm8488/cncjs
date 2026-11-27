@@ -189,6 +189,20 @@
       "reprendre-debut"
     ],
     [
+      "axe-rotatif",
+      "Ce programme fait tourner l’axe {axe} : CNC Touch ne le contrôle pas encore.",
+      "This program turns axis {axe}: CNC Touch does not check it yet.",
+      "Este programa hace girar el eje {axe}: CNC Touch aún no lo controla.",
+      "details"
+    ],
+    [
+      "reprise-axe-rotatif",
+      "Ce programme fait tourner l’axe {axe} : reprenez-le depuis le début.",
+      "This program turns axis {axe}: restart it from the beginning.",
+      "Este programa hace girar el eje {axe}: empiécelo desde el principio.",
+      "reprendre-debut"
+    ],
+    [
       "inconnu",
       "Action refusée.",
       "Action refused.",
@@ -451,6 +465,8 @@
     "ETOUCH_RESUME_TOOL_LENGTH": "reprise-impossible",
     "ETOUCH_RESUME_UNITS_LATE": "reprise-impossible",
     "ETOUCH_RESUME_RELATIVE": "reprise-impossible",
+    "ETOUCH_RESUME_ROTARY": "reprise-axe-rotatif",
+    "ETOUCH_ROTARY_UNCHECKED": "axe-rotatif",
     "ETOUCH_CHECK_RELATIVE_START": "controle-partiel",
     "ETOUCH_CHECK_AXIS_IDLE": "controle-partiel",
     "ETOUCH_CHECK_MACRO": "controle-partiel",
@@ -609,6 +625,16 @@
     "Ce fichier ne peut pas être repris en cours de route. Reprenez au début.",
     "This file cannot be resumed partway through. Restart from the beginning.",
     "Este archivo no permite reanudar a mitad. Empiece desde el principio."
+  ],
+  [
+    "Ce programme fait tourner l’axe {axe} : CNC Touch ne le contrôle pas encore.",
+    "This program turns axis {axe}: CNC Touch does not check it yet.",
+    "Este programa hace girar el eje {axe}: CNC Touch aún no lo controla."
+  ],
+  [
+    "Ce programme fait tourner l’axe {axe} : reprenez-le depuis le début.",
+    "This program turns axis {axe}: restart it from the beginning.",
+    "Este programa hace girar el eje {axe}: empiécelo desde el principio."
   ],
   [
     "Action refusée.",

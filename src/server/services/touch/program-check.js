@@ -102,6 +102,17 @@ const sameWithoutSpaces = (code) => {
 
 const fmt = (n) => String(Math.round(n * 1000) / 1000);
 
+// Axis A, lot L0 (design/axe-a/AXE-A-CONCEPTION.md): the rotary axis letters (A, B, C) a line
+// commands, as the board reads it (spaces dropped), in that order; '' when none. `code` is a
+// line without its comments (codeOf). A `$` line is a board command, not G-code: never counted.
+export const rotaryLetters = (code) => {
+  if (/^\$/.test(code)) {
+    return '';
+  }
+  const found = words(code.replace(/\s+/g, '')).map(([letter]) => letter);
+  return ['A', 'B', 'C'].filter((letter) => found.includes(letter)).join('');
+};
+
 // N1, display only: the tools the file names. Bounded in number and in length; the description
 // is the file's own text, which the page writes as text (never as markup).
 const MAX_TOOLS = 8;
@@ -322,6 +333,14 @@ export const analyzeProgram = (gcode, timingContext) => {
     }
     // A line the board reads otherwise (C-57), or a system command ($20=0, $H…, C-61): what
     // follows cannot be judged from what was read here.
+    // Axis A, lot L0: noted apart. It takes no part in the extents, in the unknown axes or in any
+    // verdict below; the key exists only for a program that has such a word.
+    const rotary = rotaryLetters(code);
+    if (rotary) {
+      a.rotary = a.rotary || { letters: '', line: lineNo, count: 0 };
+      a.rotary.letters = ['A', 'B', 'C'].filter((letter) => (a.rotary.letters + rotary).includes(letter)).join('');
+      a.rotary.count += 1;
+    }
     if (/^\$/.test(code) || !sameWithoutSpaces(code)) {
       a.timing.supported = false;
       a.unsafeOverride = a.unsafeOverride || /^\$/.test(code);
@@ -1018,6 +1037,14 @@ export const checkProgram = (analysis, machine = {}) => {
       }
     });
   });
+  // Axis A, lot L0: a warning of its own, after everything above was decided. No axis reason, no
+  // extent, no `blocking` entry and no verdict depends on it.
+  const rotary = analysis.rotary || null;
+  if (rotary) {
+    const letters = rotary.letters.split('').join(', ');
+    const message = 'Ce programme fait tourner un axe rotatif (' + letters + ', première ligne ' + rotary.line + ') : CNC Touch ne le contrôle pas encore. Seuls X, Y et Z sont vérifiés.';
+    info.push(reason('ETOUCH_ROTARY_UNCHECKED', { axis: letters, line: rotary.line, count: rotary.count }, message));
+  }
   const out = {
     verdict,
     axes: axesOut,
@@ -1049,6 +1076,9 @@ export const checkProgram = (analysis, machine = {}) => {
   };
   if (machine.laser) {
     out.laser = laserCheck(analysis, machine.laser);
+  }
+  if (rotary) {
+    out.rotary = { letters: rotary.letters, line: rotary.line, count: rotary.count };
   }
   return out;
 };

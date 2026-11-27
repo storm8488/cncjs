@@ -5,7 +5,7 @@
   if(!shell||!view)return;
   var $=function(id){return document.getElementById(id);},screen=$('screen-check'),body=screen&&screen.querySelector('.ks-step-body');
   if(!body)return;
-  body.innerHTML=locale.html('<div class="check-layout"><section class="t-card check-top-card"><h2>Vue de dessus</h2><div id="check-top" class="check-drawing"></div><button type="button" id="check-placement-open" hidden>Vue 3D du placement</button></section><section class="t-card check-side-card"><h2>Vue de côté</h2><div id="check-side" class="check-drawing"></div></section><section class="t-card check-result-card"><h2>Verdict</h2><div id="check-verdict" role="status"></div><p id="check-spindle"></p><div id="check-rapids"></div><button type="button" id="check-frame-start" hidden>Cadrer…</button><div id="check-frame-state" role="status"></div><p id="check-frame-reason"></p><button type="button" id="check-details-open">Détails du contrôle</button></section></div>');
+  body.innerHTML=locale.html('<div class="check-layout"><section class="t-card check-top-card"><h2>Vue de dessus</h2><div id="check-top" class="check-drawing"></div><button type="button" id="check-placement-open" hidden>Vue 3D du placement</button></section><section class="t-card check-side-card"><h2>Vue de côté</h2><div id="check-side" class="check-drawing"></div></section><section class="t-card check-result-card"><h2>Verdict</h2><div id="check-verdict" role="status"></div><p id="check-spindle"></p><p id="check-rotary" class="check-rotary" role="status" hidden></p><div id="check-rapids"></div><button type="button" id="check-frame-start" hidden>Cadrer…</button><div id="check-frame-state" role="status"></div><p id="check-frame-reason"></p><button type="button" id="check-details-open">Détails du contrôle</button></section></div>');
   var details=shell.sheet('ks-check-details',t('Détails du contrôle'));
   details.content.innerHTML=locale.html('<div id="check-details-values"></div><p>Ni les brides ni la pièce ne sont vues.</p><p id="check-override-warning"></p><div id="check-override-host"></div><p id="check-override-feedback" role="status"></p>');
   var placement=shell.sheet('ks-check-placement',t('Vue 3D du placement'));
@@ -25,8 +25,10 @@
   function offsetProven(m){return !!(m&&m.workOffset&&m.workOffset.state==='proven');}
   function overrideAllowed(m){return !!(trusted(m)&&m.homed&&!m.referenceLost&&offsetProven(m)&&m.workflow==='idle'&&view.outside(m.programCheck)&&m.programCheck.overridable===true);}
   function codes(check){return check&&check.codedReasons||[];}
+  // Axis A, lot L0: the server's own warning about rotary words (A, B, C), '' when the file has none.
+  function rotary(check){var r=(check&&check.info||[]).filter(function(i){return i&&i.code==='ETOUCH_ROTARY_UNCHECKED';})[0];return r?window.cncRefus.lire(r).phrase:'';}
   function checkProjection(input,base){
-    var m=input.machine,c=m&&m.programCheck,global=base.globale,rank=base.rang,word='En attente',phrase='',remedies=[],allowed=false,id='demarrer';
+    var m=input.machine,c=m&&m.programCheck,global=base.globale,rank=base.rang,word='En attente',phrase='',remedies=[],allowed=false,id='demarrer',turning=false;
     if(global&&rank<=11){word=global.texte;phrase=global.texte;remedies=global.remedes;}
     else if(m&&(m.workflow==='running'||m.workflow==='paused')){word='Usinage en cours';phrase='Un usinage est en cours.';id='suite:home';allowed=true;}
     else if(!m||!m.name){phrase='Aucun fichier chargé.';remedies=['choisir-fichier'];}
@@ -47,11 +49,11 @@
       if(r0){var why=window.cncRefus.lire(r0);phrase=why.phrase;remedies=why.remedes;}
       else {var axes=['X','Y','Z'].filter(function(a){return !c||!c.axes||!c.axes[a]||c.axes[a].verdict==='unknown';}).join(', ');phrase=t('Ce fichier ne peut pas être vérifié en {axe}. Vérifiez à la main qu’il tient.').replace('{axe}',axes||'—');remedies=['details'];}
       allowed=!!m.canStart;
-    }else {word='Tient dans la machine';phrase='Tout est prêt : le fichier tient dans la machine.';allowed=!!m.canStart;}
+    }else {word='Tient dans la machine';phrase='Tout est prêt : le fichier tient dans la machine.';allowed=!!m.canStart;if(rotary(c)){phrase=rotary(c);turning=true;}}
     if(id==='demarrer'&&global&&rank===13){word=global.texte;phrase=global.texte;remedies=global.remedes;allowed=false;}
     if(id==='demarrer'&&(!trusted(m,input)||!offsetProven(m)))allowed=false;
     var guards={'prise-origine':!!(m&&m.canHome),relire:!!(m&&m.canReadSettings),'verifier-zero':!!(m&&m.workOffset&&m.workOffset.canVerify),'recharger-fichier':!!(m&&m.canLoad)};
-    return {word:t(word),bar:{cause:{id:'controle',texte:t(phrase),ton:/^Dépasse/.test(word)?'danger':word==='Non vérifié'||word==='Zéro pièce à vérifier'?'warn':'neutre'},remedes:remedies.slice(0,2).map(function(r){return {id:r,actif:!(r in guards)||guards[r]};}),details:true,action:{id:id,libelle:id==='suite:home'?t('Suite : {etape} →').replace('{etape}',t(isLaser(m)?'Gravure':'Usinage')):t(isLaser(m)?'Démarrer la gravure…':'Démarrer l’usinage…'),style:allowed?'plein':'raye'}}};
+    return {word:t(word),bar:{cause:{id:'controle',texte:t(phrase),ton:/^Dépasse/.test(word)?'danger':word==='Non vérifié'||word==='Zéro pièce à vérifier'||turning?'warn':'neutre'},remedes:remedies.slice(0,2).map(function(r){return {id:r,actif:!(r in guards)||guards[r]};}),details:true,action:{id:id,libelle:id==='suite:home'?t('Suite : {etape} →').replace('{etape}',t(isLaser(m)?'Gravure':'Usinage')):t(isLaser(m)?'Démarrer la gravure…':'Démarrer l’usinage…'),style:allowed?'plein':'raye'}}};
   }
   // Called by the session presenter so rail, heading and action bar keep one owner.
   function project(input,base){
@@ -112,6 +114,7 @@
     if(key!==drawKey){drawKey=key;$('check-top').innerHTML=view.drawing(c,'top',m&&m.coordinates);$('check-side').innerHTML=view.drawing(c,'side');var node=$('check-verdict');node.textContent='';view.axisLines(c).forEach(function(a){var p=document.createElement('p');p.setAttribute('data-verdict',a.verdict);p.textContent=a.text;node.appendChild(p);});}
     var info=(c&&c.info||[]).filter(function(r){return r&&r.code==='ETOUCH_CHECK_S_ABOVE_MAX';})[0];
     text('check-spindle',info?t('Le fichier demande {n} tr/min : la broche tournera à son maximum.').replace('{n}',info.params&&info.params.s):'');
+    text('check-rotary',rotary(c));prop('check-rotary','hidden',!rotary(c));
     prop('check-rapids','hidden',isLaser(m));prop('check-frame-start','hidden',!m);
     if(isLaser(m)){
       clearFrame();text('check-frame-start',t('Cadrer…'));

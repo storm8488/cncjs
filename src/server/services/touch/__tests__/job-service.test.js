@@ -1584,6 +1584,30 @@ describe('job service', () => {
       expect(ctx.state().resume).toBe(null);
     });
 
+    // Axis A, lot L0: the preview and the load both refuse; a plain load says the warning and keeps its check.
+    test('a program that turns a rotary axis is neither previewed nor loaded from a line, and its plain load is warned', async () => {
+      const ctx = setup();
+      await fs.writeFile(path.join(root, 'rotary.nc'), ['G21 G90 G94', 'M3 S9000', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200',
+        'G1 X10 F800', 'G1 Y10', 'G1 X0', 'G0 Z5', 'G0 A90', 'M5', 'M30'].join('\n'));
+      ctx.report();
+      const refused = (promise) => promise.then(() => null, (err) => err);
+      const preview = await refused(ctx.req('resumePlan', { file: 'rotary.nc', line: 7 }));
+      expect(preview).toMatchObject({ code: 'ETOUCH_RESUME_ROTARY', params: { axis: 'A', line: 10 } });
+      const load = await refused(ctx.req('load', { file: 'rotary.nc', fromLine: 7 }));
+      expect(load).toMatchObject({ code: 'ETOUCH_RESUME_ROTARY', params: { axis: 'A', line: 10 } });
+      expect(ctx.c.commands).toEqual([]);
+      await ctx.req('load', { file: 'resume.nc' });
+      const plain = ctx.state().programCheck;
+      await ctx.req('load', { file: 'rotary.nc' });
+      const check = ctx.state().programCheck;
+      expect(check.rotary).toEqual({ letters: 'A', line: 10, count: 1 });
+      expect(check.info.filter((entry) => entry.code === 'ETOUCH_ROTARY_UNCHECKED')).toHaveLength(1);
+      expect(check.verdict).toBe(plain.verdict);
+      expect(check.axes).toEqual(plain.axes);
+      expect(check.blocking).toEqual(plain.blocking);
+      expect('rotary' in plain).toBe(false);
+    });
+
     test('the line where a job was stopped is kept, in the numbering of the original file', async () => {
       const ctx = setup();
       await started(ctx);
