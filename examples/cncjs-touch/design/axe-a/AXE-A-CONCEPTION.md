@@ -172,7 +172,9 @@ Réglage `.cncrc` (comme `touch.motion.enabled`, `motion.js:136-142`) : `touch.a
 - **Session A** (pas, continu, zéro en cours) : sa veille exige une position **avec A** fraîche ; A disparu : annulation à l'échéance existante (`motion.js:580`, `:728`), jamais de retour aux seules gardes X Y Z.
 - A n'entre pas dans `AXES` (`motion.js:36`, `program-check.js:26`, `work-offset.js:30`).
 
-### L0. Signaler A, B, C et refuser leur reprise (réalisable maintenant)
+### L0. Signaler A, B, C et refuser leur reprise (réalisé)
+
+> **Réalisé le 27 novembre 2026** (`L0-RAPPORT.md`). Écarts avec le texte ci-dessous, voulus : le code d'avertissement s'appelle `ETOUCH_ROTARY_UNCHECKED` (un test existant fige la liste des codes `ETOUCH_CHECK_*`) ; ses paramètres sont `{ axis, line, count }` ; la détection est placée avant le tri des lignes à espaces ambigus, pour lire la ligne comme la carte ; les phrases montrées à l'opérateur sont celles, plus courtes, du rapport.
 
 **Règle exacte.**
 
