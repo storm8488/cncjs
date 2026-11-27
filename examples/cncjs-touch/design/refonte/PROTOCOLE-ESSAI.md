@@ -198,3 +198,93 @@ Les fenêtres trouvées par la relecture (rotation du flux, bannière, `jogCance
 2. Même geste pendant un usinage en cours, puis en pause : le bouton est rayé avec sa phrase, la main reste à la tablette, rien ne bouge ; « Voir l'usinage » ouvre l'écran 5.
 3. Un pas long et lent (X 50 mm à 100 mm/min) : pendant qu'il court, rendre la main ; le pas s'arrête net (Jog → Idle, `0x85` au journal) et rien ne repart seul.
 4. Pendant un cadrage à vide (§ 8, table vide) : rendre la main l'arrête (« Cadrage arrêté : le pilotage a changé de main »), un seul arrêt, la fraise reste en haut.
+
+## N1 — Analyse du fichier (essai réel, sans mouvement puis sur un usinage habituel)
+
+Rien de cette fonction ne commande la machine : l'essai vérifie que les trois avertissements disent vrai sur vos fichiers. Détail : `../plaque/N1-RAPPORT.md`.
+
+| # | Geste | Attendu |
+|---|---|---|
+| N1-1 | 2 · Fichier : toucher un fichier Vectric habituel. | À droite de la ligne du verdict, « Analyse du fichier… » (ou « ! 1 avertissement », ambre). Rien d'autre n'a bougé sur l'écran. |
+| N1-2 | Ouvrir le volet. Lire « Le fichier descend à N mm sous le zéro Z. » | N est la profondeur de coupe que vous avez réglée dans Vectric (la même que « Profondeur sous le zéro » de l'écran). |
+| N1-3 | Toucher « Épaisseur du brut », saisir l'épaisseur mesurée de la planche au pied à coulisse, Valider. | Détourage prévu traversant de 0,5 mm : « ! La fraise descend 0,5 mm sous le brut : elle touchera le martyr. » Poche non traversante : « ✓ Il reste N mm de matière sous la fraise. » Comparer N à votre dessin. |
+| N1-4 | Toucher « Zéro Z sur le martyr », puis revenir à « Zéro Z sur le dessus du brut ». | La phrase change (« … dans le martyr ») puis revient. La ligne grise dit sur quelle hypothèse repose le calcul. |
+| N1-5 | Fermer, toucher un autre fichier, rouvrir le volet ; puis revenir au premier. | L'autre fichier n'a pas d'épaisseur ; le premier a gardé la sienne. |
+| N1-6 | « Fraises du fichier ». | Le numéro de fraise écrit par Vectric et sa ligne, ou « Le fichier n'indique pas sa fraise. » Noter ce que vos fichiers donnent vraiment (une photo du volet suffit) : c'est le point le moins vérifié. |
+| N1-7 | « Montée en vitesse de la broche ». | Un temps en secondes, les deux lignes du fichier (démarrage de la broche, première descente), ou « non calculé ». Ouvrir le fichier sur le PC et vérifier que ces deux lignes sont les bonnes. |
+| N1-8 | Charger le fichier, 4 · Contrôle. | Le même bouton à côté de « Détails du contrôle », avec le même nombre d'avertissements. « Démarrer l'usinage… » n'est ni rayé ni changé par un avertissement. |
+| N1-9 | **Usinage habituel, fraise en l'air ou pièce d'essai** : au départ, chronométrer de la mise en route de la broche à l'instant où la fraise touche la matière. Écouter si la broche a atteint son régime avant. | Le temps mesuré est égal ou supérieur au temps affiché (le calcul ignore les accélérations et suppose les rapides à 100 % : avec des rapides ralentis, le temps réel est plus long). Si la broche n'est pas à son régime à la descente, c'est l'avertissement qui avait raison : ajouter une temporisation dans le post-processeur de Vectric et refaire N1-7. |
+| N1-10 | Régler « Temps voulu » à la durée de montée réelle de votre broche (mesurée en N1-9), fermer, rouvrir. | La valeur est gardée ; l'avertissement suit ce seuil. |
+| N1-11 | Recharger la page (ou redémarrer la tablette), rouvrir le volet du même fichier. | Épaisseur, choix du zéro Z et temps voulu sont revenus. |
+| N1-12 | Sur la RT (laser), 2 · Fichier et 4 · Contrôle. | Aucun bouton « Analyse du fichier… » ; écrans inchangés. |
+
+Ne pas essayer de « vérifier » un avertissement de profondeur en usinant : il se vérifie au pied à coulisse et sur le dessin.
+
+**Relevé à rendre** : pour deux ou trois fichiers habituels, la profondeur affichée, ce que dit « Fraises du fichier », le temps de broche affiché et le temps chronométré, le temps de montée réel de la broche, et toute phrase fausse ou incomprise.
+
+## N8 — Sauvegarde des réglages de la carte (sans mouvement, ajouté le 26 novembre 2026)
+
+Rien ne bouge et rien n'est écrit dans la carte : cet essai peut se faire broche débranchée, à tout moment d'une séance au repos. Serveur à recompiler pour ce lot : `src/server/services/touch/settings-backup.js` (nouveau), `src/server/services/touch/index.js`, `src/server/api/api.touch.js`, `src/server/app.js`. Détails et limites : `../plaque/N8-RAPPORT.md`.
+
+| # | Geste | Attendu |
+|---|---|---|
+| N8-1 | Machine connectée, « Réglages lus » sur 1 · Machine. Ouvrir Plus → Réglages → Machine et performances. | Carte « Sauvegarde des réglages de la carte », « Aucune sauvegarde pour l'instant. », la phrase « La restauration se fait à la main… ». Rien ne déborde. |
+| N8-2 | « Sauvegarder maintenant ». | « Sauvegarde enregistrée : date · N réglages » ; une ligne dans la liste, marquée « Première sauvegarde, toujours gardée ». Noter N (à comparer au nombre de lignes de `$$` dans la console de CNCjs, hors `$N0` / `$N1`). |
+| N8-3 | Sur le PC, par ssh ou le gestionnaire de fichiers : regarder `cncjs-touch-settings/` à côté du `.cncrc` du serveur. | Un fichier `reglages-…Z.json` lisible : date, firmware, `$n` avec les valeurs de la carte (`$130` = 408, `$131` = 396, `$132` = 130…). |
+| N8-4 | « Comparer à la carte » sur cette ligne. | « Aucune différence : la carte a les mêmes réglages que cette sauvegarde. » La machine n'a rien reçu (console de CNCjs : aucune ligne nouvelle). |
+| N8-5 | « Exporter ». | Un fichier du même nom proposé au téléchargement (dossier de téléchargement de la tablette). Si le kiosque ne télécharge pas : le noter, le fichier du serveur suffit. |
+| N8-6 | **Avec l'opérateur présent**, au repos : dans la console de CNCjs du PC, changer un réglage sans effet au repos et le noter (par exemple la tolérance des arcs : lire `$12`, noter sa valeur, puis `$12=0.003`). Revenir à la carte, « Relire », puis « Comparer à la carte ». | Une ligne : « $12 · Tolérance des arcs », ancienne valeur → 0.003. Dans la carte et sur 1 · Machine : « 1 réglage de la machine a changé depuis la sauvegarde du … ». |
+| N8-7 | Remettre la valeur d'origine dans la console de CNCjs, « Relire ». | La ligne de 1 · Machine disparaît ; « La carte a les mêmes réglages que la dernière sauvegarde. » |
+| N8-8 | Pendant un usinage en l'air : ouvrir la carte. | « Relire » rayé (comme aujourd'hui) ; « Sauvegarder maintenant » reste possible et n'interrompt rien. |
+| N8-9 | Débrancher l'USB de la carte, rouvrir la carte. | La liste reste lisible, « Exporter » marche, « Sauvegarder » et « Comparer » sont rayés avec « Machine non connectée… ». |
+| N8-10 | Sur la RT (laser, v1 Éco), ouvrir la même carte. | Même carte, mêmes boutons ; rien de plus lent qu'avant sur les autres écrans. |
+
+Ne **pas** essayer : restaurer une sauvegarde par un script ; changer `$20`–`$23`, `$100`–`$132` ou `$39` « pour voir » la comparaison (N8-6 prend un réglage sans effet sur les courses).
+
+**Relevé à rendre** : N lu en N8-2, contenu du fichier, ce que fait « Exporter » en kiosque, toute différence annoncée à tort.
+
+## N3 — Notification de fin, de pause et d'alarme (ajouté le 26 novembre 2026)
+
+Aucune commande nouvelle : la page lit l'état déjà publié. Compte rendu : `../plaque/N3-RAPPORT.md`. À faire dans l'ordre ; s'arrêter à la première surprise et la noter.
+
+| Étape | Geste | Attendu |
+|---|---|---|
+| N3-A1 | Sans machine. Plus → Réglages → Affichage, carte « Son des notifications ». Toucher « Essayer le son ». | Trois sons distincts : fin (trois notes montantes), pause (deux notes égales), alarme (deux tons alternés). La ligne dit « Trois sons : fin, pause, puis alarme. ». Noter si le son s'entend à trois mètres, broche et aspirateur arrêtés, puis en marche. |
+| N3-A2 | Choisir Faible, Moyen, Fort, puis Coupé ; recharger la page. | Le choix est gardé. Sur Coupé, « Essayer le son » est grisé et la ligne dit « Son coupé : seul le message s'affiche. ». Remettre Fort. |
+| N3-A3 | Recharger la page et ne rien toucher : lire la carte. Toucher l'écran une fois. | Avant le toucher : « Son en attente : touchez l'écran une fois… ». Après : « Son prêt. ». |
+| N3-B1 | Page de simulation, sur le PC (`simulation.html`, jamais sur la tablette de la machine). Lancer un usinage fictif et s'éloigner à trois mètres. | Environ deux secondes après la fin : son de fin, bandeau vert « Usinage terminé » avec le nom du fichier, lisible de loin. Il reste jusqu'au toucher. Pause et Arrêter du haut restent visibles et touchables. |
+| N3-B2 | Simulation : pendant un usinage fictif, toucher Pause sur la tablette. Puis refaire en déclenchant la pause autrement, sans toucher l'écran pendant trois secondes avant (si la simulation le permet). | Pause touchée sur cet écran : pas de bandeau (le bandeau du haut dit déjà « Pause »). Pause venue d'ailleurs : son de pause et bandeau orange « Pause ». Le bandeau part seul à la reprise. À la reprise elle-même : ni son ni bandeau de pause. |
+| N3-B3 | Simulation : déclencher l'alarme fictive, si la page le propose. Puis déverrouiller sans toucher le bandeau. | Son d'alarme, bandeau rouge « Alarme N » avec sa cause. Il ne part **pas** seul, même après le déverrouillage ; un toucher le ferme. |
+| N3-C1 | Machine réelle, connectée, au repos, **déjà en alarme ou travail terminé**, recharger la page. | Aucun bandeau, aucun son : rien d'ancien n'est rejoué. |
+| N3-C2 | Machine réelle, fraise en l'air, broche débranchée. Charger un petit fichier qui contient une ligne `M0` au milieu, le lancer, s'éloigner. | À la ligne `M0` : son de pause, bandeau « Pause — Pause demandée par le fichier. ». Reprendre : le bandeau part. À la fin : son de fin et « Usinage terminé ». |
+| N3-C3 | Même essai avec une ligne `M6` (changement de fraise) à la place de `M0`. | « Pause — Changement de fraise demandé par le fichier. » ; la carte d'Usinage reste utilisable sous le bandeau une fois celui-ci fermé. |
+| N3-C4 | Pendant un usinage à vide, pause depuis CNCjs classique sur le PC (tablette non touchée depuis trois secondes). | Son de pause et bandeau « Pause — Usinage en pause. » sur la tablette. |
+| N3-C5 | Ouvrir une confirmation (par exemple « Prise d'origine machine… ») et la laisser ouverte pendant qu'un événement arrive (pause depuis le PC, ou fin d'un fichier lancé depuis la tablette d'un autre poste). | Le son joue ; la confirmation reste au-dessus, sa case et ses boutons répondent ; le bandeau est visible derrière et se ferme après la confirmation. |
+| N3-C7 | Fichier court chargé et lancé **depuis CNCjs classique sur le PC**, fraise en l'air. Une fois le laisser finir ; une fois l'arrêter depuis le PC dans les dernières secondes. | Arrêté depuis le PC : **jamais** « Usinage terminé ». Laissé finir : « Usinage terminé » peut venir ou manquer (noter lequel) ; le manque est connu, la fausse fin serait un défaut. |
+| N3-C6 | Une alarme réelle n'est **pas** à provoquer. Si une alarme survient pendant les essais : noter si le son et le bandeau sont venus. | Bandeau rouge jusqu'au toucher ; « Remise en route » reste dans le bandeau du haut. |
+| N3-D1 | Tablette du laser (RT), après sa mise à jour : A1 à A3, puis une gravure courte. | Mêmes sons ; « Gravure terminée ». Noter si le son de la RT est assez fort. |
+
+**Relevé à rendre** : son entendu ou non à trois mètres pour chaque volume, lisibilité du bandeau à trois mètres (sombre et clair), tout bandeau venu sans raison ou resté absent, toute commande gênée par le bandeau.
+
+## C1 — Position et broche lues dans le rapport lui-même (essai court, fraise en l'air, ajouté le 27 novembre 2026)
+
+Correction de sûreté sans commande nouvelle. Compte rendu : `../plaque/C1-RAPPORT.md`. Depuis le kiosque de la Surface seulement, veille automatique coupée, table vide, fraise courte ou pince vide, main près de l'arrêt d'urgence. **Tout refus ou arrêt inexpliqué se note tel quel et arrête l'essai : on ne le contourne pas.** Quinze minutes environ.
+
+| Étape | Geste | Attendu |
+|---|---|---|
+| C1-1 | Vérifier la version affichée par la tablette. | Celle qui contient C1. |
+| C1-2 | Prise d'origine. Puis un pas X+ 10 mm, un pas Z+ 1 mm, un maintien continu Y+ de deux secondes. | Comme avant. Dans la seconde qui suit la prise d'origine ou une connexion, les flèches peuvent rester grisées un instant (« La machine n'a pas encore confirmé sa position. ») : le noter si cela dure plus d'une seconde. |
+| C1-3 | Charger un petit programme connu, Z à mi-hauteur, « Cadrer à vide… ». | Montée, tour, retour, comme avant. Noter si la fraise marque à chaque coin un arrêt plus long qu'avant (attendu : une demi-seconde au plus). |
+| C1-4 | Plus → Journal : ouvrir la ligne de ce cadrage (ou exporter le journal). | Champs `reports` : `noXyz` 0 et `noFs` 0. Champ `waits` : une durée en millisecondes par ligne après la première. **Recopier ces chiffres : c'est le résultat principal de l'essai.** |
+| C1-5 | Rien près de la broche. Depuis le PC, console de CNCjs classique : `M3 S0`. Regarder et écouter la broche. Sur la tablette : « Cadrer à vide… », puis un pas de 10 mm, puis un pas de 0,1 mm. | Noter ce que fait la broche (elle peut tourner lentement). Cadrage et pas de 10 mm **refusés** : « La broche est commandée : arrêtez-la d'abord. », avec le bouton « Arrêter la broche ». Le pas de 0,1 mm reste permis. |
+| C1-6 | Toucher « Arrêter la broche ». | Tout redevient permis en moins d'une seconde. |
+| C1-7 | Zéro Z à la plaque : pince sur la plaque, fraise 20 mm au-dessus, alimentation de la broche coupée. | Comme avant. Noter la durée totale (attendu : une à deux secondes de plus qu'avant). |
+| C1-8 | Programme d'essai sans matière qui contient un `M6` : à la pause, « Arrêter la broche », zéro Z à la plaque, puis « Reprendre… ». | Le palpage va au bout, la reprise reste permise. Si le palpage s'arrête avec « la broche est commandée, ou sa vitesse n'est plus rapportée » : noter l'heure, ne pas recommencer, arrêter le programme (Arrêter), et rendre le journal. |
+| C1-9 | Pendant le palpage de C1-7 refait une fois : toucher « Arrêter le palpage » (bouton Pause) en cours de descente. | Arrêt immédiat ; la carte se réinitialise (alarme, puis prise d'origine à refaire) ; le zéro Z n'est pas réglé. |
+| C1-10 | Refaire C1-7 ; pendant la descente, regarder l'écran 3 · Zéro pièce, puis toucher « Arrêter la broche » (sous « Arrêter le palpage »). | Le bouton est visible et lisible, rien ne déborde. Au toucher : arrêt du palpage, message « réinitialisation de la carte demandée », la carte passe en alarme ; prise d'origine à refaire. Aucun `M5` ne part. |
+
+Ne **pas** essayer : débrancher l'USB pendant un mouvement, envoyer `M3` avec une vitesse, palper avec la broche alimentée.
+
+**Ce que cet essai ne peut pas montrer** : un rapport sans position ou sans `FS:`, que la carte n'est pas connue pour émettre. Cette partie n'est prouvée qu'au banc.
+
+**Relevé à rendre** : les chiffres de C1-4, ce que fait la broche sur `M3 S0`, les durées de C1-3 et C1-7 comparées à avant, tout refus ou arrêt non attendu avec son texte exact.

@@ -6,6 +6,7 @@
 import { EventEmitter } from 'events';
 import { createService } from '../job-service';
 import { provenOffset } from './support/proven-offset';
+import { lineBench } from './support/line-bench';
 
 const fakeController = (port = 'TEST') => {
   const c = {
@@ -27,7 +28,7 @@ const fakeController = (port = 'TEST') => {
   c.command = (name, ...args) => {
     c.commands.push([name, ...args]);
   };
-  return c;
+  return lineBench(c);
 };
 
 const services = [];
@@ -106,7 +107,12 @@ describe('Plate probe: retract after the contact against the start height', () =
     c.sent = [];
     c.pinState = '';
     c.machineZ = [];
-    const report = () => c.runner.emit('status', { raw: '<' + c.state.status.activeState + '|WPos:0,0,' + c.state.status.wpos.z + (c.pinState ? '|Pn:' + c.pinState : '') + '>' });
+    // Lot C1: the line says all the bench's state holds: the spindle speed (FS:0,0) and the work
+    // offset (WCO: = MPos − WPos), which a WPos report needs to give the machine position.
+    const wco = () => ['x', 'y', 'z'].map((axis) => (Number(c.state.status.mpos[axis]) - Number(c.state.status.wpos[axis])).toFixed(3)).join(',');
+    const report = () => c.runner.emit('status', {
+      raw: '<' + c.state.status.activeState + '|WPos:0,0,' + c.state.status.wpos.z + '|FS:0,0|WCO:' + wco() + (c.pinState ? '|Pn:' + c.pinState : '') + '>'
+    });
     c.report = report;
     const z = () => Number(c.state.status.wpos.z);
     const setZ = (v) => {
@@ -140,6 +146,9 @@ describe('Plate probe: retract after the contact against the start height', () =
         }
         c.runner.emit('ok');
         report();
+        // Lot C1: CNCjs's next $G exchange after the line's ok (the modal report, then its own ok).
+        c.runner.emit('parserstate', c.state.parserstate);
+        c.runner.emit('ok');
         setTimeout(report, delay);
         setTimeout(report, 2 * delay);
       }, delay);
@@ -153,6 +162,8 @@ describe('Plate probe: retract after the contact against the start height', () =
       c.runner.state = c.state;
       c.report();
     });
+    // Lot C1: a second report at rest (a probe starts from two agreeing Idle reports).
+    c.report();
   };
 
   test('the final retract (contact + 5 mm) never ends above the height the operator started from', async () => {

@@ -24,6 +24,13 @@ const model=require('./touch/zero-piece.js');
   q.send({canBlockProbe:false,refusals:{blockProbe:{code:'ETOUCH_OFFSET_CHECKING'}},workOffset:{state:'checking'}});assert($('probe-cause').textContent.includes(t('La machine vérifie le zéro pièce. Attendez quelques secondes.')));
   q.send({canStop:true,probing:true,blockProbe:{state:'running',step:{index:8,total:22,code:'X_FAST'},written:'no'}});
   assert($('probe-start').hidden);assert(!$('probe-stop').hidden);assert($('probe-plate-start').disabled);assert($('probe-phase').textContent.includes('8 / 22'));$('probe-stop').click();assert.equal(q.calls.at(-1).op,'stop');
+  // Lot C1 (Astra 5, point 3): « Arrêter la broche » is offered in this screen while a probe runs, block or plate, and only then.
+  assert(!$('probe-spindle-stop').hidden);q.send({canStop:true,canSpindleStop:false,probing:true,blockProbe:{state:'running',step:{index:8,total:22,code:'X_FAST'},written:'no'}});assert(!$('probe-spindle-stop').hidden);assert($('probe-spindle-stop').disabled,'not offered without the server permission');assert.equal($('probe-spindle-stop').textContent,t('Arrêter la broche'));
+  const before=q.calls.length;$('probe-spindle-stop').click();assert.equal(q.calls.length,before,'a disabled button sends nothing');
+  q.send({canStop:true,canPause:true,canSpindleStop:true,probing:true,blockProbe:null});assert(!$('probe-spindle-stop').hidden,'plate probe at rest');assert(!$('probe-spindle-stop').disabled);assert($('probe-phase').textContent.includes(t('Zéro Z à la plaque en cours…')));
+  $('probe-spindle-stop').click();assert.equal(q.calls.at(-1).op,'spindleStop');
+  q.send({canSpindleStop:true});assert($('probe-spindle-stop').hidden,'no probe: the button is not shown');
+  q.send({canStop:true,probing:true,blockProbe:{state:'running',step:{index:8,total:22,code:'X_FAST'},written:'no'}});
   q.send({canStop:true,probing:true,blockProbe:{state:'stopping',written:'no',failure:{code:'ETOUCH_PROBE_STOPPED'}}});assert($('probe-phase').textContent.includes(t('Arrêt en cours…')));
   q.send({canBlockProbe:false,blockProbe:{state:'done',written:'yes',axes:'XYZ',work:{x:0,y:0,z:10},endedAt:200}});assert($('probe-outcome').textContent.includes('Z 10'));assert(!$('probe-outcome').hidden);assert.equal($('step-jog-context').textContent,t('bloc {axes}').replace('{axes}','XYZ'));
   $('screen-jog').click();assert($('probe-outcome').hidden,'next screen touch dismisses the outcome');

@@ -9,6 +9,7 @@ import store from '../../../store';
 import settings from '../../../config/settings';
 import touch from '../index';
 import { provenOffset } from './support/proven-offset';
+import { lineBench } from './support/line-bench';
 
 jest.mock('../system-stats', () => ({ createSystemStats: () => ({ start: jest.fn(), stop: jest.fn(), read: () => ({}) }) }));
 // What the facade tells the job service about the socket commands it allows (full homing cycle or not).
@@ -71,7 +72,8 @@ const fakeController = (port) => {
   c.sender.state = { name: '', context: {}, total: 0 };
   c.sender.toJSON = () => ({ ...c.sender.state });
   c.command = (name, ...args) => c.commands.push([name, ...args]);
-  return c;
+  // Lot C1: every `status` / `parserstate` emission becomes a line read by the real parser.
+  return lineBench(c);
 };
 
 const fakeSocket = (id, name = 'ana') => ({ id, handshake: { address: '10.0.0.5' }, decoded_token: { id: 'u', name } });
@@ -241,10 +243,14 @@ describe('touch facade (history, control, socket and host-command policies)', ()
     store.set('controllers', { COM3: c });
     const report = (active) => {
       c.state.status = { activeState: active, spindle: 0, mpos: { x: '150.000', y: '120.000', z: '-100.000' }, wpos: { x: '50.000', y: '20.000', z: '15.000' } };
-      c.runner.emit('status', { raw: '<' + active + '|MPos:150.000,120.000,-100.000|FS:0,0>' });
+      // Lot C1: the report says its work offset (WCO: = machine − work position of the state above),
+      // from which the work Z of the probe is derived.
+      c.runner.emit('status', { raw: '<' + active + '|MPos:150.000,120.000,-100.000|FS:0,0|WCO:100.000,100.000,-115.000>' });
     };
     touch.snapshot();
     report('Home');
+    report('Idle');
+    // Lot C1: a second report at rest (a probe starts from two agreeing Idle reports).
     report('Idle');
     c.runner.emit('parserstate', c.state.parserstate);
     const tablet = { kind: 'touch', id: 'tablet-A', label: 'Tablette A', user: 'ana' };

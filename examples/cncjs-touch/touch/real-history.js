@@ -144,7 +144,7 @@
   // sentence, whose fixed part is translated and values kept; jog/frame carry a stop code, shown as its phrase
   // (STOP_REASONS) or as the Grbl error; an unknown code is not shown.
   var REASONS = { operator: 'relâchement ou arrêt demandé', stop: 'bouton Arrêter', keepalive: 'maintien non confirmé à temps (connexion lente ou perdue)',
-    transport: 'flux de suivi du client fermé', control: 'pilotage pris par un autre client', released: 'pilotage rendu', stale: 'rapport machine trop ancien', alarm: 'alarme machine',
+    transport: 'flux de suivi du client fermé', control: 'pilotage pris par un autre client', released: 'pilotage rendu', stale: 'rapport machine trop ancien', spindleProof: 'broche commandée, ou vitesse de broche non rapportée, pendant le déplacement', alarm: 'alarme machine',
     disabled: 'déplacements réels désactivés', late: 'maintien reçu après l’échéance', pause: 'bouton Pause', state: 'machine sortie du repos (Idle) pendant le cadrage',
     dispose: 'service arrêté', connection: 'connexion au contrôleur perdue', bound: 'fin de la course autorisée atteinte' };
   var ORIGIN_FAILURES = [

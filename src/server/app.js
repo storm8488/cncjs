@@ -354,6 +354,8 @@ const appMain = () => {
     app.post(urljoin(settings.route, 'api/touch-wifi'), api.touch.postWifi);
     app.get(urljoin(settings.route, 'api/touch-updates'), api.touch.getUpdates);
     app.post(urljoin(settings.route, 'api/touch-updates'), api.touch.postUpdates);
+    app.get(urljoin(settings.route, 'api/touch-settings-backups'), api.touch.getSettingsBackups);
+    app.post(urljoin(settings.route, 'api/touch-settings-backups'), api.touch.postSettingsBackups);
   }
 
   // page

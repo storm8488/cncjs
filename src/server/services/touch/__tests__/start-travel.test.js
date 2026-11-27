@@ -16,6 +16,7 @@ import { createService, START_MESSAGES } from '../job-service';
 import { createControl } from '../control';
 import { programCheck } from '../program-check';
 import { bridge } from './support/sim-bridge';
+import { lineBench } from './support/line-bench';
 import { provenOffset } from './support/proven-offset';
 import { expectCatalogMatch } from './touch-codes-catalog';
 
@@ -256,7 +257,7 @@ const fakeController = () => {
       c.workflow.emit('start');
     }
   };
-  return c;
+  return lineBench(c);
 };
 
 const services = [];
@@ -286,7 +287,8 @@ const setup = (options = {}) => {
       mpos: { x: f3(m.x), y: f3(m.y), z: f3(m.z) },
       wpos: { x: f3(m.x - o.x), y: f3(m.y - o.y), z: f3(m.z - o.z) }
     };
-    ctx.c.runner.emit('status', { raw: '<' + active + '|MPos:' + f3(m.x) + ',' + f3(m.y) + ',' + f3(m.z) + '|FS:0,0>' });
+    // Lot C1: the line says the work offset too (WCO:), as the state above does.
+    ctx.c.runner.emit('status', { raw: '<' + active + '|MPos:' + f3(m.x) + ',' + f3(m.y) + ',' + f3(m.z) + '|FS:0,0|WCO:' + f3(o.x) + ',' + f3(o.y) + ',' + f3(o.z) + '>' });
   };
   ctx.c.state.parserstate = { modal: { motion: 'G0', wcs: 'G54', units: 'G21', distance: 'G90', spindle: 'M5', feedrate: 'G94' }, feedrate: '0', spindle: '0' };
   ctx.c.runner.emit('parserstate', ctx.c.state.parserstate);

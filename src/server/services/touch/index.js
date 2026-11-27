@@ -14,6 +14,7 @@ import { createWifi } from './wifi';
 import { createUpdates } from './updates';
 import { createHistory } from './history';
 import { createControl, describeOwner, safeCommand, safeWrite } from './control';
+import { createSettingsBackups } from './settings-backup';
 
 const log = logger('service:touch');
 
@@ -305,6 +306,74 @@ const updatesAction = (body, actor) => {
   return updates.status();
 };
 
+// Backups of the board's settings (lot N8, settings-backup.js): files on the CNCjs host, written
+// from what CNCjs last read by `$$`. Nothing is sent to the controller and nothing is restored;
+// reading the settings again stays the existing guarded `readSettings` action.
+let settingsStore = null;
+const backupsStore = () => {
+  // Created at first use: the configuration file is known once CNCjs has started.
+  settingsStore = settingsStore || createSettingsBackups({ rcfile: settings.rcfile });
+  return settingsStore;
+};
+const portOf = (port) => {
+  if (typeof port !== 'string' || !port) {
+    throw Object.assign(new Error('Choisissez une machine.'), { status: 409, code: 'EBACKUP_NO_MACHINE' });
+  }
+  return port;
+};
+// The settings, firmware and machine profile of a connected board, as last read.
+const boardSettings = async (port) => {
+  portOf(port);
+  // A `$$` answer being received would give a mix of old and new values.
+  const busy = service.socketRefusal(port);
+  if (busy && busy.code === 'ETOUCH_SETTINGS_READING') {
+    throw busy;
+  }
+  // CNCjs copies what its parser read into `controller.settings` by a 250 ms timer: until then
+  // the copy is the previous reading (after « Relire ») or a part of the first one (at connection).
+  const c = (store.get('controllers') || {})[port];
+  if (c && c.runner && c.runner.settings && c.runner.settings !== c.settings) {
+    throw Object.assign(new Error('Lecture de la version et des réglages en cours : patientez quelques secondes.'), {
+      status: 409, code: 'ETOUCH_SETTINGS_READING'
+    });
+  }
+  const board = await service.action({ action: 'settings', port });
+  const machine = service.list().find((m) => m && m.port === port);
+  const profile = (machine && machine.machineProfile) || {};
+  return { port, firmware: board.firmware, settings: board.settings, profile: { label: profile.label, kind: profile.kind } };
+};
+// The list, with what changed on the connected board since the last backup (null: nothing to say).
+const settingsBackupList = async (port) => {
+  const out = await backupsStore().list();
+  let drift = null;
+  if (typeof port === 'string' && port) {
+    try {
+      drift = await backupsStore().drift((await boardSettings(port)).settings);
+    } catch (_) {
+      // No such machine, or its settings are being read: the list alone.
+    }
+  }
+  return { backups: out.backups, max: out.max, drift };
+};
+const settingsBackupAction = async (body) => {
+  const action = body && body.action;
+  if (action === 'save') {
+    const saved = await backupsStore().save(await boardSettings(body.port));
+    return { saved: { id: saved.id, at: saved.at, count: saved.count }, ...(await settingsBackupList(body.port)) };
+  }
+  if (action === 'compare') {
+    const board = await boardSettings(body.port);
+    if (!Object.keys(board.settings).length) {
+      throw Object.assign(new Error('Aucun réglage lu : relisez les réglages, machine au repos.'), { status: 409, code: 'EBACKUP_NO_SETTINGS' });
+    }
+    return backupsStore().compare(body.id, board.settings);
+  }
+  if (action === 'read') {
+    return { backup: await backupsStore().read(body.id) };
+  }
+  throw Object.assign(new Error('Action de sauvegarde inconnue.'), { status: 400 });
+};
+
 export default {
   VERSION,
   start,
@@ -331,5 +400,7 @@ export default {
   wifiStatus,
   wifiAction,
   updatesStatus,
-  updatesAction
+  updatesAction,
+  settingsBackupList,
+  settingsBackupAction
 };

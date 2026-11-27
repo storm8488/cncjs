@@ -1,0 +1,154 @@
+{
+  "date": "2026-11-21",
+  "baseline": "caf09b312c2c946c78f836bb518fb8dd17d36ece",
+  "before": {
+    "node": "v26.13.0",
+    "cpu": "13th Gen Intel(R) Core(TM) i7-13700KF",
+    "logicalCpus": 24,
+    "inputBytes": 8939924,
+    "g1Lines": 500000,
+    "samples": [
+      {
+        "analysisMs": 1001.1441,
+        "durationMs": 0.08519999999998618,
+        "heapBeforeMiB": 5.2245330810546875,
+        "heapBeforeGcMiB": 64.60820770263672,
+        "heapRetainedDeltaMiB": 0.134490966796875,
+        "rssBeforeMiB": 57.1171875,
+        "rssAfterMiB": 157.6171875,
+        "peakRssMiB": 162.203125,
+        "timingJsonBytes": 40,
+        "timingBlocks": 0,
+        "timingSupported": false,
+        "durationSeconds": null
+      },
+      {
+        "analysisMs": 946.3141999999999,
+        "durationMs": 0.09810000000004493,
+        "heapBeforeMiB": 5.2244415283203125,
+        "heapBeforeGcMiB": 64.33705139160156,
+        "heapRetainedDeltaMiB": 0.13458251953125,
+        "rssBeforeMiB": 57.63671875,
+        "rssAfterMiB": 157.2109375,
+        "peakRssMiB": 162.21875,
+        "timingJsonBytes": 40,
+        "timingBlocks": 0,
+        "timingSupported": false,
+        "durationSeconds": null
+      },
+      {
+        "analysisMs": 953.2941,
+        "durationMs": 0.0848999999999478,
+        "heapBeforeMiB": 5.2245330810546875,
+        "heapBeforeGcMiB": 63.6324462890625,
+        "heapRetainedDeltaMiB": 0.134490966796875,
+        "rssBeforeMiB": 57.3046875,
+        "rssAfterMiB": 156.9375,
+        "peakRssMiB": 161.453125,
+        "timingJsonBytes": 40,
+        "timingBlocks": 0,
+        "timingSupported": false,
+        "durationSeconds": null
+      }
+    ]
+  },
+  "after": {
+    "node": "v26.13.0",
+    "cpu": "13th Gen Intel(R) Core(TM) i7-13700KF",
+    "logicalCpus": 24,
+    "inputBytes": 8939924,
+    "g1Lines": 500000,
+    "samples": [
+      {
+        "analysisMs": 1102.6754999999998,
+        "durationMs": 0.10540000000014516,
+        "heapBeforeMiB": 5.2374725341796875,
+        "heapBeforeGcMiB": 7.7473907470703125,
+        "heapRetainedDeltaMiB": 0.1891326904296875,
+        "rssBeforeMiB": 64.71875,
+        "rssAfterMiB": 68.28125,
+        "peakRssMiB": 73.10546875,
+        "timingJsonBytes": 21835,
+        "timingBlocks": 489,
+        "timingSupported": true,
+        "durationSeconds": 685819.9481274524
+      },
+      {
+        "analysisMs": 1098.7757,
+        "durationMs": 0.1145000000001346,
+        "heapBeforeMiB": 5.2375640869140625,
+        "heapBeforeGcMiB": 7.192512512207031,
+        "heapRetainedDeltaMiB": 0.1890411376953125,
+        "rssBeforeMiB": 64.4609375,
+        "rssAfterMiB": 68.25,
+        "peakRssMiB": 73.0390625,
+        "timingJsonBytes": 21835,
+        "timingBlocks": 489,
+        "timingSupported": true,
+        "durationSeconds": 685819.9481274524
+      },
+      {
+        "analysisMs": 1120.8577,
+        "durationMs": 0.11980000000016844,
+        "heapBeforeMiB": 5.237541198730469,
+        "heapBeforeGcMiB": 6.1307220458984375,
+        "heapRetainedDeltaMiB": 0.1891326904296875,
+        "rssBeforeMiB": 64.703125,
+        "rssAfterMiB": 68.29296875,
+        "peakRssMiB": 72.91796875,
+        "timingJsonBytes": 21835,
+        "timingBlocks": 489,
+        "timingSupported": true,
+        "durationSeconds": 685819.9481274524
+      }
+    ]
+  },
+  "rebuild": {
+    "sha256": "9390001df60d094f41c4effa57b83c742a268e2d5be14a3b83a6ba5ac8e06649",
+    "samples": [
+      {
+        "feed": 50,
+        "rebuildMs": 1096.7155,
+        "durationSeconds": 1371639.8962549048
+      },
+      {
+        "feed": 100,
+        "rebuildMs": 1662.2164000000002,
+        "durationSeconds": 685819.9481274524
+      },
+      {
+        "feed": 50,
+        "rebuildMs": 2614.7010999999998,
+        "durationSeconds": 1371639.8962549048
+      }
+    ]
+  },
+  "differential": {
+    "cases": 160,
+    "analysisMismatches": 0,
+    "travelVerdictMismatches": 0,
+    "durationMismatches": 0,
+    "baseline": "caf09b312c2c946c78f836bb518fb8dd17d36ece"
+  },
+  "checks": {
+    "verifyProject": {
+      "passed": 230,
+      "total": 230
+    },
+    "jest": {
+      "suitesPassed": 57,
+      "suitesTotal": 57,
+      "testsPassed": 1775,
+      "testsTotal": 1775,
+      "seconds": 188.625,
+      "coverage": false,
+      "runInBand": true
+    },
+    "eslint": {
+      "errors": 0,
+      "warnings": 0
+    },
+    "lf": true,
+    "diffCheck": true
+  }
+}

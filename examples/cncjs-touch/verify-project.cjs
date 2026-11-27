@@ -23,7 +23,7 @@ const tests = [
  'control-attribution','program-check-view','preview-identity','server-history','projects','server-messages',
  'strip-guard','strip-continuity','preview-notes','no-simulation-access','connect-cnc',
  'motion-estimate','preview-inspect','laser-view','preview-gl','preview-sidecar','job-motion','viz-i18n',
- 'tablet-profile','tablet-diagnostic','scenario-profiles','simulated-kind','laser-z','wifi-settings','system-updates',
+ 'tablet-profile','tablet-diagnostic','scenario-profiles','simulated-kind','laser-z','wifi-settings','system-updates','settings-backup',
  'preview-3d-gpu','preview-3d-live','preview-3d-overlays','responsive-wide','origin-preview','session-renew','job-stream-no-session','scenario-perf-safety','scenario-perf-defects',
  'network-hint','session-backoff','session-refused','settings-identity','session-race','plain-403','monotonic-delays','report-age-clock','dashboard-pause-guard','frame-refusal-reasons',
  'bughunt-c-1','bughunt-f3',
@@ -33,14 +33,18 @@ const tests = [
  'v2-observation','v2-observation-history','v2-observation-lifecycle',
  'v2-journal-context',
  'v2-suivi','v2-suivi-style','v2-suivi-preview','home-suivi',
- 'v2-preparer','v2-preparer-reopen','v2-preparer-rest','v2-preparer-layout','preparer-style','v2-files','v2-files-frames','files-screen','machine-screen','remise-en-route','more-screen','seance','parcours-server','fil','refus','refus-table','confirmation-classes','direct-calls','cache-version','commandes-migration','transverse-screen',
+ 'v2-preparer','v2-preparer-reopen','v2-preparer-rest','v2-preparer-layout','preparer-style','v2-files','v2-files-frames','files-screen','machine-screen','remise-en-route','position-perdue','more-screen','seance','parcours-server','fil','refus','refus-table','confirmation-classes','direct-calls','cache-version','commandes-migration','transverse-screen',
  'v2-settings','v2-journal','v2-machine','v2-machine-release','v2-machine-frames',
  'performance-v2-safety',
  'auto-connect','auto-reload','auto-reload-recovery',
  'small-screens',
  'cnc-frame',
  // Merge of the lots: F5 and F10 in the same page load.
- 'f5-f10'
+ 'f5-f10',
+ // Night of 26 November, lot N1: file analysis (stock depth, tools, spindle spin-up).
+ 'program-analysis',
+ // Lot N3: notification of the end, of a pause and of an alarm.
+ 'notify'
 ].map(name=>'test-'+name+'.cjs');
 // The backend (job service, event stream, motion preflight, probe input) lives in
 // src/server/services/touch and is covered by the root Jest suite (`yarn test`).

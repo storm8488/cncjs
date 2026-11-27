@@ -8,6 +8,7 @@ import { EventEmitter } from 'events';
 import { createService } from '../job-service';
 import { createControl } from '../control';
 import { provenOffset } from './support/proven-offset';
+import { lineBench } from './support/line-bench';
 
 const fakeController = (port = 'TEST') => {
   const c = {
@@ -40,7 +41,7 @@ const fakeController = (port = 'TEST') => {
     c.commands.push([name, ...args]);
   };
   c.writeln = jest.fn(() => c.runner.emit('ok'));
-  return c;
+  return lineBench(c);
 };
 
 const A = { kind: 'touch', id: 'tablet-A', label: 'Tablette A', user: 'op' };
@@ -83,6 +84,13 @@ const setup = () => {
   ctx.report();
   ctx.set('Idle');
   ctx.report();
+  // Lot C1: a second report at rest, and CNCjs's $G exchange (spindle off, M5, then its ok).
+  ctx.gc = () => {
+    ctx.c.runner.emit('parserstate', { modal: { motion: 'G0', plane: 'G17', units: 'G21', distance: 'G90', feedrate: 'G94', spindle: 'M5', coolant: 'M9' } });
+    ctx.c.runner.emit('ok');
+  };
+  ctx.report();
+  ctx.gc();
   return ctx;
 };
 
@@ -211,6 +219,9 @@ describe('jog line release after errors and restarts (a0998c97)', () => {
     ctx.set('Idle');
     ctx.tick(500, 250);
     expect(ctx.state().canStop).toBe(false);
+    // Lot C1: CNCjs's $G exchange of a board back at rest (the one of the setup is 80 s old; the
+    // macro of tryAll needs the spindle proven stopped, and its ticket frees the settings read).
+    ctx.gc();
     expect(accepted(await tryAll(ctx))).toContain('readSettings');
   });
 });

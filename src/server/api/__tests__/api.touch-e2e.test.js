@@ -14,6 +14,7 @@ import taskRunner from '../../services/taskrunner';
 import touch from '../../services/touch';
 import { postJob, getEvents } from '../api.touch';
 import { run as runCommand } from '../api.commands';
+import { lineBench } from '../../services/touch/__tests__/support/line-bench';
 
 jest.mock('../../config/settings', () => {
   const p = require('path');
@@ -55,6 +56,8 @@ const fakeController = (port = 'TEST') => {
     commands: []
   };
   c.runner.state = c.state;
+  // Lot C1: every `status` / `parserstate` emission becomes a line read by the real parser.
+  lineBench(c);
   c.sender.state = { name: '', context: {}, total: 0 };
   c.sender.toJSON = () => ({ ...c.sender.state });
   c.command = (name, ...args) => {
@@ -246,6 +249,8 @@ describe('xvf bout en bout : deux tablettes', () => {
     c.state.status.activeState = 'Home';
     report();
     c.state.status.activeState = 'Idle';
+    report();
+    // Lot C1: a second report at rest (a step starts from two agreeing Idle reports).
     report();
     const A = tablet('tab-A');
     const B = tablet('tab-B');

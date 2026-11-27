@@ -25,6 +25,26 @@
 | I-22 | Charger moins de catalogues en français | Spec 12, C9 | Optimisation retirée de L6 : les variantes navigateur EN/ES n'ont pas pu être validées. Conserver le chargement complet jusqu'à cette preuve. |
 | I-23 | Reprendre après une coupure de courant de la machine (tablette restée sur batterie) | Opérateur, 2026-11-17 | Non réalisé, mis de côté à sa demande. Le zéro pièce survit dans la carte ; la position machine est perdue (prise d'origine à refaire, précision des capteurs) ; la carte ne rapporte pas la ligne usinée, seulement les lignes envoyées (environ 15 mouvements d'avance). À concevoir : reconnaître la coupure (redémarrage de la carte en plein usinage), choisir une ligne de reprise sûre quelques lignes avant, enregistrer l'avancement sur disque si la tablette s'éteint aussi, guider vers « Reprendre à une ligne ». Limites à dire : marque possible à la reprise, fraise peut-être cassée, essai réel fraise en l'air d'abord. À faire après F2 (mêmes parties du code). |
 | I-24 | « Z de référence » après un changement de fraise | Opérateur, 2026-11-17 | Non réalisé. Mémoriser la hauteur d'un point fixe (martyr, cale) avec la première fraise, puis la restituer d'un toucher après chaque changement de fraise ; ou « poser Z à une valeur ». Utile quand le dessus de la pièce est déjà usiné et que la plaque ne tient plus à plat. En attendant : Z0 de Vectric sur la table (martyr). |
+| I-25 | Palper dans le trou de la plaque XYZ Bulkman3D (TP-XYZ) et profil prêt à l'emploi | Opérateur, 2026-11-21 | **Conçu, mis de côté à sa demande** jusqu'à la mesure de la plaque (épaisseur du dessus, position du trou). Conception : `../plaque/P1-CONCEPTION.md` (branche `feat/P1`), pas encore relue par Astra. |
+| I-26 | Changement de fraise guidé (pause `M6` et entre deux fichiers) | Opérateur, 2026-11-21 | **Conçu, mis de côté** avec I-25 (repose sur le palpage Z à la plaque). Conception : `../plaque/P3-CONCEPTION.md` (branche `feat/P3`), pas encore relue. |
+| I-27 | Remise en route complète après un Arrêter : retour au-dessus du zéro pièce, zéro gardé prouvé par comparaison, garde de départ | Opérateur, 2026-11-21 | **Refusé trois fois par la relecture de sûreté, mis de côté.** Conception v3 : `../plaque/P4-CONCEPTION.md` ; le coût opérateur (zéro XYZ à refaire après chaque reconnexion) n'était pas acceptable. Une version allégée sans mouvement est livrée (`../plaque/P4-ALLEGE.md`). |
+| I-28 | Position de changement de fraise : Z monte seul, puis X, puis Y vers une position machine enregistrée | Opérateur, 2026-11-26 | **Conçu, non codé.** Conception révision 3 : `../plaque/N4-CONCEPTION.md`. Deux contre-avis de sûreté « à revoir » (`../plaque/N4-AVIS-ASTRA-1.md`, `-2.md`) : mis de côté. Le second demande d'abord de corriger I-29. |
+| I-29 | Rapports d'état sans position ou sans vitesse de broche : une ancienne valeur est gardée comme actuelle (cadrage à vide, pas) | Relecture de sûreté, 2026-11-26 | **Constat, non corrigé.** `../plaque/CONSTAT-RAPPORTS-SANS-POSITION.md` : prouvé dans le code par reproduction, rien ne montre que la carte LUNYEE le déclenche. Le second contre-avis juge le risque sous-estimé et recommande de corriger ces gardes avant de réutiliser « Cadrer à vide » sur une pièce bridée. Correction à faire dans un lot à part. |
+
+## Réalisé la nuit du 26 novembre 2026 (branche `feat/nuit-2026-11-26`, non installée)
+
+Choisies par l'opérateur parmi huit idées issues d'une recherche documentaire. Aucune n'est essayée sur la machine ; chacune a son essai dans `PROTOCOLE-ESSAI.md`.
+
+- Analyse du fichier (lot N1) : profondeur comparée à l'épaisseur du brut saisie, fraises nommées par le fichier, temps de montée de la broche avant la première descente. Avertissements d'affichage, qui ne bloquent pas le départ. Rapport : `../plaque/N1-RAPPORT.md`.
+- Notification (lot N3) : grand bandeau et son à la fin, à une pause et à une alarme ; volume et essai du son dans Réglages → Affichage. Rapport : `../plaque/N3-RAPPORT.md`.
+- Sauvegarde des réglages de la carte (lot N8) : fichiers datés sur le serveur, comparaison avec la carte, export ; aucune restauration, aucune commande nouvelle. Rapport : `../plaque/N8-RAPPORT.md`.
+
+Non retenues cette nuit par l'opérateur : surfaçage intégré, compteurs d'heures de broche et d'usure des fraises.
+
+## Réalisé le 21 novembre 2026 (branche `feat/plaque-xyz`, non installée)
+
+- Durée des gros fichiers (P5) : le modèle de durée couvre les programmes de plusieurs centaines de milliers de lignes, mémoire bornée ; la barre « en lignes » reste le dernier recours. Rapport : `../plaque/P5-RAPPORT.md`.
+- Position perdue (P4 allégé) : après un redémarrage ou une alarme, une seule cause claire avec la prise d'origine ; les refus « non référencée » et le jog `error:15` y renvoient ; le zéro pièce n'est plus dit « vérifié » sans comparaison. Aucun mouvement ajouté.
 
 ## Réalisé le 17 novembre 2026
 

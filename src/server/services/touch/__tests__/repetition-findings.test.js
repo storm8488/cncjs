@@ -11,6 +11,7 @@ import { createService } from '../job-service';
 import { createControl } from '../control';
 import { buildResume } from '../resume';
 import { provenOffset } from './support/proven-offset';
+import { lineBench } from './support/line-bench';
 
 const fakeController = (port = 'TEST') => {
   const c = {
@@ -21,7 +22,8 @@ const fakeController = (port = 'TEST') => {
     runner: new EventEmitter(),
     sender: new EventEmitter(),
     workflow: Object.assign(new EventEmitter(), { state: 'idle' }),
-    state: { status: { activeState: 'Idle' } },
+    // Lot C1: the board reports its spindle speed (FS:…,0), as the LUNYEE does.
+    state: { status: { activeState: 'Idle', spindle: 0 } },
     feeder: { toJSON: () => ({ queue: 0, pending: false }) },
     settings: { settings: { $110: 1000, $111: 1000, $112: 200 } },
     commands: []
@@ -54,7 +56,7 @@ const fakeController = (port = 'TEST') => {
       }
     }
   };
-  return c;
+  return lineBench(c);
 };
 
 // The trial file of the commissioning wizard (commissioning.js:93-95), CNC.
@@ -99,9 +101,15 @@ const setup = () => {
     port: 'TEST', generation: ctx.generation, transportId, action, ...extra
   }, actor);
   ctx.report = () => ctx.c.runner.emit('status');
+  // Lot C1: CNCjs's own $G exchange at rest, the modal report (spindle off, M5) then its ok.
+  ctx.gc = () => {
+    ctx.c.runner.emit('parserstate', { modal: { motion: 'G0', wcs: 'G54', plane: 'G17', units: 'G21', distance: 'G90', feedrate: 'G94', spindle: 'M5', coolant: 'M9' } });
+    ctx.c.runner.emit('ok');
+  };
   ctx.state = () => ctx.service.list()[0];
   ctx.started = async (file = 'test.nc') => {
     ctx.report();
+    ctx.gc();
     await ctx.req('load', { file });
     const ticket = await ctx.req('prepare', { operation: 'start', revision: ctx.state().revision });
     await ctx.req('start', { nonce: ticket.nonce });

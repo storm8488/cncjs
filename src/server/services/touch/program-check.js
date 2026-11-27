@@ -16,6 +16,8 @@
 // Explicit extension: examples/cncjs-touch loads this module with Node's native ES module loader.
 // eslint-disable-next-line import/extensions
 import { envelopeOf, usableOf } from './motion.js';
+// eslint-disable-next-line import/extensions
+import { createProgramTime } from './program-time.js';
 
 const MM_PER_INCH = 25.4;
 // Arc geometry only; travel comparisons are strict (float rounding guard only).
@@ -30,6 +32,21 @@ const KNOWN_G = [0, 1, 2, 3, 4, 10, 17, 18, 19, 20, 21, 28, 28.1, 30, 30.1, 38.2
 const KNOWN_M = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 30];
 
 export const programLines = (gcode) => String(gcode).split('\n').filter((line) => line.trim().length > 0);
+
+// Same nonempty-line numbering as programLines/the sender, without a line array.
+function* walkLines(gcode) {
+  const text = String(gcode);
+  let start = 0;
+  while (start < text.length) {
+    const newline = text.indexOf('\n', start);
+    const end = newline < 0 ? text.length : newline;
+    const line = text.slice(start, end);
+    if (line.trim().length > 0) {
+      yield line;
+    }
+    start = end + 1;
+  }
+}
 
 // The code part of a line exactly as the CNCjs sender keeps it (gcode-parser
 // 2.2 stripComments, the `line` it sends to Grbl): parentheses nest, so
@@ -85,6 +102,75 @@ const sameWithoutSpaces = (code) => {
 
 const fmt = (n) => String(Math.round(n * 1000) / 1000);
 
+// N1, display only: the tools the file names. Bounded in number and in length; the description
+// is the file's own text, which the page writes as text (never as markup).
+const MAX_TOOLS = 8;
+const MAX_TOOL_TEXT = 60;
+const MAX_LINE_COMMENTS = 4;
+
+// The comment texts of a line as written: what stripComments drops (same nesting rules).
+const commentsOf = (line) => {
+  const out = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < line.length && out.length < MAX_LINE_COMMENTS; i++) {
+    const c = line[i];
+    if (c === ';' && depth === 0) {
+      out.push(line.slice(i + 1));
+      return out;
+    }
+    if (c === '(') {
+      if (depth === 0) {
+        start = i + 1;
+      }
+      depth++;
+    } else if (c === ')' && depth > 0) {
+      depth--;
+      if (depth === 0) {
+        out.push(line.slice(start, i));
+      }
+    }
+  }
+  if (depth > 0 && out.length < MAX_LINE_COMMENTS) {
+    out.push(line.slice(start));
+  }
+  return out;
+};
+
+// Tool comments of the usual post-processors: `(T1 D=6. CR=0. - flat end mill)` (Fusion 360),
+// `(T1=6mm_Endmill)` and `(Begin operation: TC: 6mm Endmill)` (FreeCAD), `(Tool 1 = End Mill)`,
+// `; Tool: 6 mm end mill` (Vectric, Estlcam and others), `(TOOL/MILL,6,0,10,0)`.
+// Returns { number, text } (number null when the comment gives none), or null.
+const TOOL_NUMBERED = /^T\s*(\d{1,6})(?![\d.])\s*[:=-]?\s*(.*)$/i;
+const TOOL_WORD = /^(?:TOOL|OUTIL|WERKZEUG)\s*(?:(?:NUMBER|NO\.?|#)\s*)?(\d{1,6})?\s*[:=]\s*(.+)$/i;
+const TOOL_OTHER = /^(?:TOOL\/\w+\s*,|BEGIN OPERATION\s*:\s*TC\s*:)\s*(.+)$/i;
+// Control characters become a space; the invisible characters that reorder or hide text
+// (bidirectional marks, zero-width, line separators) and half surrogate pairs are dropped.
+const INVISIBLE = /[\u061C\u200B-\u200F\u2028-\u202E\u2060-\u2069\uFEFF]|^[\uD800-\uDFFF]$/;
+const printable = (text) => Array.from(text).map((ch) => {
+  if (INVISIBLE.test(ch)) {
+    return '';
+  }
+  return ch.charCodeAt(0) < 32 || ch.charCodeAt(0) === 127 ? ' ' : ch;
+}).join('');
+const toolNote = (comment) => {
+  const text = printable(comment.slice(0, 200)).trim();
+  // Cut by code points: never half a character.
+  const brief = (value) => Array.from(value.replace(/\s+/g, ' ').trim()).slice(0, MAX_TOOL_TEXT).join('').trim();
+  let m = TOOL_NUMBERED.exec(text);
+  if (m) {
+    return { number: Number(m[1]), text: brief(m[2]) };
+  }
+  m = TOOL_WORD.exec(text);
+  if (m) {
+    // `Tool number: 3` names the number after the colon.
+    const alone = m[1] === undefined && /^\d{1,6}$/.test(m[2].trim());
+    return alone ? { number: Number(m[2]), text: '' } : { number: m[1] === undefined ? null : Number(m[1]), text: brief(m[2]) };
+  }
+  m = TOOL_OTHER.exec(text);
+  return m ? { number: null, text: brief(text) } : null;
+};
+
 // A reason: the French text (unchanged) with its stable code and its values.
 const reason = (code, params, message) => ({ code, params, message });
 
@@ -101,18 +187,25 @@ const extend = (extent, axis, value) => {
   }
 };
 
+// A separate closure keeps only the source, not the previous walk's analysis/state.
+const rebuildTiming = (source) => (context) => analyzeProgram(source, context).timing;
+
 // Walks the program. `extent` is in millimetres in the work coordinates of the
 // (single) work offset the program uses; `unknownAxes[axis]` tells why an axis
 // could not be followed. `rawUnits` is true when the program never fixes its
 // units before moving: the extent is then in the controller's units, which the
 // comparison converts when the machine's modal state is known.
-export const analyzeProgram = (gcode) => {
-  const lines = programLines(gcode);
+export const analyzeProgram = (gcode, timingContext) => {
+  const time = createProgramTime(timingContext);
+  // N1: the spin-up time is summed apart, at the overrides that leave the spindle the least
+  // time (rapids 100 %, feed at least 100 %): the operator may change them after the load.
+  const loadFeed = Number(timingContext && timingContext.overrides && timingContext.overrides.feed);
+  const spin = createProgramTime({ settings: timingContext && timingContext.settings, overrides: { feed: loadFeed > 100 ? loadFeed : 100, rapid: 100 } });
   const a = {
-    lines: lines.length,
+    lines: 0,
     moves: 0,
     // Display-only timing model. Never participates in a travel verdict or a command guard.
-    timing: { supported: true, dwell: 0, moves: [] },
+    timing: time.timing,
     units: null,
     unitsChanges: [],
     rawUnits: false,
@@ -137,7 +230,15 @@ export const analyzeProgram = (gcode) => {
     zMin: null,
     zMax: null,
     // Spindle / laser commands (laser check): highest S and its line, first M3, first M4.
-    spindle: { sMax: null, sMaxLine: null, m3Line: null, m4Line: null }
+    spindle: { sMax: null, sMaxLine: null, m3Line: null, m4Line: null },
+    // N1, display only. `tools.list`: { number, text, line (first T word), noteLine (its comment) },
+    // at most MAX_TOOLS; `changes`: how many M6, the first at `changeLine`.
+    tools: { list: [], truncated: false, changes: 0, changeLine: null },
+    // N1, display only: the spindle start in force at the first entry into the material, and
+    // the time the duration model counts between the two (a lower bound when `atLeast`).
+    // `opaque`: a line that was not read (expression, line the board reads otherwise) came
+    // before the entry; it may hold the spindle start.
+    spinUp: { startLine: null, entryLine: null, seconds: null, dwell: 0, atLeast: false, feedInherited: false, supported: false, opaque: false }
   };
   const pos = { X: null, Y: null, Z: null };
   // Modal state while walking (one object, so the per-line closures below
@@ -151,7 +252,13 @@ export const analyzeProgram = (gcode) => {
     motion: null,
     plane: 'G17',
     arcMode: 'G91.1',
-    moved: false
+    moved: false,
+    // N1: the duration mark at the spindle start, until the first entry into the material;
+    // M3/M4 in force, and the last S setpoint the file gave (null: none yet).
+    spinMark: null,
+    spinning: false,
+    speed: null,
+    entered: false
   };
   let timingFeed = null;
   let timingMode = null;
@@ -162,16 +269,42 @@ export const analyzeProgram = (gcode) => {
       a.unknownCodes[axis] = r;
     }
   };
+  const tool = (number, text, line, noteLine) => {
+    const t = a.tools;
+    let entry = t.list.find((e) => e.number === number && (number !== null || e.text === text));
+    if (!entry) {
+      if (t.list.length >= MAX_TOOLS) {
+        t.truncated = true;
+        return;
+      }
+      entry = { number, text: '', line: null, noteLine: null };
+      t.list.push(entry);
+    }
+    if (!entry.text && text) {
+      entry.text = text;
+      entry.noteLine = noteLine;
+    }
+    if (entry.line === null && line !== null) {
+      entry.line = line;
+    }
+  };
   const listed = (lineNo, code, impact) => {
     if (a.uninterpreted.length < 50) {
       a.uninterpreted.push({ line: lineNo, code, impact });
     }
   };
 
-  for (let i = 0; i < lines.length; i++) {
-    const lineNo = i + 1;
-    const raw = lines[i];
+  for (const raw of walkLines(gcode)) {
+    const lineNo = ++a.lines;
     const code = clean(raw);
+    if (raw.indexOf('(') >= 0 || raw.indexOf(';') >= 0) {
+      commentsOf(raw).forEach((comment) => {
+        const note = toolNote(comment);
+        if (note) {
+          tool(note.number, note.text, null, lineNo);
+        }
+      });
+    }
     if (!code || code === '%') {
       continue;
     }
@@ -181,6 +314,7 @@ export const analyzeProgram = (gcode) => {
     if (/^%/.test(code) || /[[\]#]/.test(code)) {
       a.timing.supported = false;
       a.unsafeOverride = true;
+      a.spinUp.opaque = a.spinUp.opaque || (timed && !st.entered);
       st.machineUnitsKnown = false;
       listed(lineNo, raw.trim().slice(0, 40), true);
       AXES.forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_MACRO', { line: lineNo }, 'Macro ou expression CNCjs à la ligne ' + lineNo + ' : contenu non prévisible.')));
@@ -191,6 +325,7 @@ export const analyzeProgram = (gcode) => {
     if (/^\$/.test(code) || !sameWithoutSpaces(code)) {
       a.timing.supported = false;
       a.unsafeOverride = a.unsafeOverride || /^\$/.test(code);
+      a.spinUp.opaque = a.spinUp.opaque || (timed && !st.entered);
       st.machineUnitsKnown = false;
       listed(lineNo, raw.trim().slice(0, 40), true);
       AXES.forEach((axis) => unknown(axis, reason('ETOUCH_CHECK_SYNTAX', { line: lineNo }, 'Ligne ' + lineNo + ' lue autrement par la carte (espace dans un nombre, ou commande $) : non interprétée.')));
@@ -218,12 +353,45 @@ export const analyzeProgram = (gcode) => {
       if (g.includes(94)) {
         timingMode = 'G94';
       }
+      // N1: Grbl starts the spindle before the dwell and the motion of the same line. A stop
+      // before the first entry cancels the start: the next one counts. The spindle only turns
+      // at its setpoint from the last M3/M4 or the last change of S, whichever comes last:
+      // the time is counted from there. S0: not started (no start line); no S in the file
+      // yet: the setpoint is the machine's, no time is counted (start line kept, no mark).
+      if (!st.entered) {
+        const setpoint = at('S');
+        const changed = setpoint !== null && setpoint !== st.speed;
+        const started = m.includes(3) || m.includes(4);
+        if (setpoint !== null) {
+          st.speed = setpoint;
+        }
+        if (m.includes(5)) {
+          st.spinning = false;
+          st.spinMark = null;
+          a.spinUp.startLine = null;
+        }
+        if (started) {
+          st.spinning = true;
+        }
+        if (st.spinning && (started || changed)) {
+          st.spinMark = st.speed > 0 ? spin.mark() : null;
+          a.spinUp.startLine = st.speed === 0 ? null : lineNo;
+          a.spinUp.dwell = 0;
+          a.spinUp.feedInherited = false;
+        }
+      }
       if (g.includes(4)) {
         const seconds = at('P');
         if (seconds === null || seconds < 0 || ['X', 'Y', 'Z'].some((axis) => at(axis) !== null)) {
           a.timing.supported = false;
         } else {
-          a.timing.dwell += seconds;
+          time.dwell(seconds, lineNo);
+          if (!st.entered) {
+            spin.dwell(seconds, lineNo);
+            if (st.spinMark) {
+              a.spinUp.dwell += seconds;
+            }
+          }
         }
       }
       if (m.includes(2) || m.includes(30)) {
@@ -246,6 +414,16 @@ export const analyzeProgram = (gcode) => {
         a.spindle.m4Line = lineNo;
       }
     });
+    const toolWord = at('T');
+    if (toolWord !== null && Number.isInteger(toolWord) && toolWord >= 0) {
+      tool(toolWord, '', lineNo, null);
+    }
+    if (m.includes(6)) {
+      a.tools.changes += 1;
+      if (a.tools.changeLine === null) {
+        a.tools.changeLine = lineNo;
+      }
+    }
     const speed = at('S');
     if (speed !== null && (a.spindle.sMax === null || speed > a.spindle.sMax)) {
       a.spindle.sMax = speed;
@@ -469,12 +647,37 @@ export const analyzeProgram = (gcode) => {
         }
       }
     }
+    if (timed && !st.entered) {
+      // N1: the first entry into the material is the first move that ends below the work zero,
+      // or the first feed move that goes down (or whose height is not known): the earliest of
+      // the two readings of the work zero (top of the stock, spoilboard). Counted up to the
+      // start of that move, before the tool reaches the material: never too long.
+      const feedMove = st.motion !== 'G0';
+      const down = pos.Z === null || (start.Z === null ? at('Z') !== null : pos.Z < start.Z);
+      if ((pos.Z !== null && pos.Z < 0) || (feedMove && down)) {
+        st.entered = true;
+        a.spinUp.entryLine = lineNo;
+        if (st.spinMark) {
+          const now = spin.mark();
+          a.spinUp.seconds = now.seconds - st.spinMark.seconds;
+          a.spinUp.atLeast = now.pending > st.spinMark.pending;
+          // Every line understood (the duration model's own flag) and every move timed.
+          a.spinUp.supported = now.supported && time.mark().supported;
+        }
+      } else if (st.spinMark && feedMove && timingMode === null) {
+        a.spinUp.feedInherited = true;
+      }
+    }
     if (timed && a.timing.supported) {
-      if (a.timing.moves.length >= 20000 || (arc && arcLength === null)) {
+      if (arc && arcLength === null) {
         a.timing.supported = false;
-        a.timing.moves = [];
       } else {
-        a.timing.moves.push({ start, end: { ...pos }, rapid: st.motion === 'G0', feed: timingFeed, mode: timingMode, arcLength });
+        const move = { start, end: { ...pos }, rapid: st.motion === 'G0', feed: timingFeed, mode: timingMode, arcLength };
+        time.move(move, lineNo);
+        // The entry move itself is not counted (st.entered is already set for it).
+        if (!st.entered) {
+          spin.move(move, lineNo);
+        }
       }
     }
     AXES.forEach((axis) => {
@@ -491,6 +694,10 @@ export const analyzeProgram = (gcode) => {
     a.zMin = a.extent.Z.min;
     a.zMax = a.extent.Z.max;
   }
+  time.finish(a.lines);
+  // Retain only a reference to the exact source (the sender already keeps it).
+  // Rebuild solely when the rates/overrides at a new start differ from the load profile.
+  time.timing.rebuild = rebuildTiming(gcode);
   return a;
 };
 
@@ -539,6 +746,35 @@ const laserCheck = (analysis, laser) => {
     reasons: reasons.map((r) => r.message),
     codedReasons: reasons
   };
+};
+
+// N1, display only: the time the spindle has between its start and the first entry into the
+// material. `computed` carries the model's seconds (a lower bound when `atLeast`: the approach
+// from the start position is not counted), at rapids 100 % and feed at least 100 % whatever the
+// overrides at load; `unknown` whenever the duration model could not follow the program up to
+// there or the file starts the spindle without any S setpoint, never a guessed figure; and
+// `noStart` only when every line up to the entry was read (a line that was not may hold the
+// start). No verdict, no guard reads it.
+const spinUpOf = (analysis, modal) => {
+  const s = analysis.spinUp;
+  if (!s) {
+    return null;
+  }
+  const lines = { startLine: s.startLine, entryLine: s.entryLine };
+  if (s.entryLine === null) {
+    return { state: 'noEntry', ...lines };
+  }
+  if (s.startLine === null) {
+    return { state: s.opaque ? 'unknown' : 'noStart', ...lines };
+  }
+  const followed = s.supported && Number.isFinite(s.seconds) && !analysis.relativeStart &&
+    !(analysis.rawUnits && !(modal && modal.units === 'G21')) &&
+    !(analysis.distance === null && !(modal && modal.distance === 'G90')) &&
+    !(s.feedInherited && !(modal && modal.feedMode === 'G94'));
+  if (!followed) {
+    return { state: 'unknown', ...lines };
+  }
+  return { state: 'computed', seconds: Math.round(s.seconds * 1000) / 1000, dwell: Math.round(s.dwell * 1000) / 1000, atLeast: s.atLeast, ...lines };
 };
 
 // How far past the usable bound, in mm, rounded up to the tenth: raising the stock (or moving the
@@ -805,7 +1041,11 @@ export const checkProgram = (analysis, machine = {}) => {
     // D1: the proven overruns ({ code, params, message }), empty when there is none; whether the
     // start may still be confirmed deliberately (the board's soft limits on, $20=1).
     blocking,
-    overridable: softLimits === 1 && !analysis.unsafeOverride
+    overridable: softLimits === 1 && !analysis.unsafeOverride,
+    // N1: display-only data (tools named by the file, spindle spin-up time). They take no part
+    // in the verdict above, in `blocking` or in any guard; a laser has no spin-up.
+    tools: analysis.tools || { list: [], truncated: false, changes: 0, changeLine: null },
+    spinUp: machine.laser ? null : spinUpOf(analysis, modal)
   };
   if (machine.laser) {
     out.laser = laserCheck(analysis, machine.laser);

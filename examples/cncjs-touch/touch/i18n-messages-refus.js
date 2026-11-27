@@ -737,3 +737,33 @@
   Object.keys(codes).forEach(function(code){data.codes[code]=codes[code];});
   window.CNCTouchMessages=(window.CNCTouchMessages||[]).concat(families.map(function(row){return row.slice(1,4);}));
 })();
+/* Lot P4 (lightened): one cause after a restart or an alarm, error:15 while not homed, the stored work zero. */
+window.CNCTouchMessages=(window.CNCTouchMessages||[]).concat([
+  ["La machine a redémarré : sa position est perdue. Faites la prise d’origine.","The machine restarted: its position is lost. Home the machine.","La máquina se ha reiniciado: ha perdido su posición. Busque el origen."],
+  ["Après une alarme, la position de la machine est perdue. Faites la prise d’origine.","After an alarm, the machine position is lost. Home the machine.","Tras una alarma, la máquina ha perdido su posición. Busque el origen."],
+  ["Position perdue : la machine croit être ailleurs. Faites la prise d’origine.","Position lost: the machine thinks it is somewhere else. Home the machine.","Posición perdida: la máquina cree estar en otro sitio. Busque el origen."],
+  ["Zéro pièce : enregistré dans la machine, il revient après la prise d’origine.","Work zero: stored in the machine, it comes back after homing.","Cero pieza: guardado en la máquina, vuelve tras buscar el origen."],
+  ["Zéro pièce : celui enregistré dans la machine. Vérifiez-le avant l’usinage : « Cadrer à vide… » sur 4 · Contrôle.","Work zero: the one stored in the machine. Check it before machining: “Frame in the air…” on 4 · Check.","Cero pieza: el guardado en la máquina. Compruébelo antes del mecanizado: «Encuadrar en vacío…» en 4 · Control."],
+  ["Zéro pièce : celui enregistré dans la machine. Vérifiez-le avant la gravure : « Cadrer… » sur 4 · Contrôle.","Work zero: the one stored in the machine. Check it before engraving: “Frame…” on 4 · Check.","Cero pieza: el guardado en la máquina. Compruébelo antes del grabado: «Encuadrar…» en 4 · Control."]
+]);
+/* Lot C1 (position carried by the report itself, dated spindle proof): families and codes, appended here. */
+(function(){
+  'use strict';
+  var data=window.CNCTouchRefus;
+  var families=[
+    ["position-non-confirmee","La machine n’a pas encore confirmé sa position. Attendez un instant.","The machine has not confirmed its position yet. Wait a moment.","La máquina aún no ha confirmado su posición. Espere un momento.","details"],
+    ["broche-commandee","La broche est commandée : arrêtez-la d’abord.","The spindle is commanded on: stop it first.","El husillo está activado: párelo primero.","arreter-broche"],
+    ["broche-inconnue","La machine ne dit pas si la broche est arrêtée. Attendez, ou arrêtez la broche.","The machine does not say whether the spindle has stopped. Wait, or stop the spindle.","La máquina no indica si el husillo está parado. Espere o pare el husillo.","arreter-broche"]
+  ];
+  Array.prototype.push.apply(data.familles,families);
+  var codes={
+    "ETOUCH_MOTION_NO_POSITION":"position-non-confirmee",
+    "ETOUCH_MOTION_SPINDLE_COMMANDED":"broche-commandee",
+    "ETOUCH_MOTION_SPINDLE_UNKNOWN":"broche-inconnue",
+    "ETOUCH_PLATE_SPINDLE":"palpage-arrete",
+    "ETOUCH_PLATE_POSITION":"palpage-arrete",
+    "ETOUCH_PROBE_SPINDLE":"palpage-arrete"
+  };
+  Object.keys(codes).forEach(function(code){data.codes[code]=codes[code];});
+  window.CNCTouchMessages=(window.CNCTouchMessages||[]).concat(families.map(function(row){return row.slice(1,4);}));
+})();

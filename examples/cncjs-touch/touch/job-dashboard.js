@@ -295,7 +295,7 @@
       }
       progressKnown=runP!==null;
       if(progressKnown)p=runP;
-      // No duration model (a program beyond the timing walk's 20000 moves): count the acknowledged lines
+      // When the duration model refuses the program, fall back to acknowledged lines
       // of a long file, where the few lines Grbl holds in its planner weigh less than one percent.
       if(!progressKnown&&jp&&jp.durationSeconds===null&&(c.workflow==='running'||c.workflow==='paused')){
         var lt=linesTotal(c);

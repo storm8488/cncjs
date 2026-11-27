@@ -234,7 +234,7 @@ assert.equal(model.compensate('Z', -119.565, p({ thickness: 5 }), 6), -124.565);
   }
   // The server's answers and reasons of the block probe (§ 2.3, § 2.8) are catalog phrases.
   for (const s of ['Palpage au bloc : machine au repos uniquement, sans programme en cours ni en pause.', 'Palpage interrompu. Vérifiez l’immobilisation ; origine de travail inchangée.',
-    'Pause pendant un palpage : palpage interrompu, il ne se reprend pas. Origine de travail inchangée.', 'Arrêt broche pendant un palpage : palpage interrompu, carte réinitialisée. Origine de travail inchangée.', 'Origine G55 réglée par palpage XYZ.']) {
+    'Pause pendant un palpage : palpage interrompu, il ne se reprend pas. Origine de travail inchangée.', 'Arrêt broche pendant un palpage : palpage interrompu, réinitialisation de la carte demandée. Origine de travail inchangée.', 'Origine G55 réglée par palpage XYZ.']) {
     assert.notEqual(en.cncI18n.message(s), s, 'EN: ' + s);
   }
   assert.equal(es.cncI18n.message('Origine G54 réglée par palpage Z.'), 'Origen G54 ajustado por sondeo Z.');
