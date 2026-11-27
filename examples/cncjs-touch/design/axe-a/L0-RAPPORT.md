@@ -10,10 +10,10 @@ Un programme qui contient un mot A, B ou C est maintenant **signalé**, et il n'
 
 | Fichier | Changement |
 |---|---|
-| `src/server/services/touch/program-check.js` | `rotaryLetters(code)` : les lettres A, B, C qu'une ligne commande, lue comme la carte la lit (commentaires retirés, espaces retirés) ; une ligne `$…` ne compte jamais. `analyzeProgram` note `rotary = { letters, line, count }` (lettres vues, première ligne, nombre de lignes) **seulement si le fichier en contient**. `checkProgram` ajoute alors une entrée codée `ETOUCH_ROTARY_UNCHECKED` dans `info` et recopie `rotary`. Aucune raison d'axe, aucune enveloppe, aucun `blocking`, aucun verdict n'en dépend. |
+| `src/server/services/touch/program-check.js` | `rotaryLetters(code)` : les lettres A, B, C qu'une ligne commande, lue comme la carte la lit (commentaires retirés, espaces retirés) ; une ligne `%…` ou une commande `$` autre que `$J=` ne compte jamais (corrigé après relecture, voir plus bas). `analyzeProgram` note `rotary = { letters, line, count }` (lettres vues, première ligne, nombre de lignes) **seulement si le fichier en contient**. `checkProgram` ajoute alors une entrée codée `ETOUCH_ROTARY_UNCHECKED` dans `info` et recopie `rotary`. Aucune raison d'axe, aucune enveloppe, aucun `blocking`, aucun verdict n'en dépend. |
 | `src/server/services/touch/resume.js` | `buildResume` refuse (`ETOUCH_RESUME_ROTARY`, 409) dès qu'une ligne du fichier, avant ou après la ligne choisie, porte un tel mot. `buildResume` sert à l'aperçu et au chargement (`job-load.js:162`, `:220`) : les deux sont couverts. |
 
-Ne comptent pas : une lettre dans un commentaire `( … )` ou après `;`, même imbriqué ; `(MSG, …)` ; `G4 P…`, `M3 S…`, `T1 M6`, les mots d'arc I J K R ; une ligne `$J=…` ou `$103=…` ; une lettre sans nombre. Le champ accessoires `A:` des rapports n'est pas concerné : L0 ne lit que le texte des programmes.
+Ne comptent pas : une lettre dans un commentaire `( … )` ou après `;`, même imbriqué ; `(MSG, …)` ; `G4 P…`, `M3 S…`, `T1 M6`, les mots d'arc I J K R ; une ligne `$103=…`, `$H` ; une directive `%…` ; une lettre sans nombre. **Une ligne `$J=… A…` compte** (corrigé après relecture). Le champ accessoires `A:` des rapports n'est pas concerné : L0 ne lit que le texte des programmes.
 
 ### Page
 
@@ -36,14 +36,14 @@ La phrase longue du serveur (lettres, première ligne, « Seuls X, Y et Z sont v
 ## Preuve que rien ne change pour un fichier sans A, B, C
 
 1. **Clé absente.** `rotary` et l'entrée `info` n'existent que si le fichier a un tel mot : l'analyse et le contrôle d'un fichier X Y Z sont les mêmes objets qu'avant.
-2. **Avant / après sur le corpus.** `__tests__/support/axis-a-l0-baseline.json` : une empreinte par fichier de `gcode-corpus` (28 programmes), calculée **sur le code d'avant L0** (commit `e574a298`, modifications mises de côté le temps du calcul). L'empreinte couvre l'analyse complète, le contrôle sur trois machines et, pour chaque ligne, le programme de reprise ou son refus. Le test recalcule ces empreintes sur le code actuel : identiques.
+2. **Avant / après sur le corpus.** `__tests__/support/axis-a-l0-baseline.json` : une empreinte par fichier de `gcode-corpus` (28 programmes, plus 5 programmes ajoutés après relecture), calculée **sur le code d'avant L0** (commit `e574a298`, modifications mises de côté le temps du calcul). L'empreinte couvre l'analyse complète, le contrôle sur trois machines et, pour chaque ligne, le programme de reprise ou son refus. Le test recalcule ces empreintes sur le code actuel : identiques.
 3. **Suites existantes** : aucune attente retouchée. Un seul test ajouté dans un fichier existant (`job-service.test.js`).
 
 ## Tests
 
 | Suite | Résultat |
 |---|---|
-| `npx jest src/server/services/touch src/server/services/cncengine src/server/api grbl-simulator --coverage=false` | 66 suites, 1956 tests, tous passent (dont 33 de `axis-a-l0.test.js` et 1 ajouté à `job-service.test.js`). |
+| `npx jest src/server/services/touch src/server/services/cncengine src/server/api grbl-simulator --coverage=false` | 66 suites, 1974 tests, tous passent après les corrections (dont 48 de `axis-a-l0.test.js` et 4 ajoutés à `job-service.test.js`). |
 | `node examples/cncjs-touch/verify-project.cjs` | 235 / 235 (dont `test-axis-a-l0.cjs`, ajouté à sa liste). |
 | ESLint sur les fichiers `src/server` touchés | Aucune erreur. |
 | `node examples/cncjs-touch/browser-run.cjs --strict --only e2e,v2` | Voir « Harnais de navigateur » ci-dessous. |
@@ -75,11 +75,35 @@ Ce que `axis-a-l0.test.js` prouve, par les vraies fonctions :
 4. **Phrases.** Plus courtes que celles de la conception, et par les familles de refus existantes (règle de 90 caractères, pas de terme technique, test `test-refus-table.cjs`).
 5. **Barre du bas.** L'avertissement n'y remplace « Tout est prêt » que si rien d'autre n'est à dire ; sinon il est dans la carte « Verdict », juste au-dessus.
 
+## Après les relectures du code
+
+Avis d'Astra n° 3 (`AXE-A-AVIS-ASTRA-3.md`, « à revoir ») et relecture du code (« à corriger »). Chaque correction a un test qui échouait sur le code d'avant et passe maintenant. **Aucun calcul X Y Z n'a changé** : les 28 empreintes du corpus sont identiques.
+
+| Point | Défaut | Correction | Test |
+|---|---|---|---|
+| 1, bloquant | `$J=G90 A90 F100` dans un programme : ni avertissement, ni refus de reprise (toute ligne `$` était exclue). Un de mes tests imposait ce faux négatif. | `rotaryLetters` retire les espaces, lit le corps d'une ligne `$J=`, ignore les autres commandes `$`. `resume.js` l'utilise sans changement. | `axis-a-l0.test.js` : `$J=` en G90, en G91, en minuscules avec espaces ; reprise refusée avant, sur, après la ligne. `job-service.test.js` : aperçu **et** chargement refusés, rien envoyé au contrôleur. Attente fausse corrigée. |
+| 2 | `G0 X[1+1] A90`, `G0 A90 F[100]`, `G0 A[1+2]`, `G0 A#1` : « non vérifié » sans avertissement rotatif. | La détection est faite avant le classement « ligne opaque ». Le contenu de `[…]` et de `#<…>` est retiré sans être évalué ; une lettre A, B, C suivie de `[` ou `#` compte. Classement, raisons et verdict de ces lignes : inchangés (testé). | Sept cas ajoutés ; `G0 X[a1 + 2] Y#<b2>` et `%B2 = [posa + 1]` ne sont pas signalés. |
+| 3 | `%A1=5` dans un fichier sans mot d'axe : reprise refusée avec la phrase de l'axe rotatif, fausse. | Une ligne commençant par `%` ne compte jamais. | Même issue qu'avec `%X1=5` ; et l'empreinte du programme `extra-percent.nc`. |
+| 4 | `ui-2027.css:475` rendait la phrase grise dans la confirmation de départ. | Règle plus précise `.ks-ui .job-dialog-card p.check-rotary`. | `test-axis-a-l0.cjs` : la règle existe, suit la règle générale, porte l'ambre. C'est un contrôle du texte de la feuille de style, pas une mesure de couleur dans un navigateur. |
+
+**Empreintes élargies.** Cinq programmes sans mot rotatif ont été ajoutés à la référence, leurs empreintes calculées sur le code du commit `e574a298` : directives et affectations `%`, expressions, `$J=` sur X Y Z, commandes de la carte (`$H`, `$X`, `$103=`), `/` en tête de ligne. Le défaut n° 3 faisait échouer l'une d'elles avant correction.
+
+**Portée de cette preuve.** Les empreintes couvrent ce que rendent l'analyse, le contrôle (trois machines) et la reprise (chaque ligne : programme reconstruit, ou code et paramètres du refus) pour ces 33 programmes. Elles ne prouvent ni les décisions du service (départ, tickets), ni le rendu de la page. Les gardes de départ n'ont pas été touchées et ne lisent pas les données nouvelles.
+
+**Installation.** La version de cache de la page (`v2v`) n'a pas été changée par ce lot : après installation, le kiosque doit être rechargé de force (ou redémarré), sinon il garde l'ancienne page. C'est écrit en tête du protocole.
+
+**Laissé tel quel, noté seulement.**
+
+- Plusieurs lettres : la phrase dit « l'axe A, B ».
+- Les lignes après `M2` / `M30` sont comptées (prudence voulue : un sous-programme peut s'y trouver).
+- Le rendu réel (débordement, couleur) n'est vérifié par aucun navigateur pour ces deux lignes : à voir sur la tablette, sans départ.
+
+Suites après corrections : Jest 66 suites, 1974 tests ; `verify-project.cjs` 235 / 235 ; ESLint sans erreur. Le harnais de navigateur n'a pas été relancé après ces corrections (une règle CSS et le détecteur du serveur).
+
 ## Non fait, non vérifié
 
 - **Aucun essai sur la tablette** (Chromium du kiosque, lisibilité réelle, place dans la carte à 1366 × 911) : protocole « L0 axe A » de `../refonte/PROTOCOLE-ESSAI.md`, sans mouvement, sans lancer le programme.
 - **2 · Fichier** (avant chargement) ne montre pas l'avertissement : il paraît à 4 · Contrôle, une fois le fichier chargé, et à la confirmation de départ. À décider si on le veut plus tôt.
 - **5 · Usinage** ne le redit pas pendant le travail.
 - L'ancienne interface (page v1 « Éco » de la RT laser) n’a pas été regardée à part.
-- Un mot A dans une expression CNCjs (`[…]`) ou une macro n'est pas étudié ; ces lignes sont déjà traitées comme opaques.
 - L0 ne dit rien de la carte : aucune lecture, aucun réglage. L1 à L4 restent à faire (conception § 2 et § 3).

@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { analyzeProgram, checkProgram, programCheck, rotaryLetters, codeOf } from '../program-check';
 import { buildResume } from '../resume';
-import { CORPUS, corpusFiles, corpusDigests, outcomeOf } from './support/axis-a-l0-digest';
+import { CORPUS, EXTRA, corpusFiles, corpusDigests, outcomeOf } from './support/axis-a-l0-digest';
 import { expectCatalogMatch } from './touch-codes-catalog';
 
 const baseline = require('./support/axis-a-l0-baseline.json');
@@ -79,7 +79,15 @@ describe('lot L0: the rotary warning stays apart from the X, Y, Z check', () => 
     ['lower case, no space', 'g21 g90\ng0x1a90\n', { letters: 'A', line: 2, count: 1 }, 'A'],
     ['spaces inside the word, as the board reads it', 'G21 G90\nG0 A 9 0\n', { letters: 'A', line: 2, count: 1 }, 'A'],
     ['inverse time feed', 'G21 G90 G93\nG1 X10 A90 F2\n', { letters: 'A', line: 2, count: 1 }, 'A'],
-    ['G10 with A', 'G21 G90\nG10 L20 P1 A0\nG0 X1\n', { letters: 'A', line: 2, count: 1 }, 'A']
+    ['G10 with A', 'G21 G90\nG10 L20 P1 A0\nG0 X1\n', { letters: 'A', line: 2, count: 1 }, 'A'],
+    // After the code reviews: a jog line is a move, and an expression does not hide the word.
+    ['a jog line, absolute', 'G21 G90\nG0 X1\n$J=G90 A90 F100\n', { letters: 'A', line: 3, count: 1 }, 'A'],
+    ['a jog line, relative', 'G21 G90\n$J=G91 G21 B-5 F100\n', { letters: 'B', line: 2, count: 1 }, 'B'],
+    ['a jog line, lower case and spaces', 'G21 G90\n$j = g91 a 10 f100\n', { letters: 'A', line: 2, count: 1 }, 'A'],
+    ['an expression on X next to an A word', 'G21 G90\nG0 X[1+1] A90\n', { letters: 'A', line: 2, count: 1 }, 'A'],
+    ['an expression on F after an A word', 'G21 G90\nG0 A90 F[100]\n', { letters: 'A', line: 2, count: 1 }, 'A'],
+    ['an expression as the A value', 'G21 G90\nG0 A[1+2]\n', { letters: 'A', line: 2, count: 1 }, 'A'],
+    ['a variable as the A value', 'G21 G90\nG0 X1 C#1\n', { letters: 'C', line: 2, count: 1 }, 'C']
   ])('%s is told, first line and letters', (name, text, rotary, axis) => {
     const check = programCheck(text, machine());
     expect(check.rotary).toEqual(rotary);
@@ -94,7 +102,9 @@ describe('lot L0: the rotary warning stays apart from the X, Y, Z check', () => 
     ['nested comments', 'G21 G90\n(outer (A12) C3)\nG0 X1\n'],
     ['a message comment', 'G21 G90\n(MSG, turn the part to A90)\nG0 X1\n'],
     ['a dwell, a spindle speed, a tool change', 'G21 G90\nG4 P2\nM3 S1000\nT1 M6\nG0 X1\n'],
-    ['a board command', 'G21 G90\n$J=G91 A10 F100\n$103=26.667\n'],
+    ['board commands that move no rotary axis', 'G21 G90\n$J=G91 X10 F100\n$103=26.667\n$H\n$X\n$A\n'],
+    ['CNCjs directives and assignments', 'G21 G90\n%wait\n%A1=5\n%msg turn to A90\n%B2 = [posa + 1]\nG0 X1\n'],
+    ['a letter inside an expression', 'G21 G90\nG0 X[a1 + 2] Y#<b2>\n'],
     ['letters without a number', 'G21 G90\nG0 X1\nM30\n%\n'],
     ['arc words', 'G21 G90 G17\nG0 X0 Y0\nG2 X10 Y0 I5 J0 F100\nG3 X0 Y0 R5\n']
   ])('%s is not a rotary word: nothing is added', (name, text) => {
@@ -108,7 +118,13 @@ describe('lot L0: the rotary warning stays apart from the X, Y, Z check', () => 
   test('rotaryLetters reads one line without its comments', () => {
     expect(rotaryLetters(codeOf('G1 X1 A2 (B3)'))).toBe('A');
     expect(rotaryLetters(codeOf('g0 c1 b2 a3'))).toBe('ABC');
-    expect(rotaryLetters(codeOf('$J=G91 A10 F100'))).toBe('');
+    expect(rotaryLetters(codeOf('$J=G91 A10 F100'))).toBe('A');
+    expect(rotaryLetters(codeOf('$j = g91 a 10 f100'))).toBe('A');
+    expect(rotaryLetters(codeOf('$J=G91 X10 F100'))).toBe('');
+    expect(rotaryLetters(codeOf('$103=26.667'))).toBe('');
+    expect(rotaryLetters(codeOf('%A1=5'))).toBe('');
+    expect(rotaryLetters(codeOf('G0 A[1+2] B#1'))).toBe('AB');
+    expect(rotaryLetters(codeOf('G0 X[a1+2]'))).toBe('');
     expect(rotaryLetters(codeOf('G0 X1 Y2 Z3'))).toBe('');
     expect(rotaryLetters(codeOf('A'))).toBe('');
   });
@@ -145,6 +161,36 @@ describe('lot L0: no resume from a line for a program that turns a rotary axis',
     expect(err.message).toContain('Reprise à une ligne impossible');
   });
 
+  test('an expression keeps the verdict and the reasons the line had, plus the warning', () => {
+    const plainCheck = programCheck('G21 G90\nG0 X[1+1]\n', machine());
+    const turning = programCheck('G21 G90\nG0 X[1+1] A90\n', machine());
+    expect(turning.verdict).toBe(plainCheck.verdict);
+    expect(turning.codedReasons).toEqual(plainCheck.codedReasons);
+    expect(turning.axes).toEqual(plainCheck.axes);
+    expect(turning.overridable).toBe(plainCheck.overridable);
+  });
+
+  // A jog line in a program is a move the resume does not replay: before, on and after the line.
+  test.each([
+    ['before the line, absolute', 3, '$J=G90 A90 F100', 4],
+    ['on the line, relative', 6, '$J=G91 A90 F100', 7],
+    ['after the line, relative', 8, '$J=G91 A90 F100', 9],
+    ['lower case and spaces', 3, '$j = g91 a 10 f100', 4]
+  ])('refused for a jog line %s', (name, index, jog, line) => {
+    const lines = plain.slice(0, index).concat([jog], plain.slice(index));
+    const err = refusal(lines, 7);
+    expect(err).not.toBe(null);
+    expect([err.code, err.params]).toEqual(['ETOUCH_RESUME_ROTARY', { axis: 'A', line }]);
+  });
+
+  test('a CNCjs assignment named A keeps the refusal, or the resume, it had', () => {
+    const named = (name) => plain.slice(0, 2).concat(['%' + name + '1=5'], plain.slice(2));
+    const a = refusal(named('A'), 7);
+    const x = refusal(named('X'), 7);
+    expect(a && a.code).toBe(x && x.code);
+    expect(a === null || a.code !== 'ETOUCH_RESUME_ROTARY').toBe(true);
+  });
+
   test('a rotary letter in a comment does not refuse the resume', () => {
     expect(refusal(withWord(2, '(A0)'), 7)).toBe(null);
     expect(refusal(withWord(8, '; A90'), 7)).toBe(null);
@@ -166,6 +212,9 @@ describe('lot L0: nothing changes for a program without A, B or C', () => {
 
   test('the corpus has no rotary word (else the baseline below would not apply to that file)', () => {
     expect(texts.length).toBeGreaterThan(20);
+    Object.keys(EXTRA).forEach((name) => {
+      expect([name, EXTRA[name].map((line) => rotaryLetters(codeOf(line))).filter(Boolean)]).toEqual([name, []]);
+    });
     texts.forEach(([name, text]) => {
       const lines = text.split('\n').map((line) => rotaryLetters(codeOf(line)));
       expect([name, lines.filter(Boolean)]).toEqual([name, []]);

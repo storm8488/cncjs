@@ -35,10 +35,23 @@ export const outcomeOf = (text) => {
 
 export const digestOf = (text) => crypto.createHash('sha256').update(JSON.stringify(outcomeOf(text))).digest('hex');
 
+// Programs the shared corpus lacks, none with a rotary word: CNCjs directives and assignments
+// (`%`), expressions, `$J=` on X, Y, Z, board commands, block delete. Same baseline, same proof.
+export const EXTRA = {
+  'extra-percent.nc': ['G21 G90 G94', '%wait', '%A1=5', '%msg turn to A90', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F100', 'G1 X10 F300', 'G1 X20', 'G0 Z5', 'M2'],
+  'extra-expression.nc': ['G21 G90 G94', 'G0 Z5', 'G0 X[1+1] Y0', 'G1 Z-1 F[100]', 'G1 X#1', 'G1 X5 F300', 'G0 Z5', 'M2'],
+  'extra-jog-xyz.nc': ['G21 G90 G94', 'G0 Z5', 'G0 X0 Y0', '$J=G91 X5 F100', '$j = g91 y 5 f100', 'G1 Z-1 F100', 'G1 X10 F300', 'G1 X20', 'G0 Z5', 'M2'],
+  'extra-board-commands.nc': ['$H', 'G21 G90 G94', 'G0 Z5', 'G0 X0 Y0', '$X', '$103=26.667', 'G1 Z-1 F100', 'G1 X10 F300', 'G0 Z5', 'M2'],
+  'extra-block-delete.nc': ['G21 G90 G94', 'G0 Z5', '/G0 X50', 'G0 X0 Y0', 'G1 Z-1 F100', 'G1 X10 F300', 'G0 Z5', 'M2']
+};
+
 export const corpusDigests = () => {
   const out = {};
   corpusFiles().forEach((name) => {
     out[name] = digestOf(fs.readFileSync(path.join(CORPUS, name), 'utf8'));
+  });
+  Object.keys(EXTRA).forEach((name) => {
+    out[name] = digestOf(EXTRA[name].join('\n') + '\n');
   });
   return out;
 };

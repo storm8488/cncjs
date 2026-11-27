@@ -50,6 +50,15 @@ for (const language of ['fr', 'en', 'es']) {
   assert.equal(cause(), ready, language + ': a file without A, B or C reads as before');
 }
 
+// Colour: the generic paragraph rule of the confirmation card (grey) must not win over the amber.
+{
+  const css = fs.readFileSync(path.join(__dirname, 'touch/ui-2027.css'), 'utf8');
+  const generic = css.indexOf('.ks-ui .job-dialog-card p{'), own = css.indexOf('.ks-ui .job-dialog-card p.check-rotary{');
+  assert(generic >= 0 && own > generic, 'a more specific rule for p.check-rotary follows the generic one');
+  assert(/color:var\(--warn-text\)/.test(css.slice(own, css.indexOf('}', own))), 'amber in the start confirmation');
+  assert(/\.check-rotary\{color:var\(--warn-text\)/.test(fs.readFileSync(path.join(__dirname, 'touch/files-touch.css'), 'utf8')), 'amber in the Control card');
+}
+
 // Start confirmation.
 (async () => {
   for (const language of ['fr', 'en', 'es']) {

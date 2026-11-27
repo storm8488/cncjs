@@ -1608,6 +1608,24 @@ describe('job service', () => {
       expect('rotary' in plain).toBe(false);
     });
 
+    // Axis A, lot L0, after the code reviews: a jog line ($J=) that turns A is a move like another.
+    test.each([
+      ['before the line, absolute', 2, '$J=G90 A90 F100', 3],
+      ['on the line, relative', 6, '$J=G91 A90 F100', 7],
+      ['after the line, lower case and spaces', 8, '$j = g91 a 10 f100', 9]
+    ])('a jog line that turns A, %s, refuses the preview and the load from a line', async (name, index, jog, line) => {
+      const ctx = setup();
+      const lines = ['G21 G90 G94', 'M3 S9000', 'G0 Z5', 'G0 X0 Y0', 'G1 Z-1 F200', 'G1 X10 F800', 'G1 Y10', 'G1 X0', 'G0 Z5', 'M5', 'M30'];
+      await fs.writeFile(path.join(root, 'rotary-jog.nc'), lines.slice(0, index).concat([jog], lines.slice(index)).join('\n'));
+      ctx.report();
+      const refused = (promise) => promise.then(() => null, (err) => err);
+      expect(await refused(ctx.req('resumePlan', { file: 'rotary-jog.nc', line: 7 }))).toMatchObject({ code: 'ETOUCH_RESUME_ROTARY', params: { axis: 'A', line } });
+      expect(await refused(ctx.req('load', { file: 'rotary-jog.nc', fromLine: 7 }))).toMatchObject({ code: 'ETOUCH_RESUME_ROTARY', params: { axis: 'A', line } });
+      expect(ctx.c.commands).toEqual([]);
+      await ctx.req('load', { file: 'rotary-jog.nc' });
+      expect(ctx.state().programCheck.rotary).toEqual({ letters: 'A', line, count: 1 });
+    });
+
     test('the line where a job was stopped is kept, in the numbering of the original file', async () => {
       const ctx = setup();
       await started(ctx);

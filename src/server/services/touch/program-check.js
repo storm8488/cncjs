@@ -104,12 +104,25 @@ const fmt = (n) => String(Math.round(n * 1000) / 1000);
 
 // Axis A, lot L0 (design/axe-a/AXE-A-CONCEPTION.md): the rotary axis letters (A, B, C) a line
 // commands, as the board reads it (spaces dropped), in that order; '' when none. `code` is a
-// line without its comments (codeOf). A `$` line is a board command, not G-code: never counted.
+// line without its comments (codeOf).
+//   `%…`    a CNCjs directive or assignment (`%A1=5`, `%msg …`): never G-code, never counted;
+//   `$J=…`  a jog: a move like another, its body is read; any other `$` line is a board
+//           command ($103=…, $H): never counted;
+//   an expression or a variable is not evaluated: what stands inside `[…]` or `#<…>` is dropped,
+//   and a letter whose value is one (`A[1+2]`, `A#1`) counts like `A90`.
 export const rotaryLetters = (code) => {
-  if (/^\$/.test(code)) {
+  let packed = code.replace(/\s+/g, '');
+  if (/^%/.test(packed)) {
     return '';
   }
-  const found = words(code.replace(/\s+/g, '')).map(([letter]) => letter);
+  if (/^\$/.test(packed)) {
+    if (!/^\$J=/.test(packed)) {
+      return '';
+    }
+    packed = packed.slice(3);
+  }
+  packed = packed.replace(/\[[^\]]*\]/g, '[').replace(/#<[^>]*>/g, '#');
+  const found = words(packed).map(([letter]) => letter).concat(packed.match(/[ABC](?=[[#])/g) || []);
   return ['A', 'B', 'C'].filter((letter) => found.includes(letter)).join('');
 };
 
@@ -319,6 +332,15 @@ export const analyzeProgram = (gcode, timingContext) => {
     if (!code || code === '%') {
       continue;
     }
+    // Axis A, lot L0: noted apart. It takes no part in the extents, in the unknown axes or in any
+    // verdict below; the key exists only for a program that has such a word. Read before the
+    // line is sorted (macro, expression, board command, odd spaces): the sorting is as it was.
+    const rotary = rotaryLetters(code);
+    if (rotary) {
+      a.rotary = a.rotary || { letters: '', line: lineNo, count: 0 };
+      a.rotary.letters = ['A', 'B', 'C'].filter((letter) => (a.rotary.letters + rotary).includes(letter)).join('');
+      a.rotary.count += 1;
+    }
     const timed = !timingEnded;
     // CNCjs directives and expressions execute on the server, G-code words
     // depend on variables: nothing can be followed after them.
@@ -333,14 +355,6 @@ export const analyzeProgram = (gcode, timingContext) => {
     }
     // A line the board reads otherwise (C-57), or a system command ($20=0, $H…, C-61): what
     // follows cannot be judged from what was read here.
-    // Axis A, lot L0: noted apart. It takes no part in the extents, in the unknown axes or in any
-    // verdict below; the key exists only for a program that has such a word.
-    const rotary = rotaryLetters(code);
-    if (rotary) {
-      a.rotary = a.rotary || { letters: '', line: lineNo, count: 0 };
-      a.rotary.letters = ['A', 'B', 'C'].filter((letter) => (a.rotary.letters + rotary).includes(letter)).join('');
-      a.rotary.count += 1;
-    }
     if (/^\$/.test(code) || !sameWithoutSpaces(code)) {
       a.timing.supported = false;
       a.unsafeOverride = a.unsafeOverride || /^\$/.test(code);
