@@ -172,7 +172,7 @@ S'y ajoutent :
 - **T14 à 1 Hz** : seulement du `M5` à la ligne Z, pas un cadrage entier.
 - **T16** : Pause sans la main pendant un `G38` du bloc n'est pas rejoué ici (les tests existants du bloc le couvrent, verts).
 - Comparaison d'octets avant / après conversion : voir la limite du § 5.
-- La fenêtre « palpage annulé par le superviseur, pas encore libéré, sans reset en route » de « Arrêter la broche » (§ 4.1 point 5) : codée (reset), mais trop brève pour être tenue au banc ; non testée.
+- La fenêtre « palpage annulé, pas encore libéré, sans reset en route » de « Arrêter la broche » : testée depuis les relectures (§ 9 bis), plaque et bloc.
 
 ## 9. Vérifications faites avant de rendre la main
 
@@ -186,6 +186,34 @@ S'y ajoutent :
 | `node examples/cncjs-touch/browser-run.cjs --strict --only e2e,v2` | Étapes `e2e` : toutes vertes (fr, en, es). Étape `v2` : 18 défauts relevés, dont 16 sont ceux de `HARNAIS-CONNU.md` ; les deux autres (« fetched while alarm: /favicon.ico », aux deux tailles) correspondent au défaut que corrige le commit `7baf7b84` de `feat/nuit-2026-11-26` (icône en ligne), absent de cette branche ; C1 ne touche ni la page d'accueil ni le son. Attribution par lecture de l'historique, **non vérifiée** en relançant le harnais sur la base : à revoir après la réunion des branches. |
 
 La page n'a changé que par ses catalogues de phrases (deux fichiers) et une raison d'arrêt du journal. Les étapes `e2e` du harnais tournent sur la page de simulation, pas sur le serveur : elles ne passent pas par les gardes nouvelles.
+
+## 9 bis. Après les relectures du code (27 novembre)
+
+Deux relectures : Astra (`C1-AVIS-ASTRA-5.md`, « à revoir », un point bloquant) et un relecteur indépendant (« verte », trois points mineurs). Chaque correction a son test, vu rouge avant.
+
+| # | Constat | Correction | Test (rouge avant) |
+|---|---|---|---|
+| A1, **bloquant** | « Arrêter la broche » pendant un palpage **au bloc**, entre deux lignes (repos, `$G` attendu) ou après une annulation sans arrêt matériel : réponse « carte réinitialisée », mais ni reset ni feed hold, `M3` restait actif. | Comme à la plaque : le reset est demandé même au repos (`abort(…, spindle)`), et encore quand le cycle est déjà annulé sans arrêt matériel en route et pas encore libéré (`resetForSpindle`, une seule fois, jamais après une bannière). Feed hold puis reset quand une ligne est en vol. Aucun `M5`, aucun `0x85`. Message : « réinitialisation de la carte demandée » (FR / EN / ES). | `block-probe.test.js`, trois tests « A1 » : entre deux lignes ; rejeu d'Astra (`$G M3 S0`, annulation par le superviseur, bouton dans le même pas) ; Pause puis bouton. Plaque, seconde fenêtre (Pause puis bouton) : test ajouté, **déjà vert** (le code y était, sans test). |
+| A2 | Plaque : Z machine inconnu (rapport `WPos:`, WCO retenu effacé) pris pour « course non contrôlable » → `G38.2 Z-78` au-delà de la course. | Z machine `null` refusé avant le contrôle de course (« Position machine inconnue. »), dans `zeroZProofs` et dans `plateTravel`. | `c1-plate.test.js` « A2 (Astra's replay) », vraie D2, avec son témoin sain. |
+| A3 | Pas de bouton « Arrêter la broche » dans l'écran du palpage lancé au repos. | Bouton « Arrêter la broche » sous « Arrêter le palpage », visible pendant un palpage (bloc ou plaque), actif quand le serveur le permet (`canSpindleStop`). Phrase existante, déjà dans les trois langues. | `test-zero-piece.cjs` (caché au repos, visible pendant le palpage, grisé sans permission, envoie `spindleStop`). |
+| R1 | Port fermé dans les 100 ms après le `$G` attendu : écriture sur un contrôleur détruit depuis un minuteur, exception non rattrapée. | `awaitProof` rejette si le contrôleur n'est plus connecté et protège la suite par un `try / catch` ; le bloc refuse d'écrire (`ETOUCH_PROBE_LOST`) après une attente si le contrôleur est parti. `motion.js` teste déjà la connexion en tête de chaque pas de son superviseur. | `c1-plate.test.js` « R1 » (`TypeError` avant). |
+| R2 | « Arrêter la broche » pendant la plaque en pause `M6` arrêtait le programme sans `markStopped()`. | `markStopped()` appelé avant (ligne gardée, entrée « stop » au journal). Sans objet pour le bloc : il ne tourne qu'au repos, sans programme. | `c1-plate.test.js` « R2 ». |
+| R3 | Cadrage : après une absence du flux de plus de 2,5 s avec toutes les preuves, un seul rapport abîmé arrêtait le cadrage. **Confirmé par test.** | L'attente de preuve est datée du moment où une preuve manque pour la première fois (`missingSince`), plus de la fin de la ligne. Jamais d'écriture sans preuve ; la borne propre à la ligne reste. Même tolérance au bloc : après le retour du flux, une preuve manquante est attendue une fois (2,5 s) avant l'arrêt. | `c1-sequences.test.js` « R3 ». |
+
+**Vérifié en plus (A2, « même confusion ailleurs ? »)** : le bloc refuse déjà une position machine inconnue (`ETOUCH_PROBE_TRAVEL_UNKNOWN`) ; le cadrage CNC aussi (`ETOUCH_LASER_FRAME_POSITION`) ; le continu et les pas de plus de 1 mm aussi. **Les pas de 1 mm et moins restent permis** quand la position machine est inconnue : c'est la règle d'avant C1 pour une course non vérifiable (machine non référencée, `$10` sans `MPos` ni WCO), tenue par un test existant (`motion.test.js`, « cross-check 6 »). J'avais d'abord refusé ces pas ; ce test l'a contredit, je suis revenu à la règle existante et un test de C1 la fixe (`c1-starts.test.js`, « A2, jog and framing »). À trancher par l'opérateur s'il veut plus strict.
+
+**Écart avec E5 du § 0** : l'attente de 2,5 s d'un cadrage court maintenant depuis la première preuve manquante, pas depuis la fin de la ligne (R3). En marche normale c'est le même instant.
+
+**Attente de test modifiée en plus des quatre du § 5** : `block-probe.test.js` S29 et `test-probe-real.cjs`, texte de la réponse (« carte réinitialisée » → « réinitialisation de la carte demandée »), demandé par Astra.
+
+**Résultats après ces corrections** : `verify-project.cjs` 234 / 234 ; Jest demandé 65 suites, 1 922 tests verts ; ESLint propre sur les fichiers touchés.
+
+**Non fait, non vérifié** :
+
+- Le bouton nouveau n'a **pas été regardé dans le navigateur** (place sous « Arrêter le palpage », 48 px de haut, débordement à 1366 × 768 et 1366 × 911) : le harnais n'a pas d'étape « palpage en cours » sur cet écran et n'a pas été relancé. À regarder avant l'essai.
+- La version de cache des fichiers de la page (`v2v`) n'est pas changée : le projet ne l'exige que cohérente (`test-cache-version.cjs`), et la changer ici toucherait plus de 120 références communes aux autres lots. À décider à la réunion des branches, avant toute installation.
+- Les mutations du § 4 n'ont pas été rejouées après ces corrections.
+- Les parcours tactiles réels (au repos et pendant `M6`) restent à faire sur la tablette.
 
 ## 10. Essai réel proposé
 

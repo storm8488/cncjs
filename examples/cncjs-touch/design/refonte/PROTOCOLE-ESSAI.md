@@ -281,6 +281,7 @@ Correction de sûreté sans commande nouvelle. Compte rendu : `../plaque/C1-RAPP
 | C1-7 | Zéro Z à la plaque : pince sur la plaque, fraise 20 mm au-dessus, alimentation de la broche coupée. | Comme avant. Noter la durée totale (attendu : une à deux secondes de plus qu'avant). |
 | C1-8 | Programme d'essai sans matière qui contient un `M6` : à la pause, « Arrêter la broche », zéro Z à la plaque, puis « Reprendre… ». | Le palpage va au bout, la reprise reste permise. Si le palpage s'arrête avec « la broche est commandée, ou sa vitesse n'est plus rapportée » : noter l'heure, ne pas recommencer, arrêter le programme (Arrêter), et rendre le journal. |
 | C1-9 | Pendant le palpage de C1-7 refait une fois : toucher « Arrêter le palpage » (bouton Pause) en cours de descente. | Arrêt immédiat ; la carte se réinitialise (alarme, puis prise d'origine à refaire) ; le zéro Z n'est pas réglé. |
+| C1-10 | Refaire C1-7 ; pendant la descente, regarder l'écran 3 · Zéro pièce, puis toucher « Arrêter la broche » (sous « Arrêter le palpage »). | Le bouton est visible et lisible, rien ne déborde. Au toucher : arrêt du palpage, message « réinitialisation de la carte demandée », la carte passe en alarme ; prise d'origine à refaire. Aucun `M5` ne part. |
 
 Ne **pas** essayer : débrancher l'USB pendant un mouvement, envoyer `M3` avec une vitesse, palper avec la broche alimentée.
 
