@@ -266,6 +266,18 @@ describe('C1, Z zero with the plate during a tool change pause (M6)', () => {
     expect(await ctx.codeOf(ctx.req('prepare', { operation: 'resume', revision: ctx.state().revision }))).toBe(null);
   });
 
+  test('R2: Arrêter la broche during the plate probe of an M6 pause stops the program too: its line is kept and the journal says so', async () => {
+    const ctx = await paused();
+    await ctx.launch('zeroZ', PLATE);
+    await run(ctx, -25, { gc: null });
+    await ctx.req('spindleStop');
+    expect(ctx.c.written).toEqual([G38_1 + '\n', RESET]);
+    expect(ctx.history.filter((e) => e.event === 'stop')).toHaveLength(1);
+    expect(ctx.history.filter((e) => e.event === 'stop')[0]).toMatchObject({ result: 'stopped', probing: true });
+    expect(ctx.state()).toMatchObject({ jobStopped: true, stoppedFile: 'box.nc' });
+    expect(ctx.state().stoppedAtLine).not.toBeNull();
+  });
+
   test('§ 4.1 point 6: a $G reply really lost during the pause: the probe stops between two lines, the resume is refused, Arrêter still ends the program', async () => {
     const ctx = await paused();
     await ctx.launch('zeroZ', PLATE);
@@ -327,6 +339,29 @@ describe('C1: the stops stay free of every new guard (T16)', () => {
     await ctx.tick(200, () => ctx.rep('Alarm'));
     expect(ctx.c.written).toEqual([G38_1 + '\n', RESET]);
     expect(ctx.state().probing).toBe(false);
+  });
+
+  test('A1, plate: Pause then Arrêter la broche in the same step (the probe cancelled without a hardware stop, not released yet): the reset is asked for', async () => {
+    const ctx = await launched();
+    await run(ctx, -25, { gc: null });
+    await ctx.req('pause', {}, B);
+    expect(ctx.c.written).toEqual([G38_1 + '\n']);
+    const answer = await ctx.req('spindleStop', {}, B);
+    expect(answer.message).toMatch(/réinitialisation de la carte demandée/);
+    await ctx.req('spindleStop', {}, B);
+    expect(ctx.c.written).toEqual([G38_1 + '\n', RESET]);
+  });
+
+  test('R1: the port closes right after the $G that was waited for: no exception from the supervisor, no line, the probe ends', async () => {
+    const ctx = await launched();
+    await run(ctx, -25, { gc: null });
+    ctx.gc();
+    // CNCjs destroys the controller: closed, its runner gone.
+    ctx.c.isClose = () => true;
+    ctx.c.runner = null;
+    await ctx.tick(300);
+    expect(ctx.c.written).toEqual([G38_1 + '\n']);
+    expect(ctx.result.err).toBeTruthy();
   });
 
   test('§ 4.1 point 5, a $G M3 seen during a G38.2 (FS 0): the supervisor stops the probe (feed hold); Arrêter la broche right after adds no M5 and says no « M5 sent »; the reset follows', async () => {
@@ -422,6 +457,26 @@ describe('C1 with the real proof of the work offset (D2)', () => {
     ctx.rest();
     expect(await ctx.codeOf(ctx.jog(10))).toBe(null);
     expect(ctx.lines()).toEqual(['$J=G91 G21 X10 F600']);
+  });
+
+  test('A2 (Astra\'s replay): a board in WPos:, the offset kept erased by a broken WCO: field: machine Z unknown, the plate is refused, no G38.2 beyond the travel', async () => {
+    // Machine Z −20 in [−80, 0], work Z −8: a search of 70 mm would go to machine −90.
+    const ctx = await proven({ at: AT, wpos: true });
+    ctx.rest();
+    expect(await ctx.codeOf(ctx.req('prepare', { operation: 'zeroZ', thickness: 10, search: 70 }))).toBe('ETOUCH_PLATE_TRAVEL');
+    ctx.say('<Idle|WPos:5.000,5.000,-8.000|FS:0,0|WCO:0,0>');
+    ctx.rest();
+    expect(ctx.state().workOffset.state).toBe('proven');
+    const refused = await ctx.refused(ctx.launch('zeroZ', { thickness: 10, search: 70 }));
+    expect(refused && refused.message).toBe('Position machine inconnue.');
+    expect((await ctx.refused(ctx.launch('zeroZ', PLATE))).message).toBe('Position machine inconnue.');
+    expect(ctx.c.written).toEqual([]);
+    // Witness: a whole WCO: again, the same board probes within its travel.
+    ctx.rep('Idle', { wco: ctx.wco });
+    ctx.rest();
+    expect(await ctx.codeOf(ctx.req('prepare', { operation: 'zeroZ', thickness: 10, search: 70 }))).toBe('ETOUCH_PLATE_TRAVEL');
+    await ctx.launch('zeroZ', PLATE);
+    expect(ctx.lines()).toEqual([G38_1]);
   });
 
   test('T17: an explicit WCO: that differs, in a report without X/Y/Z, still doubts the proof', async () => {

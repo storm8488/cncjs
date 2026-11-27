@@ -3,7 +3,7 @@
 // Lot C1 (design/plaque/C1-CONCEPTION.md § 4): the moves in progress, steps, continuous jogs and
 // framings. Every report is a line read by the real parser, every `[GC:…]` is followed by its own
 // `ok`, the `ok` of our lines comes apart; every test is judged on the bytes written.
-import { setup, disposeAll } from './support/c1-bench';
+import { setup, disposeAll, A } from './support/c1-bench';
 
 afterEach(disposeAll);
 
@@ -114,6 +114,21 @@ describe('C1, CNC framing: the proofs between two lines', () => {
     expect(ctx.lines()).toEqual(['M5']);
     ctx.rep('Idle');
     await ctx.tick(50);
+    expect(ctx.lines()).toEqual(['M5', Z_LINE]);
+  });
+
+  test('R3: the device stream away 2.7 s with every proof there, then a single damaged report: the line waits for the next report, it does not stop', async () => {
+    const ctx = await startFrame();
+    ctx.service.closeTransport('tA', true);
+    ctx.ok();
+    ctx.gc();
+    await ctx.quiet(2700);
+    expect([ctx.lines(), framing(ctx)]).toEqual([['M5'], true]);
+    ctx.service.openTransport('tA2', A);
+    ctx.rep('Idle', { pos: null });
+    await ctx.tick(50);
+    expect([ctx.lines(), framing(ctx)]).toEqual([['M5'], true]);
+    await ctx.tick(100, () => ctx.rep('Idle'));
     expect(ctx.lines()).toEqual(['M5', Z_LINE]);
   });
 

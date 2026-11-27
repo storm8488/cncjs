@@ -1143,7 +1143,14 @@ export const createMotion = (deps) => {
 
   // A proof waited for between two lines is late: PROOF_WAIT_MS after the line was seen over, or the
   // own time limit of that line, whichever comes first.
-  const proofLate = (session) => clock() - session.settledAt > PROOF_WAIT_MS || clock() - session.pending.sentAt > session.pending.limitMs;
+  // After the reviews: the wait is counted from the moment a proof was first found missing, not from
+  // the end of the line: a stream away for a while with every proof there starts no wait.
+  const proofLate = (session) => {
+    if (session.missingSince === null) {
+      session.missingSince = clock();
+    }
+    return clock() - session.missingSince > PROOF_WAIT_MS || clock() - session.pending.sentAt > session.pending.limitMs;
+  };
 
   // Where the machine stands after a CNC framing line against where it was sent (§ 5.3): null
   // when it arrived, else the first axis off with its expected and reported machine positions.
@@ -1211,6 +1218,7 @@ export const createMotion = (deps) => {
       // Lot C1: when the line sent last was seen over (null while it runs), the wait of each line
       // after the first, and what the spindle watch compares with (a laser: from the proof of its M5).
       settledAt: null,
+      missingSince: null,
       waits: [],
       ref: cnc ? { hints: r.spinHints } : null
     };
@@ -1246,6 +1254,7 @@ export const createMotion = (deps) => {
         session.waits.push(Math.round(clock() - session.settledAt));
       }
       session.settledAt = null;
+      session.missingSince = null;
       session.index += 1;
       session.pending = send(c, r, /^\$J=/.test(session.lines[i]) ? 'jog' : 'frame', session.lines[i], session.limits[i]);
       // A line of a framing: after a banner, nothing automatic is written for it (cancel, forget).
@@ -1343,6 +1352,8 @@ export const createMotion = (deps) => {
         abortFrame(c, r, session, 'cancelled', hold[0], hold[1], hold[2]);
         return;
       }
+      // Every proof is there: no wait is running.
+      session.missingSince = null;
       // Nothing leaves while the device's stream is away (a rotation, within its grace).
       if (session.lostSince === null) {
         // The height before the first X/Y line (the safe height or above, just checked): Z never

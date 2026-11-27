@@ -604,7 +604,10 @@ export const createBlockProbe = (deps) => {
 
     // Stops the cycle: feed hold then reset (halt.js) unless the board already
     // stopped by itself (restart, alarm) or the record is being dropped.
-    const abort = (code, abortParams = {}, hardware = true) => {
+    // `spindle` (« Arrêter la broche », after the reviews of lot C1): the board itself must stop the
+    // spindle, so a reset is asked for even at rest between two lines, where halt.js asks for nothing
+    // (a spindle commanded at speed 0 is no running spindle for it).
+    const abort = (code, abortParams = {}, hardware = true, spindle = false) => {
       if (!live() || probing.abort) {
         return false;
       }
@@ -616,6 +619,9 @@ export const createBlockProbe = (deps) => {
         // A line just sent whose report still says Idle may start any moment.
         if (!haltWith && probing.outstanding) {
           haltWith = 'hold';
+        }
+        if (!haltWith && spindle) {
+          haltWith = 'reset';
         }
         c.command('feeder:stop');
         c.command('gcode:stop');
@@ -635,6 +641,19 @@ export const createBlockProbe = (deps) => {
       return true;
     };
     session.abort = abort;
+    // « Arrêter la broche » on a cycle already cancelled without any hardware stop on its way (its
+    // supervisor at rest, Pause between two lines) and not released yet: the reset is asked for now.
+    // Never after a banner (the board restarted by itself), never twice.
+    session.resetForSpindle = () => {
+      if (session.done || session.halted || session.forgotten || !connected(c) || r.startups !== probing.startups) {
+        return;
+      }
+      c.command('reset');
+      session.halted = true;
+      session.haltStartups = r.startups;
+      session.haltReports = r.reports;
+      publish({ state: 'stopping', needsHoming: true });
+    };
 
     // A board restart or an alarm ends the cycle in the event itself: quiet()
     // could otherwise take the old Idle state and an ok already counted for the
@@ -783,6 +802,15 @@ export const createBlockProbe = (deps) => {
         }
         ensure();
       }
+      if (session.last && missing()) {
+        // The proofs were there before the stream went away: a report damaged right when it comes
+        // back is waited for like any other, then everything is checked again below.
+        await waitFor(() => !missing(), PROOF_WAIT_MS);
+        ensure();
+        if (!streamOpen()) {
+          throw failure('ETOUCH_PROBE_STREAM');
+        }
+      }
       if (session.last) {
         // The step of the write: everything is checked again here, after every wait.
         const code = missing();
@@ -795,6 +823,10 @@ export const createBlockProbe = (deps) => {
         if (off) {
           throw failure('ETOUCH_PROBE_POSITION', { axis: /^[XYZ]$/.test(off) ? off : '?' });
         }
+      }
+      // The port may have closed during a wait: CNCjs then destroyed the controller (no runner).
+      if (session.forgotten || !connected(c)) {
+        throw failure('ETOUCH_PROBE_LOST');
       }
       const tracker = answers(c, r);
       const sentAt = clock();
@@ -1186,7 +1218,7 @@ export const createBlockProbe = (deps) => {
   const STOP_TEXT = {
     stop: ['Palpage interrompu. Vérifiez l’immobilisation ; origine de travail inchangée.', 'Palpage interrompu. Vérifiez l’immobilisation ; l’origine a peut-être été écrite : vérifiez-la avant tout travail.'],
     pause: ['Pause pendant un palpage : palpage interrompu, il ne se reprend pas. Origine de travail inchangée.', 'Pause pendant un palpage : palpage interrompu, il ne se reprend pas ; l’origine a peut-être été écrite : vérifiez-la avant tout travail.'],
-    spindle: ['Arrêt broche pendant un palpage : palpage interrompu, carte réinitialisée. Origine de travail inchangée.', 'Arrêt broche pendant un palpage : palpage interrompu, carte réinitialisée ; l’origine a peut-être été écrite : vérifiez-la avant tout travail.']
+    spindle: ['Arrêt broche pendant un palpage : palpage interrompu, réinitialisation de la carte demandée. Origine de travail inchangée.', 'Arrêt broche pendant un palpage : palpage interrompu, réinitialisation de la carte demandée ; l’origine a peut-être été écrite : vérifiez-la avant tout travail.']
   };
 
   // Stop, Pause or spindle stop during a block probe: the same hardware stop
@@ -1194,7 +1226,10 @@ export const createBlockProbe = (deps) => {
   const stop = (c, r, why) => {
     const session = sessions.get(r);
     if (session && session.abort) {
-      session.abort(why === 'pause' ? 'ETOUCH_PROBE_PAUSED' : 'ETOUCH_PROBE_STOPPED', {}, true);
+      session.abort(why === 'pause' ? 'ETOUCH_PROBE_PAUSED' : 'ETOUCH_PROBE_STOPPED', {}, true, why === 'spindle');
+      if (why === 'spindle') {
+        session.resetForSpindle();
+      }
     }
     const written = r.probing && r.probing.written ? r.probing.written : 'no';
     const text = STOP_TEXT[why] || STOP_TEXT.stop;

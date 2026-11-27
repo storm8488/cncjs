@@ -1707,7 +1707,7 @@ describe('block probe: real cycle on a fake Grbl', () => {
     await ctx.launch();
     await ctx.until(() => ctx.step() === 'Z_FAST' && ctx.g.active === 'Run');
     const res = await ctx.req('spindleStop', {}, B, 'tB');
-    expect(res.message).toBe('Arrêt broche pendant un palpage : palpage interrompu, carte réinitialisée. Origine de travail inchangée.');
+    expect(res.message).toBe('Arrêt broche pendant un palpage : palpage interrompu, réinitialisation de la carte demandée. Origine de travail inchangée.');
     await ctx.failedCleanly('ETOUCH_PROBE_STOPPED');
     expect(ctx.g.sent).not.toContain('M5');
     expect(ctx.g.realtime).toEqual(['!', '\x18']);
@@ -1723,7 +1723,7 @@ describe('block probe: real cycle on a fake Grbl', () => {
     await fresh.launch({ axes: 'Z', wcs: 'G54', profile: PROFILE });
     await fresh.until(() => write);
     const during = await fresh.req('spindleStop', {});
-    expect(during.message).toBe('Arrêt broche pendant un palpage : palpage interrompu, carte réinitialisée ; l’origine a peut-être été écrite : vérifiez-la avant tout travail.');
+    expect(during.message).toBe('Arrêt broche pendant un palpage : palpage interrompu, réinitialisation de la carte demandée ; l’origine a peut-être été écrite : vérifiez-la avant tout travail.');
     const { err } = await fresh.finish();
     expect(err.code).toBe('ETOUCH_PROBE_STOPPED');
     expect(err.message).toMatch(/Le repère a peut-être changé : vérifiez-le avant tout travail\./);
@@ -2003,6 +2003,61 @@ describe('block probe, lot C1: the position carried by the report, the spindle p
     const { err } = await ctx.finish();
     expect(['ETOUCH_PROBE_STALE', 'ETOUCH_PROBE_SPINDLE']).toContain(err.code);
     expect(ctx.g.sent.filter(moving)).toEqual([FAST]);
+  });
+
+  // After the reviews of the code (Astra 5, point 1): « Arrêter la broche » during a block probe asks
+  // the board for a reset even between two lines, where halt.js would ask for nothing.
+  test('A1: Arrêter la broche between two lines of a block probe (at rest, the $G waited for): a reset is asked for, no M5, and the answer says so', async () => {
+    const ctx = await setup();
+    await after(ctx, FAST, () => {
+      ctx.g.noGc = true;
+    });
+    await ctx.tick(400);
+    expect(ctx.g.realtime).toEqual([]);
+    const answer = await ctx.req('spindleStop', {}, B);
+    expect(answer.message).toMatch(/réinitialisation de la carte demandée/);
+    expect(answer.message).not.toMatch(/carte réinitialisée/);
+    expect(ctx.g.realtime).toEqual(['\x18']);
+    expect(ctx.g.sent).not.toContain('M5');
+    expect(ctx.g.sent.filter(moving)).toEqual([FAST]);
+  });
+
+  test('A1 (Astra\'s replay): a $G M3 S0 seen while the $G is waited for, the cycle cancelled by its supervisor without a hardware stop, then Arrêter la broche: the reset is asked for', async () => {
+    const ctx = await setup();
+    await after(ctx, FAST, () => {
+      ctx.g.noGc = true;
+    });
+    await ctx.tick(400);
+    // The $G exchange that was waited for says M3; the supervisor runs (timers only, no promise
+    // settles yet), then the button is touched in that very step.
+    ctx.g.modal.spindle = 'M3';
+    ctx.c.runner.emit('parserstate', { modal: { ...ctx.g.modal } });
+    ctx.c.runner.emit('ok');
+    ctx.now += 100;
+    jest.advanceTimersByTime(100);
+    // Cancelled (the spindle is commanded), not released yet, nothing written to stop it.
+    expect(ctx.state().blockProbe).toMatchObject({ state: 'running', failure: { code: 'ETOUCH_PROBE_SPINDLE' } });
+    expect(ctx.g.realtime).toEqual([]);
+    const asked = ctx.req('spindleStop', {}, B);
+    expect(ctx.g.realtime).toEqual(['\x18']);
+    const answer = await asked;
+    expect(answer.message).toMatch(/réinitialisation de la carte demandée/);
+    expect(ctx.g.realtime).toEqual(['\x18']);
+    expect(ctx.g.sent).not.toContain('M5');
+  });
+
+  test('A1: Pause then Arrêter la broche in the same step (cancelled without a hardware stop, not released yet): the reset is asked for once', async () => {
+    const ctx = await setup();
+    await after(ctx, FAST, () => {
+      ctx.g.noGc = true;
+    });
+    await ctx.tick(400);
+    await ctx.req('pause', {}, B);
+    expect(ctx.g.realtime).toEqual([]);
+    await ctx.req('spindleStop', {}, B);
+    await ctx.req('spindleStop', {}, B);
+    expect(ctx.g.realtime).toEqual(['\x18']);
+    expect(ctx.g.sent).not.toContain('M5');
   });
 
   test('T13c transposed (mutation M22): after a move, a first Idle off the target then two that agree on it: the arrival is read at the proven rest, the cycle goes on', async () => {

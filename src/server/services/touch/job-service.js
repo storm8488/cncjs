@@ -2489,6 +2489,21 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       return COMMISSIONING[a].run(c, t, actor);
     }
 
+    // The line reached, kept for a resume from a line, and the job marked
+    // stopped (also when the stop interrupts a probe during a pause).
+    const markStopped = () => {
+      if (c.workflow.state !== 'idle' && r.job) {
+        const line = stopLine(c, r);
+        r.lastStop = { file: r.job.name, line };
+        r.job.started = true;
+        r.job.stopped = true;
+        r.job.finishedAt = null;
+        log({ event: 'stop', ...jobInfo(r.job), controller: controllerInfo(c, r), result: 'stopped', line, probing: !!r.probing, actor: actor || null });
+        // The program may have changed the system or the offset (D2).
+        r.offset.invalidate('stop');
+      }
+    };
+
     if (a === 'spindleStop') {
       // During a block probe: the same stop as Arrêter, without an M5 that
       // would join the queue (its ok would be taken for the cycle's line).
@@ -2504,6 +2519,11 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
       // During a plate probe (lot C1): the stop of the probe with a hardware stop of the spindle (a
       // reset), never an M5 whose ok would be counted for a line of the probe. Null: nothing of a
       // probe is left to stop (ended by a banner), the ordinary M5 follows.
+      // During a pause of the program (M6), the reset ends the program too: its line is kept and the
+      // journal says so, as Arrêter does (markStopped), before the sender is rewound.
+      if (plateRunning(r) && r.probing.startups === r.startups) {
+        markStopped();
+      }
       const plateAnswer = plateRunning(r) ? plateProbe.spindleStop(c, r) : null;
       if (plateAnswer) {
         r.ticket = null;
@@ -2671,20 +2691,6 @@ export const createService = (store, config, clock = monotonic, options = {}) =>
         c.command('reset');
         return { message: 'Arrêt avec porte ouverte (réinitialisation). La carte peut demander $H ou $X.' };
       }
-      // The line reached, kept for a resume from a line, and the job marked
-      // stopped (also when the stop interrupts a probe during a pause).
-      const markStopped = () => {
-        if (c.workflow.state !== 'idle' && r.job) {
-          const line = stopLine(c, r);
-          r.lastStop = { file: r.job.name, line };
-          r.job.started = true;
-          r.job.stopped = true;
-          r.job.finishedAt = null;
-          log({ event: 'stop', ...jobInfo(r.job), controller: controllerInfo(c, r), result: 'stopped', line, probing: !!r.probing, actor: actor || null });
-          // The program may have changed the system or the offset (D2).
-          r.offset.invalidate('stop');
-        }
-      };
       // A plate probe in progress: feed hold then reset, a line just sent included (C-08), and
       // the sequence gives up at its next step (plate-probe.js).
       if (r.probing) {

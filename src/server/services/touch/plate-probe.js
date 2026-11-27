@@ -195,6 +195,11 @@ export const createPlateProbe = (deps) => {
     if (proof.posOf(r, 'w', 'Z') === null) {
       throw conflict('Position Z inconnue.');
     }
+    // A machine Z that is unknown (a WPos: report without any whole WCO: kept) is no « travel not
+    // checkable »: refused before the travel check (after the reviews of lot C1).
+    if (proof.posOf(r, 'm', 'Z') === null) {
+      throw conflict('Position machine inconnue.');
+    }
   };
   const zeroZReady = (c) => {
     zeroZBase(c);
@@ -221,6 +226,9 @@ export const createPlateProbe = (deps) => {
     const r = record(c);
     // Lot C1: the machine Z of the last report itself.
     const z = proof.posOf(r, 'm', 'Z');
+    if (z === null) {
+      throw conflict('Position machine inconnue.');
+    }
     const env = envelopeOf(allSettings(c), r.homed, { wcoSeen: r.wcoSeen, wposReported: r.wposReported, homeAt: r.homeMpos }).Z;
     const at = limitsAt(env, z, 'Z');
     if (!at.limits && !at.outside) {
@@ -400,6 +408,11 @@ export const createPlateProbe = (deps) => {
     // a proof that stays missing stops the probe (halt.js, never a jog cancel).
     const awaitProof = (missing, limitAt, then, reject) => {
       const check = () => {
+        // The port closed meanwhile (CNCjs destroyed the controller): nothing is read or written.
+        if (!connected(c)) {
+          reject(conflict('Connexion machine perdue pendant le palpage.'));
+          return;
+        }
         probing.verdict();
         if (probing.cancelled) {
           reject(conflict('Palpage interrompu par l’opérateur.'));
@@ -407,7 +420,12 @@ export const createPlateProbe = (deps) => {
         }
         const code = missing();
         if (!code) {
-          then();
+          // Run from a timer: an exception here would be nobody's, and the probe would never end.
+          try {
+            then();
+          } catch (err) {
+            reject(err);
+          }
           return;
         }
         if (clock() > limitAt) {

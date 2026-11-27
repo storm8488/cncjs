@@ -153,6 +153,24 @@ describe('C1: the position is the one the last report carried itself (R-1, R-2)'
   });
 });
 
+describe('C1, after the reviews: a machine position that is unknown', () => {
+  // The rule of before C1 for a travel that cannot be checked (machine not referenced, $10 without
+  // MPos and no WCO): steps of 1 mm at most, nothing longer. A machine position unknown to Touch
+  // falls under the same rule, never under « inside the travel ».
+  test('A2, jog and framing: a board in WPos: whose kept offset was erased: a 10 mm step, the continuous jog and the framing are refused; a 1 mm step stays possible', async () => {
+    const ctx = await setup({ wpos: true });
+    await ctx.load();
+    ctx.say('<Idle|WPos:5.000,5.000,48.000|FS:0,0|WCO:0,0>');
+    ctx.rest();
+    expect((await ctx.refused(ctx.jog(10))).message).toMatch(/au-delà de 1 mm.*position machine X inconnue/);
+    expect((await ctx.refused(ctx.hold('X', 1))).message).toMatch(/position machine X inconnue/);
+    expect(await ctx.codeOf(ctx.machine('frame-prepare'))).not.toBe(null);
+    expect(ctx.c.written).toEqual([]);
+    expect(await ctx.codeOf(ctx.jog(1))).toBe(null);
+    expect(ctx.lines()).toEqual(['$J=G91 G21 X1 F600']);
+  });
+});
+
 describe('C1: the spindle is stopped only on two positive proofs (R-3)', () => {
   test('T6: M3 S0 with complete reports FS:0,0: every guarded start refused (commanded); a 0.1 mm step, $H and $X as before', async () => {
     for (const name of Object.keys(STARTS)) {
