@@ -112,12 +112,14 @@ Avis d'Astra n° 4 (`AXE-A-AVIS-ASTRA-4.md`) : tout accepté sauf deux restes du
 
 **Le test de concordance.** Environ 1 350 lignes à expression (six lettres, sept formes de signe et d'espace, dix expressions, en `G0`, en `G1` avec d'autres expressions, en `$J=` ; mots littéraux à côté d'une expression ; chiffres ou point avant le crochet ; lettres A, B, C seulement dans les expressions ; variables, crochets imbriqués ou cassés, noms inconnus). Chaque ligne est traduite par le vrai traducteur, puis lue comme la carte la lit. Règle : **dès que la ligne envoyée contient un vrai mot A, B ou C, le détecteur signale cette lettre. Aucun faux négatif : la liste des manqués est vide.** Avant la correction, plus de 750 lignes de cette table étaient manquées.
 
-**Faux positifs restants, tous sur des lignes que la carte refuse en entier (aucun mouvement).**
+**Faux positifs restants. Ceux du corpus du test sont tous sur des lignes que la carte refuse en entier (aucun mouvement) ; hors corpus il en existe d'autres (cinquième avis).**
 
 - *Famille non décidable sans évaluer* : un signe devant une expression dont la valeur est négative (`A-[v]` avec v = −2, envoyé `A--2`). Le détecteur n'évalue rien : **il signale, par prudence.**
 - Neuf lignes listées une à une dans le test, avec leur raison : lettre devant une variable `#` que CNCjs ne traduit pas, devant une expression sans valeur, ou à côté de crochets qui ne s'apparient pas.
 
 **Limite déclarée.** Le test suppose qu'une expression donne un nombre. Une variable CNCjs qui contiendrait du texte (par exemple « A90 ») et serait posée seule sur une ligne produirait un mot A que le détecteur ne peut pas voir sans évaluer. La ligne reste classée « expression, contenu non prévisible » (course non vérifiée), comme avant L0.
+
+**Après le cinquième avis (« à réaliser »).** Deux précisions, sans changement de code. (1) Faux positif hors corpus : avec `a1=7`, `G0 X['['.length + a1]` est envoyé `G0 X8` mais le détecteur annonce A, parce qu'un crochet dans une chaîne littérale fait paraître les crochets déséquilibrés ; sens prudent, accepté. (2) La limite ci-dessus est plus large que les variables contenant du texte : toute chaîne littérale ou tout traitement de commentaire avant traduction peut tromper le détecteur ; `G0 X['('.length] A90` est envoyé `G0 X1 A90` sans signalement de A, avant comme après L0. La reprise de ces lignes reste refusée. La concordance n'est prouvée que sur le corpus du test.
 
 Suites : Jest 67 suites, 1990 tests ; `verify-project.cjs` 235 / 235 ; ESLint sans erreur.
 
