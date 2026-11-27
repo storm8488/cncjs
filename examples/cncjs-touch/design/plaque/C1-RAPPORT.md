@@ -70,11 +70,11 @@ Banc de C1 (`support/c1-bench.js`) : le vrai `GrblRunner`, le vrai `createServic
 | `c1-plate.test.js` | 22 | Cycle complet, T13, T13c, T13p (position, repère `G55`, décalage changé dans le même `G54`), T11, T7s / T10 / T12, T13g (au repos et en pause `M6`), § 4.1 points 5 et 6, T16, T8w et son symétrique (vraie D2), T17. |
 | `block-probe.test.js`, bloc « lot C1 » | 8 | T13, T11, T13b et sa variante 0,02 mm, T13c transposé, T7s / T10, T13g. |
 
-**Rouge avant, vert après.** Lancés sur le code d'avant C1 (copie du commit `d6851c6e` hors de l'arbre) : `c1-starts` + `c1-sequences` 33 rouges sur 40 ; `c1-plate` 17 rouges sur 21. Les verts sur l'ancien code sont les témoins, qui doivent l'être (T9, T12b, T19 au départ, T20, T4h, T13g, T17, cycle complet, 1 Hz, pas de 0,1 mm). Raisons relevées sur l'ancien code : T1 `$J=G91 G21 X10 F600` écrit ; T2 plan accepté ; T3 `$J=G91 G21 Z55 F300` écrit après des rapports sans coordonnées ; T4 `$J=G90 G21 X10 Y20 F600` écrit (la contre-séquence d'Astra) ; T6 départ accepté sous `M3 S0` ; T8w palpage accepté avec le `WPos:` parasite. T14 (cadrage complet à 5 Hz) : sur l'ancien code les lignes écrites sont **les mêmes, dans le même ordre** ; il n'y échoue que sur le journal, qui n'existait pas.
+**Rouge avant, vert après.** Lancés sur le code d'avant C1 (copie du commit `d6851c6e` hors de l'arbre) : `c1-starts` 11 rouges sur 13 ; `c1-sequences` 23 sur 28 ; `c1-plate` 18 sur 22 ; les tests « lot C1 » de `block-probe.test.js` 6 sur 8 (`c1-report-proof` ne peut pas y tourner : le module n'existe pas). Les verts sur l'ancien code sont les témoins, qui doivent l'être (T9, T12b, T19 au départ, T20, T4h, T13g, T17, cycle complet, 1 Hz, pas de 0,1 mm). Raisons relevées sur l'ancien code : T1 `$J=G91 G21 X10 F600` écrit ; T2 plan accepté ; T3 `$J=G91 G21 Z55 F300` écrit après des rapports sans coordonnées ; T4 `$J=G90 G21 X10 Y20 F600` écrit (la contre-séquence d'Astra) ; T6 départ accepté sous `M3 S0` ; T8w palpage accepté avec le `WPos:` parasite. T14 (cadrage complet à 5 Hz) : sur l'ancien code les lignes écrites sont **les mêmes, dans le même ordre** ; il n'y échoue que sur le journal, qui n'existait pas.
 
 T15 (LUNYEE au simulateur) : `cnc-frame-lunyee.test.js` et `motion-simulator.test.js`, attentes inchangées, mêmes octets, même ordre ; attente ajoutée par ligne 0 à 375 ms, `noXyz` et `noFs` à 0 sur douze cadrages.
 
-**Résultats des suites** (§ 9 pour les commandes) : voir § 9.
+**Résultats des suites** : § 9.
 
 ## 4. Mutations
 
@@ -176,7 +176,16 @@ S'y ajoutent :
 
 ## 9. Vérifications faites avant de rendre la main
 
-Remplies en fin de travail : voir le rendu de l'auteur et la dernière section ci-dessous.
+| Commande | Résultat |
+|---|---|
+| `node examples/cncjs-touch/verify-project.cjs` | 234 / 234 contrôles réussis. |
+| `npx jest src/server/services/touch src/server/services/cncengine src/server/api grbl-simulator --coverage=false` | 65 suites, 1 913 tests, tous verts (avant C1 : 61 suites, 1 838 tests). |
+| ESLint sur `src/server/services/touch`, le test d'API touché et les trois fichiers de la page | 0 erreur, 0 avertissement. |
+| Les 22 bancs convertis sur l'ancien code | 918 / 922, les quatre rouges du § 5. |
+| Mutations, copie hors de l'arbre | § 4 : 37 essais, une survivante (M29, redondance annoncée). |
+| `node examples/cncjs-touch/browser-run.cjs --strict --only e2e,v2` | Étapes `e2e` : toutes vertes (fr, en, es). Étape `v2` : 18 défauts relevés, dont 16 sont ceux de `HARNAIS-CONNU.md` ; les deux autres (« fetched while alarm: /favicon.ico », aux deux tailles) correspondent au défaut que corrige le commit `7baf7b84` de `feat/nuit-2026-11-26` (icône en ligne), absent de cette branche ; C1 ne touche ni la page d'accueil ni le son. Attribution par lecture de l'historique, **non vérifiée** en relançant le harnais sur la base : à revoir après la réunion des branches. |
+
+La page n'a changé que par ses catalogues de phrases (deux fichiers) et une raison d'arrêt du journal. Les étapes `e2e` du harnais tournent sur la page de simulation, pas sur le serveur : elles ne passent pas par les gardes nouvelles.
 
 ## 10. Essai réel proposé
 
