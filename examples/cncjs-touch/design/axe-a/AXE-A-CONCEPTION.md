@@ -1,14 +1,40 @@
-# Axe rotatif A dans CNCjs Touch : conception
+# Axe rotatif A dans CNCjs Touch : conception (révision 2)
 
-27 novembre 2026. Arbre `cncjs-wt/A`, branche `feat/axe-A` (partie de master `95b773b6`). **Conception seule : aucun code de production, rien d'envoyé à la tablette ni à la carte.** Les chemins sont relatifs à `src/server/services/touch/` (serveur) et à `examples/cncjs-touch/touch/` (page), sauf mention.
+27 novembre 2026. Arbre `cncjs-wt/A`, branche `feat/axe-A` (partie de master `95b773b6`). **Conception seule : aucun code de production, rien d'envoyé à la tablette ni à la carte.** Révision 2 après le contre-avis d'Astra n° 1 (`AXE-A-AVIS-ASTRA-1.md`, verdict « à revoir ») et la fiche du kit donnée par l'opérateur. Les chemins sont relatifs à `src/server/services/touch/` (serveur) et à `examples/cncjs-touch/touch/` (page), sauf mention.
+
+## Réponses au contre-avis n° 1
+
+Chaque affirmation d'Astra a été relue dans le code. **Aucune n'est fausse** ; une nuance au point 7.
+
+| Point d'Astra | Vérifié dans le code | Ce qui change | § |
+|---|---|---|---|
+| 1. L0 efface un hors course X Y Z | Oui : un axe « inconnu » perd son enveloppe (`program-check.js:688-692`), donc plus de `blocking`, et `travelReady` laisse partir (`job-service.js:1149-1151`). | L0 n'écrit plus rien dans les raisons d'axe. Avertissement rotatif **à part** (`rotary` + une entrée codée dans `info`). Test exigé : `G0 X500 A90` reste `outside`. | 3, L0 |
+| 2. `unknown` n'est pas un refus | Oui : « `unknown` is a warning, never a green light » (`job-service.js:2443-2446`), `SURETE.md:39`. | L4 a ses propres interdictions serveur, hors verdict de course, non dérogeables, contrôlées à la préparation et juste avant `gcode:start`. Le sens des `unknown` existants ne change pas. | 3, L4 |
+| 3. « A configuré » confondu avec « A rapporté » | Oui : `posYoung` (`report-proof.js:160`) et les veilles du jog (`motion.js:580`, `:728`) se satisfont de X Y Z. | Trois états (absent / configuré inconnu / disponible) ; compteur de repos propre à A ; une session A exige la preuve A jusqu'au bout. Séquence 4→3→4 traitée. | 3, règle commune |
+| 4. Des nombres cohérents ne prouvent ni l'angle ni la tenue | Hors code. | Repérage angulaire de session exigé avant un programme ; moteur libre au repos = observation à vide, aucun programme. | 3, L4 ; 4 |
+| 5. Protocole trop risqué trop tôt | Oui (M1 de 10 unités à échelle inconnue, `$H` dans M4 avant M5, `A720` avec pièce, `G92.1` qui efface aussi X Y Z). | Protocole refait T0 à T11, du papier vers le mouvement ; M7 supprimé ; M10 remplacé. | 2 |
+| 6. L2 prêtait aux zéros X Y Z des gardes qu'ils n'ont pas | Oui : `originReady` (`motion.js:1439-1449`) ne demande pas deux rapports au repos ; lectures par l'état fusionné (`:1488`, `:1508`, `:1552`, `:1560`) ; succès annoncé après la seule invalidation de D2 (`:1570-1581`) ; C1 a laissé les zéros hors de son périmètre (`C1-CONCEPTION.md:169`). **Ma phrase « mêmes gardes » était fausse.** | Contrat de preuve du zéro A écrit en entier ; G92 A non nul ou inconnu refusé ; message d'échec honnête. | 3, L2 |
+| 7. Échelle, unités, bornes | Oui pour le repli à 500 et l'ambiguïté de la borne. **Nuance** : « `$103=800` non vérifié, pas faux en soi » ne tient plus avec la fiche du kit (0,3° par pas entier : 800 pas/° demanderait 240 micropas). Il est non qualifié **et très probablement inadapté**. | Échelle qualifiée et liée à la valeur de `$103` ; plafond inconnu : jog A refusé ; borne du continu écrite ; bornes logicielles éprouvées dans les deux sens ; pouces refusés aussi quand hérités ou inconnus. | 2 ; 3, L1, L3 |
+| 8. Risque mécanique annoncé trop étroitement | Hors code. | Texte « volume balayé non vérifié » ; plusieurs appuis = plusieurs tours ; `0x85` peut ne pas arriver. | 3, L3 ; 4 |
+| 9. Refus L4 incomplets | Oui : `G94` n'est gardé que pour la reprise (`job-service.js:1022-1031`) ; `modalsBeforeFirstMove` ignore A (`resume.js:306-320`). | Premier sous-ensemble réduit à l'**indexage** ; liste des refus complétée ; L4 dépend de L2 (preuve du décalage A). | 3, L4 |
+| 10. Durée et avance affichée | Oui : `program-time.js:9-47` n'a aucun modèle d'accélération (**ma mention de `$123` était fausse**) ; « Avance réelle … mm/min » (`job-dashboard.js:239-242`). | Durée `null` pour tout programme avec A ; libellé de l'avance adapté. | 3, L4 |
+| 11. § 5 insuffisant | — | Rejeux ajoutés, référence git figée, comparaison du visible. | 5 |
+| 12. Preuves partagées | Oui : `near`/`moved` (`report-proof.js:125`, `:174`), `plate-probe.js:448`, `block-probe.js:822`. | A configuré : valeur absente jamais égale ; A connu et inchangé pendant palpage et cadrage. | 3, L2 ; 5 |
+| 13. Formulation du constat | — | « Aucun avertissement spécifique aux mots A » ; les gardes ordinaires restent. | 1.3 |
 
 ## 0. Lecture rapide
 
-1. **La carte rapporte déjà quatre valeurs, sans 4e axe branché.** Relevé du 13 novembre (`surface-pro-sauvegardes/cnc-config-20261113.txt`, hors dépôt) : `<Alarm|MPos:0.000,0.000,0.000,0.000|FS:0,0>`, `[G54:0.000,0.000,0.000,0.000]`, `[PRB:0.000,0.000,0.000,0.000:0]`, `$103=800`, `$113=2000`, `$123=50`, `$133=400`. La question « que se passe-t-il si la carte se met à rapporter 4 valeurs » est donc déjà tranchée par l'usage : Touch reçoit 4 valeurs depuis toujours et jette la quatrième. **Conséquence : la présence d'une 4e valeur ne peut pas servir d'activation.**
-2. **Aujourd'hui, un programme avec des mots A est accepté sans un mot** (essai fait cette nuit par les vraies fonctions, § 1.3) : verdict « validated », enveloppe X Y Z juste, A ignoré, durée absente, et la reprise à une ligne **reconstruit un préambule sans A**. C'est le seul défaut présent, il existe sans le 4e axe : lot L0.
-3. Activation proposée : réglage serveur `touch.axisA.enabled` (dans `.cncrc`, comme `touch.motion.enabled`, `motion.js:136-142`) **et** 4e valeur présente dans le rapport. Réglage absent : aucun chemin nouveau n'est pris.
-4. Cinq lots, chacun installable seul : L0 (dire qu'un programme contient A), L1 voir, L2 zéro, L3 déplacer, L4 programmes.
-5. Trois inconnues de la carte commandent la suite, à lever par lecture puis par essai fraise en l'air (§ 2) : les limites logicielles s'appliquent-elles à A (`$133=400`) ; `$H` fait-il tourner A ; le moteur A est-il tenu au repos (`$1=25`).
+1. **La carte rapporte déjà quatre valeurs, sans 4e axe branché** (relevé du 13 novembre, `surface-pro-sauvegardes/cnc-config-20261113.txt`, hors dépôt) : `<Alarm|MPos:0.000,0.000,0.000,0.000|FS:0,0>`, `[G54:0.000,0.000,0.000,0.000]`, `$103=800`, `$113=2000`, `$123=50`, `$133=400`. La présence d'une 4e valeur ne peut donc pas servir d'activation.
+2. **Aujourd'hui, un programme avec des mots A ne reçoit aucun avertissement spécifique** (§ 1.3) ; les gardes ordinaires (hors course X Y Z, preuves de départ) s'appliquent. La reprise à une ligne reconstruit un préambule sans A.
+3. **Fiche du kit** : mandrin 4 mors K12-100, réduction 6:1 par courroie, Nema 23 3 A, 0,3° par pas entier en sortie, centre à 65 mm, hauteur totale 115 mm, 10,8 kg. `$103` attendu = 3,3333 × micropas (26,667 en 1/8, 53,333 en 1/16). Avec `$103=800`, **un ordre de 1° ferait tourner de 30° en 1/8, de 15° en 1/16**.
+4. **Découpe.**
+
+| Lot | Quand |
+|---|---|
+| **L0** signaler A/B/C, refuser leur reprise à une ligne | **Maintenant, sans machine.** Détail prêt à coder au § 3. |
+| **L1** voir A | Après la lecture de la carte (§ 2.1). |
+| **L2** zéro A, **L3** déplacer A | Après lecture et essais ciblés (T1 à T8). |
+| **L4** programmes, indexage seul | En dernier, après L2, T9 à T11, tenue vérifiée. |
 
 ## 1. Inventaire : où Touch suppose trois axes
 
@@ -58,7 +84,7 @@ Essai jetable du 27 novembre par `analyzeProgram`, `checkProgram`, `durationOf`,
 
 Reprise à la ligne 6 du deuxième programme : préambule `G21 G90`, `G0 Z5`, `G0 X0 Y0`, `M3 S1000`, `G4 P3`, `G1 Z-1 F100`. **Le `A0` de la ligne 3 a disparu** ; la suite (`G1 X10 A90`) part de l'angle où A se trouve. Sur une machine à axe A, c'est une pièce usinée sur la mauvaise face. Position annoncée par la page : X, Y, Z (`job-resume.js:68`).
 
-Donc : ni refus, ni avertissement ; l'enveloppe X Y Z reste juste (A ne la change pas) ; la durée est absente, pas fausse ; le programme part tel quel vers la carte. Sur cette carte (4 axes compilés, rien de branché sur A), les mots A seraient exécutés « dans le vide ». Sur un Grbl à 3 axes, le premier mot A arrêterait le travail en erreur au milieu de la passe.
+Donc : **aucun avertissement spécifique aux mots A** ; les gardes ordinaires (hors course X Y Z, preuves de départ) restent appliquées ; l'enveloppe X Y Z reste juste (A ne la change pas) ; la durée est absente, pas fausse ; le programme part tel quel vers la carte. Sur cette carte (4 axes compilés, rien de branché sur A), les mots A seraient exécutés « dans le vide ». Sur un Grbl à 3 axes, le premier mot A arrêterait le travail en erreur au milieu de la passe.
 
 ### 1.4 Page
 
@@ -80,155 +106,222 @@ Donc : ni refus, ni avertissement ; l'enveloppe X Y Z reste juste (A ne la chang
 - `grbl-simulator/grbl-simulator.js` : trois axes en dur (`:2039-2047` rapport, `:2117-2122` WCO). Ne sait pas A.
 - `examples/cncjs-touch/grbl-sim/` : Grbl 1.1h officiel compilé, trois axes. Ne sait pas A, et ce n'est pas le firmware de la carte.
 
-## 2. Avant de coder : ce qu'il faut lire, puis essayer
+## 2. Avant de coder : lire, puis essayer
 
-### 2.1 Lecture seule (machine au repos, moteur A branché, aucun mouvement)
+### 2.1 Lecture seule (machine au repos, aucun mouvement)
 
-À envoyer dans cet ordre, réponses à ranger dans `design/axe-a/` (texte brut).
+Réponses à ranger en texte brut dans `design/axe-a/`.
 
 | Commande | Ce qu'on lit | Ce que la réponse décide |
 |---|---|---|
-| `?` (10 fois, à 1 s) | Nombre de valeurs de `MPos:` ; présence de `FS:` ; un `WCO:` à 4 valeurs | 4 valeurs : L1 possible tel que conçu. 3 valeurs : la carte a changé depuis le 13 novembre, tout s'arrête ici. |
-| `$$` | `$103`, `$113`, `$123`, `$133` ; `$20`, `$22`, `$23`, `$1`, `$13` | `$103` : pas par degré, à calculer par l'opérateur (question Q1) ; tant qu'il vaut 800, **les degrés affichés sont faux**. `$113` : plafond de vitesse du jog A. `$20=1` avec `$133=400` : A probablement borné à 400° d'un côté du zéro machine (essai M4). `$23` bit 3 : de quel côté. `$1=25` : moteurs relâchés 25 ms après l'arrêt, donc A libre au repos (essai M2). `$13=1` : refuser d'activer A (pouces). |
+| `?` (10 fois, à 1 s) | Nombre de valeurs de `MPos:` ; `FS:` ; un `WCO:` à 4 valeurs | 4 valeurs : L1 tel que conçu. 3 valeurs : la carte a changé, tout s'arrête. |
+| `$$` | `$103`, `$113`, `$123`, `$133`, `$20`, `$22`, `$23`, `$1`, `$13`, `$3` | `$103` : échelle (T1 à T3). `$113` : plafond du jog A ; absent : jog A refusé. `$20`, `$133`, bit 3 de `$23` : borne probable de A (T7). `$1` : tenue au repos (T5). `$13=1` : A non activable. |
 | `$I` | `[VER:…]`, `[OPT:…]` | Même binaire que le 13 novembre (`1.1f.20231030`, `PHSW`) ? Sinon reprendre `FIRMWARE.md`. |
-| `$#` | 4 valeurs par ligne, valeur A de G54…G59, G92, G28, G30, PRB | Confirme que `G10 L20 … A0` aura où s'écrire ; un G92 A non nul est à annuler avant tout. |
-| `$G` | `G21`, `G90`, `G94`, repère | `G93` actif au repos : anomalie, ne rien lancer. |
-| `$+` (ou `$S`), cité dans `FIRMWARE.md` E-0, **jamais lancé** | Réglages étendus : cycles de prise d'origine, `Home/Mpos` de A, course de A | Si la liste nomme les axes de chaque cycle, on sait sans mouvement si `$H` touche A. Si la commande est refusée (`error:`), rien n'est perdu. |
+| `$#` | 4 valeurs par ligne ; A de G54…G59, G92, G28, G30 | Où `G10 L20 … A0` s'écrira ; un G92 A non nul bloque L2 ; G28/G30 A mémorisés (raison du refus L4). |
+| `$G` | `G21`, `G90`, `G94`, repère | Autre chose au repos : ne rien lancer. |
+| `$+` (ou `$S`), cité dans `FIRMWARE.md` E-0, jamais lancé | Cycles de prise d'origine ; `Home/Mpos` et course de A | Dit, sans mouvement, si un cycle nomme A, et l'origine numérique de la borne de A. Réserve : binaire du fabricant, la liste peut mentir (`FIRMWARE.md` E2). Refus `error:` : rien de perdu. |
 
-### 2.2 Essais avec mouvement, par l'opérateur, fraise en l'air
+### 2.2 Essais, du moins risqué au plus risqué
 
-Broche arrêtée, rien dans le mandrin du 4e axe pour M1 à M5, Z en haut, main sur l'arrêt d'urgence. Depuis la console CNCjs du PC (Touch refuse A). Une ligne à la fois, noter la réponse et dix rapports `?`.
+Par l'opérateur, depuis la console CNCjs du PC (Touch refuse A). Conditions de T1 à T10 : **mandrin vide, clé retirée, mors serrés à vide**, broche arrêtée, Z en haut, X Y loin du mandrin, main sur l'arrêt d'urgence. Avant chaque essai : état `Idle`, `$G` = `G21 G90 G94`, MPos A notée. Après : dix `?` notés. **Aucun `G92`. Aucun `A720`.** Chaque essai ne se fait que si le précédent a donné le résultat attendu.
 
-| N° | Geste | On regarde | Décide |
-|---|---|---|---|
-| M1 | `$J=G91 G21 A10 F200` | `ok` ou `error:` ; la 4e valeur passe de 0 à 10 ; état `Jog` puis `Idle` ; l'axe tourne-t-il de 10° (repère au feutre) | `$J` avec A accepté ; échelle `$103`. |
-| M2 | Au repos, essayer de tourner le mandrin à la main | Tenu ou libre | Libre : avertissement permanent en L3/L4 et question Q4 (`$1`). |
-| M3 | `$J=G91 G21 A360 F2000`, puis `0x85` au milieu | Arrêt net, `Idle`, position rapportée = position réelle | L'annulation du continu vaut pour A. |
-| M4 | Après `$H` et `$20=1` tel que réglé : `$J=G91 G21 A500 F2000`, puis `A-500` | `error:15` (limite) ou mouvement entier ; à quelle valeur | **Si A est borné : L3 et L4 changent** (une course pour A, ou une décision de l'opérateur sur `$133`, Q3). |
-| M5 | `$H`, la main sur l'arrêt | A tourne-t-il ; `ALARM:9` ; durée ; valeur A de MPos après | Si `$H` fait tourner A sans capteur : **rien n'est installable** avant correction du réglage de la carte. Si A garde sa valeur : noter que MPos A survit à `$H`. |
-| M6 | `G10 L20 P1 A0`, puis `?` ×10, `$#` | 4e valeur de `WCO:` = MPos A ; `G54` A dans `$#` ; MPos A inchangé | L2. |
-| M7 | `G92 A0` puis `G92.1` | Effet sur WCO | Simple constat : Touch n'enverra pas G92. |
-| M8 | `G1 A90 F360` puis `G1 X10 A180 F360`, chronométrés | 15 s pour le premier ? durée du second | Règle de vitesse de L4 (§ 3, L4). |
-| M9 | `G38.2 Z-1 F50` avec A ≠ 0, pince en contact à la main | `[PRB:…]` porte la 4e valeur | Palpage avec A ≠ 0 non perturbé. |
-| M10 | Mettre une pièce d'essai, `G0 A720` | Câbles, tuyaux, bridage | Rien ne s'enroule. |
+| N° | Départ | Geste | Contrôle final | Décide |
+|---|---|---|---|---|
+| T0 | Machine éteinte | Lire les micro-interrupteurs du pilote A (micropas, courant 3 A) ; regarder ce que le mandrin, les mors et la courroie balaient ; passage des câbles | — | `$103` attendu = 3,3333 × micropas. |
+| T1 | MPos A = 0 | `$J=G91 G21 A0.01 F1`, puis `$J=G91 G21 A0.1 F5` | `ok` ; 4e valeur +0,010 puis +0,100 ; angle réel au repère (trait sur le mandrin : à Ø 100, 1° = 0,87 mm). Avec `$103=800` : 3° attendus en 1/8, 1,5° en 1/16 | `$J` avec A accepté ; la 4e valeur est bien A ; sens ; micropas réel. |
+| T2 | Idle | **L'opérateur** écrit `$103=<valeur que nous donnons d'après T0 et T1>`, après une sauvegarde des réglages ; relit `$$` | `$103` relu | Échelle posée. Touch n'écrit pas ce réglage. |
+| T3 | MPos A = 0, repère tracé | `$J=G91 G21 A1 F60`, `A10 F180`, `A90 F360`, puis trois fois `A90 F360` | Repère revenu sur son trait après 360° (± 0,5°) ; 4e valeur = somme | **Échelle qualifiée** pour cette valeur de `$103` (réglage `qualified103`, § 3). |
+| T4 | Idle | `$J=G91 G21 A90 F180` (30 s), `0x85` à mi-course | Arrêt net, `Idle`, angle rapporté = angle au repère | Annulation du continu. |
+| T5 | Idle depuis 10 s | Tourner le mandrin à la main, sans forcer | Tenu ou libre | Libre : pas de programme (§ 3, L4), question Q3. |
+| T6 | Cycles lus par `$+` | `$H`, mandrin vide, main sur l'arrêt | A tourne-t-il ; alarme ; durée ; MPos A avant et après | `$H` fait tourner A : **rien n'est installable** avant correction côté carte. Sinon : MPos A survit-elle à `$H`. |
+| T7 | Après T6, `$20` tel que réglé, MPos A = 0 | `$J=G91 G21 A90 F1000` répété jusqu'à 450°, retour, puis `A-90` jusqu'à −450° | À quelle valeur `error:15`, dans chaque sens ; aucune alarme | A borné ou non, et où. Décide la politique de bornes de L3 et L4 (Q2). |
+| T8 | Idle, MPos A = 30 (par T3), `$#` : G92 nul, repère G54 | `G10 L20 P1 A0` | MPos A toujours 30 ; un `WCO:` reçu après, 4e valeur 30 ; `$#` : G54 A = 30, X Y Z de G54 inchangés. Puis `G10 L2 P1 A0` pour revenir | Contrat de L2. |
+| T9 | WPos A = 0, G90 G94 G21 | `G1 A90 F360`, chronométré ; `FS:` relevé pendant | 15 s ; valeur d'avance rapportée | Convention de F et de l'avance rapportée pour A seul. |
+| T10 | Pince de palpage tenue à la main, A = 30 | Palpage Z du protocole existant | `[PRB:…]` à 4 valeurs, A inchangé | Palpage avec A ≠ 0. |
+| T11 | Pièce d'essai serrée, **volume balayé inspecté à l'arrêt** (pièce, mors, bridage, câbles, pince) | `$J=G91 G21 A15 F180`, puis `A45`, puis `A90`, en regardant | Rien ne touche, rien ne s'enroule | Seulement cette pièce, ce montage. |
+
+Les lignes combinées (X/Y/Z avec A) ne sont pas essayées : hors du premier sous-ensemble.
 
 ## 3. Conception par lots
 
-Règle commune : `axisA = config.get('touch.axisA.enabled') === true` **et** le dernier rapport positionnel porte au moins 4 nombres. Faux : aucun des chemins ci-dessous n'est pris. A n'entre **jamais** dans `AXES` (`motion.js:36`, `program-check.js:26`, `work-offset.js:30`) : ces listes commandent l'enveloppe, la course et les verdicts X Y Z ; A reçoit ses propres branches, courtes.
+### Règle commune : trois états, jamais deux
 
-### L0. Dire qu'un programme contient A (sans axe A activé)
+Réglage `.cncrc` (comme `touch.motion.enabled`, `motion.js:136-142`) : `touch.axisA = { enabled, qualified103, holds }`.
 
-- **But.** Fermer le silence du § 1.3. Seul changement visible sur une machine à 3 axes, et seulement pour un fichier qui contient un mot A, B ou C.
-- **Fichiers.** `program-check.js` (note `a.rotary = { line, letter }` à la première ligne dont un mot est A, B ou C hors commentaire ; raison codée `ETOUCH_CHECK_ROTARY` posée sur X, Y, Z comme les autres raisons « non interprété », `:403-405`) ; `resume.js` (refus de construire une reprise si une ligne du fichier porte A, B ou C) ; `i18n-messages-refus.js` (FR/EN/ES).
-- **Sûreté.** Verdict « unknown » avec « Ligne n : mot A (axe rotatif) non pris en charge par cette machine. » ; reprise à une ligne refusée. Rien n'est envoyé de plus ni de moins à la carte.
-- **Tests.** Jest : les cinq programmes du § 1.3, plus `(A12)` et `; A12` en commentaire (aucun signalement), plus corpus `gcode-corpus` inchangé au caractère près (`corpus.test.js`). Banc de page : l'écran Contrôle montre la raison.
-- **Non vérifiable sans machine.** Rien.
+| État | Condition | Effet |
+|---|---|---|
+| **Absent** | `enabled` n'est pas `true` | Comportement historique. Aucune branche nouvelle n'est prise, quelle que soit la 4e valeur. |
+| **Configuré, A inconnu** | `enabled`, mais le dernier rapport positionnel n'a pas de 4e nombre entier, ou il est abîmé, ou périmé (2,5 s) | Case « A — ». Toute commande A indisponible, confirmations A en cours invalidées, compteur de repos A remis à 0. Les arrêts restent accessibles. |
+| **Disponible** | `enabled` et le dernier rapport porte A | Valeur montrée ; les gardes de chaque lot décident du reste. |
+
+- **Repos de A** : compteur à part (`stillA`), +1 seulement si ce rapport et le précédent portent A, disent Idle et s'accordent ; remis à 0 par tout rapport sans A. 4→3→4 donne donc 1, pas 2.
+- **Égalité** : A configuré, une valeur absente n'est jamais égale à rien (`near`, `moved`, `report-proof.js:125`, `:174`). A absent du réglage : ces fonctions ne regardent pas la 4e valeur.
+- **Session A** (pas, continu, zéro en cours) : sa veille exige une position **avec A** fraîche ; A disparu : annulation à l'échéance existante (`motion.js:580`, `:728`), jamais de retour aux seules gardes X Y Z.
+- A n'entre pas dans `AXES` (`motion.js:36`, `program-check.js:26`, `work-offset.js:30`).
+
+### L0. Signaler A, B, C et refuser leur reprise (réalisable maintenant)
+
+**Règle exacte.**
+
+1. `program-check.js`, dans la boucle, juste après `const w = words(code);` (`:334`) : si un mot de `w` a pour lettre A, B ou C, compter la ligne dans `a.rotary = { letters, line, count }` (`letters` : lettres vues, dans l'ordre A B C ; `line` : première ligne ; `count` : nombre de lignes). **Rien d'autre** : pas d'appel à `unknown`, pas de `listed`, pas de `continue`. Les lignes `$…` ou à espaces ambigus sont déjà écartées avant (`:325-333`) ; les commentaires sont déjà retirés (`codeOf`, `:80`).
+2. `checkProgram` : si `analysis.rotary`, `info.push(reason('ETOUCH_CHECK_ROTARY', { letters, line, count }, <texte FR>))` (même forme que `:831`) et `rotary` recopié dans le résultat. `verdict`, `axes`, `blocking`, `overridable` : inchangés.
+3. `resume.js`, `buildResume`, après `checkSyntax(lines)` (`:581`) : si une ligne du fichier, **avant ou après** la ligne de reprise, porte un mot A, B ou C (par `words(grbl(line))`), `throw refuse('ETOUCH_RESUME_ROTARY', <texte FR>, { letter, line })`.
+4. Page : l'écran Contrôle affiche déjà `info` (`check-screen.js:103`) ; l'entrée y prend le style d'avertissement. Catalogues : `i18n-messages-machine.js` (à côté de `:173`), famille dans `i18n-messages-refus.js` (à côté de `:446`).
+
+**Textes.**
+
+| Code | FR | EN | ES |
+|---|---|---|---|
+| `ETOUCH_CHECK_ROTARY` | Ce programme commande un axe rotatif ({letters}, {count} lignes, la première ligne {line}). CNCjs Touch ne vérifie pas ces mouvements : le contrôle ci-dessus ne porte que sur X, Y et Z. | This program drives a rotary axis ({letters}, {count} lines, first at line {line}). CNCjs Touch does not check these moves: the check above covers X, Y and Z only. | Este programa mueve un eje rotativo ({letters}, {count} líneas, la primera en la línea {line}). CNCjs Touch no comprueba estos movimientos: el control anterior solo cubre X, Y y Z. |
+| `ETOUCH_RESUME_ROTARY` | Reprise à une ligne impossible : le programme commande un axe rotatif ({letter}, ligne {line}) que la reprise ne sait pas replacer. | Cannot resume from a line: the program drives a rotary axis ({letter}, line {line}) that a resume cannot put back in place. | No se puede reanudar desde una línea: el programa mueve un eje rotativo ({letter}, línea {line}) que la reanudación no sabe recolocar. |
+
+**Tests exigés (Jest, vraies fonctions).**
+
+- `G21 G90 G54` + `G0 X500 A90`, machine de `program-check.test.js:7-16` : **`outside`**, mêmes `blocking` que sans `A90`, avec `$20=0` et `$20=1`, plus l'entrée `ETOUCH_CHECK_ROTARY`.
+- Pour chaque fichier X Y Z valide, inconnu et hors course du jeu existant : la version avec ` A1` ajouté à une ligne donne **le même** `verdict`, `axes`, `blocking`, `reasons` ; seul `info`/`rotary` diffère.
+- `(A12)`, `; A12`, `M3 S1000`, `T1 M6` : aucun signalement. `B`, `C`, `A` puis `B` : lettres et compte justes.
+- Les cinq programmes du § 1.3.
+- Reprise : refus si A est avant la ligne, après la ligne, ou sur la ligne ; aucun refus nouveau pour un fichier sans A/B/C (`resume.test.js` inchangé).
+- `corpus.test.js` inchangé ; liste des fichiers du corpus contenant A/B/C écrite dans le rapport du lot.
+- Banc de page : l'avertissement paraît à l'écran Contrôle dans les trois langues ; le départ reste possible ou refusé exactement comme sans A.
+
+**Non vérifiable sans machine.** Rien.
 
 ### L1. Voir A
 
-- **Activation.** Réglage **et** rapport, pas l'un sans l'autre. Pourquoi pas le rapport seul : la carte donne déjà une 4e valeur à 0 sans axe (§ 0.1), une colonne « A 0.000 » apparaîtrait chez tout le monde. Pourquoi pas le réglage seul : sans 4e valeur il n'y a rien à montrer, et une case vide ou un 0 inventé serait pire que rien. Pourquoi dans `.cncrc` et pas dans la page : c'est un fait de câblage, il ne doit pas dépendre d'un navigateur (même raison que `touch.machines`, `machine-profile.js:1-7`).
-- **Fichiers.** `report-proof.js` : `readStatus` garde le 4e nombre s'il existe (`a`) pour la position et pour WCO, sans rien changer à x, y, z ni aux compteurs. `job-service.js:1675-1687` : `coordinates.wpos.a` et `mpos.a` ajoutés seulement si `axisA` ; drapeau `axisA: true` dans l'instantané. Page : `index.html:39`, `:43` et `app.js:178` (une case A, cachée par défaut), `job-dashboard.js`, i18n.
-- **Affichage.** « A 12.345 ° » en repère pièce, en repère machine dans la ligne machine. Unité « ° » écrite parce que le réglage déclare un axe rotatif ; mention « échelle non vérifiée » tant que l'essai M1 n'est pas consigné (texte fixe du lot, retiré par un commit après l'essai : pas de mécanisme). Rapport sans 4e valeur alors que le réglage est posé : « A — ».
-- **Sûreté.** Lecture seule. La valeur montrée vient du champ brut du rapport (règle C1), jamais de l'état fusionné de CNCjs.
-- **Tests.** Jest : `readStatus` sur 3, 4, 5, 6 nombres, champ abîmé, WCO à 3 valeurs avec MPos à 4 (alors `w.a` inconnu, pas 0) ; instantané avec et sans réglage. Banc de page : case absente sans drapeau, présente avec. Simulateur : option « 4e valeur fixe à 0 » dans `grbl-simulator.js` (c'est ce que la carte fait aujourd'hui), pour prouver § 5.
-- **Essai réel.** Tablette, réglage posé : la case suit M1.
-- **Non vérifiable sans machine.** Que la 4e valeur est bien A et en degrés ; cadence de `WCO:` à 4 valeurs.
+- **Activation** : réglage et rapport (justification inchangée : la carte donne déjà un 4e zéro sans axe ; un fait de câblage ne dépend pas d'un navigateur).
+- **Fichiers.** `report-proof.js` : `readStatus` rend le 4e nombre à part (`a`, `wcoA`) sans toucher à `xyz` ; état A et `stillA` tenus seulement si configuré. `job-service.js:1675-1687` : `coordinates.*.a` et `axisA: { state, scale }` dans l'instantané, seulement si configuré ; `:54` : `$103`, `$113` exposés. Page : `index.html:39`, `:43`, `app.js:178`, `job-dashboard.js`, i18n.
+- **Affichage.** « A 12.345 ° » (pièce et machine). **Échelle** : « échelle qualifiée » seulement si `$103` lu sur la carte égale `qualified103` du réglage ; sinon « échelle non qualifiée : les degrés affichés peuvent être faux » (réglage absent, `$103` différent ou non lu). `$13=1` ou inconnu : A reste « — ». WCO à 3 valeurs avec MPos à 4 : A pièce inconnu, pas 0.
+- **Sûreté.** Lecture seule, valeur prise dans le champ brut du rapport.
+- **Tests.** Jest : 3, 4, 5, 6 nombres ; champ abîmé ; 4→3→4 ; WCO 4→3 ; péremption ; bannière ; `$103` égal, différent, absent. Banc de page : les trois états. Simulateur : option « 4e valeur » dans `grbl-simulator.js` (`:2039-2047`, `:2117-2122`).
+- **Essai réel.** La case suit T1 et T3.
+- **Non vérifiable sans machine.** Que la 4e valeur est A ; cadence du `WCO:` à 4 valeurs.
 
 ### L2. Mettre A à zéro
 
-- **Commande.** `G10 L20 P<n> A0` par `originLine` (`motion.js:309`), repère actif, comme X Y Z. Jamais `G92`. Pas de « A à l'origine machine » (`at: 'machine'`) : A n'a pas d'origine machine.
-- **Fichiers.** `motion.js:1452-1463` (accepter `['A']` **seul** quand `axisA` ; « Zéro XYZ ici » reste X Y Z), `:1487-1493`, `:1508` (position A liée à la confirmation, par `posOf(r, 'm', 'A')`) ; `report-proof.js` (`moved` et le repos comparent `a` quand les deux rapports le portent) ; `work-offset.js` (preuve D2 étendue à `a` quand `axisA` : `G54.a + G92.a` de `$#` égal au `WCO` 4e valeur) ; page : un bouton « Zéro A ici » (`index.html:49-52`, `real-motion.js:307-328`, `coordinate-plan.js:17`).
-- **Sûreté.** Mêmes gardes que le zéro X Y Z : Idle, deux rapports au repos, confirmation liée à la position, repère inchangé. Refus si la 4e valeur manque (`ETOUCH_MOTION_POSITION_UNKNOWN`, axe A). Après l'`ok` : zéro annoncé seulement quand un rapport au repos donne WPos A à 0 ± 0,01 **et** que `$#` le confirme ; sinon « Zéro A non confirmé », décalage invalidé (chemin existant `motion.js:1522-1524`).
-- **Tests.** Jest par le vrai parseur : séquence `G10` → `ok` → rapport avec `WCO:…,a` → `$#` ; rapport sans WCO ; WCO à 3 valeurs ; A qui bouge entre confirmation et envoi (refus). Banc de page : bouton absent sans drapeau. Simulateur : décalage A.
-- **Essai réel.** M6 refait depuis la tablette, puis extinction et rallumage : WPos A.
-- **Non vérifiable sans machine.** `G10 L20 … A0` accepté ; l'écart connu R6 (`FIRMWARE.md` : décalage exécuté nul après `$H` alors que `$#` le contient) vaut-il aussi pour A.
+Les zéros X Y Z **ne sont pas modifiés** (ils restent hors C1, `C1-CONCEPTION.md:169`). Le zéro A est une séquence nouvelle, avec son contrat :
+
+1. **Préparation (ticket).** A disponible ; `stillA ≥ 2` ; repère actif connu par un `$G` récent (`motion.js:1446-1448`) ; preuve du décalage du repère actif acquise, **A compris** (`$#` relu : `G54…G59` du repère actif) ; **G92 A lu et nul** (inconnu ou non nul : refus `ETOUCH_ORIGIN_A_G92`, car la somme G54+G92 juste aujourd'hui ne garantit rien une fois G92 retiré). MPos A notée depuis le champ brut.
+2. **Juste avant l'écriture.** Mêmes conditions relues ; MPos A = valeur du ticket ± 0,01 ; repère inchangé.
+3. **Écriture.** `G10 L20 P<n> A0` (`originLine`, `motion.js:309`), A seul. Jamais `G92`, jamais `at: 'machine'`.
+4. **Après l'`ok`**, dans un délai borné, il faut **tout** : un rapport au repos, reçu après l'`ok`, portant `WCO:` à 4 valeurs ; MPos A inchangée ; WPos A = 0 ± 0,01 calculé depuis ce rapport ; un `$#` demandé après l'`ok` dont le repère actif donne A = MPos A ± 0,01 et X Y Z inchangés.
+5. **Issue.** Tout tenu : « Zéro A réglé », et le **repérage angulaire de session** est acquis (L4). Sinon : **« Zéro A non confirmé : le décalage a peut-être été écrit. Vérifiez la position A avant de continuer. »**, preuve du décalage invalidée, aucun retour en arrière tenté.
+
+- **Fichiers.** `motion.js` (opération `set-origin-a` distincte de `originRun`), `work-offset.js` (preuve étendue à `a` quand configuré), `report-proof.js`, page (`index.html:49-52` : bouton « Zéro A ici » ; « Zéro XYZ ici » reste X Y Z), i18n.
+- **Palpage et cadrage, A configuré** (`plate-probe.js:448`, `block-probe.js:822`) : A connu au départ et inchangé jusqu'à la fin, sinon arrêt de la séquence par le chemin existant « la machine a bougé ».
+- **Tests.** Jest par le vrai parseur : chaque condition manquante une à une (pas de WCO après, WCO à 3 valeurs, `$#` qui dit autre chose, MPos A qui bouge, G92 A = 5, G92 illisible, repère changé, A disparu entre ticket et envoi, bannière pendant l'attente) ; succès ; zéros X Y Z octet pour octet. Simulateur : décalage A, et une variante qui n'applique pas le décalage (écart R6 de `FIRMWARE.md`).
+- **Essai réel.** T8, puis depuis la tablette ; extinction, rallumage, relecture.
+- **Non vérifiable sans machine.** `G10 L20 … A0` accepté ; écart R6 pour A.
 
 ### L3. Déplacer A à la main
 
-- **Pas.** 0,1 / 1 / 5 / 15 / 45 / 90 ° (liste propre à A, la liste en mm `motion.js:37` reste intacte). Ligne : `jogLine('A', ±pas, vitesse)` soit `$J=G91 G21 A… F…` (`motion.js:307`, inchangé).
-- **Vitesse.** En °/min ; choix de la page 100 / 250 / 500 / 1000 / 2000 (`real-motion.js:22`) filtrés par `$113` ; `$113` inconnu : 500 (`FALLBACK_MAX_FEED`). `maxFeedOf` reçoit le numéro de réglage 113 pour A (`motion.js:301-302`).
-- **Continu.** Une seule ligne bornée, comme aujourd'hui, mais la borne n'est pas la course : `min(360°, vitesse × 60 s)` (`MAX_JOG_MS`, `motion.js:296`). Même session, même entretien (250 ms), même annulation `0x85` au relâchement, à la perte du flux ou d'un rapport (`motion.js:740-768`). Un tour au plus par appui.
-- **Preuves C1 pour A.** Position : les deux derniers rapports au repos portent 4 valeurs et s'accordent sur x, y, z **et a**. Broche : **prouvée arrêtée pour tout mouvement de A**, pas et continu (pas d'exception « petit pas broche en marche » : tourner une pièce contre une fraise qui tourne est un usinage). Pendant le mouvement : surveillance existante (`spindleWatch`, rapport périmé).
-- **Gardes qui restent sans course.** Pas de règle « 1 mm tant que non référencé » pour A (elle protège une course, A n'en a pas) ; durée d'un pas ≤ 60 s ; plafond `$113` ; un tour par appui en continu ; refus `error:15` de la carte montré tel quel. **Si l'essai M4 montre que la carte borne A**, ce lot reçoit une course A lue sur `$133` et le sens de `$23`, par les fonctions existantes `limitsAt`/`usableOf` : à décider après M4, pas avant.
-- **Ce que Touch ne peut pas garder.** La collision d'une pièce non ronde avec la fraise ou la broche. Texte permanent du panneau A : « Fraise relevée au-dessus de la pièce sur tout le tour. » Pas de confirmation à chaque pas.
-- **Fichiers.** `motion.js` (branche A de `jogParams`, `step`, `continuousReason`, `start`), `motion-preflight.js:5`, `:132`, `:140`, `job-service.js:54` (exposer `$113`), page `index.html:56-57` (rangée A− / A+), `real-motion.js` (unités « ° », « °/min », codes de refus), i18n.
-- **Tests.** Jest : chaque refus (pas hors liste, vitesse au-dessus de `$113`, 4e valeur absente, broche non prouvée, axe non activé) ; ligne exacte émise ; continu annulé au relâchement, à la perte d'un rapport ; X Y Z à l'identique. Bancs de page : rangée absente sans drapeau ; libellés. Simulateur : A libre, sans limite.
-- **Essai réel.** M1 et M3 depuis la tablette ; relâchement à mi-tour ; arrêt d'urgence pendant un continu.
-- **Non vérifiable sans machine.** `$J` avec A accepté ; arrêt réel sous `0x85` ; A borné ou non ; tenue au repos.
+**Conditions de tout mouvement A** : A disponible ; **échelle qualifiée** (`$103` lu = `qualified103`) ; `$113` lu et positif, **sinon refus** (plus de repli à 500) ; `$13=0` lu ; `stillA ≥ 2` ; **broche prouvée arrêtée**, pour tout pas et pour le continu (`FS:0` et M5 sont des preuves logicielles, pas une mesure d'arrêt, `FIRMWARE.md:126`).
 
-### L4. Programmes avec A
+- **Pas.** 0,1 / 1 / 5 / 15 / 45 / 90 °. Ligne `$J=G91 G21 A… F…` (`jogLine`, `motion.js:307`).
+- **Vitesse.** °/min, choix de la page filtrés par `$113`.
+- **Continu.** Une ligne bornée à `min(360, F × MAX_JOG_MS / 60000)` degrés (`MAX_JOG_MS` = 60 000, `motion.js:296`). Entretien 250 ms et annulation `0x85` existants. **Plusieurs appuis font plusieurs tours** : la borne limite un appui, pas l'enroulement. Si l'USB ou le serveur tombe, le `0x85` peut ne pas arriver : la carte finit la ligne reçue ; un tour au plus, ce qui ne garantit pas l'absence de collision.
+- **Bornes logicielles.** « Sans capteur » ne veut pas dire « sans borne » : la politique dépend de T7. A borné par la carte : course A depuis `$133` et l'origine lue par `$+`, par `limitsAt`/`usableOf`, sans rien déduire de la prise d'origine X Y Z, et sans présenter un redémarrage de la carte comme une remise à zéro. A libre : aucune course. **L3 n'est pas codé avant T7.**
+- **Texte permanent du panneau A** (FR) : « Courses X, Y, Z vérifiées ; volume balayé par la pièce, le mandrin et le bridage non vérifié. »
+- **Fichiers.** `motion.js` (branche A de `jogParams`, `step`, `continuousReason`, `start`, veilles), `motion-preflight.js:5`, `:132`, `:140`, page `index.html:56-57`, `real-motion.js` (unités, codes de refus au lieu de motifs `[XYZ]`), i18n.
+- **Tests.** Jest : chaque refus (échelle non qualifiée, `$113` absent, A inconnu, 4→3→4, broche non prouvée, pas hors liste, vitesse trop haute) ; ligne émise exacte ; perte de A pendant un pas et pendant un continu : annulation, chronologie notée ; X Y Z identiques. Bancs de page. Simulateur : A libre, puis A borné.
+- **Essai réel.** T3, T4 depuis la tablette ; relâchement ; arrêt d'urgence ; câble USB retiré pendant un continu (mandrin vide).
+- **Non vérifiable sans machine.** Tout ce que T1 à T7 décident.
 
-- **Enveloppe.** X Y Z : code inchangé. A : suivi à part (`aMin`, `aMax`, premier A absolu), **jamais comparé à une course**, sauf si M4 l'impose. Montré à l'écran Contrôle : « A de −90° à 720° (2 tours) » et la position A actuelle. Si le premier A absolu est à plus d'un tour de la position actuelle : « La machine déroulera n tours avant de commencer. »
-- **Ce qu'on refuse (verdict « unknown », raison codée, ligne citée).**
-  - `G93` (avance en temps inverse) : aujourd'hui accepté sans durée (`program-check.js:346`). Avec A, F n'est plus une vitesse ; refus tant qu'aucun essai ne l'a qualifié.
-  - A en pouces : un mot A sous `G20`, ou `$13=1` (Grbl convertit tous les mots d'axe ; pour A ce serait des degrés × 25,4, **à confirmer par lecture du code amont**, non relu cette nuit).
-  - `G2`/`G3` avec un mot A ; `G38.x`, `G28`, `G30`, `G53` avec un mot A ; `G10`/`G92` avec A (déjà « modifie l'origine »).
-  - A en `G91` (relatif) : accepté, suivi comme X Y Z.
-- **Mouvements combinés (X, Y ou Z avec A dans la même ligne `G1`).** Grbl applique F à la longueur du vecteur toutes composantes confondues, degrés comptés comme des mm (lecture amont à confirmer, essai M8). La vitesse réelle à la surface dépend du rayon, que Touch ne connaît pas. **Proposition : acceptés, annoncés** (« n lignes déplacent X/Y/Z et A ensemble : la vitesse à la surface de la pièce dépend de son rayon, Touch ne la contrôle pas »), parce que c'est le cas normal d'un programme 4 axes et que F y est choisi par le logiciel de FAO. Question Q2.
-- **Durée.** A seul : `|ΔA| / F` en `G1`, `|ΔA| / $113` en `G0`, accélération `$123`. Combiné : longueur du vecteur à quatre composantes divisée par F, plafonnée par axe (`$110-113`). Affichée « estimée » ; reste absente (`null`) tant que M8 n'a pas confirmé la règle. `program-time.js:4` : vecteur à 4 composantes seulement quand `axisA`.
-- **Départ.** Preuves de départ existantes, plus : 4e valeur présente dans les deux rapports au repos. Pas d'exigence « A = 0 » : c'est le programme qui place A.
-- **Suivi.** Position A dans le tableau de suivi (L1). Tracé 3D : inchangé, à plat, avec la mention « Aperçu sans la rotation A ».
-- **Reprise à une ligne.** **Refusée** pour un programme contenant A (déjà en L0). La rendre possible demande de replacer A avant la plongée et de prouver sa position : autre lot, pas maintenant.
-- **Cadrage à vide.** Permis : contour X Y à Z sûr, A immobile. Mention : « Cadrage fait à A = x°. »
-- **Palpages.** Permis quel que soit A (ils ne déplacent que X, Y, Z, `block-probe.js:140-141`, `plate-probe.js:506-519`). La carte de palpage affiche la position A quand elle n'est pas 0 : « Zéro mesuré à A = x° ». Pas de refus : pour une pièce ronde, palper Z à n'importe quel angle est légitime, et exiger A = 0 obligerait à un ordre d'opérations que rien n'impose.
-- **Fichiers.** `program-check.js`, `program-time.js`, `job-service.js` (départ, instantané), page `check-screen.js`, `program-check-view.js`, `job-follow.js`, `motion-estimate.js` (A cesse d'être un mot « autre » quand `axisA`), i18n.
-- **Tests.** Jest : chaque refus ; plage A en G90 et G91 ; G20 ; enveloppe X Y Z identique mot A ou non ; durée sur M8 une fois mesuré ; corpus existant inchangé. Bancs de page : Contrôle, Suivi. Simulateur : programme 4 axes de bout en bout, pause, arrêt.
-- **Essai réel.** Protocole : programme de 10 lignes fraise en l'air (A seul, puis combiné), pause, reprise simple, arrêt ; puis une gravure sur un rond de bois.
-- **Non vérifiable sans machine.** Règle de vitesse réelle ; comportement de la pause et de l'arrêt sur A ; limites sur A en cours de programme (`ALARM:2` critique sur cette carte, `FIRMWARE.md` § c).
+### L4. Programmes avec A : indexage seul
 
-### Ordre et dépendances
+**Premier sous-ensemble pris en charge.** Un mot A n'est admis que **seul sur sa ligne** avec, au plus, `N`, `G0` ou `G1`, `F` ; en `G0` ou `G1` nommé dans le fichier avant lui, `G94`, `G90`, `G21` tous **fixés par le fichier** avant le premier mot A. Entre deux lignes A, le programme usine en X Y Z comme aujourd'hui.
 
-L0 d'abord (sans machine). L1 après la lecture § 2.1. L2 et L3 après M1 à M7 ; L3 a besoin de L1, L2 de L1. L4 en dernier, après M8, et a besoin de L1.
+**Interdictions serveur** (`rotaryRefusals`, liste propre, calculée à l'analyse ; refus `ETOUCH_START_ROTARY`, ligne et motif cités ; **hors verdict de course, non dérogeable** ; contrôlée à la préparation du ticket et dans `readyFor('start')`, dernier contrôle avant `gcode:start`). Dès qu'un programme contient un mot A, sont refusés :
+
+| Motif | Pourquoi |
+|---|---|
+| Mot A avec X, Y, Z, I, J, K ou R sur la ligne | Combiné : vitesse de surface inconnue. Plus tard, après qualification. |
+| Mot A alors que le mode courant est `G2`/`G3`/`G38.x`/`G80` ou non nommé dans le fichier | Mode hérité. |
+| `G93` dans le fichier ; ou `G94` non fixé par le fichier avant le premier A | `G93` hérité de la carte. |
+| `G20` dans le fichier ; `G21` non fixé avant le premier A ; `$13` différent de 0 ou non lu | La carte convertit tous les axes en pouces (lecture amont citée par Astra, binaire non confirmé). |
+| `G91` actif sur une ligne A ; `G90` non fixé avant le premier A | Plage non annonçable sans position initiale prouvée. |
+| `G28`, `G30`, `G28.1`, `G30.1`, **avec ou sans mot d'axe** | Rappellent toutes les coordonnées mémorisées, A compris. |
+| `G53` ou `G38.x` avec A ; `G10`, `G92`, `G92.1`, changement de repère | Origine A non suivie. |
+| Mot B ou C, n'importe où | Un premier A ne masque pas un B. |
+| Ligne `$…`, expression (`[`, `#`), ligne à espaces ambigus (`program-check.js:325-333`) | Opaque. |
+
+Les programmes sans mot A ne passent pas par cette liste. Les `unknown` existants gardent leur sens.
+
+**Conditions de départ ajoutées** (mêmes deux moments) : A disponible et `stillA ≥ 2` ; échelle qualifiée ; **preuve du décalage A** (L2) ; **repérage angulaire de session** acquis : un « Zéro A ici » réussi depuis la dernière bannière de la carte, alarme, perte de liaison ou redémarrage du serveur (il n'est pas exigé que A soit encore à 0) ; **tenue déclarée** `holds: true` (posé à l'installation après T5 ; `$1=255` ne prouve pas le couple : c'est l'essai qui compte) ; modal `G94` prouvé par un `$G` récent. Sans `holds` : voir, zéro et déplacement à vide restent possibles, **aucun programme A ne part**.
+
+- **Enveloppe.** X Y Z : code inchangé. A : `aMin`, `aMax` annoncés ; comparés à une course seulement si T7 l'impose. Premier A à plus d'un tour de la position actuelle : « La machine déroulera n tours avant de commencer. »
+- **Texte de l'écran Contrôle** : le même que L3 (« volume balayé … non vérifié »), et « Un cadrage fait à A = x° ne vaut que pour cet angle. »
+- **Durée.** `null` pour tout programme avec A : `program-time.js:9-47` n'a pas de modèle d'accélération, et une indexation est surtout faite d'accélérations. Progression par lignes. Pas de durée « estimée ».
+- **Suivi.** Position A (L1). Pour un programme avec A, « Avance réelle … mm/min » (`job-dashboard.js:239-242`) devient « Avance rapportée … » sans unité tant que T9 ne l'a pas qualifiée ; elle n'est jamais présentée comme une vitesse de surface. Tracé : « Aperçu sans la rotation A ».
+- **Reprise à une ligne.** Refusée (L0).
+- **Cadrage, palpages.** Permis à tout angle ; A connu et inchangé pendant la séquence (L2) ; l'angle est affiché et consigné avec le zéro.
+- **Fichiers.** `program-check.js` (analyse modale de A, `rotaryRefusals`), `job-service.js` (préparation, `readyFor`), `program-time.js` (rien : la durée reste `null`), page `check-screen.js`, `program-check-view.js`, `job-dashboard.js`, `motion-estimate.js`, i18n.
+- **Tests.** Jest : chaque ligne du tableau, une à une, refusée à la préparation **et** au départ, avec et sans dérogation de course ; un programme d'indexage valide part ; chaque condition de départ manquante ; hors course X Y Z dans un programme A : toujours `outside` ; programmes sans A : identiques. Simulateur : indexage de bout en bout, pause, reprise simple, arrêt, perte de A en cours.
+- **Essai réel.** T9 à T11, puis un indexage de 4 faces fraise en l'air, puis sur bois tendre.
+- **Non vérifiable sans machine.** Pause et arrêt sur une ligne A ; borne de la carte en cours de programme (`ALARM:2` critique, `FIRMWARE.md` § c) ; tenue sous effort de coupe.
+
+### Dépendances
+
+L0 seul. L1 après § 2.1. L2 après L1 et T8. L3 après L1 et T1 à T7. L4 après L1, **L2** et L3, T9 à T11.
 
 ## 4. Hypothèses, questions, risques, à ne pas faire
 
-### Hypothèses (chacune tombe ou tient par § 2)
+### Hypothèses
 
-- H1. La 4e valeur des rapports est l'axe A de la sortie « A » de la carte. *Observé à 0, jamais en mouvement.*
-- H2. A est linéaire pour la carte : un degré vaut une unité, `$103` en pas par degré. *Règle Grbl ; `$103=800` est la valeur d'usine, donc faux tant que non réglé.*
-- H3. `$J=G91 G21 A…` et `G10 L20 P1 A0` sont acceptés. *Non essayé.*
-- H4. `$H` ne touche pas A. *Inconnu ; sur cette carte `$HX` fait trois axes (`FIRMWARE.md` E2).*
-- H5. Les limites logicielles s'appliquent à A (code amont : tous les axes), donc A borné à 400° d'un côté tant que `$20=1` et `$133=400`. *Lecture amont de mémoire, non relue ; essai M4.*
-- H6. F s'applique à la norme du vecteur, degrés et mm mêlés. *Idem ; essai M8.*
+- H1. La 4e valeur est l'axe de la sortie « A ». *Observée à 0, jamais en mouvement (T1).*
+- H2. `$103` en pas par degré, attendu 3,3333 × micropas d'après la fiche. *`$103=800` : non qualifié et très probablement inadapté (T0 à T3).*
+- H3. `$J=… A…` et `G10 L20 P1 A0` acceptés. *T1, T8.*
+- H4. `$H` ne touche pas A. *Inconnu (`$+`, T6).*
+- H5. La carte borne A par `$133` quand `$20=1`. *Amont ; binaire non confirmé (T7).*
+- H6. `G20` convertit les mots de tous les axes, `$13=1` leurs rapports. *Amont, liens d'Astra ; binaire non confirmé ; refusés dans tous les cas.*
 
 ### Questions pour l'opérateur
 
-- **Q1. Rapport du diviseur** (pour `$103` = pas moteur × micropas × rapport / 360) : (a) je connais les trois nombres ; (b) je ne sais pas, on mesure par M1 ; (c) le vendeur a donné une valeur de `$103`.
-- **Q2. Lignes qui déplacent X/Y/Z et A ensemble :** (a) acceptées et annoncées *(proposé)* ; (b) refusées pour l'instant, seuls les programmes « A s'indexe, puis X Y Z usinent » passent.
-- **Q3. Si la carte borne A à 400° :** (a) je garde la borne et je remets A à zéro machine en rallumant la carte ; (b) j'accepte qu'on change `$133` (grande valeur) après sauvegarde, par moi, depuis le PC ; (c) je coupe `$20` (déconseillé : X Y Z perdent leur garde).
-- **Q4. Si A est libre au repos (`$1=25`) :** (a) je mets `$1=255` (moteurs toujours tenus, ils chauffent) ; (b) je laisse, Touch l'affiche.
-- **Q5. Usage visé :** (a) indexer (tourner, puis usiner en X Y Z) ; (b) usinage continu enroulé ; (c) les deux. *(a) seul permettrait de réduire L4.*
+- **Q1. Micropas du pilote A** (micro-interrupteurs, T0) : (a) 1/8 ; (b) 1/16 ; (c) autre ; (d) illisible, on déduit de T1.
+- **Q2. Si la carte borne A** (T7) : (a) je garde la borne ; (b) j'agrandis `$133` moi-même depuis le PC, après sauvegarde ; (c) je coupe `$20` (déconseillé : X Y Z perdent leur garde).
+- **Q3. Si le mandrin est libre au repos** (T5) : (a) je règle la carte ou le pilote pour qu'il soit tenu, et on refait T5 ; (b) je n'usine pas avec A pour l'instant.
+- **Q4. Hauteur libre** entre la table et le nez de broche, Z en haut, et la table est-elle mobile en Y ? *(Centre à 65 mm, dessus du mandrin à 115 mm, course Z de 130 mm : la place pour l'outil et la pièce au-dessus du centre est comptée.)*
+- **Q5. Usage** : (a) indexer ; (b) usinage enroulé ; (c) les deux. *L4 ne couvre que (a).*
 
 ### Risques
 
-1. **`$H` qui fait tourner A sans capteur** (H4) : rotation longue, puis alarme. Premier `$H` moteur A branché : main sur l'arrêt (M5).
-2. **Borne à 400° inattendue en plein programme** : `ALARM:2`, critique, la carte se réinitialise et perd sa position (`FIRMWARE.md` E3).
-3. **Échelle fausse** (`$103=800`) : tout angle affiché ou programmé est faux d'un facteur ; ne rien usiner avant M1.
-4. **A libre au repos** : la pièce tourne sous l'effort de coupe pendant un usinage X Y Z.
-5. **Collision en rotation** d'une pièce non ronde : hors de portée de Touch.
-6. **Reprise à une ligne** sans A (§ 1.3) : fermé par L0.
+1. **Échelle** : avec `$103=800`, tout ordre tourne 15 à 30 fois trop, et `$113=2000` vaudrait 80 à 170 tr/min au mandrin : décrochage ou projection. Pas de mouvement de plus de 0,1 unité avant T2.
+2. **`$H` qui entraîne A** sans capteur : mandrin vide pour T6.
+3. **Borne à 400°** rencontrée en programme : `ALARM:2`, la carte se réinitialise et perd sa position (`FIRMWARE.md` E3).
+4. **Mandrin libre au repos** (`$1=25`) : la pièce tourne sous l'effort pendant l'usinage X Y Z.
+5. **Volume balayé** : centre à 65 mm de la table, donc rayon libre sous l'axe inférieur à 65 mm ; mors ouverts au-delà de Ø 100 ; dessus du mandrin à 115 mm pour 130 mm de course Z : la broche peut heurter le mandrin en traversant X ou Y. Pièce longue, bridage, câbles, pince de palpage qui s'enroule. Touch ne voit rien de cela.
+6. **Angle physique faux avec des nombres cohérents** : redémarrage, mandrin tourné à la main, pas perdus, mors desserrés. Le repérage de session le borne, ne l'exclut pas.
+7. **Masse** : 10,8 kg sur la table ; si elle est mobile, l'accélération Y réglée pour une table vide est à revoir par l'opérateur.
 
 ### À ne PAS faire maintenant
 
-- Écrire `$103`, `$113`, `$123`, `$133`, `$1` ou `$20` depuis Touch.
-- Ajouter A à `AXES` ou généraliser à « n axes » (B, C).
-- Tracé 3D enroulé, vitesse de surface, saisie du rayon de la pièce.
-- Reprise à une ligne avec A ; `G93` ; prise d'origine ou course pour A (sauf M4) ; `G92`.
-- Modifier le parseur de CNCjs (`controllers/Grbl/`) : il sait déjà.
-- Coder L1 à L4 avant la lecture § 2.1.
+- Écrire `$103`, `$113`, `$133`, `$1`, `$20` depuis Touch (l'opérateur, console, valeur donnée par nous).
+- Ajouter A à `AXES`, généraliser à B, C.
+- Lignes combinées, `G93`, usinage enroulé, vitesse de surface, rayon de pièce, tracé 3D enroulé.
+- Durée des programmes A ; reprise à une ligne avec A ; `G92`.
+- Modifier les zéros X Y Z existants ou le parseur de CNCjs.
+- Coder L1 avant § 2.1, L2 et L3 avant T1 à T8, L4 avant le reste.
 
-## 5. Ne rien changer à une machine à 3 axes : comment ce sera prouvé
+## 5. Ne rien changer à une machine à 3 axes : preuve
 
-1. **Réglage absent = code ancien.** Chaque branche nouvelle commence par `axisA` ; les listes `AXES` ne changent pas. Revue : aucun `diff` hors de ces branches, sauf L0.
-2. **Suite existante inchangée.** Tous les tests Jest de `__tests__/` et tous les bancs `test-*.cjs` passent **sans modification de leurs attentes**. Un test existant qu'il faudrait retoucher est un échec du lot.
-3. **Rejeu à l'identique.** Un test par lot rejoue les mêmes séquences (rapports à 3 valeurs, puis les mêmes à 4 valeurs avec A = 0 et réglage absent, ce que la LUNYEE émet aujourd'hui) par le vrai parseur et compare **octet pour octet** les lignes écrites vers la carte et l'instantané envoyé à la page. Séquences : pas, continu, zéro, cadrage, palpage plaque et bloc, départ, pause, arrêt (bancs C1 existants, `__tests__/support/c1-bench.js`).
-4. **Corpus.** `corpus.test.js` : verdicts, enveloppes et durées de tous les fichiers de `gcode-corpus` identiques ; seuls les fichiers contenant A, B ou C peuvent changer (L0), et la liste en est écrite dans le rapport du lot.
-5. **Page.** Capture du DOM des écrans Position, Déplacement, Zéro, Contrôle, Suivi sans drapeau : identique à master (bancs `dom-fixture.cjs`).
-6. **Tablette.** L0 et L1 s'installent réglage absent ; l'essai X Y Z habituel du protocole est refait avant de poser le réglage.
+L'identité visée est **logicielle, à configuration comparable**. Brancher le moteur A ou changer `$1`, `$20`, `$133` peut changer le comportement réel de X Y Z : cela relève de l'essai, pas de ces tests.
+
+1. **Référence figée** : master `95b773b6`. Chaque lot compare à ce commit.
+2. **Réglage absent = code ancien** : toute branche nouvelle commence par l'état « configuré » ; `AXES` intact ; aucune différence hors de ces branches, sauf L0.
+3. **Suite existante** : Jest et bancs `test-*.cjs` passent sans retouche de leurs attentes.
+4. **Rejeux par le vrai parseur**, comparant les lignes écrites vers la carte, l'instantané envoyé à la page, **les décisions de départ, les refus et la chronologie des arrêts** :
+   - réglage absent ou `false` : 3 valeurs ; 4 valeurs avec A = 0 ; 4 valeurs avec A **variable** ; résultat identique dans les trois cas ;
+   - réglage vrai : 3 valeurs, 4→3→4, WCO 4→3, champ abîmé, péremption, bannière ;
+   - perte de la preuve A pendant une confirmation, un jog, un palpage, un cadrage ;
+   - séquences : pas, continu, zéro, cadrage, palpage plaque et bloc, départ, pause, arrêt (`__tests__/support/c1-bench.js`).
+5. **Programmes** : fichiers X Y Z valides, inconnus et hors course, puis les mêmes avec A, B, C : verdict de course identique (L0) ; `corpus.test.js` inchangé.
+6. **Page** : comparer le rendu et le comportement **visibles** des écrans Position, Déplacement, Zéro, Contrôle, Suivi, réglage absent (texte lu, éléments visibles, boutons actifs), pas le DOM brut : des éléments cachés s'ajoutent.
+7. **Tablette** : L0 et L1 installés réglage absent ; essai X Y Z habituel refait avant de poser le réglage, puis après avoir branché le moteur A.
 
 ## 6. Ce qui n'a pas pu être établi
 
-- Tout ce qui dépend de la carte avec le moteur A branché (H1 à H6).
-- Le code amont Grbl_Esp32 n'a pas été relu cette nuit pour A (limites, pouces, vitesse, cycles de prise d'origine) : H5, H6 et la règle des pouces sont des souvenirs à confirmer, pas des citations.
-- L'effet exact d'un verdict « unknown » sur le départ (dérogation ou non) n'a pas été relu ligne à ligne pour L0 : à fixer à l'écriture du lot (`job-service.js:1110-1113`, `program-check.js:1043-1044`).
+- Tout ce qui dépend de la carte moteur A branché (H1 à H6).
+- Le micropas du pilote A, la hauteur libre sous la broche, le type de table.
+- Le code amont n'a pas été relu par moi : les deux règles sur les pouces et celle de G28/G30 viennent des liens d'Astra ; aucune n'est confirmée pour le binaire du fabricant.
 - `$20` vaut 0 dans le relevé du 13 novembre ; sa valeur actuelle n'a pas été lue.
+- La place exacte du contrôle L4 dans `readyFor` (`job-service.js:1110-1113`) et la forme du ticket seront fixées à l'écriture du lot.
